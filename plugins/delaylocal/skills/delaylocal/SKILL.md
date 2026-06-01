@@ -94,6 +94,21 @@ node "<skill_dir>/delaylocal.js" [bufferSeconds] --prompt-file <唯一檔名> --
 完成條件要「可測量 + 有明確驗證方法」（例：`某檔存在且內容為 X`、`npm test exits 0`），別寫模糊的哲學目標。
 不帶 `--goal` 就是預設模式（文字版無人值守紀律），行為不變。
 
+### goal 模式的排程流程（propose → 確認 → 才排程）⚠️ 必守
+
+使用 goal 模式時，**禁止未經使用者確認就呼叫 CronCreate**。固定走這四步：
+
+1. **理解任務**：讀懂使用者要排的任務目的與範圍。
+2. **提議 goal（propose，只提議、不排程）**：由你（Claude）幫使用者**推導**出建議，一次 propose 出來：
+   - **完成條件**（goal condition）：可測量、有明確驗證方法（檔案/狀態/測試結果），是這步的核心。
+   - 任務拆解（多步驟時的工作清單第②項內容）。
+   - 緩衝秒數 / 預計 fire 時間。
+   此時**不要**呼叫 `delaylocal.js` 之外的排程、**絕對不要** `CronCreate`。
+3. **等使用者確認**：使用者同意 → 進第 4 步；要改 → 依回饋調整完成條件，重新 propose（可來回）。
+4. **確認後才排程**：跑 `delaylocal.js … --goal "<已確認的完成條件>"` 取得 final_prompt，再 `CronCreate`。
+
+> 設計動機：goal 條件寫不好（模糊 / 不可驗證）會讓 goal 引擎反覆空轉燒 token。讓使用者先過目、確認條件可測量，再投入排程。
+
 ## 設計要點
 
 - **算哪個 session 的 quota**：工具讀 `CLAUDE_CODE_SESSION_ID`（去 dash 取前 24 字元 = snapshot key）→ 精準鎖定當前 session。
