@@ -100,20 +100,21 @@ node "<skill_dir>/delaylocal.js" [bufferSeconds] --prompt-file <唯一檔名> --
 完成條件要「可測量 + 有明確驗證方法」（例：`某檔存在且內容為 X`、`npm test exits 0`），別寫模糊的哲學目標。
 **goal 是預設模式**；只有在任務無法定義可測量條件時，才加 `--plain` 退回文字版無人值守紀律（不需完成條件、跳過 propose）。`delaylocal.js` 在「非 --plain 又沒給 --goal」時會直接報錯，提醒先 propose。
 
-### goal 模式的排程流程（propose → 確認 → 才排程）⚠️ 必守
+### goal 模式的排程流程（propose →（確認 / 10 分鐘逾時自動採納）→ 排程）⚠️ 必守
 
-使用 goal 模式時，**禁止未經使用者確認就呼叫 CronCreate**。固定走這四步：
+使用 goal 模式時，**禁止未經 propose 就排任務**。固定走：
 
 1. **理解任務**：讀懂使用者要排的任務目的與範圍。
-2. **提議 goal（propose，只提議、不排程）**：由你（Claude）幫使用者**推導**出建議，一次 propose 出來：
-   - **完成條件**（goal condition）：可測量、有明確驗證方法（檔案/狀態/測試結果），是這步的核心。
-   - 任務拆解（多步驟時的工作清單第②項內容）。
-   - 緩衝秒數 / 預計 fire 時間。
-   此時**不要**呼叫 `delaylocal.js` 之外的排程、**絕對不要** `CronCreate`。
-3. **等使用者確認**：使用者同意 → 進第 4 步；要改 → 依回饋調整完成條件，重新 propose（可來回）。
-4. **確認後才排程**：跑 `delaylocal.js … --goal "<已確認的完成條件>"` 取得 final_prompt，再 `CronCreate`。
+2. **提議 goal（propose）+ 排逾時 timer**：
+   - 由你（Claude）幫使用者**推導**並一次 propose 出來：**完成條件**（可測量、有驗證方法，核心）、任務拆解、緩衝秒數 / 預計 fire 時間。此時**先不要**排任務。
+   - **同時排一個約 10 分鐘後的一次性 timer**：`CronCreate({ cron: <現在+10分>, recurring:false, durable:false, prompt: "[delaylocal 逾時自動採納] 若使用者自此 propose 後尚未回覆，視為自動採納，直接完成排程。完成條件：<condition 全文>；任務：<task>；buffer：<秒>。請跑 delaylocal.js --goal 後 CronCreate。" })`。**記下這個 timer 的 job id。**
+3. **收斂（兩種）**：
+   - **a. 使用者 10 分鐘內回覆** → **先 `CronDelete <timer id>`**，再依回覆處理：同意 → 進第 4 步；要改 → 調整完成條件、重新 propose（並重排新 timer）。
+   - **b. 10 分鐘內無回覆** → timer fire → **自動採納** propose 的完成條件，進第 4 步。
+4. **排程任務**：跑 `delaylocal.js … --goal "<採納的完成條件>"` 取得 final_prompt，再 `CronCreate`（`durable:true`，到 quota 重置後 fire 跑任務）。
 
-> 設計動機：goal 條件寫不好（模糊 / 不可驗證）會讓 goal 引擎反覆空轉燒 token。讓使用者先過目、確認條件可測量，再投入排程。
+> **兩層時間別混淆**：①「10 分鐘」是 propose 的**確認逾時**（逾時自動採納）；②任務**真正執行**在 quota 重置後（delaylocal 本意）。
+> 設計動機：goal 條件寫不好會讓引擎空轉燒 token，所以先 propose 讓使用者過目；但使用者可能離線，故 10 分鐘無回覆即自動採納，不讓排程卡在等確認。
 
 ## 設計要點
 
