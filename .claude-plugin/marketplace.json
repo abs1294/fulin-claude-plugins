@@ -1,10 +1,15 @@
 {
   "name": "fulin-plugins",
-  "description": "fulin 的 Claude Code 工具集：webwright 驅動的 QA 框架、delaylocal 排程。",
+  "description": "fulin 的 Claude Code 工具集：自製 plugin 管理器、webwright 驅動的 QA 框架、delaylocal 排程。",
   "owner": {
     "name": "fulin"
   },
   "plugins": [
+    {
+      "name": "plugin-manager",
+      "source": "./plugins/plugin-manager",
+      "description": "自製 plugin 集中管理器：納管各專案散落的自製 skill 進 monorepo（move+symlink）、一鍵發布、集中 registry。"
+    },
     {
       "name": "qa-webwright",
       "source": "./plugins/qa-webwright",
