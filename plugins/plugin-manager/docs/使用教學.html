@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>plugin-manager 使用教學</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#1a1d24; --card2:#22262f; --line:#2c313c;
+    --text:#e6e9ef; --muted:#9aa3b2; --accent:#7aa2ff; --accent2:#5ad1a0;
+    --warn:#ffcc66; --danger:#ff7a7a; --code:#0b0d11;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,"Segoe UI","Noto Sans TC",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.7; font-size:16px;
+  }
+  .wrap{max-width:920px; margin:0 auto; padding:40px 24px 80px}
+  header h1{font-size:30px; margin:0 0 6px}
+  header .sub{color:var(--muted); font-size:15px; margin-bottom:8px}
+  .pill{display:inline-block; font-size:12px; padding:3px 10px; border-radius:999px; background:var(--card2); color:var(--muted); border:1px solid var(--line); margin-right:6px}
+  h2{font-size:22px; margin:42px 0 14px; padding-bottom:8px; border-bottom:1px solid var(--line)}
+  h3{font-size:17px; margin:26px 0 10px; color:var(--accent)}
+  p{margin:10px 0}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin:16px 0}
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  @media(max-width:680px){.grid{grid-template-columns:1fr}}
+  code{background:var(--code); padding:2px 6px; border-radius:5px; font-family:"SF Mono","Cascadia Code",Consolas,monospace; font-size:14px; color:#cfe1ff}
+  pre{background:var(--code); border:1px solid var(--line); border-radius:10px; padding:14px 16px; overflow:auto; margin:12px 0}
+  pre code{background:none; padding:0; color:#d7e0ee; font-size:13.5px; line-height:1.6}
+  .cmd{color:var(--accent2)}
+  .muted{color:var(--muted)}
+  .tag{font-weight:600}
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:14.5px}
+  th,td{text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{color:var(--muted); font-weight:600; background:var(--card2)}
+  .note{border-left:3px solid var(--accent); background:var(--card2); padding:12px 16px; border-radius:0 8px 8px 0; margin:14px 0}
+  .warn{border-left-color:var(--warn)}
+  .danger{border-left-color:var(--danger)}
+  .step{display:flex; gap:14px; margin:14px 0; align-items:flex-start}
+  .step .n{flex:0 0 30px; height:30px; border-radius:50%; background:var(--accent); color:#0b0d11; font-weight:700; display:flex; align-items:center; justify-content:center; font-size:15px}
+  .step .body{flex:1}
+  .flow{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0; font-size:14px}
+  .flow .box{background:var(--card2); border:1px solid var(--line); border-radius:8px; padding:8px 12px}
+  .flow .arr{color:var(--muted)}
+  .kbd{background:var(--card2); border:1px solid var(--line); border-bottom-width:2px; border-radius:6px; padding:1px 7px; font-size:13px; font-family:monospace}
+  footer{margin-top:50px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); padding-top:18px}
+  .toc{font-size:14.5px}
+  .toc a{color:var(--accent); text-decoration:none; display:block; padding:3px 0}
+  .toc a:hover{text-decoration:underline}
+  .emoji{font-style:normal}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>🧩 plugin-manager 使用教學</h1>
+  <div class="sub">自製 Claude Code plugin 的集中管理器 — 一個 monorepo 管你所有自製 plugin，告別「一 plugin 一 repo」</div>
+  <span class="pill">fulin-plugins</span>
+  <span class="pill">v0.2.0</span>
+  <span class="pill">private repo: abs1294/fulin-claude-plugins</span>
+</header>
+
+<div class="card toc">
+  <strong>目錄</strong>
+  <a href="#why">1. 為什麼需要它（解決的痛點）</a>
+  <a href="#concept">2. 核心概念：monorepo + move-symlink + registry</a>
+  <a href="#install">3. 安裝</a>
+  <a href="#adopt">4. /plugin-manager:adopt — 把專案的自製 skill 納管</a>
+  <a href="#new">5. /plugin-manager:new — 從零建立新 plugin</a>
+  <a href="#update">6. /plugin-manager:update — 改現有 plugin + bump 版本</a>
+  <a href="#publish">7. /plugin-manager:publish — 一鍵發布整個 monorepo</a>
+  <a href="#upgrade">8. /setup-plugins upgrade — 專案同步到最新版</a>
+  <a href="#registry">9. registry — 集中狀態在哪、記了什麼</a>
+  <a href="#example">10. 完整實例（git-commit 納管全紀錄）</a>
+  <a href="#limits">11. 限制與注意事項</a>
+  <a href="#faq">12. 常見問題</a>
+</div>
+
+<h2 id="why">1. 為什麼需要它</h2>
+<p><strong>痛點</strong>：Claude Code 的官方做法常常變成「一個 plugin = 一個 git repo」。如果你寫了 500 個自製 plugin，就會有 500 個 repo —— 根本無法維護。</p>
+<div class="card">
+  <strong>plugin-manager 的解法</strong>：所有自製 plugin 全部塞進<strong>同一個 monorepo</strong> 的 <code>plugins/</code> 底下。永遠只有 <strong>1 個 git repo</strong> 要維護。新增第 501 個 plugin？還是同一個 repo。
+</div>
+<table>
+  <tr><th>你的痛點</th><th>plugin-manager 怎麼解</th></tr>
+  <tr><td>一 plugin 一 repo，數量爆炸無法維護</td><td>全部進一個 monorepo，永遠 1 個 repo</td></tr>
+  <tr><td>自製 skill 散在各專案資料夾，難集中</td><td><code>adopt</code> 把它收進 monorepo，原地留 symlink</td></tr>
+  <tr><td>改完要手動 git add/commit/push 很煩</td><td><code>publish</code> 一鍵推整個 monorepo</td></tr>
+  <tr><td>怕「同一個 skill 兩份不同步」</td><td>move+symlink：真身永遠只有一份</td></tr>
+</table>
+
+<h2 id="concept">2. 核心概念</h2>
+
+<h3>① monorepo（所有自製 plugin 的家）</h3>
+<pre><code>fulin-claude-plugins/                  <span class="muted"># 一個 git repo</span>
+├── .claude-plugin/marketplace.json    <span class="muted"># 一個 marketplace，列出所有 plugin</span>
+└── plugins/
+    ├── plugin-manager/                <span class="muted"># 管理器自己也是一個 plugin</span>
+    ├── git-commit/                    <span class="muted"># 被 adopt 進來的</span>
+    ├── delaylocal/
+    └── qa-webwright/</code></pre>
+
+<h3>② move + symlink（真身只有一份，零不同步）</h3>
+<p>當你在某專案寫了自製 skill，<code>adopt</code> 會：</p>
+<div class="flow">
+  <span class="box">專案/.claude/skills/X（真身）</span>
+  <span class="arr">→ move →</span>
+  <span class="box">monorepo/plugins/X/skills/X（真身搬這）</span>
+  <span class="arr">→ 原地建 →</span>
+  <span class="box">symlink 指回 monorepo</span>
+</div>
+<p>從此<strong>真身住在 monorepo</strong>，你在原專案看到的是 symlink。<strong>你改原專案那份 = 改 monorepo 那份（同一份檔）</strong>，不會有兩份打架。</p>
+
+<h3>③ registry（集中狀態）</h3>
+<p>放在你的家目錄 <code>~/.claude/plugin-manager/</code>（<strong>不在 plugin 內</strong>，所以 plugin 更新不會覆蓋）。記錄你有哪些自製 plugin、版本、改了沒推。</p>
+
+<h2 id="install">3. 安裝</h2>
+<p>在 Claude Code 輸入框依序貼這三個指令（<span class="muted">Claude 不能代你執行 <code>/plugin</code>，要你自己貼</span>）：</p>
+<pre><code><span class="cmd">/plugin marketplace add abs1294/fulin-claude-plugins</span>
+<span class="cmd">/plugin install plugin-manager@fulin-plugins</span>
+<span class="cmd">/reload-plugins</span></code></pre>
+<div class="note">裝好後，<code>/plugin-manager:adopt</code>、<code>/plugin-manager:new</code>、<code>/plugin-manager:update</code>、<code>/plugin-manager:publish</code> 與 <code>/setup-plugins</code>（含 <code>upgrade</code>）就會出現。</div>
+
+<h2 id="adopt">4. <span class="cmd">/plugin-manager:adopt</span> — 把專案的自製 skill 納管</h2>
+<p>把你在「當前專案資料夾 <code>.claude/skills/</code>」裡寫的自製 skill，收進 monorepo 集中管理。</p>
+
+<h3>用法</h3>
+<pre><code><span class="cmd">/plugin-manager:adopt</span> &lt;skill名稱&gt;</code></pre>
+<p>例如你在某專案寫了 <code>my-tool</code> skill：</p>
+<pre><code><span class="cmd">/plugin-manager:adopt my-tool</span></code></pre>
+
+<h3>它會做什麼</h3>
+<div class="step"><div class="n">1</div><div class="body">把 <code>專案/.claude/skills/my-tool</code> 真身 <strong>move</strong> 進 <code>monorepo/plugins/my-tool/skills/my-tool</code></div></div>
+<div class="step"><div class="n">2</div><div class="body">幫新 plugin 建 <code>plugin.json</code>（version 0.1.0）</div></div>
+<div class="step"><div class="n">3</div><div class="body">更新 monorepo 的 <code>marketplace.json</code></div></div>
+<div class="step"><div class="n">4</div><div class="body">原專案位置改成 <strong>symlink</strong> 指回 monorepo（在專案仍可用）</div></div>
+<div class="step"><div class="n">5</div><div class="body">更新 registry，標記 <code>dirty: true</code>（已改未推）</div></div>
+
+<div class="note warn"><strong>「靠登記」原則</strong>：adopt <strong>只動你明確指定的那個 skill</strong>，絕不自動掃整個專案、不碰別人的東西或專案機密。</div>
+<div class="note warn"><strong>專案是 git repo 時</strong>：它會提醒你把該 symlink 加進專案的 <code>.gitignore</code>，避免 symlink 污染專案版控。</div>
+
+<h2 id="new">5. <span class="cmd">/plugin-manager:new</span> — 從零建立新 plugin</h2>
+<p>與 adopt（搬既有 skill）相對，<code>new</code> 是<strong>從零建空骨架</strong>，建完再填內容。</p>
+
+<h3>用法</h3>
+<pre><code><span class="cmd">/plugin-manager:new</span> &lt;名稱&gt; "&lt;一句描述&gt;" <span class="muted">[--with skills,hooks,commands]</span></code></pre>
+<p><code>--with</code> 省略時只建 <code>skills</code>。例如建一個含 hook 的 plugin：</p>
+<pre><code><span class="cmd">/plugin-manager:new my-watcher "監看檔案變更並提醒" --with skills,hooks</span></code></pre>
+
+<h3>它會做什麼</h3>
+<div class="step"><div class="n">1</div><div class="body">檢查 monorepo 沒有同名 plugin（有則要你改名）</div></div>
+<div class="step"><div class="n">2</div><div class="body">建 <code>plugins/&lt;名稱&gt;/.claude-plugin/plugin.json</code>（version 0.1.0）</div></div>
+<div class="step"><div class="n">3</div><div class="body">依 <code>--with</code> 建骨架：<code>skills/&lt;名稱&gt;/SKILL.md</code>（含 frontmatter 範本）、<code>hooks/hooks.json</code>、<code>commands/&lt;名稱&gt;.md</code></div></div>
+<div class="step"><div class="n">4</div><div class="body">更新 <code>marketplace.json</code> 與 registry（<code>dirty: true</code>）</div></div>
+<div class="note warn">骨架的 skill <code>description</code> 只給範本，<strong>務必補上具體中文觸發詞</strong>，否則不會被觸發。建完用一般檔案編輯填內容，再 <code>/plugin-manager:publish</code>。</div>
+
+<h2 id="update">6. <span class="cmd">/plugin-manager:update</span> — 改現有 plugin + bump 版本</h2>
+<p>維護 monorepo 裡既有的自製 plugin。核心是 <strong>bump 版本號</strong> —— Claude Code 靠 <code>plugin.json</code> 的 <code>version</code> 判斷有無更新，改了內容卻不 bump，其他專案 <code>/plugin update</code> 抓不到新版。</p>
+
+<h3>用法</h3>
+<pre><code><span class="cmd">/plugin-manager:update</span> &lt;名稱&gt; <span class="muted">&lt;patch|minor|major&gt;</span></code></pre>
+<table>
+  <tr><th>等級</th><th>用於</th><th>範例</th></tr>
+  <tr><td><code>patch</code></td><td>修字、修 bug、小調整</td><td>0.1.0 → 0.1.1</td></tr>
+  <tr><td><code>minor</code></td><td>加功能、加指令但相容</td><td>0.1.0 → 0.2.0</td></tr>
+  <tr><td><code>major</code></td><td>破壞性變更</td><td>0.1.0 → 1.0.0</td></tr>
+</table>
+<p>它會把新版號寫回 <code>plugin.json</code> 並同步 registry（<code>dirty: true</code>）。</p>
+<div class="note warn"><strong>version 只設在 plugin.json</strong>，不在 marketplace.json 加 version 欄 —— 兩處都設會衝突，Claude Code 以 plugin.json 為準。</div>
+
+<h2 id="publish">7. <span class="cmd">/plugin-manager:publish</span> — 一鍵發布整個 monorepo</h2>
+<p>因為自製 skill 在 adopt 時真身已經搬進 monorepo，<strong>publish 不需要再「蒐集」</strong>，只做純 git：一次 commit + push 整個 repo。</p>
+
+<h3>用法</h3>
+<pre><code><span class="cmd">/plugin-manager:publish</span></code></pre>
+
+<h3>流程</h3>
+<div class="flow">
+  <span class="box">查待發布狀態</span><span class="arr">→</span>
+  <span class="box">你確認 commit message</span><span class="arr">→</span>
+  <span class="box">git add -A</span><span class="arr">→</span>
+  <span class="box">commit</span><span class="arr">→</span>
+  <span class="box">push</span>
+</div>
+<div class="card"><strong>關鍵價值</strong>：不管你這次改了 1 個還是 50 個 plugin，<strong>publish 只推一次</strong>。500 個 plugin 也只有一次 push。</div>
+
+<h2 id="upgrade">8. <span class="cmd">/setup-plugins upgrade</span> — 專案同步到最新版</h2>
+<p>publish 只推 monorepo，<strong>不會自動更新已安裝該 plugin 的專案</strong>。<code>/setup-plugins upgrade</code> 幫你<strong>偵測</strong>「當前專案啟用的自製 plugin 是否落後 registry 最新版」，並列出要貼的更新指令。</p>
+
+<h3>用法</h3>
+<pre><code><span class="cmd">/setup-plugins upgrade</span></code></pre>
+
+<h3>它會做什麼</h3>
+<div class="step"><div class="n">1</div><div class="body">讀本專案 <code>.claude/settings.json</code> 的 <code>enabledPlugins</code>，篩出屬於 <code>fulin-plugins</code> 的自製 plugin</div></div>
+<div class="step"><div class="n">2</div><div class="body">對照 registry 最新版，列出版本與 <code>dirty</code> 狀態（dirty = registry 最新版還沒 publish）</div></div>
+<div class="step"><div class="n">3</div><div class="body">給你要自貼的指令：<code>/plugin marketplace update</code> → <code>/plugin update &lt;name&gt;@fulin-plugins</code> → <code>/reload-plugins</code></div></div>
+<div class="note warn"><strong>只偵測不代更新</strong>：專案 settings 的 enabledPlugins 只存 <code>name@marketplace</code>、不帶版本號，且 <code>/plugin update</code> 是互動指令。所以 upgrade 做「偵測 + 列出 + 給指令」，更新指令仍要你自己貼。</div>
+
+<h2 id="registry">9. registry — 集中狀態</h2>
+<p>位置：<code>~/.claude/plugin-manager/</code></p>
+<table>
+  <tr><th>檔案</th><th>記什麼</th></tr>
+  <tr><td><code>config.json</code></td><td>你的 owner 名、monorepo 路徑、GitHub repo、預設分支</td></tr>
+  <tr><td><code>registry.json</code></td><td><code>selfMade</code>：你所有自製 plugin + 版本 + 是否 dirty。<code>externalCandidates</code>：你手動加入的外部候選 plugin</td></tr>
+</table>
+<p class="muted">範本帶在 plugin 內（<code>templates/</code>），首次使用時複製到家目錄。這設計讓 plugin 升級不會覆蓋你的實際狀態，也讓別人裝走後能初始化成自己的 repo。</p>
+
+<h2 id="example">10. 完整實例：git-commit 納管全紀錄</h2>
+<p>這是本系統<strong>真實跑過</strong>的一次完整操作（把供應商平台的 git-commit skill 納管）：</p>
+<pre><code><span class="muted"># 1. 在 Supplier_Code 工作目錄，把 git-commit skill 納管</span>
+<span class="cmd">/plugin-manager:adopt git-commit</span>
+  ✓ 已 move skill 真身進 monorepo
+  ✓ 已建 plugin.json
+  ✓ 已加入 marketplace.json
+  ✓ 已建 symlink（junction）回原專案
+  ✓ 已更新 registry
+
+<span class="muted"># 2. 結果：Supplier_Code 的 git-commit 變成 symlink</span>
+.claude/skills/git-commit -> .../fulin-claude-plugins/plugins/git-commit/skills/git-commit/
+
+<span class="muted"># 3. 一鍵發布</span>
+<span class="cmd">/plugin-manager:publish</span>
+  → 改動的 plugin: git-commit
+  → git add -A → commit → push
+  ✓ pushed to abs1294/fulin-claude-plugins</code></pre>
+<div class="note"><strong>實證</strong>：納管後在 Supplier_Code 改 git-commit = 改 monorepo 那份（同一份真身），而 Supplier_Code 照常能用這個 skill。</div>
+
+<h2 id="limits">11. 限制與注意事項</h2>
+<div class="note danger"><strong>Claude 不能代執行 <code>/plugin</code> 系列</strong>：install、marketplace add、reload-plugins 都是互動指令，必須你自己在輸入框貼。plugin-manager 只負責「寫好設定 + git 操作 + 給你要貼的指令」。</div>
+<div class="note warn"><strong>Windows symlink 權限</strong>：adopt 用 junction → dir symlink fallback。若都失敗會回報「真身已在 monorepo，但原位置未連結」，需手動處理。</div>
+<div class="note warn"><strong>敏感內容</strong>：adopt 會把整個 skill 目錄搬進 monorepo 並可被 publish。<strong>納管前確認該 skill 沒有不該公開的東西</strong>（路徑、帳號、auth bypass 位置等）。若有敏感內容，確保 repo 是 private。</div>
+<div class="note"><strong>publish 不會自動更新已安裝的專案</strong>：推上去後，已裝該 plugin 的其他專案需各自 <code>/plugin update</code>（互動指令）。</div>
+
+<h2 id="faq">12. 常見問題</h2>
+<h3>Q：第一次 publish 為什麼要手動破冰？</h3>
+<p>因為要用 plugin-manager 發布它自己，但它還沒裝起來（雞生蛋）。所以「管理器自己」的第一次發布是手動 git push，之後才用 <code>/plugin-manager:publish</code>。</p>
+
+<h3>Q：adopt 後我在原專案改 skill，要重新 adopt 嗎？</h3>
+<p>不用。move+symlink 之後，原專案那份是 symlink，改它就是改 monorepo 真身。直接 <code>/plugin-manager:publish</code> 推就好。</p>
+
+<h3>Q：能分享給別人用嗎？</h3>
+<p>能。整套（skills + registry 範本）就是一個普通 plugin。別人 install 後，跑初始化指定他自己的 monorepo / repo / owner（registry 存家目錄、不寫死你的）。</p>
+
+<h3>Q：registry 會被 plugin 更新弄丟嗎？</h3>
+<p>不會。registry 實體在 <code>~/.claude/plugin-manager/</code>（家目錄），plugin 內只帶範本。更新 plugin 不碰你的家目錄狀態。</p>
+
+<footer>
+  plugin-manager v0.2.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
+  指令：adopt（納管）/ new（新建）/ update（改版）/ publish（發布）/ setup-plugins upgrade（專案同步）。
+</footer>
+
+</div>
+</body>
+</html>
