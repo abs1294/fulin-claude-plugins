@@ -29,17 +29,11 @@ description: 把當前專案資料夾裡的一個自製 skill「納管」進 ful
    - 若腳本提示「此專案是 git repo，建議加 .gitignore」→ 詢問使用者是否要把 `.claude/skills/<name>` 加進該專案 `.gitignore`（避免 symlink 污染專案版控，這是使用者在意的「git 很亂」根源之一）。若使用者同意，幫他加。
    - 若 symlink 建立失敗（Windows 權限）→ 回報，真身已在 monorepo，但原位置未連結，需手動處理。
 
-5. **更新 monorepo README（規則 4 — 務必執行）**：adopt 會在 marketplace 新增一個 plugin，**必須**同步更新 monorepo 根 `README.md`：plugin 列表加一列（plugin 名 / 用途 / 指令）、「結構」樹補上新目錄。README 隨本次一起 publish。**新增/移除任何 plugin 或 skill 都要做這步**，否則 README 與實際 plugin 不符。
+5. **更新 monorepo README**（**規則 4**，詳 `../../CONVENTIONS.md`）：adopt 在 marketplace 新增了一個 plugin → 同步更新根 `README.md` 的 plugin 列表與「結構」樹，隨本次一起 publish。
 
 6. **提示下一步**：納管後真身在 monorepo 但**尚未推上 git**。提示使用者用 `/plugin-manager:publish` 發布。
 
-## 真身單一份原則（C 折衷模式 — 務必遵守）
-
-本系統統一採「**真身只有 monorepo 一份，原位留 symlink**」的折衷模式：
-
-1. **adopt 一律 move 真身進 monorepo + 原位留 symlink/junction**，絕不在專案留第二份實體。若發現某 skill 在 monorepo 與專案（或 `~/.claude/skills/`）各有一份**獨立實體**（非 symlink），那是歷史遺留的「兩份不同步」狀態，應收斂：先 diff 兩份內容 → 確認後刪實體那份 → 原位改 symlink 指回 monorepo 真身。
-2. **開發期靠 symlink 即時迭代**（改 symlink = 改 monorepo 真身，同一份檔，免發布即生效），**一個段落完成就 publish**。這是 C 折衷：快速迭代 + 落實版本追蹤。
-3. 因為 symlink 改了本機立刻生效、容易忘記發布——所以**改完務必走 publish**（見 `/plugin-manager:publish` 的發布紀律）。
+> **規則 1（真身單一份 / C 折衷）**：adopt 一律 move 真身 + 原位 symlink，真身只有 monorepo 一份；開發期靠 symlink 即時迭代、段落完成就 publish。若發現兩份獨立實體則收斂（diff → 刪實體 → 改 symlink）。完整規範見 `../../CONVENTIONS.md`。
 
 ## 重要限制（誠實告知）
 - 這只是把真身搬家 + 連結，**不會自動 install/enable 該 plugin**（install 是互動指令 /plugin，Claude 不能代執行）。

@@ -11,15 +11,11 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 - 自製 skill 的真身在 `/plugin-manager:adopt` 時就已搬進 monorepo，所以 publish **不需要再蒐集**，只做 git。
 - monorepo 路徑與 repo 從 `~/.claude/plugin-manager/config.json` 讀。
 
-## 改 skill 必發布（規則 2 — 務必遵守）
-本系統採 C 折衷模式：開發期靠 symlink 即時迭代、**一個段落完成就 publish**。因為 symlink 改了本機立刻生效、極易忘記推上 remote 導致 monorepo 落後本機——所以：
-
-> **只要改動了任何已納管 skill（monorepo 真身或其 symlink），完成後必須主動提醒使用者用 `/plugin-manager:publish` 推上 remote monorepo，不可只停在本機生效。**
-
-這條對「改完 skill 卻沒走 publish 就結束對話」也成立——結束前要提醒尚有未發布的 skill 變更。
-
-## 發布前確認 README（規則 4 — 務必檢查）
-若本次 status 含**新增/刪除 plugin 目錄**（`plugins/<name>/` 的 `??` 或刪除），表示 plugin 清單有變——**發布前必須先確認 monorepo 根 `README.md` 的 plugin 列表與「結構」樹已同步更新**（新增的列、移除的列、目錄樹）。README 未同步就提醒使用者補上，再一起 publish。新增/移除任何 plugin 或 skill 都適用。
+> **規則 2（改 skill 必發布）**：只要改動任何已納管 skill（monorepo 真身或其 symlink），完成後必須主動提醒使用者 `/plugin-manager:publish` 推上 remote；對「改完沒 publish 就結束對話」也成立——結束前要提醒未發布的 skill 變更。
+>
+> **規則 4（發布前確認 README）**：若本次 status 含新增/刪除 `plugins/<name>/`，發布前先確認根 `README.md` 的 plugin 列表與「結構」樹已同步，未同步就提醒補上再一起 publish。
+>
+> 完整規範見 `../../CONVENTIONS.md`。
 
 ## 執行步驟
 
@@ -33,27 +29,7 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 
 3. **若有改動**：把 status 與建議 commit message 呈現給使用者，**請使用者確認 commit message**（可改）。
 
-   **commit message 必須註明本次改了哪一個/哪些 skill（規則 3 — 為版本追蹤）**。格式：
-
-   ```
-   <動作>: <skill 名> — <一句變更摘要>
-   ```
-
-   範例（單一 skill）：
-   ```
-   Update: delaylocal skill — 修正 LINE 通知逾時重試
-   ```
-   範例（一個 plugin 含多 skill，列出實際改到的）：
-   ```
-   Update: plugin-manager — adopt/publish SKILL 補真身單一份原則與發布紀律
-   ```
-   範例（多個 plugin 各改）：
-   ```
-   Update: git-commit 補正式描述、setup-plugins 修 upgrade 指令
-   ```
-   - 動作詞用 `Add`（新 skill/plugin）/ `Update`（改既有）/ `Fix`（修錯）。
-   - 一律寫**現行狀態的變更**，不寫遷移敘事；**不得加任何 AI 署名**。
-   - 純設定/文件改動（非 skill 內容）可用 `Update: monorepo config — …`。
+   **commit message 必須註明本次改了哪一個/哪些 skill（規則 3 — 版本追蹤）**。格式 `<動作>: <skill 名> — <摘要>`，動作詞 Add/Update/Fix，不得加 AI 署名。範例：`Update: delaylocal skill — 修正 LINE 通知逾時重試`。完整格式與範例詳 `../../CONVENTIONS.md`。
 
 4. **確認後執行 git**（在 config.monorepo 目錄）：
    ```

@@ -59,6 +59,8 @@ plugins/
 - 開發期靠 symlink 即時迭代（改 = 改 monorepo 真身，免發布即生效），**一個段落完成就 `/plugin-manager:publish`**。
 - 改了任何 skill 都要記得 publish 到 remote，否則 monorepo 落後本機。
 
+> 完整工作規範（真身單一份、改 skill 必發布、commit message 註明 skill、更新 README、版本號慣例、互動指令邊界）見 **`plugins/plugin-manager/CONVENTIONS.md`**。
+
 ## 作者
 
 fulin
