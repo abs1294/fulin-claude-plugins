@@ -31,6 +31,14 @@ description: 把當前專案資料夾裡的一個自製 skill「納管」進 ful
 
 5. **提示下一步**：納管後真身在 monorepo 但**尚未推上 git**。提示使用者用 `/plugin-manager:publish` 發布。
 
+## 真身單一份原則（C 折衷模式 — 務必遵守）
+
+本系統統一採「**真身只有 monorepo 一份，原位留 symlink**」的折衷模式：
+
+1. **adopt 一律 move 真身進 monorepo + 原位留 symlink/junction**，絕不在專案留第二份實體。若發現某 skill 在 monorepo 與專案（或 `~/.claude/skills/`）各有一份**獨立實體**（非 symlink），那是歷史遺留的「兩份不同步」狀態，應收斂：先 diff 兩份內容 → 確認後刪實體那份 → 原位改 symlink 指回 monorepo 真身。
+2. **開發期靠 symlink 即時迭代**（改 symlink = 改 monorepo 真身，同一份檔，免發布即生效），**一個段落完成就 publish**。這是 C 折衷：快速迭代 + 落實版本追蹤。
+3. 因為 symlink 改了本機立刻生效、容易忘記發布——所以**改完務必走 publish**（見 `/plugin-manager:publish` 的發布紀律）。
+
 ## 重要限制（誠實告知）
 - 這只是把真身搬家 + 連結，**不會自動 install/enable 該 plugin**（install 是互動指令 /plugin，Claude 不能代執行）。
 - Windows symlink 可能需權限；腳本會試 junction → dir symlink，皆失敗則回報。
