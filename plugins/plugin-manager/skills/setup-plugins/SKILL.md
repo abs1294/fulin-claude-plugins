@@ -51,18 +51,19 @@ description: 為「當前工作目錄」選擇並啟用一組 Claude Code plugin
 
 2. **呈現結果給使用者**：
    - 列出本專案啟用了哪些自製 plugin、各自 registry 最新版。
-   - 若有 `⚠ dirty`（registry 最新版尚未 publish）→ 提醒**得先 `/plugin-manager:publish`**，否則 `/plugin update` 抓不到新版。
+   - 若有 `⚠ dirty`（registry 最新版尚未 publish）→ 提醒**得先 `/plugin-manager:publish`**，否則使用者刷新 marketplace 後也抓不到新版。
 
-3. **給更新指令請使用者自貼**（Claude 不能代執行 /plugin）：
+3. **給更新指令請使用者自貼**（Claude 不能代執行 /plugin；**Claude Code 沒有 `/plugin update` 子指令**，更新靠 marketplace update 刷新 + uninstall/install 重裝）：
    ```
    /plugin marketplace update fulin-plugins
-   /plugin update <name>@fulin-plugins      # 每個落後的自製 plugin 各一行
+   /plugin uninstall <name>@fulin-plugins && /plugin install <name>@fulin-plugins   # 每個落後的自製 plugin 各一行
    /reload-plugins
    ```
+   或：在 `/plugin` 互動 UI 的 Marketplaces tab 對 `fulin-plugins` 開 **Enable auto-update**，下次啟動自動更新。
 
 4. **外部 plugin 候選**：若 registry 的 `externalCandidates` 有內容，可一併提示 `/plugin marketplace update`。
 
-**為什麼只偵測不代更新**：專案 settings 的 enabledPlugins 只存 `name@marketplace`、不帶版本號，Claude Code 裝的是 cache 那份；且 `/plugin update` 是互動指令。所以 upgrade 只做「偵測 + 列出 + 給指令」。
+**為什麼只偵測不代更新**：專案 settings 的 enabledPlugins 只存 `name@marketplace`、不帶版本號，Claude Code 裝的是 cache 那份；且 `/plugin` 系列是互動指令。所以 upgrade 只做「偵測 + 列出 + 給指令」。
 
 ## 重要限制（要誠實告知）
 

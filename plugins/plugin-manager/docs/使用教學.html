@@ -158,7 +158,7 @@
 <div class="note warn">骨架的 skill <code>description</code> 只給範本，<strong>務必補上具體中文觸發詞</strong>，否則不會被觸發。建完用一般檔案編輯填內容，再 <code>/plugin-manager:publish</code>。</div>
 
 <h2 id="update">6. <span class="cmd">/plugin-manager:update</span> — 改現有 plugin + bump 版本</h2>
-<p>維護 monorepo 裡既有的自製 plugin。核心是 <strong>bump 版本號</strong> —— Claude Code 靠 <code>plugin.json</code> 的 <code>version</code> 判斷有無更新，改了內容卻不 bump，其他專案 <code>/plugin update</code> 抓不到新版。</p>
+<p>維護 monorepo 裡既有的自製 plugin。核心是 <strong>bump 版本號</strong> —— Claude Code 靠 <code>plugin.json</code> 的 <code>version</code> 判斷有無更新，改了內容卻不 bump，其他專案就算刷新 marketplace 也抓不到新版。</p>
 
 <h3>用法</h3>
 <pre><code><span class="cmd">/plugin-manager:update</span> &lt;名稱&gt; <span class="muted">&lt;patch|minor|major&gt;</span></code></pre>
@@ -196,8 +196,9 @@
 <h3>它會做什麼</h3>
 <div class="step"><div class="n">1</div><div class="body">讀本專案 <code>.claude/settings.json</code> 的 <code>enabledPlugins</code>，篩出屬於 <code>fulin-plugins</code> 的自製 plugin</div></div>
 <div class="step"><div class="n">2</div><div class="body">對照 registry 最新版，列出版本與 <code>dirty</code> 狀態（dirty = registry 最新版還沒 publish）</div></div>
-<div class="step"><div class="n">3</div><div class="body">給你要自貼的指令：<code>/plugin marketplace update</code> → <code>/plugin update &lt;name&gt;@fulin-plugins</code> → <code>/reload-plugins</code></div></div>
-<div class="note warn"><strong>只偵測不代更新</strong>：專案 settings 的 enabledPlugins 只存 <code>name@marketplace</code>、不帶版本號，且 <code>/plugin update</code> 是互動指令。所以 upgrade 做「偵測 + 列出 + 給指令」，更新指令仍要你自己貼。</div>
+<div class="step"><div class="n">3</div><div class="body">給你要自貼的更新指令鏈：<code>/plugin marketplace update fulin-plugins</code> → <code>/plugin uninstall &lt;name&gt;@fulin-plugins</code> → <code>/plugin install &lt;name&gt;@fulin-plugins</code> → <code>/reload-plugins</code></div></div>
+<div class="note warn"><strong>沒有 <code>/plugin update</code> 這個指令</strong>：Claude Code 的 <code>/plugin</code> 沒有 update 子指令。更新一個已裝 plugin 的正解是先 <code>/plugin marketplace update</code> 刷新索引，再 <code>uninstall</code> + <code>install</code>（或在 <code>/plugin</code> 互動 UI 的 Marketplaces tab 開 <strong>Enable auto-update</strong>，下次啟動自動更新）。</div>
+<div class="note"><strong>只偵測不代更新</strong>：專案 settings 的 enabledPlugins 只存 <code>name@marketplace</code>、不帶版本號，且 <code>/plugin</code> 系列是互動指令 Claude 不能代執行。所以 upgrade 做「偵測 + 列出 + 給指令」，更新指令仍要你自己貼。</div>
 
 <h2 id="registry">9. registry — 集中狀態</h2>
 <p>位置：<code>~/.claude/plugin-manager/</code></p>
@@ -232,7 +233,7 @@
 <div class="note danger"><strong>Claude 不能代執行 <code>/plugin</code> 系列</strong>：install、marketplace add、reload-plugins 都是互動指令，必須你自己在輸入框貼。plugin-manager 只負責「寫好設定 + git 操作 + 給你要貼的指令」。</div>
 <div class="note warn"><strong>Windows symlink 權限</strong>：adopt 用 junction → dir symlink fallback。若都失敗會回報「真身已在 monorepo，但原位置未連結」，需手動處理。</div>
 <div class="note warn"><strong>敏感內容</strong>：adopt 會把整個 skill 目錄搬進 monorepo 並可被 publish。<strong>納管前確認該 skill 沒有不該公開的東西</strong>（路徑、帳號、auth bypass 位置等）。若有敏感內容，確保 repo 是 private。</div>
-<div class="note"><strong>publish 不會自動更新已安裝的專案</strong>：推上去後，已裝該 plugin 的其他專案需各自 <code>/plugin update</code>（互動指令）。</div>
+<div class="note"><strong>publish 不會自動更新已安裝的專案</strong>：推上去後，已裝該 plugin 的其他專案需各自刷新（<code>/plugin marketplace update fulin-plugins</code> → <code>uninstall</code> + <code>install</code>，或開 auto-update）。<strong>注意：Claude Code 沒有 <code>/plugin update</code> 子指令。</strong></div>
 
 <h2 id="faq">12. 常見問題</h2>
 <h3>Q：第一次 publish 為什麼要手動破冰？</h3>

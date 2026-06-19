@@ -23,7 +23,7 @@
     {
       "name": "git-commit",
       "source": "./plugins/git-commit",
-      "description": "（adopt 自動建立，請用 /plugin-manager:update 補描述）skill git-commit"
+      "description": "並行審查模式的 Git Commit 流程：Stage → 並行三軌（使用者確認 message + Codex 審查 + code-reviewer 審查）→ Commit → Push。AI 禁止直接執行 git 指令，一律走本 skill 完整流程。"
     }
   ]
 }

@@ -5,7 +5,8 @@
  * 唯讀，不動任何檔案、不代執行 /plugin（research 風險 A：互動指令一律給使用者貼）。
  *
  * 為什麼是「偵測 + 列出」而非自動更新：
- *   - plugin 啟用/更新（/plugin update）是互動指令，Claude 不能代執行。
+ *   - plugin 啟用/更新（/plugin install、uninstall、marketplace update）是互動指令，Claude 不能代執行。
+ *     注意：Claude Code 沒有 /plugin update 子指令，更新要靠 marketplace update + uninstall/install。
  *   - 專案 .claude/settings.json 的 enabledPlugins 只存 "name@marketplace"，
  *     通常不帶版本號（Claude Code 裝的是 cache 裡那份）。所以無法純由 settings
  *     得知「專案現在跑哪一版」；能比對的是「此專案啟用了哪些自製 plugin」
@@ -17,7 +18,7 @@
  *   3. 取 enabledPlugins 中 marketplace == config 的 marketplace（預設 fulin-plugins）
  *      且 plugin 名出現在 registry.selfMade 者 = 「本專案啟用的自製 plugin」。
  *   4. 對每個列出：registry 最新版、是否 dirty（dirty=未 publish，最新版連 monorepo 都還沒推）。
- *   5. 印出建議使用者自貼的指令（/plugin update <name>@<marketplace>）。
+ *   5. 印出建議使用者自貼的指令（marketplace update 刷新 → uninstall + install 重裝）。
  *
  * 用法：node upgrade-check.js [projectDir]
  *   projectDir 省略時用 cwd。
@@ -86,12 +87,14 @@ for (const r of rows) {
 const dirtyOnes = rows.filter(r => r.dirty).map(r => r.name);
 if (dirtyOnes.length) {
   console.log('\n⚠ 下列 plugin 的 registry 最新版尚未 publish：' + dirtyOnes.join(', '));
-  console.log('  請先在 monorepo 跑 /plugin-manager:publish，否則 /plugin update 抓不到新版。');
+  console.log('  請先在 monorepo 跑 /plugin-manager:publish，否則刷新 marketplace 後也抓不到新版。');
 }
 
-console.log('\n-- 建議使用者自貼的指令（Claude 不能代執行 /plugin）--');
-console.log('  /plugin marketplace update ' + marketplace + '   # 先更新 marketplace 索引');
+console.log('\n-- 建議使用者自貼的指令（Claude 不能代執行 /plugin；無 /plugin update 子指令）--');
+console.log('  /plugin marketplace update ' + marketplace + '   # 1. 先刷新 marketplace 索引');
+console.log('  # 2. 對每個落後的 plugin 重裝（uninstall + install）：');
 for (const r of rows) {
-  console.log('  /plugin update ' + r.name + '@' + marketplace);
+  console.log('  /plugin uninstall ' + r.name + '@' + marketplace + ' && /plugin install ' + r.name + '@' + marketplace);
 }
-console.log('  /reload-plugins                                # 套用');
+console.log('  /reload-plugins                                # 3. 套用');
+console.log('  # 或：在 /plugin 互動 UI 的 Marketplaces tab 對 ' + marketplace + ' 開 Enable auto-update');

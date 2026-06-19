@@ -42,4 +42,4 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 - push 是對外動作。執行前一定要讓使用者看過 status + 確認 commit message。
 - 不做 force-push / rebase / amend，除非使用者明確要求。
 - 若 push 失敗（遠端有新 commit），回報並建議先 pull，不要自動 force。
-- publish 只推 monorepo，**不會自動讓已安裝該 plugin 的專案更新**——使用者需各自 /plugin update（互動指令，Claude 不能代執行）。
+- publish 只推 monorepo，**不會自動讓已安裝該 plugin 的專案更新**——使用者需各自刷新：`/plugin marketplace update fulin-plugins` 後重裝（`/plugin uninstall` + `/plugin install`），或開 auto-update。**Claude Code 沒有 `/plugin update` 子指令**，且 `/plugin` 系列是互動指令 Claude 不能代執行。
