@@ -19,6 +19,11 @@
       "name": "delaylocal",
       "source": "./plugins/delaylocal",
       "description": "把 prompt 排程到 5h quota 重置後自動在本機無人值守執行，完成發 LINE 通知。"
+    },
+    {
+      "name": "git-commit",
+      "source": "./plugins/git-commit",
+      "description": "（adopt 自動建立，請用 /plugin-manager:update 補描述）skill git-commit"
     }
   ]
 }

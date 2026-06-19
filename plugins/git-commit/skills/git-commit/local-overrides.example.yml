@@ -1,0 +1,27 @@
+# Git Commit Skill — local-overrides 範本（通用版）
+#
+# 用途：
+#   列出「團隊共用但本地常被個人覆寫」的檔案（Mock 切換、本地 DB 連線、測試 JWT 等）。
+#   git-commit skill 執行時，清單內的檔案會被自動排除於 stage 與告警流程，
+#   讓每次 commit 不需再人眼排除這些「長期 unstaged」檔案。
+#
+# 位置：放在「工作目錄層」的 .claude/local-overrides.yml（你 launch Claude 的目錄）。
+#   - 單一 git repo 專案：repo 用 "."。
+#   - 多 repo workspace（如供應商平台，上層非 git、底下多個 git 子目錄）：repo 用子目錄名。
+#   skill 首次執行 analyze 時，若此檔不存在會自動建立一份空範本。
+#
+# 注意：
+#   1. 清單內檔案在 git 層面仍是 tracked（不是 skip-worktree 也不是 .gitignore），
+#      遠端更新可正常 pull。
+#   2. 若要 commit 某個覆寫檔，於 /git-commit 明確指示「這次要 commit <檔案>」。
+#   3. 新增 / 移除項目：手動編輯本檔即可。
+#
+# 格式範例（複製下面區塊改成你的）：
+#
+# my-repo:
+#   repo: .                                  # 單一 repo 用 "."；多 repo workspace 用子目錄名
+#   files:
+#     - path: appsettings.Localhost.json
+#       reason: 本地 DB 連線字串
+#     - path: src/utils/user.js
+#       reason: 本地測試用 hardcoded JWT
