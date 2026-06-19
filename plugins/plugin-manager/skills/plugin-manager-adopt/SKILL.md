@@ -29,7 +29,9 @@ description: 把當前專案資料夾裡的一個自製 skill「納管」進 ful
    - 若腳本提示「此專案是 git repo，建議加 .gitignore」→ 詢問使用者是否要把 `.claude/skills/<name>` 加進該專案 `.gitignore`（避免 symlink 污染專案版控，這是使用者在意的「git 很亂」根源之一）。若使用者同意，幫他加。
    - 若 symlink 建立失敗（Windows 權限）→ 回報，真身已在 monorepo，但原位置未連結，需手動處理。
 
-5. **提示下一步**：納管後真身在 monorepo 但**尚未推上 git**。提示使用者用 `/plugin-manager:publish` 發布。
+5. **更新 monorepo README（規則 4 — 務必執行）**：adopt 會在 marketplace 新增一個 plugin，**必須**同步更新 monorepo 根 `README.md`：plugin 列表加一列（plugin 名 / 用途 / 指令）、「結構」樹補上新目錄。README 隨本次一起 publish。**新增/移除任何 plugin 或 skill 都要做這步**，否則 README 與實際 plugin 不符。
+
+6. **提示下一步**：納管後真身在 monorepo 但**尚未推上 git**。提示使用者用 `/plugin-manager:publish` 發布。
 
 ## 真身單一份原則（C 折衷模式 — 務必遵守）
 

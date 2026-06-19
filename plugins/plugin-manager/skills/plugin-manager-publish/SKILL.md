@@ -18,6 +18,9 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 
 這條對「改完 skill 卻沒走 publish 就結束對話」也成立——結束前要提醒尚有未發布的 skill 變更。
 
+## 發布前確認 README（規則 4 — 務必檢查）
+若本次 status 含**新增/刪除 plugin 目錄**（`plugins/<name>/` 的 `??` 或刪除），表示 plugin 清單有變——**發布前必須先確認 monorepo 根 `README.md` 的 plugin 列表與「結構」樹已同步更新**（新增的列、移除的列、目錄樹）。README 未同步就提醒使用者補上，再一起 publish。新增/移除任何 plugin 或 skill 都適用。
+
 ## 執行步驟
 
 1. **先看待發布狀態**（唯讀，不動 git）：
