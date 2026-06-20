@@ -1,5 +1,5 @@
 {
-  "_comment": "plugin-manager 的集中狀態檔範本。首次使用時複製到 ~/.claude/plugin-manager/registry.json。selfMade 由 adopt 寫入、由 SessionStart hook 掃描 monorepo 更新；externalCandidates 由使用者手動加入。",
+  "_comment": "plugin-manager 的集中狀態檔範本。首次使用時複製到 ~/.claude/plugin-manager/registry.json。selfMade 由 adopt 寫入、由 bump-version 更新版本與 dirty；publish 後由 publish-finalize.js 清 dirty。externalCandidates 由使用者手動加入。",
   "schemaVersion": 1,
   "selfMade": {},
   "externalCandidates": {}

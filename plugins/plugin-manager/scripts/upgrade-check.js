@@ -40,8 +40,20 @@ const registry = fs.existsSync(registryPath)
   : { schemaVersion: 1, selfMade: {}, externalCandidates: {} };
 
 const projectDir = process.argv[2] || process.cwd();
-// marketplace 名：config 未存則用慣例 fulin-plugins（marketplace.json 的 name）
-const marketplace = config.marketplace || 'fulin-plugins';
+// marketplace 名的單一真實來源：monorepo 的 .claude-plugin/marketplace.json 的 name。
+// 優先序：config.marketplace（顯式覆寫）> marketplace.json 的 name > 'fulin-plugins'（最後保險）。
+function resolveMarketplace() {
+  if (config.marketplace) return config.marketplace;
+  try {
+    const mpPath = path.join(config.monorepo || '', '.claude-plugin', 'marketplace.json');
+    if (fs.existsSync(mpPath)) {
+      const mp = JSON.parse(fs.readFileSync(mpPath, 'utf8'));
+      if (mp && mp.name) return mp.name;
+    }
+  } catch (e) { /* 讀不到就 fallback */ }
+  return 'fulin-plugins';
+}
+const marketplace = resolveMarketplace();
 
 const settingsPath = path.join(projectDir, '.claude', 'settings.json');
 if (!fs.existsSync(settingsPath)) {

@@ -62,37 +62,63 @@ console.log('  搬進       : ' + destSkill);
 console.log('  原位改為   : symlink → ' + destSkill);
 console.log('  plugin 名  : ' + pluginName + ' (version 0.1.0)');
 
-// 1. 建 plugin 目錄 + move 真身
-fs.mkdirSync(path.join(pluginDir, 'skills'), { recursive: true });
-fs.renameSync(srcSkill, destSkill);
-console.log('✓ 已 move skill 真身進 monorepo');
-
-// 2. 建 plugin.json
-const pluginJson = {
-  name: pluginName,
-  version: '0.1.0',
-  description: '（adopt 自動建立，請用 /plugin-manager:update 補描述）skill ' + skillName,
-  author: { name: config.owner || 'unknown' },
-  keywords: [skillName]
-};
-fs.mkdirSync(path.join(pluginDir, '.claude-plugin'), { recursive: true });
-fs.writeFileSync(path.join(pluginDir, '.claude-plugin', 'plugin.json'), JSON.stringify(pluginJson, null, 2) + '\n');
-console.log('✓ 已建 plugin.json');
-
-// 3. 更新 marketplace.json
+// === preflight：在動任何不可逆操作前，先讀好 marketplace.json 並驗證可寫 ===
+// （srcSkill 存在/非 symlink、destSkill/pluginDir 不存在已在前面檢查過。）
 const mpPath = path.join(mono, '.claude-plugin', 'marketplace.json');
-const mp = JSON.parse(fs.readFileSync(mpPath, 'utf8'));
-if (!mp.plugins.some(p => p.name === pluginName)) {
-  mp.plugins.push({
-    name: pluginName,
-    source: './plugins/' + pluginName,
-    description: pluginJson.description
-  });
-  fs.writeFileSync(mpPath, JSON.stringify(mp, null, 2) + '\n');
-  console.log('✓ 已加入 marketplace.json');
+let mp;
+try { mp = JSON.parse(fs.readFileSync(mpPath, 'utf8')); }
+catch (e) { die('marketplace.json 讀取/解析失敗，中止（尚未動任何檔）：' + e.message); }
+if (!Array.isArray(mp.plugins)) die('marketplace.json 格式異常（plugins 非陣列），中止。');
+const mpBackup = JSON.stringify(mp, null, 2) + '\n'; // 回滾用快照
+
+// === rollback：rename 真身之後若任一步失敗，把真身搬回原位、清掉半完成的 pluginDir ===
+let moved = false;
+function rollback(reason) {
+  console.error('⚠ adopt 失敗，開始回滾：' + reason);
+  try {
+    if (moved && !fs.existsSync(srcSkill) && fs.existsSync(destSkill)) {
+      fs.renameSync(destSkill, srcSkill); // 真身搬回原位
+      console.error('  ✓ 已把 skill 真身搬回原專案位置');
+    }
+  } catch (e) { console.error('  ✗ 搬回真身失敗，需手動處理：真身可能在 ' + destSkill); }
+  try {
+    if (fs.existsSync(pluginDir)) { fs.rmSync(pluginDir, { recursive: true, force: true }); console.error('  ✓ 已清除半完成的 ' + pluginDir); }
+  } catch (e) { console.error('  ✗ 清除 pluginDir 失敗，需手動刪：' + pluginDir); }
+  try { fs.writeFileSync(mpPath, mpBackup); } catch (e) { /* marketplace 未改到就略過 */ }
+  die('已回滾到 adopt 前狀態（如上有殘留請依提示手動處理）。');
 }
 
-// 4. 原位置改 symlink（Windows: 用 junction 對目錄較穩；先試 symlink，失敗 fallback）
+try {
+  // 1. 建 plugin 目錄 + move 真身（move 後標 moved，供 rollback 判斷）
+  fs.mkdirSync(path.join(pluginDir, 'skills'), { recursive: true });
+  fs.renameSync(srcSkill, destSkill);
+  moved = true;
+  console.log('✓ 已 move skill 真身進 monorepo');
+
+  // 2. 建 plugin.json
+  const pluginJson = {
+    name: pluginName,
+    version: '0.1.0',
+    description: '（adopt 自動建立，請用 /plugin-manager:update 補描述）skill ' + skillName,
+    author: { name: config.owner || 'unknown' },
+    keywords: [skillName]
+  };
+  fs.mkdirSync(path.join(pluginDir, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(pluginDir, '.claude-plugin', 'plugin.json'), JSON.stringify(pluginJson, null, 2) + '\n');
+  console.log('✓ 已建 plugin.json');
+
+  // 3. 更新 marketplace.json
+  if (!mp.plugins.some(p => p.name === pluginName)) {
+    mp.plugins.push({ name: pluginName, source: './plugins/' + pluginName, description: pluginJson.description });
+    fs.writeFileSync(mpPath, JSON.stringify(mp, null, 2) + '\n');
+    console.log('✓ 已加入 marketplace.json');
+  }
+} catch (e) {
+  rollback(e.message); // plugin.json / marketplace 任一步失敗 → 全回滾
+}
+
+// 4. 原位置改 symlink（Windows: junction 較穩；先試 symlink，失敗 fallback）
+// 注意：symlink 失敗「不」回滾——真身與 plugin 已就緒，只是原專案沒連結，屬可手動補的非致命狀態。
 try {
   fs.symlinkSync(destSkill, srcSkill, 'junction');
   console.log('✓ 已建 symlink（junction）回原專案');
@@ -101,17 +127,22 @@ try {
     fs.symlinkSync(destSkill, srcSkill, 'dir');
     console.log('✓ 已建 symlink（dir）回原專案');
   } catch (e2) {
-    console.error('⚠ symlink 建立失敗：' + e2.message + '\n  真身已在 monorepo，但原專案位置未連結。請手動處理。');
+    console.error('⚠ symlink 建立失敗：' + e2.message + '\n  真身已在 monorepo（adopt 主體已完成），但原專案位置未連結。\n  可手動建 junction：mklink /J "' + srcSkill + '" "' + destSkill + '"');
   }
 }
 
 // 5. 更新 registry
+// 邊界誠實標示：此步「不在」上面的 rollback 範圍內。registry 寫入是最後一步、單一
+// writeFileSync，失敗機率極低；萬一失敗，後果僅「registry 缺此 plugin entry」（真身/
+// marketplace 都已就緒，可重跑 bump-version 或手動補 entry 修復），不致真身遺失，故不擴大原子範圍。
+// adoptedFrom 只存專案名（basename），不存本機絕對路徑——避免 registry 若哪天誤入版控/
+// 備份/貼到 issue 時外洩完整路徑結構（registry 本就存家目錄、設計上不進 git，這是縱深防禦）。
 registry.selfMade = registry.selfMade || {};
 registry.selfMade[pluginName] = {
   version: '0.1.0',
   path: 'plugins/' + pluginName,
   source: 'adopted',
-  adoptedFrom: projectDir,
+  adoptedFrom: path.basename(projectDir),
   dirty: true
 };
 fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2) + '\n');

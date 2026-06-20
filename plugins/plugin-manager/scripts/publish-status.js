@@ -13,9 +13,11 @@ const path = require('path');
 const os = require('os');
 const { execSync } = require('child_process');
 
+// 回傳 { ok, out }：ok=false 代表 git 指令失敗（caller 自行決定 fail fast）。
+// 不用 shell 重導向（2>/dev/null）或 ||，因為 Windows 走 cmd.exe 不認 Unix 語法。
 function sh(cmd, cwd) {
-  try { return execSync(cmd, { cwd, encoding: 'utf8' }).trim(); }
-  catch (e) { return (e.stdout || '') + (e.stderr || ''); }
+  try { return { ok: true, out: execSync(cmd, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() }; }
+  catch (e) { return { ok: false, out: ((e.stdout || '') + (e.stderr || '')).trim() }; }
 }
 
 const configPath = path.join(os.homedir(), '.claude', 'plugin-manager', 'config.json');
@@ -24,28 +26,44 @@ const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 const mono = config.monorepo;
 if (!mono || !fs.existsSync(path.join(mono, '.git'))) { console.error('ERROR: monorepo 不是 git repo：' + mono); process.exit(1); }
 
-const status = sh('git status --short', mono);
-const branch = sh('git rev-parse --abbrev-ref HEAD', mono);
-const ahead = sh('git rev-list --count @{u}..HEAD 2>/dev/null || echo 0', mono);
+const statusRes = sh('git status --short', mono);
+if (!statusRes.ok) { console.error('ERROR: git status 失敗：' + statusRes.out); process.exit(1); }
+const status = statusRes.out;
+
+const branchRes = sh('git rev-parse --abbrev-ref HEAD', mono);
+const branch = branchRes.ok ? branchRes.out : '(unknown)';
+
+// ahead：無 upstream 時 git rev-list 會失敗（sh().ok=false）→ 視為 0，不用 shell 重導向。
+const aheadRes = sh('git rev-list --count @{u}..HEAD', mono);
+const aheadNum = aheadRes.ok ? (parseInt(aheadRes.out, 10) || 0) : 0;
 
 if (!status) {
   console.log('工作區乾淨，沒有待發布的改動。');
-  if (parseInt(ahead) > 0) console.log('但本地領先 origin ' + ahead + ' 個 commit，可能需要 push。');
+  if (aheadNum > 0) console.log('但本地領先 origin ' + aheadNum + ' 個 commit，可能需要 push。');
   process.exit(0);
 }
 
 // 找出哪些 plugin 目錄有改動
+// git status --short 格式：2 欄狀態碼 + 空格 + path。用 regex 取 path（slice(3) 對
+// rename 的 "R  a -> b" 或欄位寬度變化不穩，會砍掉 path 首字）。rename 取箭頭後的新路徑。
 const changedPlugins = new Set();
 let otherChanges = [];
 for (const line of status.split('\n')) {
-  const file = line.slice(3);
+  if (!line.trim()) continue;
+  // sh() 已 trim 行，前導狀態欄空格可能被砍；用 1-2 字元狀態碼 + 一或多空白容錯。
+  const m0 = line.match(/^.{1,2}\s+(.+)$/);
+  if (!m0) continue;
+  let file = m0[1];
+  const arrow = file.indexOf(' -> ');
+  if (arrow >= 0) file = file.slice(arrow + 4); // rename：取新路徑
+  file = file.replace(/^"|"$/g, '');            // 去掉非 ASCII 路徑的引號
   const m = file.match(/^plugins\/([^/]+)\//);
   if (m) changedPlugins.add(m[1]);
   else otherChanges.push(file);
 }
 
 console.log('== monorepo 待發布狀態 ==');
-console.log('  分支: ' + branch + (parseInt(ahead) > 0 ? '（本地領先 ' + ahead + '）' : ''));
+console.log('  分支: ' + branch + (aheadNum > 0 ? '（本地領先 ' + aheadNum + '）' : ''));
 console.log('  改動的 plugin: ' + ([...changedPlugins].join(', ') || '(無)'));
 if (otherChanges.length) console.log('  其他改動: ' + otherChanges.join(', '));
 console.log('\n-- git status --');

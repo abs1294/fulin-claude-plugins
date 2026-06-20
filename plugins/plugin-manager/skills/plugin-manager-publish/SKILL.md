@@ -34,17 +34,27 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 4. **確認後執行 git**（在 config.monorepo 目錄）：
    ```
    git -C "<monorepo>" add -A
-   git -C "<monorepo>" commit -m "<確認後的訊息>"
    git -C "<monorepo>" push
+   ```
+   commit 這步**不要**把訊息直接拼進命令列（`-m "<訊息>"`）——若訊息含 `"`、`` ` ``、`$`、`\` 等，會破壞 shell 引號甚至造成命令注入。改用 **stdin 傳遞**，內容原樣不展開。
+
+   **此段必須在 Bash 執行**（用 Bash tool）。heredoc 是 Bash 語法，PowerShell/cmd 不支援：
+   ```bash
+   git -C "<monorepo>" commit -F - <<'COMMIT_MSG'
+   <確認後的訊息，可多行，原樣不展開>
+   COMMIT_MSG
    ```
    - 這是獨立的自製 plugin monorepo（非供應商平台四個 repo），可直接在此執行 git。
    - commit message 不得加任何 AI 署名（遵守全域規範）。
+   - **安全**：commit message 來自使用者輸入，務必走 `-F -` / heredoc（在 Bash），**禁止**字串拼接進 `-m`。
 
-5. **發布後**：把 registry 中剛發布的 plugin 的 `dirty` 標記清掉（改 false）。可用：
+5. **發布後清 dirty**（狀態機閉合，**務必執行**）：push 成功後跑：
    ```
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/publish-status.js"
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/publish-finalize.js"
    ```
-   確認工作區已乾淨。
+   - 此腳本只在「工作區乾淨且本地未領先 origin（確實已 push）」時，才把 registry 所有 `dirty=true` 清成 false。
+   - 若它回報「尚未 push」或「工作區仍有改動」，代表 publish 未完成——先補完再跑。
+   - **不要**手動編輯 registry 清 dirty；一律用這支腳本，避免漏清或誤清。
 
 ## 安全原則（誠實告知）
 - push 是對外動作。執行前一定要讓使用者看過 status + 確認 commit message。
