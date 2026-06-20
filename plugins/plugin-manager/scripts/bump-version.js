@@ -3,7 +3,8 @@
  * bump-version.js — 為一個既有自製 plugin bump 版本號。
  *
  * 為什麼要 bump：Claude Code 靠 plugin.json 的 version 判斷有無更新。
- *   改了 skill/hook 內容卻不 bump version，使用者 /plugin update 不會抓到新版。
+ *   改了 skill/hook 內容卻不 bump version，其他專案刷新 marketplace 後仍抓不到新版
+ *   （Claude Code 沒有 /plugin update 子指令，更新靠 marketplace update + uninstall/install 或 auto-update）。
  *
  * 做法（純檔案操作，不呼叫 claude CLI）：
  *   1. 讀 monorepo/plugins/<name>/.claude-plugin/plugin.json 的現行 version。
@@ -79,4 +80,4 @@ console.log('  bump   : ' + bump);
 console.log('  ' + cur + ' → ' + next);
 console.log('✓ 已寫回 plugin.json');
 console.log('✓ 已同步 registry（version=' + next + ', dirty=true）');
-console.log('\n下一步：用 /plugin-manager:publish 發布；其他專案要拿到新版需各自 /plugin update。');
+console.log('\n下一步：用 /plugin-manager:publish 發布；其他專案要拿到新版需各自刷新 marketplace 後 uninstall + install（或開 auto-update）。');
