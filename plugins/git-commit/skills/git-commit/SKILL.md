@@ -670,15 +670,26 @@ git-commit 通用化後支援兩種工作目錄結構：
 - 禁止使用 `--amend`、`--no-verify`、force push（腳本不提供這些旗標）
 - push 到 `main` / `master` 前必須特別確認使用者意圖
 
-**pre-commit hook 失敗時：**
-- 腳本會中止並回報 hook 輸出
-- 依提示修正 → 回到 **1.2.4**（重跑 `flow.sh prepare`）→ 兩軌重審 → 匯流 → 再次 `flow.sh ship`
+**pre-commit hook 失敗時，先分辨兩種情況：**
+
+**(a) hook 正常執行、但檢查不通過**（如 eslint/prettier 報錯、測試失敗）：
+- 腳本會中止並回報 hook 輸出。
+- 依提示修正 → 回到 **1.2.4**（重跑 `flow.sh prepare`）→ 兩軌重審 → 匯流 → 再次 `flow.sh ship`。
+
+**(b) hook 本身故障、根本無法執行**（如 `Exec format error`、`segfault 139`、`.husky/pre-commit` 是 CRLF 行尾或缺 `#!/bin/sh` shebang、Git Bash 無法 spawn）：
+- 這**不是程式碼問題**，去「修程式碼再重跑」會卡死——程式碼沒錯，修了也過不了壞掉的 hook。
+- 合法處置（依序）：
+  1. **手動補跑對應 linter/formatter**（如 `prettier --write`、`eslint`、`npm test`）自己確認檢查項目實際乾淨——把壞 hook 本該做的事手動做一遍，不是跳過品質把關。
+  2. **明確告知使用者**這是「hook 環境故障」而非程式碼問題，並說明你已手動補跑哪些檢查、結果為何。
+  3. **經使用者同意後**，才可破例用 `git commit --no-verify` 繞過（這是本 skill 唯一允許 `--no-verify` 的情境）；commit message 下方加 `[skip-verify: hook 環境故障，已手動補跑 <檢查項>]` 標記。
+  4. **建議根治**：修 `.husky/pre-commit`（補 `#!/bin/sh` + 轉 LF）或設 `core.autocrlf=input`。提醒使用者：不根治的話每次 commit 都會炸、長期靠 `--no-verify` 會讓 hook 把關形同虛設。
+- ⚠️ 注意：`flow.sh ship` 不提供 `--no-verify` 旗標，此破例需手動 `git commit --no-verify`（脫離 flow.sh），故 (b) 的每一步都必須留痕（手動補跑紀錄 + 告知 + 標記），不可無聲繞過。
 
 ---
 
 ## 注意事項
 
-- 不可使用 `--no-verify` 跳過 hooks
+- 不可使用 `--no-verify` 跳過 hooks（**唯一例外**：上面「pre-commit hook 失敗時 (b) hook 本身故障」的情境，須經使用者同意 + 手動補跑檢查 + 留 `[skip-verify]` 標記）
 - 不可使用 `--amend` 修改前一個 commit（除非使用者明確要求）
 - 不可 force push
 - 若沒有任何變更需要 commit，告知使用者並結束
