@@ -59,7 +59,7 @@
   <h1>🧩 plugin-manager 使用教學</h1>
   <div class="sub">自製 Claude Code plugin 的集中管理器 — 一個 monorepo 管你所有自製 plugin，告別「一 plugin 一 repo」</div>
   <span class="pill">fulin-plugins</span>
-  <span class="pill">v0.4.0</span>
+  <span class="pill">v0.5.0</span>
   <span class="pill">private repo: abs1294/fulin-claude-plugins</span>
 </header>
 
@@ -196,12 +196,29 @@
 <div class="note warn"><strong>沒有 <code>/plugin update</code> 這個指令</strong>：Claude Code 的 <code>/plugin</code> 沒有 update 子指令。更新一個已裝 plugin 的正解是先 <code>/plugin marketplace update</code> 刷新索引，再 <code>uninstall</code> + <code>install</code>（或在 <code>/plugin</code> 互動 UI 的 Marketplaces tab 開 <strong>Enable auto-update</strong>，下次啟動自動更新）。</div>
 <div class="note"><strong>只偵測不代更新</strong>：專案 settings 的 enabledPlugins 只存 <code>name@marketplace</code>、不帶版本號，且 <code>/plugin</code> 系列是互動指令 Claude 不能代執行。所以 upgrade 做「偵測 + 列出 + 給指令」，更新指令仍要你自己貼。</div>
 
+<h3 id="external">子流程：登記/挑裝「別人做的」外部 plugin</h3>
+<p>plugin-manager 除了管你自製的 plugin，也能<strong>登記追蹤別人做的外部 plugin</strong>，起始設定時讓你一併挑裝。關鍵差異：外部 plugin <strong>只登記來源，不複製別人的程式碼進你的 monorepo</strong>（尊重它住在別人的 repo、跟著上游更新）。</p>
+
+<h4>登記一個外部候選</h4>
+<p>跟 Claude 說「登記外部 plugin」，它會跑：</p>
+<pre><code>node "$&#123;CLAUDE_PLUGIN_ROOT&#125;/scripts/register-external.js" &lt;name@marketplace&gt; &lt;source&gt; [note]</code></pre>
+<p>例如登記一個 .NET skills 包：</p>
+<pre><code>node ".../register-external.js" dotnet-skills@dotnet-skills "winbond-db00/dotnet-skills" ".NET 後端技能包"</code></pre>
+<p>這會寫進 <code>registry.externalCandidates</code>（只記 <code>marketplace</code> / <code>source</code> / <code>note</code>，<strong>不記版本</strong>——外部 plugin 的版本由其上游 marketplace 管）。移除用 <code>--remove &lt;name@marketplace&gt;</code>。</p>
+
+<h4>起始時挑裝</h4>
+<p>跑 <code>/setup-plugins</code> 時，若 <code>externalCandidates</code> 有內容，會在選完 profile 後<strong>列出外部候選讓你勾選</strong>要不要一併啟用。挑中的會併進 <code>enabledPlugins</code>，並附上要自貼的安裝指令：</p>
+<pre><code><span class="cmd">/plugin marketplace add &lt;source&gt;</span>
+<span class="cmd">/plugin install &lt;name@marketplace&gt;</span>
+<span class="cmd">/reload-plugins</span></code></pre>
+<div class="note"><strong>selfMade vs externalCandidates</strong>：前者是你自製、真身在 monorepo、你發布；後者只是「別人 plugin 的書籤 + 安裝指令產生器」，程式碼永遠在別人的 repo。</div>
+
 <h2 id="registry">8. registry — 集中狀態</h2>
 <p>位置：<code>~/.claude/plugin-manager/</code></p>
 <table>
   <tr><th>檔案</th><th>記什麼</th></tr>
   <tr><td><code>config.json</code></td><td>你的 owner 名、monorepo 路徑、GitHub repo、預設分支</td></tr>
-  <tr><td><code>registry.json</code></td><td><code>selfMade</code>：你所有自製 plugin + 版本 + 是否 dirty。<code>externalCandidates</code>：你手動加入的外部候選 plugin</td></tr>
+  <tr><td><code>registry.json</code></td><td><code>selfMade</code>：你所有自製 plugin + 版本 + 是否 dirty（由 adopt/bump/publish-finalize 維護）。<code>externalCandidates</code>：別人做的外部 plugin 候選（來源 + 備註，由 <code>register-external.js</code> 登記，見第 7 章子流程）</td></tr>
 </table>
 <p class="muted">範本帶在 plugin 內（<code>templates/</code>），首次使用時複製到家目錄。這設計讓 plugin 升級不會覆蓋你的實際狀態，也讓別人裝走後能初始化成自己的 repo。</p>
 
@@ -245,7 +262,7 @@
 <p>不會。registry 實體在 <code>~/.claude/plugin-manager/</code>（家目錄），plugin 內只帶範本。更新 plugin 不碰你的家目錄狀態。</p>
 
 <footer>
-  plugin-manager v0.4.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
+  plugin-manager v0.5.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
   指令：adopt（納管）/ update（改版）/ publish（發布）/ setup-plugins（選 plugin 組合，含 upgrade 同步）。
 </footer>
 

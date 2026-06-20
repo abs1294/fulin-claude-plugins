@@ -4,7 +4,7 @@ fulin 的 Claude Code 工具集 marketplace。目前含四個獨立 plugin：
 
 | plugin | 用途 | 指令 / skill |
 |--------|------|--------------|
-| **plugin-manager** | 自製 plugin 集中管理器：把散落各專案的自製 skill 納管進單一 monorepo（move+symlink，真身一份）、一鍵發布、集中 registry、版本管理、專案同步。 | `/plugin-manager:adopt`、`:update`、`:publish`、`/setup-plugins`（含 `upgrade`） |
+| **plugin-manager** | 自製 plugin 集中管理器：把散落各專案的自製 skill 納管進單一 monorepo（move+symlink，真身一份）、一鍵發布、集中 registry、版本管理、專案同步、登記/挑裝別人做的外部 plugin。 | `/plugin-manager:adopt`、`:update`、`:publish`、`/setup-plugins`（含 `upgrade` 與外部候選登記/挑裝） |
 | **git-commit** | 並行審查模式的 Git Commit 流程：Stage → 並行三軌（使用者確認 message + Codex 審查 + code-reviewer 審查）→ Commit → Push。 | `git-commit` skill |
 | **qa-webwright** | webwright 驅動的 QA 測試框架：QA Agent 設計測試計畫，主 Agent 用 code-as-action 執行 + 截圖自我驗證。 | `/qa-plan`、`/qa-run` |
 | **delaylocal** | 把 prompt 排程到 5h quota 重置後，自動在本機無人值守執行，完成發 LINE 通知。 | `delaylocal` skill |
@@ -46,7 +46,7 @@ fulin 的 Claude Code 工具集 marketplace。目前含四個獨立 plugin：
 plugins/
 ├─ plugin-manager/                   自製 plugin 集中管理器
 │   ├─ skills/  adopt · update · publish · setup-plugins
-│   ├─ scripts/ adopt · bump-version · upgrade-check · publish-status
+│   ├─ scripts/ adopt · bump-version · upgrade-check · publish-status · publish-finalize · register-external
 │   └─ docs/    使用教學.html
 ├─ git-commit/                       並行審查 Git Commit 流程
 ├─ qa-webwright/                     QA 測試框架 plugin

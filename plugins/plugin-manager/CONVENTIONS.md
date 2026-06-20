@@ -55,3 +55,11 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 - Claude **不能**代執行 `/plugin install`、`/plugin uninstall`、`/plugin marketplace add/update`、`/reload-plugins`——這些是互動指令，一律「產生指令讓使用者貼」。只有 git 與檔案操作用 Bash 直接做。
 - **Claude Code 沒有 `/plugin update` 子指令**。更新已裝 plugin 的正解：`/plugin marketplace update fulin-plugins` 刷新 → `/plugin uninstall <name>@fulin-plugins` + `/plugin install <name>@fulin-plugins` 重裝（或在 `/plugin` UI 開 Enable auto-update）。
 - registry 存家目錄 `~/.claude/plugin-manager/`，不存 plugin 內（plugin 更新會覆蓋）。
+
+## 外部 plugin 候選（externalCandidates）
+
+- `selfMade`（你自製的）與 `externalCandidates`（別人做的）是 registry 的兩個獨立區塊，職責不同：
+  - **selfMade**：真身在你 monorepo、你 adopt/new 進來的，你負責版本與發布。
+  - **externalCandidates**：只登記**別人 plugin 的來源 + 備註**（`name@marketplace` → `{marketplace, source, note}`），**不複製別人的程式碼進 monorepo**（尊重它住在別人的 repo、跟著上游更新）。
+- 登記/移除一律用 `scripts/register-external.js`（不手編 registry）。`/setup-plugins` 會列出 externalCandidates 讓使用者挑裝、產生 `marketplace add` + `install` 指令。
+- 外部 plugin 的**版本更新由其上游 marketplace 管**，不進本 registry 的版本追蹤（本 registry 只記它的來源，不記它的版本/dirty）。
