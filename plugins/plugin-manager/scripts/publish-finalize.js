@@ -36,13 +36,18 @@ const PM_DIR = path.join(os.homedir(), '.claude', 'plugin-manager');
 const configPath = path.join(PM_DIR, 'config.json');
 const registryPath = path.join(PM_DIR, 'registry.json');
 
+function readJson(p, label) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+  catch (e) { die((label || p) + ' 解析失敗（可能損毀）：' + e.message); }
+}
+
 if (!fs.existsSync(configPath)) die('找不到 config.json（~/.claude/plugin-manager/config.json）。');
-const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const config = readJson(configPath, 'config.json');
 const mono = config.monorepo;
 if (!mono || !fs.existsSync(path.join(mono, '.git'))) die('monorepo 不是 git repo：' + mono);
 
 if (!fs.existsSync(registryPath)) die('找不到 registry.json。');
-const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+const registry = readJson(registryPath, 'registry.json');
 
 const force = process.argv.includes('--force');
 
@@ -66,7 +71,15 @@ if (!force) {
     console.log('  確定已 push 後可用 --force 強制清。');
     process.exit(0);
   }
-  const aheadNum = parseInt(aheadRes.out, 10) || 0;
+  // NaN（rev-list 成功但輸出非數字：空字串/夾雜 warning）也視為「無法驗證」→ fail-safe 拒清。
+  // 不可用 `|| 0` 把 NaN 吃成 0，那會在無法確認時誤判為已 push（違反 fail-safe 契約）。
+  const aheadNum = parseInt(aheadRes.out, 10);
+  if (Number.isNaN(aheadNum)) {
+    console.log('⚠ 無法解析 rev-list 輸出，無法驗證是否已 push——不清 dirty。');
+    console.log('  rev-list 輸出：' + JSON.stringify(aheadRes.out));
+    console.log('  確定已 push 後可用 --force 強制清。');
+    process.exit(0);
+  }
   if (aheadNum > 0) {
     console.log('⚠ 本地領先 origin ' + aheadNum + ' 個 commit（尚未 push）——不清 dirty。');
     console.log('  請先 push，或確定已 push 後用 --force。');
@@ -86,6 +99,10 @@ if (!cleared.length) {
   process.exit(0);
 }
 
-fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2) + '\n');
+// 原子寫：先寫 tmp 再 rename（同磁碟 rename 為原子操作），避免寫入中斷留半截 JSON
+// 讓下次讀取炸掉。registry 是多腳本共寫的唯一狀態檔，值得這層保護。
+const tmp = registryPath + '.tmp';
+fs.writeFileSync(tmp, JSON.stringify(registry, null, 2) + '\n');
+fs.renameSync(tmp, registryPath);
 console.log('✓ 已清 dirty 的 plugin：' + cleared.join(', '));
 console.log('  （工作區乾淨且已 push，狀態機閉合）');

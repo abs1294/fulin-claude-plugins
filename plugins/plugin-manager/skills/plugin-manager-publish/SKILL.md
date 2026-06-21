@@ -31,18 +31,21 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 
    **commit message 必須註明本次改了哪一個/哪些 skill（規則 3 — 版本追蹤）**。格式 `<動作>: <skill 名> — <摘要>`，動作詞 Add/Update/Fix，不得加 AI 署名。範例：`Update: delaylocal skill — 修正 LINE 通知逾時重試`。完整格式與範例詳 `../../CONVENTIONS.md`。
 
-4. **確認後執行 git**（在 config.monorepo 目錄）：
+4. **確認後執行 git**（在 config.monorepo 目錄，順序：add → commit → push）：
+
+   先 stage：
    ```
    git -C "<monorepo>" add -A
-   git -C "<monorepo>" push
    ```
-   commit 這步**不要**把訊息直接拼進命令列（`-m "<訊息>"`）——若訊息含 `"`、`` ` ``、`$`、`\` 等，會破壞 shell 引號甚至造成命令注入。改用 **stdin 傳遞**，內容原樣不展開。
-
-   **此段必須在 Bash 執行**（用 Bash tool）。heredoc 是 Bash 語法，PowerShell/cmd 不支援：
+   再 commit。**不要**把訊息直接拼進命令列（`-m "<訊息>"`）——若訊息含 `"`、`` ` ``、`$`、`\` 等，會破壞 shell 引號甚至造成命令注入。改用 **stdin 傳遞**，內容原樣不展開。**此段必須在 Bash 執行**（用 Bash tool）；heredoc 是 Bash 語法，PowerShell/cmd 不支援：
    ```bash
    git -C "<monorepo>" commit -F - <<'COMMIT_MSG'
    <確認後的訊息，可多行，原樣不展開>
    COMMIT_MSG
+   ```
+   最後 push：
+   ```
+   git -C "<monorepo>" push
    ```
    - 這是獨立的自製 plugin monorepo（非供應商平台四個 repo），可直接在此執行 git。
    - commit message 不得加任何 AI 署名（遵守全域規範）。

@@ -33,10 +33,15 @@ const PM_DIR = path.join(os.homedir(), '.claude', 'plugin-manager');
 const configPath = path.join(PM_DIR, 'config.json');
 const registryPath = path.join(PM_DIR, 'registry.json');
 
+function readJson(p, label) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+  catch (e) { die((label || p) + ' 解析失敗（可能損毀）：' + e.message); }
+}
+
 if (!fs.existsSync(configPath)) die('找不到 config.json（~/.claude/plugin-manager/config.json）。');
-const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const config = readJson(configPath, 'config.json');
 const registry = fs.existsSync(registryPath)
-  ? JSON.parse(fs.readFileSync(registryPath, 'utf8'))
+  ? readJson(registryPath, 'registry.json')
   : { schemaVersion: 1, selfMade: {}, externalCandidates: {} };
 
 const projectDir = process.argv[2] || process.cwd();
@@ -104,9 +109,11 @@ if (dirtyOnes.length) {
 
 console.log('\n-- 建議使用者自貼的指令（Claude 不能代執行 /plugin；無 /plugin update 子指令）--');
 console.log('  /plugin marketplace update ' + marketplace + '   # 1. 先刷新 marketplace 索引');
-console.log('  # 2. 對每個落後的 plugin 重裝（uninstall + install）：');
+console.log('  # 2. 對每個落後的 plugin 重裝（uninstall + install，各自一行——');
+console.log('  #    /plugin 輸入框不是 shell，不能用 && 串接，需逐行貼）：');
 for (const r of rows) {
-  console.log('  /plugin uninstall ' + r.name + '@' + marketplace + ' && /plugin install ' + r.name + '@' + marketplace);
+  console.log('  /plugin uninstall ' + r.name + '@' + marketplace);
+  console.log('  /plugin install ' + r.name + '@' + marketplace);
 }
 console.log('  /reload-plugins                                # 3. 套用');
 console.log('  # 或：在 /plugin 互動 UI 的 Marketplaces tab 對 ' + marketplace + ' 開 Enable auto-update');

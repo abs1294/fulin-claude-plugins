@@ -34,9 +34,13 @@ const registryPath = path.join(PM_DIR, 'registry.json');
 // 確保家目錄狀態夾存在——首次使用時 PM_DIR 可能還沒被建立，否則下面 writeFileSync 會 ENOENT。
 fs.mkdirSync(PM_DIR, { recursive: true });
 
-const registry = fs.existsSync(registryPath)
-  ? JSON.parse(fs.readFileSync(registryPath, 'utf8'))
-  : { schemaVersion: 1, selfMade: {}, externalCandidates: {} };
+let registry;
+if (fs.existsSync(registryPath)) {
+  try { registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')); }
+  catch (e) { die('registry.json 解析失敗（可能損毀或被截斷）：' + e.message); }
+} else {
+  registry = { schemaVersion: 1, selfMade: {}, externalCandidates: {} };
+}
 registry.externalCandidates = registry.externalCandidates || {};
 
 const argv = process.argv.slice(2);
@@ -64,6 +68,17 @@ if (!key || !source) die('用法：node register-external.js <name@marketplace> 
 const m = key.match(/^([A-Za-z0-9._-]+)@([A-Za-z0-9._-]+)$/);
 if (!m) die('<name@marketplace> 格式錯誤（只允許英數與 . _ -，格式 plugin名@marketplace名，如 dotnet-skills@dotnet-skills）：' + key);
 const marketplace = m[2];
+
+// source / note 會被原樣印進「請使用者複製貼上」的指令區塊、並寫進 registry。
+// 拒絕換行與控制字元，否則攻擊者可在 source 塞 "\n/plugin install evil@x" 多出一行
+// 可被連同正常輸出一起貼進 Claude Code 的惡意 slash 指令（與 key 驗證同樣的注入面）。
+function hasControlChar(s) {
+  for (let i = 0; i < s.length; i++) { if (s.charCodeAt(i) < 0x20) return true; } // < 空格 = 控制字元（含 CR LF TAB）
+  return false;
+}
+for (const [label, v] of [['source', source], ['note', note]]) {
+  if (v && hasControlChar(v)) die(label + ' 不可含換行或控制字元：' + JSON.stringify(v));
+}
 
 const exists = !!registry.externalCandidates[key];
 registry.externalCandidates[key] = {

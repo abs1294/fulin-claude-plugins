@@ -59,7 +59,7 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 ## 外部 plugin 候選（externalCandidates）
 
 - `selfMade`（你自製的）與 `externalCandidates`（別人做的）是 registry 的兩個獨立區塊，職責不同：
-  - **selfMade**：真身在你 monorepo、你 adopt/new 進來的，你負責版本與發布。
+  - **selfMade**：真身在你 monorepo、你 adopt 進來的，你負責版本與發布。
   - **externalCandidates**：只登記**別人 plugin 的來源 + 備註**（`name@marketplace` → `{marketplace, source, note}`），**不複製別人的程式碼進 monorepo**（尊重它住在別人的 repo、跟著上游更新）。
 - 登記/移除一律用 `scripts/register-external.js`（不手編 registry）。`/setup-plugins` 會列出 externalCandidates 讓使用者挑裝、產生 `marketplace add` + `install` 指令。
 - 外部 plugin 的**版本更新由其上游 marketplace 管**，不進本 registry 的版本追蹤（本 registry 只記它的來源，不記它的版本/dirty）。

@@ -22,11 +22,15 @@ function sh(cmd, cwd) {
 
 const configPath = path.join(os.homedir(), '.claude', 'plugin-manager', 'config.json');
 if (!fs.existsSync(configPath)) { console.error('ERROR: 找不到 config.json'); process.exit(1); }
-const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+let config;
+try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
+catch (e) { console.error('ERROR: config.json 解析失敗：' + e.message); process.exit(1); }
 const mono = config.monorepo;
 if (!mono || !fs.existsSync(path.join(mono, '.git'))) { console.error('ERROR: monorepo 不是 git repo：' + mono); process.exit(1); }
 
-const statusRes = sh('git status --short', mono);
+// -c core.quotepath=false：讓含非 ASCII 的路徑直接輸出 UTF-8，不被 git 包雙引號+八進位跳脫，
+// 否則含中文名的 plugin 目錄會被解析成亂碼跳脫串。
+const statusRes = sh('git -c core.quotepath=false status --short', mono);
 if (!statusRes.ok) { console.error('ERROR: git status 失敗：' + statusRes.out); process.exit(1); }
 const status = statusRes.out;
 
@@ -48,7 +52,7 @@ if (!status) {
 // rename 的 "R  a -> b" 或欄位寬度變化不穩，會砍掉 path 首字）。rename 取箭頭後的新路徑。
 const changedPlugins = new Set();
 let otherChanges = [];
-for (const line of status.split('\n')) {
+for (const line of status.split(/\r?\n/)) { // /\r?\n/ 同時吃 LF 與 CRLF，避免殘留 \r 讓 regex 不 match
   if (!line.trim()) continue;
   // sh() 已 trim 行，前導狀態欄空格可能被砍；用 1-2 字元狀態碼 + 一或多空白容錯。
   const m0 = line.match(/^.{1,2}\s+(.+)$/);

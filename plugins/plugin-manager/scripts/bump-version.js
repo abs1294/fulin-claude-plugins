@@ -25,21 +25,27 @@ const path = require('path');
 const os = require('os');
 
 function die(msg) { console.error('ERROR: ' + msg); process.exit(1); }
+function readJson(p, label) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+  catch (e) { die((label || p) + ' 解析失敗（可能損毀）：' + e.message); }
+}
 
 const PM_DIR = path.join(os.homedir(), '.claude', 'plugin-manager');
 const configPath = path.join(PM_DIR, 'config.json');
 const registryPath = path.join(PM_DIR, 'registry.json');
 
 if (!fs.existsSync(configPath)) die('找不到 config.json（~/.claude/plugin-manager/config.json）。');
-const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const config = readJson(configPath, 'config.json');
 const registry = fs.existsSync(registryPath)
-  ? JSON.parse(fs.readFileSync(registryPath, 'utf8'))
+  ? readJson(registryPath, 'registry.json')
   : { schemaVersion: 1, selfMade: {}, externalCandidates: {} };
 
 const name = process.argv[2];
 const bump = (process.argv[3] || 'patch').toLowerCase();
 
 if (!name) die('用法：node bump-version.js <name> <patch|minor|major>');
+// name 白名單：防 '../' 等讓 pluginDir 逃出 plugins 目錄（與 adopt/register-external 對齊）。
+if (!/^[A-Za-z0-9._-]+$/.test(name) || name === '.' || name === '..') die('plugin 名只能含英數與 . _ -，且不可為 . 或 ..：' + name);
 if (!['patch', 'minor', 'major'].includes(bump)) die('bump 必須是 patch | minor | major，收到：' + bump);
 
 const mono = config.monorepo;
@@ -49,7 +55,7 @@ const pluginDir = path.join(mono, 'plugins', name);
 const pjPath = path.join(pluginDir, '.claude-plugin', 'plugin.json');
 if (!fs.existsSync(pjPath)) die('找不到 plugin.json：' + pjPath + '（plugin 名可能拼錯，或尚未建立）');
 
-const pj = JSON.parse(fs.readFileSync(pjPath, 'utf8'));
+const pj = readJson(pjPath, 'plugin.json');
 const cur = String(pj.version || '0.0.0');
 
 const m = cur.match(/^(\d+)\.(\d+)\.(\d+)$/);
@@ -62,13 +68,23 @@ else { patch += 1; }
 
 const next = major + '.' + minor + '.' + patch;
 
+// 先驗 registry 有此 plugin entry（在動任何寫入前）。
+// 不可在缺漏時靜默以 source:'native' 重建——那會把 adopted plugin（如 git-commit，
+// 帶 source:'adopted' + adoptedFrom）無聲降級為 native 並遺失出處。entry 缺漏視為異常。
+registry.selfMade = registry.selfMade || {};
+const entry = registry.selfMade[name];
+if (!entry) {
+  die('registry.selfMade 找不到 plugin entry：' + name +
+      '（plugin.json 存在但 registry 缺此筆，registry 可能未同步）。' +
+      '請先用 /plugin-manager:adopt 納管或手動補 entry，再重跑 bump-version，' +
+      '以免把 adopted plugin 誤記為 native 並遺失 adoptedFrom。');
+}
+
 // 1. 寫回 plugin.json
 pj.version = next;
 fs.writeFileSync(pjPath, JSON.stringify(pj, null, 2) + '\n');
 
-// 2. 同步 registry
-registry.selfMade = registry.selfMade || {};
-const entry = registry.selfMade[name] || { path: 'plugins/' + name, source: 'native' };
+// 2. 同步 registry（entry 已確認存在，只更新 version/dirty，保留 source/adoptedFrom）
 entry.version = next;
 entry.dirty = true;
 registry.selfMade[name] = entry;
