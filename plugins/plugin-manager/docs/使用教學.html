@@ -67,7 +67,7 @@
   <h1>🧩 plugin-manager 使用教學</h1>
   <div class="sub">把你所有自製 Claude Code plugin 集中在一個地方管理，並能挑裝別人做的 plugin。</div>
   <span class="pill">fulin-plugins</span>
-  <span class="pill">v0.8.0</span>
+  <span class="pill">v0.9.0</span>
   <span class="pill">private repo: abs1294/fulin-claude-plugins</span>
 </header>
 
@@ -128,6 +128,12 @@
 <h3>你會得到什麼</h3>
 <p>這個 skill 變成一個受管理的 plugin：之後可以 <code>/plugin-manager:publish</code> 發布、可以在任何專案 <code>/setup-plugins</code> 啟用。而且你在<strong>原專案那份照樣能用、改它就是改受管的那份</strong>（不會有兩份打架）。</p>
 <div class="note warn">adopt <strong>只動你指定的那一個 skill</strong>，不會自動掃整個專案、不碰別的東西。若該專案是 git repo，它會提醒你把連結加進 <code>.gitignore</code>。</div>
+
+<h3>也能收編你自己寫的 agent</h3>
+<p class="when">什麼時候用：你在專案 <code>.claude/agents/</code> 裡寫了一組 agent，想集中管理 / 推廣。</p>
+<p>跟 Claude 說「把這專案的 agents 納管成 <code>&lt;plugin名&gt;</code>」，它會跑：</p>
+<pre><code>node ".../scripts/adopt-agents.js" &lt;plugin名&gt; [專案路徑]</code></pre>
+<p><strong>整個 agents 目錄</strong>一起收進 <code>plugins/&lt;plugin名&gt;/agents/</code>（agent 是單檔、不像 skill 是目錄，所以整包一起收，原位用整包 junction 指回）。一組 agent = 一個 plugin。裝了這 plugin 的人會自動載入這組 agent。</p>
 
 <h2 id="update">5. <span class="cmd">/plugin-manager:update</span> — 改完要發新版</h2>
 <p class="when">什麼時候用：你改了某個 plugin 的內容，想發一個新版本（這樣別的專案才抓得到更新）。</p>
@@ -267,7 +273,7 @@
 </details>
 
 <footer>
-  plugin-manager v0.8.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
+  plugin-manager v0.9.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
   指令：adopt（收編）/ update（升版）/ publish（發布）/ setup-plugins（選 plugin，含外部推薦與 upgrade）。
 </footer>
 

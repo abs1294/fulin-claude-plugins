@@ -11,6 +11,7 @@ monorepo 路徑與 repo 從 `~/.claude/plugin-manager/config.json` 讀（owner=f
 - 任何 skill 的真身**只有 monorepo 一份**；各專案 / `~/.claude/skills/` 原位以 **symlink / junction** 指回 monorepo，不留第二份實體。
 - **adopt 一律**：move 真身進 monorepo → 原位建 symlink。若發現某 skill 在 monorepo 與專案各有一份**獨立實體**（非 symlink），是歷史遺留的「兩份不同步」，應收斂：先 diff 兩份內容 → 確認後刪實體那份 → 原位改 symlink 指回 monorepo。
 - **C 折衷**：開發期靠 symlink 即時迭代（改 symlink = 改 monorepo 真身，免發布即生效），**一個段落完成就 publish**。兼顧迭代速度與版本追蹤。
+- **agent 納管**（`scripts/adopt-agents.js`）：agent 是**單檔**、Claude Code 不支援 agent 目錄結構，而 Windows 非管理員無法對單檔建 symlink、junction 只能對目錄——所以 agent **整個 `.claude/agents` 目錄一起納管**：move 進 `plugins/<name>/agents/`，原位建**整包目錄 junction**（一個 junction 帶走目錄內全部 agent，免管理員權限）。粒度是「一組 agent = 一個 plugin」，非「一 agent 一 plugin」。
 
 ## 規則 2 — 改 skill 必發布
 
