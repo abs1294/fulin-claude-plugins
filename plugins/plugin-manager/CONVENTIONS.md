@@ -71,3 +71,10 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 - 登記/移除一律用 `scripts/register-external.js`（不手編）；**note 必填**（之後要靠它認出 plugin 用途）。`/setup-plugins` 讀 recommends.json 列給使用者挑裝（清單多時按 tag 分組），產生 `marketplace add` + `install` 指令。
 - 外部 plugin 的**版本更新由其上游 marketplace 管**，本系統不追蹤其版本。
 - 改 recommends.json 後要 `/plugin-manager:publish` 才會推上去讓別人看到。
+
+## 環境快照 / 復現（export-env / restore-env）
+
+- `scripts/export-env.js`：讀 Claude Code 官方記錄（`~/.claude/plugins/known_marketplaces.json` + `installed_plugins.json` + settings 的 enabledPlugins）產出 `env-snapshot.json`（marketplaces 來源 + plugins 版本/scope/啟用）。
+- `scripts/restore-env.js`：吃快照產生「在新環境要自己貼的」`marketplace add` + `install` 指令鏈（Claude 不能代執行 /plugin）。`--enabled-only` 只列啟用中的（同機換專案用）。
+- 涵蓋自製 + 第三方 plugin（真正的「一模一樣」）；但第三方能否裝起來取決於其上游 marketplace 是否可及，自製的（在本 repo）一定可裝。
+- env-snapshot.json 含「你啟用了哪些 plugin」——若不想讓這份隨 repo 外流，輸出時改用參數指定 monorepo 外的路徑。
