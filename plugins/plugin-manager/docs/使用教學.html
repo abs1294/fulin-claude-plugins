@@ -50,6 +50,14 @@
   .toc a{color:var(--accent); text-decoration:none; display:block; padding:3px 0}
   .toc a:hover{text-decoration:underline}
   .emoji{font-style:normal}
+  .ask{background:var(--card2); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0}
+  .ask .q{color:var(--accent); font-weight:600; margin-bottom:8px}
+  .ask .opt{padding:4px 0; padding-left:18px; position:relative}
+  .ask .opt::before{content:"▢"; position:absolute; left:0; color:var(--muted)}
+  details{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:4px 20px; margin:16px 0}
+  details summary{cursor:pointer; font-weight:600; padding:14px 0; color:var(--accent)}
+  details[open] summary{border-bottom:1px solid var(--line); margin-bottom:10px}
+  .when{color:var(--accent2); font-weight:600}
 </style>
 </head>
 <body>
@@ -57,7 +65,7 @@
 
 <header>
   <h1>🧩 plugin-manager 使用教學</h1>
-  <div class="sub">自製 Claude Code plugin 的集中管理器 — 一個 monorepo 管你所有自製 plugin，告別「一 plugin 一 repo」</div>
+  <div class="sub">把你所有自製 Claude Code plugin 集中在一個地方管理，並能挑裝別人做的 plugin。</div>
   <span class="pill">fulin-plugins</span>
   <span class="pill">v0.6.0</span>
   <span class="pill">private repo: abs1294/fulin-claude-plugins</span>
@@ -65,205 +73,189 @@
 
 <div class="card toc">
   <strong>目錄</strong>
-  <a href="#why">1. 為什麼需要它（解決的痛點）</a>
-  <a href="#concept">2. 核心概念：monorepo + move-symlink + registry</a>
-  <a href="#install">3. 安裝</a>
-  <a href="#adopt">4. /plugin-manager:adopt — 把專案的自製 skill 納管</a>
-  <a href="#update">5. /plugin-manager:update — 改現有 plugin + bump 版本</a>
-  <a href="#publish">6. /plugin-manager:publish — 一鍵發布整個 monorepo</a>
-  <a href="#setup">7. /setup-plugins — 為專案選要啟用哪些 plugin（含 upgrade 同步）</a>
-  <a href="#registry">8. registry — 集中狀態在哪、記了什麼</a>
-  <a href="#example">9. 完整實例（git-commit 納管全紀錄）</a>
-  <a href="#limits">10. 限制與注意事項</a>
-  <a href="#faq">11. 常見問題</a>
+  <a href="#why">1. 這能幫我做什麼</a>
+  <a href="#install">2. 安裝（一次性）</a>
+  <a href="#cheatsheet">3. 指令速查表</a>
+  <a href="#adopt">4. 收編我自己寫的 skill — /plugin-manager:adopt</a>
+  <a href="#update">5. 改完要發新版 — /plugin-manager:update</a>
+  <a href="#publish">6. 推上去 — /plugin-manager:publish</a>
+  <a href="#setup">7. 設定專案要用哪些 plugin（含挑裝別人的）— /setup-plugins</a>
+  <a href="#external">8. 蒐集別人做的 skill/plugin</a>
+  <a href="#faq">9. 常見問題</a>
+  <a href="#advanced">10. 進階：背後怎麼運作</a>
 </div>
 
-<h2 id="why">1. 為什麼需要它</h2>
-<p><strong>痛點</strong>：Claude Code 的官方做法常常變成「一個 plugin = 一個 git repo」。如果你寫了 500 個自製 plugin，就會有 500 個 repo —— 根本無法維護。</p>
-<div class="card">
-  <strong>plugin-manager 的解法</strong>：所有自製 plugin 全部塞進<strong>同一個 monorepo</strong> 的 <code>plugins/</code> 底下。永遠只有 <strong>1 個 git repo</strong> 要維護。新增第 501 個 plugin？還是同一個 repo。
-</div>
+<h2 id="why">1. 這能幫我做什麼</h2>
+<p>如果你會自己寫 Claude Code 的 skill/plugin，平常會遇到這些麻煩——plugin-manager 幫你解決：</p>
 <table>
-  <tr><th>你的痛點</th><th>plugin-manager 怎麼解</th></tr>
-  <tr><td>一 plugin 一 repo，數量爆炸無法維護</td><td>全部進一個 monorepo，永遠 1 個 repo</td></tr>
-  <tr><td>自製 skill 散在各專案資料夾，難集中</td><td><code>adopt</code> 把它收進 monorepo，原地留 symlink</td></tr>
-  <tr><td>改完要手動 git add/commit/push 很煩</td><td><code>publish</code> 一鍵推整個 monorepo</td></tr>
-  <tr><td>怕「同一個 skill 兩份不同步」</td><td>move+symlink：真身永遠只有一份</td></tr>
+  <tr><th>你的麻煩</th><th>用哪個指令</th></tr>
+  <tr><td>自製 skill 散在各專案資料夾，想集中管理</td><td><code>/plugin-manager:adopt</code> 收編進來</td></tr>
+  <tr><td>改完 skill 要手動 git 推上去很煩</td><td><code>/plugin-manager:publish</code> 一鍵推</td></tr>
+  <tr><td>改了 skill 想發一個新版本給別的專案用</td><td><code>/plugin-manager:update</code> 升版號</td></tr>
+  <tr><td>每個專案要用的 plugin 不一樣，不想全開</td><td><code>/setup-plugins</code> 按專案挑</td></tr>
+  <tr><td>看到別人做的好 plugin，想記下來、之後挑裝</td><td><code>/setup-plugins</code> 的外部候選功能</td></tr>
 </table>
+<p class="muted">你不需要懂它背後怎麼運作就能用。想懂的話看最後一節「進階」。</p>
 
-<h2 id="concept">2. 核心概念</h2>
-
-<h3>① monorepo（所有自製 plugin 的家）</h3>
-<pre><code>fulin-claude-plugins/                  <span class="muted"># 一個 git repo</span>
-├── .claude-plugin/marketplace.json    <span class="muted"># 一個 marketplace，列出所有 plugin</span>
-└── plugins/
-    ├── plugin-manager/                <span class="muted"># 管理器自己也是一個 plugin</span>
-    ├── git-commit/                    <span class="muted"># 被 adopt 進來的</span>
-    ├── delaylocal/
-    └── qa-webwright/</code></pre>
-
-<h3>② move + symlink（真身只有一份，零不同步）</h3>
-<p>當你在某專案寫了自製 skill，<code>adopt</code> 會：</p>
-<div class="flow">
-  <span class="box">專案/.claude/skills/X（真身）</span>
-  <span class="arr">→ move →</span>
-  <span class="box">monorepo/plugins/X/skills/X（真身搬這）</span>
-  <span class="arr">→ 原地建 →</span>
-  <span class="box">symlink 指回 monorepo</span>
-</div>
-<p>從此<strong>真身住在 monorepo</strong>，你在原專案看到的是 symlink。<strong>你改原專案那份 = 改 monorepo 那份（同一份檔）</strong>，不會有兩份打架。</p>
-
-<h3>③ registry（集中狀態）</h3>
-<p>放在你的家目錄 <code>~/.claude/plugin-manager/</code>（<strong>不在 plugin 內</strong>，所以 plugin 更新不會覆蓋）。記錄你有哪些自製 plugin、版本、改了沒推。</p>
-
-<h2 id="install">3. 安裝</h2>
-<p>在 Claude Code 輸入框依序貼這三個指令（<span class="muted">Claude 不能代你執行 <code>/plugin</code>，要你自己貼</span>）：</p>
+<h2 id="install">2. 安裝（一次性）</h2>
+<p>在 Claude Code 輸入框依序貼這三行（<span class="muted">Claude 不能代你執行 <code>/plugin</code> 指令，要你自己貼</span>）：</p>
 <pre><code><span class="cmd">/plugin marketplace add abs1294/fulin-claude-plugins</span>
 <span class="cmd">/plugin install plugin-manager@fulin-plugins</span>
 <span class="cmd">/reload-plugins</span></code></pre>
-<div class="note">裝好後，<code>/plugin-manager:adopt</code>、<code>/plugin-manager:update</code>、<code>/plugin-manager:publish</code> 與 <code>/setup-plugins</code>（含 <code>upgrade</code>）就會出現。</div>
+<div class="note">裝好後，<code>/plugin-manager:adopt</code>、<code>:update</code>、<code>:publish</code> 與 <code>/setup-plugins</code> 就能用了。</div>
 
-<h2 id="adopt">4. <span class="cmd">/plugin-manager:adopt</span> — 把專案的自製 skill 納管</h2>
-<p>把你在「當前專案資料夾 <code>.claude/skills/</code>」裡寫的自製 skill，收進 monorepo 集中管理。</p>
-
-<h3>用法</h3>
-<pre><code><span class="cmd">/plugin-manager:adopt</span> &lt;skill名稱&gt;</code></pre>
-<p>例如你在某專案寫了 <code>my-tool</code> skill：</p>
-<pre><code><span class="cmd">/plugin-manager:adopt my-tool</span></code></pre>
-
-<h3>它會做什麼</h3>
-<div class="step"><div class="n">1</div><div class="body">把 <code>專案/.claude/skills/my-tool</code> 真身 <strong>move</strong> 進 <code>monorepo/plugins/my-tool/skills/my-tool</code></div></div>
-<div class="step"><div class="n">2</div><div class="body">幫新 plugin 建 <code>plugin.json</code>（version 0.1.0）</div></div>
-<div class="step"><div class="n">3</div><div class="body">更新 monorepo 的 <code>marketplace.json</code></div></div>
-<div class="step"><div class="n">4</div><div class="body">原專案位置改成 <strong>symlink</strong> 指回 monorepo（在專案仍可用）</div></div>
-<div class="step"><div class="n">5</div><div class="body">更新 registry，標記 <code>dirty: true</code>（已改未推）</div></div>
-
-<div class="note warn"><strong>「靠登記」原則</strong>：adopt <strong>只動你明確指定的那個 skill</strong>，絕不自動掃整個專案、不碰別人的東西或專案機密。</div>
-<div class="note warn"><strong>專案是 git repo 時</strong>：它會提醒你把該 symlink 加進專案的 <code>.gitignore</code>，避免 symlink 污染專案版控。</div>
-
-<h2 id="update">5. <span class="cmd">/plugin-manager:update</span> — 改現有 plugin + bump 版本</h2>
-<p>維護 monorepo 裡既有的自製 plugin。核心是 <strong>bump 版本號</strong> —— Claude Code 靠 <code>plugin.json</code> 的 <code>version</code> 判斷有無更新，改了內容卻不 bump，其他專案就算刷新 marketplace 也抓不到新版。</p>
-
-<h3>用法</h3>
-<pre><code><span class="cmd">/plugin-manager:update</span> &lt;名稱&gt; <span class="muted">&lt;patch|minor|major&gt;</span></code></pre>
+<h2 id="cheatsheet">3. 指令速查表</h2>
 <table>
-  <tr><th>等級</th><th>用於</th><th>範例</th></tr>
-  <tr><td><code>patch</code></td><td>修字、修 bug、小調整</td><td>0.1.0 → 0.1.1</td></tr>
-  <tr><td><code>minor</code></td><td>加功能、加指令但相容</td><td>0.1.0 → 0.2.0</td></tr>
+  <tr><th>指令</th><th>什麼時候用</th><th>怎麼下</th></tr>
+  <tr><td><code>/plugin-manager:adopt</code></td><td>我在某專案寫好一個 skill，想收進集中管理</td><td><code>/plugin-manager:adopt &lt;skill名&gt;</code></td></tr>
+  <tr><td><code>/plugin-manager:update</code></td><td>改完某個 plugin，要發一個新版本</td><td><code>/plugin-manager:update &lt;plugin名&gt; &lt;patch｜minor｜major&gt;</code></td></tr>
+  <tr><td><code>/plugin-manager:publish</code></td><td>改了東西要推上 GitHub</td><td><code>/plugin-manager:publish</code></td></tr>
+  <tr><td><code>/setup-plugins</code></td><td>設定「這個專案」要啟用哪些 plugin</td><td><code>/setup-plugins</code></td></tr>
+  <tr><td><code>/setup-plugins upgrade</code></td><td>這專案的自製 plugin 想同步到最新版</td><td><code>/setup-plugins upgrade</code></td></tr>
+  <tr><td>（對話）「登記外部 plugin」</td><td>把別人的 plugin 記進候選清單</td><td>直接跟 Claude 說「登記外部 plugin …」</td></tr>
+</table>
+
+<h2 id="adopt">4. <span class="cmd">/plugin-manager:adopt</span> — 收編我自己寫的 skill</h2>
+<p class="when">什麼時候用：你在某個專案的 <code>.claude/skills/</code> 裡寫了一個 skill，想把它收進集中管理（之後能發布、能在別的專案用）。</p>
+<h3>怎麼下</h3>
+<pre><code><span class="cmd">/plugin-manager:adopt my-tool</span></code></pre>
+<h3>你會得到什麼</h3>
+<p>這個 skill 變成一個受管理的 plugin：之後可以 <code>/plugin-manager:publish</code> 發布、可以在任何專案 <code>/setup-plugins</code> 啟用。而且你在<strong>原專案那份照樣能用、改它就是改受管的那份</strong>（不會有兩份打架）。</p>
+<div class="note warn">adopt <strong>只動你指定的那一個 skill</strong>，不會自動掃整個專案、不碰別的東西。若該專案是 git repo，它會提醒你把連結加進 <code>.gitignore</code>。</div>
+
+<h2 id="update">5. <span class="cmd">/plugin-manager:update</span> — 改完要發新版</h2>
+<p class="when">什麼時候用：你改了某個 plugin 的內容，想發一個新版本（這樣別的專案才抓得到更新）。</p>
+<h3>怎麼下</h3>
+<pre><code><span class="cmd">/plugin-manager:update git-commit patch</span></code></pre>
+<table>
+  <tr><th>升版等級</th><th>用於</th><th>例</th></tr>
+  <tr><td><code>patch</code></td><td>修字、修小 bug</td><td>0.1.0 → 0.1.1</td></tr>
+  <tr><td><code>minor</code></td><td>加功能（相容）</td><td>0.1.0 → 0.2.0</td></tr>
   <tr><td><code>major</code></td><td>破壞性變更</td><td>0.1.0 → 1.0.0</td></tr>
 </table>
-<p>它會把新版號寫回 <code>plugin.json</code> 並同步 registry（<code>dirty: true</code>）。</p>
-<div class="note warn"><strong>version 只設在 plugin.json</strong>，不在 marketplace.json 加 version 欄 —— 兩處都設會衝突，Claude Code 以 plugin.json 為準。</div>
+<p>升完版記得 <code>/plugin-manager:publish</code> 推上去。</p>
 
-<h2 id="publish">6. <span class="cmd">/plugin-manager:publish</span> — 一鍵發布整個 monorepo</h2>
-<p>因為自製 skill 在 adopt 時真身已經搬進 monorepo，<strong>publish 不需要再「蒐集」</strong>，只做純 git：一次 commit + push 整個 repo。</p>
-
-<h3>用法</h3>
+<h2 id="publish">6. <span class="cmd">/plugin-manager:publish</span> — 推上去</h2>
+<p class="when">什麼時候用：你 adopt 了新 skill、或改了 / 升版了某個 plugin，要把這些推上 GitHub。</p>
+<h3>怎麼下</h3>
 <pre><code><span class="cmd">/plugin-manager:publish</span></code></pre>
+<h3>你會得到什麼</h3>
+<p>Claude 會先給你看「這次改了什麼 + 建議的 commit 訊息」讓你確認，確認後一次 commit + push 整包。<strong>不管你這次改了 1 個還是 50 個 plugin，只推一次。</strong></p>
 
-<h3>流程</h3>
-<div class="flow">
-  <span class="box">查待發布狀態</span><span class="arr">→</span>
-  <span class="box">你確認 commit message</span><span class="arr">→</span>
-  <span class="box">git add -A</span><span class="arr">→</span>
-  <span class="box">commit</span><span class="arr">→</span>
-  <span class="box">push</span>
-</div>
-<div class="card"><strong>關鍵價值</strong>：不管你這次改了 1 個還是 50 個 plugin，<strong>publish 只推一次</strong>。500 個 plugin 也只有一次 push。</div>
+<h2 id="setup">7. <span class="cmd">/setup-plugins</span> — 設定這個專案要用哪些 plugin</h2>
+<p class="when">什麼時候用：不同專案需要的 plugin 不一樣（前端專案要 figma、後端要 .NET 工具…）。這指令讓你按「當前專案」挑要啟用哪些，不必全部塞在一起。</p>
 
-<h2 id="setup">7. <span class="cmd">/setup-plugins</span> — 為這個專案選要啟用哪些 plugin</h2>
-<p>像 Python venv 那樣<strong>按專案隔離</strong>：讓你為「當前目錄」選一組要啟用的 plugin，寫進該目錄 <code>.claude/settings.json</code> 的 <code>enabledPlugins</code>（per-project 覆寫，不污染 user 全域）。避免把所有 plugin 都塞 user scope 浪費上下文。</p>
-
-<div class="note"><strong>背景</strong>：plugin「安裝」是全域一份（cache），但「<strong>啟用</strong>」是 per-scope 的。寫進「目錄/.claude/settings.json」的 <code>enabledPlugins</code> = project scope，只在該目錄樹生效、覆寫 user 全域。</div>
-
-<h3>用法</h3>
+<h3>怎麼下，以及我會怎麼問你</h3>
+<p>你只要輸入：</p>
 <pre><code><span class="cmd">/setup-plugins</span></code></pre>
+<p>接著 Claude 會用選單問你（你只要點選）：</p>
 
-<h3>它會做什麼</h3>
-<div class="step"><div class="n">1</div><div class="body">讀 <code>~/.claude/plugin-profiles.json</code> 的 profile 清單（如 <code>minimal</code> / <code>dotnet</code> / <code>frontend</code> / <code>supplier</code> / <code>full</code>）</div></div>
-<div class="step"><div class="n">2</div><div class="body">用互動選單問你要套哪個 <strong>profile</strong>，或選「自訂（逐一勾選 plugin）」</div></div>
-<div class="step"><div class="n">3</div><div class="body">把選定結果<strong>合併</strong>進當前目錄 <code>.claude/settings.json</code> 的 <code>enabledPlugins</code>（保留原有項目，不整檔覆蓋）</div></div>
-<div class="step"><div class="n">4</div><div class="body">提示你 <code>/reload-plugins</code>（或重開 session）讓設定生效；若含未裝過的 plugin 或第三方 marketplace，提醒你先自貼對應 <code>/plugin</code> 指令</div></div>
-<div class="note warn"><strong>profile 定義在 <code>~/.claude/plugin-profiles.json</code></strong>：要新增/改組合，編輯該檔即可（每個 profile 是一組 <code>enable</code> 的 plugin 清單，名稱格式 <code>name@marketplace</code>）。</div>
+<div class="ask">
+  <div class="q">問題①：這個專案要套哪個 plugin 組合（profile）？</div>
+  <div class="opt">minimal（最精簡，只留全域常駐）</div>
+  <div class="opt">dotnet（.NET 後端：C# LSP + .NET 工具 + 資安審查）</div>
+  <div class="opt">frontend（Vue/TS 前端：TS LSP + Figma + 瀏覽器自動化）</div>
+  <div class="opt">supplier（供應商平台組合）</div>
+  <div class="opt">full（全開）</div>
+  <div class="opt">自訂（我逐一勾選）</div>
+</div>
+<p class="muted">這些 profile 定義在 <code>~/.claude/plugin-profiles.json</code>，你可以自己編輯增減。</p>
 
-<h3 id="upgrade">子流程：<span class="cmd">/setup-plugins upgrade</span> — 專案同步到最新版</h3>
-<p>publish 只推 monorepo，<strong>不會自動更新已安裝該 plugin 的專案</strong>。<code>/setup-plugins upgrade</code> 幫你<strong>偵測</strong>「當前專案啟用的自製 plugin 是否落後 registry 最新版」，並列出要貼的更新指令。</p>
+<div class="ask">
+  <div class="q">問題②（若你登記過外部 plugin）：要不要一併啟用這些「別人做的」候選？</div>
+  <div class="opt">（列出你登記過的外部 plugin，讓你勾選）</div>
+</div>
+<p class="muted">沒登記過外部 plugin 的話，這題不會出現。</p>
 
-<h4>它會做什麼</h4>
-<div class="step"><div class="n">1</div><div class="body">讀本專案 <code>.claude/settings.json</code> 的 <code>enabledPlugins</code>，篩出屬於 <code>fulin-plugins</code> 的自製 plugin</div></div>
-<div class="step"><div class="n">2</div><div class="body">對照 registry 最新版，列出版本與 <code>dirty</code> 狀態（dirty = registry 最新版還沒 publish）</div></div>
-<div class="step"><div class="n">3</div><div class="body">給你要自貼的更新指令鏈：<code>/plugin marketplace update fulin-plugins</code> → <code>/plugin uninstall &lt;name&gt;@fulin-plugins</code> → <code>/plugin install &lt;name&gt;@fulin-plugins</code> → <code>/reload-plugins</code></div></div>
-<div class="note warn"><strong>沒有 <code>/plugin update</code> 這個指令</strong>：Claude Code 的 <code>/plugin</code> 沒有 update 子指令。更新一個已裝 plugin 的正解是先 <code>/plugin marketplace update</code> 刷新索引，再 <code>uninstall</code> + <code>install</code>（或在 <code>/plugin</code> 互動 UI 的 Marketplaces tab 開 <strong>Enable auto-update</strong>，下次啟動自動更新）。</div>
-<div class="note"><strong>只偵測不代更新</strong>：專案 settings 的 enabledPlugins 只存 <code>name@marketplace</code>、不帶版本號，且 <code>/plugin</code> 系列是互動指令 Claude 不能代執行。所以 upgrade 做「偵測 + 列出 + 給指令」，更新指令仍要你自己貼。</div>
+<h3>選完之後</h3>
+<p>Claude 把你的選擇寫進「這個專案目錄」的 <code>.claude/settings.json</code>（只影響這專案，不污染別的）。若有需要先裝的 plugin 或第三方來源，會給你要自己貼的 <code>/plugin</code> 指令。最後提醒你 <code>/reload-plugins</code> 生效。</p>
 
-<h3 id="external">子流程：登記/挑裝「別人做的」外部 plugin</h3>
-<p>plugin-manager 除了管你自製的 plugin，也能<strong>登記追蹤別人做的外部 plugin</strong>，起始設定時讓你一併挑裝。關鍵差異：外部 plugin <strong>只登記來源，不複製別人的程式碼進你的 monorepo</strong>（尊重它住在別人的 repo、跟著上游更新）。</p>
+<h3>子功能：<span class="cmd">/setup-plugins upgrade</span></h3>
+<p>當這專案啟用的自製 plugin 落後最新版時，這指令會偵測出來，並列出要貼的更新指令（先刷新、再 uninstall + install）。</p>
 
-<h4>登記一個外部候選</h4>
-<p>跟 Claude 說「登記外部 plugin」，它會跑：</p>
-<pre><code>node "$&#123;CLAUDE_PLUGIN_ROOT&#125;/scripts/register-external.js" &lt;name@marketplace&gt; &lt;source&gt; [note]</code></pre>
-<p>例如登記一個 .NET skills 包：</p>
-<pre><code>node ".../register-external.js" dotnet-skills@dotnet-skills "winbond-db00/dotnet-skills" ".NET 後端技能包"</code></pre>
-<p>這會寫進 <code>registry.externalCandidates</code>（只記 <code>marketplace</code> / <code>source</code> / <code>note</code>，<strong>不記版本</strong>——外部 plugin 的版本由其上游 marketplace 管）。移除用 <code>--remove &lt;name@marketplace&gt;</code>。</p>
+<h2 id="external">8. 蒐集別人做的 skill/plugin</h2>
+<p class="when">什麼時候用：你在網路上 / GitHub 看到別人做的好用 plugin，想「記下來」，之後在 <code>/setup-plugins</code> 時能挑著裝。</p>
+<div class="note">重點：plugin-manager <strong>只幫你記下「來源 + 備註」當候選清單，不會把別人的程式碼複製進你的 repo</strong>——別人的 plugin 永遠住在別人的 repo，跟著他們更新。</div>
 
-<h4>起始時挑裝</h4>
-<p>跑 <code>/setup-plugins</code> 時，若 <code>externalCandidates</code> 有內容，會在選完 profile 後<strong>列出外部候選讓你勾選</strong>要不要一併啟用。挑中的會併進 <code>enabledPlugins</code>，並附上要自貼的安裝指令：</p>
-<pre><code><span class="cmd">/plugin marketplace add &lt;source&gt;</span>
+<h3>怎麼登記一個外部 plugin</h3>
+<p>直接跟 Claude 說，例如：</p>
+<pre><code>登記外部 plugin：dotnet-skills@dotnet-skills，
+來源 winbond-db00/dotnet-skills，備註 .NET 後端技能包</code></pre>
+<p>Claude 會幫你記進候選清單（<code>registry.externalCandidates</code>）。要移除就說「移除外部候選 dotnet-skills@dotnet-skills」。</p>
+
+<h3>登記後怎麼裝</h3>
+<p>下次你跑 <code>/setup-plugins</code>，選完 profile 後會多問你一題「要不要啟用這些外部候選」（上面問題②）。勾了之後，Claude 會給你要自己貼的安裝指令：</p>
+<pre><code><span class="cmd">/plugin marketplace add &lt;來源&gt;</span>
 <span class="cmd">/plugin install &lt;name@marketplace&gt;</span>
 <span class="cmd">/reload-plugins</span></code></pre>
-<div class="note"><strong>selfMade vs externalCandidates</strong>：前者是你自製、真身在 monorepo、你發布；後者只是「別人 plugin 的書籤 + 安裝指令產生器」，程式碼永遠在別人的 repo。</div>
 
-<h2 id="registry">8. registry — 集中狀態</h2>
-<p>位置：<code>~/.claude/plugin-manager/</code></p>
-<table>
-  <tr><th>檔案</th><th>記什麼</th></tr>
-  <tr><td><code>config.json</code></td><td>你的 owner 名、monorepo 路徑、GitHub repo、預設分支</td></tr>
-  <tr><td><code>registry.json</code></td><td><code>selfMade</code>：你所有自製 plugin + 版本 + 是否 dirty（由 adopt/bump/publish-finalize 維護）。<code>externalCandidates</code>：別人做的外部 plugin 候選（來源 + 備註，由 <code>register-external.js</code> 登記，見第 7 章子流程）</td></tr>
-</table>
-<p class="muted">範本帶在 plugin 內（<code>templates/</code>），首次使用時複製到家目錄。這設計讓 plugin 升級不會覆蓋你的實際狀態，也讓別人裝走後能初始化成自己的 repo。</p>
+<h2 id="faq">9. 常見問題</h2>
 
-<h2 id="example">9. 完整實例：git-commit 納管全紀錄</h2>
-<p>這是本系統<strong>真實跑過</strong>的一次完整操作（把供應商平台的 git-commit skill 納管）：</p>
-<pre><code><span class="muted"># 1. 在 Supplier_Code 工作目錄，把 git-commit skill 納管</span>
-<span class="cmd">/plugin-manager:adopt git-commit</span>
-  ✓ 已 move skill 真身進 monorepo
-  ✓ 已建 plugin.json
-  ✓ 已加入 marketplace.json
-  ✓ 已建 symlink（junction）回原專案
-  ✓ 已更新 registry
+<h3>Q：為什麼 Claude 不直接幫我裝 plugin，要我自己貼指令？</h3>
+<p><code>/plugin install</code>、<code>/plugin marketplace add</code>、<code>/reload-plugins</code> 都是 Claude Code 的「互動指令」，只能由你在輸入框親自打。plugin-manager 只負責「把設定寫好 + 把要貼的指令給你」。</p>
 
-<span class="muted"># 2. 結果：Supplier_Code 的 git-commit 變成 symlink</span>
-.claude/skills/git-commit -> .../fulin-claude-plugins/plugins/git-commit/skills/git-commit/
-
-<span class="muted"># 3. 一鍵發布</span>
-<span class="cmd">/plugin-manager:publish</span>
-  → 改動的 plugin: git-commit
-  → git add -A → commit → push
-  ✓ pushed to abs1294/fulin-claude-plugins</code></pre>
-<div class="note"><strong>實證</strong>：納管後在 Supplier_Code 改 git-commit = 改 monorepo 那份（同一份真身），而 Supplier_Code 照常能用這個 skill。</div>
-
-<h2 id="limits">10. 限制與注意事項</h2>
-<div class="note danger"><strong>Claude 不能代執行 <code>/plugin</code> 系列</strong>：install、marketplace add、reload-plugins 都是互動指令，必須你自己在輸入框貼。plugin-manager 只負責「寫好設定 + git 操作 + 給你要貼的指令」。</div>
-<div class="note warn"><strong>Windows symlink 權限</strong>：adopt 用 junction → dir symlink fallback。若都失敗會回報「真身已在 monorepo，但原位置未連結」，需手動處理。</div>
-<div class="note warn"><strong>敏感內容</strong>：adopt 會把整個 skill 目錄搬進 monorepo 並可被 publish。<strong>納管前確認該 skill 沒有不該公開的東西</strong>（路徑、帳號、auth bypass 位置等）。若有敏感內容，確保 repo 是 private。</div>
-<div class="note"><strong>publish 不會自動更新已安裝的專案</strong>：推上去後，已裝該 plugin 的其他專案需各自刷新（<code>/plugin marketplace update fulin-plugins</code> → <code>uninstall</code> + <code>install</code>，或開 auto-update）。<strong>注意：Claude Code 沒有 <code>/plugin update</code> 子指令。</strong></div>
-
-<h2 id="faq">11. 常見問題</h2>
-<h3>Q：第一次 publish 為什麼要手動破冰？</h3>
-<p>因為要用 plugin-manager 發布它自己，但它還沒裝起來（雞生蛋）。所以「管理器自己」的第一次發布是手動 git push，之後才用 <code>/plugin-manager:publish</code>。</p>
+<h3>Q：要更新一個已裝的 plugin，是不是 <code>/plugin update</code>？</h3>
+<p><strong>沒有 <code>/plugin update</code> 這個指令。</strong>更新的正確做法：<code>/plugin marketplace update fulin-plugins</code> 刷新 → <code>/plugin uninstall &lt;name&gt;@fulin-plugins</code> 再 <code>/plugin install &lt;name&gt;@fulin-plugins</code> 重裝（或在 <code>/plugin</code> 介面開 Enable auto-update 自動更新）。</p>
 
 <h3>Q：adopt 後我在原專案改 skill，要重新 adopt 嗎？</h3>
-<p>不用。move+symlink 之後，原專案那份是 symlink，改它就是改 monorepo 真身。直接 <code>/plugin-manager:publish</code> 推就好。</p>
+<p>不用。原專案那份和受管那份是<strong>同一份檔</strong>，改哪邊都一樣。改完直接 <code>/plugin-manager:publish</code> 推就好。</p>
+
+<h3>Q：我改完 skill，但別的專案沒拿到更新？</h3>
+<p>publish 只推上 GitHub，不會自動更新已裝的專案。要其他專案拿到新版，請在那專案刷新 + 重裝（見上一題），或開 auto-update。</p>
 
 <h3>Q：能分享給別人用嗎？</h3>
-<p>能。整套（skills + registry 範本）就是一個普通 plugin。別人 install 後，跑初始化指定他自己的 monorepo / repo / owner（registry 存家目錄、不寫死你的）。</p>
+<p>能。整套就是個普通 plugin，別人 install 後跑初始化，指定他自己的 repo/owner 即可（狀態存在各自家目錄，不會寫死你的）。</p>
 
-<h3>Q：registry 會被 plugin 更新弄丟嗎？</h3>
-<p>不會。registry 實體在 <code>~/.claude/plugin-manager/</code>（家目錄），plugin 內只帶範本。更新 plugin 不碰你的家目錄狀態。</p>
+<h2 id="advanced">10. 進階：背後怎麼運作</h2>
+<p class="muted">以下是內部機制，<strong>純好奇才需要看</strong>，日常使用完全不必懂。</p>
+
+<details>
+<summary>① 一個 monorepo 管全部（解決「一 plugin 一 repo」）</summary>
+<p>官方常見做法是「一個 plugin = 一個 git repo」，500 個 plugin 就 500 個 repo。plugin-manager 把所有自製 plugin 收進<strong>同一個 monorepo</strong>，永遠只有 1 個 repo 要維護。</p>
+<pre><code>fulin-claude-plugins/                  <span class="muted"># 一個 git repo</span>
+├── .claude-plugin/marketplace.json    <span class="muted"># 一個 marketplace</span>
+└── plugins/
+    ├── plugin-manager/                <span class="muted"># 管理器自己</span>
+    ├── git-commit/  delaylocal/  qa-webwright/</code></pre>
+</details>
+
+<details>
+<summary>② move + symlink（為什麼「真身只有一份」）</summary>
+<p>adopt 時，把 skill 真身從專案 <strong>move</strong> 進 monorepo，原專案位置改成 <strong>symlink</strong> 指回去。</p>
+<div class="flow">
+  <span class="box">專案/.claude/skills/X（真身）</span>
+  <span class="arr">→ move →</span>
+  <span class="box">monorepo/plugins/X/...（真身搬這）</span>
+  <span class="arr">→ 原地建 →</span>
+  <span class="box">symlink 指回</span>
+</div>
+<p>所以你在原專案看到的是捷徑，改它就是改 monorepo 那份——同一份檔，不會不同步。</p>
+</details>
+
+<details>
+<summary>③ registry（集中狀態存哪）</summary>
+<p>狀態存在家目錄 <code>~/.claude/plugin-manager/</code>（<strong>不在 plugin 內</strong>，所以 plugin 更新不會覆蓋）：</p>
+<ul>
+  <li><code>config.json</code>：owner、monorepo 路徑、GitHub repo。</li>
+  <li><code>registry.json</code> 的 <code>selfMade</code>：你自製的 plugin（版本、改了沒推）。</li>
+  <li><code>registry.json</code> 的 <code>externalCandidates</code>：你登記的「別人做的」外部 plugin（只記來源+備註）。</li>
+</ul>
+</details>
+
+<details>
+<summary>④ 每個指令在背後實際做的事</summary>
+<ul>
+  <li><strong>adopt</strong>：move 真身 → 建 plugin.json → 更新 marketplace.json → 建 symlink → 更新 registry。</li>
+  <li><strong>update</strong>：算新版號 → 寫回 plugin.json 的 version → 同步 registry。</li>
+  <li><strong>publish</strong>：git add → commit（heredoc 防注入）→ push → 清掉 registry 的「未推」標記。</li>
+  <li><strong>setup-plugins</strong>：讀 profile/外部候選 → 合併進專案 settings.json 的 enabledPlugins。</li>
+</ul>
+<p class="muted">完整工作規範見 monorepo 的 <code>plugins/plugin-manager/CONVENTIONS.md</code>。</p>
+</details>
 
 <footer>
   plugin-manager v0.6.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
-  指令：adopt（納管）/ update（改版）/ publish（發布）/ setup-plugins（選 plugin 組合，含 upgrade 同步）。
+  指令：adopt（收編）/ update（升版）/ publish（發布）/ setup-plugins（選 plugin，含外部候選與 upgrade）。
 </footer>
 
 </div>
