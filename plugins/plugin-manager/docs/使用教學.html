@@ -67,7 +67,7 @@
   <h1>🧩 plugin-manager 使用教學</h1>
   <div class="sub">把你所有自製 Claude Code plugin 集中在一個地方管理，並能挑裝別人做的 plugin。</div>
   <span class="pill">fulin-plugins</span>
-  <span class="pill">v0.7.0</span>
+  <span class="pill">v0.8.0</span>
   <span class="pill">private repo: abs1294/fulin-claude-plugins</span>
 </header>
 
@@ -103,6 +103,12 @@
 <span class="cmd">/plugin install plugin-manager@fulin-plugins</span>
 <span class="cmd">/reload-plugins</span></code></pre>
 <div class="note">裝好後，<code>/plugin-manager:adopt</code>、<code>:update</code>、<code>:publish</code> 與 <code>/setup-plugins</code> 就能用了。</div>
+
+<h3>首次初始化（只做一次）</h3>
+<p>第一次用之前，要先建一份個人設定（告訴 plugin-manager 你的 monorepo 在哪）。跑一次 init 即可：</p>
+<pre><code>node "&lt;你 clone 的 repo&gt;/plugins/plugin-manager/scripts/init.js" &lt;owner&gt; &lt;github-owner/repo&gt;</code></pre>
+<p>例如：<code>node ".../scripts/init.js" fulin abs1294/fulin-claude-plugins</code>。monorepo 路徑會自動偵測（從腳本位置回推），不必手填；要指定可加第三個參數。它會在 <code>~/.claude/plugin-manager/</code> 建好 <code>config.json</code> 與 <code>registry.json</code>（已存在不覆蓋）。</p>
+<div class="note"><strong>為什麼要這步</strong>：所有指令都靠 <code>~/.claude/plugin-manager/config.json</code> 找到你的 monorepo。這是個固定路徑的錨點——所以你之後在<strong>任何專案、任何 session</strong> 說「推薦外部 plugin」「adopt 某 skill」，Claude 都能從這個錨點查到該寫去哪，不必每次告訴它路徑。沒這份 config 的話指令會提示你先 init。</div>
 
 <h2 id="cheatsheet">3. 指令速查表</h2>
 <table>
@@ -261,7 +267,7 @@
 </details>
 
 <footer>
-  plugin-manager v0.7.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
+  plugin-manager v0.8.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
   指令：adopt（收編）/ update（升版）/ publish（發布）/ setup-plugins（選 plugin，含外部推薦與 upgrade）。
 </footer>
 

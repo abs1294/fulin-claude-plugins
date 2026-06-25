@@ -42,6 +42,14 @@ fulin 的自製 Claude Code plugin monorepo。核心是 **plugin-manager**——
 
 裝好後 `/plugin-manager:adopt`、`:update`、`:publish`、`/setup-plugins` 就會出現。其他 plugin（見下）依需要再各自 `/plugin install`。
 
+**首次初始化（只做一次）**：所有指令靠 `~/.claude/plugin-manager/config.json` 定位你的 monorepo，第一次要先建好：
+
+```bash
+node "<你 clone 的 repo>/plugins/plugin-manager/scripts/init.js" <owner> <github-owner/repo>
+```
+
+monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建好 `config.json` + `registry.json`（已存在不覆蓋）。這個固定路徑的 config 就是「任何 session、任何專案」都能定位 monorepo 的錨點。
+
 > Claude Code **沒有** `/plugin update` 子指令。更新已裝 plugin 的正解：`/plugin marketplace update fulin-plugins` 刷新 → `/plugin uninstall <name>@fulin-plugins` + `/plugin install <name>@fulin-plugins` 重裝（或在 `/plugin` UI 開 Enable auto-update）。
 
 **前置依賴**：plugin-manager 需 Node.js；狀態存本機 `~/.claude/plugin-manager/`（`config.json` + `registry.json`，不進 plugin、不進 git）。
@@ -67,7 +75,7 @@ fulin 的自製 Claude Code plugin monorepo。核心是 **plugin-manager**——
 plugins/
 ├─ plugin-manager/                   ⭐ 主角：自製 plugin 集中管理器
 │   ├─ skills/      adopt · update · publish · setup-plugins
-│   ├─ scripts/     adopt · bump-version · upgrade-check · publish-status · publish-finalize · register-external
+│   ├─ scripts/     init · adopt · bump-version · upgrade-check · publish-status · publish-finalize · register-external
 │   ├─ docs/        使用教學.html
 │   └─ CONVENTIONS.md
 ├─ git-commit/                       並行審查 Git Commit 流程

@@ -1,5 +1,5 @@
 {
-  "_comment": "plugin-manager 的使用者設定範本。首次使用時由 init 複製到 ~/.claude/plugin-manager/config.json 並填入你自己的值。不要直接改這個範本。",
+  "_comment": "plugin-manager 的使用者設定範本。首次使用時跑 scripts/init.js 會據此在 ~/.claude/plugin-manager/config.json 建好並填入你的值（owner/monorepo/repo）。不要直接改這個範本，也不必手編 config——用 init.js。",
   "owner": "<your-owner-name>",
   "monorepo": "<absolute-path-to-your-monorepo>",
   "repo": "<github-owner>/<repo-name>",
