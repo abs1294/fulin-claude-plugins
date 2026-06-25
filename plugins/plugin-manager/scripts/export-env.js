@@ -7,14 +7,15 @@
  *   - ~/.claude/plugins/installed_plugins.json：每個已裝 plugin 的版本/scope
  *   - ~/.claude/settings.json：user 層 enabledPlugins（哪些啟用）
  *
- * 產出：env-snapshot.json（預設寫到 monorepo 根，隨 repo 可攜；可用參數改路徑）。
- *   內含：marketplaces[name→repo]、plugins[name@mkt→{version,enabled,scope}]。
+ * 產出：env-snapshot.json（預設寫到 plugin 內 plugins/plugin-manager/，隨 git/publish；可用參數改路徑）。
+ *   放 plugin 內的用意：新機 /plugin install plugin-manager 時快照進 cache，restore 從 CLAUDE_PLUGIN_ROOT 讀得到。
+ *   內含：marketplaces[name→repo]、plugins[name@mkt→{version,enabled,scopes}]。
  *   restore-env.js 吃這份快照產生 marketplace add / install 指令鏈。
  *
  * 注意：本腳本只「讀狀態 + 寫一份 JSON」，不碰 /plugin、不裝任何東西。
  *
  * 用法：node export-env.js [outputPath]
- *   outputPath：（可選）快照輸出路徑；省略寫到 <monorepo>/env-snapshot.json。
+ *   outputPath：（可選）快照輸出路徑；省略寫到 <monorepo>/plugins/plugin-manager/env-snapshot.json。
  */
 const fs = require('fs');
 const path = require('path');
@@ -83,17 +84,21 @@ const snapshot = {
 // 移除 undefined 欄
 delete snapshot.exportedFromHost;
 
-// 輸出路徑：參數優先，否則 monorepo 根（從 config 讀）
+// 輸出路徑：參數優先，否則寫進「plugin 內」plugins/plugin-manager/env-snapshot.json。
+// 為什麼放 plugin 內：它隨 git/publish 走，新機 /plugin install plugin-manager 時快照就進 cache，
+// clone-env skill 從 CLAUDE_PLUGIN_ROOT 讀得到——免手動帶檔。
+// （快照 export 完即 publish，權威版本就是 git 那版；cache 被 install/update 更新成 git 版正是要的。）
 let outPath = process.argv[2];
 if (!outPath) {
   const configPath = path.join(HOME, '.claude', 'plugin-manager', 'config.json');
   if (fs.existsSync(configPath)) {
     const cfg = readJson(configPath, 'config.json');
-    if (cfg.monorepo) outPath = path.join(cfg.monorepo, 'env-snapshot.json');
+    if (cfg.monorepo) outPath = path.join(cfg.monorepo, 'plugins', 'plugin-manager', 'env-snapshot.json');
   }
   if (!outPath) outPath = path.join(process.cwd(), 'env-snapshot.json');
 }
 
+fs.mkdirSync(path.dirname(outPath), { recursive: true }); // 確保輸出目錄存在，否則 writeFileSync 會 ENOENT
 fs.writeFileSync(outPath, JSON.stringify(snapshot, null, 2) + '\n');
 
 const mktCount = Object.keys(marketplaces).length;
@@ -102,5 +107,7 @@ const enabledCount = Object.values(plugins).filter(p => p.enabled).length;
 console.log('== export-env ==');
 console.log('  marketplaces : ' + mktCount);
 console.log('  plugins      : ' + pluginCount + '（啟用 ' + enabledCount + '）');
-console.log('  → 快照已寫到：' + outPath);
-console.log('\n下一步：在別台機器/別專案用 restore-env.js 吃這份快照產生復現指令。');
+console.log('  → 快照已寫到：' + outPath + '（在 plugin 內、隨 git）');
+console.log('\n下一步：');
+console.log('  1. /plugin-manager:publish 把快照推上去（新機 install plugin-manager 才帶得到）。');
+console.log('  2. 新機裝好 plugin-manager 後說「復現環境」，restore 會從快照產生安裝清單。');

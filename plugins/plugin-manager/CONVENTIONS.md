@@ -74,7 +74,8 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 
 ## 環境快照 / 復現（export-env / restore-env）
 
-- `scripts/export-env.js`：讀 Claude Code 官方記錄（`~/.claude/plugins/known_marketplaces.json` + `installed_plugins.json` + settings 的 enabledPlugins）產出 `env-snapshot.json`（marketplaces 來源 + plugins 版本/scope/啟用）。
-- `scripts/restore-env.js`：吃快照產生「在新環境要自己貼的」`marketplace add` + `install` 指令鏈（Claude 不能代執行 /plugin）。`--enabled-only` 只列啟用中的（同機換專案用）。
+- `scripts/export-env.js`：讀 Claude Code 官方記錄（`~/.claude/plugins/known_marketplaces.json` + `installed_plugins.json` + settings 的 enabledPlugins）產出 `env-snapshot.json`，**預設寫進 plugin 內** `plugins/plugin-manager/env-snapshot.json`（隨 git/publish）。
+- **為什麼快照放 plugin 內（與 registry 相反）**：registry 是「本機未推的變動狀態」，被 cache 覆蓋會丟資料故存家目錄；快照則是「export 完即 publish、權威版本就是 git 那版」，放 plugin 內隨 git 走——新機 `/plugin install plugin-manager` 時快照進 cache，restore 從 `CLAUDE_PLUGIN_ROOT` 讀得到，免手動帶檔。cache 被 install/update 更新成 git 版正是要的（不是 bug）。
+- `scripts/restore-env.js`：吃快照產生「在新環境要自己貼的」`marketplace add` + `install` 指令鏈（Claude 不能代執行 /plugin）。`--enabled-only` 只列啟用中的（同機換專案用）。找快照順序：參數 > `CLAUDE_PLUGIN_ROOT` > monorepo 內 plugin 目錄 > cwd。
 - 涵蓋自製 + 第三方 plugin（真正的「一模一樣」）；但第三方能否裝起來取決於其上游 marketplace 是否可及，自製的（在本 repo）一定可裝。
-- env-snapshot.json 含「你啟用了哪些 plugin」——若不想讓這份隨 repo 外流，輸出時改用參數指定 monorepo 外的路徑。
+- env-snapshot.json 含「你啟用了哪些 plugin」且隨 repo 進 git——repo 是 PRIVATE 故只自己看得到（換新機自用的場景合理）。若要散佈給別人或不想入 git，export 時用參數指定 monorepo 外的路徑。

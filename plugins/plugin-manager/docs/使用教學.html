@@ -67,7 +67,7 @@
   <h1>🧩 plugin-manager 使用教學</h1>
   <div class="sub">把你所有自製 Claude Code plugin 集中在一個地方管理，並能挑裝別人做的 plugin。</div>
   <span class="pill">fulin-plugins</span>
-  <span class="pill">v0.11.0</span>
+  <span class="pill">v0.12.0</span>
   <span class="pill">private repo: abs1294/fulin-claude-plugins</span>
 </header>
 
@@ -214,21 +214,17 @@
 <p class="when">什麼時候用：換了新電腦、或想在另一個專案/同事機器上，重現你慣用的整套 plugin 組合（含第三方的 figma/codex/claude-mem 與你自製的）。</p>
 <p>這是個 skill——<strong>跟 Claude 說「複製我的環境到新機器」「擷取環境快照」「環境復現」就會觸發</strong>，跟 adopt 一樣不必記指令。Claude 幫你跑擷取/產生，最後安裝那幾步你自己貼。</p>
 
-<h3>第一步：在原環境擷取快照</h3>
-<p>跟 Claude 說：<strong>「擷取我的 plugin 環境快照」</strong>。Claude 會把「有哪些 marketplace、哪些 plugin、各自版本與啟用狀態」存成一份 <code>env-snapshot.json</code>（讀的是 Claude Code 自己維護的記錄，不是亂猜）。</p>
-<p class="muted">（背後 Claude 跑的是 <code>export-env.js</code>，你不必自己打指令。）</p>
+<h3>📋 複製（在舊機器）</h3>
+<p>跟 Claude 說 <strong>「擷取我的環境快照」</strong>。Claude 會把「有哪些 marketplace、哪些 plugin、版本與啟用狀態」存成 <code>env-snapshot.json</code>，<strong>寫進 plugin 內（隨 git）</strong>，並提醒你 <code>/plugin-manager:publish</code> 推上去。</p>
+<p class="muted">（背後跑 export-env.js，你不必自己打。快照進 git 後，新機裝 plugin-manager 就會把它一起帶過去。）</p>
 
-<h3>第二步：在新環境產生復現指令</h3>
-<p>跟 Claude 說 <strong>「產生環境復現指令」</strong>（新機器全複製）或 <strong>「只列我啟用中的 plugin 復現指令」</strong>（同機換專案）。Claude 會印出一串<strong>你要自己貼</strong>的指令——因為最後實際安裝那幾步（<code>/plugin</code> 系列）是 Claude Code 的互動指令，<strong>只能你親自貼，Claude 代執行不了</strong>：</p>
-<p class="muted">（背後 Claude 跑 <code>restore-env.js</code>；它只「列出」指令，不自己裝。）</p>
-<pre><code><span class="muted"># 自製 monorepo 先 clone + init（新機器才需要）</span>
-git clone https://github.com/&lt;你的 repo&gt;.git
-node ".../scripts/init.js" &lt;owner&gt; &lt;repo&gt;
-<span class="muted"># 然後逐行貼：</span>
-<span class="cmd">/plugin marketplace add &lt;每個來源&gt;</span>
-<span class="cmd">/plugin install &lt;每個 plugin&gt;</span>
-<span class="cmd">/reload-plugins</span></code></pre>
-<div class="note"><strong>兩種情境一套機制</strong>：全複製（新機器）跑不加參數的；同機換專案用 <code>--enabled-only</code> 只列啟用中的，再配合 <code>/setup-plugins</code> 寫進該專案。</div>
+<h3>📌 貼上（在新機器）</h3>
+<p>新機器照這個順序（前兩步是 bootstrap，要自己來；之後就自然語言）：</p>
+<div class="step"><div class="n">1</div><div class="body">先裝管理器本身：<code>/plugin marketplace add &lt;你的 repo&gt;</code> → <code>/plugin install plugin-manager@&lt;marketplace&gt;</code>（這步把含快照的 plugin 帶進來）+ <code>git clone</code> 你的 monorepo + 跑一次 <code>node init.js</code></div></div>
+<div class="step"><div class="n">2</div><div class="body">跟 Claude 說 <strong>「復現環境」</strong>→ Claude 從帶過來的快照產生其餘 plugin 的安裝清單</div></div>
+<div class="step"><div class="n">3</div><div class="body">逐行貼那串（Claude 代執行不了 /plugin）：<br>
+<code class="cmd">/plugin marketplace add &lt;每個來源&gt;</code> → <code class="cmd">/plugin install &lt;每個 plugin&gt;</code> → <code class="cmd">/reload-plugins</code></div></div>
+<div class="note"><strong>同機換專案</strong>：說「只列啟用中的復現指令」（<code>--enabled-only</code>），再配 <code>/setup-plugins</code> 寫進該專案——不必重裝、只調該專案啟用哪些。</div>
 <div class="note warn"><strong>第三方 plugin 能不能裝，看對方 marketplace</strong>：restore 只給你 <code>marketplace add</code> 指令，實際裝得起來要那個來源還在、且你有權限（有些要登入/授權）。你的自製 plugin（在你 repo）則一定裝得起來。</div>
 
 <h2 id="faq">10. 常見問題</h2>
@@ -296,7 +292,7 @@ node ".../scripts/init.js" &lt;owner&gt; &lt;repo&gt;
 </details>
 
 <footer>
-  plugin-manager v0.11.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
+  plugin-manager v0.12.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
   指令：adopt（收編）/ update（升版）/ publish（發布）/ setup-plugins（選 plugin，含外部推薦與 upgrade）。
 </footer>
 

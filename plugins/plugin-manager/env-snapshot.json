@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "marketplaces": {
+    "claude-plugins-official": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official",
+      "isCustom": false
+    },
+    "claude-reflect-marketplace": {
+      "source": "github",
+      "repo": "bayramannakov/claude-reflect",
+      "isCustom": false
+    },
+    "anthropic-agent-skills": {
+      "source": "github",
+      "repo": "anthropics/skills",
+      "isCustom": false
+    },
+    "openai-codex": {
+      "source": "github",
+      "repo": "openai/codex-plugin-cc",
+      "isCustom": false
+    },
+    "thedotmack": {
+      "source": "github",
+      "repo": "thedotmack/claude-mem",
+      "isCustom": false
+    },
+    "webwright": {
+      "source": "github",
+      "repo": "microsoft/Webwright",
+      "isCustom": false
+    },
+    "fulin-plugins": {
+      "source": "github",
+      "repo": "abs1294/fulin-claude-plugins",
+      "isCustom": true
+    }
+  },
+  "plugins": {
+    "claude-reflect@claude-reflect-marketplace": {
+      "version": "3.0.1",
+      "scopes": [
+        "user"
+      ],
+      "enabled": false
+    },
+    "example-skills@anthropic-agent-skills": {
+      "version": "575462609294",
+      "scopes": [
+        "user"
+      ],
+      "enabled": true
+    },
+    "figma@claude-plugins-official": {
+      "version": "2.2.68",
+      "scopes": [
+        "user"
+      ],
+      "enabled": false
+    },
+    "document-skills@anthropic-agent-skills": {
+      "version": "575462609294",
+      "scopes": [
+        "user"
+      ],
+      "enabled": false
+    },
+    "code-simplifier@claude-plugins-official": {
+      "version": "1.0.0",
+      "scopes": [
+        "project"
+      ],
+      "enabled": false
+    },
+    "codex@openai-codex": {
+      "version": "1.0.3",
+      "scopes": [
+        "user"
+      ],
+      "enabled": true
+    },
+    "gopls-lsp@claude-plugins-official": {
+      "version": "1.0.0",
+      "scopes": [
+        "user"
+      ],
+      "enabled": false
+    },
+    "claude-mem@thedotmack": {
+      "version": "13.2.0",
+      "scopes": [
+        "user"
+      ],
+      "enabled": true
+    },
+    "webwright@webwright": {
+      "version": "0.1.0",
+      "scopes": [
+        "user"
+      ],
+      "enabled": false
+    },
+    "plugin-manager@fulin-plugins": {
+      "version": "0.11.0",
+      "scopes": [
+        "user"
+      ],
+      "enabled": true
+    },
+    "git-commit@fulin-plugins": {
+      "version": "0.1.1",
+      "scopes": [
+        "project"
+      ],
+      "enabled": false
+    },
+    "qa-webwright@fulin-plugins": {
+      "version": "0.1.0",
+      "scopes": [
+        "project"
+      ],
+      "enabled": false
+    }
+  }
+}

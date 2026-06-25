@@ -13,7 +13,7 @@
  *   marketplace add 才指得到。
  *
  * 用法：node restore-env.js [snapshotPath] [--enabled-only]
- *   snapshotPath  : 快照檔；省略找 <monorepo>/env-snapshot.json 或 cwd/env-snapshot.json。
+ *   snapshotPath  : 快照檔；省略依序找 CLAUDE_PLUGIN_ROOT > 本 plugin 目錄 > monorepo/plugins/plugin-manager > cwd。
  *   --enabled-only: 只輸出快照裡 enabled=true 的 plugin（同機換專案常用）。
  */
 const fs = require('fs');
@@ -30,18 +30,22 @@ const args = process.argv.slice(2);
 const enabledOnly = args.includes('--enabled-only');
 let snapPath = args.find(a => !a.startsWith('--'));
 
+// 找快照順序：參數 > 同 plugin 目錄（CLAUDE_PLUGIN_ROOT，新機從 cache 讀的關鍵）
+// > monorepo 內 plugins/plugin-manager（開發機）> cwd。
 if (!snapPath) {
+  const candidates = [];
+  if (process.env.CLAUDE_PLUGIN_ROOT) candidates.push(path.join(process.env.CLAUDE_PLUGIN_ROOT, 'env-snapshot.json'));
+  // 本腳本所在 plugin 目錄（__dirname = .../plugin-manager/scripts → 上一層）
+  candidates.push(path.join(__dirname, '..', 'env-snapshot.json'));
   const HOME = os.homedir();
   const configPath = path.join(HOME, '.claude', 'plugin-manager', 'config.json');
   if (fs.existsSync(configPath)) {
-    const cfg = readJson(configPath, 'config.json');
-    if (cfg.monorepo && fs.existsSync(path.join(cfg.monorepo, 'env-snapshot.json'))) {
-      snapPath = path.join(cfg.monorepo, 'env-snapshot.json');
-    }
+    try { const cfg = readJson(configPath, 'config.json'); if (cfg.monorepo) candidates.push(path.join(cfg.monorepo, 'plugins', 'plugin-manager', 'env-snapshot.json')); } catch (e) { /* 略 */ }
   }
-  if (!snapPath) snapPath = path.join(process.cwd(), 'env-snapshot.json');
+  candidates.push(path.join(process.cwd(), 'env-snapshot.json'));
+  snapPath = candidates.find(p => fs.existsSync(p)) || candidates[0];
 }
-if (!fs.existsSync(snapPath)) die('找不到快照：' + snapPath + '（先在原環境跑 export-env.js）');
+if (!fs.existsSync(snapPath)) die('找不到快照：' + snapPath + '（先在原環境說「擷取環境快照」並 publish，新機 install plugin-manager 才會帶到快照）');
 
 const snap = readJson(snapPath, 'env-snapshot.json');
 const marketplaces = snap.marketplaces || {};
