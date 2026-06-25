@@ -10,26 +10,19 @@ fulin 的自製 Claude Code plugin monorepo。核心是 **plugin-manager**——
 
 **plugin-manager 的解法**：所有自製 plugin 全收進**同一個 monorepo**（就是本 repo 的 `plugins/`），永遠只有 **1 個 repo** 要維護。它再提供一套指令管理這些 plugin 的納管、版本、發布、與專案啟用。
 
-### 四個指令
+### 指令
 
 | 指令 | 做什麼 |
 |------|--------|
-| **`/plugin-manager:adopt`** | 把你在某專案 `.claude/skills/` 隨手寫的自製 skill，**搬進 monorepo**（move + 原位 symlink，真身永遠一份，零不同步） |
+| **`/plugin-manager:adopt`** | 把你在某專案 `.claude/skills/` 隨手寫的自製 skill，**搬進 monorepo**（move + 原位 symlink，真身永遠一份，零不同步）。agent 整包納管見 `scripts/adopt-agents.js` |
 | **`/plugin-manager:update`** | 改既有自製 plugin 後 **bump 版本號**（plugin.json + registry 同步），讓更新能被偵測 |
 | **`/plugin-manager:publish`** | **一鍵 commit + push 整個 monorepo**。不管改了 1 個還是 50 個 plugin，只推一次 |
 | **`/setup-plugins`** | 為「當前專案」**挑要啟用哪些 plugin**（profile / 自訂），寫進該目錄 settings（venv 概念，per-project 隔離）。含 `upgrade`（偵測落後版本）與**外部 plugin 推薦**（recommends.json，會推廣）/挑裝 |
+| **`/plugin-manager:clone-env`** | 把整套環境（marketplace + plugin + 啟用狀態，含自製與第三方）**擷取快照、在新機器/新專案復現**。說「複製我的環境」即觸發 |
 
-### 環境快照 / 復現
+### 環境快照 / 復現（`/plugin-manager:clone-env`）
 
-把整套 plugin 環境（哪些 marketplace、哪些 plugin、啟用狀態）擷取成快照，在新機器或新專案復現：
-
-```bash
-node ".../scripts/export-env.js"      # 擷取 → env-snapshot.json
-node ".../scripts/restore-env.js"               # 吃快照 → 產生「新機全複製」要貼的指令鏈
-node ".../scripts/restore-env.js --enabled-only" # 只列啟用中的（同機換專案常用）
-```
-
-restore 只「列出你要自己貼的 `/plugin marketplace add` + `install` 指令」（Claude 不能代執行 /plugin）；自製 monorepo 會提示先 clone + init。
+跟 Claude 說「複製我的環境」「環境復現」即觸發。Claude 幫你擷取快照（`export-env.js` → `env-snapshot.json`）並產生復現指令鏈（`restore-env.js`，`--enabled-only` 只列啟用中的）；最後實際安裝那幾步 `/plugin marketplace add` + `install` 由你自己貼（Claude 不能代執行 /plugin）。自製 monorepo 在新機器會提示先 clone + init。
 
 ### 核心概念
 
