@@ -17,15 +17,15 @@ fulin 的自製 Claude Code plugin monorepo。核心是 **plugin-manager**——
 | **`/plugin-manager:adopt`** | 把你在某專案 `.claude/skills/` 隨手寫的自製 skill，**搬進 monorepo**（move + 原位 symlink，真身永遠一份，零不同步） |
 | **`/plugin-manager:update`** | 改既有自製 plugin 後 **bump 版本號**（plugin.json + registry 同步），讓更新能被偵測 |
 | **`/plugin-manager:publish`** | **一鍵 commit + push 整個 monorepo**。不管改了 1 個還是 50 個 plugin，只推一次 |
-| **`/setup-plugins`** | 為「當前專案」**挑要啟用哪些 plugin**（profile / 自訂），寫進該目錄 settings（venv 概念，per-project 隔離）。含 `upgrade`（偵測落後版本）與**外部 plugin 候選**登記/挑裝 |
+| **`/setup-plugins`** | 為「當前專案」**挑要啟用哪些 plugin**（profile / 自訂），寫進該目錄 settings（venv 概念，per-project 隔離）。含 `upgrade`（偵測落後版本）與**外部 plugin 推薦**（recommends.json，會推廣）/挑裝 |
 
 ### 核心概念
 
 1. **monorepo（所有自製 plugin 的家）**：一個 repo、一個 marketplace、`plugins/` 底下放全部。
 2. **move + symlink（真身一份）**：adopt 把 skill 真身搬進 monorepo，原專案留 symlink 指回——改任一邊都是改同一份檔，永不打架。
-3. **集中 registry**（`~/.claude/plugin-manager/`，不進 plugin 內，更新不覆蓋）：
-   - `selfMade`：你自製的 plugin（版本 / dirty，由 adopt/bump/publish-finalize 維護）。
-   - `externalCandidates`：**別人做的**外部 plugin 候選（只記來源+備註，不複製別人程式碼進你的 repo），`/setup-plugins` 時可挑裝。
+3. **兩份清單，隱私分明**：
+   - **registry**（`~/.claude/plugin-manager/`，家目錄、**不進 git**）的 `selfMade`：你自製 plugin 的版本 / dirty（個人本機狀態，由 adopt/bump/publish-finalize 維護）。
+   - **recommends.json**（plugin 內、**進 git、會推廣**）：你精選的**別人做的**外部 plugin（只記來源/用途/tag，不複製別人程式碼）。別人裝你的 repo 就看到，`/setup-plugins` 時可挑裝。
 
 詳細教學（含完整實例）：**`plugins/plugin-manager/docs/使用教學.html`**
 工作規範（真身單一份、改 skill 必發布、commit message 註明 skill、版本號慣例、互動指令邊界）：**`plugins/plugin-manager/CONVENTIONS.md`**

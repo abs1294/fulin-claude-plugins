@@ -1,0 +1,5 @@
+{
+  "_comment": "外部 plugin 推薦清單範本。放在 plugin 內（plugins/plugin-manager/recommends.json），隨 monorepo 進 git、會被 publish 推廣——別人裝你的 repo 就看到你精選的外部 plugin。由 register-external.js 維護（不手編）。每筆：name@marketplace → { marketplace, source, note, tags }。",
+  "schemaVersion": 1,
+  "recommends": {}
+}

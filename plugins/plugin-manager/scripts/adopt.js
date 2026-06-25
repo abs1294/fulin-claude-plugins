@@ -58,7 +58,7 @@ if (!fs.existsSync(configPath)) die('找不到 config.json，請先初始化 plu
 const config = readJson(configPath, 'config.json');
 const registry = fs.existsSync(registryPath)
   ? readJson(registryPath, 'registry.json')
-  : { schemaVersion: 1, selfMade: {}, externalCandidates: {} };
+  : { schemaVersion: 1, selfMade: {} };
 
 const skillName = process.argv[2];
 const pluginName = process.argv[3] || skillName;

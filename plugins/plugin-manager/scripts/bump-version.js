@@ -38,7 +38,7 @@ if (!fs.existsSync(configPath)) die('找不到 config.json（~/.claude/plugin-ma
 const config = readJson(configPath, 'config.json');
 const registry = fs.existsSync(registryPath)
   ? readJson(registryPath, 'registry.json')
-  : { schemaVersion: 1, selfMade: {}, externalCandidates: {} };
+  : { schemaVersion: 1, selfMade: {} };
 
 const name = process.argv[2];
 const bump = (process.argv[3] || 'patch').toLowerCase();

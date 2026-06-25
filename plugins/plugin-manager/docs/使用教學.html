@@ -67,7 +67,7 @@
   <h1>🧩 plugin-manager 使用教學</h1>
   <div class="sub">把你所有自製 Claude Code plugin 集中在一個地方管理，並能挑裝別人做的 plugin。</div>
   <span class="pill">fulin-plugins</span>
-  <span class="pill">v0.6.0</span>
+  <span class="pill">v0.7.0</span>
   <span class="pill">private repo: abs1294/fulin-claude-plugins</span>
 </header>
 
@@ -93,7 +93,7 @@
   <tr><td>改完 skill 要手動 git 推上去很煩</td><td><code>/plugin-manager:publish</code> 一鍵推</td></tr>
   <tr><td>改了 skill 想發一個新版本給別的專案用</td><td><code>/plugin-manager:update</code> 升版號</td></tr>
   <tr><td>每個專案要用的 plugin 不一樣，不想全開</td><td><code>/setup-plugins</code> 按專案挑</td></tr>
-  <tr><td>看到別人做的好 plugin，想記下來、之後挑裝</td><td><code>/setup-plugins</code> 的外部候選功能</td></tr>
+  <tr><td>看到別人做的好 plugin，想推薦、之後挑裝（還能推廣給裝你 repo 的人）</td><td>跟 Claude 說「推薦外部 plugin」+ <code>/setup-plugins</code> 挑裝</td></tr>
 </table>
 <p class="muted">你不需要懂它背後怎麼運作就能用。想懂的話看最後一節「進階」。</p>
 
@@ -112,7 +112,7 @@
   <tr><td><code>/plugin-manager:publish</code></td><td>改了東西要推上 GitHub</td><td><code>/plugin-manager:publish</code></td></tr>
   <tr><td><code>/setup-plugins</code></td><td>設定「這個專案」要啟用哪些 plugin</td><td><code>/setup-plugins</code></td></tr>
   <tr><td><code>/setup-plugins upgrade</code></td><td>這專案的自製 plugin 想同步到最新版</td><td><code>/setup-plugins upgrade</code></td></tr>
-  <tr><td>（對話）「登記外部 plugin」</td><td>把別人的 plugin 記進候選清單</td><td>直接跟 Claude 說「登記外部 plugin …」</td></tr>
+  <tr><td>（對話）「推薦外部 plugin」</td><td>把別人的 plugin 記進推薦清單（會推廣）</td><td>直接跟 Claude 說「推薦外部 plugin …」</td></tr>
 </table>
 
 <h2 id="adopt">4. <span class="cmd">/plugin-manager:adopt</span> — 收編我自己寫的 skill</h2>
@@ -162,10 +162,11 @@
 <p class="muted">這些 profile 定義在 <code>~/.claude/plugin-profiles.json</code>，你可以自己編輯增減。</p>
 
 <div class="ask">
-  <div class="q">問題②（若你登記過外部 plugin）：要不要一併啟用這些「別人做的」候選？</div>
-  <div class="opt">（列出你登記過的外部 plugin，讓你勾選）</div>
+  <div class="q">問題②（固定會問）：要不要從推薦清單挑「別人做的」外部 plugin 來裝？</div>
+  <div class="opt">（列出推薦清單裡的 plugin，連同用途說明，讓你勾選）</div>
+  <div class="opt">推薦多時：先問「要哪個面向（tag）」→ 只列該 tag 的，免一長串勾</div>
 </div>
-<p class="muted">沒登記過外部 plugin 的話，這題不會出現。</p>
+<p class="muted">推薦清單為空時，這題仍會出現，順便告訴你「可以跟我說『推薦外部 plugin …』來加」。</p>
 
 <h3>選完之後</h3>
 <p>Claude 把你的選擇寫進「這個專案目錄」的 <code>.claude/settings.json</code>（只影響這專案，不污染別的）。若有需要先裝的 plugin 或第三方來源，會給你要自己貼的 <code>/plugin</code> 指令。最後提醒你 <code>/reload-plugins</code> 生效。</p>
@@ -173,18 +174,24 @@
 <h3>子功能：<span class="cmd">/setup-plugins upgrade</span></h3>
 <p>當這專案啟用的自製 plugin 落後最新版時，這指令會偵測出來，並列出要貼的更新指令（先刷新、再 uninstall + install）。</p>
 
-<h2 id="external">8. 蒐集別人做的 skill/plugin</h2>
-<p class="when">什麼時候用：你在網路上 / GitHub 看到別人做的好用 plugin，想「記下來」，之後在 <code>/setup-plugins</code> 時能挑著裝。</p>
-<div class="note">重點：plugin-manager <strong>只幫你記下「來源 + 備註」當候選清單，不會把別人的程式碼複製進你的 repo</strong>——別人的 plugin 永遠住在別人的 repo，跟著他們更新。</div>
+<h2 id="external">8. 推薦別人做的 skill/plugin（會推廣）</h2>
+<p class="when">什麼時候用：你在 GitHub 看到別人做的好用 plugin，想「精選收進你的推薦清單」——之後在 <code>/setup-plugins</code> 時能挑著裝，而且<strong>別人裝你的 repo 也會看到你推薦了什麼</strong>。</p>
+<div class="note">重點：只記下「<strong>來源 + 用途 + 標籤</strong>」，<strong>不會把別人的程式碼複製進你的 repo</strong>——別人的 plugin 永遠住在他們的 repo、跟著他們更新。你只是做一份「精選書籤」。</div>
+<div class="note warn"><strong>這份清單會被推廣</strong>：推薦寫進 <code>plugins/plugin-manager/recommends.json</code>（在 plugin 內、隨 repo 進 git）。<code>/plugin-manager:publish</code> 後，別人裝你的 repo 就看得到。<br>（對比：你自製 plugin 的本機狀態存在家目錄、不進 git、別人看不到。）</div>
 
-<h3>怎麼登記一個外部 plugin</h3>
+<h3>怎麼推薦一個外部 plugin</h3>
 <p>直接跟 Claude 說，例如：</p>
-<pre><code>登記外部 plugin：dotnet-skills@dotnet-skills，
-來源 winbond-db00/dotnet-skills，備註 .NET 後端技能包</code></pre>
-<p>Claude 會幫你記進候選清單（<code>registry.externalCandidates</code>）。要移除就說「移除外部候選 dotnet-skills@dotnet-skills」。</p>
+<pre><code>推薦外部 plugin：dotnet-skills@dotnet-skills，
+來源 winbond-db00/dotnet-skills，用途 .NET 後端技能包，tag backend,dotnet</code></pre>
+<ul>
+  <li><strong>用途（note）必填</strong>——之後翻清單時靠它認出這 plugin 是幹嘛的。</li>
+  <li><strong>tag 建議填</strong>——清單一多時，<code>/setup-plugins</code> 會先問你「要哪個面向」再只列該 tag 的，不必一長串勾選。</li>
+  <li>要移除就說「移除推薦 dotnet-skills@dotnet-skills」。</li>
+</ul>
+<div class="note"><strong>登記 ≠ 安裝</strong>：推薦只是記一筆書籤（連那個 plugin 存不存在都不檢查），<strong>不會真的裝</strong>。真正安裝是下面那步、要你自己貼。</div>
 
-<h3>登記後怎麼裝</h3>
-<p>下次你跑 <code>/setup-plugins</code>，選完 profile 後會多問你一題「要不要啟用這些外部候選」（上面問題②）。勾了之後，Claude 會給你要自己貼的安裝指令：</p>
+<h3>推薦後怎麼裝</h3>
+<p>記得先 <code>/plugin-manager:publish</code> 把清單推上去。之後跑 <code>/setup-plugins</code>，選完 profile 會問你「要不要從推薦清單挑幾個裝」（上面問題②，清單多會按 tag 分組）。勾了之後，Claude 給你要自己貼的安裝指令：</p>
 <pre><code><span class="cmd">/plugin marketplace add &lt;來源&gt;</span>
 <span class="cmd">/plugin install &lt;name@marketplace&gt;</span>
 <span class="cmd">/reload-plugins</span></code></pre>
@@ -237,9 +244,9 @@
 <p>狀態存在家目錄 <code>~/.claude/plugin-manager/</code>（<strong>不在 plugin 內</strong>，所以 plugin 更新不會覆蓋）：</p>
 <ul>
   <li><code>config.json</code>：owner、monorepo 路徑、GitHub repo。</li>
-  <li><code>registry.json</code> 的 <code>selfMade</code>：你自製的 plugin（版本、改了沒推）。</li>
-  <li><code>registry.json</code> 的 <code>externalCandidates</code>：你登記的「別人做的」外部 plugin（只記來源+備註）。</li>
+  <li><code>registry.json</code> 的 <code>selfMade</code>：你自製 plugin 的版本/dirty（<strong>家目錄、不進 git、別人看不到</strong>）。</li>
 </ul>
+<p>外部 plugin 的推薦清單<strong>不</strong>放這裡，而在 plugin 內的 <code>recommends.json</code>（<strong>進 git、會推廣</strong>）——這是「私人本機狀態」與「公開推薦」刻意分開。</p>
 </details>
 
 <details>
@@ -248,14 +255,14 @@
   <li><strong>adopt</strong>：move 真身 → 建 plugin.json → 更新 marketplace.json → 建 symlink → 更新 registry。</li>
   <li><strong>update</strong>：算新版號 → 寫回 plugin.json 的 version → 同步 registry。</li>
   <li><strong>publish</strong>：git add → commit（heredoc 防注入）→ push → 清掉 registry 的「未推」標記。</li>
-  <li><strong>setup-plugins</strong>：讀 profile/外部候選 → 合併進專案 settings.json 的 enabledPlugins。</li>
+  <li><strong>setup-plugins</strong>：讀 profile / recommends.json → 合併進專案 settings.json 的 enabledPlugins。</li>
 </ul>
 <p class="muted">完整工作規範見 monorepo 的 <code>plugins/plugin-manager/CONVENTIONS.md</code>。</p>
 </details>
 
 <footer>
-  plugin-manager v0.6.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
-  指令：adopt（收編）/ update（升版）/ publish（發布）/ setup-plugins（選 plugin，含外部候選與 upgrade）。
+  plugin-manager v0.7.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
+  指令：adopt（收編）/ update（升版）/ publish（發布）/ setup-plugins（選 plugin，含外部推薦與 upgrade）。
 </footer>
 
 </div>

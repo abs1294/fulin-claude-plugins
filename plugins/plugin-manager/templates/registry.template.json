@@ -1,6 +1,5 @@
 {
-  "_comment": "plugin-manager 的集中狀態檔範本。首次使用時複製到 ~/.claude/plugin-manager/registry.json。selfMade 由 adopt 寫入、由 bump-version 更新版本與 dirty；publish 後由 publish-finalize.js 清 dirty。externalCandidates 由使用者手動加入。",
+  "_comment": "plugin-manager 的集中狀態檔範本（家目錄、私人、不進 git）。首次使用時複製到 ~/.claude/plugin-manager/registry.json。selfMade 由 adopt 寫入、由 bump-version 更新版本與 dirty、publish 後由 publish-finalize.js 清 dirty。外部 plugin 的推薦清單存在 plugin 內的 recommends.json（進 git、會推廣），不在此檔。",
   "schemaVersion": 1,
-  "selfMade": {},
-  "externalCandidates": {}
+  "selfMade": {}
 }

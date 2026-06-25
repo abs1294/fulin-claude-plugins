@@ -42,7 +42,7 @@ if (!fs.existsSync(configPath)) die('找不到 config.json（~/.claude/plugin-ma
 const config = readJson(configPath, 'config.json');
 const registry = fs.existsSync(registryPath)
   ? readJson(registryPath, 'registry.json')
-  : { schemaVersion: 1, selfMade: {}, externalCandidates: {} };
+  : { schemaVersion: 1, selfMade: {} };
 
 const projectDir = process.argv[2] || process.cwd();
 // marketplace 名的單一真實來源：monorepo 的 .claude-plugin/marketplace.json 的 name。

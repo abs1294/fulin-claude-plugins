@@ -56,10 +56,17 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 - **Claude Code 沒有 `/plugin update` 子指令**。更新已裝 plugin 的正解：`/plugin marketplace update fulin-plugins` 刷新 → `/plugin uninstall <name>@fulin-plugins` + `/plugin install <name>@fulin-plugins` 重裝（或在 `/plugin` UI 開 Enable auto-update）。
 - registry 存家目錄 `~/.claude/plugin-manager/`，不存 plugin 內（plugin 更新會覆蓋）。
 
-## 外部 plugin 候選（externalCandidates）
+## 外部 plugin 推薦清單（recommends.json）
 
-- `selfMade`（你自製的）與 `externalCandidates`（別人做的）是 registry 的兩個獨立區塊，職責不同：
-  - **selfMade**：真身在你 monorepo、你 adopt 進來的，你負責版本與發布。
-  - **externalCandidates**：只登記**別人 plugin 的來源 + 備註**（`name@marketplace` → `{marketplace, source, note}`），**不複製別人的程式碼進 monorepo**（尊重它住在別人的 repo、跟著上游更新）。
-- 登記/移除一律用 `scripts/register-external.js`（不手編 registry）。`/setup-plugins` 會列出 externalCandidates 讓使用者挑裝、產生 `marketplace add` + `install` 指令。
-- 外部 plugin 的**版本更新由其上游 marketplace 管**，不進本 registry 的版本追蹤（本 registry 只記它的來源，不記它的版本/dirty）。
+兩個不同的東西，存放位置與隱私性刻意分開：
+
+| | 存哪 | 進 git | 內容 |
+|---|---|---|---|
+| `registry.json` 的 `selfMade` | 家目錄 `~/.claude/plugin-manager/` | ❌ 私人 | 你自製 plugin 的版本/dirty（本機狀態） |
+| `recommends.json` | plugin 內 `plugins/plugin-manager/` | ✅ 推廣 | 你精選的**別人做的**外部 plugin（來源/用途/tag） |
+
+- **recommends.json 在 plugin 內、隨 monorepo publish**——別人裝你的 repo 就看到你精選的外部 plugin 清單（這是刻意，目的是推廣）。
+- 只記**來源 + 用途 + tag**（`name@marketplace` → `{marketplace, source, note, tags}`），**不複製別人的程式碼進 monorepo**（尊重它住在別人的 repo、跟著上游更新）。
+- 登記/移除一律用 `scripts/register-external.js`（不手編）；**note 必填**（之後要靠它認出 plugin 用途）。`/setup-plugins` 讀 recommends.json 列給使用者挑裝（清單多時按 tag 分組），產生 `marketplace add` + `install` 指令。
+- 外部 plugin 的**版本更新由其上游 marketplace 管**，本系統不追蹤其版本。
+- 改 recommends.json 後要 `/plugin-manager:publish` 才會推上去讓別人看到。
