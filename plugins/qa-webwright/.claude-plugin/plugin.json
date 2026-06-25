@@ -1,9 +1,16 @@
 {
   "name": "qa-webwright",
-  "version": "0.1.0",
-  "description": "webwright 驅動的 QA 測試框架：QA Agent 設計測試計畫（覆蓋矩陣 / 必測 checklist / 測試資料與日期三點驗證），主 Agent 用 webwright 的 code-as-action 執行並以截圖自我驗證每個 critical point。",
+  "version": "0.2.0",
+  "description": "瀏覽器功能測試方法論 plugin：QA Agent 設計測試計畫（覆蓋矩陣 / 必測 checklist / 測試資料與日期三點驗證），主 Agent 探索後把每個 critical point 沉澱成可重跑 runner（pytest 等）的一行 assert，以結構化證據（API 業務碼 / DOM 讀回 / readback）自我驗證。webwright 為選用的外部站備用探索器。",
   "author": {
     "name": "fulin"
   },
-  "keywords": ["qa", "testing", "webwright", "browser", "e2e", "playwright"]
+  "keywords": [
+    "qa",
+    "testing",
+    "webwright",
+    "browser",
+    "e2e",
+    "playwright"
+  ]
 }

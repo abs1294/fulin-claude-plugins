@@ -1,40 +1,49 @@
 ---
 name: browser-qa
 description: >
-  webwright 驅動的瀏覽器功能測試。當開發完成、需要對「新互動 / 新畫面 / 新流程」做功能驗證時觸發。
-  兩階段：QA Agent 設計測試計畫（含 critical points），主 Agent 用 webwright code-as-action
-  執行（寫帶 assert 的 final_script.py + 截圖 + 自我驗證）並輸出測試報告。
+  瀏覽器功能測試方法論。當開發完成、需要對「新互動 / 新畫面 / 新流程」做功能驗證時觸發。
+  兩階段：QA Agent 設計測試計畫（含 critical points），主 Agent 探索後把每個 critical point
+  沉澱成可重跑 runner（pytest 等）的一行 assert，以結構化證據（API 碼 / DOM 讀回 / 來源 readback）
+  自我驗證並輸出測試報告。
 ---
 
-# Browser QA Skill（webwright 版）
+# Browser QA Skill
 
-把測試計畫的每條「預期結果」對映成 webwright 的一個 **critical point**，再落成
-`final_script.py` 裡**一行 `assert` + 一張截圖**。**不使用 Playwright MCP 的逐步點擊。**
+把測試計畫的每條「預期結果」對映成一個 **critical point**，再落成可重跑 runner 裡**一行 `assert`**。
 
-這條設計的好處：腳本**寫一次**（agent 花 token），之後 `python final_script.py` 直接跑——
+這條設計的好處：測試**寫一次**（探索階段花一次 agent token），之後直接 `pytest`（或對應 runner）跑——
 有 assert 就能自動判 pass/fail、無 agent、不花 token、可掛 CI。
+
+> **載體中立（核心原則）**：本 skill 的價值在「測試設計方法論」（覆蓋矩陣 / 可追溯 / CP→assert /
+> 必測 checklist / 測試資料原則），**不綁任何特定執行工具**。沉澱載體用專案既有的 runner
+> （pytest-playwright / Playwright Test / 任何帶 `assert` + exit code 者）；判定一律靠**結構化證據**
+> （API 業務碼、DOM/a11y 讀回、來源 readback），**不靠讀截圖**。截圖至多留檔備查、不作判定依據。
 
 | Phase | 執行者 | 職責 |
 |-------|--------|------|
 | Phase 1 | QA Agent（本 plugin 的 `qa-engineer` agent） | 設計測試計畫、定義 critical points 與輸出格式 |
-| Phase 2 | 主 Agent | 用 webwright 執行、讀截圖自我驗證、輸出測試報告 |
+| Phase 2 | 主 Agent | 探索 → 把每個 CP 沉澱成 runner 一行 assert → 結構化證據自驗 → 輸出測試報告 |
 
-本 skill 分三層，分開維護：
+本 skill 分層維護：
 - **方法論** `methodology/` — 怎麼做測試，穩定、不綁技術棧。
 - **知識庫** `knowledge/` — 踩過的雷與領域知識，**會長大**、依專案技術棧選用。
-- **執行契約** webwright skill 的 `reference/` — 瀏覽器啟動、截圖、log 格式。
 
 ---
 
 ## 前置（一次性 / 每次）
 
 **一次性（每台開發機）：**
-- 已安裝 **webwright plugin**：`/plugin install webwright@webwright`，重開 session。
-- webwright runtime：`playwright install firefox`（webwright 用 Firefox，headless local；Claude adaptation 模式不需任何 model API key）。
+- 確認專案有可重跑的測試 runner（**首選 pytest-playwright**；或 Playwright Test 等）。
+- 探索方式優先用專案既有手段（Playwright MCP 的 a11y snapshot `ref`、Page Object）。
+
+**選用（僅「真實外部站」備用探索）：**
+- 當未來需打**真實外部站**（無法注入 a11y test token、後端不可攔、`ERR_HTTP2_PROTOCOL_ERROR`／Akamai/H2
+  封鎖 Chromium、長程未知路徑）時，才裝 **webwright**（`/plugin install webwright@webwright` +
+  `playwright install firefox`，用其 SOTA 自主探索）。**探索完一律 codify 成上述 runner，回歸端永遠不是 webwright。**
+  本機自家系統（有 a11y、有後端可攔）**不需要**裝 webwright。
 
 **每次測試前：**
 - 目標專案要能在本機跑起來（啟動方式見該專案的 CLAUDE.md / README；Windows 背景啟動雷見 `knowledge/pitfalls.md` D 段）。
-- 確認 webwright skill 可用（Phase 2 會讀它的 SKILL.md 與 reference）。
 
 ---
 
@@ -53,24 +62,25 @@ description: >
 
 ---
 
-## Phase 2：執行測試（主 Agent，走 webwright）
+## Phase 2：執行測試（主 Agent）
 
-主 Agent 嚴格按測試計畫，用 **webwright workflow** 執行，不得自行增減步驟。
+主 Agent 嚴格按測試計畫執行，不得自行增減步驟。流程是「探索路徑 → 沉澱成可重跑 runner」。
 
-1. **建 plan.md**：把測試計畫**每條預期結果**抄成 webwright `plan.md` 的 critical points
-   （每個 CP 要能被一張截圖 / 一行 log 獨立驗證）。
+1. **列 critical points**：把測試計畫**每條預期結果**列成一張清單，每個 CP 要能被
+   **一個結構化證據**（API 業務碼 / DOM 讀回值 / 來源 readback）獨立驗證——不依賴「我記得剛剛點了什麼」。
 
-2. **Explore**：用 scratch Playwright 腳本探索穩定 selector、確認控制項存在
-   （webwright `reference/playwright_patterns.md`）。
+2. **Explore（路徑未知時）**：摸出穩定 selector 與真實值。**先 grep 原始碼確認後端真實欄位名 / 端點名，
+   再盲試 DOM**——多數路徑落差是「程式碼真實值 ≠ 記憶」的問題，不是視覺導航問題；a11y `ref` 比 CSS 文字選擇器精準。
+   （僅「真實外部站、無 a11y、長程未知」才改用 webwright 自主探索，見前置。）
 
-3. **Author `final_script.py`**（在新的 `final_runs/run_<id>/`）：可重跑腳本，依計畫操作，
-   **每個 critical point 落成一行 `assert` + 一張唯一命名截圖**，關鍵動作寫一行 log，
-   最終資料印進 log 尾。斷言規範見 `methodology/critical-points.md`。
+3. **沉澱成可重跑 runner**：把每個 critical point 落成 runner（pytest 等）裡**一行 `assert`**——
+   斷言打在結構化證據上（業務碼 `code=="0000"` 非只看 HTTP 200、DOM/a11y 讀回 unique token、DB/重查 readback）。
+   寫入型操作必「寫 unique token → 讀回那一筆比對」，不可只驗送出成功。斷言規範見 `methodology/critical-points.md`。
 
-4. **Execute**：跑一次，擷取 stdout/stderr（assert 失敗 → 非 0 exit）。
+4. **Execute**：跑一次（assert 失敗 → 非 0 exit）。截圖至多留檔備查，不作判定依據。
 
-5. **Self-verify**：逐項走 `plan.md`，`Read` 每張截圖確認證據明確才打勾。
-   任一 CP 失敗 → 診斷具體原因 → 修腳本 → 在 `run_<id+1>/` 重跑重驗。
+5. **Self-verify**：逐項走 CP 清單，確認**每個 assert 的結構化證據明確相符**才打勾。
+   任一 CP 失敗 → 診斷具體原因 → 修測試 → 重跑重驗。
 
 6. **輸出測試報告**（格式見下）。
 
@@ -96,19 +106,19 @@ description: >
 | N | N | N |
 
 ### 案例明細
-| 編號 | 功能 | 結果 | 證據（截圖檔名 / log 行 / assert） | 備註 |
-|------|------|------|-----------------------------------|------|
-| TC-001 | {功能} | PASS/FAIL | final_execution_2_submit.png | {若 FAIL 說明差異} |
+| 編號 | 功能 | 結果 | 證據（assert / API 碼 / readback 值） | 備註 |
+|------|------|------|--------------------------------------|------|
+| TC-001 | {功能} | PASS/FAIL | submit code=="0000" + DB 讀回 token 相符 | {若 FAIL 說明差異} |
 
 ### 發現問題（若有 FAIL）
 BUG-{編號}｜嚴重度：Critical/Major/Minor｜對應 TC-{編號}
-重現步驟 / 預期 / 實際 / 證據截圖
+重現步驟 / 預期 / 實際 / 證據（assert 失敗訊息 / 實際 API 碼 / readback 值）
 
 ### 結論
 通過 / 需修正後重測（列出 BUG 編號）
 ```
 
-**每個 PASS/FAIL 都必須引用一張截圖、一行 log 或一行 assert 作證據**，不得用「看起來正常」這種模糊判定。
+**每個 PASS/FAIL 都必須引用一行 assert、一個 API 業務碼或一個 readback 值作證據**，不得用「看起來正常」這種模糊判定。截圖至多留檔備查，不作為判定依據。
 
 ---
 
@@ -116,5 +126,6 @@ BUG-{編號}｜嚴重度：Critical/Major/Minor｜對應 TC-{編號}
 
 - `methodology/test-plan-design.md` — 覆蓋矩陣、可追溯、必測 checklist、TC 格式、測試資料原則
 - `methodology/critical-points.md` — TC 預期 → critical point → assert 的對映與證據規範
-- `knowledge/pitfalls.md` — 踩過的雷與領域知識（後端驗證、日期時區、壞值、Windows 啟動、元件 portal、state 同步、webwright 操作）；**持續 append**
-- webwright skill 的 `reference/playwright_patterns.md` / `workflow.md` — 瀏覽器啟動 heredoc、aria snapshot、截圖命名、log 格式
+- `knowledge/pitfalls.md` — 踩過的雷與領域知識（後端驗證、日期時區、壞值、Windows 啟動、元件 portal、state 同步；G 段 webwright 操作雷僅在啟用 webwright 備用探索時適用）；**持續 append**
+- 沉澱 runner 的官方文件（pytest-playwright / Playwright Test）— 瀏覽器啟動、locator、斷言、fixture
+- （選用，僅外部站備用探索）webwright skill 的 `reference/` — 瀏覽器啟動、aria snapshot、log 格式

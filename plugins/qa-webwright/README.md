@@ -1,11 +1,16 @@
 # qa-webwright
 
-webwright 驅動的 QA 測試框架，包成可安裝的 Claude Code plugin。
+瀏覽器功能測試方法論，包成可安裝的 Claude Code plugin。
 
 把一套成熟的 QA 方法論（測試計畫設計、覆蓋矩陣、必測 checklist、測試資料建立規範、
-日期欄位跨 UI/API/DB 三點驗證）**通用化**後，疊在 [webwright](https://github.com/microsoft/Webwright)
-的 **code-as-action** 執行流程上：QA Agent 設計計畫 → 主 Agent 用 webwright 寫 `final_script.py`、
-截圖、自我驗證每個 critical point。**不使用 Playwright MCP 的逐步點擊。**
+日期欄位跨 UI/API/DB 三點驗證）**通用化**：QA Agent 設計計畫 → 主 Agent 探索路徑後，把每個
+critical point **沉澱成可重跑 runner（pytest 等）的一行 assert**，以結構化證據
+（API 業務碼 / DOM 讀回 / 來源 readback）自我驗證，不靠讀截圖。
+
+> **載體中立**：本 plugin 的價值在「測試設計方法論」，**不綁特定執行工具**。沉澱端用專案既有的 runner
+> （首選 pytest-playwright）。[webwright](https://github.com/microsoft/webwright) 是**選用的備用探索器**——
+> 僅當需打「真實外部站（無 a11y、Akamai/H2 封 Chromium、長程未知路徑）」時才裝它做一次性探索，
+> 探索完一律 codify 成 runner，回歸端永遠不是 webwright。本機自家系統有 a11y、有後端可攔，**不需要** webwright。
 
 ## 內容
 
@@ -18,7 +23,7 @@ qa-webwright/
 │   └─ qa-engineer.md           QA Agent：設計測試計畫（含 critical points）
 ├─ commands/
 │   ├─ qa-plan.md               /qa-webwright:qa-plan — 設計測試計畫
-│   └─ qa-run.md                /qa-webwright:qa-run — 用 webwright 執行 + 驗證
+│   └─ qa-run.md                /qa-webwright:qa-run — 探索 → 沉澱成 runner assert + 驗證
 └─ skills/
     └─ browser-qa/
         ├─ SKILL.md             方法論：兩階段流程、critical-point 對映、報告格式
@@ -32,19 +37,24 @@ qa-webwright/
 > **方法論 vs 知識庫**：`methodology/` 是穩定、跨專案不變的「怎麼做」；`knowledge/` 是會長大的
 > 「踩過的雷」，每測一次踩到新坑就 append 一條，並依目標專案技術棧選用。兩者分開維護。
 
-## 前置依賴（重要）
+## 前置依賴
 
-本 plugin 是「QA 方法論層」，執行引擎是 **webwright**。安裝本 plugin 前，每台開發機要先備妥：
+本 plugin 是「QA 方法論層」，沉澱端用專案既有的測試 runner。
+
+**必備：** 專案有可重跑的測試 runner（**首選 pytest-playwright**；或 Playwright Test 等帶 assert+exit code 者）。
+探索優先用專案既有手段（Playwright MCP 的 a11y snapshot `ref` / Page Object）。
+
+**選用（僅「真實外部站」備用探索）：** 當需打真實外部站（無 a11y test token、後端不可攔、
+Akamai/H2 封 Chromium、長程未知路徑）時，才裝 webwright：
 
 ```text
-# 1. 裝 webwright plugin（執行引擎）
-/plugin marketplace add microsoft/Webwright
+/plugin marketplace add microsoft/webwright
 /plugin install webwright@webwright
-# 2. 裝 webwright runtime（webwright 用 Firefox）
-playwright install firefox
+playwright install firefox     # webwright 用 Firefox 規避 H2 指紋封鎖
 ```
 
-> Claude Code adaptation 模式下，主 Agent 自己讀 PNG 驗證，**不需要** OPENAI_API_KEY 等任何 model API key。
+> 探索完一律把路徑 codify 成 runner（pytest 等），回歸端永遠不是 webwright。
+> 本機自家系統（有 a11y、有後端可攔）不需要裝 webwright。
 
 ## 安裝本 plugin
 
@@ -80,7 +90,7 @@ claude plugin validate ./qa-webwright
 # 設計測試計畫
 /qa-webwright:qa-plan 供應商主檔新增頁的「通知財務」流程
 
-# 依計畫用 webwright 執行 + 截圖驗證 + 出報告
+# 依計畫探索 → 沉澱成 runner assert + 結構化證據驗證 + 出報告
 /qa-webwright:qa-run <貼上計畫，或直接給功能描述>
 ```
 
