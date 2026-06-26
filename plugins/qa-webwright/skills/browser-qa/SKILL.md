@@ -81,8 +81,11 @@ description: >
 
 5. **Self-verify**：逐項走 CP 清單，確認**每個 assert 的結構化證據明確相符**才打勾。
    任一 CP 失敗 → 診斷具體原因 → 修測試 → 重跑重驗。
+   **判 FAIL 前先走 `methodology/test-plan-design.md` §7 的「FAIL 前排除紀律」**（服務存活 / 操作沒生效五排除 /
+   業務語意三問），別把環境塌 / 探索沒對準 / by-design 卡控誤判成功能 FAIL。
 
-6. **輸出測試報告**（格式見下）。
+6. **輸出測試報告**（格式見下）。沉澱成 runner 後、**宣稱綠燈 / 登記完成前，先 grep 驗證該 test 函式確實寫入存在**
+   （Write / replace 在並行取消時可能假成功，造成「假登記、假綠燈」），確認存在再宣稱通過。
 
 ### 測試哲學（通用，少數鐵則）
 
@@ -98,7 +101,7 @@ description: >
 
 ```
 ## 測試報告
-測試範圍：{功能}　測試日期：{YYYY-MM-DD}　run：final_runs/run_<id>/
+測試範圍：{功能}　測試日期：{YYYY-MM-DD}　報告產物：{runner 報告路徑，如 pytest junitxml / log；若有截圖留檔一併附}
 
 ### 結果摘要
 | 測試案例總數 | PASS | FAIL |

@@ -1,5 +1,5 @@
 ---
-description: 用 qa-engineer agent 設計一份 webwright 可執行的測試計畫（覆蓋矩陣 + critical points）。
+description: 用 qa-engineer agent 設計一份可落成可重跑 runner（pytest 等）的測試計畫（覆蓋矩陣 + critical points）。
 argument-hint: <要測試的功能 / PR 範圍描述>
 ---
 

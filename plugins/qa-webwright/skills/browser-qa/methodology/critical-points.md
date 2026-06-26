@@ -26,8 +26,9 @@ critical point → 可重跑 runner（pytest 等）裡**一行 `assert`**。
 ```
 - [ ] CP2: 用唯一鍵(DocNo)定位那一列，狀態欄顯示「待處理」
       → assert page.locator("tr:has-text('DOC-20260626-001')").inner_text() 含「待處理」
-- [ ] CP5: 必填「聯絡信箱」留空時送出鈕為 disabled
-      → assert page.get_by_role("button", name="送出").is_disabled()
+- [ ] CP5: 必填「聯絡信箱」卡控**雙向**都要驗（只驗一邊＝把「按鈕壞掉永遠 disabled」誤判成設計對）
+      → 留空時 assert page.get_by_role("button", name="送出").is_disabled()
+      → 填妥後 assert not page.get_by_role("button", name="送出").is_disabled()
 - [ ] CP7: 送出成功（業務碼，非只看 HTTP 200）+ DB 讀回 token 相符
       → assert resp.json()["code"] == "0000"；再查 DB 該筆關鍵欄位 == 寫入的 unique token
 ```
