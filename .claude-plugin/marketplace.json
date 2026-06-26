@@ -29,6 +29,11 @@
       "name": "supplier-agents",
       "source": "./plugins/supplier-agents",
       "description": "Winbond 供應商平台 DDD 開發 agent 組（5 個 agent）。"
+    },
+    {
+      "name": "red-blue-review",
+      "source": "./plugins/red-blue-review",
+      "description": "中文紅藍對抗：對任何命題做 Red 攻→Blue 守→收斂的對抗式壓力測試（多面向、可接 Workflow 實作）。"
     }
   ]
 }

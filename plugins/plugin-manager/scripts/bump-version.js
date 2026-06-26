@@ -42,8 +42,9 @@ const registry = fs.existsSync(registryPath)
 
 const name = process.argv[2];
 const bump = (process.argv[3] || 'patch').toLowerCase();
+const note = process.argv.slice(4).join(' ').trim(); // 第四個起：CHANGELOG 變更摘要（可選）
 
-if (!name) die('用法：node bump-version.js <name> <patch|minor|major>');
+if (!name) die('用法：node bump-version.js <name> <patch|minor|major> [變更摘要]');
 // name 白名單：防 '../' 等讓 pluginDir 逃出 plugins 目錄（與 adopt/register-external 對齊）。
 if (!/^[A-Za-z0-9._-]+$/.test(name) || name === '.' || name === '..') die('plugin 名只能含英數與 . _ -，且不可為 . 或 ..：' + name);
 if (!['patch', 'minor', 'major'].includes(bump)) die('bump 必須是 patch | minor | major，收到：' + bump);
@@ -80,11 +81,37 @@ if (!entry) {
       '以免把 adopted plugin 誤記為 native 並遺失 adoptedFrom。');
 }
 
-// 1. 寫回 plugin.json
+// 1. 先維護 CHANGELOG（風險最高的新邏輯先跑：若它失敗，plugin.json/registry 還沒動，無半完成）。
+// bump 等級對應區段：major/minor → ### Changed、patch → ### Fixed（粗略預設；使用者可事後手調區段為 Added/Removed）。
+// 摘要由第四參數帶入；沒給則留佔位讓 update 流程補。
+const changelogPath = path.join(pluginDir, 'CHANGELOG.md');
+const today = new Date().toISOString().slice(0, 10); // 一般腳本可用 Date（非 Workflow 環境）
+const section = bump === 'patch' ? 'Fixed' : 'Changed';
+const noteLine = note ? '- ' + note : '- （待補變更摘要）';
+const newEntry = '## [' + next + '] - ' + today + '\n### ' + section + '\n' + noteLine + '\n';
+let changelog;
+if (fs.existsSync(changelogPath)) {
+  changelog = fs.readFileSync(changelogPath, 'utf8');
+  const idx = changelog.indexOf('\n## [');
+  if (idx >= 0) {
+    // 標準格式：在第一個既有版本條目之前插入（最新在上）。
+    changelog = changelog.slice(0, idx + 1) + newEntry + '\n' + changelog.slice(idx + 1);
+  } else {
+    // 非標準格式（無既有 ## [ 條目）：插在第一個標題行之後，仍保「最新在上」。
+    const firstNl = changelog.indexOf('\n');
+    if (firstNl >= 0) changelog = changelog.slice(0, firstNl + 1) + '\n' + newEntry + changelog.slice(firstNl + 1);
+    else changelog = changelog.replace(/\s*$/, '') + '\n\n' + newEntry;
+  }
+} else {
+  changelog = '# Changelog\n\n本檔記錄 ' + name + ' 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。\n\n' + newEntry;
+}
+fs.writeFileSync(changelogPath, changelog);
+
+// 2. 寫回 plugin.json
 pj.version = next;
 fs.writeFileSync(pjPath, JSON.stringify(pj, null, 2) + '\n');
 
-// 2. 同步 registry（entry 已確認存在，只更新 version/dirty，保留 source/adoptedFrom）
+// 3. 同步 registry（entry 已確認存在，只更新 version/dirty，保留 source/adoptedFrom）
 entry.version = next;
 entry.dirty = true;
 registry.selfMade[name] = entry;
@@ -96,4 +123,5 @@ console.log('  bump   : ' + bump);
 console.log('  ' + cur + ' → ' + next);
 console.log('✓ 已寫回 plugin.json');
 console.log('✓ 已同步 registry（version=' + next + ', dirty=true）');
-console.log('\n下一步：用 /plugin-manager:publish 發布；其他專案要拿到新版需各自刷新 marketplace 後 uninstall + install（或開 auto-update）。');
+console.log('✓ 已更新 CHANGELOG.md（## [' + next + ']）' + (note ? '' : ' — 摘要待補'));
+console.log('\n下一步：' + (note ? '' : '補上 CHANGELOG 摘要；') + '用 /plugin-manager:publish 發布。');

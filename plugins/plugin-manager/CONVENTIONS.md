@@ -47,6 +47,7 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 ## 版本號慣例
 
 - bump 只設在各 plugin 的 `plugin.json` 的 `version`，**不在 marketplace.json 加 version 欄**（兩處衝突時 Claude Code 以 plugin.json 為準）。用 `scripts/bump-version.js`。
+- **bump 時帶第三參數＝變更摘要**，`bump-version.js` 會在 `plugins/<name>/CHANGELOG.md` 追加 Keep a Changelog 條目（patch→Fixed、minor/major→Changed，最新在上）。摘要省略會留佔位，應補上。
 - 改了某 plugin 的內容（skill/hook/script）→ bump 該 plugin（patch/minor/major）。
 - 改 repo 根層級文件（README / 本檔 / .gitignore 等，在 `plugins/` 之外）→ **不綁任何 plugin 版本**，不 bump。
 - **bump plugin-manager 後，務必同步 `docs/使用教學.html` 的版本號**（header 的 `<span class="pill">vX.Y.Z</span>` 與 footer 的 `plugin-manager vX.Y.Z`）——HTML 是靜態檔、不會自動帶版號，漏改就會脫節（紅藍稽核已抓過此坑）。

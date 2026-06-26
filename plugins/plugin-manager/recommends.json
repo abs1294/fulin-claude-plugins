@@ -1,4 +1,15 @@
 {
   "schemaVersion": 1,
-  "recommends": {}
+  "recommends": {
+    "skill-fetch@skill-fetch": {
+      "marketplace": "skill-fetch",
+      "source": "girofu/skill-fetch",
+      "note": "跨 9 個 registry 搜尋/評分/安裝 AI agent skill，含安全標籤與分頁",
+      "tags": [
+        "skill",
+        "discovery",
+        "tooling"
+      ]
+    }
+  }
 }
