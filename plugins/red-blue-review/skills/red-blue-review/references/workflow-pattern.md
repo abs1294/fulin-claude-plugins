@@ -45,16 +45,21 @@ const confirmed = results.flat().filter(Boolean).filter(r => r.verdict?.is_real)
 
 ## FINDING / VERDICT schema 範例
 
+> 此為範例骨架，`kind` 僅供人讀分類、下游不依賴，可依面向自訂。
+
 ```js
 const FINDING_SCHEMA = { type:'object', properties:{ findings:{ type:'array', items:{
   type:'object', properties:{
     severity:{type:'string',enum:['CRITICAL','HIGH','MEDIUM','LOW']},
-    kind:{type:'string',enum:['bug','inconsistency']},
+    kind:{type:'string',enum:['bug','inconsistency','security','config','docs']},
     quote:{type:'string'}, problem:{type:'string'}, reality_or_fix:{type:'string'}
   }, required:['severity','kind','quote','problem','reality_or_fix'] } } }, required:['findings'] };
 
+// corrected_severity 對應鐵律3（藍方校正紅方嚴重度）；選填，is_real:false 的假陽性無需校正。
+// 下游收斂/產出計數應優先採 corrected_severity，無則 fallback 紅方 severity。
 const VERDICT_SCHEMA = { type:'object', properties:{
-  is_real:{type:'boolean'}, reason:{type:'string'}, fix:{type:'string'}
+  is_real:{type:'boolean'}, reason:{type:'string'},
+  corrected_severity:{type:'string',enum:['CRITICAL','HIGH','MEDIUM','LOW']}, fix:{type:'string'}
 }, required:['is_real','reason'] };
 ```
 
