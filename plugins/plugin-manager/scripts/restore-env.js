@@ -96,3 +96,14 @@ const enabledList = entries.filter(([, v]) => v.enabled).map(([k]) => k);
 const disabledList = entries.filter(([, v]) => !v.enabled).map(([k]) => k);
 console.log('  啟用：' + (enabledList.join(', ') || '(無)'));
 if (!enabledOnly && disabledList.length) console.log('  快照中停用：' + disabledList.join(', '));
+
+// 5. per-project 啟用（各專案 .claude/settings.json 的 enabledPlugins）
+const projects = snap.projects || {};
+if (Object.keys(projects).length) {
+  console.log('\n# 5. 各專案的 per-project 啟用（在對應專案目錄下，用 /setup-plugins 寫進該專案 settings）');
+  for (const [proj, info] of Object.entries(projects)) {
+    const list = Object.keys(info.enabledPlugins || {}).filter(k => info.enabledPlugins[k] === true);
+    console.log('  專案「' + proj + '」啟用：' + (list.join(', ') || '(無)'));
+  }
+  console.log('  （快照只記專案名，新機請到對應專案目錄跑 /setup-plugins 或手動寫進該專案 .claude/settings.json）');
+}

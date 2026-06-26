@@ -67,7 +67,7 @@
   <h1>🧩 plugin-manager 使用教學</h1>
   <div class="sub">把你所有自製 Claude Code plugin 集中在一個地方管理，並能挑裝別人做的 plugin。</div>
   <span class="pill">fulin-plugins</span>
-  <span class="pill">v0.12.0</span>
+  <span class="pill">v0.13.0</span>
   <span class="pill">private repo: abs1294/fulin-claude-plugins</span>
 </header>
 
@@ -215,8 +215,14 @@
 <p>這是個 skill——<strong>跟 Claude 說「複製我的環境到新機器」「擷取環境快照」「環境復現」就會觸發</strong>，跟 adopt 一樣不必記指令。Claude 幫你跑擷取/產生，最後安裝那幾步你自己貼。</p>
 
 <h3>📋 複製（在舊機器）</h3>
-<p>跟 Claude 說 <strong>「擷取我的環境快照」</strong>。Claude 會把「有哪些 marketplace、哪些 plugin、版本與啟用狀態」存成 <code>env-snapshot.json</code>，<strong>寫進 plugin 內（隨 git）</strong>，並提醒你 <code>/plugin-manager:publish</code> 推上去。</p>
-<p class="muted">（背後跑 export-env.js，你不必自己打。快照進 git 後，新機裝 plugin-manager 就會把它一起帶過去。）</p>
+<p>跟 Claude 說 <strong>「擷取我的環境快照」</strong>。Claude 會把環境清單存成 <code>env-snapshot.json</code>（寫進 plugin 內、隨 git），並提醒你 <code>/plugin-manager:publish</code> 推上去。</p>
+<p>快照<strong>複製的是「清單」</strong>（不是程式碼）：</p>
+<ul>
+  <li><strong>marketplaces</strong>：你加過的每個 marketplace 來源 repo</li>
+  <li><strong>plugins</strong>：每個 plugin 的版本、scope、user 層是否啟用</li>
+  <li><strong>projects</strong>：各專案（如 Supplier_Code、Ebilling）<strong>各自啟用了哪些 plugin</strong>（per-project 設定，只記專案名）</li>
+</ul>
+<p class="muted">不複製：plugin 程式碼本身（靠重裝/clone）、API 憑證（新機各自登入）、registry 個人狀態。背後跑 export-env.js，你不必自己打。</p>
 
 <h3>📌 貼上（在新機器）</h3>
 <p>新機器照這個順序（前兩步是 bootstrap，要自己來；之後就自然語言）：</p>
@@ -292,7 +298,7 @@
 </details>
 
 <footer>
-  plugin-manager v0.12.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
+  plugin-manager v0.13.0 · fulin-plugins marketplace · 本教學依本機實際操作與驗證撰寫<br>
   指令：adopt（收編）/ update（升版）/ publish（發布）/ setup-plugins（選 plugin，含外部推薦與 upgrade）。
 </footer>
 

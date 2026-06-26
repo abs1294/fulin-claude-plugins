@@ -27,9 +27,14 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 
 2. **若工作區乾淨**：告知沒有待發布改動（若本地領先 origin，提示是否只需 push）。
 
-3. **若有改動**：把 status 與建議 commit message 呈現給使用者，**請使用者確認 commit message**（可改）。
+3. **若有改動**：把 status 與建議 commit message 呈現給使用者，採**無人值守默許模式**：
+   - 呈現後**等使用者回應**。若使用者**改了 message** → 用改後的；**明確拒絕/喊停** → 中止不 commit。
+   - **超過 5 分鐘沒有任何拒絕或修改** → **視為默許，自動採用建議 message 繼續 commit + push**（不再卡等）。
+   - 呈現時明白告知這條規則（例如「5 分鐘內沒回覆就用這個 message 自動發布」），讓使用者知道可在時限內介入。
+   - **這是刻意的無人值守設計**（使用者明確要求）：5 分鐘默許後會**自動 commit + push**整條跑完——push 是對外動作，但這裡刻意以「沉默即同意」換取無人值守（掛著不顧、回來已發好）。5 分鐘的窗口就是使用者的介入點。
 
    **commit message 必須註明本次改了哪一個/哪些 skill（規則 3 — 版本追蹤）**。格式 `<動作>: <skill 名> — <摘要>`，動作詞 Add/Update/Fix，不得加 AI 署名。範例：`Update: delaylocal skill — 修正 LINE 通知逾時重試`。完整格式與範例詳 `../../CONVENTIONS.md`。
+   - 因為有默許機制，建議 message 必須**夠完整可直接發布**（照規則 3 寫好），不能只丟半成品等使用者補。
 
 4. **確認後執行 git**（在 config.monorepo 目錄，順序：add → commit → push）：
 
@@ -60,7 +65,7 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
    - **不要**手動編輯 registry 清 dirty；一律用這支腳本，避免漏清或誤清。
 
 ## 安全原則（誠實告知）
-- push 是對外動作。執行前一定要讓使用者看過 status + 確認 commit message。
+- push 是對外動作。執行前一定要讓使用者看過 status + commit message（採無人值守默許：呈現後 5 分鐘無拒絕/修改即自動採用，見步驟 3）。
 - 不做 force-push / rebase / amend，除非使用者明確要求。
 - 若 push 失敗（遠端有新 commit），回報並建議先 pull，不要自動 force。
 - publish 只推 monorepo，**不會自動讓已安裝該 plugin 的專案更新**——使用者需各自刷新：`/plugin marketplace update fulin-plugins` 後重裝（`/plugin uninstall` + `/plugin install`），或開 auto-update。**Claude Code 沒有 `/plugin update` 子指令**，且 `/plugin` 系列是互動指令 Claude 不能代執行。

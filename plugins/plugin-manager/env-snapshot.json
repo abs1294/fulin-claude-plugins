@@ -102,7 +102,7 @@
       "enabled": false
     },
     "plugin-manager@fulin-plugins": {
-      "version": "0.11.0",
+      "version": "0.12.0",
       "scopes": [
         "user"
       ],
@@ -121,6 +121,22 @@
         "project"
       ],
       "enabled": false
+    }
+  },
+  "projects": {
+    "Supplier_Code": {
+      "enabledPlugins": {
+        "code-simplifier@claude-plugins-official": true,
+        "figma@claude-plugins-official": true
+      }
+    },
+    "Ebilling": {
+      "enabledPlugins": {
+        "code-simplifier@claude-plugins-official": true,
+        "git-commit@fulin-plugins": true,
+        "webwright@webwright": true,
+        "qa-webwright@fulin-plugins": true
+      }
     }
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "plugin-manager",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "自製 Claude Code plugin 的集中管理器：把散落各專案的自製 skill 與 agent 納管進單一 monorepo（move+symlink，永遠一份真身），一鍵發布整個 monorepo，維護集中 registry 追蹤所有自製 plugin 與版本，並登記/挑裝別人做的外部 plugin。",
   "author": {
     "name": "fulin"

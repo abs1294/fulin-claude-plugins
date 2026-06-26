@@ -75,14 +75,35 @@ for (const key of Object.keys(enabled)) {
   if (!plugins[key]) plugins[key] = { version: '(not-installed)', scopes: ['user'], enabled: enabled[key] === true };
 }
 
+// 3. projects：各專案的 per-project 啟用（<專案>/.claude/settings.json 的 enabledPlugins）。
+//    專案來源 = installed_plugins 裡 project scope 條目的 projectPath。
+//    key 只存專案 basename（脫敏，不存絕對路徑，避免隨 git 外洩路徑結構）。
+const projects = {};
+const projPaths = new Set();
+for (const entries of Object.values(inst)) {
+  for (const e of (Array.isArray(entries) ? entries : [entries])) {
+    if (e && e.scope === 'project' && e.projectPath) projPaths.add(e.projectPath);
+  }
+}
+for (const p of projPaths) {
+  const sp = path.join(p, '.claude', 'settings.json');
+  if (!fs.existsSync(sp)) continue;
+  let ps;
+  try { ps = JSON.parse(fs.readFileSync(sp, 'utf8')); } catch (e) { continue; }
+  const pe = ps.enabledPlugins || {};
+  if (!Object.keys(pe).length) continue;
+  // key 用 basename 脫敏；若兩個不同路徑的專案同名，加後綴避免互蓋（#2、#3…）。
+  let key = path.basename(p);
+  if (projects[key]) { let n = 2; while (projects[key + '#' + n]) n++; key = key + '#' + n; }
+  projects[key] = { enabledPlugins: pe };
+}
+
 const snapshot = {
   schemaVersion: 1,
-  exportedFromHost: os.hostname ? '(hostname omitted for privacy)' : undefined,
   marketplaces,
-  plugins
+  plugins,
+  projects
 };
-// 移除 undefined 欄
-delete snapshot.exportedFromHost;
 
 // 輸出路徑：參數優先，否則寫進「plugin 內」plugins/plugin-manager/env-snapshot.json。
 // 為什麼放 plugin 內：它隨 git/publish 走，新機 /plugin install plugin-manager 時快照就進 cache，
@@ -106,7 +127,8 @@ const pluginCount = Object.keys(plugins).length;
 const enabledCount = Object.values(plugins).filter(p => p.enabled).length;
 console.log('== export-env ==');
 console.log('  marketplaces : ' + mktCount);
-console.log('  plugins      : ' + pluginCount + '（啟用 ' + enabledCount + '）');
+console.log('  plugins      : ' + pluginCount + '（user 層啟用 ' + enabledCount + '）');
+console.log('  projects     : ' + Object.keys(projects).length + '（各專案 per-project 啟用）');
 console.log('  → 快照已寫到：' + outPath + '（在 plugin 內、隨 git）');
 console.log('\n下一步：');
 console.log('  1. /plugin-manager:publish 把快照推上去（新機 install plugin-manager 才帶得到）。');
