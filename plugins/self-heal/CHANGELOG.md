@@ -2,6 +2,10 @@
 
 本檔記錄 self-heal 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.2.2] - 2026-06-27
+### Fixed
+- SKILL加可照抄的續設tool call範本
+
 ## [0.2.1] - 2026-06-27
 ### Fixed
 - 續設prompt用固定通用短語免malformed

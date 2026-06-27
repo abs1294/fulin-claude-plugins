@@ -1,6 +1,6 @@
 {
   "name": "self-heal",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "降低並自動接力 tool call 失敗。觸發詞：「tool call 一直失敗」「工具呼叫失敗」「malformed」「自救機制」「self-heal」「卡住自己續」「起 scheduler 接力」「別讓我一直催繼續」。提供：①UserPromptSubmit hook 每輪注入 XML 收尾提醒(事前降低 malformed)②self-heal scheduler 接力規約(作業中起短排程,喚醒時卡住就重發、完成則終止)。註:scheduler 那層為行為規約非程式強制,best-effort。",
   "author": {
     "name": "fulin"
