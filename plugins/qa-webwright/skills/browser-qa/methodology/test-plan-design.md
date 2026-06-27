@@ -6,7 +6,13 @@ QA Agent 在 Phase 1 產出測試計畫的通用規範。**不假設任何特定
 ## 0. 設計前置：盤點既有測試資產（先於覆蓋矩陣）
 
 動筆寫 TC **之前**，先盤點目標專案 runner 內**既有的測試自動化資產**——page object / helper / fixtures /
-相似的既有 TC。能復用就優先復用，新 TC 與既有資產的風格、命名對齊。
+相似的既有 TC。兩種情況：
+
+- **（A）已有既有資產** → 能復用就優先復用，新 TC 與既有資產的風格、命名對齊。
+- **（B）greenfield（專案尚無 runner / 測試資產）** → 建立第一個：
+  - **落地目錄與命名**：優先依目標專案 `CLAUDE.md`/README 指定；未指定則預設落 `tests/e2e/`、檔名 `test_<feature>.py`（pytest-playwright）。
+  - **最小 bootstrap**：裝 runner（pytest-playwright 為 `pip install pytest-playwright && playwright install chromium`），用 runner 內建 fixture（pytest-playwright 的 `page`）即可，瀏覽器啟動細節見官方文件，不在此重述。
+  - 專案專屬值（port / login / BASE_URL）仍委派目標專案 `CLAUDE.md`，不寫進方法論。
 
 > 與 §1「讀範圍內程式碼」不同：§1 讀的是**被測功能的產品原始碼**（API/前端/store）；本節盤的是**既有的測試碼**。
 > 漏了這步，QA Agent 會在不知道既有資產存在的情況下從零設計，產出與既有回歸資產重疊或風格不一致的計畫，

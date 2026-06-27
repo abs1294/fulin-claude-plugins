@@ -1,6 +1,6 @@
 # 從「TC 預期結果」到「critical point」＋ assert（方法論）
 
-核心對映：QA Agent 設計的每條測試案例預期結果 → 一個**可被單一結構化證據獨立驗證**的
+核心對映：QA Agent 設計的每條測試案例預期結果 → 一個**可被其結構化證據獨立驗證**的（證據強度依 CP 類型，見下方證據規範）
 critical point → 可重跑 runner（pytest 等）裡**（至少）一行 `assert`**（雙向／多面卡控可對多行 assert，見 CP5 範例）。
 
 最後這一步（落成 assert）是讓測試「寫一次、以後直接 `pytest` 跑、
@@ -17,8 +17,8 @@ critical point → 可重跑 runner（pytest 等）裡**（至少）一行 `asse
 | 步驟的【證據】說明 | 該 CP 的證據來源（API 碼 / DOM 值 / readback） | 取該證據 + 對應斷言 |
 | 需檢查項目 | 額外 CP | 額外 assert（無 console error、業務碼 0000 等） |
 
-每個 CP 必須**獨立可驗證**：光看一個結構化證據就能判定 pass/fail，
-不依賴「我記得剛剛點了什麼」。
+每個 CP 必須**獨立可驗證**：依 CP 類型，光看其結構化證據（讀取型一個即可；寫入型需業務碼＋readback；
+雙向卡控需兩個方向斷言，見下方證據規範與 CP5/CP7 範例）就能判定 pass/fail，不依賴「我記得剛剛點了什麼」。
 
 ## 好 / 壞 critical point
 

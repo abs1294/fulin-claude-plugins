@@ -23,5 +23,6 @@ $ARGUMENTS
      DOM/a11y 讀回 unique token、來源（DB / 重查）readback——不靠讀截圖判定。
    - 截圖至多留檔備查，**不作為 pass/fail 判定依據**（省 token、避免漏掉渲染層以外的 bug）。
    - 全 assert 通過 → exit 0；任一失敗 → 非 0，可掛 CI、可重跑、零 agent token。
+   - 以 runner 標準方式產出機器可讀報告（pytest 為 `pytest <測試檔> --junitxml=<報告路徑>`），報告檔建議落專案測試輸出目錄（如 `tests/e2e/reports/<功能>-<日期>.xml`），路徑回填報告模板「報告產物」欄。
 5. **能走 UI 就走 UI**，禁止直接打後端 API 繞過前端（例外：無 UI 入口的外部 callback、SQL 做資料準備/驗證/清理）。
 6. 全部 CP 綠燈後，輸出 `SKILL.md` 規定格式的測試報告，每個 PASS/FAIL 引用 assert / API 碼 / readback 作證據。

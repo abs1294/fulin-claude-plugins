@@ -77,7 +77,7 @@ description: >
    斷言打在結構化證據上（業務碼 `code=="0000"` 非只看 HTTP 200、DOM/a11y 讀回 unique token、DB/重查 readback）。
    寫入型操作必「寫 unique token → 讀回那一筆比對」，不可只驗送出成功。斷言規範見 `methodology/critical-points.md`。
 
-4. **Execute**：跑一次（assert 失敗 → 非 0 exit）。截圖至多留檔備查，不作判定依據。
+4. **Execute**：跑一次，並以該 runner 的標準方式產出機器可讀報告（pytest 為 `pytest <測試檔> --junitxml=<報告路徑>`；assert 失敗 → 非 0 exit）。報告檔落點回填報告模板「報告產物」欄；截圖至多留檔備查，不作判定依據。
 
 5. **Self-verify**：逐項走 CP 清單，確認**每個 assert 的結構化證據明確相符**才打勾。
    任一 CP 失敗 → 診斷具體原因 → 修測試 → 重跑重驗。
