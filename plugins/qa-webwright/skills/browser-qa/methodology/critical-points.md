@@ -24,8 +24,8 @@ critical point → 可重跑 runner（pytest 等）裡**（至少）一行 `asse
 
 ✅ **好**（具體、打在結構化證據上）：
 ```
-- [ ] CP2: 用唯一鍵(DocNo)定位那一列，狀態欄顯示「待處理」
-      → assert page.locator("tr:has-text('DOC-20260626-001')").inner_text() 含「待處理」
+- [ ] CP2: 用唯一鍵(DocNo)定位那一列，**再 scope 到狀態欄那一格**讀其文字、精確比對（不讀整列，避免「待處理」出現在備註/按鈕等別欄而誤綠）
+      → row = page.locator("tr:has-text('DOC-20260626-001')")；assert row.locator("td.status-col").inner_text().strip() == "待處理"（狀態欄定位子依專案實際 DOM）
 - [ ] CP5: 必填「聯絡信箱」卡控**雙向**都要驗（只驗一邊＝把「按鈕壞掉永遠 disabled」誤判成設計對）
       → 留空時 assert page.get_by_role("button", name="送出").is_disabled()
       → 填妥後 assert not page.get_by_role("button", name="送出").is_disabled()
