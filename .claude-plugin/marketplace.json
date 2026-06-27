@@ -1,6 +1,6 @@
 {
   "name": "fulin-plugins",
-  "description": "fulin 的 Claude Code 工具集：自製 plugin 管理器、webwright 驅動的 QA 框架、delaylocal 排程。",
+  "description": "fulin 的 Claude Code 工具集：自製 plugin 管理器、runner（pytest）沉澱式 QA 方法論框架、delaylocal 排程。",
   "owner": {
     "name": "fulin"
   },
@@ -13,7 +13,7 @@
     {
       "name": "qa-webwright",
       "source": "./plugins/qa-webwright",
-      "description": "QA Agent 設計測試計畫，主 Agent 用 webwright code-as-action 執行 + 截圖自我驗證 critical points。"
+      "description": "QA Agent 設計測試計畫，主 Agent 探索後沉澱成可重跑 runner（pytest 等）一行 assert，以結構化證據（API 業務碼/DOM 讀回/readback）自驗；webwright 為選用的外部站備用探索器。"
     },
     {
       "name": "delaylocal",
