@@ -10,6 +10,8 @@
 
 1. **事前降低**（hook，自動生效）：每輪 UserPromptSubmit 注入 XML 收尾提醒。這層是程式強制的。
 2. **卡住接力**（skill，行為規約，best-effort）：作業中起 self-heal scheduler，喚醒時卡住就重發、完成則終止。**這層靠模型自願照 skill 執行，非程式強制**，效果是 best-effort，不是保證。
+   - **接力鏈不斷的關鍵**：收到喚醒時，**第一個動作永遠是「用最短指令續設下一棒 scheduler」**，再做正事——這樣正事 malformed 也不會斷鏈。
+   - **換工具通道**：同一指令在同一工具連兩次 malformed → 換通道（Bash↔PowerShell、Edit↔Node 腳本）。實戰常一次就過。
 
 ## 前置需求
 
@@ -24,7 +26,8 @@
 
 ## 已知限制
 
-- **hook 端到端尚未實測**：已驗證 `node xml-reminder.js` 腳本本身有正確輸出，但「plugin 啟用後 UserPromptSubmit hook 真的被 Claude Code 觸發並注入上下文」這條端到端路徑，需在啟用+重啟後實際觀察才能確認。
+- **hook 已實測生效**：啟用 + 重啟後，UserPromptSubmit hook 確實每輪注入 XML 收尾提醒（已在實戰 session 觀察到 reminder 內容注入）。
+- **第②層救不了「對話中即時連環 malformed」**：scheduler 的價值在「無人值守卡死時自己接力」；若使用者正盯著看的連環 malformed，主要靠第①層 hook + 操作守則（換通道、短 message、Node 腳本改檔）事前降低，scheduler 是兜底不是主力。
 - **scheduler 接力有重試上限**：同一失敗點連續重試 ≥3 次仍 malformed 會停止續設、交還使用者，避免無限續設燒 quota。
 
 ## 安裝後注意
