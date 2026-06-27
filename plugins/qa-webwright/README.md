@@ -3,7 +3,7 @@
 瀏覽器功能測試方法論，包成可安裝的 Claude Code plugin。
 
 把一套成熟的 QA 方法論（測試計畫設計、覆蓋矩陣、必測 checklist、測試資料建立規範、
-日期欄位跨 UI/API/DB 三點驗證）**通用化**：QA Agent 設計計畫 → 主 Agent 探索路徑後，把每個
+日期欄位跨 UI/送出payload/來源/刷新 四點驗證）**通用化**：QA Agent 設計計畫 → 主 Agent 探索路徑後，把每個
 critical point **沉澱成可重跑 runner（pytest 等）的一行 assert**，以結構化證據
 （API 業務碼 / DOM 讀回 / 來源 readback）自我驗證，不靠讀截圖。
 
