@@ -31,7 +31,7 @@ qa-webwright/
         │   ├─ test-plan-design.md   覆蓋矩陣 / 必測 checklist / TC 格式 / 測試資料原則
         │   └─ critical-points.md    TC 預期 → critical point → assert 對映
         └─ knowledge/           知識庫（踩過的雷與領域知識，持續 append）
-            └─ pitfalls.md           後端驗證 / 日期時區 / 壞值 / Windows 啟動 / 元件雷 / state 同步
+            └─ pitfalls.md           後端驗證 / 日期時區 / 壞值 / Windows 啟動 / 元件雷 / state 同步 / webwright操作 / 外部站H2指紋
 ```
 
 > **方法論 vs 知識庫**：`methodology/` 是穩定、跨專案不變的「怎麼做」；`knowledge/` 是會長大的

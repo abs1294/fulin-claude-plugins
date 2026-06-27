@@ -40,6 +40,7 @@ description: >
 - 當未來需打**真實外部站**（無法注入 a11y test token、後端不可攔、`ERR_HTTP2_PROTOCOL_ERROR`／Akamai/H2
   封鎖 Chromium、長程未知路徑）時，才裝 **webwright**（`/plugin install webwright@webwright` +
   `playwright install firefox`，用其 SOTA 自主探索）。**探索完一律 codify 成上述 runner，回歸端永遠不是 webwright。**
+  （`ERR_HTTP2_PROTOCOL_ERROR`／指紋封鎖的處置見 `knowledge/pitfalls.md` H 段：先換 `playwright.firefox`。）
   本機自家系統（有 a11y、有後端可攔）**不需要**裝 webwright。
 
 **每次測試前：**
@@ -56,7 +57,7 @@ description: >
 3. **需求 ↔ TC 對照表**
 4.（大型功能）紅隊漏測複查一次
 
-**關鍵交接規則**：每條 TC 的每個「預期結果」都要寫成「可被單一證據獨立驗證」的形式
+**關鍵交接規則**：每條 TC 的每個「預期結果」都要寫成「可由其結構化證據獨立驗證」的形式
 —— 這就是 Phase 2 要列成的 critical point 清單、再落成 runner 的 assert。
 詳見 `methodology/critical-points.md`。
 
@@ -66,8 +67,9 @@ description: >
 
 主 Agent 嚴格按測試計畫執行，不得自行增減步驟。流程是「探索路徑 → 沉澱成可重跑 runner」。
 
-1. **列 critical points**：把測試計畫**每條預期結果**列成一張清單，每個 CP 要能被
-   **一個結構化證據**（API 業務碼 / DOM 讀回值 / 來源 readback）獨立驗證——不依賴「我記得剛剛點了什麼」。
+1. **列 critical points**：把測試計畫**每條預期結果**列成一張清單，每個 CP 要能被其結構化證據
+   獨立驗證（讀取型一個即可；寫入/送出型需業務碼＋readback；守門/卡控型斷言狀態或錯誤碼——證據強度依 CP 類型，
+   見 `methodology/critical-points.md` 證據規範）——不依賴「我記得剛剛點了什麼」。
 
 2. **Explore（路徑未知時）**：摸出穩定 selector 與真實值。**先 grep 原始碼確認後端真實欄位名 / 端點名，
    再盲試 DOM**——多數路徑落差是「程式碼真實值 ≠ 記憶」的問題，不是視覺導航問題；a11y `ref` 比 CSS 文字選擇器精準。
@@ -129,6 +131,6 @@ BUG-{編號}｜嚴重度：Critical/Major/Minor｜對應 TC-{編號}
 
 - `methodology/test-plan-design.md` — 覆蓋矩陣、可追溯、必測 checklist、TC 格式、測試資料原則
 - `methodology/critical-points.md` — TC 預期 → critical point → assert 的對映與證據規範
-- `knowledge/pitfalls.md` — 踩過的雷與領域知識（後端驗證、日期時區、壞值、Windows 啟動、元件 portal、state 同步；G 段 webwright 操作雷僅在啟用 webwright 備用探索時適用）；**持續 append**
+- `knowledge/pitfalls.md` — 踩過的雷與領域知識（後端驗證、日期時區、壞值、Windows 啟動、元件 portal、state 同步、外部站 TLS/HTTP2 指紋封鎖；G 段 webwright 操作雷僅在啟用 webwright 備用探索時適用）；**持續 append**（新增分類時同步更新此枚舉）
 - 沉澱 runner 的官方文件（pytest-playwright / Playwright Test）— 瀏覽器啟動、locator、斷言、fixture
 - （選用，僅外部站備用探索）webwright skill 的 `reference/` — 瀏覽器啟動、aria snapshot、log 格式
