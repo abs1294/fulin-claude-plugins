@@ -34,6 +34,11 @@
       "name": "red-blue-review",
       "source": "./plugins/red-blue-review",
       "description": "中文紅藍對抗：對任何命題做 Red 攻→Blue 守→收斂的對抗式壓力測試（多面向、可接 Workflow 實作）。"
+    },
+    {
+      "name": "self-heal",
+      "source": "./plugins/self-heal",
+      "description": "降低並自動接力 tool call 失敗：每輪注入 XML 收尾提醒 hook + self-heal scheduler 接力規約（卡住自己續、完成則終止）。"
     }
   ]
 }

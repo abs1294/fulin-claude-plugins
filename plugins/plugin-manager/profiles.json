@@ -1,0 +1,54 @@
+{
+  "_comment": "可推廣的 plugin 套餐（profile）定義 + 偵測規則。隨 plugin-manager 進 git，別人裝了就有。/setup-plugins 讀此檔當基底，再用 ~/.claude/plugin-profiles.json 覆寫/補充（本機個人 profile、公司專屬 profile 放本機那份，不進此 git 檔）。",
+  "_detect_note": "detect 欄是給 /setup-plugins（Claude 語意判斷）的提示，非硬規則。Claude 讀專案的 CLAUDE.md（主訊號）/README/git remote/路徑/副檔名（輔證）後，對照各 profile 的 detect 提示，語意判斷最貼的 profile 推薦給使用者確認。claudeMdHints=CLAUDE.md/README 可能出現的語意關鍵詞；files=glob 檔案特徵；deps=package.json 依賴；pathHint=路徑線索。",
+  "profiles": {
+    "minimal": {
+      "description": "最精簡：只留全域常駐。此 profile 不額外啟用任何 plugin，等於宣告『這目錄刻意不加 plugin』。",
+      "enable": {}
+    },
+    "dotnet": {
+      "description": ".NET / C# 後端：C# LSP + .NET skills 包 + 自動資安審查。",
+      "detect": {
+        "claudeMdHints": ["C#", ".NET", "ASP.NET", "Entity Framework", "EF Core", "後端 API", "Web API"],
+        "files": ["*.csproj", "*.sln", "Program.cs"],
+        "deps": [],
+        "pathHint": []
+      },
+      "enable": {
+        "csharp-lsp@claude-plugins-official": true,
+        "dotnet-skills@dotnet-skills": true,
+        "security-guidance@claude-plugins-official": true
+      }
+    },
+    "frontend": {
+      "description": "Vue / TypeScript 前端：TS LSP + Figma 設計稿。",
+      "detect": {
+        "claudeMdHints": ["Vue", "TypeScript", "前端", "Pinia", "Vite", "Component"],
+        "files": ["*.vue", "vite.config.*", "tsconfig.json"],
+        "deps": ["vue", "typescript", "vite"],
+        "pathHint": []
+      },
+      "enable": {
+        "typescript-lsp@claude-plugins-official": true,
+        "figma@claude-plugins-official": true
+      }
+    },
+    "full": {
+      "description": "全開：dotnet + frontend 全部，外加資安審查。最吃上下文。前後端混合專案適用。",
+      "detect": {
+        "claudeMdHints": ["前後端", "前端與後端", "fullstack", "全端"],
+        "files": ["*.csproj", "*.vue"],
+        "deps": ["vue"],
+        "pathHint": []
+      },
+      "enable": {
+        "csharp-lsp@claude-plugins-official": true,
+        "typescript-lsp@claude-plugins-official": true,
+        "dotnet-skills@dotnet-skills": true,
+        "figma@claude-plugins-official": true,
+        "security-guidance@claude-plugins-official": true,
+        "code-simplifier@claude-plugins-official": true
+      }
+    }
+  }
+}

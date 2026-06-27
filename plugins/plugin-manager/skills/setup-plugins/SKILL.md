@@ -1,52 +1,75 @@
 ---
 name: setup-plugins
-description: 為「當前工作目錄」選擇並啟用一組 Claude Code plugin 組合（venv 概念），含推薦/挑裝別人做的外部 plugin。當使用者輸入 /setup-plugins、說「設定這專案的 plugin」、「這目錄要裝哪些 plugin」、「套用 plugin 組合 / profile」、「推薦外部 plugin」、「登記外部 plugin」、「把別人的 plugin 加進推薦」時觸發。把選定組合寫進該目錄 .claude/settings.json 的 enabledPlugins（per-project 覆寫），不污染 user 全域；外部 plugin 推薦寫進 plugin 內的 recommends.json（進 git、會推廣）。
+description: 為「當前工作目錄」偵測並推薦該裝哪些 Claude Code plugin（venv 概念，per-project 隔離），給出要貼的 install 指令——不直接寫 settings（啟用宣告由 /plugin install 選 scope 時自己寫）。當使用者輸入 /setup-plugins、說「設定這專案的 plugin」、「這目錄要裝哪些 plugin」、「套用 plugin 組合 / profile」、「推薦這專案的 plugin」、「推薦外部 plugin」、「登記外部 plugin」時觸發。也含子流程 upgrade（偵測自製 plugin 落後版）與外部 plugin 推薦登記（recommends.json，進 git、會推廣）。
 ---
 
-# Setup Plugins（per-project plugin 組合）
+# Setup Plugins（per-project plugin 偵測與推薦）
 
 讓使用者為「當前目錄」按需啟用 plugin，像 Python venv 那樣按專案隔離，避免全部塞 user scope 浪費上下文。
 
+## 核心職責（重要 — 邊界）
+
+setup 只做**偵測 + 推薦 + 給指令**，**不寫 settings**：
+
+- **`/plugin install` 選 scope（project / local）時，Claude Code 會自己把 `enabledPlugins` 寫進對應 settings.json。** 這是 install 的職責，不是 setup 的。
+- 所以 setup **不碰、不代寫** `<cwd>/.claude/settings.json` 的 enabledPlugins——重複寫只會打架。
+- setup 的價值是：① 看專案**偵測**該裝什麼 → ② **推薦** profile / plugin 組合 → ③ 列出**要貼的 install 指令**（提醒選 project scope）。寫入交給 install。
+
 ## 背景知識
 
-- plugin「安裝」是全域一份（cache 在 `~/.claude/plugins/cache/`），但「**啟用**」是 per-scope 的。
-- 寫進「目錄/.claude/settings.json」的 `enabledPlugins` = project scope，只在該目錄樹生效，**覆寫 user 全域**。
+- plugin「安裝」是全域一份 cache（`~/.claude/plugins/cache/`），但「**啟用 scope**」per-scope：`/plugin install` 互動 UI（`/plugin` → Discover → 選 plugin → Enter）可選 **user**（全域）/ **project**（寫 `<cwd>/.claude/settings.json`，團隊共享）/ **local**（寫 `settings.local.json`，只自己、不進 git）。
 - 全域常駐（不需 profile 重複處理）：`claude-mem`、`codex`、`example-skills`。
-- profile 定義在 `~/.claude/plugin-profiles.json`。
+- **profile 來源有兩份，讀時合併**：
+  - 基底（可推廣、進 git）：`<monorepo>/plugins/plugin-manager/profiles.json`（monorepo 路徑取自 `~/.claude/plugin-manager/config.json`）——通用 profile（dotnet/frontend/full…）+ 各自的 `detect` 偵測規則。
+  - 覆寫（本機、不進 git）：`~/.claude/plugin-profiles.json`——使用者個人 / 公司專屬 profile（如 supplier）。
+  - **合併規則**：以基底為底，本機覆寫——同名 profile 本機贏，本機獨有的 profile 保留。
 
 ## 執行步驟（Claude 依此操作）
 
-1. **確認當前工作目錄**（cwd）。所有寫入都針對 `<cwd>/.claude/settings.json`。
+1. **確認當前工作目錄**（cwd）。
 
-2. **讀 profile 清單**：Read `~/.claude/plugin-profiles.json`，取出 `profiles` 的每個 key + description。
+2. **讀 profile 清單（合併兩份）**：Read `<monorepo>/plugins/plugin-manager/profiles.json`（基底）與 `~/.claude/plugin-profiles.json`（本機覆寫），合併後取每個 profile 的 key + description + detect。
+   - **fallback**：config.json 不存在或 monorepo 路徑無效（如剛裝 plugin-manager 還沒 `init`）→ 略過基底，只用本機那份；兩份都讀不到 → 告知使用者「找不到 profile 定義，請先 `init` 或建立 `~/.claude/plugin-profiles.json`」，不中斷報錯。
 
-3. **讀當前目錄現況**：Read `<cwd>/.claude/settings.json`（可能不存在）。列出目前已啟用了哪些 plugin（若有）。
+3. **讀當前目錄現況**：Read `<cwd>/.claude/settings.json` 與 `<cwd>/.claude/settings.local.json`（可能不存在）。列出目前已啟用了哪些 plugin（避免推薦重複）。
 
-4. **用 AskUserQuestion 問使用者要套哪個 profile**：
-   - 選項 = profiles 的 key（minimal / dotnet / frontend / supplier / full…），每項 description 用 profile 的 description。
-   - 額外提供「自訂（我逐一勾選）」與「取消」。
-   - 若使用者選自訂，再用一次 AskUserQuestion（multiSelect: true）列出所有 profile 涵蓋過的 plugin 讓他逐一勾。
+4. **偵測專案、推薦 profile**（這次的核心）。偵測訊號**以 CLAUDE.md 為主**，副檔名為輔：
+   - **主訊號**：Read `<cwd>/CLAUDE.md`（+ 上層目錄的 CLAUDE.md）、`README.md`——萃取專案自己宣告的架構/技術棧/agent 需求。這是最高保真的訊號（專案作者親口說的意圖），優先於猜副檔名。
+   - **身分訊號**：git remote（`git -C <cwd> remote -v`）、cwd 路徑。
+   - **輔證**：Glob 副檔名/結構（`*.csproj`/`*.sln`/`*.vue`/`*.py`/`go.mod`…）、`package.json` 的 deps。涵蓋非 .NET/Vue 的專案（Python/Go/純文件…）。
+   - **語意對應**：拿上面萃取到的，對照各 profile 的 `detect` 提示（`claudeMdHints` 語意關鍵詞 / `files` / `deps` / `pathHint`），**語意判斷**最貼的 profile（不是字面 exact match——detect 是提示不是硬規則）。
+   - **誠實**：訊號弱或模糊（沒 CLAUDE.md/README、副檔名也認不出）→ **明說「沒把握，請你手選」**，不硬猜。
 
-4.5. **推薦的外部 plugin 挑裝**（別人做的 plugin）——**這步固定要問**（不論清單有無內容）：
-   讀推薦清單 `<monorepo>/plugins/plugin-manager/recommends.json` 的 `recommends`（monorepo 路徑取自 `~/.claude/plugin-manager/config.json`）。
-   - **若清單為空**：仍要告知使用者「目前沒有推薦的外部 plugin。要加的話跟我說『推薦外部 plugin …』即可（見下方子流程）」，讓使用者知道有這功能。
-   - **若清單有內容**，依數量決定怎麼問：
-     - **少（≤ 約 8 筆）**：直接用 AskUserQuestion（multiSelect）列出每筆（`name@marketplace` — note）讓使用者挑。
-     - **多（> 約 8 筆）且有 tags**：**先**用 AskUserQuestion 問「要哪個面向」（選項 = 清單裡出現過的所有 tag，可多選），**再**只把選中 tag 的那些 plugin 列出來讓使用者勾。避免一長串勾選。
-     - 多但無 tags：仍直接列（並可建議使用者之後給推薦補 tag）。
-   - 顯示每筆時**務必帶 note**（用途描述），讓使用者認得出每個 plugin 是做什麼的。
-   - 挑中的併進下一步的 enabledPlugins，並在步驟 6 一起提示其 `marketplace add` 來源（取自該筆的 `source`）。
+5. **用 AskUserQuestion 呈現推薦給使用者確認**：
+   - **第一選項** = 偵測到的推薦 profile，標題寫成「偵測到 X → 建議套用 `<profile>`（這 N 個 plugin）」，description 列出該 profile 的 plugin。
+   - 其餘選項 = 其他 profile（minimal / 其他 detect 沒中的）+「自訂（我逐一勾選）」+「取消」。
+   - 偵測無把握時，不放推薦選項，直接列全部 profile 讓手選（並說明為何沒推薦）。
+   - 選自訂 → 再一次 AskUserQuestion（multiSelect）列出所有 profile 涵蓋過的 plugin 逐一勾。
 
-5. **寫入設定**：把選定 profile 的 `enable`（或自訂勾選結果，含 4.5 挑中的推薦外部 plugin）合併進 `<cwd>/.claude/settings.json` 的 `enabledPlugins`。
-   - **保留**該檔原有的其他 key 與原有 enabledPlugins 項目（用 Read→Edit，不要整檔覆蓋）。
-   - 若檔案不存在，新建一個 `{ "enabledPlugins": { ... } }`。
-   - plugin 名稱格式必須是 `name@marketplace`。
+5.5. **推薦的外部 plugin 挑裝**（別人做的 plugin）——**這步固定要問**（不論清單有無內容）：
+   讀推薦清單 `<monorepo>/plugins/plugin-manager/recommends.json` 的 `recommends`。
+   - **若清單為空**：仍告知「目前沒有推薦的外部 plugin，要加跟我說『推薦外部 plugin …』」，讓使用者知道有此功能。
+   - **若有內容**：少（≤ 約 8 筆）直接 AskUserQuestion（multiSelect）列出（`name@marketplace` — note）；多（> 8）且有 tags 先問面向（tag）再列選中 tag 的。顯示**務必帶 note**。
 
-6. **檢查 marketplace 是否已知**：若選的 profile 含非官方 plugin（如 `dotnet-skills@dotnet-skills`），提醒使用者該 marketplace 需先 `/plugin marketplace add`（Claude 不能代執行 /plugin，請使用者自己貼）。
+6. **產出「要裝什麼 + 怎麼裝」清單給使用者貼**（**不寫 settings**）：
+   把選定 profile 的 `enable`（+ 5.5 挑中的外部 plugin）整理成一份清單，對每個 plugin 給出 install 指令，並**明確提醒選 project 或 local scope**（這樣 install 會自己把 enabledPlugins 寫進對應 settings，不需要 setup 代寫）：
+   ```
+   建議這個專案啟用（profile: <name>）：
+     • csharp-lsp@claude-plugins-official — C# LSP
+     • dotnet-skills@dotnet-skills — .NET skills 包
+     ...
+   逐個貼（互動 UI 選 scope = Project 或 Local，install 會自動寫進對應 settings）：
+     /plugin                      # → Discover → 選該 plugin → Enter → 選 Project/Local scope
+   或命令列指定 scope：
+     claude plugin install csharp-lsp@claude-plugins-official --scope project
+   ```
+   - **不要**自己去 Edit `<cwd>/.claude/settings.json` 的 enabledPlugins——那是 install 選 scope 時做的。
+   - 已啟用的（步驟 3 讀到的）不重複列。
 
-7. **檢查 LSP binary**：若啟用了 `csharp-lsp` / `typescript-lsp`，提醒對應 binary（`csharp-ls` / `typescript-language-server`）需在 PATH，否則 `/plugin` Errors tab 會報 `Executable not found`。
-
-8. **提醒生效**：設定改了不會即時套用，請使用者執行 `/reload-plugins`（或重開 session）。
+7. **提醒前置**：
+   - 非官方 marketplace（如 `dotnet-skills@dotnet-skills`）需先 `/plugin marketplace add <source>`（Claude 不能代執行 /plugin，請使用者自貼）。
+   - 啟用 `csharp-lsp`/`typescript-lsp` → 對應 binary（`csharp-ls`/`typescript-language-server`）需在 PATH，否則 `/plugin` Errors tab 報 `Executable not found`。
+   - 裝完執行 `/reload-plugins`（或重開 session）才生效。
 
 ## 子流程：`/setup-plugins upgrade`（同步自製 plugin 到 registry 最新版）
 
@@ -94,10 +117,11 @@ description: 為「當前工作目錄」選擇並啟用一組 Claude Code plugin
 
 3. **提示兩件事**：
    - 推薦寫進 recommends.json 後**要 `/plugin-manager:publish`** 才會推上去讓別人看到。
-   - 登記/推薦只是進清單，**不會自動安裝**。要實際裝需自貼 `/plugin marketplace add <source>` + `/plugin install <name@marketplace>` + `/reload-plugins`，或下次 `/setup-plugins` 挑裝。
+   - 登記/推薦只是進清單，**不會自動安裝**。要實際裝需自貼 `/plugin marketplace add <source>` + `/plugin install <name@marketplace>`（選 scope）+ `/reload-plugins`，或下次 `/setup-plugins` 看推薦挑裝。
 
 ## 重要限制（要誠實告知）
 
-- Claude **不能**代為執行 `/plugin install` / `/plugin marketplace add` / `/reload-plugins`——這些是互動指令，必須使用者自己在輸入框打。Claude 只負責「寫好 enabledPlugins 設定 + 給要貼的指令」。
+- Claude **不能**代為執行 `/plugin install` / `/plugin marketplace add` / `/reload-plugins`——這些是互動指令，必須使用者自己在輸入框打。
+- **setup 不寫 enabledPlugins**——啟用宣告由 `/plugin install` 選 scope（project/local）時自己寫進對應 settings.json。setup 只負責偵測、推薦、給要貼的指令。
 - 寫進 project settings 的是「啟用宣告」；plugin 本體仍需已 install 過（在 cache 裡）。未 install 的會在 reload 時報錯。
-- 若當前目錄是 git repo，project settings.json 會被版控追蹤（影響協作者）；非 git 目錄則只影響自己。寫入前若偵測到是 git repo 且含第三方 plugin，提醒使用者。
+- project scope（`.claude/settings.json`）會被 git 追蹤、影響協作者；只想自己用選 local scope（`settings.local.json`，不進 git）。
