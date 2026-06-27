@@ -9,6 +9,7 @@ QA Agent 在 Phase 1 產出測試計畫的通用規範。**不假設任何特定
 相似的既有 TC。兩種情況：
 
 - **（A）已有既有資產** → 能復用就優先復用，新 TC 與既有資產的風格、命名對齊。
+  - **怎麼盤（手段）**：枚舉 runner 既有測試——`pytest --collect-only`（或讀 tests/ 目錄與描述性測試函式名）+ 讀 xfail / skip marker 判既有覆蓋狀態（pass=完整 / xfail 或只守門=部分 / 無對應 test=未覆蓋）。**靠枚舉 runner 本身判斷情境是否已覆蓋、要沿用還是新建，不另維護一份索引檔**（runner 即單一真相來源；另立索引會變第二份 SSOT、必然漂移）。
 - **（B）greenfield（專案尚無 runner / 測試資產）** → 建立第一個：
   - **落地目錄與命名**：優先依目標專案 `CLAUDE.md`/README 指定；未指定則預設落 `tests/e2e/`、檔名 `test_<feature>.py`（pytest-playwright）。
   - **最小 bootstrap**：裝 runner（pytest-playwright 為 `pip install pytest-playwright && playwright install chromium`），用 runner 內建 fixture（pytest-playwright 的 `page`）即可，瀏覽器啟動細節見官方文件，不在此重述。
