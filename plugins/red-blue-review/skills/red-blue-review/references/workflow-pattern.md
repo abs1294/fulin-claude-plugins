@@ -38,10 +38,13 @@ const confirmed = results.flat().filter(Boolean).filter(r => r.verdict?.is_real)
 ## 鐵律（本專案實戰教訓）
 
 1. **藍方一定要「獨立讀實際檔案」驗證**，不能信紅方——否則假陽性（false finding）混進來。本 session 多次靠這抓出紅方的過時/誤判（連 Codex 都有過讀到舊快照的假陽性）。
-2. **備 ground truth**：紅藍 agent 都拿同一份「實際狀況」當基準，避免各自憑印象。
+2. **備 ground truth，且其關鍵事實前提必須先「獨立實讀來源」驗證**：紅藍同拿一份基準避免各自憑印象——但 ground truth 本身若含假事實（尤其「X 等價 Y / X 可取代 Y」這類斷言），紅藍都會引用它、裁判基於它定讞，**對抗反而精緻地論證一個錯誤結論**。備 ground truth 時，凡是當「已知」寫進去的等價/取代/涵蓋斷言，動對抗前先實讀來源核對（不可把「聽說等價」當前提）。本 session 曾連判兩次錯，皆因 ground truth 含未驗證的「collect-only 可取代 CATALOG」假設——對抗抓不到，靠人類一句常識才戳破。
 3. **嚴重度校正**：藍方驗證時順便校正紅方標的嚴重度（紅方常高估）。
 4. **修完可選 Codex 複審**：本 session 慣例——紅藍對抗修完 → Codex review → 才 publish。雙重把關。
 5. **完整輸出別靜默截斷**：findings 多時，全列出來（哪些確認、哪些剔除、殘餘風險），不要只報一部分讓人以為「全乾淨」。
+6. **schema 扁平、別灌整包大 JSON 給下游 agent**：巢狀 required enum 陣列、或把整包上游結果 stringify 塞進下游 prompt，會讓 agent 產不出合規輸出而撞 StructuredOutput retry cap、炸掉整個 workflow。FINDING/VERDICT 用扁平 schema；下游只傳精煉摘要（label + 關鍵句），需要細節讓 agent 自己 Read。本 session 早期吃過紅隊吐 `"test"` 垃圾、retry cap 炸的虧。
+7. **一方持續難產 = 訊號，不是故障**：若某 agent（如質疑方）連續產不出有效輸出（撞 retry cap、`null`），在「對手論點建立在已驗證硬事實上」的情境，這往往是「它找不到站得住的反駁」的訊號——可佐證對手論點難以反駁，而非單純技術失敗。
+8. **收斂後過常識終檢**：見 SKILL「第四步半」——對抗全綠不代表結論對；產出前用常識/第一性原理掂量強化後命題（延後是否=技術債、open question 是否=卸責、建議性規範是否沒人執行）。這道不靠對抗，因對抗的集體盲點正是要補的。
 
 ## FINDING / VERDICT schema 範例
 
