@@ -10,7 +10,7 @@
 
 1. **事前降低**（hook，自動生效）：每輪 UserPromptSubmit 注入 XML 收尾提醒。這層是程式強制的。
 2. **卡住接力**（skill，行為規約，best-effort）：作業中起 self-heal scheduler，喚醒時卡住就重發、完成則終止。**這層靠模型自願照 skill 執行，非程式強制**，效果是 best-effort，不是保證。
-   - **接力鏈不斷的關鍵**：收到喚醒時，**第一個動作永遠是「用最短指令續設下一棒 scheduler」**，再做正事——這樣正事 malformed 也不會斷鏈。
+   - **接力鏈不斷的關鍵**：收到喚醒時，**第一個動作永遠是「續設下一棒 scheduler」**，且 prompt 用固定通用短語「請確認工作是否完成，若未完成請繼續完成。」——**不塞任務細節**（塞長說明進 prompt 是續設自己 malformed 的主因；進度從脈絡讀）。再做正事，正事 malformed 也不斷鏈。
    - **換工具通道**：同一指令在同一工具連兩次 malformed → 換通道（Bash↔PowerShell、Edit↔Node 腳本）。實戰常一次就過。
 
 ## 前置需求
