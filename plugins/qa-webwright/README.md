@@ -95,7 +95,7 @@ claude plugin validate ./qa-webwright
 
 本 plugin 的方法論是通用的；**只有「啟動服務」那段是專案專屬**。在目標專案的 `CLAUDE.md`
 或 README 補上：前後端各自的 port、啟動指令、健康檢查 URL、登入方式。`browser-qa` skill 的
-Phase 2 會引用這些來起服務（Windows 背景啟動的 `npm.cmd` 雷已寫在 SKILL.md）。
+Phase 2 會引用這些來起服務（Windows 背景啟動的 `npm.cmd` 雷見 `browser-qa` skill 的 `knowledge/pitfalls.md` D 段）。
 
 ## 作者
 

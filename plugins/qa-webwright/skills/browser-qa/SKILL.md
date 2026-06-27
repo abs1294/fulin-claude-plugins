@@ -9,7 +9,7 @@ description: >
 
 # Browser QA Skill
 
-把測試計畫的每條「預期結果」對映成一個 **critical point**，再落成可重跑 runner 裡**一行 `assert`**。
+把測試計畫的每條「預期結果」對映成一個 **critical point**，再落成可重跑 runner 裡**（至少）一行 `assert`**（雙向卡控等可多行）。
 
 這條設計的好處：測試**寫一次**（探索階段花一次 agent token），之後直接 `pytest`（或對應 runner）跑——
 有 assert 就能自動判 pass/fail、無 agent、不花 token、可掛 CI。
@@ -57,7 +57,7 @@ description: >
 4.（大型功能）紅隊漏測複查一次
 
 **關鍵交接規則**：每條 TC 的每個「預期結果」都要寫成「可被單一證據獨立驗證」的形式
-—— 這就是 Phase 2 要落進 `plan.md` 的 critical point、再落成腳本一行 assert。
+—— 這就是 Phase 2 要列成的 critical point 清單、再落成 runner 的 assert。
 詳見 `methodology/critical-points.md`。
 
 ---
@@ -73,7 +73,7 @@ description: >
    再盲試 DOM**——多數路徑落差是「程式碼真實值 ≠ 記憶」的問題，不是視覺導航問題；a11y `ref` 比 CSS 文字選擇器精準。
    （僅「真實外部站、無 a11y、長程未知」才改用 webwright 自主探索，見前置。）
 
-3. **沉澱成可重跑 runner**：把每個 critical point 落成 runner（pytest 等）裡**一行 `assert`**——
+3. **沉澱成可重跑 runner**：把每個 critical point 落成 runner（pytest 等）裡**（至少）一行 `assert`**（雙向／多面卡控可對多行）——
    斷言打在結構化證據上（業務碼 `code=="0000"` 非只看 HTTP 200、DOM/a11y 讀回 unique token、DB/重查 readback）。
    寫入型操作必「寫 unique token → 讀回那一筆比對」，不可只驗送出成功。斷言規範見 `methodology/critical-points.md`。
 

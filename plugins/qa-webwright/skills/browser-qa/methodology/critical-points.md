@@ -1,7 +1,7 @@
 # 從「TC 預期結果」到「critical point」＋ assert（方法論）
 
 核心對映：QA Agent 設計的每條測試案例預期結果 → 一個**可被單一結構化證據獨立驗證**的
-critical point → 可重跑 runner（pytest 等）裡**一行 `assert`**。
+critical point → 可重跑 runner（pytest 等）裡**（至少）一行 `assert`**（雙向／多面卡控可對多行 assert，見 CP5 範例）。
 
 最後這一步（落成 assert）是讓測試「寫一次、以後直接 `pytest` 跑、
 無 agent、不花 token、可進 CI」的關鍵——沒有 assert，就只能每次靠人/agent 看畫面判定。
@@ -13,7 +13,7 @@ critical point → 可重跑 runner（pytest 等）裡**一行 `assert`**。
 
 | 測試計畫 | critical point | runner 測試碼 |
 |----------|----------------|----------------|
-| TC 的一個「預期結果」 | 一個 critical point（CP） | 一行 `assert`（打在結構化證據上） |
+| TC 的一個「預期結果」 | 一個 critical point（CP） | （至少）一行 `assert`（打在結構化證據上；雙向卡控等可多行） |
 | 步驟的【證據】說明 | 該 CP 的證據來源（API 碼 / DOM 值 / readback） | 取該證據 + 對應斷言 |
 | 需檢查項目 | 額外 CP | 額外 assert（無 console error、業務碼 0000 等） |
 
@@ -51,7 +51,10 @@ critical point → 可重跑 runner（pytest 等）裡**一行 `assert`**。
 
 ## 證據規範（self-verify 時嚴格把關）
 
-- 每個 CP 對應**一個結構化證據**：API 業務碼、DOM/a11y 讀回值，**或**來源 readback。
+- 每個 CP 至少對應一個結構化證據，**依 CP 類型決定證據強度**：
+  - **讀取 / 查詢型**：API 業務碼 **或** DOM/a11y 讀回值 **或** 來源 readback，任一即可。
+  - **寫入 / 送出型**：業務碼（如 `code=="0000"`）**且**必附「寫 unique token → 讀回那一筆比對」（DB 重查 / 重新 GET / UI 渲染含該 token）——業務碼單證據不足（呼應斷言規範的寫入型讀回鐵則與 CP7 範例）。
+  - **守門 / 卡控型**（本無寫入）：斷言特定狀態 / 錯誤碼（如按鈕 disabled、特定業務錯誤碼）即可，不需 readback。
 - 確認證據**明確無歧義**：業務碼正確、值完全相符、列表確實反映該條件（用 unique 鍵定位那一筆再讀欄位，
   不是只驗「有列 / 非空」）。
 - 對「狀態在 modal / drawer / dropdown 關閉後被藏起來」的情況：操作前先讀到值，或重開後再讀。

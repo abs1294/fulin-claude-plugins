@@ -18,7 +18,7 @@ $ARGUMENTS
    僅在「真實外部站、無 a11y、長程未知路徑」才用 webwright 備用探索，見 `SKILL.md` 前置）。
 3. **探索/首跑**（路徑未知時）：用專案既有探索方式摸出穩定 selector 與真實值
    （**先 grep 原始碼確認後端真實欄位名 / 端點名，再盲試 DOM**——多數路徑落差是程式碼真實值問題，非導航問題）。
-4. **沉澱**：把測試計畫每條 TC 的預期結果落成 runner 的一個 critical point ＝ **一行 `assert`**：
+4. **沉澱**：把測試計畫每條 TC 的預期結果落成 runner 的一個 critical point →**（至少）一行 `assert`**（雙向／多面卡控可對多行，見 critical-points.md CP5）：
    - 斷言打在**結構化證據**上：API 業務碼（如 `code == "0000"`，**非只看 HTTP 200**）、
      DOM/a11y 讀回 unique token、來源（DB / 重查）readback——不靠讀截圖判定。
    - 截圖至多留檔備查，**不作為 pass/fail 判定依據**（省 token、避免漏掉渲染層以外的 bug）。
