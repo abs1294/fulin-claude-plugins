@@ -28,15 +28,23 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 2. **若工作區乾淨**：告知沒有待發布改動（若本地領先 origin，提示是否只需 push）。
 
 3. **若有改動**：把 status 與建議 commit message 呈現給使用者，採**無人值守默許模式**：
-   - 呈現後**等使用者回應**。若使用者**改了 message** → 用改後的；**明確拒絕/喊停** → 中止不 commit。
+   - 呈現後若使用者**改了 message** → 用改後的；**明確拒絕/喊停** → 中止不 commit、並刪除已排的喚醒（見下）。
    - **超過 5 分鐘沒有任何拒絕或修改** → **視為默許，自動採用建議 message 繼續 commit + push**（不再卡等）。
    - 呈現時明白告知這條規則（例如「5 分鐘內沒回覆就用這個 message 自動發布」），讓使用者知道可在時限內介入。
    - **這是刻意的無人值守設計**（使用者明確要求）：5 分鐘默許後會**自動 commit + push**整條跑完——push 是對外動作，但這裡刻意以「沉默即同意」換取無人值守（掛著不顧、回來已發好）。5 分鐘的窗口就是使用者的介入點。
 
+   > ⚠️ **「5 分鐘自動推」必須有喚醒源，否則是空頭承諾**（實戰教訓）：呈現完 message 後，這一輪就結束、控制權交還使用者——若不主動排一個喚醒，5 分鐘後根本沒有任何東西會觸發 push，只會卡等下一次使用者輸入。
+   >
+   > **所以呈現 message 的「同一輪」必須立刻排一個 ~5 分鐘後的喚醒**（與 git-commit 不同：那邊的默許掛在「審查完成事件」、當輪即到，不需計時器；本 skill 是時間驅動，必須自備計時器）：
+   > - 優先 `ScheduleWakeup({ delaySeconds: 300, reason: "publish 默許窗口", prompt: "<重述：到 /plugin-manager:publish 的 commit+push 步驟>" })`；
+   > - 若環境無 ScheduleWakeup，用 `CronCreate({ recurring:false, durable:false, cron:<現在+5分>, prompt: "[publish 默許自動發布] 若使用者自呈現後未否決/未改 message，直接用建議 message 跑 commit + push + finalize。" })`，並記下 job id。
+   > - **喚醒時的守衛**：先檢查 ① 使用者是否已在窗口內否決/改 message（是 → 不推、結束）② git 是否已 commit/push（已推 → 結束，不重複）；兩者皆否才執行步驟 4。
+   > - **使用者在 5 分鐘內回應時**：先 `CronDelete <id>`（或讓 ScheduleWakeup 的守衛自然 no-op），再依回應處理，避免喚醒重複觸發。
+
    **commit message 必須註明本次改了哪一個/哪些 skill（規則 3 — 版本追蹤）**。格式 `<動作>: <skill 名> — <摘要>`，動作詞 Add/Update/Fix，不得加 AI 署名。範例：`Update: delaylocal skill — 修正 LINE 通知逾時重試`。完整格式與範例詳 `../../CONVENTIONS.md`。
    - 因為有默許機制，建議 message 必須**夠完整可直接發布**（照規則 3 寫好），不能只丟半成品等使用者補。
 
-4. **確認後執行 git**（在 config.monorepo 目錄，順序：add → commit → push）：
+4. **確認後執行 git**（使用者明確確認、或步驟 3 的 5 分鐘喚醒觸發且通過守衛時；在 config.monorepo 目錄，順序：add → commit → push）：
 
    先 stage：
    ```
