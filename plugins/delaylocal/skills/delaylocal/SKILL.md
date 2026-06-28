@@ -121,7 +121,6 @@ CronCreate({
 ### goal 模式排程流程（propose →（確認 / 10 分鐘逾時自動採納）→ 排程）⚠️ 必守
 
 goal 是**預設模式**：把「做到完成」的判定交給 Claude Code 的 `/goal` 引擎，需要一條**可測量、有驗證方法**的完成條件（例：`某檔存在且內容為 X`、`npm test exits 0`），別寫模糊的哲學目標。條件要由你（Claude）先 propose、使用者過目——**禁止未經 propose 就排任務**。`delaylocal.js` 在「非 --plain 又沒給 --goal」時會直接報錯，提醒先 propose。
-（為什麼要 propose、final_prompt 怎麼組、與 `--plain` 的取捨 → 見下方「運作原理」。）
 
 固定走：
 
