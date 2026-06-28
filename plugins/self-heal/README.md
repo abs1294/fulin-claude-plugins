@@ -29,7 +29,7 @@
 ## 已知限制
 
 - **hook 已實測生效**：啟用 + 重啟後，UserPromptSubmit hook 確實每輪注入 XML 收尾提醒（已在實戰 session 觀察到 reminder 內容注入）。
-- **第②層救不了「對話中即時連環 malformed」**：scheduler 的價值在「無人值守卡死時自己接力」；若使用者正盯著看的連環 malformed，主要靠第①層 hook + 操作守則（換通道、短 message、Node 腳本改檔）事前降低，scheduler 是兜底不是主力。
+- **第②層救不了「對話中即時連環 malformed」**：scheduler 的價值在「無人值守卡死時自己接力」；若使用者正盯著看的連環 malformed，主要靠第①層 hook + 操作守則事前降低，scheduler 是兜底不是主力。最關鍵的操作守則（SKILL 列為**第一鐵律**）：**一則訊息只送一個工具呼叫**——實戰最常見的爆法是「一則塞 ≥2 個工具呼叫」，任一標籤沒收尾就整批 malformed；要連做多件事就拆成多則逐一發。其餘守則：長參數用檔案引用、含角括號的檔優先用 Node 腳本改、同工具連 2 次 malformed 換通道。
 - **scheduler 接力有重試上限**：同一失敗點連續重試 ≥3 次仍 malformed 會停止續設、交還使用者，避免無限續設燒 quota。
 
 ## 安裝後注意

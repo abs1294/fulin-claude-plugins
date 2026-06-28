@@ -2,6 +2,10 @@
 
 本檔記錄 self-heal 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.2.3] - 2026-06-28
+### Changed
+- README 補痛點/價值 hook；SKILL 加「malformed 根因分診」段
+
 ## [0.2.2] - 2026-06-27
 ### Fixed
 - SKILL加可照抄的續設tool call範本
