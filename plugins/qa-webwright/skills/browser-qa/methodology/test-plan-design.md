@@ -12,9 +12,9 @@ QA Agent 在 Phase 1 產出測試計畫的通用規範。**不假設任何特定
   - **怎麼盤（手段）**：枚舉 runner 既有測試——`pytest --collect-only`（或讀 tests/ 目錄與描述性測試函式名）+ 讀 xfail / skip marker。
     這能盤出「**已寫的**測試」供復用對齊，但**回答不了「該做卻沒人寫的情境」**（見 §0.5）——枚舉只能列出存在的測試，不存在的測試在 collect-only 輸出裡是隱形的。「要沿用還是新建」的完整答案需搭配 §0.5 的情境覆蓋索引。
 - **（B）greenfield（專案尚無 runner / 測試資產）** → 建立第一個：
-  - **落地目錄與命名**：**相對於 session 的當前工作目錄（cwd）落地，不自行鑽進子專案目錄**——你在哪個資料夾起 session，測試就放那個資料夾下（如 cwd 下的 `tests/e2e/`、檔名 `test_<feature>.py`）。
-    優先依目標專案 `CLAUDE.md`/README 指定的測試路徑慣例；無指定才用 cwd 相對預設。
-    > **要讓 e2e 進某個專案 repo 版控，正確作法是「在那個專案目錄起 session」**，而非從上層鑽進去——e2e 的測試棧/語言不一定等於該專案語言，落地點由 cwd 決定、不由 skill 寫死絕對結構。
+  - **落地目錄與命名**：**測試放在「你起 session 的那個資料夾」（session 起始目錄）底下，不自行鑽進子專案目錄**——在哪個資料夾起 session，就放那個資料夾下（如該目錄下的 `tests/e2e/`、檔名 `test_<feature>.py`）。
+    優先依目標專案 `CLAUDE.md`/README 指定的測試路徑慣例；無指定才用「放在 session 起始目錄下」這個預設。
+    > **要讓 e2e 進某個專案 repo 版控，正確作法是「在那個專案資料夾裡起 session」**，而非從上層資料夾鑽進去——e2e 的測試棧/語言不一定等於該專案語言，落點由「session 起在哪」決定、不由 skill 寫死絕對結構。
   - **最小 bootstrap**：裝 runner（pytest-playwright 為 `pip install pytest-playwright && playwright install chromium`），用 runner 內建 fixture（pytest-playwright 的 `page`）即可，瀏覽器啟動細節見官方文件，不在此重述。
   - 專案專屬值（port / login / BASE_URL）仍委派目標專案 `CLAUDE.md`，不寫進方法論。
 
