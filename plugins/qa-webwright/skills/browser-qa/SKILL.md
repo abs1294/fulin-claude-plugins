@@ -88,7 +88,7 @@ description: >
 
 6. **輸出測試報告**（格式見下）。沉澱成 runner 後、**宣稱綠燈 / 登記完成前，先 grep 驗證該 test 函式確實寫入存在**
    （Write / replace 在並行取消時可能假成功，造成「假登記、假綠燈」），確認存在再宣稱通過。
-   **若專案維護情境覆蓋索引（見 `methodology/test-plan-design.md` §0.5），回填該情境的覆蓋狀態（✅/⚠️/❌）**——讓 codify 閉環不止於 runner、累積成可查的應測情境索引。
+   **回填情境覆蓋索引（必做，見 `methodology/test-plan-design.md` §0.5）的該情境覆蓋狀態（✅/⚠️/❌）**——讓 codify 閉環不止於 runner、累積成可查的應測情境索引。
 
 ### 測試哲學（通用，少數鐵則）
 
