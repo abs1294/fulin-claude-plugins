@@ -1,18 +1,23 @@
 # supplier-agents
 
-Winbond 供應商平台（Supplier Platform）DDD 開發的 agent 組。把「架構設計 → 後端 / 前端實作 → 程式碼審查 → QA 驗證」拆成五個分工明確的子代理，各自綁定專案內的 Skill 與規範，確保產出符合 DDD / CQRS 分層、資安要求與公司註解規範（不留 AI 痕跡）。
+**在 Winbond 供應商平台上開發時，讓一條龍的角色分工幫你把關——架構先設計好才動工、寫完一定交審、審過才測，產出守住 DDD/CQRS 分層、資安與公司註解規範（不留 AI 痕跡）。**
+
+一個人用 AI 做 DDD 專案常見的痛：AI 跳過架構設計直接寫、寫完沒人審就當完成、註解一堆「罐頭複述」的 AI 痕跡。supplier-agents 把開發拆成五個分工明確的子代理，用**強制交接鏈**綁住流程——架構設計 → 後端 / 前端實作 → 程式碼審查 → QA 驗證，每一棒沒交清楚下一棒不開工。
+
+> ⚠️ **這是專案專屬 plugin**：綁定 Winbond 供應商平台的技術棧與規範，各 agent 依賴專案內既有的 Skill（`.claude/skills/...`）與規範檔。請在已具備這些檔案的供應商平台 workspace 中使用；其他專案直接裝不會有對應 Skill 可用。
 
 ## 安裝
 
 透過 fulin plugin marketplace 安裝：
 
 ```
-/plugin install supplier-agents
+/plugin marketplace add abs1294/fulin-claude-plugins
+/plugin install supplier-agents@fulin-plugins
 ```
 
 安裝後，五個 agent 會依各自 `description` 的觸發詞自動被主 Agent 調用，也可直接點名（如「請後端架構師」）。
 
-> 各 agent 依賴專案內的 Skill（`.claude/skills/...`）與規範檔（`註解撰寫規範.md`、各 Repository 的 `CLAUDE.md`、`.github/instructions/`）。請在已具備這些檔案的供應商平台 workspace 中使用。
+> 上方 ⚠️ 提到的「專案內規範檔」具體指：`註解撰寫規範.md`、各 Repository 的 `CLAUDE.md`、`.github/instructions/`。
 
 ## 包含哪些 agent
 

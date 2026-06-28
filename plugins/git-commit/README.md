@@ -1,5 +1,7 @@
 # git-commit
 
+**讓 code review 在 commit「之前」就跑完，git 歷史不再留下「Fix → Revert → 再 Fix」的噪音——確認 commit message 的同時，兩軌審查同步進行，過了才 commit。**
+
 並行審查模式的 Git 提交流程：**Stage → 三軌並行（使用者確認 message + Codex 審查 + code-reviewer 審查）→ Commit → Push**。
 
 ## 它解決什麼

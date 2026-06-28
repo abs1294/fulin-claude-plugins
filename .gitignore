@@ -4,3 +4,6 @@ node_modules/
 
 # delaylocal LINE 憑證（機密，勿進 git）
 **/notify-line.config.json
+
+# 本機 per-project plugin 啟用設定（個人狀態，勿進 git）
+.claude/

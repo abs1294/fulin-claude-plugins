@@ -1,5 +1,7 @@
 # plugin-manager 🧩
 
+**自製的 skill 散在各專案、改一個要手動 git、換機器全部重來？把它們集中到一個 monorepo 管理，一鍵發布、按專案挑裝、換機器一次復現。**
+
 把你所有自製 Claude Code plugin 集中在一個 monorepo 管理，並能精選、挑裝別人做的 plugin。
 
 > private repo: `abs1294/fulin-claude-plugins` ｜ marketplace: `fulin-plugins`

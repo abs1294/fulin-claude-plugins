@@ -12,7 +12,8 @@
 透過 fulin plugin marketplace 安裝：
 
 ```
-/plugin install red-blue-review
+/plugin marketplace add abs1294/fulin-claude-plugins
+/plugin install red-blue-review@fulin-plugins
 ```
 
 裝好後以觸發詞自然喚起，無需額外設定。
