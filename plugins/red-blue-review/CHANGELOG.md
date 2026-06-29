@@ -2,6 +2,18 @@
 
 本檔記錄 red-blue-review 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.4.2] - 2026-06-29
+### Added
+- 強制收斂追蹤（MANDATORY）：對話內跑對抗前須 TaskCreate 建追蹤清單，收斂判定 task 只有「最近 dry_rounds 輪皆 0 新 ≥MEDIUM 真弱點」才准標 completed，未收斂禁止輸出 GO/產出，結束強制清空——把迴圈狀態 externalize 到 harness，比照 git-commit 機制，不靠模型自律
+- convergence.md 加「機械閘」三道（is_real:false 丟棄、<MEDIUM 不計入新弱點、去重對所有提過的比）+ 計數公式，讓「要不要再跑一輪」由資料判定，紅方湊 LOW/假 finding 無法卡住收斂
+- 新增 references/loop-runner.md：含外層 while(dry<dry_rounds) 的完整可跨 Workflow 腳本，收斂由 seen Set 去重計數驅動（補 workflow-pattern.md 只有單輪 pipeline 的缺口）
+### Changed
+- 嚴重度表 LOW 改為「為真但拿掉它命題的可行性/正確性/安全性不變」+ LOW/MEDIUM 對照表錨死邊界，消除機械閘的判斷詮釋空間
+- SKILL 實作模式段補 cross-ref 指向 loop-runner.md（單輪內核 vs 外層驅動器）
+### Fixed
+- workflow-pattern.md 的 FINDING schema 補 root_concern 去重鍵（原缺，主 Agent 若把單輪 schema 餵進 loop-runner 外層迴圈會讓去重恆失效、第一輪假收斂）；SKILL cross-ref 加 root_concern 接駁警示，兩檔 schema 改為即插即用
+- loop-runner.md / convergence.md 誠實揭露去重閘3 的取捨：把假陽性也記入 seen 防換皮重刷，代價是「同 root_concern 首輪假/LOW、次輪真 ≥MEDIUM」會被誤殺靜默漏掉；補緩解指引（root_concern 命名要具體）與高風險命題的改法
+
 ## [0.4.1] - 2026-06-28
 ### Changed
 - README 補痛點/價值 hook

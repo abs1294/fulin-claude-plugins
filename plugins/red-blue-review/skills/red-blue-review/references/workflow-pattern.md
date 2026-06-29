@@ -49,14 +49,16 @@ const confirmed = results.flat().filter(Boolean).filter(r => r.verdict?.is_real)
 ## FINDING / VERDICT schema 範例
 
 > 此為範例骨架，`kind` 僅供人讀分類、下游不依賴，可依面向自訂。
+> **`root_concern` 是去重鍵**：單輪 pipeline 若要餵進 `loop-runner.md` 的外層迴圈計數，**必須含 `root_concern`**（loop-runner 的去重 `norm(r.finding.root_concern)` 靠它）。缺了它，外層 `isNew` 會恆為 false → 第一輪假收斂。故此處 schema 已含 `root_concern`，與 loop-runner 保持即插即用。
 
 ```js
 const FINDING_SCHEMA = { type:'object', properties:{ findings:{ type:'array', items:{
   type:'object', properties:{
     severity:{type:'string',enum:['CRITICAL','HIGH','MEDIUM','LOW']},
     kind:{type:'string',enum:['bug','inconsistency','security','config','docs']},
+    root_concern:{type:'string'},   // 去重鍵（root concern，跨輪去重靠它）；接 loop-runner 外層迴圈時必備
     quote:{type:'string'}, problem:{type:'string'}, reality_or_fix:{type:'string'}
-  }, required:['severity','kind','quote','problem','reality_or_fix'] } } }, required:['findings'] };
+  }, required:['severity','root_concern','quote','problem','reality_or_fix'] } } }, required:['findings'] };
 
 // corrected_severity 對應鐵律3（藍方校正紅方嚴重度）；選填，is_real:false 的假陽性無需校正。
 // 下游收斂/產出計數應優先採 corrected_severity，無則 fallback 紅方 severity。
