@@ -70,21 +70,39 @@ while (dry < DRY_ROUNDS && round < ROUND_CAP) {
   log(`Round ${round} 開跑（dry=${dry}/${DRY_ROUNDS}）`)
 
   // 每個標的獨立走「紅攻 → 藍逐 finding 驗證」，pipeline 不設 barrier
+  //
+  // ── cache 友善的 prompt 結構（見本檔末「prompt cache 優化」）──
+  // prompt 命中 prompt cache 的條件是「前綴逐 byte 相同」。所以每個 prompt 都按
+  // 【穩定前綴 → 變動尾段】排：角色 + 固定指示 + GROUND_TRUTH（每輪/每 finding 都一樣）
+  // 放最前面當穩定前綴；round / seen 清單 / 該 finding 等變動內容放最後。
+  // 這樣同輪多 target、跨輪多次的紅方 prompt 共用同一段 GROUND_TRUTH 前綴 → 若 runtime
+  // 有前綴比對，那段以 cache-read（約 0.1×）計，而非每次全價。GROUND_TRUTH 通常是
+  // 大塊（檔案清單/版本/行為），省最多。
+  const RED_PREFIX =                                          // ← 穩定前綴：每個紅方 agent 逐 byte 相同
+    `你是紅方稽核員，對照 ground truth 找真正的問題（會實際出錯/真不一致）。\n` +
+    `理論性/風格/可有可無的潤飾標 LOW；真會觸發的錯誤才標 MEDIUM 以上。\n` +
+    `只報「明顯不同的新弱點」，避開下方「已提過的顧慮」清單裡的 root_concern。\n` +
+    `=== GROUND TRUTH（比對基準，勿憑印象）===\n${GROUND_TRUTH}\n=== GROUND TRUTH 結束 ===\n`
+  const BLUE_PREFIX =                                         // ← 穩定前綴：每個藍方 agent 逐 byte 相同
+    `你是藍方驗證員。獨立讀實際檔案驗證紅方 finding 是否真實，不要相信紅方。\n` +
+    `同時校正嚴重度（紅方常高估）。判 is_real 與 corrected_severity。\n` +
+    `=== GROUND TRUTH（比對基準，勿憑印象）===\n${GROUND_TRUTH}\n=== GROUND TRUTH 結束 ===\n`
+
   const results = await pipeline(
     TARGETS,
-    (t, _orig, i) => agent(                                  // 紅方：steel-manning 找 finding
-      `你是紅方稽核員。讀 ${t.path}，對照 ground truth 找真正的問題（會實際出錯/真不一致）。\n` +
-      `第 ${round} 輪：避開以下已提過的顧慮，只報「明顯不同的新弱點」（root_concern 與下列不同）：\n` +
-      `${[...seen].join(' / ') || '（首輪，無）'}\n` +
-      `理論性/風格/可有可無的潤飾標 LOW；真會觸發的錯誤才標 MEDIUM 以上。\n${GROUND_TRUTH}`,
+    (t, _orig, i) => agent(                                  // 紅方：穩定前綴在前，變動（target/round/seen）在後
+      RED_PREFIX +
+      `--- 本次任務（變動段）---\n` +
+      `讀 ${t.path}。第 ${round} 輪。\n` +
+      `已提過的顧慮（避開這些 root_concern）：${[...seen].join(' / ') || '（首輪，無）'}`,
       { label: `red:${t.key}:r${round}`, phase: 'Red', schema: FINDING_SCHEMA }
     ),
-    (audit, t) => parallel(                                  // 藍方：每個 finding 獨立驗證真偽
+    (audit, t) => parallel(                                  // 藍方：穩定前綴在前，變動（該 finding）在後
       (audit?.findings || []).map((f, j) => () =>
         agent(
-          `你是藍方驗證員。獨立讀實際檔案驗證這個 finding 是否真實，不要相信紅方。\n` +
-          `同時校正嚴重度（紅方常高估）。判 is_real 與 corrected_severity。\n` +
-          `Finding：${f.problem}\n原文：${f.quote}\n紅方說應為：${f.reality_or_fix}\n\n${GROUND_TRUTH}`,
+          BLUE_PREFIX +
+          `--- 待驗證 finding（變動段）---\n` +
+          `Finding：${f.problem}\n原文：${f.quote}\n紅方說應為：${f.reality_or_fix}`,
           { label: `blue:${t.key}:r${round}:${j}`, phase: 'Blue', schema: VERDICT_SCHEMA }
         ).then(verdict => ({ file: t.key, finding: f, verdict }))
       )
@@ -142,3 +160,29 @@ return {
   - 高風險命題想完全避免此誤殺，把 `seen.add(rc)` 移到「藍方判假」的分支外、只對 `is_real:false` 記入一個獨立的 `rejected` Set，真弱點另用 `confirmedConcerns` Set 去重——代價是換皮重刷的假 finding 會回來。**兩害相權，預設選「防永不收斂」**；此取捨已誠實標示，由使用者依命題風險選邊。
 - **schema 扁平、下游只傳精煉摘要**：別把整包上游結果 stringify 塞進下游 prompt（撞 retry cap 炸 workflow）。
 - **修在哪做**：上面骨架是「找＋計數」純收斂；要邊找邊修（實作模式），在 `else dry = 0` 那段之後插一個修階段（改檔→可選 Codex 複審），修完再續圈。高風險改（刪檔/跨 repo/改設定）仍須停下問使用者。
+
+## prompt cache 優化（零對抗損失的省 token）
+
+> 紅藍對抗是 plugin 裡最貴的（每多一輪 = 多一輪紅方全量重讀 GROUND_TRUTH）。**prompt cache 是不削弱對抗、純省錢的唯一槓桿**——它不減攻擊輪數、不減 finding、不動收斂邏輯，只讓「重複的前綴」便宜約 10 倍。
+
+**機制（Anthropic prompt caching，硬規則）**：
+- 命中條件 = **前綴逐 byte 相同** + 在 **TTL 內**（預設 5 分鐘，命中會刷新）。render 順序 `tools → system → messages`，任何一個 byte 變動就讓其後全部失效。
+- cache read ≈ 原價 **0.1×**（省 90%）；只省**輸入** token，不省輸出。
+- **最小可快取前綴依模型而定**（Opus 等級為數千 tokens 量級；確切門檻以官方 prompt-caching 文件當下的「minimum cacheable prefix」表為準，會隨模型版本變動）——前綴小於該門檻**靜默不快取**（無錯誤、`cache_creation_input_tokens: 0`）。
+
+**本腳本怎麼吃到它（已套用在上面的 `RED_PREFIX` / `BLUE_PREFIX`）**：
+- 每個紅/藍 prompt 按【穩定前綴 → 變動尾段】排：**角色 + 固定指示 + GROUND_TRUTH 放最前**（每輪、每 target、每 finding 都逐 byte 相同），round / seen / 該 finding 放最後。
+- 效果：同輪多 target、跨輪多次的紅方 prompt 共用同一段 GROUND_TRUTH 前綴。GROUND_TRUTH 通常是大塊（檔案清單/版本/行為），是省最多的部分。
+
+**並行 timing（同輪 N 個紅方）**：cache 只在第一個 response **開始 streaming 後**才可讀——N 個完全並行的請求**全部付全價**（沒人能讀別人還在寫的）。要吃到 cache，pipeline 宜**先發 1 個紅方、待其開始輸出、再發其餘**（stagger）。本骨架的 pipeline 是否 stagger 取決於 Workflow runtime 排程；若 runtime 全並行發，同輪這層 cache 收益有限，但**跨輪**仍可命中（前提：輪間 < TTL）。
+
+**誠實邊界（這道是設計優化，不是保證命中）**：
+- ⚠️ **Workflow 的 `agent()` 是高階封裝，不暴露 `cache_control` 參數，也不回傳 `usage`**。本優化做的是「把 prompt 結構改成 cache-friendly（穩定前綴前置）」，讓 runtime **若**有自動 caching / 前綴比對時**有機會**命中——**不是**在腳本裡硬加 breakpoint，也**無法**從 `agent()` 回傳值驗證是否真的命中。
+- ⚠️ **「GROUND_TRUTH 放最前」是相對 user message 內部，不是整個可快取前綴的最前。** render 順序是 `tools → system → messages`，所以可快取前綴的**真正起點在 tools + system 層**，而我們的 prompt 字串進的是 messages（user）。`agent()` 注入的 tools 與 system 由 runtime 決定、**腳本完全控制不到**：只要 runtime 在 system/tools 放了任何逐 call 變動的 byte（label、phase、計數器…），GROUND_TRUTH 之前就已失效、它永遠進不了「逐 byte 相同前綴」。**這是命中與否的隱性 silent invalidator，且在 `agent()` 這層看不到、改不到**——所以本優化的實際收益高度依賴 runtime 怎麼組 system/tools，可能從「省很多」到「0 命中」都有。
+- ⚠️ **紅方與藍方各自一條 cache 線、不共用前綴**——這是設計上本就如此，原因有二：(a) `RED_PREFIX` 與 `BLUE_PREFIX` 的文字本就完全不同（messages 層即已分叉，連 GROUND_TRUTH 之外的角色/指示都不同）；(b) 紅方的 `FINDING_SCHEMA` 與藍方的 `VERDICT_SCHEMA` 走 **`output_config.format`**（結構化輸出，與 `tools` 參數分離的獨立欄位），schema 不同會使該 thread 的 cache 失效。**所以紅藍 GROUND_TRUTH 只能各自被快取一份，無法互相共用**——這不影響「同類（紅對紅、藍對藍）跨輪/跨 target 共用」的收益，但別期待紅藍之間有 cache 綜效。
+- 要拿命中的**硬證據**只有一條路：另寫獨立腳本直接呼叫 Messages API，同一前綴送兩次，讀第二次的 `usage.cache_read_input_tokens > 0`。`agent()` 拿不到這個欄位。
+- **GROUND_TRUTH 太小（小標的）→ 達不到該模型的最小快取門檻（見上，依官方文件而定），靜默不 cache**。這種小標的本來就該對話內手動跑、不開 Workflow，cache 與否無所謂。
+- **跨輪間隔 > 5 分鐘（藍驗+改檔慢）→ GROUND_TRUTH 的 cache 過期**，下一輪重新付全價寫入。要跨長間隔保溫可考慮把 GROUND_TRUTH 視為 1 小時 TTL 的候選（但那是 API 層設定，`agent()` 同樣不暴露）。
+- **跨「執行」命中還隱含要求 `args.groundTruth` 逐 byte 相同**：本檔只保證單次 run 內前綴穩定；若每次重跑都帶略不同的 GROUND_TRUTH（多一個換行、版本號變動），跨執行 cache 即全失效。
+
+**一句話**：把 GROUND_TRUTH 放穩定前綴最前，是「讓重複前綴有機會走 cache-read」的零對抗損失設計；命中與否最終由 runtime 與「最小前綴門檻 / TTL」兩道閘決定，且唯一硬驗證在 API 層、不在腳本層。

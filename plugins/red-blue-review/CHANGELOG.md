@@ -2,6 +2,13 @@
 
 本檔記錄 red-blue-review 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.4.3] - 2026-06-30
+### Added
+- loop-runner.md prompt cache 優化（零對抗損失省 token）：紅/藍 prompt 改為「穩定前綴（角色+固定指示+GROUND_TRUTH）在前、變動內容（round/seen/finding）在後」，讓同類 agent 跨輪/跨 target 共用 GROUND_TRUTH 前綴有機會走 cache-read（約 0.1×）
+- 補完整「prompt cache 優化」說明段：含最小快取門檻（依模型而定、以官方文件為準）、TTL（5min/1h）、並行 stagger timing、4 道誠實邊界（agent() 不暴露 cache_control/usage、可快取前綴真正起點在 tools+system 腳本控制不到、紅藍各自一條 cache 線、跨執行 args.groundTruth 也須逐 byte 同）
+### Note
+- 經三輪紅藍對抗自驗收斂（dogfood）：修掉「前綴起點誤判」與「schema 誤掛 tools 段」兩個 MEDIUM；最小快取門檻的確切數字因來源分歧改寫為「依官方文件而定」以免寫死過時值
+
 ## [0.4.2] - 2026-06-29
 ### Added
 - 強制收斂追蹤（MANDATORY）：對話內跑對抗前須 TaskCreate 建追蹤清單，收斂判定 task 只有「最近 dry_rounds 輪皆 0 新 ≥MEDIUM 真弱點」才准標 completed，未收斂禁止輸出 GO/產出，結束強制清空——把迴圈狀態 externalize 到 harness，比照 git-commit 機制，不靠模型自律
