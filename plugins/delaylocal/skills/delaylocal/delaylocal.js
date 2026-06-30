@@ -112,12 +112,35 @@ if (!plainMode) {
   // 第一行 = /goal <完成條件>，把「已發 LINE」納入條件（goal 達成後自動清除、不接後續，
   // 所以發 LINE 必須是達成條件的一部分，goal 引擎才會強迫自己發完才停）。
   // session 守衛改成工作清單第①項（不搶 /goal 的第一行位置）。
-  finalPrompt = `/goal ${goalCondition}；並且已將完整報告寫入暫存檔、執行 notify-line.js 完成收尾通知（有設 LINE 憑證→發出總結並回應 200；未設→工具自動略過並回 exit 0，此步同樣視為完成，不可因為沒收到 LINE 就重試或卡住）
+  //
+  // ⚠️ Claude Code 的 /goal 完成條件有 4000 字元硬上限（超過會回
+  //    "Goal condition is limited to 4000 characters"、cron fire 進 REPL 時卡死）。
+  //    goalCondition 由使用者傳入、長度不可控，故：
+  //    - 第一行（含收尾通知尾巴）≤ 安全閾值 → 照舊整段放第一行（短任務行為不變、向後相容）。
+  //    - 超過 → 第一行換成固定「指針句」（指向工作清單的完成條件全文），完整 goalCondition
+  //      原封不動下放到工作清單步驟 0，避免機械截斷破壞語意。
+  const GOAL_TAIL = '並且已將完整報告寫入暫存檔、執行 notify-line.js 完成收尾通知（有設 LINE 憑證→發出總結並回應 200；未設→工具自動略過並回 exit 0，此步同樣視為完成，不可因為沒收到 LINE 就重試或卡住）';
+  const GOAL_MAX = 3900; // 4000 上限留邊際；含 "/goal " 前綴一起算
+  const fullFirstLine = `/goal ${goalCondition}；${GOAL_TAIL}`;
+  let goalLine;       // 實際放第一行的 /goal 內容
+  let goalFullBlock;  // 超長時要下放到工作清單的「完成條件全文」區塊（不超長則為空）
+  if (fullFirstLine.length <= GOAL_MAX) {
+    goalLine = fullFirstLine;
+    goalFullBlock = '';
+  } else {
+    // 指針句：本身簡短可驗證，把「完整條件」指向步驟 0，收尾通知尾巴照樣納入（goal 引擎才會強迫發 LINE）。
+    goalLine = `/goal 已逐項達成「工作清單步驟 0」列出的完整完成條件（每一項皆為真），且已完成步驟 2 的任務全部項目；${GOAL_TAIL}`;
+    goalFullBlock = `0. [完成條件全文] 本目標達成的判定 = 下列每一項皆為真（第一行 /goal 因 4000 字元上限只放指針，完整條件在此，逐項核對）：
+${goalCondition}
+
+`;
+  }
+  finalPrompt = `${goalLine}
 
 （上面第一行是 goal 完成條件。下面是達成它要依序完成的工作清單，當作你的執行指引；全程繁體中文、無人值守：不停下來問使用者、需要決定時自己選風險最小做法、做到完成。）
 
 工作清單（依序）：
-1. [Session 守衛] 確認環境變數 CLAUDE_CODE_SESSION_ID 是否等於 ${envId}。
+${goalFullBlock}1. [Session 守衛] 確認環境變數 CLAUDE_CODE_SESSION_ID 是否等於 ${envId}。
    - 不等於 → 這是別的 session 誤觸發本排程：不要執行任務、不要發 LINE，直接視為本目標達成（本 session 無事可做）。
    - 等於 → 繼續下面步驟。
 2. [執行任務] 完成以下任務（持續做到完成；遇真正 blocker 先把其餘能做的做完再記錄）：
