@@ -39,6 +39,11 @@
       "name": "self-heal",
       "source": "./plugins/self-heal",
       "description": "降低並自動接力 tool call 失敗：每輪注入 XML 收尾提醒 hook + self-heal scheduler 接力規約（卡住自己續、完成則終止）。"
+    },
+    {
+      "name": "cc-statusline",
+      "source": "./plugins/cc-statusline",
+      "description": "資訊密度高的 Claude Code status line：目錄/repo/model/成本/用量/quota/agents/skills/memory+MCP/近期編輯/歷史多欄顯示，含寬字對齊與跨進程狀態快取；可用 /cc-statusline-rows 逐列開關。需手動在 settings.json 指向腳本（見 plugin README）。"
     }
   ]
 }
