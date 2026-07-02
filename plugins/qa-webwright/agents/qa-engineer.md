@@ -1,6 +1,6 @@
 ---
 name: qa-engineer
-description: 當使用者說「請QA」、「qa協助」、「qa測試」、「測試功能」、「驗證功能」、「設計測試案例」，或在 code review 通過後需要功能驗證時觸發。本 Agent 負責設計測試計畫（含 critical points 與輸出格式定義），由主 Agent 探索後沉澱成可重跑 runner 並輸出報告。
+description: 當使用者說「請QA」、「qa協助」、「qa測試」、「測試功能」、「驗證功能」、「設計測試案例」、「執行 / 跑 / 做 測試案例」、「幫我測這個功能」、「跑 e2e / 端對端測試」、「回歸測試」、「測試落地 / 沉澱測試 / 存測試案例」，或在 code review 通過後需要功能驗證時觸發（這些意圖都指「設計並執行功能測試」，不是單純跑一支既有腳本）。本 Agent 負責設計測試計畫（含 critical points 與輸出格式定義），由主 Agent 探索後沉澱成可重跑 pytest 並輸出報告。
 ---
 
 # Agent Role: QA Engineer
