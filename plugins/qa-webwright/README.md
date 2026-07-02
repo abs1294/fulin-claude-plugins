@@ -9,6 +9,10 @@
 - **不只測一次**：測完沉澱成可重跑的測試腳本（**固定優先 pytest-playwright**），之後回歸隨時重跑。
 - **一定會落地檔案**：`qa-flow.sh` 把「建測試骨架 / 出 junitxml 報告 / 防假綠燈驗證 / 回填 catalog 情境索引」鎖進腳本，
   落點鎖 session 起始目錄（不鑽子專案目錄），不再有「測完只印對話、沒留下任何檔」的情形。
+- **內建 Stop hook 他律強制**：光靠 SKILL 裡寫「必須落地」擋不住 AI 用通用 Playwright MCP 手動測完就口頭回報。
+  本 plugin 內建一道 Stop hook（`hooks/qa-landing-gate.js`）——**觸發 QA 後用了瀏覽器工具、卻沒在 `tests/e2e/` 留下
+  `test_*.py` + `reports/*.xml` + 回填的 `catalog.md`，結束時會被擋下要求補落地**（最多擋 2 次留逃生門；沒觸發 QA 只用瀏覽器則僅警告不擋）。
+  裝 plugin 即自動生效，不需改 settings.json。
 - **驗真證據**：用 API 回傳碼 / 頁面讀回值 / 資料來源比對來判定通過，不靠人眼看截圖。
 - **覆蓋容易漏的細節**：內建必測 checklist、測試資料規範，特別處理日期欄位的「畫面 / 送出 payload / 資料來源 / 重新整理後」四點一致性。
 - **跨專案通用**：方法論不綁特定網站或技術棧，裝一次到處可用。
@@ -27,6 +31,9 @@ qa-webwright/
 │       （marketplace.json 在 monorepo root 的 .claude-plugin/，統一註冊各 plugin，不在本 plugin 內）
 ├─ agents/
 │   └─ qa-engineer.md           QA Agent：設計測試計畫（含 critical points）
+├─ hooks/
+│   ├─ hooks.json               Stop hook 宣告（裝 plugin 即生效）
+│   └─ qa-landing-gate.js       落地強制閘：觸發 QA 後用了瀏覽器卻沒落地產物就擋（他律）
 ├─ commands/
 │   ├─ qa-plan.md               /qa-webwright:qa-plan — 設計測試計畫
 │   └─ qa-run.md                /qa-webwright:qa-run — 探索 → 沉澱成 runner assert + 驗證
