@@ -276,6 +276,31 @@ cmd_run() {
   local abs_test
   abs_test="$(resolve_test_file "$test_file")"
 
+  # 守門員：落點必須正好在「啟動目錄 WORKSPACE_DIR/tests/e2e/」下，鑽任何子專案目錄一律擋。
+  # 用實體路徑比對（解 symlink / .. / 空格），防「AI 跳過 bootstrap、自己 cd 子目錄再建 tests/e2e」。
+  # （歷史踩雷：在 AI Platform 啟動卻把測試建到 AI Platform/customer-hub/tests/e2e。）
+  local canon_test canon_expected_dir test_parent
+  # 先解檔案本身的實體路徑（含 symlink）：symlink 測試檔可能指向 tests/e2e 外，須用 realpath 解穿。
+  if command -v realpath >/dev/null 2>&1; then
+    canon_test="$(realpath "$abs_test" 2>/dev/null)" || canon_test="$abs_test"
+  else
+    # 無 realpath 時退而求其次：解父目錄 + basename（symlink 檔仍可能漏解，但至少解穿 .. 與父目錄 symlink）
+    canon_test="$(cd "$(dirname "$abs_test")" 2>/dev/null && pwd -P)/$(basename "$abs_test")" || canon_test="$abs_test"
+  fi
+  test_parent="$(dirname "$canon_test")"
+  canon_expected_dir="$(cd "$TESTS_DIR" 2>/dev/null && pwd -P)" || canon_expected_dir="$TESTS_DIR"
+  if [ "$test_parent" != "$canon_expected_dir" ]; then
+    echo "ERROR: 測試檔落點不對——必須正好在啟動目錄的 tests/e2e/ 下，不得鑽子專案目錄。" >&2
+    echo "       啟動目錄(WORKSPACE_DIR)：$WORKSPACE_DIR" >&2
+    echo "       應在：           $canon_expected_dir" >&2
+    echo "       實際測試檔在：   $test_parent" >&2
+    echo "" >&2
+    echo "       多半是跳過了 qa-flow.sh bootstrap/scaffold、自己 mkdir 到子目錄。" >&2
+    echo "       修法：(a) 若要測整個專案 → 把測試移回 $canon_expected_dir 下重跑；" >&2
+    echo "             (b) 若要測某個子專案(如 customer-hub) → 到那個子專案目錄裡重新啟動 claude，再走 bootstrap。" >&2
+    exit 1
+  fi
+
   # 防假綠燈：先確認 test 函式確實寫入存在（SKILL.md 規範：宣稱綠燈前先 grep 驗證）
   echo "=== 落地驗證（防假綠燈）==="
   if ! grep -qE '^\s*(async\s+)?def\s+test_' "$abs_test"; then

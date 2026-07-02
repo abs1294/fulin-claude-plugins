@@ -15,6 +15,12 @@ $ARGUMENTS
 > 整個流程唯一可問使用者的是：greenfield 空目錄時「同不同意裝 pytest-playwright 環境」（動到使用者機器裝套件才問）。
 > 那是問「裝環境」，不是問「要不要做這件事」。
 
+> **落點鐵則（每次跑 qa-flow.sh 都適用）**：`qa-flow.sh` 的落點靠 `CLAUDE_PROJECT_DIR` 決定。Claude Code **不一定內建這個變數**，
+> 故你**每次呼叫 qa-flow.sh 都要顯式帶上 `CLAUDE_PROJECT_DIR=<session 起始目錄>`，且該值一律等於環境的 `Primary working directory`（原封不動）**。
+> **嚴禁自己把它 export 成某個子目錄**（如 `.../AI Platform/customer-hub`）——即使你判斷子目錄才是「被測 repo」也不行。
+> 你知道 Primary working directory 是哪（環境說明裡有寫），就用那個。要測某個子專案 → **請使用者到那個子專案目錄重新啟動 claude**，不要自己鑽進去。
+> （歷史踩雷：在 `AI Platform` 啟動，AI 自行 `export CLAUDE_PROJECT_DIR=.../customer-hub`，把測試建進子 repo，違背使用者「測整個 app」的意圖。）
+
 步驟（一律透過 `qa-flow.sh`，落點鎖 session 起始目錄、不鑽子專案目錄）：
 
 1. **bootstrap**：跑 `qa-flow.sh bootstrap` 盤點既有測試資產、確保 catalog.md、拿安裝/runner 決策訊號。

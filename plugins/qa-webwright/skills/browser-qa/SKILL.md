@@ -107,6 +107,11 @@ description: >
 
 本 skill 提供 `qa-flow.sh`（位於本 skill 目錄）把「一定要落地的動作」包成 subcommand，落點一律鎖 `CLAUDE_PROJECT_DIR`（session 起始目錄），主 Agent **不要自己 mkdir / 自己組 pytest 指令 / 自己判斷落點**。
 
+> **落點鐵則**：`CLAUDE_PROJECT_DIR` Claude Code 不一定內建，故**每次呼叫 qa-flow.sh 都要顯式帶 `CLAUDE_PROJECT_DIR=<Primary working directory>`（原封不動、即環境說明裡的 session 起始目錄）**。
+> **嚴禁自己 export 成子目錄**（即使判斷子目錄才是被測 repo 也不行）。你知道 Primary working directory 是哪，就用那個。
+> 要測某子專案 → 請使用者到該子專案目錄重啟 claude，不要從上層鑽進去（`test-plan-design.md` §0 原則）。
+> `qa-flow.sh run` 內建守門員：落點若不在 `CLAUDE_PROJECT_DIR/tests/e2e/` 正下方（鑽了子目錄）會直接報錯擋下。
+
 | 指令 | 動作 | 對應步驟 |
 |------|------|---------|
 | `qa-flow.sh bootstrap` | 盤點既有測試資產（pytest/JS/空）、確保 catalog.md、發安裝/runner 決策訊號（不擅自安裝）| Phase2-0 |

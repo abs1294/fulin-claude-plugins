@@ -99,6 +99,20 @@ claude plugin validate ./qa-webwright
 
 或直接用自然語言（skill / agent 會依描述自動觸發）：「請 QA 測試這個新增流程」。
 
+## ⚠️ 測試會落在哪：你**在哪個資料夾啟動 claude**，就落在哪
+
+測試檔 / 報告 / catalog 一律落在**你啟動 claude 的那個資料夾**底下的 `tests/e2e/`——由 `qa-flow.sh` 鎖定，**不會鑽進子專案目錄**。
+
+**這條規則決定了你該在哪啟動 claude：**
+
+| 你想測的範圍 | 該在哪啟動 claude | 測試落點 |
+|---|---|---|
+| 整個 app / workspace | 在該 workspace 根目錄啟動 | `<workspace>/tests/e2e/` |
+| 某個子專案 / 子 repo（如 `customer-hub`）| **進到那個子專案資料夾裡啟動** | `<子專案>/tests/e2e/` |
+
+> **不要**「在上層 workspace 啟動、卻期待測試落進某個子 repo」——那會被 `qa-flow.sh run` 的守門員擋下。
+> 要測子 repo，正確作法是**在那個子 repo 資料夾裡重新啟動 claude**（e2e 的測試棧不一定等於該 repo 語言，落點由「session 起在哪」決定）。
+
 ## 移植到新專案要補的「專案專屬」資訊
 
 本 plugin 的方法論是通用的；**只有「啟動服務」那段是專案專屬**。在目標專案的 `CLAUDE.md`
