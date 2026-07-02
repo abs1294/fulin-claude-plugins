@@ -92,28 +92,27 @@ function main(raw) {
   if (!usedBrowser) return allow(); // 沒真的用瀏覽器工具 → 這輪不是在測 → 放行
 
   const landed = hasLandingArtifacts(cwd); // true / false / null
-  if (landed === true) return allow(); // 確定有落地 → 放行
+  if (landed === true) {
+    // 確定有落地 → 放行，並重置提醒計數：補完落地後，下一輪新 QA 又有完整的 2 次提醒額度。
+    resetRemindCount(sid);
+    return allow();
+  }
   if (landed === null) return allow(); // 不確定（讀檔失敗）→ FAIL-OPEN 放行
 
-  // 到這裡：確定用了瀏覽器 tool_use + 確定沒落地產物
-  const triggeredQa = hasQaTrigger(transcript);
+  // 到這裡：確定用了瀏覽器 tool_use + 確定沒落地產物 → 要提醒（WARN 或 BLOCK）。
+  // BLOCK 與 WARN 共用同一個提醒計數，共同上限 2 次；達上限 → 完全靜默放行。
+  if (reachedRemindLimit(sid)) return allow();
 
+  const triggeredQa = hasQaTrigger(transcript);
   if (!triggeredQa) {
-    // (B) 沒觸發 qa-webwright → 只警告
+    // (B) 沒觸發 qa-webwright → 只警告（計入共用計數）
     return warn(
       '偵測到這輪用了瀏覽器工具但 tests/e2e/ 下沒有落地產物（test_*.py / reports/*.xml / catalog.md）。' +
         '若這是功能測試，建議走 qa-webwright 的 qa-flow.sh 把結果沉澱成可重跑 pytest；若只是瀏覽網頁可忽略。'
     );
   }
 
-  // (A) 觸發 qa-webwright + 用瀏覽器 + 無落地 → 硬擋，但最多 2 次（計數異常一律當已達上限→放行）
-  if (reachedBlockLimit(sid)) {
-    return warn(
-      'qa-webwright 落地仍缺（已提醒 2 次，本次放行以免卡死）。這輪測試沒有留下可重跑產物，' +
-        '下次要重測得整套重來。強烈建議補跑 qa-flow.sh bootstrap→沉澱→run→catalog。'
-    );
-  }
-
+  // (A) 觸發 qa-webwright + 用瀏覽器 + 無落地 → 硬擋（計入共用計數）
   return block(
     '你觸發了 qa-webwright 做瀏覽器測試，但沒有把結果落地成可重跑產物——' +
       'tests/e2e/ 下缺 test_*.py / reports/*.xml / catalog.md 其中之一。\n' +
@@ -184,17 +183,29 @@ function hasBrowserToolUse(transcript) {
   return eachToolUse(transcript, (b) => BROWSER_NAME.test(b.name));
 }
 
-// 觸發 qa-webwright：認「開始做 QA」的結構化證據——(a) Task 叫 qa-engineer subagent，
-// 或 (b) Read/Bash 讀了 browser-qa 的 SKILL.md（= 進了這個 skill）。
-// 注意：不能用「跑過 qa-flow.sh」當判準——那正是我們要抓的「跳過落地」者不會做的事，
-// 用它當觸發證據會反而漏掉最該擋的人。只靠「開始做 QA」的痕跡判定觸發（Codex #3）。
+// 觸發 qa-webwright：認任一「在用這個 skill」的結構化證據——
+//   (a) Task 叫 qa-engineer subagent；
+//   (b) Read/Bash 碰 browser-qa 的 SKILL.md 路徑（進了這個 skill）；
+//   (c) Bash 執行過 qa-flow.sh 的 bootstrap/scaffold/run/catalog（正在用本 skill 的流程腳本）。
+// (c) 是關鍵：抓「跑了 qa-flow.sh 流程(bootstrap/scaffold/run)卻漏 catalog 回填」的人——
+// 這種 session 確實在用 qa-webwright，該被要求把 catalog 補完（歷史踩雷 session 4137a1c6：
+// 走了 run 但跳 catalog，舊判定只認讀 SKILL/qa-engineer 而漏擋）。
 function hasQaTrigger(transcript) {
   return eachToolUse(transcript, (b) => {
     // (a) Task 工具叫 qa-engineer subagent
     if (b.name === 'Task' && b.input && /qa-engineer/.test(safeStr(b.input.subagent_type))) return true;
-    // (b) Read / Bash 碰到 browser-qa 的 SKILL.md 路徑（進了這個 skill）
+    // (b) Read / Bash 碰到 browser-qa 的 SKILL.md 路徑
     const paths = safeStr(b.input && (b.input.file_path || b.input.command || b.input.path));
     if (/browser-qa[\\/]SKILL\.md/.test(paths)) return true;
+    // (c) Bash 執行 qa-flow.sh 的任一子命令 = 正在用本 skill 流程。
+    // 允許路徑前綴與引號：bash "…/qa-flow.sh" run / ./qa-flow.sh catalog / /abs/qa-flow.sh bootstrap；
+    // 子命令前可有引號結尾與空白（"qa-flow.sh" run）。緩解誤判：若整條 command 是 echo/grep/cat/#
+    // 這類「提及而非執行」則不算（降低把討論文字誤判成執行的機率）。
+    if (b.name === 'Bash' && b.input) {
+      const cmd = safeStr(b.input.command);
+      const isMention = /^\s*(#|echo\b|grep\b|cat\b|printf\b|rg\b|ls\b|find\b|sed\b|awk\b|head\b|tail\b|less\b|more\b)/.test(cmd);
+      if (!isMention && /qa-flow\.sh["']?\s+(bootstrap|scaffold|run|catalog)\b/.test(cmd)) return true;
+    }
     return false;
   });
 }
@@ -257,39 +268,53 @@ function hasLandingArtifacts(cwd) {
   return hasDataRow ? true : false;
 }
 
-/**
- * 是否已達硬擋上限（2 次）。★ FAIL-OPEN：計數檔任何讀寫異常 → 回 true（當已達上限→放行）。
- * 這樣即使計數檔壞掉 / 並發競爭 / tmpdir 不可寫，最壞結果是「少擋」，絕不會「無限擋卡死」。
- * 用「每次 append 一個時間戳字元」的方式估次數：檔案 byte 數 >= 2 就算達上限。
- * append 是單一 syscall，並發下最多多算、不會少算——偏向放行，符合 fail-open。
- */
-function reachedBlockLimit(sid) {
-  let f;
+// 計數檔路徑（BLOCK 與 WARN 共用同一個；per session）。
+function countFile(sid) {
   try {
-    f = path.join(os.tmpdir(), `qa-landing-gate-${sid}.count`);
+    return path.join(os.tmpdir(), `qa-landing-gate-${sid}.count`);
   } catch (_) {
-    return true; // 連路徑都組不出 → 放行
+    return null;
   }
+}
 
-  // 先讀現有次數。★ 只有「明確讀到一個正常的數字 size」才據以判斷；
-  //   任何異常（存在性檢查失敗 / stat 失敗 / size 非數字）→ 一律當「已達上限」放行。
+/**
+ * 是否已達提醒上限（BLOCK+WARN 共用，共 2 次）。★ FAIL-OPEN：計數檔任何讀寫異常 → 回 true
+ * （當已達上限→放行）。即使計數檔壞掉 / 並發競爭 / tmpdir 不可寫，最壞是「少提醒」，絕不「無限擋卡死」。
+ * 用「每次 append 一個字元」估次數：檔案 byte 數 >= 2 就算達上限。append 單 syscall，並發偏多算→偏放行。
+ * 未達上限時 append 記這次並回 false（允許本次提醒）。
+ */
+function reachedRemindLimit(sid) {
+  const f = countFile(sid);
+  if (!f) return true; // 連路徑都組不出 → 放行
+
+  // 只有「明確讀到正常數字 size」才據以判斷；任何異常 → 一律當「已達上限」放行。
   const st = fileState(f);
-  if (st === 'unknown') return true; // 檢查失敗 → 放行
+  if (st === 'unknown') return true;
   if (st === 'yes') {
     let size;
     try {
       size = fs.statSync(f).size;
     } catch (_) {
-      return true; // 檔在但 stat 失敗 → 放行
+      return true;
     }
-    if (typeof size !== 'number' || !isFinite(size)) return true; // size 異常 → 放行
-    if (size >= 2) return true; // 已擋過 2 次 → 放行
+    if (typeof size !== 'number' || !isFinite(size)) return true;
+    if (size >= 2) return true; // 已提醒 2 次 → 靜默放行
   }
-  // st === 'no'（檔還不存在，count=0）或 st==='yes' 且 size<2 → 尚未達上限，記這次後允許擋
+  // st==='no'(count=0) 或 size<2 → 尚未達上限，記這次後允許提醒
   try {
-    fs.appendFileSync(f, 'x'); // append 單 syscall，並發下偏多算(偏放行)
+    fs.appendFileSync(f, 'x');
   } catch (_) {
-    return true; // 記不進去 → 為免下次又擋、寧可這次放行
+    return true; // 記不進去 → 寧可這次放行
   }
-  return false; // 允許這次硬擋
+  return false;
+}
+
+// 偵測到已落地時呼叫：清掉計數檔，讓下一輪新 QA 又有完整 2 次提醒額度。
+// 刪不掉也無妨（最壞就是這個 session 剩餘額度少一點），靜默吞例外。
+function resetRemindCount(sid) {
+  const f = countFile(sid);
+  if (!f) return;
+  try {
+    if (fs.existsSync(f)) fs.unlinkSync(f);
+  } catch (_) {}
 }

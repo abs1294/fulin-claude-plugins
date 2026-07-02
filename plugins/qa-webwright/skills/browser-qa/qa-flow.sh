@@ -316,10 +316,31 @@ cmd_run() {
   mkdir -p "$REPORTS_DIR"
   local report="$REPORTS_DIR/${feature}-${date}.xml"
 
-  echo "=== 執行 pytest ==="
-  echo "pytest \"$abs_test\" --junitxml=\"$report\""
+  # 偵測 pytest 怎麼跑：不同環境（尤其 Windows）不一定有 `pytest` 命令，
+  # 但 `python -m pytest` / `py -m pytest` 多半可行。自動挑一個能用的，
+  # 免得使用者/AI 得自己建 shim 轉發（歷史踩雷：Windows 無 pytest 命令，AI 自建 /tmp/qa-shim）。
+  local PYTEST_CMD=""
+  if command -v pytest >/dev/null 2>&1; then
+    PYTEST_CMD="pytest"
+  elif command -v python >/dev/null 2>&1 && python -c "import pytest" >/dev/null 2>&1; then
+    PYTEST_CMD="python -m pytest"
+  elif command -v python3 >/dev/null 2>&1 && python3 -c "import pytest" >/dev/null 2>&1; then
+    PYTEST_CMD="python3 -m pytest"
+  elif command -v py >/dev/null 2>&1 && py -c "import pytest" >/dev/null 2>&1; then
+    PYTEST_CMD="py -m pytest"
+  else
+    echo "ERROR: 找不到可用的 pytest（試過 pytest / python -m pytest / python3 / py）。" >&2
+    echo "       請先安裝：pip install pytest-playwright && playwright install chromium" >&2
+    exit 1
+  fi
+
+  # Windows Python 預設 stdout 編碼常非 UTF-8，測試輸出含中文會 UnicodeEncodeError → 強制 UTF-8。
+  export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
+
+  echo "=== 執行 pytest（$PYTEST_CMD）==="
+  echo "$PYTEST_CMD \"$abs_test\" --junitxml=\"$report\""
   set +e
-  pytest "$abs_test" --junitxml="$report"
+  $PYTEST_CMD "$abs_test" --junitxml="$report"
   local rc=$?
   set -e
   echo ""
