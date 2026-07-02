@@ -107,7 +107,7 @@ description: >
 | `qa-flow.sh bootstrap` | 盤點既有測試資產（pytest/JS/空）、確保 catalog.md、發安裝/runner 決策訊號（不擅自安裝）| Phase2-0 |
 | `qa-flow.sh scaffold <feature> <pytest\|playwright-js>` | 建 `tests/e2e/` 骨架 + conftest；安裝指令只印出讓使用者跑 | Phase2-0b（使用者同意後）|
 | `qa-flow.sh run <feature> <test-file> <date>` | grep 驗證 test 函式存在（防假綠燈）→ `pytest --junitxml` 出報告 | Phase2-4 |
-| `qa-flow.sh catalog <情境> <函式> <狀態> <模組>` | 機械回填 session 目錄總 catalog.md（以函式為主鍵 update/append）| Phase2-6 |
+| `qa-flow.sh catalog <情境> <函式> <狀態> <模組>` | 機械回填 tests/e2e/catalog.md 總表（以函式為主鍵 update/append）| Phase2-6 |
 
 **bootstrap 決策訊號怎麼接：**
 - `ASSET: pytest-existing` → 直接復用既有、對齊風格，進 Phase2-1。
@@ -139,7 +139,7 @@ description: >
 
 6. **輸出測試報告（格式見下）＋ 回填 catalog**：`qa-flow.sh run` 的防假綠燈 grep 已確認 test 函式存在
    （Write / replace 在並行取消時可能假成功，造成「假登記、假綠燈」——腳本已把關）。
-   接著對**每個情境**跑 `qa-flow.sh catalog <白話情境> <測試函式> <完整/部分/未覆蓋> <模組>` 回填 session 目錄總 catalog.md
+   接著對**每個情境**跑 `qa-flow.sh catalog <白話情境> <測試函式> <完整/部分/未覆蓋> <模組>` 回填 `tests/e2e/catalog.md` 總表
    （必做，見 `methodology/test-plan-design.md` §0.5）——讓 codify 閉環不止於 runner、累積成可查的跨功能應測情境索引。
 
 ### 測試哲學（通用，少數鐵則）

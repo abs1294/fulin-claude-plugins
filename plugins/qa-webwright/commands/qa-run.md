@@ -29,4 +29,4 @@ $ARGUMENTS
 5. **Execute（用 `qa-flow.sh run`）**：`qa-flow.sh run <feature> <test-file> <date>`——先 grep 驗證 test 函式確實寫入（防假綠燈），再 `pytest --junitxml` 出報告到 `tests/e2e/reports/<功能>-<日期>.xml`，路徑回填報告模板「報告產物」欄。全 assert 通過 → exit 0；任一失敗 → 非 0，可掛 CI、可重跑、零 agent token。
 6. **能走 UI 就走 UI**，禁止直接打後端 API 繞過前端的 validation / payload 組裝 / 按鈕鎖控（即模擬使用者「操作」）。例外（housekeeping 與驗證，非操作）：無 UI 入口的外部 callback；SQL **或 API** 做資料準備 / 驗證 / 清理——含寫入型 CP 必做的「重新 GET readback」（見 pitfalls A 段、critical-points 證據規範）。
 7. **逐項走完每個 CP 的 self-verify（無論 PASS/FAIL）後**，輸出 `SKILL.md` 規定格式的測試報告（含 PASS/FAIL 與「發現問題（若有 FAIL）」BUG 區塊）；每個 PASS/FAIL 引用 assert / API 碼 / readback 作證據；任一真實 FAIL 於報告列 BUG 編號並結論「需修正後重測」。
-8. **回填 catalog（必做）**：對每個情境跑 `qa-flow.sh catalog <白話情境> <測試函式> <完整/部分/未覆蓋> <模組>`，累積進 session 目錄總 catalog.md。**沒回填不得宣稱測試完成。**
+8. **回填 catalog（必做）**：對每個情境跑 `qa-flow.sh catalog <白話情境> <測試函式> <完整/部分/未覆蓋> <模組>`，累積進 `tests/e2e/catalog.md` 總表。**沒回填不得宣稱測試完成。**
