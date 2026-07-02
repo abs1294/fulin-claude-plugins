@@ -11,6 +11,10 @@ $ARGUMENTS
 
 **先讀本 plugin `browser-qa` skill 的 `SKILL.md`，並依其「強制步驟追蹤（MANDATORY）」用 `TaskCreate` 建 8 步清單再開工。** 若上面只給了功能描述、還沒有測試計畫，先用 `qa-engineer` agent（或 `/qa-webwright:qa-plan`）產出計畫。
 
+> **鐵則：「把 CP 沉澱成可重跑 pytest runner」是核心目的、永遠必做——禁止問使用者「要不要沉澱 / 要不要出 runner」。**
+> 整個流程唯一可問使用者的是：greenfield 空目錄時「同不同意裝 pytest-playwright 環境」（動到使用者機器裝套件才問）。
+> 那是問「裝環境」，不是問「要不要做這件事」。
+
 步驟（一律透過 `qa-flow.sh`，落點鎖 session 起始目錄、不鑽子專案目錄）：
 
 1. **bootstrap**：跑 `qa-flow.sh bootstrap` 盤點既有測試資產、確保 catalog.md、拿安裝/runner 決策訊號。

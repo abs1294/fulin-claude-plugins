@@ -79,11 +79,16 @@ description: >
 
 **開始執行前，必須先用 `TaskCreate` 建立以下任務清單。** 不可跳過——這是防「跳掉沉澱 / 沒出報告 / 沒回填 catalog」的機械閘（歷史踩雷：純 prompt 規範被略過，測完只印對話、沒落地任何檔）。
 
+> **鐵則：「把 CP 沉澱成可重跑 pytest runner」是本 skill 的核心目的，永遠必做——禁止問使用者「要不要沉澱 / 要不要出 runner」。**
+> 這不是選項。整個 Phase 2 **唯一**可以問使用者的是：greenfield 空目錄時「同不同意在這台電腦裝 pytest-playwright 環境」（因為動到使用者機器裝套件）——
+> 那是問「裝環境」，不是問「要不要沉澱」。載體用什麼（pytest / 既有 JS）依 bootstrap 訊號決定，也不是問「要不要做」。
+> **別把「裝環境要問」擴大解讀成「整個沉澱流程都可以先問使用者要不要做」。**
+
 初始 8 個任務：
 
 ```
 #1 Phase2-0 qa-flow.sh bootstrap（盤點資產 + 鎖落點 + 確保 catalog）    [in_progress]
-#2 Phase2-0b 依 bootstrap 訊號：ACTION-REQUIRED 時詢問使用者裝 pytest    [pending]
+#2 Phase2-0b 僅 greenfield 空目錄：問使用者「是否同意裝 pytest 環境」（不問要不要沉澱）[pending]
 #3 Phase2-1 列 critical points 清單                                    [pending]
 #4 Phase2-2 探索路徑（grep 原始碼真實值 → a11y ref）                    [pending]
 #5 Phase2-3 沉澱：每個 CP 落成 pytest 一行 assert                       [pending]
