@@ -12,10 +12,15 @@ QA Agent 在 Phase 1 產出測試計畫的通用規範。**不假設任何特定
   - **怎麼盤（手段）**：枚舉 runner 既有測試——`pytest --collect-only`（或讀 tests/ 目錄與描述性測試函式名）+ 讀 xfail / skip marker。
     這能盤出「**已寫的**測試」供復用對齊，但**回答不了「該做卻沒人寫的情境」**（見 §0.5）——枚舉只能列出存在的測試，不存在的測試在 collect-only 輸出裡是隱形的。「要沿用還是新建」的完整答案需搭配 §0.5 的情境覆蓋索引。
 - **（B）greenfield（專案尚無 runner / 測試資產）** → 建立第一個：
-  - **落地目錄與命名**：**測試放在「你起 session 的那個資料夾」（session 起始目錄）底下，不自行鑽進子專案目錄**——在哪個資料夾起 session，就放那個資料夾下（如該目錄下的 `tests/e2e/`、檔名 `test_<feature>.py`）。
-    優先依目標專案 `CLAUDE.md`/README 指定的測試路徑慣例；無指定才用「放在 session 起始目錄下」這個預設。
+  - **不要自己 mkdir / 自己判斷落點**：一律先跑 `qa-flow.sh bootstrap`（見 `SKILL.md` Phase 2），
+    它鎖 `CLAUDE_PROJECT_DIR`、發 `ASSET: none` + `ACTION-REQUIRED: ask-user-install` 訊號、確保 catalog.md 存在。
+  - **落地目錄與命名（由腳本鎖死）**：測試放在**你起 session 的那個資料夾**底下的 `tests/e2e/`（檔名 `test_<feature>.py`），
+    **禁止自行鑽進子專案目錄**——這條規範由 `qa-flow.sh` 用 `CLAUDE_PROJECT_DIR` 機械執行，AI 想鑽也鑽不進去
+    （歷史踩雷：主 Agent 看到子目錄有既有 JS 專案就鑽進去出 JS）。
     > **要讓 e2e 進某個專案 repo 版控，正確作法是「在那個專案資料夾裡起 session」**，而非從上層資料夾鑽進去——e2e 的測試棧/語言不一定等於該專案語言，落點由「session 起在哪」決定、不由 skill 寫死絕對結構。
-  - **最小 bootstrap**：裝 runner（pytest-playwright 為 `pip install pytest-playwright && playwright install chromium`），用 runner 內建 fixture（pytest-playwright 的 `page`）即可，瀏覽器啟動細節見官方文件，不在此重述。
+  - **runner 固定優先 pytest**：使用者同意後 `qa-flow.sh scaffold <feature> pytest` 建骨架，安裝指令
+    （`pip install pytest-playwright && playwright install chromium`）由腳本印出、**使用者自行執行（腳本不代裝）**；
+    僅使用者明確不同意裝 Python 才退而 `scaffold <feature> playwright-js`。
   - 專案專屬值（port / login / BASE_URL）仍委派目標專案 `CLAUDE.md`，不寫進方法論。
 
 > 與 §1「讀範圍內程式碼」不同：§1 讀的是**被測功能的產品原始碼**（API/前端/store）；本節盤的是**既有的測試碼**。
@@ -32,6 +37,7 @@ QA Agent 在 Phase 1 產出測試計畫的通用規範。**不假設任何特定
 > 兩者語意不重疊——索引補的是 runner 結構上沒有的「差集語意（哪些情境還沒被覆蓋）」。漂移屬「維護紀律」問題，不是「不該有索引」的理由。
 
 因此：**從第一條測試起就維護一份跨功能、持久化的情境覆蓋索引**，邊 codify 邊累積（呼應 codify 閉環）。
+**這份索引固定落在 session 起始目錄的 `catalog.md`（一份總表、跨功能累積），由 `qa-flow.sh catalog <情境> <函式> <狀態> <模組>` 機械回填**（以測試函式為主鍵 update/append，不靠 AI 記得手寫，見 `SKILL.md` Phase 2 step 6）。
 **這份索引與 `conftest.py` / `test_*.py` / report 同屬必產物——只做 pytest 那套卻漏掉索引，等於漏了 R3 的承載結構（這是常見漏法，務必一併產出）。**
 **預設用 markdown 表**（四欄如下）——**這份索引的讀者是「人」**（QA Agent 盤點、開發者查「這情境測了沒」），不是機器；md 表是人類掃得動、好維護、進 git 可 diff 的形式。
 > **逃生門（窄）**：只有當專案已有「對人更好讀」的既有索引（如專案 wiki、既有覆蓋報表）才沿用之；**禁止用純機器格式（xml / json）當人類索引**——那等於沒給人看，違背本索引存在的目的。

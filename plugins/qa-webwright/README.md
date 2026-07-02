@@ -6,7 +6,9 @@
 
 ## 能幫我做什麼
 
-- **不只測一次**：測完沉澱成可重跑的測試腳本（首選 pytest-playwright），之後回歸隨時重跑。
+- **不只測一次**：測完沉澱成可重跑的測試腳本（**固定優先 pytest-playwright**），之後回歸隨時重跑。
+- **一定會落地檔案**：`qa-flow.sh` 把「建測試骨架 / 出 junitxml 報告 / 防假綠燈驗證 / 回填 catalog 情境索引」鎖進腳本，
+  落點鎖 session 起始目錄（不鑽子專案目錄），不再有「測完只印對話、沒留下任何檔」的情形。
 - **驗真證據**：用 API 回傳碼 / 頁面讀回值 / 資料來源比對來判定通過，不靠人眼看截圖。
 - **覆蓋容易漏的細節**：內建必測 checklist、測試資料規範，特別處理日期欄位的「畫面 / 送出 payload / 資料來源 / 重新整理後」四點一致性。
 - **跨專案通用**：方法論不綁特定網站或技術棧，裝一次到處可用。
@@ -31,6 +33,7 @@ qa-webwright/
 └─ skills/
     └─ browser-qa/
         ├─ SKILL.md             方法論：兩階段流程、critical-point 對映、報告格式
+        ├─ qa-flow.sh           流程腳本：bootstrap / scaffold / run / catalog（落地動作鎖進腳本，落點鎖 session 目錄）
         ├─ methodology/         方法論（穩定、不綁技術棧）
         │   ├─ test-plan-design.md   覆蓋矩陣 / 必測 checklist / TC 格式 / 測試資料原則
         │   └─ critical-points.md    TC 預期 → critical point → assert 對映
@@ -45,7 +48,8 @@ qa-webwright/
 
 本 plugin 是「QA 方法論層」，沉澱端用專案既有的測試 runner。
 
-**必備：** 專案有可重跑的測試 runner（**首選 pytest-playwright**；或 Playwright Test 等帶 assert+exit code 者）。
+**必備：** 可重跑的測試 runner（**固定優先 pytest-playwright**）。greenfield 專案由 `qa-flow.sh scaffold` 建骨架、
+印出安裝指令讓你執行（腳本不代裝）；僅當你明確不同意裝 Python，才退而用 Playwright JS。既有專案已有別的 runner 則沿用。
 探索優先用專案既有手段（Playwright MCP 的 a11y snapshot `ref` / Page Object）。
 
 **選用（僅「真實外部站」備用探索）：** 當需打真實外部站（無 a11y test token、後端不可攔、
