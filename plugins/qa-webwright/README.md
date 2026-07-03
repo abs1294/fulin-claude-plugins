@@ -9,10 +9,9 @@
 - **不只測一次**：測完沉澱成可重跑的測試腳本（**固定優先 pytest-playwright**），之後回歸隨時重跑。
 - **一定會落地檔案**：`qa-flow.sh` 把「建測試骨架 / 出 junitxml 報告 / 防假綠燈驗證 / 回填 catalog 情境索引」鎖進腳本，
   落點鎖 session 起始目錄（不鑽子專案目錄），不再有「測完只印對話、沒留下任何檔」的情形。
-- **內建 Stop hook 他律強制**：光靠 SKILL 裡寫「必須落地」擋不住 AI 用通用 Playwright MCP 手動測完就口頭回報。
-  本 plugin 內建一道 Stop hook（`hooks/qa-landing-gate.js`）——**觸發 QA 後用了瀏覽器工具、卻沒在 `tests/e2e/` 留下
-  `test_*.py` + `reports/*.xml` + 回填的 `catalog.md`，結束時會被擋下要求補落地**（最多擋 2 次留逃生門；沒觸發 QA 只用瀏覽器則僅警告不擋）。
-  裝 plugin 即自動生效，不需改 settings.json。
+- **內建 hook 他律強制**：光靠 SKILL 裡寫「必須落地」擋不住 AI 用通用 Playwright MCP 手動測完就口頭回報。本 plugin 用兩道 hook 兜底（裝即生效，不需改 settings.json）：
+  - **Stop hook**（`qa-landing-gate.js`）：**觸發 QA 後用了瀏覽器工具、卻沒在 `tests/e2e/` 留下 `test_*.py` + `reports/*.xml` + 回填的 `catalog.md`，結束時會被擋下要求補落地**。提醒共用計數上限 2 次、第 3 次靜默（留逃生門）；**偵測到落地即重置計數**（下一輪新 QA 又有完整額度）。委派給 subagent 做的瀏覽器測試也會被偵測到（掃 subagent transcripts）。全程 fail-open——hook 自身任何失敗一律放行，絕不卡死 session。
+  - **PostToolUse hook**（`qa-early-nudge.js`）：第一次用瀏覽器工具、且尚未 scaffold 時就提示先走落地流程（remind-once），把「測完才發現無法沉澱」的浪費擋在發生前。
 - **驗真證據**：用 API 回傳碼 / 頁面讀回值 / 資料來源比對來判定通過，不靠人眼看截圖。
 - **覆蓋容易漏的細節**：內建必測 checklist、測試資料規範，特別處理日期欄位的「畫面 / 送出 payload / 資料來源 / 重新整理後」四點一致性。
 - **跨專案通用**：方法論不綁特定網站或技術棧，裝一次到處可用。
@@ -32,8 +31,10 @@ qa-webwright/
 ├─ agents/
 │   └─ qa-engineer.md           QA Agent：設計測試計畫（含 critical points）
 ├─ hooks/
-│   ├─ hooks.json               Stop hook 宣告（裝 plugin 即生效）
-│   └─ qa-landing-gate.js       落地強制閘：觸發 QA 後用了瀏覽器卻沒落地產物就擋（他律）
+│   ├─ hooks.json               Stop + PostToolUse hook 宣告（裝 plugin 即生效）
+│   ├─ qa-landing-gate.js       Stop 落地強制閘：觸發 QA 後用了瀏覽器卻沒落地產物就擋（他律，含委派偵測）
+│   ├─ qa-early-nudge.js        PostToolUse 早期提醒：首次用瀏覽器且未 scaffold 時提示先走落地流程（remind-once）
+│   └─ test-gate.mjs            hook 回歸測試（改 hook 後 `node hooks/test-gate.mjs` 驗證誤擋/漏擋）
 ├─ commands/
 │   ├─ qa-plan.md               /qa-webwright:qa-plan — 設計測試計畫
 │   └─ qa-run.md                /qa-webwright:qa-run — 探索 → 沉澱成 runner assert + 驗證
@@ -51,11 +52,21 @@ qa-webwright/
 > **方法論 vs 知識庫**：`methodology/` 是穩定、跨專案不變的「怎麼做」；`knowledge/` 是會長大的
 > 「踩過的雷」，每測一次踩到新坑就 append 一條，並依目標專案技術棧選用。兩者分開維護。
 
+## 機械保證的邊界（先讀這段）
+
+本 plugin **機械強制的只有「產物層」**——測完必須在 `tests/e2e/` 留下可重跑的 `test_*.py` + junitxml 報告 + 回填的 catalog（由 `qa-flow.sh` 落地 + Stop hook 兜底，AI 繞不過）。
+**測試設計「品質層」**（覆蓋矩陣是否窮盡、證據是否夠強、是否真走兩階段 qa-engineer 設計）**由方法論引導，屬強烈建議、無法機械強制**——品質本質上是 AI-complete，硬加閘只會製造噪音。所以：產物一定會有，但「測得好不好」仍需你把關。
+
 ## 前置依賴
 
 本 plugin 是「QA 方法論層」，沉澱端用專案既有的測試 runner。
 
-**必備：** 可重跑的測試 runner（**固定優先 pytest-playwright**）。greenfield 專案由 `qa-flow.sh scaffold` 建骨架、
+**環境需求（缺了會讓落地/他律靜默失效，`qa-flow.sh bootstrap` 會自檢並警告）：**
+- **Node.js** — Stop hook（落地強制）靠 node 執行；缺 node 則 harness 會靜默跳過 hook，他律無聲消失。
+- **Git Bash / bash** — `qa-flow.sh` 是 bash 腳本。
+- **Python + pytest-playwright** — 沉澱載體。**Windows 常無 `pytest` 可執行命令**，`qa-flow.sh run` 會自動改用 `python -m pytest`（不需自建 wrapper）。
+
+**必備 runner：** 可重跑的測試 runner（**固定優先 pytest-playwright**）。greenfield 專案由 `qa-flow.sh scaffold` 建骨架、
 印出安裝指令讓你執行（腳本不代裝）；僅當你明確不同意裝 Python，才退而用 Playwright JS。既有專案已有別的 runner 則沿用。
 探索優先用專案既有手段（Playwright MCP 的 a11y snapshot `ref` / Page Object）。
 

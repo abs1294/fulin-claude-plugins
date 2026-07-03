@@ -13,7 +13,7 @@
     {
       "name": "qa-webwright",
       "source": "./plugins/qa-webwright",
-      "description": "QA Agent 設計測試計畫，主 Agent 探索後沉澱成可重跑 runner（pytest 等）一行 assert，以結構化證據（API 業務碼/DOM 讀回/readback）自驗；webwright 為選用的外部站備用探索器。"
+      "description": "瀏覽器功能 QA 方法論：設計測試計畫→探索→沉澱成可重跑 pytest（結構化證據自驗，非看截圖）。qa-flow.sh 把落地動作鎖進腳本、落點鎖 session 目錄；內建 Stop hook 強制測試落地（他律，AI 繞不過）。webwright 為選用的外部站備用探索器。"
     },
     {
       "name": "delaylocal",

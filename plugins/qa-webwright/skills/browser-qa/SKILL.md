@@ -11,6 +11,11 @@ description: >
 
 # Browser QA Skill
 
+> **機械保證的邊界（先讀）**：本 skill 分兩層——
+> **產物層**（每個功能在 `tests/e2e/` 留下可重跑的 `test_*.py` + junitxml 報告 + 回填的 catalog）由 `qa-flow.sh` + Stop hook **機械強制**，AI 繞不過。
+> **設計品質層**（覆蓋矩陣是否窮盡、證據是否夠強、是否真走兩階段 qa-engineer 設計）**無法機械強制**（品質是 AI-complete）——下面的方法論是**強烈建議的流程**，靠引導不靠閘門。
+> 所以：產物一定會有，但「測得好不好」需人把關。別把「hook 全綠」當成「測試設計到位」。
+
 把測試計畫的每條「預期結果」對映成一個 **critical point**，再落成可重跑 runner 裡**（至少）一行 `assert`**（雙向卡控等可多行）。
 
 這條設計的好處：測試**寫一次**（探索階段花一次 agent token），之後直接 `pytest`（或對應 runner）跑——
@@ -116,7 +121,7 @@ description: >
 |------|------|---------|
 | `qa-flow.sh bootstrap` | 盤點既有測試資產（pytest/JS/空）、確保 catalog.md、發安裝/runner 決策訊號（不擅自安裝）| Phase2-0 |
 | `qa-flow.sh scaffold <feature> <pytest\|playwright-js>` | 建 `tests/e2e/` 骨架 + conftest；安裝指令只印出讓使用者跑 | Phase2-0b（使用者同意後）|
-| `qa-flow.sh run <feature> <test-file> <date>` | grep 驗證 test 函式存在（防假綠燈）→ `pytest --junitxml` 出報告 | Phase2-4 |
+| `qa-flow.sh run <feature> <test-file> [date]` | grep 驗證 test 函式存在（防假綠燈）→ `pytest --junitxml` 出報告（date 省略=今天；自動偵測 pytest 執行方式）| Phase2-4 |
 | `qa-flow.sh catalog <情境> <函式> <狀態> <模組>` | 機械回填 tests/e2e/catalog.md 總表（以函式為主鍵 update/append）| Phase2-6 |
 
 **bootstrap 決策訊號怎麼接：**
@@ -140,7 +145,7 @@ description: >
    斷言打在結構化證據上（業務碼 `code=="0000"` 非只看 HTTP 200、DOM/a11y 讀回 unique token、DB/重查 readback）。
    寫入型操作必「寫 unique token → 讀回那一筆比對」，不可只驗送出成功。斷言規範見 `methodology/critical-points.md`。
 
-4. **Execute（用 `qa-flow.sh run`）**：跑 `qa-flow.sh run <feature> <test-file> <date>`——它先 grep 驗證 test 函式確實寫入（防假綠燈），再跑 `pytest --junitxml` 出報告到 `tests/e2e/reports/<feature>-<date>.xml`（assert 失敗 → 非 0 exit）。報告路徑回填報告模板「報告產物」欄；截圖至多留檔備查，不作判定依據。
+4. **Execute（用 `qa-flow.sh run`）**：跑 `qa-flow.sh run <feature> <test-file>`（date 可省略=今天）——它先 grep 驗證 test 函式確實寫入（防假綠燈），再跑 `pytest --junitxml` 出報告到 `tests/e2e/reports/<feature>-<date>.xml`（assert 失敗 → 非 0 exit）。報告路徑回填報告模板「報告產物」欄；截圖至多留檔備查，不作判定依據。
 
 5. **Self-verify**：逐項走 CP 清單，確認**每個 assert 的結構化證據明確相符**才打勾。
    任一 CP 失敗 → 診斷具體原因 → 修測試 → 重跑重驗。
