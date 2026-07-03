@@ -82,14 +82,16 @@ function main(raw) {
   // transcript 讀不到 → 無從判斷 → 放行
   if (!tp || fileState(tp) !== 'yes') return allow();
 
-  const transcript = readTailText(tp, 2_000_000);
-  if (transcript === null) return allow(); // 讀失敗 → 放行
+  // 掃描來源 = 主 transcript + subagent transcripts。
+  // 主 Agent 把瀏覽器 QA 委派給 subagent(Agent 工具)時，實際 tool_use 記在
+  // <transcript同名資料夾>/subagents/agent-*.jsonl，主檔只有一行 Agent 呼叫——
+  // 只掃主檔會讓「委派做測試」整套他律歸零。故一併掃 subagent 檔。
+  // 用 scanner 逐檔 early-exit（不把全部拼進單一大字串，省記憶體、支援長 session）。
+  const sources = collectTranscriptSources(tp); // [主檔, ...subagent檔]
 
-  // usedBrowser / triggeredQa：只認「真的 tool_use 呼叫瀏覽器工具」的結構化痕跡，
-  // 不因對話文字提到工具名 / plugin 名而誤判（收緊，降誤擋）。
-  // transcript 是 JSONL，tool_use 會序列化成含 "type":"tool_use" 且 "name":"<工具>" 的物件。
-  const usedBrowser = hasBrowserToolUse(transcript);
-  if (!usedBrowser) return allow(); // 沒真的用瀏覽器工具 → 這輪不是在測 → 放行
+  const usedBrowser = scanSources(sources, (b) => BROWSER_NAME.test(b.name));
+  if (usedBrowser === null) return allow(); // 全部讀失敗 → 不確定 → 放行
+  if (usedBrowser !== true) return allow(); // 沒真的用瀏覽器工具 → 這輪不是在測 → 放行
 
   const landed = hasLandingArtifacts(cwd); // true / false / null
   if (landed === true) {
@@ -103,12 +105,23 @@ function main(raw) {
   // BLOCK 與 WARN 共用同一個提醒計數，共同上限 2 次；達上限 → 完全靜默放行。
   if (reachedRemindLimit(sid)) return allow();
 
-  const triggeredQa = hasQaTrigger(transcript);
+  // 零噪音 nudge：只在「本來就要擋/警告」時，若整輪未偵測到 qa-engineer 設計階段，
+  // 追加一句提示（兩階段品質無法機械保證，見 SKILL 誠實化說明）。不新增任何成功路徑輸出。
+  const qaEngineerSeen = scanSources(sources, (b) =>
+    (b.name === 'Agent' || b.name === 'Task') && b.input && /qa-engineer/.test(safeStr(b.input.subagent_type))
+  ) === true;
+  const designNudge = qaEngineerSeen
+    ? ''
+    : '\n另外：本輪未偵測到 qa-engineer 設計階段（Agent 呼叫）。本 plugin 只機械保證「產物存在且可重跑」，' +
+      '測試設計品質（覆蓋矩陣 / 證據規範 / 兩階段設計）無法機械強制——請自行把關。';
+
+  const triggeredQa = scanSources(sources, qaTriggerMatcher) === true;
   if (!triggeredQa) {
     // (B) 沒觸發 qa-webwright → 只警告（計入共用計數）
     return warn(
       '偵測到這輪用了瀏覽器工具但 tests/e2e/ 下沒有落地產物（test_*.py / reports/*.xml / catalog.md）。' +
-        '若這是功能測試，建議走 qa-webwright 的 qa-flow.sh 把結果沉澱成可重跑 pytest；若只是瀏覽網頁可忽略。'
+        '若這是功能測試，建議走 qa-webwright 的 qa-flow.sh 把結果沉澱成可重跑 pytest；若只是瀏覽網頁可忽略。' +
+        designNudge
     );
   }
 
@@ -116,13 +129,14 @@ function main(raw) {
   return block(
     '你觸發了 qa-webwright 做瀏覽器測試，但沒有把結果落地成可重跑產物——' +
       'tests/e2e/ 下缺 test_*.py / reports/*.xml / catalog.md 其中之一。\n' +
-      'SKILL.md 的 MANDATORY 強制步驟不可跳過：請照 8 步走完\n' +
+      '請照 SKILL.md 的落地流程走完（產物層為機械必做，設計層品質為建議）：\n' +
       '  1) TaskCreate 建清單 2) qa-flow.sh bootstrap 3) 列 CP 4) 探索\n' +
       '  5) 把 CP 沉澱成 tests/e2e/test_<feature>.py 的 assert\n' +
-      '  6) qa-flow.sh run <feature> <test-file> <date>（出 junitxml）\n' +
+      '  6) qa-flow.sh run <feature> <test-file>（出 junitxml）\n' +
       '  7) self-verify 8) qa-flow.sh catalog 回填每個情境到 tests/e2e/catalog.md\n' +
       '不要用通用 Playwright MCP 手動測完就口頭回報——那不是可重跑產物。' +
-      '（若使用者明確說「這次不要落地」，回覆說明後再結束即可，本 hook 最多擋 2 次。）'
+      '（若使用者明確說「這次不要落地」，回覆說明後再結束即可，本 hook 最多擋 2 次。）' +
+      designNudge
   );
 }
 
@@ -138,76 +152,126 @@ function fileState(f) {
   }
 }
 
-// 讀檔尾段；失敗回 null（呼叫端據此放行）
-function readTailText(file, maxBytes) {
+// 掃描來源清單：主 transcript + 同名資料夾下 subagents/*.jsonl（委派做的 tool_use 記在那）。
+// fail-open：推導/讀目錄失敗一律略過該來源（不因此出錯），至少保留主檔。
+function collectTranscriptSources(tp) {
+  const sources = [tp];
   try {
-    const stat = fs.statSync(file);
-    const readSize = Math.min(stat.size, maxBytes);
-    const buf = Buffer.alloc(readSize);
-    const fd = fs.openSync(file, 'r');
-    fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
-    fs.closeSync(fd);
-    return buf.toString('utf8');
+    const dir = path.dirname(tp);
+    const base = path.basename(tp).replace(/\.jsonl$/i, '');
+    const subDir = path.join(dir, base, 'subagents');
+    if (fileState(subDir) === 'yes') {
+      const entries = fs.readdirSync(subDir);
+      for (const e of entries) {
+        if (/\.jsonl$/i.test(e)) sources.push(path.join(subDir, e));
+      }
+    }
   } catch (_) {
-    return null;
+    // 略過 subagent 來源，只用主檔
   }
+  return sources;
 }
 
-// 真正解析 JSONL：只認結構化的「tool_use block 且工具名是瀏覽器工具」，
-// 徹底避免對話文字引用工具名 / "tool_use" 字面就誤判（Codex #2）。
-// 逐行 JSON.parse，解析失敗的行直接跳過（不因單行壞掉就誤判）。
+// 掃多個 JSONL 來源，任一 tool_use 命中 matcher 即回 true（early-exit）。
+// 回傳：true=有命中 / false=掃完都沒命中 / null=所有來源都讀失敗（不確定→呼叫端放行）。
+// ★ 逐檔逐行 streaming（分塊讀 + 跨塊行緩衝），取代舊的「尾 2MB」——長 session 前段的
+//   瀏覽器操作不再被截斷漏看。單行超長（>1MB）跳過；總掃描量上限 200MB 後停（視為已掃完）。
 const BROWSER_NAME = /^(mcp__playwright__|mcp__claude-in-chrome__|browser_)/;
-function eachToolUse(transcript, cb) {
-  const lines = transcript.split('\n');
-  for (const ln of lines) {
-    const s = ln.trim();
-    if (!s || s[0] !== '{') continue;
-    let obj;
+const MAX_LINE = 1_000_000;
+const MAX_TOTAL = 200_000_000;
+
+function scanSources(sources, matcher) {
+  let anyReadOk = false;
+  let scanned = 0;
+  for (const src of sources) {
+    let fd = -1;
     try {
-      obj = JSON.parse(s);
+      fd = fs.openSync(src, 'r');
     } catch (_) {
-      continue; // 壞行跳過
+      continue; // 這個來源讀不到，試下一個
     }
-    const content = obj && obj.message && obj.message.content;
-    if (!Array.isArray(content)) continue;
-    for (const b of content) {
-      if (b && b.type === 'tool_use' && typeof b.name === 'string') {
-        if (cb(b) === true) return true;
+    try {
+      const CHUNK = 1 << 20; // 1MB
+      const buf = Buffer.alloc(CHUNK);
+      let carry = '';
+      let bytes;
+      while ((bytes = fs.readSync(fd, buf, 0, CHUNK, null)) > 0) {
+        scanned += bytes;
+        let text = carry + buf.toString('utf8', 0, bytes);
+        let nl;
+        let last = 0;
+        while ((nl = text.indexOf('\n', last)) !== -1) {
+          const line = text.slice(last, nl);
+          last = nl + 1;
+          if (matchLine(line, matcher)) {
+            fs.closeSync(fd);
+            return true;
+          }
+        }
+        carry = text.slice(last);
+        if (carry.length > MAX_LINE) carry = ''; // 單行過長 → 丟棄殘段防爆記憶體
+        if (scanned > MAX_TOTAL) break; // 總量上限，視為已掃完
       }
+      // 收尾殘段
+      if (carry && matchLine(carry, matcher)) {
+        fs.closeSync(fd);
+        return true;
+      }
+      fs.closeSync(fd);
+      // ★ 只有「完整掃完（無例外）」才算此來源成功——避免「開得了檔但讀到一半失敗」
+      //   被當成「掃完沒命中」而回 false（那會讓 hook 自身讀失敗掉進 warn/block，破壞 fail-open）。
+      anyReadOk = true;
+    } catch (_) {
+      try {
+        if (fd >= 0) fs.closeSync(fd);
+      } catch (__) {}
+      // 這個來源讀到一半出錯，不計入成功掃描，繼續試下一個
+    }
+  }
+  // 沒有任何來源被完整掃完 → 全失敗 → null（呼叫端 fail-open 放行）。
+  return anyReadOk ? false : null;
+}
+
+// 解析單行 JSONL，對其中每個 tool_use block 套 matcher；壞行/非物件回 false。
+function matchLine(line, matcher) {
+  const s = line.trim();
+  if (!s || s[0] !== '{') return false;
+  let obj;
+  try {
+    obj = JSON.parse(s);
+  } catch (_) {
+    return false;
+  }
+  const content = obj && obj.message && obj.message.content;
+  if (!Array.isArray(content)) return false;
+  for (const b of content) {
+    if (b && b.type === 'tool_use' && typeof b.name === 'string') {
+      if (matcher(b) === true) return true;
     }
   }
   return false;
 }
 
-function hasBrowserToolUse(transcript) {
-  return eachToolUse(transcript, (b) => BROWSER_NAME.test(b.name));
-}
-
 // 觸發 qa-webwright：認任一「在用這個 skill」的結構化證據——
-//   (a) Task 叫 qa-engineer subagent；
+//   (a) 用 Agent（或舊名 Task）叫 qa-engineer subagent；
 //   (b) Read/Bash 碰 browser-qa 的 SKILL.md 路徑（進了這個 skill）；
 //   (c) Bash 執行過 qa-flow.sh 的 bootstrap/scaffold/run/catalog（正在用本 skill 的流程腳本）。
-// (c) 是關鍵：抓「跑了 qa-flow.sh 流程(bootstrap/scaffold/run)卻漏 catalog 回填」的人——
-// 這種 session 確實在用 qa-webwright，該被要求把 catalog 補完（歷史踩雷 session 4137a1c6：
-// 走了 run 但跳 catalog，舊判定只認讀 SKILL/qa-engineer 而漏擋）。
-function hasQaTrigger(transcript) {
-  return eachToolUse(transcript, (b) => {
-    // (a) Task 工具叫 qa-engineer subagent
-    if (b.name === 'Task' && b.input && /qa-engineer/.test(safeStr(b.input.subagent_type))) return true;
-    // (b) Read / Bash 碰到 browser-qa 的 SKILL.md 路徑
-    const paths = safeStr(b.input && (b.input.file_path || b.input.command || b.input.path));
-    if (/browser-qa[\\/]SKILL\.md/.test(paths)) return true;
-    // (c) Bash 執行 qa-flow.sh 的任一子命令 = 正在用本 skill 流程。
-    // 允許路徑前綴與引號：bash "…/qa-flow.sh" run / ./qa-flow.sh catalog / /abs/qa-flow.sh bootstrap；
-    // 子命令前可有引號結尾與空白（"qa-flow.sh" run）。緩解誤判：若整條 command 是 echo/grep/cat/#
-    // 這類「提及而非執行」則不算（降低把討論文字誤判成執行的機率）。
-    if (b.name === 'Bash' && b.input) {
-      const cmd = safeStr(b.input.command);
-      const isMention = /^\s*(#|echo\b|grep\b|cat\b|printf\b|rg\b|ls\b|find\b|sed\b|awk\b|head\b|tail\b|less\b|more\b)/.test(cmd);
-      if (!isMention && /qa-flow\.sh["']?\s+(bootstrap|scaffold|run|catalog)\b/.test(cmd)) return true;
-    }
-    return false;
-  });
+// 註：真實 transcript 裡 subagent 呼叫的工具名是 `Agent`（非 `Task`），兩者都認以防版本差異。
+function qaTriggerMatcher(b) {
+  // (a) Agent/Task 工具叫 qa-engineer subagent
+  if ((b.name === 'Agent' || b.name === 'Task') && b.input && /qa-engineer/.test(safeStr(b.input.subagent_type)))
+    return true;
+  // (b) Read / Bash 碰到 browser-qa 的 SKILL.md 路徑
+  const paths = safeStr(b.input && (b.input.file_path || b.input.command || b.input.path));
+  if (/browser-qa[\\/]SKILL\.md/.test(paths)) return true;
+  // (c) Bash 執行 qa-flow.sh 的任一子命令 = 正在用本 skill 流程。
+  // 允許路徑前綴與引號；排除 echo/grep/cat 等「提及而非執行」的前綴以降誤判。
+  if (b.name === 'Bash' && b.input) {
+    const cmd = safeStr(b.input.command);
+    const isMention = /^\s*(#|echo\b|grep\b|cat\b|printf\b|rg\b|ls\b|find\b|sed\b|awk\b|head\b|tail\b|less\b|more\b)/.test(cmd);
+    if (!isMention && /qa-flow\.sh["']?\s+(bootstrap|scaffold|run|catalog)\b/.test(cmd)) return true;
+  }
+  return false;
 }
 
 function safeStr(v) {
