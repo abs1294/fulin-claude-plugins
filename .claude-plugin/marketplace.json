@@ -41,6 +41,11 @@
       "description": "降低並自動接力 tool call 失敗：每輪注入 XML 收尾提醒 hook + self-heal scheduler 接力規約（卡住自己續、完成則終止）。"
     },
     {
+      "name": "deliver-report",
+      "source": "./plugins/deliver-report",
+      "description": "把本次 session 的交付產出寫成一段口語、務實、逐檔導讀的交付訊息（fulin 慣用格式與語氣）：Hi 稱呼→逐檔白話清單→帶數字的重點結論→（有前版才寫）差異與原因→導讀動線→輕鬆收尾。內容依當次產出而定，格式與語氣固定；寫前順手整理交付清單與版本一致性。"
+    },
+    {
       "name": "cc-statusline",
       "source": "./plugins/cc-statusline",
       "description": "資訊密度高的 Claude Code status line：目錄/repo/model/成本/用量/quota/agents/skills/memory+MCP/近期編輯/歷史多欄顯示，含寬字對齊與跨進程狀態快取；可用 /cc-statusline-rows 逐列開關。需手動在 settings.json 指向腳本（見 plugin README）。"

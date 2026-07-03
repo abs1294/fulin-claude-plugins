@@ -1,0 +1,15 @@
+{
+  "name": "deliver-report",
+  "version": "0.1.0",
+  "description": "把本次 session 的交付產出寫成一段口語、務實、逐檔導讀的交付訊息（fulin 慣用格式與語氣）。內容依當次產出而定，格式與語氣固定。",
+  "author": {
+    "name": "fulin"
+  },
+  "keywords": [
+    "deliver",
+    "handoff",
+    "report",
+    "交付",
+    "交付訊息"
+  ]
+}
