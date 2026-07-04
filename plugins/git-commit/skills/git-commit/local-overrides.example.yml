@@ -18,10 +18,14 @@
 #
 # 格式範例（複製下面區塊改成你的）：
 #
-# my-repo:
+# my-repo:                                   # ← 頂層 key = repo 識別鍵，每個區塊必須唯一
 #   repo: .                                  # 單一 repo 用 "."；多 repo workspace 用子目錄名
 #   files:
 #     - path: appsettings.Localhost.json
 #       reason: 本地 DB 連線字串
 #     - path: src/utils/user.js
 #       reason: 本地測試用 hardcoded JWT
+#
+# 匹配規則：flow.sh 以「頂層 key」或「repo: 的值」任一等於目標 repo 即套用該區塊。
+#   → 多 repo workspace 請讓每個區塊的【頂層 key 各自不同】（例如用子目錄名當 key），
+#     不要多個區塊都只靠 `repo: .` 區分——那樣會被視為同一 repo 而合併，互相污染清單。

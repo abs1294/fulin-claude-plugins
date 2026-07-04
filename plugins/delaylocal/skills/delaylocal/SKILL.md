@@ -107,6 +107,7 @@ CronCreate({
 ### 5. 回報使用者（只回報以下欄位，格式固定）
 - Cron Job ID
 - 觸發時間：`JSON.target_local`（約 `JSON.fire_in_minutes` 分鐘後）
+- **若 `JSON.cron_warning` 非 null → 必須把它原文一併回報給使用者**（跨月/跨年時 cron 可能 fire 到非預期年份的警告；請使用者核對觸發時間是否為預期那天）。為 null 則略過此行。
 - quota 重置時間：`JSON.resets_at_local`、緩衝秒數
 - 綁定 session：`JSON.sessionId`
 - 提醒（純陳述事實，不加 offer）：

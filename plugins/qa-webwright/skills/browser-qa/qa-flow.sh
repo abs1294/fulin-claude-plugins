@@ -593,7 +593,7 @@ cmd_audit() {
 
   if [ $fix -eq 0 ]; then
     echo "" >&2
-    echo "  這代表 catalog 已漂移。跑 'qa-flow.sh audit --fix' 把這些列標成 ❌未覆蓋（函式已不存在）。" >&2
+    echo "  這代表 catalog 已漂移。跑 'qa-flow.sh audit --fix' 把這些列標成 ❌未覆蓋（對應測試已不存在）。" >&2
     return 3
   fi
 
@@ -610,7 +610,8 @@ cmd_audit() {
         scen=c[2]; gsub(/^ +| +$/,"",scen)
         mod=c[5]; gsub(/^ +| +$/,"",mod)
         # 備註併進模組欄（catalog 只有四欄，避免破欄）
-        printf "| %s | %s | ❌未覆蓋 | %s（函式已不存在，audit 標記）|\n", scen, f, mod
+        # 中性措辭：py 的第 2 欄是函式名、js 是測試標題，「對應測試」兩者皆涵蓋。
+        printf "| %s | %s | ❌未覆蓋 | %s（對應測試已不存在，audit 標記）|\n", scen, f, mod
         next
       }
     }

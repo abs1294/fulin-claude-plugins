@@ -485,6 +485,15 @@ git-commit 通用化後支援兩種工作目錄結構：
 
 **送審方式**：使用 Agent tool，`subagent_type` 必須為 **`codex:codex-rescue`**（見上方警告），`run_in_background` 為 `true`，與 1.3a / 1.3c 的訊息**同一輪**觸發。
 
+> **Codex 軌不可用時的降級（明確規則，別卡死也別靜默放行）**
+>
+> 若送審回 `Agent type '...' not found`、或 Codex plugin 未安裝 / 環境缺 Codex CLI，先確認不是踩上面的 subagent_type 命名坑；**確認確實叫不到**後，依序：
+> 1. **不 BLOCK、不靜默 PASS**——改為「單軌降級」：B 軌（Codex）標 `status=completed`，description 註記 `skipped: codex-unavailable`，匯流時 B 軌視為 `PASS`（不是通過審查，是「此環境無此軌」）。
+> 2. **必須在 1.3a 預覽明講**：「Codex Review：⚠️ 本環境不可用，已降為單軌（僅 code-reviewer）」——讓使用者知道少了一道，可自行決定要不要人工補看。
+> 3. **A 軌（code-reviewer）不得同時降級**：兩軌都叫不到才算審查完全失效 → 此時**不可自動 commit**，停下告知使用者「兩軌審查都不可用，請人工確認後明示是否 commit」。
+>
+> **三軌 timeout（防某軌永不返回卡死匯流）**：兩個 background 審查軌若在合理時間內未返回（建議 loop 檢查上限：連續數次匯流檢查仍 `尚未完成`，或以體感 > 數分鐘為界），**不要無限等**——標記該軌為「逾時未回」，在預覽告知使用者，並詢問「要繼續等、還是以現有結果決策」。禁止因某軌卡住而讓整個流程靜默掛住，也禁止逾時就自動當 PASS 放行。
+
 **Prompt 範本（兩級制，嚴格遵守回覆格式）**：
 
 ```

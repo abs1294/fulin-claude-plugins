@@ -89,17 +89,28 @@ ensure_overrides_file() {
   echo "[git-commit] 已自動建立 local-overrides：$OVERRIDES_FILE（目前為空範本，可填入本地覆寫檔）" >&2
 }
 
-# 從 local-overrides.yml 取得指定 repo 的 path 清單（每行一個）
+# 從 local-overrides.yml 取得指定 repo 的 path 清單（每行一個）。
+# 匹配鍵：頂層 YAML key（如 `my-repo:`）或區塊內 `repo:` 的值，任一等於 target 即命中。
+#   - 頂層 key 天生唯一，是防「多個區塊都寫 repo: . 而互相污染」的正解。
+#   - 同時仍接受舊的 `repo:` 值匹配，向後相容既有 overrides 檔。
+# 一個區塊只要頂層 key 或 repo 值其一命中 target，就輸出它 files 下所有 path。
 parse_overrides_for_repo() {
   local target_repo="$1"
   [ -f "$OVERRIDES_FILE" ] || return 0
   awk -v target="$target_repo" '
-    /^  repo: / { current_repo = $2 }
-    /^    - path: / {
-      if (current_repo == target) {
-        sub(/^    - path: /, "")
-        print
-      }
+    # 頂層 key：行首無縮排、以 : 結尾（排除註解）
+    /^[^[:space:]#][^:]*:[[:space:]]*$/ {
+      top_key = $0; sub(/:.*$/, "", top_key)
+      block_match = (top_key == target) ? 1 : 0
+      repo_val = ""
+      next
+    }
+    /^  repo:[[:space:]]/ {
+      repo_val = $2
+      if (repo_val == target) block_match = 1
+    }
+    /^    - path:[[:space:]]/ {
+      if (block_match) { sub(/^    - path:[[:space:]]*/, ""); print }
     }
   ' "$OVERRIDES_FILE"
 }
@@ -380,11 +391,25 @@ EOF
   echo ""
 
   echo "=== Push ==="
-  git push
-  echo ""
-
-  # commit+push 成功後清掉本次的 diff hash，避免下次沿用舊 hash 誤判。
-  rm -f "$hash_file" "$TMP_DIR/staged-$repo.diff"
+  # push 可能因遠端有新 commit 被拒（non-fast-forward）。用 if 攔住，避免 set -e 直接中止
+  # 而留下「已 commit、未 push」的懸置狀態卻無下一步指引（AI 易自行裸跑 pull / push -f）。
+  local push_rc=0
+  if git push; then
+    echo ""
+    # commit+push 都成功才清本次 diff hash，避免下次沿用舊 hash 誤判。
+    rm -f "$hash_file" "$TMP_DIR/staged-$repo.diff"
+  else
+    push_rc=$?
+    echo "" >&2
+    echo "ERROR: push 失敗（exit $push_rc）。commit 已在本地完成，但尚未推上遠端。" >&2
+    echo "  最可能原因：遠端有你本地沒有的新 commit（non-fast-forward）。" >&2
+    echo "  正確處置（依序，禁止 force push / 禁止 -f）：" >&2
+    echo "    1. git -C \"$repo_path\" pull --rebase" >&2
+    echo "    2. 解決衝突（若有）後，git -C \"$repo_path\" push" >&2
+    echo "  保留本次 diff hash（未清），push 成功前狀態不算完成。" >&2
+    # 不清 hash：這次 ship 未達成完成狀態，保留供人接手；但不刪 commit（那是難逆操作，交人決定）。
+    exit "$push_rc"
+  fi
 
   echo "=== Verify ==="
   git -c color.ui=false status
