@@ -115,7 +115,9 @@ parse_overrides_for_repo() {
   ' "$OVERRIDES_FILE"
 }
 
-# 檢查 file 是否在 overrides 清單
+# 檢查 file 是否在 overrides 清單。
+# 注意：只做「精確路徑字串相等」比對——不支援萬用字元（*）、目錄前綴或 glob。
+# overrides 的 path 必須是與 git status 輸出完全一致的相對路徑（範本已註明此限制）。
 is_in_overrides() {
   local file="$1"
   local overrides="$2"

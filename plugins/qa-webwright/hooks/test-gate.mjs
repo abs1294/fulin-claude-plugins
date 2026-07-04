@@ -117,10 +117,14 @@ const cases = [
 ];
 
 // ---- 真實語料（若可讀；cwd 指向合成 fixture 控制落地狀態）----
+// 路徑是本機特定 transcript，換機必失效——故 existsSync 不存在即 skip（見下方迴圈），
+// 只是該筆覆蓋率靜默下降、非錯誤。可用環境變數 QA_GATE_REAL_TRANSCRIPT 覆蓋成你本機的
+// 語料路徑，讓回歸測試在別台機器也能跑到這筆真實情境。
 const REAL = [
   // 4137a1c6：走了 qa-flow 但漏 catalog → 對 nocat 期望 BLOCK
   {
-    file: 'C:/Users/User/.claude/projects/C--Users-User-Claude-PlayForGood-AI-Platform/4137a1c6-39c0-48f0-a13e-e3995dab1b55.jsonl',
+    file: process.env.QA_GATE_REAL_TRANSCRIPT
+      || 'C:/Users/User/.claude/projects/C--Users-User-Claude-PlayForGood-AI-Platform/4137a1c6-39c0-48f0-a13e-e3995dab1b55.jsonl',
     cwd: nocat,
     expected: 'BLOCK',
     name: '真實語料 4137a1c6（跑qa-flow漏catalog）',

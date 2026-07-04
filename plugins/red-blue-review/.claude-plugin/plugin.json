@@ -1,6 +1,6 @@
 {
   "name": "red-blue-review",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "中文紅藍對抗：對任何命題（決策/架構/計畫/策略/程式碼/plugin配置/文件）做 Red 攻擊→Blue 防禦→收斂的對抗式壓力測試，產出強化版與 go/no-go。多面向、可接 Workflow 實際修檔。",
   "author": {
     "name": "fulin"
