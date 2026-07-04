@@ -2,7 +2,11 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
-## [0.5.0] - 2026-07-03
+## [0.5.1] - 2026-07-04
+### Fixed
+- **playwright-js runner 落地判定修復**：先前 `audit` 只掃 `test_*.py` 的 `def test_`、Stop hook（`qa-landing-gate.js`）落地判定只認 `test_*.py`——JS 專案即使正確落地 `*.spec.js` + junit xml，仍會被 audit 把 catalog 的 JS 列全判成孤兒（資料破壞）、被 hook 誤判「沒落地」而 block。現 `audit` 依 runner 同時蒐集 py 函式名與 js 測試標題（`test('…')`/`.only`/`.skip` 變體），hook 落地判定同時接受 `test_*.py` 與 `*.spec.js/ts`。pytest 原路徑不受影響。
+  - 已知限制（邊界）：JS 測試標題含引號或用模板字串時 audit 抽取會失準（少數列可能誤判孤兒），落地判定本身不受影響（認副檔名）。
+- **落點基準防呆**：寫入端（`qa-flow.sh` WORKSPACE_DIR）與稽核端（`qa-landing-gate.js` cwd）定位優先序刻意不同（hook 以 harness `input.cwd` 為首選、防 AI `export CLAUDE_PROJECT_DIR` 蓋掉稽核基準）。兩處加互指註解「改一處要改兩處」，並載明正常情況下兩端同源。
 架構強化版：紅藍對抗（architecture 面向）挖出多個結構性盲點，逐項修補。
 
 ### Added

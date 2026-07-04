@@ -1,6 +1,6 @@
 {
   "name": "delaylocal",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "把一段 prompt 排程到 5 小時 quota 重置之後，自動在本機無人值守執行，完成或中止後發 LINE 通知。綁定當前 session、durable cron。",
   "author": {
     "name": "fulin"

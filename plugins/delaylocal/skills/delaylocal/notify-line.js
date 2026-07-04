@@ -82,11 +82,17 @@ const req = https.request(
     let d = '';
     res.on('data', (c) => (d += c));
     res.on('end', () => {
+      const ok = res.statusCode === 200;
       console.log(`LINE ${res.statusCode} | 訊息則數=${total}${savedPath ? ' | 完整內容存檔:' + savedPath : ''} | ${d}`);
-      process.exit(res.statusCode === 200 ? 0 : 1);
+      // notify 是「盡力通知」而非「必須成功」：即使 API 回非 200（token 過期 / rate limit /
+      // userId 失效），也一律 exit 0，只把失敗原因印出來。否則 goal 模式的完成條件會因為
+      // 「收尾通知未回 200」而誤判任務未完成、持續重試燒 quota——任務其實早已做完。
+      if (!ok) console.error(`[notify-line] 發送未成功（HTTP ${res.statusCode}），但視為「已嘗試通知」，不阻斷收尾。`);
+      process.exit(0);
     });
   }
 );
-req.on('error', (e) => { console.error('LINE request error:', e.message); process.exit(1); });
+// 網路層錯誤同理：已嘗試發送即算完成此步，印出錯誤但 exit 0，不讓 goal 卡住重試。
+req.on('error', (e) => { console.error(`[notify-line] LINE request error: ${e.message}（視為已嘗試通知，不阻斷收尾）`); process.exit(0); });
 req.write(body);
 req.end();
