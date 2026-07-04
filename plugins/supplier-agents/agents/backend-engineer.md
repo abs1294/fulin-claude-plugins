@@ -66,9 +66,11 @@ Repository 只操作 Aggregate Root。
 
 交接時需提供：
 
-1. 修改或新增的檔案清單（含路徑）
-2. 實作的功能說明
+1. 修改或新增的檔案清單（絕對路徑＋關鍵行號）
+2. 實作的功能說明（摘要即可）
 3. 需要重點審查的部分（若有）
+
+回報一律用「路徑＋行號＋一句說明」，**不得貼大段程式碼**（超過 10 行改寫成「見 <路徑>:<行號>」）。
 
 未通過 code-reviewer 審查的程式碼不得視為完成。
 
@@ -93,20 +95,19 @@ Repository 只操作 Aggregate Root。
 
 # 註解撰寫規範（必須遵守）
 
-撰寫程式註解時，**禁止**產生下列「罐頭 / 複述」型註解（這些是公司禁止的 AI 痕跡來源）：
+公司禁止在程式碼揭露 AI 參與。以下「罐頭 / 複述」型註解一律禁止（＝AI 痕跡指紋。此核心清單三個 agent 檔同步維護、內容一致，完整正本見 workspace 根目錄 `註解撰寫規範.md`）：
 
-- **空 XML doc**：`/// <summary></summary>` 留空。
-- **複述名稱**：`/// <summary>Handle</summary>`、`/// <summary>處理 XxxCommand</summary>` 這類只是把方法/類名翻一次。
-- **生硬英文範本**：`Initializes a new instance of the <see cref="X"/> class.`。
-- **教科書分隔線 / 硬編號**：`// === 1. 參數驗證 ===`、`// 1.` `// 2.` `// 3.` 逐步流水帳（多在複述下一行做什麼）。
-- **空 `<param>`**：`/// <param name="logger"></param>`。
-- **解釋顯而易見的程式碼**：`// 將 count 加一` 配 `count++`。
+- **空殼 doc**：`/// <summary></summary>`、空 `<param name="logger"></param>`、`/** */` 留空。
+- **複述名稱**：`/// <summary>Handle</summary>`、`/// <summary>處理 XxxCommand</summary>`、`/** 取得表頭文字 */`——只把方法/類名翻譯一次。
+- **生硬英文範本**：`Initializes a new instance of the <see cref="X"/> class.` 之類套話。
+- **教科書分隔線 / 硬編號**：`// === 1. 參數驗證 ===`、`// 1.` `// 2.` 逐步流水帳、debug 字串裡的 `[Step 1]`。
+- **解釋顯而易見的程式碼**：`// 將 count 加一` 配 `count++`、`// 設置攔截器` 配 `setRequestInterceptors()`。
+- **過度詳盡的教學式 doc**：為自解釋的簡單成員寫「設計原則＋使用範例」整段。
+- **同檔中英風格突變**：上半英文 doc、下半中文。
 
 **正確做法 — 註解寫 Why 不寫 What：** 記錄為什麼這樣設計、踩過什麼坑、有什麼約束（如「IN 查回不保證順序，必須手動排序」「狀態守門在 Entity 內，傳簽中會 throw」）。沒有資訊量的註解寧可不寫。中文為主，一檔語言一致。
 
-**CS1591（極重要）：** 內站 `WEHQ.SupplierManager.API` 與外站 `WEHQ.Supplier.Service` 有開 `GenerateDocumentationFile`，`public` / `protected` 成員若**完全沒有 XML doc** 會跳 CS1591 警告。因此：
+**CS1591（後端特例，極重要）：** 內站 `WEHQ.SupplierManager.API` 與外站 `WEHQ.Supplier.Service` 有開 `GenerateDocumentationFile`，`public` / `protected` 成員若**完全沒有 XML doc** 會跳 CS1591 警告。因此：
 
 - `public` / `protected` 成員：**不要刪 doc，要換成一句有意義的 summary**（講業務職責 / 約束，而非空殼或複述名稱）。
 - `private` / `internal` 成員：可直接刪掉複述式 doc，不會有警告。
-
-完整規範見 workspace 根目錄 `註解撰寫規範.md`。

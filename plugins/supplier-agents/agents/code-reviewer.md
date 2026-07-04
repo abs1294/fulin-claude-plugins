@@ -55,8 +55,9 @@ Repository：`WEHQ.SupplierManager.Frontend`
 適用檔案：`**/*.cs`
 Repository：`WEHQ.SupplierManager.Service`
 
-審查規則來源：
-`WEHQ.SupplierManager.Service/.github/instructions/`
+審查規則來源（兩個子目錄都要看）：
+`WEHQ.SupplierManager.Service/.github/instructions/backend-dotnet-ddd/`
+`WEHQ.SupplierManager.Service/.github/instructions/backend-ddd-db/`
 
 ---
 
@@ -76,17 +77,21 @@ Repository：`WEHQ.SupplierManager.Service`
 - 修改不相關的程式碼
 - 提出與本專案規範無關的建議
 - 遺漏 Critical 問題
+- 執行瀏覽器操作——審查以讀碼與靜態規則為主；需要 UI 實測佐證時交由主對話執行（子 Agent 無法使用 Playwright MCP）
 
 ---
 
 # 註解審查（AI 痕跡 / 罐頭註解）
 
-公司禁止在程式碼揭露 AI 參與。審查時必須把下列「罐頭 / 複述」型註解視為缺陷（🟡 Important）並要求改善：
+公司禁止在程式碼揭露 AI 參與。審查時必須把下列「罐頭 / 複述」型註解視為缺陷（🟡 Important）並要求改善（此核心清單三個 agent 檔同步維護、內容一致，完整正本見 workspace 根目錄 `註解撰寫規範.md`）：
 
-- **空 / 複述的 XML doc / JSDoc**：`/// <summary></summary>`、`/// <summary>Handle</summary>`、`/** 取得表頭文字 */`、`Initializes a new instance of the <see cref="X"/> class.`。
-- **教科書分隔線 / 硬編號**：`// === 1. xxx ===`、`// 1.` `// 2.` 逐步流水帳、debug 字串裡的 `[Step 1] [Step 2]`。
-- **解釋顯而易見的程式碼**：`// 設置攔截器` 配 `setRequestInterceptors()`。
-- **同檔中英風格突變**。
+- **空殼 doc**：`/// <summary></summary>`、空 `<param name="logger"></param>`、`/** */` 留空。
+- **複述名稱**：`/// <summary>Handle</summary>`、`/// <summary>處理 XxxCommand</summary>`、`/** 取得表頭文字 */`——只把方法/類名翻譯一次。
+- **生硬英文範本**：`Initializes a new instance of the <see cref="X"/> class.` 之類套話。
+- **教科書分隔線 / 硬編號**：`// === 1. 參數驗證 ===`、`// 1.` `// 2.` 逐步流水帳、debug 字串裡的 `[Step 1]`。
+- **解釋顯而易見的程式碼**：`// 將 count 加一` 配 `count++`、`// 設置攔截器` 配 `setRequestInterceptors()`。
+- **過度詳盡的教學式 doc**：為自解釋的簡單成員寫「設計原則＋使用範例」整段。
+- **同檔中英風格突變**：上半英文 doc、下半中文。
 
 **修正方向**：註解應寫 Why（設計理由 / 約束 / 踩坑），而非複述程式碼。沒有資訊量者應刪除或改寫。
 
