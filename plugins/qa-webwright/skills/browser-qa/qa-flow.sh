@@ -28,6 +28,15 @@ SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 優先用 CLAUDE_PROJECT_DIR；否則 fallback 到 PWD。
 # 所有測試 / 報告 / catalog 一律落在此目錄下，腳本不接受絕對路徑或
 # 上鑽/下鑽，確保「不鑽子專案目錄」由腳本層鎖死。
+#
+# ★★ 落點基準必須與稽核端 hooks/qa-landing-gate.js 的 `cwd` 同源（改一處要改兩處）★★
+#   本腳本（寫入端）在此決定產物落在哪；hook（稽核端 :~78）在同一基準目錄下找產物來
+#   決定是否放行。兩端若指向不同目錄，hook 會誤擋（產物在 A、hook 看 B）或漏擋。
+#   注意優先序刻意「不完全相同」：hook 以 harness 傳入的 input.cwd 為首選（AI 的 export
+#   蓋不掉），CLAUDE_PROJECT_DIR 只當備援；本腳本則以 CLAUDE_PROJECT_DIR 為首選。
+#   正常情況（未亂 export CLAUDE_PROJECT_DIR、且 session 未 cd 離開起始目錄）下，
+#   input.cwd == CLAUDE_PROJECT_DIR == 起始目錄，三者一致 → 兩端同源、行為一致。
+#   若你要調整任一端的解析順序，務必同步檢視另一端，勿讓兩者在正常情況下發散。
 WORKSPACE_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 
 TESTS_DIR="$WORKSPACE_DIR/tests/e2e"
@@ -535,11 +544,24 @@ cmd_audit() {
     return 0
   fi
 
-  # 蒐集 tests/e2e/ 下所有實際存在的 test 函式名（含子目錄，排除 reports/__pycache__）
-  local funcs_present
-  funcs_present="$(grep -rhoE '^\s*(async\s+)?def\s+(test_[A-Za-z0-9_]+)' "$TESTS_DIR" \
+  # 蒐集 tests/e2e/ 下所有實際存在的 test「識別名」（含子目錄，排除 reports/__pycache__）。
+  # 兩種 runner 都要涵蓋，否則 JS 專案會把 catalog 的 JS 列全判成孤兒（資料破壞）：
+  #   • pytest：test_*.py 內的 `def test_xxx` → 函式名（沿用 bootstrap :218-225 的資產判定精神）。
+  #   • playwright-js：*.spec.js / *.spec.ts 內的 `test('標題')` / `test("標題")` → 測試標題
+  #     （catalog 第 2 欄對 JS 填的即是該標題；bootstrap :227-233 同樣以 *.spec.js/ts 判定 JS 資產）。
+  # 兩來源合併去重成單一「present 名單」，audit 再拿 catalog 第 2 欄逐列比對。
+  local py_funcs js_titles funcs_present
+  py_funcs="$(grep -rhoE '^\s*(async\s+)?def\s+(test_[A-Za-z0-9_]+)' "$TESTS_DIR" \
                     --include='test_*.py' 2>/dev/null \
-                    | sed -E 's/.*def[[:space:]]+//' | sort -u || true)"
+                    | sed -E 's/.*def[[:space:]]+//' || true)"
+  # JS：抓 test('…') / test("…")（含 test.only/test.skip 等變體）的第一個字串參數 = 測試標題。
+  # 已知限制（邊界，非機制破口）：標題本身含引號（test("user's x")）或用模板字串
+  #   （test(`x ${y}`)）時抓不全，該列可能被誤判孤兒。落地判定不受影響（hook 認副檔名），
+  #   僅此 catalog 索引的少數特殊標題會失準；如遇到，改用不含引號的純字串標題即可。
+  js_titles="$(grep -rhoE "test(\.[A-Za-z]+)?\(\s*['\"][^'\"]+['\"]" "$TESTS_DIR" \
+                    --include='*.spec.js' --include='*.spec.ts' 2>/dev/null \
+                    | sed -E "s/^test(\.[A-Za-z]+)?\(\s*['\"]//; s/['\"]$//" || true)"
+  funcs_present="$(printf '%s\n%s\n' "$py_funcs" "$js_titles" | grep -v '^$' | sort -u || true)"
 
   # 逐一取 catalog 資料列的「對應測試函式」欄（第 2 欄），比對是否仍存在
   local orphans=()

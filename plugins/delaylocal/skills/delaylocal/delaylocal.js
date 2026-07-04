@@ -119,7 +119,7 @@ if (!plainMode) {
   //    - 第一行（含收尾通知尾巴）≤ 安全閾值 → 照舊整段放第一行（短任務行為不變、向後相容）。
   //    - 超過 → 第一行換成固定「指針句」（指向工作清單的完成條件全文），完整 goalCondition
   //      原封不動下放到工作清單步驟 0，避免機械截斷破壞語意。
-  const GOAL_TAIL = '並且已將完整報告寫入暫存檔、執行 notify-line.js 完成收尾通知（有設 LINE 憑證→發出總結並回應 200；未設→工具自動略過並回 exit 0，此步同樣視為完成，不可因為沒收到 LINE 就重試或卡住）';
+  const GOAL_TAIL = '並且已將完整報告寫入暫存檔、執行 notify-line.js 完成收尾通知（只要已「嘗試發送」即視為此步完成：有設憑證就發出、未設則自動略過；即使 API 回非 200 或 token 失效，notify-line.js 也回 exit 0，此步同樣視為完成——絕不可因為沒收到 LINE、或發送未回 200 就重試或卡住）';
   const GOAL_MAX = 3900; // 4000 上限留邊際；含 "/goal " 前綴一起算
   const fullFirstLine = `/goal ${goalCondition}；${GOAL_TAIL}`;
   let goalLine;       // 實際放第一行的 /goal 內容

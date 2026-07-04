@@ -6,9 +6,12 @@
 #       三個 subcommand，讓主 AI agent 每階段只需一次 bash call，
 #       減少 tool-call 往返的 overhead。
 #
-# 語義保留：所有 SKILL.md 規範（敏感字掃描、local-overrides 過濾、
-#           HEREDOC commit、禁止 force push、禁止 --no-verify）
-#           都在腳本內部執行，規範不被繞過。
+# 機制閘（非自律）：ship 在 commit 前實際攔截以下項目，命中即 exit 1：
+#   - AI 署名（Co-Authored-By / Generated with Claude / 🤖 / noreply@anthropic …）
+#   - 多行 commit message（署名常見夾帶載體）
+#   - staged diff 與 prepare 被審查版本不符（TOCTOU，防審查後掉包）
+#   - 敏感字（除非顯式 --allow-sensitive）
+# 其餘規範（local-overrides 過濾、禁 force/amend/no-verify）由 subcommand 封裝與旗標缺席保證。
 #
 # 用法：
 #   flow.sh analyze <repo>
@@ -123,6 +126,54 @@ extract_path_from_status() {
 }
 
 # ------------------------------------------------------------
+# 真閘：署名偵測 + 敏感字掃描（機制級，非自律）
+# 這兩個函式讓 ship 在 commit 前實際攔截，而不只是印出提醒。
+# ------------------------------------------------------------
+
+# 署名 pattern：命中即代表 commit message 混入 AI 署名（使用者最硬的全域規則：禁止）。
+SIGNATURE_PATTERN='Co-Authored-By|Generated with \[?Claude|🤖|noreply@anthropic|Claude Code'
+# 敏感字 pattern（與 analyze 共用同一份，單一事實來源）。
+SENSITIVE_PATTERN='password|secret|api_key|bearer|token=|ConnectionString|console\.log|Console\.WriteLine|System\.out\.print|debugger;|TODO: remove|FIXME|XXX|// DEBUG|// TEMP|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'
+
+# 硬閘：commit message（type + desc）不得含任何 AI 署名，且必須單行。
+# 命中即 exit 1——這是機制級攔截，不是提醒。
+assert_no_signature() {
+  local msg="$1"
+  if printf '%s' "$msg" | grep -E -i -q "$SIGNATURE_PATTERN"; then
+    echo "ERROR: commit message 含 AI 署名，已拒絕 commit（使用者全域規則：禁止任何 Claude 署名）。" >&2
+    echo "       命中內容：" >&2
+    printf '%s\n' "$msg" | grep -E -i "$SIGNATURE_PATTERN" | sed 's/^/         /' >&2
+    exit 1
+  fi
+  # 多行 desc 是署名夾帶的常見載體；SKILL.md 規範 desc 為「1 句話」，故只允許單行。
+  if [ "$(printf '%s' "$msg" | wc -l | tr -d ' ')" != "0" ]; then
+    echo "ERROR: commit message 為多行，已拒絕（規範：desc 為單行 1 句話，多行常是署名夾帶載體）。" >&2
+    exit 1
+  fi
+}
+
+# 硬閘：staged diff 命中敏感字時，除非帶 --allow-sensitive，否則 exit 1。
+# repo_path 已 cd 進去才呼叫。allow=1 表示使用者已顯式授權保留。
+assert_no_sensitive() {
+  local allow="$1"
+  local diff_output
+  diff_output=$(git -c color.ui=false diff --staged 2>/dev/null || true)
+  local hits
+  hits=$(printf '%s\n' "$diff_output" | grep -E -i "$SENSITIVE_PATTERN" | head -20 || true)
+  if [ -n "$hits" ]; then
+    if [ "$allow" = "1" ]; then
+      echo "[git-commit] 敏感字命中，但已帶 --allow-sensitive，放行：" >&2
+      printf '%s\n' "$hits" | sed 's/^/  /' >&2
+    else
+      echo "ERROR: staged diff 命中敏感字，已拒絕 commit。確認要保留請在 ship 加 --allow-sensitive。" >&2
+      echo "       命中內容（最多 20 行）：" >&2
+      printf '%s\n' "$hits" | sed 's/^/         /' >&2
+      exit 1
+    fi
+  fi
+}
+
+# ------------------------------------------------------------
 # Command: analyze <repo>
 #   輸出 git 狀態 / local-overrides 過濾 / 敏感字掃描
 #   供 AI 一次拿完分析結果
@@ -214,14 +265,13 @@ cmd_analyze() {
     local diff_output
     diff_output=$(git -c color.ui=false diff --staged -- "${staged_paths[@]}" 2>/dev/null || true)
 
-    local pattern='password|secret|api_key|bearer|token=|ConnectionString|console\.log|Console\.WriteLine|System\.out\.print|debugger;|TODO: remove|FIXME|XXX|// DEBUG|// TEMP|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'
     local hits
-    hits=$(printf '%s\n' "$diff_output" | grep -E -i "$pattern" | head -20 || true)
+    hits=$(printf '%s\n' "$diff_output" | grep -E -i "$SENSITIVE_PATTERN" | head -20 || true)
 
     if [ -z "$hits" ]; then
       echo "CLEAN"
     else
-      echo "HITS:"
+      echo "HITS (ship 會實際攔截，除非帶 --allow-sensitive):"
       printf '%s\n' "$hits"
     fi
   fi
@@ -258,6 +308,13 @@ cmd_prepare() {
   local lines
   lines=$(wc -l < "$diff_file" | tr -d ' ')
   echo "Staged diff saved: $diff_file ($lines lines)"
+
+  # TOCTOU 防護：記錄「被審查的這份 staged diff」的 hash。
+  # ship 會重算當下 staged diff 的 hash 並比對，不符即拒——確保 commit 的內容
+  # 就是三軌審查看過的那份，中間若 index 被改動（AI 再 add、多 repo 交錯）會被擋下。
+  local hash_file="$TMP_DIR/staged-$repo.sha"
+  git -c color.ui=false diff --staged | git hash-object --stdin > "$hash_file"
+  echo "Staged diff hash saved: $hash_file ($(cat "$hash_file"))"
 }
 
 # ------------------------------------------------------------
@@ -266,11 +323,22 @@ cmd_prepare() {
 # ------------------------------------------------------------
 
 cmd_ship() {
+  # 解析旗標：--allow-sensitive（顯式授權保留敏感字）。其餘為位置參數。
+  local allow_sensitive=0
+  local positional=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --allow-sensitive) allow_sensitive=1; shift ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+  set -- "${positional[@]:-}"
+
   local repo="${1:-}"
   local type="${2:-}"
   local desc="${3:-}"
   if [ -z "$repo" ] || [ -z "$type" ] || [ -z "$desc" ]; then
-    echo "Usage: flow.sh ship <repo> <type> <description>" >&2
+    echo "Usage: flow.sh ship <repo> <type> <description> [--allow-sensitive]" >&2
     exit 1
   fi
   assert_valid_repo "$repo"
@@ -280,8 +348,31 @@ cmd_ship() {
   repo_path="$(resolve_repo_path "$repo")"
   cd "$repo_path"
 
+  # === 真閘 1：署名 + 單行檢查（機制級，命中即 exit 1）===
+  assert_no_signature "$type: $desc"
+
+  # === 真閘 2：TOCTOU — 比對當下 staged diff 與 prepare 時被審查的那份 ===
+  local hash_file="$TMP_DIR/staged-$repo.sha"
+  if [ -f "$hash_file" ]; then
+    local expected current
+    expected="$(cat "$hash_file")"
+    current="$(git -c color.ui=false diff --staged | git hash-object --stdin)"
+    if [ "$expected" != "$current" ]; then
+      echo "ERROR: staged diff 與 prepare 時被審查的版本不符，已拒絕 commit。" >&2
+      echo "       審查版 hash：$expected" >&2
+      echo "       當前版 hash：$current" >&2
+      echo "       請重跑 prepare + 三軌審查，確保 commit 的就是被審查的內容。" >&2
+      exit 1
+    fi
+  else
+    echo "WARNING: 找不到 prepare 產生的 diff hash（$hash_file），跳過 TOCTOU 校驗。建議先跑 prepare。" >&2
+  fi
+
+  # === 真閘 3：敏感字掃描（命中即 exit 1，除非 --allow-sensitive）===
+  assert_no_sensitive "$allow_sensitive"
+
   echo "=== Commit ==="
-  # 注意：HEREDOC 內禁止任何 AI 署名（SKILL.md 規範）
+  # HEREDOC 內禁止任何 AI 署名——已由 assert_no_signature 機制級攔截（非僅註解）。
   git commit -m "$(cat <<EOF
 $type: $desc
 EOF
@@ -291,6 +382,9 @@ EOF
   echo "=== Push ==="
   git push
   echo ""
+
+  # commit+push 成功後清掉本次的 diff hash，避免下次沿用舊 hash 誤判。
+  rm -f "$hash_file" "$TMP_DIR/staged-$repo.diff"
 
   echo "=== Verify ==="
   git -c color.ui=false status
@@ -311,9 +405,10 @@ case "${1:-}" in
 Usage: flow.sh <command> [args]
 
 Commands:
-  analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描
-  prepare <repo> <files...>         git add + 輸出 staged diff 到 .claude/.git-commit-tmp/
-  ship    <repo> <type> <desc>      git commit (HEREDOC) + push + 結果驗證
+  analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描（僅提示）
+  prepare <repo> <files...>         git add + 輸出 staged diff + 記錄 diff hash 到 .claude/.git-commit-tmp/
+  ship    <repo> <type> <desc> [--allow-sensitive]
+                                    真閘(署名/單行/diff-hash/敏感字) → git commit (HEREDOC) → push → 驗證
 
 repo 參數：
   工作目錄底下的 git 子目錄名（多 repo workspace），或 "." 代表工作目錄本身就是 git repo。
@@ -328,8 +423,10 @@ Examples:
   flow.sh ship    WEHQ.SupplierManager.Frontend Modify "修正 XXX"
 
 Notes:
-  - 禁止 --no-verify、禁止 --amend、禁止 force push（由 SKILL.md 規範覆蓋）
-  - Commit message HEREDOC 內禁止任何 AI 署名
+  - 禁止 --no-verify、禁止 --amend、禁止 force push（旗標層不提供）
+  - Commit message 禁止任何 AI 署名——ship 會機制級攔截（assert_no_signature），非僅提醒
+  - staged diff 命中敏感字時 ship 會擋下，除非顯式 --allow-sensitive
+  - ship 會比對 prepare 記錄的 diff hash，內容被改動過即拒絕（防審查後掉包）
 USAGE
     ;;
   *)

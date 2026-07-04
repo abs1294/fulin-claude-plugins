@@ -75,6 +75,14 @@ function main(raw) {
     return allow(); // stdin 不是合法 JSON → 放行
   }
 
+  // ★★ 落點基準必須與寫入端 skills/browser-qa/qa-flow.sh 的 WORKSPACE_DIR 同源（改一處要改兩處）★★
+  //   qa-flow.sh 把產物寫進 WORKSPACE_DIR/tests/e2e/；此處 hook 在 cwd/tests/e2e/ 找產物判是否落地。
+  //   兩端指向不同目錄 → 誤擋（產物在 A、hook 看 B）或漏擋。
+  //   優先序刻意以 harness 傳入的 input.cwd 為首選：它是 session 真實 cwd，AI 自己 export
+  //   CLAUDE_PROJECT_DIR 蓋不掉（見本 repo memory「CLAUDE_PROJECT_DIR 不一定內建、會被 AI export
+  //   覆蓋鑽子目錄」）；CLAUDE_PROJECT_DIR / cwd() 僅當 input.cwd 缺席時的備援。
+  //   正常情況（未亂 export、session 未 cd 離開起始目錄）下三者一致，與 qa-flow.sh 同源。
+  //   若調整此解析順序，務必同步檢視 qa-flow.sh :~31，勿讓兩端在正常情況下發散。
   const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const tp = input.transcript_path;
   const sid = (input.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
@@ -119,7 +127,7 @@ function main(raw) {
   if (!triggeredQa) {
     // (B) 沒觸發 qa-webwright → 只警告（計入共用計數）
     return warn(
-      '偵測到這輪用了瀏覽器工具但 tests/e2e/ 下沒有落地產物（test_*.py / reports/*.xml / catalog.md）。' +
+      '偵測到這輪用了瀏覽器工具但 tests/e2e/ 下沒有落地產物（test_*.py 或 *.spec.js/ts / reports/*.xml / catalog.md）。' +
         '若這是功能測試，建議走 qa-webwright 的 qa-flow.sh 把結果沉澱成可重跑 pytest；若只是瀏覽網頁可忽略。' +
         designNudge
     );
@@ -128,7 +136,7 @@ function main(raw) {
   // (A) 觸發 qa-webwright + 用瀏覽器 + 無落地 → 硬擋（計入共用計數）
   return block(
     '你觸發了 qa-webwright 做瀏覽器測試，但沒有把結果落地成可重跑產物——' +
-      'tests/e2e/ 下缺 test_*.py / reports/*.xml / catalog.md 其中之一。\n' +
+      'tests/e2e/ 下缺 test_*.py（或 *.spec.js/ts）/ reports/*.xml / catalog.md 其中之一。\n' +
       '請照 SKILL.md 的落地流程走完（產物層為機械必做，設計層品質為建議）：\n' +
       '  1) TaskCreate 建清單 2) qa-flow.sh bootstrap 3) 列 CP 4) 探索\n' +
       '  5) 把 CP 沉澱成 tests/e2e/test_<feature>.py 的 assert\n' +
@@ -301,7 +309,11 @@ function hasLandingArtifacts(cwd) {
   } catch (_) {
     return null; // 讀目錄失敗 → 放行
   }
-  if (!files.some((f) => /^test_.*\.py$/.test(f))) return false;
+  // 兩種 runner 都算落地（否則 JS 專案正確落地仍被誤擋）：
+  //   • pytest：test_*.py（對齊 qa-flow.sh run 的 def test_ 落地驗證）；
+  //   • playwright-js：*.spec.js / *.spec.ts（對齊 qa-flow.sh scaffold 的 <feature>.spec.js 落點）。
+  // 報告仍統一為 reports/*.xml —— pytest 出 junitxml、playwright 用 --reporter=junit 也是 .xml，共用即可。
+  if (!files.some((f) => /^test_.*\.py$/.test(f) || /\.spec\.(js|ts)$/.test(f))) return false;
 
   const reportsDir = path.join(e2e, 'reports');
   const repState = fileState(reportsDir);
