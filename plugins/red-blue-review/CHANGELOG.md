@@ -2,7 +2,12 @@
 
 本檔記錄 red-blue-review 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
-## [0.4.3] - 2026-06-30
+## [0.4.4] - 2026-07-04
+### Changed
+- **對話內模式的保證等級誠實化**：先前用「externalize 到 harness、繞不過、由資料判定、比照 git-commit BLOCK」等措辭，暗示對話內收斂追蹤有硬保證；但對話內模式的 TaskList 開關與 `is_real`/`corrected_severity` 全由同一模型自填自判，無外部攔截點——實為「自律強化版」。現明確標註：真機械閘只在 Workflow 路徑（loop-runner.md 的 JS filter）；對話內是自我檢查，高風險命題應優先走 Workflow。並提醒模型對「自己把 finding 降級湊 0 新」保持警覺。
+
+### Fixed
+- **去重閘3 誤殺不再靜默**：某 root_concern 首輪被判假/LOW、次輪其實為真且 ≥MEDIUM 時會被去重吞掉。現強制留痕——這類被吞的疑似真弱點必須記進報告「⚠️ 去重吞掉的疑似真弱點」清單（不計入迴圈但使用者看得到），第五步產出必帶此清單（無則明寫「無」）。
 ### Added
 - loop-runner.md prompt cache 優化（零對抗損失省 token）：紅/藍 prompt 改為「穩定前綴（角色+固定指示+GROUND_TRUTH）在前、變動內容（round/seen/finding）在後」，讓同類 agent 跨輪/跨 target 共用 GROUND_TRUTH 前綴有機會走 cache-read（約 0.1×）
 - 補完整「prompt cache 優化」說明段：含最小快取門檻（依模型而定、以官方文件為準）、TTL（5min/1h）、並行 stagger timing、4 道誠實邊界（agent() 不暴露 cache_control/usage、可快取前綴真正起點在 tools+system 腳本控制不到、紅藍各自一條 cache 線、跨執行 args.groundTruth 也須逐 byte 同）

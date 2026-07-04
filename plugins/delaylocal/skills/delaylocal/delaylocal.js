@@ -24,6 +24,36 @@ function fail(msg) {
   process.exit(1);
 }
 
+// --- 暫存檔清理（防止 os.tmpdir() 無限累積、殘留任務報告等敏感內容）---
+// 生命週期分析：
+//   • delaylocal-report-*.txt：本檔在「排程時」決定路徑，但實際「寫入 + 由 notify-line.js 讀取」
+//     發生在 cron fire（quota 重置後、通常數小時內）。所以「當下這次執行」不可刪任何 report 檔
+//     ——可能是等待中排程的目標檔。安全窗：cron fire 至遲在建立後幾小時，故超過 CLEANUP_MAX_AGE_DAYS
+//     的檔一定是已完成 / 已放棄的殘留，刪之安全。
+//   • delaylocal-line-*.txt：notify-line.js 在「內容過長」時寫的完整內容備份，供使用者事後翻閱。
+//     同樣以年齡為準清理（幾天後使用者若沒看即視為過期）。
+// 策略：每次執行 delaylocal.js 時，掃 tmpdir 下「本工具自己前綴」的檔，刪掉 mtime 超過 N 天者。
+//   — 只碰 delaylocal-report-* / delaylocal-line- * 這兩個專屬前綴，絕不動別的檔 / 別的目錄。
+//   — 以 mtime 年齡為閾值，不刪近期（可能仍在等 fire 或剛寫入）的檔。
+//   — 清理失敗一律吞掉（best-effort），不影響主流程。
+const CLEANUP_MAX_AGE_DAYS = 7;
+function sweepStaleTempFiles() {
+  try {
+    const dir = os.tmpdir();
+    const cutoff = Date.now() - CLEANUP_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+    for (const name of fs.readdirSync(dir)) {
+      // 只清本工具自己產生的兩類暫存檔，前綴嚴格比對，避免誤刪同目錄他人檔案。
+      if (!/^delaylocal-(report|line)-/.test(name)) continue;
+      const fp = path.join(dir, name);
+      try {
+        const st = fs.statSync(fp);
+        if (st.isFile() && st.mtimeMs < cutoff) fs.unlinkSync(fp);
+      } catch (_) { /* 單檔失敗（權限/競態）忽略，繼續掃下一個 */ }
+    }
+  } catch (_) { /* 整體失敗（讀不到 tmpdir 等）忽略，不阻斷主流程 */ }
+}
+sweepStaleTempFiles();
+
 // --- 1. 當前 session id ---
 const envId = process.env.CLAUDE_CODE_SESSION_ID || '';
 if (!envId) fail('CLAUDE_CODE_SESSION_ID 環境變數不存在，無法鎖定當前 session');
@@ -76,6 +106,24 @@ if (base < now) base = now;
 const target = base + bufferSeconds;
 const d = new Date(target * 1000);
 const cron = `${d.getMinutes()} ${d.getHours()} ${d.getDate()} ${d.getMonth() + 1} *`;
+
+// --- 跨月/跨年防呆 ---
+// CronCreate 只吃 5 欄 cron（分 時 日 月 週），無年份欄、亦不支援絕對時間戳（已查官方
+// scheduled-tasks 文件確認）。recurring:false 的一次性任務會在「cron 下一個符合的時間點」fire。
+// 問題：若 target 落在與「現在」不同的月/年（例：現在 8/1、目標算到隔年或另一月的 7/31），
+// `31 7 * *` 這種週期式表達的「下一個符合時間」可能被引擎解讀成「明年的 7/31」→ 排到錯年份。
+// 修法（在 5 欄限制下能做的最強防呆）：偵測 target 與 now 不同月/年時，於輸出附 cron_warning，
+// 讓 skill / 使用者知道這個一次性 cron 是週期式表達、fire 時點依引擎「下一個符合」語意，
+// 若跨到非預期年份需人工確認。純加提示，不改 cron 值（避免破壞短任務的既有行為）。
+const nowD = new Date(now * 1000);
+let cronWarning = null;
+if (d.getFullYear() !== nowD.getFullYear() || d.getMonth() !== nowD.getMonth()) {
+  cronWarning =
+    `目標時間 ${d.toLocaleString()} 與現在 ${nowD.toLocaleString()} 不在同一個月/年。` +
+    `CronCreate 只支援 5 欄週期式 cron（無年份、無絕對時間），此 cron「${cron}」的一次性 fire ` +
+    `依排程引擎「下一個符合日期」語意解讀，跨月/跨年時可能 fire 到非預期年份。` +
+    `排程後請核對回報的觸發時間是否為你要的那一天；若不對，請縮短 bufferSeconds 或改用較近的排程時點。`;
+}
 
 // notify-line.js 與本檔同目錄；用 __dirname 取絕對路徑，plugin 裝在哪都能找到。
 const notifyPath = path.join(__dirname, 'notify-line.js');
@@ -194,6 +242,7 @@ console.log(JSON.stringify({
   resets_at_local: new Date(base * 1000).toLocaleString(),
   target_local: d.toLocaleString(),
   cron,
+  cron_warning: cronWarning,
   fire_in_minutes: Math.round((target - now) / 60),
   buffer_seconds: bufferSeconds,
   mode: plainMode ? 'plain' : 'goal',

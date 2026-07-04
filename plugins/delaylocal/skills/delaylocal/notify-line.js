@@ -33,6 +33,27 @@ if (!LINE_TOKEN || !LINE_USER_ID) {
 const PER_MSG = 4800;   // 單則保守上限（LINE 5000，留 buffer）
 const MAX_MSGS = 5;     // 單次 push 最多 5 則
 
+// --- 清理過期的截斷備份檔 ---
+// savedPath（delaylocal-line-*.txt）是「內容過長」時寫的完整內容備份，供使用者事後翻閱；
+// 從不主動刪 → 長期累積且含任務報告。策略：每次執行時掃 tmpdir 下本工具自己前綴的檔，
+// 刪 mtime 超過 N 天者。只碰 delaylocal-line-* 專屬前綴（本檔只產生這一類），近期檔（使用者
+// 可能還沒看）保留，失敗一律吞掉。與 delaylocal.js 的 sweep 同閾值、互補（各清各自寫的檔）。
+const CLEANUP_MAX_AGE_DAYS = 7;
+(function sweepStaleLineBackups() {
+  try {
+    const dir = os.tmpdir();
+    const cutoff = Date.now() - CLEANUP_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+    for (const name of fs.readdirSync(dir)) {
+      if (!/^delaylocal-line-/.test(name)) continue; // 只清本檔自己產生的截斷備份
+      const fp = path.join(dir, name);
+      try {
+        const st = fs.statSync(fp);
+        if (st.isFile() && st.mtimeMs < cutoff) fs.unlinkSync(fp);
+      } catch (_) { /* 單檔失敗忽略 */ }
+    }
+  } catch (_) { /* 整體失敗忽略，不阻斷通知 */ }
+})();
+
 // --- 取訊息：優先參數，否則 stdin ---
 let msg = process.argv.slice(2).join(' ').trim();
 if (!msg) {
