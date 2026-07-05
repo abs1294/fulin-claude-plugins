@@ -11,9 +11,26 @@
 
 ---
 
+## 資料從哪來：6 支 tracker hooks（裝 plugin 即自動註冊）
+
+status line 上的 agents / skills / 近期編輯 / 動作歷史 / 頂部摘要 / compact 次數，不是 statusline.js 自己變出來的——它們由 6 支 tracker hooks 在對應事件時寫入 temp 狀態檔，statusline.js 只負責讀：
+
+| hook | 事件 | 餵哪一列 |
+|------|------|----------|
+| `message-tracker.js` | UserPromptSubmit、Stop | history（動作歷史） |
+| `summary-updater.js` | UserPromptSubmit | summary（頂部摘要） |
+| `file-tracker.js` | PostToolUse (Write\|Edit) | edited（近期編輯檔案） |
+| `skill-tracker.js` | PostToolUse (Skill) | skills（觸發中的 skill） |
+| `subagent-tracker.js` | SubagentStart/Stop | agents（執行中的 subagent） |
+| `compact-monitor.js` | PreCompact | compact 計數 |
+
+這些 hooks 由本 plugin 的 `hooks/hooks.json` **在安裝啟用時自動註冊**（v0.2.0 起），不需手動設定。沒有它們，上述各列會永遠空白（其餘列如 dir/repo/model/cost/quota 不受影響）。
+
+> ⚠️ **重複註冊警告**：若你以前曾手動把這些 tracker 複製到 `~/.claude/hooks/` 並註冊在自己的 `settings.json`，啟用本 plugin 後同一事件會**跑兩份**（history 列會出現重複條目）。請二選一：移除 settings.json 裡的手動註冊，或不啟用本 plugin 的 hook（開發機直接把 settings.json 指向 repo 內路徑時，就不要同時啟用本 plugin）。
+
 ## ⚠️ 安裝需手動一步（plugin 無法自動接上 status line）
 
-Claude Code **不支援由 plugin 自動設定主 status line**（plugin.json 沒有這個欄位，此為官方限制）。所以裝完 plugin 後，你必須**自己在 `settings.json` 加一段** `statusLine`，指到本 plugin 帶的腳本。
+Claude Code **不支援由 plugin 自動設定主 status line**（plugin.json 沒有這個欄位，此為官方限制）。所以裝完 plugin 後，還需要在 `settings.json` 加一段 `statusLine` 指到本 plugin 帶的腳本——但**這步不必自己動手：直接跟 Claude 說「幫我設定 statusline」即可**，它會觸發 `/cc-statusline-setup` 替你寫入（先問你要寫哪個 scope、同意才寫）。想手動加的話照下方步驟。
 
 好消息：可以用 `${CLAUDE_PLUGIN_ROOT}` 變數，它永遠指到「當前啟用版本」的 plugin 目錄，**升版也不會壞**，不用填含版本號的絕對路徑。
 

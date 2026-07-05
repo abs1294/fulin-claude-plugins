@@ -33,6 +33,7 @@ description: 幫使用者把 cc-statusline 這條 status line 接上他的 setti
    - 若**已有** `statusLine` 欄位：把現有的 `command` 秀給使用者看，**問他要不要覆蓋**成 cc-statusline 的。他不要就停手。
    - 若**沒有** `statusLine`：告訴他將新增這段，**問他同意嗎**。
    - 檔案不存在：告訴他將建立 `settings.json` 並寫入，**問他同意嗎**。
+   - **順檢 hook 重複註冊**：本 plugin 的 6 支 tracker hooks（message/summary/file/skill/subagent 追蹤與 compact 計數）由 plugin 的 `hooks/hooks.json` 自動註冊，setup 不需處理。但要檢查使用者的 `settings.json` `hooks` 段裡有沒有指向 `~/.claude/hooks/` 下同名 tracker（`file-tracker.js`、`message-tracker.js`、`summary-updater.js`、`skill-tracker.js`、`subagent-tracker.js`、`compact-monitor.js`）的**手動註冊**——有的話同一事件會跑兩份（history 列出現重複條目）。把找到的條目列給使用者看，**問他要不要一併移除**；他不要就保留並提醒後果。
 
 4. **得到明確同意後才寫**：把 `statusLine` 段合併進該 `settings.json`（保留其他既有設定，只加/改 `statusLine` 這一個 key，不要整檔覆寫）。寫入用格式化 JSON。
 
