@@ -7,3 +7,6 @@ node_modules/
 
 # 本機 per-project plugin 啟用設定（個人狀態，勿進 git）
 .claude/
+
+# 編輯備份不進 git
+*.bak
