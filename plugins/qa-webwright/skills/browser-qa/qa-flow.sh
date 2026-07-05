@@ -274,6 +274,14 @@ cmd_bootstrap() {
   echo ""
   echo "catalog: $CATALOG_FILE"
 
+  # 專案 QA 知識入口（分層路由中心；約定位置 tests/Project_Detail/PROJECT.md，見 SKILL.md 前置）
+  if [ -f "$WORKSPACE_DIR/tests/Project_Detail/PROJECT.md" ]; then
+    echo "PROJECT-KNOWLEDGE: found $WORKSPACE_DIR/tests/Project_Detail/PROJECT.md"
+    echo "NEXT: 先完整讀該檔（專案 QA 知識路由中心），再依其路由按需讀分層檔。"
+  else
+    echo "PROJECT-KNOWLEDGE: missing（無 tests/Project_Detail/PROJECT.md；若該專案有專屬 QA 知識，建議建立此路由入口）"
+  fi
+
   # 每次 QA 起點自動核對 catalog 漂移（只警告不改；要修跑 audit --fix）。
   # audit 的 exit 3 = 「有孤兒列」（預期內、不算 bootstrap 失敗）；其餘非零 = audit 本身出錯（該浮現）。
   # 故只吞 exit 3，別的錯誤讓它在 set -e 下照常中止（不靜默隱藏真失敗）。
@@ -541,6 +549,15 @@ cmd_audit() {
 
   if [ ! -f "$CATALOG_FILE" ]; then
     echo "[qa-flow audit] 無 catalog（$CATALOG_FILE），略過。"
+    return 0
+  fi
+
+  # 格式守門：audit 的解析假設（第 2 欄＝測試函式）只對本 plugin 的 catalog 骨架成立。
+  # 專案自有格式的 catalog（如多區塊矩陣、欄位順序不同）解析必然全錯，會把整份誤判成孤兒
+  # （實測 320 列全報孤兒的事故）。識別標記沿用 migrate_legacy_catalog 的同一特徵。
+  if ! grep -q 'qa-flow\.sh catalog 回填' "$CATALOG_FILE" 2>/dev/null; then
+    echo "[qa-flow audit] catalog 非本 plugin 骨架格式（缺「qa-flow.sh catalog 回填」標記），跳過孤兒稽核。"
+    echo "[qa-flow audit] ⚠️ 勿對此檔跑 audit --fix（會用錯誤解析改寫使用者自有格式）。"
     return 0
   fi
 
