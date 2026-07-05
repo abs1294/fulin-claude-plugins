@@ -1,6 +1,6 @@
 {
   "name": "supplier-agents",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Winbond 供應商平台 DDD 開發 agent 組：backend-architect/engineer、frontend-engineer、code-reviewer、qa-engineer。",
   "author": {
     "name": "fulin"
