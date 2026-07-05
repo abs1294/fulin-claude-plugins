@@ -2,6 +2,10 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.4] - 2026-07-05
+### Fixed
+- browser-qa 新增專案 QA 知識層約定（tests/Project_Detail/PROJECT.md 路由入口＋bootstrap PROJECT-KNOWLEDGE 訊號）；audit 加格式守門，非本 plugin 骨架的 catalog 跳過孤兒稽核防誤判改寫
+
 ## [0.5.3] - 2026-07-05
 ### Fixed
 - browser-qa 補長流程 context 經濟規範：snapshot 節制、批次沉澱、進度落檔、compact 徵兆分段（SKILL.md Explore + pitfalls I 段）
