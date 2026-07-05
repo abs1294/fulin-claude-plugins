@@ -140,6 +140,9 @@ description: >
 2. **Explore（路徑未知時）**：摸出穩定 selector 與真實值。**先 grep 原始碼確認後端真實欄位名 / 端點名，
    再盲試 DOM**——多數路徑落差是「程式碼真實值 ≠ 記憶」的問題，不是視覺導航問題；a11y `ref` 比 CSS 文字選擇器精準。
    （僅「真實外部站、無 a11y、長程未知」才改用 webwright 自主探索，見前置。）
+   **Context 經濟（必守，違反會把 session 撐到反覆 compact）**：全頁 snapshot 只在「導航後首次 / 結構變化後」拍，
+   驗單一元素或讀值用 `browser_evaluate` / 既有 a11y `ref` 定向讀取；大批 TC 走**批次沉澱**——探索一批 CP（建議 ≤5）
+   → 立即落成 assert（步驟 3）→ 再探索下一批，**禁止全部 TC 在 MCP 逐步跑完才開始沉澱**。細節與實測教訓見 `knowledge/pitfalls.md` I 段。
 
 3. **沉澱成 pytest runner**：把每個 critical point 落成 `tests/e2e/test_<feature>.py` 裡**（至少）一行 `assert`**（雙向／多面卡控可對多行）——
    斷言打在結構化證據上（業務碼 `code=="0000"` 非只看 HTTP 200、DOM/a11y 讀回 unique token、DB/重查 readback）。
@@ -200,6 +203,6 @@ BUG-{編號}｜嚴重度：Critical/Major/Minor｜對應 TC-{編號}
 - `qa-flow.sh` — 流程輔助腳本（bootstrap / scaffold / run / catalog）；把落地動作鎖進腳本，落點鎖 `CLAUDE_PROJECT_DIR`
 - `methodology/test-plan-design.md` — 覆蓋矩陣、可追溯、必測 checklist、TC 格式、測試資料原則
 - `methodology/critical-points.md` — TC 預期 → critical point → assert 的對映與證據規範
-- `knowledge/pitfalls.md` — 踩過的雷與領域知識（後端驗證、日期時區、壞值、Windows 啟動、元件 portal、state 同步、外部站 TLS/HTTP2 指紋封鎖；G 段 webwright 操作雷僅在啟用 webwright 備用探索時適用）；**持續 append**（新增分類時同步更新此枚舉）
+- `knowledge/pitfalls.md` — 踩過的雷與領域知識（後端驗證、日期時區、壞值、Windows 啟動、元件 portal、state 同步、外部站 TLS/HTTP2 指紋封鎖、長流程 context 經濟；G 段 webwright 操作雷僅在啟用 webwright 備用探索時適用）；**持續 append**（新增分類時同步更新此枚舉）
 - 沉澱 runner 的官方文件（pytest-playwright / Playwright Test）— 瀏覽器啟動、locator、斷言、fixture
 - （選用，僅外部站備用探索）webwright skill 的 `reference/` — 瀏覽器啟動、aria snapshot、log 格式

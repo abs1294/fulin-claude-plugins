@@ -2,6 +2,10 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.3] - 2026-07-05
+### Fixed
+- browser-qa 補長流程 context 經濟規範：snapshot 節制、批次沉澱、進度落檔、compact 徵兆分段（SKILL.md Explore + pitfalls I 段）
+
 ## [0.5.2] - 2026-07-04
 ### Fixed
 - **audit --fix 對 JS 措辭精確化**：孤兒列備註原寫「函式已不存在」，對 playwright-js（用測試標題非函式）語意不符。改為中性的「對應測試已不存在」，同時涵蓋 py（函式）與 js（測試標題）。純文字，不動判定邏輯。
