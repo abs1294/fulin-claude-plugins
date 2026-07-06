@@ -4,8 +4,8 @@ description: >
   瀏覽器功能測試方法論。當要對某功能 / 頁面 / 流程做功能測試時觸發——含「開發完成需驗證新互動 / 新畫面 / 新流程」，
   也含使用者說「執行 / 跑 / 做 一些測試案例」、「幫我測這個功能」、「跑 e2e / 端對端測試」、「回歸測試」、
   「測試落地 / 沉澱測試 / 存測試案例」等意圖（這些都指「設計並執行功能測試、沉澱成可重跑 runner」，不是單純跑一支既有腳本）。
-  兩階段：QA Agent 設計測試計畫（含 critical points），主 Agent 探索後把每個 critical point
-  沉澱成可重跑 pytest 的一行 assert，以結構化證據（API 碼 / DOM 讀回 / 來源 readback）
+  兩階段：QA Agent 設計測試計畫（含 critical points），主 Agent 先預擬 codify 草稿（grep 原始碼填真實值）、
+  首跑收失敗清單、只對失敗 CP 定向探索補值，以結構化證據（API 碼 / DOM 讀回 / 來源 readback）
   自我驗證並輸出測試報告。
 ---
 
@@ -34,7 +34,7 @@ description: >
 | Phase | 執行者 | 職責 |
 |-------|--------|------|
 | Phase 1 | QA Agent（本 plugin 的 `qa-engineer` agent） | 設計測試計畫、定義 critical points 與輸出格式 |
-| Phase 2 | 主 Agent | 探索 → 把每個 CP 沉澱成 runner 一行 assert → 結構化證據自驗 → 輸出測試報告 |
+| Phase 2 | 主 Agent | 預擬草稿（每 CP 一行 assert）→ 首跑收失敗清單 → 定向探索補值 → 結構化證據自驗 → 輸出測試報告 |
 
 本 skill 分層維護：
 - **方法論** `methodology/` — 怎麼做測試，穩定、不綁技術棧。
@@ -84,7 +84,7 @@ description: >
 
 ## Phase 2：執行測試（主 Agent）
 
-主 Agent 嚴格按測試計畫執行，不得自行增減步驟。流程是「探索路徑 → 沉澱成可重跑 runner」。
+主 Agent 嚴格按測試計畫執行，不得自行增減步驟。流程是「**預擬 codify 草稿 → 首跑收失敗清單 → 只對失敗 CP 定向探索補值**」（draft-first：探索是補洞手段，不是起手式）。
 
 ### 強制步驟追蹤（MANDATORY）
 
@@ -101,18 +101,19 @@ description: >
 #1 Phase2-0 qa-flow.sh bootstrap（盤點資產 + 鎖落點 + 確保 catalog）    [in_progress]
 #2 Phase2-0b 僅 greenfield 空目錄：問使用者「是否同意裝 pytest 環境」（不問要不要沉澱）[pending]
 #3 Phase2-1 列 critical points 清單                                    [pending]
-#4 Phase2-2 探索路徑（grep 原始碼真實值 → a11y ref）                    [pending]
-#5 Phase2-3 沉澱：每個 CP 落成 pytest 一行 assert                       [pending]
-#6 Phase2-4 qa-flow.sh run（防假綠燈 grep + pytest --junitxml 出報告）  [pending]
+#4 Phase2-2 預擬 codify 草稿：每 CP 先落 pytest assert（grep 原始碼填真實值，拿不到標 TODO-EXPLORE）[pending]
+#5 Phase2-3 qa-flow.sh run（防假綠燈 grep + pytest --junitxml；首跑收失敗清單，修完重跑）[pending]
+#6 Phase2-4 定向探索補值：僅對失敗 / TODO-EXPLORE 的 CP 做 MCP 探索修草稿（≤5 CP 一批，修完回 #5）[pending]
 #7 Phase2-5 self-verify（逐 CP 對結構化證據 + FAIL 前排除紀律）          [pending]
 #8 Phase2-6 輸出報告 + qa-flow.sh catalog 回填每個情境覆蓋狀態          [pending]
 ```
 
 **執行規則（比照 git-commit skill）：**
 - 每個步驟**開始前**用 `TaskUpdate` 標 `in_progress`，**完成的當下那一輪**就標 `completed`，不累積補。
-- 任一 CP self-verify 失敗（#7）→ 修測試 → 把 #5 / #6 / #7 reset 回 `pending` 重跑，**不新增 task**。
+- 任一 CP self-verify 失敗（#7）→ 修測試（需要真實值就走 #6 探索）→ 把 #5 / #6 / #7 reset 回 `pending` 重跑，**不新增 task**。
 - 全部 `completed` 後於同一輪清空清單（逐一 `TaskUpdate status=deleted`）。
-- **#6、#8 是硬性落地閘**：沒跑 `qa-flow.sh run` 出報告、沒跑 `qa-flow.sh catalog` 回填，**不得宣稱測試完成**。
+- **#5、#8 是硬性落地閘**：沒跑 `qa-flow.sh run` 出報告、沒跑 `qa-flow.sh catalog` 回填，**不得宣稱測試完成**。
+- **假綠燈紀律（draft-first 的代價）**：#4 預擬的 assert 是推測——**禁止為了轉綠而弱化斷言、寫恆真條件、或把 FAIL 的 CP 改成 skip**；失敗 CP 唯一的修法是 #6 探索取真實值。「修到綠就交」不是完成，self-verify（#7）照樣逐 CP 對證據。
 
 ### ⚡ qa-flow.sh 腳本（必用）
 
@@ -127,7 +128,7 @@ description: >
 |------|------|---------|
 | `qa-flow.sh bootstrap` | 盤點既有測試資產（pytest/JS/空）、確保 catalog.md、發安裝/runner 決策訊號（不擅自安裝）| Phase2-0 |
 | `qa-flow.sh scaffold <feature> <pytest\|playwright-js>` | 建 `tests/e2e/` 骨架 + conftest；安裝指令只印出讓使用者跑 | Phase2-0b（使用者同意後）|
-| `qa-flow.sh run <feature> <test-file> [date]` | grep 驗證 test 函式存在（防假綠燈）→ `pytest --junitxml` 出報告（date 省略=今天；自動偵測 pytest 執行方式）| Phase2-4 |
+| `qa-flow.sh run <feature> <test-file> [date]` | grep 驗證 test 函式存在（防假綠燈）→ `pytest --junitxml` 出報告（date 省略=今天；自動偵測 pytest 執行方式）| Phase2-3（首跑收失敗清單＋每輪修完重跑）|
 | `qa-flow.sh catalog <情境> <函式> <狀態> <模組>` | 機械回填 tests/e2e/catalog.md 總表（以函式為主鍵 update/append）| Phase2-6 |
 
 **bootstrap 決策訊號怎麼接：**
@@ -143,18 +144,24 @@ description: >
    獨立驗證（讀取型一個即可；寫入/送出型需業務碼＋readback；守門/卡控型斷言狀態或錯誤碼——證據強度依 CP 類型，
    見 `methodology/critical-points.md` 證據規範）——不依賴「我記得剛剛點了什麼」。
 
-2. **Explore（路徑未知時）**：摸出穩定 selector 與真實值。**先 grep 原始碼確認後端真實欄位名 / 端點名，
-   再盲試 DOM**——多數路徑落差是「程式碼真實值 ≠ 記憶」的問題，不是視覺導航問題；a11y `ref` 比 CSS 文字選擇器精準。
-   （僅「真實外部站、無 a11y、長程未知」才改用 webwright 自主探索，見前置。）
+2. **預擬 codify 草稿（draft-first，不先開瀏覽器）**：直接把每個 critical point 落成 `tests/e2e/test_<feature>.py` 裡
+   **（至少）一行 `assert`**（雙向／多面卡控可對多行）——斷言打在結構化證據上（業務碼 `code=="0000"` 非只看 HTTP 200、
+   DOM/a11y 讀回 unique token、DB/重查 readback）。寫入型操作必「寫 unique token → 讀回那一筆比對」，不可只驗送出成功。
+   selector / 端點 / 欄位名 / 業務碼**先 grep 原始碼取真實值**——多數路徑落差是「程式碼真實值 ≠ 記憶」的問題，
+   grep 就能填掉大半；grep 拿不到的（動態 DOM、跨頁流程、登入態相依）在該處標 `TODO-EXPLORE` 註記，別瞎猜。
+   斷言規範見 `methodology/critical-points.md`。
+
+3. **Execute 首跑收失敗清單（用 `qa-flow.sh run`）**：跑 `qa-flow.sh run <feature> <test-file>`（date 可省略=今天）——
+   它先 grep 驗證 test 函式確實寫入（防假綠燈），再跑 `pytest --junitxml` 出報告到 `tests/e2e/reports/<feature>-<date>.xml`
+   （assert 失敗 → 非 0 exit）。**首跑的目的不是全綠**：是把「預擬猜錯 / TODO-EXPLORE」的 CP 變成明確的失敗清單，
+   探索預算只花在這份清單上。最終綠燈那次的報告路徑回填報告模板「報告產物」欄；截圖至多留檔備查，不作判定依據。
+
+4. **定向探索補值（只探失敗的）**：僅對失敗與 `TODO-EXPLORE` 的 CP 開 MCP 探索——**先 grep 原始碼再上 DOM**；
+   a11y `ref` 比 CSS 文字選擇器精準。（僅「真實外部站、無 a11y、長程未知」才改用 webwright 自主探索，見前置。）
    **Context 經濟（必守，違反會把 session 撐到反覆 compact）**：全頁 snapshot 只在「導航後首次 / 結構變化後」拍，
-   驗單一元素或讀值用 `browser_evaluate` / 既有 a11y `ref` 定向讀取；大批 TC 走**批次沉澱**——探索一批 CP（建議 ≤5）
-   → 立即落成 assert（步驟 3）→ 再探索下一批，**禁止全部 TC 在 MCP 逐步跑完才開始沉澱**。細節與實測教訓見 `knowledge/pitfalls.md` I 段。
-
-3. **沉澱成 pytest runner**：把每個 critical point 落成 `tests/e2e/test_<feature>.py` 裡**（至少）一行 `assert`**（雙向／多面卡控可對多行）——
-   斷言打在結構化證據上（業務碼 `code=="0000"` 非只看 HTTP 200、DOM/a11y 讀回 unique token、DB/重查 readback）。
-   寫入型操作必「寫 unique token → 讀回那一筆比對」，不可只驗送出成功。斷言規範見 `methodology/critical-points.md`。
-
-4. **Execute（用 `qa-flow.sh run`）**：跑 `qa-flow.sh run <feature> <test-file>`（date 可省略=今天）——它先 grep 驗證 test 函式確實寫入（防假綠燈），再跑 `pytest --junitxml` 出報告到 `tests/e2e/reports/<feature>-<date>.xml`（assert 失敗 → 非 0 exit）。報告路徑回填報告模板「報告產物」欄；截圖至多留檔備查，不作判定依據。
+   驗單一元素或讀值用 `browser_evaluate` / 既有 a11y `ref` 定向讀取；**批次修值**——探索一批 CP（建議 ≤5）
+   → 立即回填草稿 → 回步驟 3 重跑，**禁止把全部失敗 CP 在 MCP 逐步跑完才開始回填**。細節與實測教訓見 `knowledge/pitfalls.md` I 段。
+   **修草稿只准用探索到的真實值——禁止為了轉綠而弱化斷言或改 skip**（見上方假綠燈紀律）。全綠後進步驟 5。
 
 5. **Self-verify**：逐項走 CP 清單，確認**每個 assert 的結構化證據明確相符**才打勾。
    任一 CP 失敗 → 診斷具體原因 → 修測試 → 重跑重驗。

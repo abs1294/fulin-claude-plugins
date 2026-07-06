@@ -2,6 +2,10 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.6.0] - 2026-07-06
+### Changed
+- Phase 2 改 draft-first：預擬 codify 草稿（grep 原始碼填真實值、拿不到標 TODO-EXPLORE）→ qa-flow.sh run 首跑收失敗清單 → 只對失敗 CP 定向探索補值（≤5 一批）；新增假綠燈紀律（禁弱化斷言/恆真/改 skip 轉綠）；任務清單 #4/#5/#6 重排，探索從起手式降為補洞手段
+
 ## [0.5.6] - 2026-07-06
 ### Fixed
 - 修 hooks 載入失敗：plugin.json 移除多餘的 hooks 欄位——hooks/hooks.json 本就自動載入，manifest 再引用會觸發 Duplicate hooks file 錯誤導致整組 hook 失效
