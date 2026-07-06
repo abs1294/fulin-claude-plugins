@@ -17,4 +17,4 @@ $ARGUMENTS
   大型功能做一次紅隊漏測複查補漏。**補出來的 TC 直接併進輸出表，矩陣與複查過程不另立段落。**
 - 每條 TC 的預期結果寫成「可由其結構化證據獨立判定」的形式，標好對應的 critical point 與需求。
 
-**只輸出那張 TC 表**——不要自己開瀏覽器或執行測試，那是 `/qa-webwright:qa-run` 階段主 Agent 的工作。
+**只輸出那張 TC 表**——本命令不開瀏覽器、不執行測試，那是 `/qa-webwright:qa-run` 階段的工作（由 qa-engineer agent 執行）。

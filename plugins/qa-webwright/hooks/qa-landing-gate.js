@@ -137,11 +137,12 @@ function main(raw) {
   return block(
     '你觸發了 qa-webwright 做瀏覽器測試，但沒有把結果落地成可重跑產物——' +
       'tests/e2e/ 下缺 test_*.py（或 *.spec.js/ts）/ reports/*.xml / catalog.md 其中之一。\n' +
-      '請照 SKILL.md 的落地流程走完（產物層為機械必做，設計層品質為建議）：\n' +
-      '  1) TaskCreate 建清單 2) qa-flow.sh bootstrap 3) 列 CP 4) 探索\n' +
-      '  5) 把 CP 沉澱成 tests/e2e/test_<feature>.py 的 assert\n' +
-      '  6) qa-flow.sh run <feature> <test-file>（出 junitxml）\n' +
-      '  7) self-verify 8) qa-flow.sh catalog 回填每個情境到 tests/e2e/catalog.md\n' +
+      '請照 SKILL.md 的落地流程走完（產物層為機械必做，設計層品質為建議；瀏覽器測試應由 qa-engineer agent 執行）：\n' +
+      '  1) TaskCreate 建清單 2) qa-flow.sh bootstrap 3) 列 CP\n' +
+      '  4) 預擬 codify 草稿：每 CP 落成 tests/e2e/test_<feature>.py 的 assert（grep 原始碼填真實值）\n' +
+      '  5) qa-flow.sh run <feature> <test-file>（出 junitxml，首跑收失敗清單）\n' +
+      '  6) 只對失敗 CP 定向探索補值後重跑 7) self-verify\n' +
+      '  8) qa-flow.sh catalog 回填每個情境到 tests/e2e/catalog.md\n' +
       '不要用通用 Playwright MCP 手動測完就口頭回報——那不是可重跑產物。' +
       '（若使用者明確說「這次不要落地」，回覆說明後再結束即可，本 hook 最多擋 2 次。）' +
       designNudge

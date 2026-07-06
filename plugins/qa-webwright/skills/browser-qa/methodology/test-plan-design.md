@@ -16,7 +16,7 @@ QA Agent 在 Phase 1 產出測試計畫的通用規範。**不假設任何特定
     它鎖 `CLAUDE_PROJECT_DIR`、發 `ASSET: none` + `ACTION-REQUIRED: ask-user-install` 訊號、確保 catalog.md 存在。
   - **落地目錄與命名（由腳本鎖死）**：測試放在**你起 session 的那個資料夾**底下的 `tests/e2e/`（檔名 `test_<feature>.py`），
     **禁止自行鑽進子專案目錄**——這條規範由 `qa-flow.sh` 用 `CLAUDE_PROJECT_DIR` 機械執行，AI 想鑽也鑽不進去
-    （歷史踩雷：主 Agent 看到子目錄有既有 JS 專案就鑽進去出 JS）。
+    （歷史踩雷：執行者看到子目錄有既有 JS 專案就鑽進去出 JS）。
     > **要讓 e2e 進某個專案 repo 版控，正確作法是「在那個專案資料夾裡起 session」**，而非從上層資料夾鑽進去——e2e 的測試棧/語言不一定等於該專案語言，落點由「session 起在哪」決定、不由 skill 寫死絕對結構。
   - **runner 固定優先 pytest**：使用者同意後 `qa-flow.sh scaffold <feature> pytest` 建骨架，安裝指令
     （`pip install pytest-playwright && playwright install chromium`）由腳本印出、**使用者自行執行（腳本不代裝）**；

@@ -2,6 +2,10 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.7.0] - 2026-07-06
+### Changed
+- 架構改「QA agent 一手包」：qa-engineer 設計+自跑 Playwright MCP+codify+報告+回填 catalog，主 Agent 只派工收結論不親跑 MCP、實作 agent 不自驗（qa-engineer.md/qa-run.md/qa-plan.md/SKILL.md/test-plan-design.md 五檔改寫）；allow-list 前提（sub-agent 無法回應 permission prompt，mcp__playwright__* 須在 permissions.allow）寫進 README+SKILL+agent；hooks 相容性 review：landing-gate 已掃 subagent transcripts 相容、early-nudge 純 cwd 相容、project-knowledge-gate 補掃 subagent transcripts（原只掃單檔會誤 deny）、landing-gate block 訊息同步 draft-first 步序，test-gate.mjs 回歸 14/14 過；qa-flow.sh 依 §4 不動
+
 ## [0.6.0] - 2026-07-06
 ### Changed
 - Phase 2 改 draft-first：預擬 codify 草稿（grep 原始碼填真實值、拿不到標 TODO-EXPLORE）→ qa-flow.sh run 首跑收失敗清單 → 只對失敗 CP 定向探索補值（≤5 一批）；新增假綠燈紀律（禁弱化斷言/恆真/改 skip 轉綠）；任務清單 #4/#5/#6 重排，探索從起手式降為補洞手段

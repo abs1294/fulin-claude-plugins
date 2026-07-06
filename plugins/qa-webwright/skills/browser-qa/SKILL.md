@@ -4,9 +4,9 @@ description: >
   瀏覽器功能測試方法論。當要對某功能 / 頁面 / 流程做功能測試時觸發——含「開發完成需驗證新互動 / 新畫面 / 新流程」，
   也含使用者說「執行 / 跑 / 做 一些測試案例」、「幫我測這個功能」、「跑 e2e / 端對端測試」、「回歸測試」、
   「測試落地 / 沉澱測試 / 存測試案例」等意圖（這些都指「設計並執行功能測試、沉澱成可重跑 runner」，不是單純跑一支既有腳本）。
-  兩階段：QA Agent 設計測試計畫（含 critical points），主 Agent 先預擬 codify 草稿（grep 原始碼填真實值）、
-  首跑收失敗清單、只對失敗 CP 定向探索補值，以結構化證據（API 碼 / DOM 讀回 / 來源 readback）
-  自我驗證並輸出測試報告。
+  兩階段皆由 QA agent（qa-engineer）一手包：設計測試計畫（含 critical points）→ 預擬 codify 草稿
+  （grep 原始碼填真實值）→ 首跑收失敗清單 → 只對失敗 CP 定向探索補值，以結構化證據
+  （API 碼 / DOM 讀回 / 來源 readback）自我驗證並輸出測試報告；主 Agent 只派工收結論、不親跑 MCP。
 ---
 
 # Browser QA Skill
@@ -25,7 +25,7 @@ description: >
 > 可追溯 / CP→assert / 必測 checklist / 測試資料原則）。沉澱載體**固定優先 pytest-playwright**——
 > **唯二例外**：(a) 目標專案「既有」測試資產就是別的 runner（如既有 Playwright JS 專案）→ 沿用既有、對齊風格；
 > (b) greenfield 且**使用者明確不同意**裝 Python 環境 → 退而用 Playwright JS。除此之外一律 pytest，
-> **不得因「載體中立」自行選 JS**（歷史踩雷：主 Agent 看到子目錄有 JS 專案就鑽進去出 JS）。
+> **不得因「載體中立」自行選 JS**（歷史踩雷：執行者看到子目錄有 JS 專案就鑽進去出 JS）。
 > 判定一律靠**結構化證據**（API 業務碼、DOM/a11y 讀回、來源 readback），**不靠讀截圖**。截圖至多留檔備查。
 >
 > **落點鎖死**：測試 / 報告 / catalog 一律落在**你起 session 的那個資料夾**底下（`tests/e2e/`），
@@ -34,7 +34,13 @@ description: >
 | Phase | 執行者 | 職責 |
 |-------|--------|------|
 | Phase 1 | QA Agent（本 plugin 的 `qa-engineer` agent） | 設計測試計畫、定義 critical points 與輸出格式 |
-| Phase 2 | 主 Agent | 預擬草稿（每 CP 一行 assert）→ 首跑收失敗清單 → 定向探索補值 → 結構化證據自驗 → 輸出測試報告 |
+| Phase 2 | QA Agent（同一個 `qa-engineer` agent 接續執行） | 預擬草稿（每 CP 一行 assert）→ 首跑收失敗清單 → 定向探索補值 → 結構化證據自驗 → 輸出測試報告 + 回填 catalog |
+
+> 主 Agent（指揮官）不出現在任何 Phase：它只判斷何時該 QA、派 qa-engineer agent（附環境啟動方式 /
+> 已知 DOM 坑 / allow-list 前提）、收報告結論，**不親跑 MCP**。實作 agent 不做瀏覽器自驗。
+> **allow-list 前提**：qa-engineer 是 sub-agent、無法互動回應 permission prompt——要用的
+> `mcp__playwright__browser_*` 工具必須已在專案 `settings.json` / `settings.local.json` 的
+> `permissions.allow`，否則會被 deny（跨專案使用本 plugin 時先確認這件事）。
 
 本 skill 分層維護：
 - **方法論** `methodology/` — 怎麼做測試，穩定、不綁技術棧。
@@ -82,9 +88,9 @@ description: >
 
 ---
 
-## Phase 2：執行測試（主 Agent）
+## Phase 2：執行測試（QA Agent）
 
-主 Agent 嚴格按測試計畫執行，不得自行增減步驟。流程是「**預擬 codify 草稿 → 首跑收失敗清單 → 只對失敗 CP 定向探索補值**」（draft-first：探索是補洞手段，不是起手式）。
+QA Agent（qa-engineer，接續 Phase 1 由自己執行）嚴格按測試計畫執行，不得自行增減步驟。流程是「**預擬 codify 草稿 → 首跑收失敗清單 → 只對失敗 CP 定向探索補值**」（draft-first：探索是補洞手段，不是起手式）。
 
 ### 強制步驟追蹤（MANDATORY）
 
@@ -117,7 +123,7 @@ description: >
 
 ### ⚡ qa-flow.sh 腳本（必用）
 
-本 skill 提供 `qa-flow.sh`（位於本 skill 目錄）把「一定要落地的動作」包成 subcommand，落點一律鎖 `CLAUDE_PROJECT_DIR`（session 起始目錄），主 Agent **不要自己 mkdir / 自己組 pytest 指令 / 自己判斷落點**。
+本 skill 提供 `qa-flow.sh`（位於本 skill 目錄）把「一定要落地的動作」包成 subcommand，落點一律鎖 `CLAUDE_PROJECT_DIR`（session 起始目錄），執行者（QA Agent）**不要自己 mkdir / 自己組 pytest 指令 / 自己判斷落點**。
 
 > **落點鐵則**：`CLAUDE_PROJECT_DIR` Claude Code 不一定內建，故**每次呼叫 qa-flow.sh 都要顯式帶 `CLAUDE_PROJECT_DIR=<Primary working directory>`（原封不動、即環境說明裡的 session 起始目錄）**。
 > **嚴禁自己 export 成子目錄**（即使判斷子目錄才是被測 repo 也不行）。你知道 Primary working directory 是哪，就用那個。
