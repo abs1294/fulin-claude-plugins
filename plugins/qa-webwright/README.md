@@ -29,15 +29,16 @@ qa-webwright/
 │   └─ plugin.json              plugin manifest
 │       （marketplace.json 在 monorepo root 的 .claude-plugin/，統一註冊各 plugin，不在本 plugin 內）
 ├─ agents/
-│   └─ qa-engineer.md           QA Agent：設計測試計畫（含 critical points）
+│   └─ qa-engineer.md           QA Agent：一手包設計測試計畫＋自行執行瀏覽器測試＋codify＋出報告回填 catalog
 ├─ hooks/
-│   ├─ hooks.json               Stop + PostToolUse hook 宣告（裝 plugin 即生效）
+│   ├─ hooks.json               Stop + PreToolUse + PostToolUse hook 宣告（裝 plugin 即生效）
 │   ├─ qa-landing-gate.js       Stop 落地強制閘：觸發 QA 後用了瀏覽器卻沒落地產物就擋（他律，含委派偵測）
 │   ├─ qa-early-nudge.js        PostToolUse 早期提醒：首次用瀏覽器且未 scaffold 時提示先走落地流程（remind-once）
+│   ├─ project-knowledge-gate.js PreToolUse 知識層閘：專案有 tests/Project_Detail/PROJECT.md 而未讀就 deny 瀏覽器呼叫（掃 subagent transcripts、上限 2 次、fail-open）
 │   └─ test-gate.mjs            hook 回歸測試（改 hook 後 `node hooks/test-gate.mjs` 驗證誤擋/漏擋）
 ├─ commands/
 │   ├─ qa-plan.md               /qa-webwright:qa-plan — 設計測試計畫
-│   └─ qa-run.md                /qa-webwright:qa-run — 探索 → 沉澱成 runner assert + 驗證
+│   └─ qa-run.md                /qa-webwright:qa-run — 派 qa-engineer agent：預擬草稿 → 首跑 → 定向探索補值 → 驗證
 └─ skills/
     └─ browser-qa/
         ├─ SKILL.md             方法論：兩階段流程、critical-point 對映、報告格式
@@ -65,6 +66,10 @@ qa-webwright/
 - **Node.js** — Stop hook（落地強制）靠 node 執行；缺 node 則 harness 會靜默跳過 hook，他律無聲消失。
 - **Git Bash / bash** — `qa-flow.sh` 是 bash 腳本。
 - **Python + pytest-playwright** — 沉澱載體。**Windows 常無 `pytest` 可執行命令**，`qa-flow.sh run` 會自動改用 `python -m pytest`（不需自建 wrapper）。
+- **MCP 工具 allow-list（新架構必備）** — 瀏覽器測試由 **qa-engineer sub-agent** 執行，sub-agent 在背景跑、
+  **無法互動回應 permission prompt**：要用的 `mcp__playwright__browser_*` 工具必須已列在專案
+  `settings.json` / `settings.local.json` 的 `permissions.allow`，否則會被直接 deny（這是權限機制，不是架構限制）。
+  跨專案第一次用本 plugin 前，先把會用到的 playwright 工具加進 allow-list。
 
 **必備 runner：** 可重跑的測試 runner（**固定優先 pytest-playwright**）。greenfield 專案由 `qa-flow.sh scaffold` 建骨架、
 印出安裝指令讓你執行（腳本不代裝）；僅當你明確不同意裝 Python，才退而用 Playwright JS。既有專案已有別的 runner 則沿用。

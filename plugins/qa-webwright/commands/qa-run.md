@@ -3,7 +3,7 @@ description: 依測試計畫執行瀏覽器測試，把每個 critical point 沉
 argument-hint: <測試計畫，或要測的功能（會先請 qa-engineer 設計）>
 ---
 
-請以**主 Agent** 身分，依測試計畫執行瀏覽器測試並沉澱成可重跑的回歸資產。
+本命令由 **qa-engineer agent** 執行：主 Agent 收到本命令時，把下方輸入與步驟**整包派給 `qa-engineer` agent**（附環境啟動方式 / 已知 DOM 坑 / allow-list 前提），由它依測試計畫執行瀏覽器測試並沉澱成可重跑的回歸資產；主 Agent 只收報告結論，**不親跑 MCP**。
 
 輸入：
 

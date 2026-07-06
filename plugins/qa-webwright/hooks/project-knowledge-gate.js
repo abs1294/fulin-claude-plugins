@@ -85,16 +85,35 @@ function main(raw) {
 
   // 掃 transcript 找「讀過 PROJECT.md」的證據：Read / Bash 工具呼叫行同時提及
   // Project_Detail 與 PROJECT.md。逐行掃、找到即停；任何失敗 → 放行（FAIL-OPEN）。
+  // ★ 掃描範圍 = transcript_path 本檔 + 同名資料夾下 subagents/*.jsonl（對齊 qa-landing-gate）：
+  //   新流程瀏覽器測試由 qa-engineer sub-agent 執行，它讀 PROJECT.md 的證據可能記在
+  //   subagent transcript；hook 拿到的 transcript_path 也可能是主檔——兩種都要看到。
   let read = false;
   try {
     const tp = input.transcript_path;
     if (!tp || !fs.existsSync(tp)) return allow();
-    const content = fs.readFileSync(tp, 'utf8');
-    for (const line of content.split('\n')) {
-      if (!line.includes('PROJECT.md') || !line.includes('Project_Detail')) continue;
-      if (line.includes('"name":"Read"') || line.includes('"name":"Bash"')) {
-        read = true;
-        break;
+    const sources = [tp];
+    try {
+      const subDir = path.join(path.dirname(tp), path.basename(tp).replace(/\.jsonl$/i, ''), 'subagents');
+      if (fs.existsSync(subDir)) {
+        for (const e of fs.readdirSync(subDir)) {
+          if (/\.jsonl$/i.test(e)) sources.push(path.join(subDir, e));
+        }
+      }
+    } catch (_) {} // subagent 來源推導失敗 → 只掃主檔
+    outer: for (const src of sources) {
+      let content;
+      try {
+        content = fs.readFileSync(src, 'utf8');
+      } catch (_) {
+        continue; // 這個來源讀不到，試下一個
+      }
+      for (const line of content.split('\n')) {
+        if (!line.includes('PROJECT.md') || !line.includes('Project_Detail')) continue;
+        if (line.includes('"name":"Read"') || line.includes('"name":"Bash"')) {
+          read = true;
+          break outer;
+        }
       }
     }
   } catch (_) {
