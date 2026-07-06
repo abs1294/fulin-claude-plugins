@@ -4,6 +4,15 @@
 // 就掛、形不成有效 tool call，PostToolUse/Stop hook 都觸發不到 → 唯一能穩定生效的是「事前提醒」。
 // 輸出：UserPromptSubmit hook 印到 stdout 的文字會被當 additionalContext 注入（對使用者不可見）。
 
+// kill-switch：旗標檔存在即整組 self-heal 靜默（使用者說「終止 self-heal」時由模型建立；「恢復」= 刪檔）。
+// 檢查失敗照常提醒（fail-open）——提醒多印無害，寧可多不可斷。
+try {
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  if (fs.existsSync(path.join(os.homedir(), '.claude', 'self-heal.off'))) process.exit(0);
+} catch (e) {}
+
 const REMINDER = [
   '<system-reminder>',
   '寫工具呼叫時，務必確認每個 <invoke> 與 <parameter> 標籤都正確收尾',
