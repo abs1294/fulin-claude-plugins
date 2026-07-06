@@ -61,6 +61,8 @@ description: >
   入口是**路由中心、分層負責**：只放專案鐵則與路由表，細節（環境啟動、UI 操作規範、領域驗證知識…）
   在同目錄分層檔，照路由**按需讀**、不整包灌。入口存在就**必先讀**（`bootstrap` 會回報 `PROJECT-KNOWLEDGE` 訊號）；
   不存在而專案有專屬 QA 知識時，建議依此分層建立，別把專案知識寫進泛用 skill。
+  「必先讀」由機械層執行：`hooks/project-knowledge-gate.js`（PreToolUse）在入口存在而未讀時 deny 瀏覽器呼叫
+  （最多兩次、FAIL-OPEN），`qa-early-nudge` 同步軟提醒——先軟後硬。
 - 目標專案要能在本機跑起來（啟動方式見該專案的 CLAUDE.md / README；Windows 背景啟動雷見 `knowledge/pitfalls.md` D 段）。
 
 ---

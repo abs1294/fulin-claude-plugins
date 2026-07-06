@@ -2,6 +2,10 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.5] - 2026-07-06
+### Fixed
+- PROJECT.md 必讀改機械強制：新增 project-knowledge-gate（PreToolUse deny 最多兩次、FAIL-OPEN）＋ qa-early-nudge 併知識層軟提醒，先軟後硬
+
 ## [0.5.4] - 2026-07-05
 ### Fixed
 - browser-qa 新增專案 QA 知識層約定（tests/Project_Detail/PROJECT.md 路由入口＋bootstrap PROJECT-KNOWLEDGE 訊號）；audit 加格式守門，非本 plugin 骨架的 catalog 跳過孤兒稽核防誤判改寫
