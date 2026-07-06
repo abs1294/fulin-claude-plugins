@@ -1,7 +1,7 @@
 {
   "name": "qa-webwright",
-  "version": "0.5.6",
-  "description": "瀏覽器功能測試方法論 plugin：QA Agent 設計測試計畫（覆蓋矩陣 / 必測 checklist / 測試資料與日期四點驗證），主 Agent 探索後把每個 critical point 沉澱成可重跑 pytest 的一行 assert，以結構化證據（API 業務碼 / DOM 讀回 / readback）自我驗證。qa-flow.sh 把落地動作（建骨架 / 出 junitxml 報告 / 防假綠燈 / 回填 catalog 情境索引）鎖進腳本、落點鎖 session 目錄。內建 Stop hook 強制：觸發 QA 後用了瀏覽器工具卻沒落地產物會被擋下。webwright 為選用的外部站備用探索器。",
+  "version": "0.6.0",
+  "description": "瀏覽器功能測試方法論 plugin：QA Agent 設計測試計畫（覆蓋矩陣 / 必測 checklist / 測試資料與日期四點驗證），主 Agent 先預擬 codify 草稿（grep 原始碼填真實值）、首跑收失敗清單、只對失敗 CP 定向探索補值，以結構化證據（API 業務碼 / DOM 讀回 / readback）自我驗證。qa-flow.sh 把落地動作（建骨架 / 出 junitxml 報告 / 防假綠燈 / 回填 catalog 情境索引）鎖進腳本、落點鎖 session 目錄。內建 Stop hook 強制：觸發 QA 後用了瀏覽器工具卻沒落地產物會被擋下。webwright 為選用的外部站備用探索器。",
   "author": {
     "name": "fulin"
   },
