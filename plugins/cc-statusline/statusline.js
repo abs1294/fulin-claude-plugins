@@ -695,7 +695,12 @@ process.stdin.on('end', () => {
     const allFullRows = preSplitRows.length + fullLeftRows.length;
     const fullDividers = Math.max(0, preSplitRows.length - 1) + (fullLeftRows.length > 1 ? fullLeftRows.length - 1 : 0);
     let sectionDividers = 0;
-    if (hasSummary && (preSplitRows.length || hasSplitBlock || fullLeftRows.length)) sectionDividers++;
+    // When the split block directly follows the summary (no pre-split rows), the
+    // draw path emits ONE physical divider (the split-open ├─┬─┤) serving both as
+    // section boundary and split opening. Counting a section divider here too
+    // overcounts totalSlots by 1, so the NEWEST message slot is never rendered.
+    if (hasSummary && (preSplitRows.length || hasSplitBlock || fullLeftRows.length)
+        && !(hasSplitBlock && preSplitRows.length === 0)) sectionDividers++;
     if (preSplitRows.length && fullLeftRows.length && !hasSplitBlock) sectionDividers++;
     const totalSlots = sumLines.length + splitContentRows + allFullRows + splitOpenDivider + splitCloseDivider + fullDividers + sectionDividers;
 
