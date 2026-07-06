@@ -63,7 +63,7 @@ function main(raw) {
   } catch (_) {
     return silent();
   }
-  // 已 scaffold（tests/e2e 存在）→ 已在落地流程上，不需提醒。
+  // 已 scaffold（tests/e2e 存在）→ 已在落地流程上，不需 scaffold 提醒。
   // 存在性檢查失敗 → 保守靜默（不硬提醒）。
   let e2eExists;
   try {
@@ -71,18 +71,36 @@ function main(raw) {
   } catch (_) {
     return silent();
   }
-  if (e2eExists) return silent();
 
-  // 到這裡：用了瀏覽器工具（matcher 已限定）+ 尚未 scaffold + 本 session 未提醒過 → 提醒一次。
+  // 專案知識層提醒：tests/Project_Detail/PROJECT.md 存在就提一句必先讀
+  //（硬擋在 project-knowledge-gate.js；這裡是軟提醒，兩者組成先軟後硬）。
+  let pkExists = false;
+  try {
+    pkExists = fs.existsSync(path.join(cwd, 'tests', 'Project_Detail', 'PROJECT.md'));
+  } catch (_) {}
+
+  const parts = [];
+  if (!e2eExists) {
+    parts.push(
+      '偵測到瀏覽器操作，但這個工作目錄尚未建立 tests/e2e/ 落地骨架。' +
+        '若你正在做功能 QA（要留下可重跑的測試），請先走 qa-webwright 的 qa-flow.sh bootstrap → scaffold，' +
+        '把每個檢查點沉澱成 pytest；否則測完無法沉澱、下次得整套重來。若只是瀏覽網頁 / 查資料可忽略。'
+    );
+  }
+  if (pkExists) {
+    parts.push(
+      '本專案有 QA 知識層 tests/Project_Detail/PROJECT.md（路由中心）——瀏覽器測試前必先完整讀它，再依路由按需讀分層檔。'
+    );
+  }
+  if (parts.length === 0) return silent();
+
+  // 到這裡：用了瀏覽器工具（matcher 已限定）+ 有話要提醒 + 本 session 未提醒過 → 提醒一次。
   // 先寫 marker（寫失敗也照樣提醒這一次，只是可能下次再提醒——無害）。
   try {
     fs.writeFileSync(marker, '1');
   } catch (_) {}
 
-  const msg =
-    '偵測到瀏覽器操作，但這個工作目錄尚未建立 tests/e2e/ 落地骨架。' +
-    '若你正在做功能 QA（要留下可重跑的測試），請先走 qa-webwright 的 qa-flow.sh bootstrap → scaffold，' +
-    '把每個檢查點沉澱成 pytest；否則測完無法沉澱、下次得整套重來。若只是瀏覽網頁 / 查資料可忽略。';
+  const msg = parts.join('\n');
 
   try {
     process.stdout.write(
