@@ -2,6 +2,10 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.6] - 2026-07-06
+### Fixed
+- 修 hooks 載入失敗：plugin.json 移除多餘的 hooks 欄位——hooks/hooks.json 本就自動載入，manifest 再引用會觸發 Duplicate hooks file 錯誤導致整組 hook 失效
+
 ## [0.5.5] - 2026-07-06
 ### Fixed
 - PROJECT.md 必讀改機械強制：新增 project-knowledge-gate（PreToolUse deny 最多兩次、FAIL-OPEN）＋ qa-early-nudge 併知識層軟提醒，先軟後硬
