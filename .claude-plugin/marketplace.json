@@ -49,6 +49,11 @@
       "name": "cc-statusline",
       "source": "./plugins/cc-statusline",
       "description": "資訊密度高的 Claude Code status line：目錄/repo/model/成本/用量/quota/agents/skills/memory+MCP/近期編輯/歷史多欄顯示，含寬字對齊與跨進程狀態快取；可用 /cc-statusline-rows 逐列開關。需手動在 settings.json 指向腳本（見 plugin README）。"
+    },
+    {
+      "name": "msproject-wbs",
+      "source": "./plugins/msproject-wbs",
+      "description": "產生 MS Project 可直接匯入的 WBS 時程 XML（MSPDI）：模組/工項兩層、工期、資源指派、依賴鏈展開甘特圖；MSPDI 七雷（元素順序靜默丟棄等）已編碼進生成腳本＋順序自檢"
     }
   ]
 }

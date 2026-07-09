@@ -1,0 +1,11 @@
+{
+  "name": "msproject-wbs",
+  "version": "0.1.0",
+  "description": "（adopt 自動建立，請用 /plugin-manager:update 補描述）skill msproject-wbs",
+  "author": {
+    "name": "fulin"
+  },
+  "keywords": [
+    "msproject-wbs"
+  ]
+}
