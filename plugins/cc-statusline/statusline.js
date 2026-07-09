@@ -358,21 +358,22 @@ process.stdin.on('end', () => {
       let jobs = {};
       try { jobs = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-crons-${sid}.json`), 'utf8')); } catch (e) {}
       const active = Object.values(jobs).filter((j) => j && (j.at == null ? j.recurring : j.at > Date.now() - 90000));
-      const timed = active.filter((j) => j.at != null).sort((a, b) => a.at - b.at);
-      const recurringN = active.length - timed.length;
-      const head = `${DIM}crons${R}${active.length > 1 ? ` ${DIM}×${active.length}${R}` : ''}`;
-      let body;
-      if (timed.length) {
-        const nx = new Date(timed[0].at);
-        const hhmm = `${String(nx.getHours()).padStart(2, '0')}:${String(nx.getMinutes()).padStart(2, '0')}`;
-        body = `  ⏰ ${YELLOW}${hhmm}${R}${timed[0].label ? ` ${DIM}${timed[0].label}${R}` : ''}`;
-      } else if (recurringN > 0) {
-        body = `  ⏰ ${DIM}循環×${recurringN}${R}`;
-      } else {
-        body = `  ${DIM}—${R}`;
+      // 無排程 → 區塊整個不顯示（不佔位）；有排程才佔欄底兩 row。
+      if (active.length) {
+        const timed = active.filter((j) => j.at != null).sort((a, b) => a.at - b.at);
+        const recurringN = active.length - timed.length;
+        const head = `${DIM}crons${R}${active.length > 1 ? ` ${DIM}×${active.length}${R}` : ''}`;
+        let body;
+        if (timed.length) {
+          const nx = new Date(timed[0].at);
+          const hhmm = `${String(nx.getHours()).padStart(2, '0')}:${String(nx.getMinutes()).padStart(2, '0')}`;
+          body = `  ⏰ ${YELLOW}${hhmm}${R}${timed[0].label ? ` ${DIM}${timed[0].label}${R}` : ''}`;
+        } else {
+          body = `  ⏰ ${DIM}循環×${recurringN}${R}`;
+        }
+        cronRows = [head, body];
       }
-      cronRows = [head, body];
-    } catch (e) { cronRows = [`${DIM}crons${R}`, `  ${DIM}—${R}`]; }
+    } catch (e) { cronRows = []; }
 
     let compactCount = 0;
     try { compactCount = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-compacts-${sid}.json`), 'utf8')).count; } catch (e) {}
