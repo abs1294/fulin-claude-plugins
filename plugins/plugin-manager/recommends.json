@@ -10,6 +10,44 @@
         "discovery",
         "tooling"
       ]
+    },
+    "codex@openai-codex": {
+      "marketplace": "openai-codex",
+      "source": "openai/codex-plugin-cc",
+      "note": "把任務委派給 Codex 做第二實作/診斷/審查；git-commit plugin 的 Codex 審查軌依賴它（未裝自動降級 C 軌）。需本機 Codex CLI",
+      "tags": [
+        "delegation",
+        "code-review",
+        "second-opinion"
+      ]
+    },
+    "code-simplifier@claude-plugins-official": {
+      "marketplace": "claude-plugins-official",
+      "source": "（Claude Code 內建官方 marketplace，無需 marketplace add）",
+      "note": "簡化/精煉最近改過的程式碼（保持行為不變、提升可讀與一致性）。Ebilling、Supplier_Code 實戰在用",
+      "tags": [
+        "refactor",
+        "code-quality"
+      ]
+    },
+    "gopls-lsp@claude-plugins-official": {
+      "marketplace": "claude-plugins-official",
+      "source": "（Claude Code 內建官方 marketplace，無需 marketplace add）",
+      "note": "Go 語言 LSP（程式碼智慧/重構）。Go 專案裝（integration-service 在用）。需本機裝 gopls",
+      "tags": [
+        "lsp",
+        "go"
+      ]
+    },
+    "csharp-lsp@claude-plugins-official": {
+      "marketplace": "claude-plugins-official",
+      "source": "（Claude Code 內建官方 marketplace，無需 marketplace add）",
+      "note": "C#/.NET 語言 LSP（程式碼智慧），gopls-lsp 的 .NET 對應版。.NET 專案（如 Winbond 供應商平台後端）裝。需本機 .NET SDK/language server",
+      "tags": [
+        "lsp",
+        "csharp",
+        "dotnet"
+      ]
     }
   }
 }
