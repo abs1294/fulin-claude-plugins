@@ -20,6 +20,12 @@
 
 安裝後 **reload / 重啟 session** 才會生效。觸發詞：`commit`、`提交`、`上版`、`推上去`、`git push`、`commit and push` 等。
 
+## 前置依賴
+
+- **git CLI** — 整套流程的本體。
+- **bash**（Windows 用 Git Bash，裝 Git for Windows 即附帶）— `flow.sh` 是 bash 腳本，主流程靠它落地。
+- **（選用）codex plugin**（`codex@openai-codex`）— 僅 Codex 審查軌需要；未裝時流程會自動降級走 C 軌（`code-reviewer` subagent），不影響 commit 本體。
+
 ## 核心流程
 
 | 階段 | 動作 |

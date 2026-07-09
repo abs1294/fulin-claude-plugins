@@ -2,6 +2,10 @@
 
 本檔記錄 plugin-manager 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.15.3] - 2026-07-09
+### Fixed
+- README 補前置依賴段（Node.js、git CLI、本機 clone monorepo 為管理對象）
+
 ## [0.15.2] - 2026-06-28
 ### Changed
 - publish skill 默許自動發布、補喚醒源

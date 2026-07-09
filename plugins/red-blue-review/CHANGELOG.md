@@ -2,6 +2,10 @@
 
 本檔記錄 red-blue-review 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.1] - 2026-07-09
+### Fixed
+- README 補前置依賴段（Node.js：quota-guard hook，缺 node 靜默失去熔斷保護）
+
 ## [0.5.0] - 2026-07-09
 ### Added
 - **Quota 節流（hook 強制）：分波派發＋撞牆熔斷**。新增 PreToolUse hook `hooks/quota-guard.js`——Workflow script 用 `parallel()`/`pipeline()` 包 `agent()` 而未經 `runWaves()` 分波（或未帶使用者同意標記 `// quota-user-approved:`）即攔下。新檔 `references/quota-throttling.md` 提供 `runWaves` 骨架：每波併發 ≤6、任一 agent 因 quota/API 終止（回 null）立即熔斷停派、resume 走 cache 逐波續跑。

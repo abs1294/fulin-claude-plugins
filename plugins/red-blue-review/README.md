@@ -18,6 +18,11 @@
 
 裝好後以觸發詞自然喚起，無需額外設定。
 
+## 前置依賴
+
+- **Node.js** — quota-guard hook（分波派發＋撞牆熔斷）是 node 腳本；**缺 node 時 harness 會靜默跳過 hook**，對抗迴圈仍可用，但失去 quota 熔斷保護。
+- 其餘為純 prompt（skill 本體），無外部依賴。
+
 ## 怎麼用
 
 ### 觸發詞

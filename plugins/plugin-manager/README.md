@@ -41,6 +41,12 @@ node "<你 clone 的 repo>/plugins/plugin-manager/scripts/init.js" <owner> <gith
 
 **為什麼要這步**：所有指令靠 `~/.claude/plugin-manager/config.json` 這個固定錨點找到你的 monorepo——所以你在任何專案、任何 session 說「adopt 某 skill」「推薦外部 plugin」，Claude 都查得到該寫去哪，不必每次給路徑。
 
+### 前置依賴
+
+- **Node.js** — 所有 scripts（init / adopt / bump-version / publish-status / publish-finalize / export-env / restore-env）都是 node 腳本，缺 node 整套管理指令不能動。
+- **git CLI** — adopt 的 move+symlink 落版控、publish 的 stage/commit/push 都靠它。
+- **本機 clone 的 monorepo** — 這是「管理端」plugin：更新/發布操作的對象是你 clone 下來的 monorepo 工作目錄（不是 plugin cache）。
+
 ## 3. 指令速查
 
 | 指令 | 何時用 | 怎麼下 |
