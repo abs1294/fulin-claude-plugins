@@ -69,6 +69,15 @@
         ]
       },
       {
+        "matcher": "CronCreate|CronDelete|ScheduleWakeup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/cron-tracker.js\""
+          }
+        ]
+      },
+      {
         "matcher": "Skill",
         "hooks": [
           {
