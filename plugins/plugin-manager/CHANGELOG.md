@@ -2,6 +2,10 @@
 
 本檔記錄 plugin-manager 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.15.4] - 2026-07-09
+### Fixed
+- recommends.json 登記 4 個外部 plugin：codex（Codex 委派/審查，git-commit Codex 軌依賴）、code-simplifier（程式碼精煉）、gopls-lsp（Go LSP）、csharp-lsp（.NET LSP 對應版）
+
 ## [0.15.3] - 2026-07-09
 ### Fixed
 - README 補前置依賴段（Node.js、git CLI、本機 clone monorepo 為管理對象）
