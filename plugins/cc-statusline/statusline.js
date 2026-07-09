@@ -11,7 +11,7 @@ process.stdin.on('end', () => {
     const i = JSON.parse(d);
 
     // Row visibility config (see /cc-statusline:rows). Missing file = everything on.
-    const rowDefaults = { summary:1, dir:1, repo:1, model:1, cost:1, usage:1, quota:1, agents:1, skills:1, memory_mcp:1, edited:1, history:1 };
+    const rowDefaults = { summary:1, dir:1, repo:1, model:1, cost:1, usage:1, quota:1, agents:1, skills:1, crons:1, memory_mcp:1, edited:1, history:1 };
     let rowCfg = { ...rowDefaults };
     let cfgEnabled = true;
     try {
@@ -349,6 +349,31 @@ process.stdin.on('end', () => {
       });
     } catch (e) {}
 
+    // Scheduled jobs — written by cron-tracker.js on PostToolUse(CronCreate|CronDelete|ScheduleWakeup).
+    // One-shot jobs whose fire time passed (>90s grace) are treated as fired and hidden
+    // (the hook can't observe the actual fire event; recurring jobs show until CronDelete).
+    // Rendered as the FIXED bottom-two rows of the third (agents/skills) column.
+    let cronRows = [];
+    try {
+      let jobs = {};
+      try { jobs = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-crons-${sid}.json`), 'utf8')); } catch (e) {}
+      const active = Object.values(jobs).filter((j) => j && (j.at == null ? j.recurring : j.at > Date.now() - 90000));
+      const timed = active.filter((j) => j.at != null).sort((a, b) => a.at - b.at);
+      const recurringN = active.length - timed.length;
+      const head = `${DIM}crons${R}${active.length > 1 ? ` ${DIM}×${active.length}${R}` : ''}`;
+      let body;
+      if (timed.length) {
+        const nx = new Date(timed[0].at);
+        const hhmm = `${String(nx.getHours()).padStart(2, '0')}:${String(nx.getMinutes()).padStart(2, '0')}`;
+        body = `  ⏰ ${YELLOW}${hhmm}${R}${timed[0].label ? ` ${DIM}${timed[0].label}${R}` : ''}`;
+      } else if (recurringN > 0) {
+        body = `  ⏰ ${DIM}循環×${recurringN}${R}`;
+      } else {
+        body = `  ${DIM}—${R}`;
+      }
+      cronRows = [head, body];
+    } catch (e) { cronRows = [`${DIM}crons${R}`, `  ${DIM}—${R}`]; }
+
     let compactCount = 0;
     try { compactCount = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-compacts-${sid}.json`), 'utf8')).count; } catch (e) {}
 
@@ -573,7 +598,11 @@ process.stdin.on('end', () => {
       r3rows.push(`${DIM}skills${R}`);
       for (const it of skillItems) r3rows.push(`  ${it}`);
     }
-    const hasR3 = r3rows.length > 0;
+    // crons block: FIXED bottom-two rows of this column（使用者指定：固定吃掉欄底兩 row）。
+    // r3fixed 不進 r3rows（那是由上往下填的流動內容）；渲染採 token 兩段式——先排版、
+    // 最後才知道欄高，再把「最後 |r3fixed| 個 cell」換成 cron 內容（見 r3cell 與收尾替換）。
+    const r3fixed = showRow('crons') ? cronRows : [];
+    const hasR3 = r3rows.length > 0 || r3fixed.length > 0;
     // Third column target width ~32 (user-chosen), but it must not starve the
     // message column. Space available to the right of the left panel:
     // Thresholds lowered (was 18/20) so narrower terminals can still surface the
@@ -587,6 +616,7 @@ process.stdin.on('end', () => {
     const R3_CAP = 32, R3_MIN = 14, MSG_MIN_FOR_R3 = 15;
     let r3ContentW = 0;
     for (const r of r3rows) r3ContentW = Math.max(r3ContentW, dw(r) + 2);
+    for (const r of r3fixed) r3ContentW = Math.max(r3ContentW, dw(r) + 2);
     const R3_TARGET = Math.min(R3_CAP, r3ContentW);
     const rightAvail = Math.max(0, TERM_W - LEFT_W - 3); // -3 = "│ … │" frame around msg col
     // Pick R3_W so the message column keeps at least MSG_MIN_FOR_R3 chars.
@@ -634,7 +664,7 @@ process.stdin.on('end', () => {
     // and this path only triggers on very narrow terminals; we additionally
     // recompute LEFT_W below to absorb any width growth.
     if (hasR3 && !showR3) {
-      for (const r of r3rows) {
+      for (const r of [...r3rows, ...r3fixed]) {
         fullLeftRows.push(r);
         LEFT_W = Math.max(LEFT_W, dw(r) + 2); // V1 guard: keep frame aligned
       }
@@ -753,14 +783,15 @@ process.stdin.on('end', () => {
       ri++;
       return ` ${content} ${h('\u2502')}`;
     };
-    // Helper: third-column cell (agents/skills). Tracks its own row index so it
-    // fills from the top continuously; empty string when the column is off.
-    let r3i = 0;
+    // Helper: third-column cell (agents/skills + fixed crons bottom block)\u3002
+    // \u5169\u6bb5\u5f0f\u6e32\u67d3\uff1a\u6392\u7248\u671f\u53ea\u767c token \u4f54\u4f4d\u4e26\u8a08\u6578\uff08\x00R3#n\x00\uff0c\u6b63\u5e38\u8f38\u51fa\u4e0d\u53ef\u80fd\u51fa\u73fe\u6b64
+    // \u63a7\u5236\u5b57\u5143\uff09\uff0c\u5168\u90e8 host row \u6392\u5b8c\u624d\u77e5\u9053\u6b04\u9ad8 totalSlots\uff0c\u6536\u5c3e\u6642\u628a token \u63db\u6210\u5be6\u969b
+    // \u5167\u5bb9\u2014\u2014\u524d\u6bb5\u7531\u4e0a\u800c\u4e0b\u586b r3rows\uff08agents/skills\uff09\uff0c\u300c\u6700\u5f8c |r3fixed| \u683c\u300d\u56fa\u5b9a\u7d66
+    // crons \u5340\u584a\uff08\u4f7f\u7528\u8005\u6307\u5b9a\u6b04\u5e95\u5169 row\uff09\uff0c\u4e2d\u9593\u4e0d\u8db3\u8655\u7559\u767d\u3002
+    let r3slot = 0;
     const r3cell = () => {
       if (!showR3) return '';
-      const content = fit(r3rows[r3i] || '', R3_W - 2);
-      r3i++;
-      return ` ${content} ${h('\u2502')}`;
+      return ` \x00R3#${r3slot++}\x00 ${h('\u2502')}`;
     };
     // Combined right suffix for every CONTENT/DIVIDER row: msg cell + third cell.
     const rsuffix = () => rcell() + r3cell();
@@ -814,9 +845,11 @@ process.stdin.on('end', () => {
 
     // Drain any third-column rows that had no host content/divider row to ride
     // on (R-EDGE-04 / V2): emit a divider + a blank-left/blank-message row whose
-    // third cell carries the leftover agents/skills entry. r3cell() advances r3i.
-    if (showR3 && r3i < r3rows.length) {
-      while (r3i < r3rows.length) {
+    // third cell carries the leftover entry. Needed slots = 流動內容（agents/skills）
+    // + 固定 crons 區塊——欄高必須容納兩者，crons 才有「欄底兩 row」可佔。
+    const r3Needed = r3rows.length + r3fixed.length;
+    if (showR3 && r3slot < r3Needed) {
+      while (r3slot < r3Needed) {
         output.push(`${h('├')}${h(hl(LEFT_W))}${h('┤')}${rcell()}${r3cell()}`);
         output.push(`${h('│')} ${pad('', LEFT_W - 2)} ${h('│')}${rcell()}${r3cell()}`);
       }
@@ -838,6 +871,20 @@ process.stdin.on('end', () => {
         output.push(`${h('\u2514')}${h(hlm(LEFT_W, bottomMarks))}${h('\u2534')}${h(hl(MSG_W))}${showR3 ? h('\u2534') + h(hl(R3_W)) : ''}${h('\u2518')}`);
       } else {
         output.push(`${h('\u2514')}${h(hlm(LEFT_W, bottomMarks))}${h('\u2518')}`);
+      }
+    }
+
+    // 第三欄 token 收尾替換（兩段式渲染的第二段）：totalSlots = 欄實際高度。
+    // slot 0..(totalSlots-|r3fixed|-1) 由上而下放 r3rows（不足留白）；
+    // 最後 |r3fixed| 格固定放 crons 區塊（欄底兩 row，使用者指定）。
+    if (showR3) {
+      const totalSlots = r3slot;
+      const fixedStart = totalSlots - r3fixed.length;
+      const r3TextFor = (n) => (n >= fixedStart && r3fixed.length ? (r3fixed[n - fixedStart] || '') : (r3rows[n] || ''));
+      for (let oi = 0; oi < output.length; oi++) {
+        if (output[oi].indexOf('\x00R3#') !== -1) {
+          output[oi] = output[oi].replace(/\x00R3#(\d+)\x00/g, (_, n) => fit(r3TextFor(+n), R3_W - 2));
+        }
       }
     }
 
