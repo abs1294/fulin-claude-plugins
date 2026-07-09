@@ -2,6 +2,13 @@
 
 本檔記錄 red-blue-review 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.0] - 2026-07-09
+### Added
+- **Quota 節流（hook 強制）：分波派發＋撞牆熔斷**。新增 PreToolUse hook `hooks/quota-guard.js`——Workflow script 用 `parallel()`/`pipeline()` 包 `agent()` 而未經 `runWaves()` 分波（或未帶使用者同意標記 `// quota-user-approved:`）即攔下。新檔 `references/quota-throttling.md` 提供 `runWaves` 骨架：每波併發 ≤6、任一 agent 因 quota/API 終止（回 null）立即熔斷停派、resume 走 cache 逐波續跑。
+- SKILL.md 頂部新增「⛔ Quota 節流（MANDATORY）」章節；workflow-pattern.md / loop-runner.md 骨架頂部加分波管制註記；大艦隊（>15 agents 或 >1M tokens）啟動前須先報預算取得使用者同意。
+### Why
+- 兩次同型實戰事故：整支艦隊（5 紅攻＋30+ 藍驗）一次灑出 → 撞 5h quota 飛行中全滅白燒 → reset 後 resume 又整隊灑出 → 再撞一次。根因＝無界派發＋撞牆不熔斷＋resume 不分波——不是平行本身；分波把單次曝險壓到一波、熔斷防連環撞。
+
 ## [0.4.5] - 2026-07-04
 ### Changed
 - **觸發後先判斷輕重（防誤觸發成重型流程）**：觸發詞很廣（「找弱點」「壓力測試」「盲點」…），日常輕量提問也常命中。新增指引：使用者若像隨口問「有沒有問題/風險」而非要求正式對抗，先一句確認「要快速看一眼還是完整紅藍對抗（多輪、建清單）」，別直接放大成重型迴圈。（不動 description 觸發詞，只加流程分流，避免動觸發訊號的風險。）
