@@ -2,6 +2,8 @@
 
 > 程式碼 / config / docs 面向時，不只分析——實際 spawn agent 找問題、藍方獨立驗證、修。
 > 這是本專案實戰用過的 pattern（多次對 plugin-manager 整包稽核都這樣跑）。
+> ⛔ **Quota 節流（v0.5.0 起，hook 強制）**：本檔骨架的 `parallel()`/`pipeline()` fan-out 受 `hooks/quota-guard.js` 管制——**必須改經 `runWaves()` 分波派發**（每波 ≤6、任一 agent 回 null 即熔斷停派；resume 走 cache 逐波續跑）。平行可以、無界灑出不行。骨架與規則見 `quota-throttling.md`；例外整批派須使用者同意標記 `// quota-user-approved:`。
+
 
 ## 何時用實作模式
 - 面向是 `code`/`config`/`docs`，且使用者要「實際修」而非只看分析。

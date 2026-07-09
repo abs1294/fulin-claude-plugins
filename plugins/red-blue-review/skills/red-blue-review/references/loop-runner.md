@@ -1,6 +1,8 @@
 # loop-runner：含外層迴圈的紅藍對抗驅動器（程式化收斂）
 
 > `workflow-pattern.md` 給的是**單輪** pipeline 骨架（紅攻→藍驗）。本檔給的是**含外層 `while` 迴圈的完整驅動器**——把「要不要再跑一輪」從模型自律，搬到**腳本的去重計數**判定，這是收斂能真正做到「迴圈到 0 新發現」的關鍵。
+> ⛔ **Quota 節流（v0.5.0 起，hook 強制）**：本檔骨架的 `parallel()`/`pipeline()` fan-out 受 `hooks/quota-guard.js` 管制——**必須改經 `runWaves()` 分波派發**（每波 ≤6、任一 agent 回 null 即熔斷停派；resume 走 cache 逐波續跑）。平行可以、無界灑出不行。骨架與規則見 `quota-throttling.md`；例外整批派須使用者同意標記 `// quota-user-approved:`。
+
 
 ## 為什麼需要這個（病根）
 
