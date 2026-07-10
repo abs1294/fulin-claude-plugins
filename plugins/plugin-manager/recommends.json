@@ -42,11 +42,22 @@
     "csharp-lsp@claude-plugins-official": {
       "marketplace": "claude-plugins-official",
       "source": "（Claude Code 內建官方 marketplace，無需 marketplace add）",
-      "note": "C#/.NET 語言 LSP（程式碼智慧），gopls-lsp 的 .NET 對應版。.NET 專案（如 Winbond 供應商平台後端）裝。需本機 .NET SDK/language server",
+      "note": "C#/.NET 語言 LSP（程式碼智慧），gopls-lsp 的 .NET 對應版。.NET 專案（如 Winbond 供應商平台後端）裝。**裝 plugin 後還需本機裝 language server：`dotnet tool install --global csharp-ls`（或 brew install csharp-ls）**，否則 LSP server 起不來報 'Command csharp-ls not found'",
       "tags": [
         "lsp",
         "csharp",
         "dotnet"
+      ]
+    },
+    "ui-ux-pro-max@ui-ux-pro-max-skill": {
+      "marketplace": "ui-ux-pro-max-skill",
+      "source": "nextlevelbuilder/ui-ux-pro-max-skill",
+      "note": "UI/UX 設計智慧 skill：內建 84 UI styles、161 reasoning rules、161 色盤、73 字體配對、99 UX 準則、25 圖表類型、17 tech stacks；v2.0 起有 Design System Generator（依需求生成整套 design system，含產業反模式如「銀行別用 AI 紫粉漸層」）。**非內建 marketplace，需先 `/plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill` 再 `/plugin install ui-ux-pro-max@ui-ux-pro-max-skill`**；Windows 若 marketplace 安裝報 'Zip file contains a symbolic link' 改用 npm CLI：`npm install -g ui-ux-pro-max-cli` + `uipro init --ai claude --global`。跨平台(cursor/windsurf/copilot/codex/gemini 等)。前端專案(如 Winbond 內外站前端)用",
+      "tags": [
+        "ui",
+        "ux",
+        "design-system",
+        "frontend"
       ]
     }
   }
