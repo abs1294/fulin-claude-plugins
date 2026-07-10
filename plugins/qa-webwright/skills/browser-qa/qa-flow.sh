@@ -391,12 +391,13 @@ cmd_run() {
   # ★ 關鍵設計（歷史踩雷：Windows temp/短檔名/junction 讓 canonical 格式不一致而誤擋合法落點）：
   #   canonical 只在「兩邊都成功解析出實體路徑」時才比對。任一解析失敗 → 視為「不確定」→ 放行
   #   （字串層約束已成立，不因 canonical 環境差異誤擋）。**不 fallback 到原始字串比對**——那正是誤擋來源。
+  #
+  #   ★ Windows 誤擋修正：兩邊必須用「同一種」解析法，否則格式不一致而誤擋。
+  #   舊版 canon_test 用 realpath（Git Bash 回 C:/Users/...）、canon_expected_dir 用 pwd -P（回 /c/Users/...）
+  #   → 同一實體目錄兩種格式，字串永不相等 → 合法落點被誤擋。改成兩邊一律 `cd && pwd -P`（統一 POSIX
+  #   掛載格式，且 pwd -P 同樣會解 symlink，symlink 逃逸偵測不減弱）。
   local canon_test="" canon_expected_dir="" test_parent
-  if command -v realpath >/dev/null 2>&1; then
-    canon_test="$(realpath "$abs_test" 2>/dev/null || true)"
-  else
-    canon_test="$( { cd "$(dirname "$abs_test")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$abs_test")"; } || true)"
-  fi
+  canon_test="$( { cd "$(dirname "$abs_test")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$abs_test")"; } || true)"
   canon_expected_dir="$( { cd "$TESTS_DIR" 2>/dev/null && pwd -P; } || true)"
 
   if [ -n "$canon_test" ] && [ -n "$canon_expected_dir" ]; then

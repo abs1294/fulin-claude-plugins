@@ -2,6 +2,10 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.7.1] - 2026-07-10
+### Fixed
+- 修正 qa-flow.sh run 落點守門員在 Windows 誤擋：canon_test 用 realpath(C:/) 比對 canon_expected_dir 的 pwd -P(/c/) 格式不一致→合法落點被擋；改成兩邊統一 cd+pwd -P
+
 ## [0.7.0] - 2026-07-06
 ### Changed
 - 架構改「QA agent 一手包」：qa-engineer 設計+自跑 Playwright MCP+codify+報告+回填 catalog，主 Agent 只派工收結論不親跑 MCP、實作 agent 不自驗（qa-engineer.md/qa-run.md/qa-plan.md/SKILL.md/test-plan-design.md 五檔改寫）；allow-list 前提（sub-agent 無法回應 permission prompt，mcp__playwright__* 須在 permissions.allow）寫進 README+SKILL+agent；hooks 相容性 review：landing-gate 已掃 subagent transcripts 相容、early-nudge 純 cwd 相容、project-knowledge-gate 補掃 subagent transcripts（原只掃單檔會誤 deny）、landing-gate block 訊息同步 draft-first 步序，test-gate.mjs 回歸 14/14 過；qa-flow.sh 依 §4 不動
