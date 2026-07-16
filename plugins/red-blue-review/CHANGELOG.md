@@ -2,6 +2,10 @@
 
 本檔記錄 red-blue-review 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.6.0] - 2026-07-16
+### Changed
+- 補上修復複驗機制：修完不採信「已修好」自述，強制獨立複驗產出（實讀改後檔案＋原攻擊路徑再打一次）；複驗不過退回重修並把該 root_concern 移出去重集合，堵住「宣稱修了被閘3吞成變體、永遠隱形」的洞（SKILL 第三/四步、convergence 閘3豁免、loop-runner 修階段鐵律、TaskList 模板、第五步報告欄）
+
 ## [0.5.1] - 2026-07-09
 ### Fixed
 - README 補前置依賴段（Node.js：quota-guard hook，缺 node 靜默失去熔斷保護）

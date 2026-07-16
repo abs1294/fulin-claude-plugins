@@ -306,15 +306,46 @@ process.stdin.on('end', () => {
     let agentItems = [];
     try {
       const agents = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-agents-${sid}.json`), 'utf8'));
+      // Model letter per agent instance, shown as a (f)/(o)/(s)/(h) prefix on the
+      // agent name. The SubagentStart/Stop hook payload carries NO model field
+      // (per docs only SessionStart may), so we lazily read each subagent's own
+      // transcript (<main transcript minus .jsonl>/subagents/agent-<id>.jsonl —
+      // its first assistant event carries the model id) and cache resolved
+      // letters in a separate tmp file. Separate file on purpose: writing back
+      // into the tracker's state file would race its CAS merge.
+      const modelCacheFile = path.join(os.tmpdir(), `claude-agent-models-${sid}.json`);
+      let modelCache = {};
+      try { modelCache = JSON.parse(fs.readFileSync(modelCacheFile, 'utf8')); } catch (e) {}
+      let modelCacheDirty = false;
+      const subagentDir = (i.transcript_path || '').replace(/\.jsonl$/, '');
+      const modelLetter = (key) => {
+        if (modelCache[key]) return modelCache[key];
+        if (!subagentDir) return '';
+        try {
+          // First 256KB is enough: the model id appears in the first assistant
+          // event, right after the (possibly long) initial user prompt. Unresolved
+          // entries (file not written yet / prompt > 256KB) just retry next render.
+          const fd = fs.openSync(path.join(subagentDir, 'subagents', `agent-${key}.jsonl`), 'r');
+          const buf = Buffer.alloc(262144);
+          const nRead = fs.readSync(fd, buf, 0, buf.length, 0);
+          fs.closeSync(fd);
+          const m = buf.toString('utf8', 0, nRead).match(/"model":"[^"]*(fable|opus|sonnet|haiku)/);
+          if (m) { modelCache[key] = m[1][0]; modelCacheDirty = true; return modelCache[key]; }
+        } catch (e) {}
+        return '';
+      };
       // Group by agent name — supports concurrent invocations (e.g. 3 critics in parallel)
       const byName = {};
       for (const [key, info] of Object.entries(agents)) {
         // Migration: old format was keyed by name (no info.name), new format is keyed by agent_id
         const n = info.name || key;
-        if (!byName[n]) byName[n] = { running: 0, done: 0, latestFinished: 0 };
+        if (!byName[n]) byName[n] = { running: 0, done: 0, latestFinished: 0, letters: new Set() };
+        const L = modelLetter(key);
+        if (L) byName[n].letters.add(L);
         if (info.status === 'running') byName[n].running++;
         else { byName[n].done++; if ((info.finished || 0) > byName[n].latestFinished) byName[n].latestFinished = info.finished; }
       }
+      if (modelCacheDirty) { try { fs.writeFileSync(modelCacheFile, JSON.stringify(modelCache)); } catch (e) {} }
       // Build entries: running first, then latest-done, up to 5 most-recent.
       const nameEntries = Object.entries(byName).sort((a, b) => {
         if (a[1].running !== b[1].running) return b[1].running - a[1].running;
@@ -323,11 +354,16 @@ process.stdin.on('end', () => {
       // One entry per agent (each becomes its own third-column row); names can be
       // wider now that they're no longer packed onto a single shared line.
       agentItems = nameEntries.map(([n, s]) => {
-        const short = n.length > 20 ? n.slice(0, 20) : n;
+        // (f)name — mixed models in one name-group show all letters, e.g. (f,h).
+        // Prefix + name share the original 20-char budget so the column width
+        // math and fit() clipping stay unchanged.
+        const mk = s.letters.size ? `(${[...s.letters].join(',')})` : '';
+        const cap = 20 - mk.length;
+        const short = n.length > cap ? n.slice(0, cap) : n;
         const parts = [];
         if (s.running > 0) parts.push(`${YELLOW}\u25cb${s.running > 1 ? `\u00d7${s.running}` : ''}${R}`);
         if (s.done > 0) parts.push(`${GREEN}\u2713${s.done > 1 ? `\u00d7${s.done}` : ''}${R}${s.latestFinished ? ` ${DIM}${ago(s.latestFinished)}${R}` : ''}`);
-        return `${short} ${parts.join(' ')}`;
+        return `${mk ? `${DIM}${mk}${R}` : ''}${short} ${parts.join(' ')}`;
       });
     } catch (e) {}
 

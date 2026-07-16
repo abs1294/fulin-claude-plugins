@@ -21,7 +21,7 @@ status line 上的 agents / skills / 近期編輯 / 動作歷史 / 頂部摘要 
 | `summary-updater.js` | UserPromptSubmit | summary（頂部摘要） |
 | `file-tracker.js` | PostToolUse (Write\|Edit) | edited（近期編輯檔案） |
 | `skill-tracker.js` | PostToolUse (Skill) | skills（觸發中的 skill） |
-| `subagent-tracker.js` | SubagentStart/Stop | agents（執行中的 subagent） |
+| `subagent-tracker.js` | SubagentStart/Stop | agents（執行中的 subagent；名字前綴 `(f)/(o)/(s)/(h)` 標該 agent 用的模型＝fable/opus/sonnet/haiku——hook payload 沒有 model 欄位，statusline.js 渲染時 lazy 讀各 subagent transcript 前 256KB 抓 model id、快取於 `claude-agent-models-<sid>.json`；transcript 尚未寫入時暫無前綴、下次渲染補上） |
 | `compact-monitor.js` | PreCompact | compact 計數 |
 | `cron-tracker.js` | PostToolUse (CronCreate|CronDelete|ScheduleWakeup) | crons（排程狀態，有排程時佔 agents/skills 欄底兩行、無排程不佔位；一次性排程逾時自動視為已觸發剔除，循環排程顯示至刪除） |
 
