@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.4.0] - 2026-07-16
+### Changed
+- agents 列名字前加模型縮寫前綴 (f)/(o)/(s)/(h)：SubagentStart/Stop payload 無 model 欄位（實證＋官方文件確認），改由 statusline.js 渲染時 lazy 讀各 subagent transcript 前 256KB 抓 model id，快取到獨立 tmp 檔（不碰 tracker 狀態檔避免 CAS 競態）；前綴與名字共用原 20 字元預算，欄寬計算不變（0.4.0）
+
 ## [0.3.1] - 2026-07-09
 ### Fixed
 - crons 區塊改條件顯示：有排程才佔 agents/skills 欄底兩 row，無排程不顯示不佔位（原 0.3.0 固定佔位＋— 佔位符移除）；README/rows skill 措辭同步

@@ -162,6 +162,7 @@ return {
   - 高風險命題想完全避免此誤殺，把 `seen.add(rc)` 移到「藍方判假」的分支外、只對 `is_real:false` 記入一個獨立的 `rejected` Set，真弱點另用 `confirmedConcerns` Set 去重——代價是換皮重刷的假 finding 會回來。**兩害相權，預設選「防永不收斂」**；此取捨已誠實標示，由使用者依命題風險選邊。
 - **schema 扁平、下游只傳精煉摘要**：別把整包上游結果 stringify 塞進下游 prompt（撞 retry cap 炸 workflow）。
 - **修在哪做**：上面骨架是「找＋計數」純收斂；要邊找邊修（實作模式），在 `else dry = 0` 那段之後插一個修階段（改檔→可選 Codex 複審），修完再續圈。高風險改（刪檔/跨 repo/改設定）仍須停下問使用者。
+- **修階段後必插「修復複驗」agent（MANDATORY，不信自述）**：每個「宣稱已修」的 finding，spawn 一個**獨立**複驗 agent（不得由執行修的 agent 自驗、不得只看修 agent 的回報文字）——實讀改後檔案確認修改落地、拿原攻擊路徑對改後版本再打一次。**複驗 fail → `seen.delete(norm(rc))` 把該 root_concern 移出去重集合**，讓下一輪紅攻重提時照計新弱點（否則閘3 會把「沒修好」吞成變體、靜默漏掉），並退回重修。收斂（`dry` 累計）只在「本輪所有已修項複驗全過」的前提下才有效。
 
 ## prompt cache 優化（零對抗損失的省 token）
 

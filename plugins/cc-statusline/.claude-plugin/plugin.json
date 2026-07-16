@@ -1,6 +1,6 @@
 {
   "name": "cc-statusline",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "資訊密度高的 Claude Code status line：目錄/repo/model/成本/用量/quota/agents/skills/memory+MCP/近期編輯/歷史多欄顯示，含 East-Asian 寬字對齊、原子寫入的跨進程狀態快取，與可用 /cc-statusline-rows 逐列開關的顯示配置。",
   "author": {
     "name": "fulin"
