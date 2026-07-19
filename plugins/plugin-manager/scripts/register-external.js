@@ -11,11 +11,17 @@
  *   （對比 registry.json 在家目錄、不進 git、只存你個人本機狀態 selfMade。）
  *   之後 /setup-plugins 會列出這份推薦清單讓你挑、產生要自貼的安裝指令。
  *
- * 用法：node register-external.js <name@marketplace> <source> <note> [--tags a,b,c]
+ * 用法：node register-external.js <name@marketplace> <source> <note> [--tags a,b,c] [--install-method skill-copy]
  *   name@marketplace : plugin 名 + marketplace 名（與 enabledPlugins key 同格式）
+ *                      skill-copy 型（非 marketplace 的 skill 合集）用 skill名@合集名 佔位，僅作清單 key
  *   source           : 取得來源——marketplace add 的參數，如 github owner/repo、或 URL
+ *                      skill-copy 型填 skill 目錄的 URL（如 github .../tree/master/<skill>）
  *   note             : 【必填】一句用途描述（之後翻清單時靠它認出這 plugin 是幹嘛的）
  *   --tags a,b,c     : （可選）面向標籤，供 /setup-plugins 按面向分組挑裝（清單多時免一長串勾選）
+ *   --install-method : （可選）安裝型態。省略 = marketplace（走 /plugin install）；
+ *                      skill-copy = 非 marketplace 的裸 skill 合集，安裝是「複製 skill 目錄」
+ *                      （/install-skill、skill-fetch、或手動放進 .claude/skills/），
+ *                      /setup-plugins 與本腳本會依此顯示正確安裝方式，不再誤導 /plugin install
  *
  * 移除：node register-external.js --remove <name@marketplace>
  * 改完記得 /plugin-manager:publish，recommends 才會推上去讓別人看到。
@@ -76,13 +82,20 @@ const source = argv[1];
 // 避免推薦清單一多時要一長串勾選。
 const rest = argv.slice(2);
 let tags = [];
+let installMethod = 'marketplace';
 const noteParts = [];
 for (let i = 0; i < rest.length; i++) {
   if (rest[i] === '--tags') { tags = (rest[++i] || '').split(',').map(t => t.trim()).filter(Boolean); }
   else if (rest[i].startsWith('--tags=')) { tags = rest[i].slice('--tags='.length).split(',').map(t => t.trim()).filter(Boolean); }
+  else if (rest[i] === '--install-method') { installMethod = rest[++i] || ''; }
+  else if (rest[i].startsWith('--install-method=')) { installMethod = rest[i].slice('--install-method='.length); }
   else noteParts.push(rest[i]);
 }
 const note = noteParts.join(' ');
+
+if (!['marketplace', 'skill-copy'].includes(installMethod)) {
+  die('--install-method 只接受 marketplace 或 skill-copy：' + JSON.stringify(installMethod));
+}
 
 if (!key || !source) die('用法：node register-external.js <name@marketplace> <source> [note] [--tags a,b,c]');
 
@@ -110,25 +123,36 @@ for (const t of tags) {
 }
 
 const exists = !!recommends.recommends[key];
-recommends.recommends[key] = {
+const entry = {
   marketplace: marketplace,
   source: source,
   note: note,
   tags: tags
 };
+// installMethod 只在非預設（skill-copy）時落欄位——絕大多數是 marketplace 型，省欄位保持 JSON 精簡；
+// 讀取端規約：沒有 installMethod = marketplace。
+if (installMethod === 'skill-copy') entry.installMethod = 'skill-copy';
+recommends.recommends[key] = entry;
 writeRecommends();
 
 console.log('== register-external（推薦清單）==');
 console.log('  ' + (exists ? '更新（覆蓋既有）' : '新增') + '推薦：' + key);
-console.log('  marketplace : ' + marketplace);
+console.log('  marketplace : ' + (installMethod === 'skill-copy' ? marketplace + '（佔位，非真 marketplace）' : marketplace));
 console.log('  source      : ' + source);
 console.log('  note        : ' + note);
 if (tags.length) console.log('  tags        : ' + tags.join(', '));
+console.log('  install     : ' + installMethod);
 console.log('  → 已寫進 plugins/plugin-manager/recommends.json（隨 monorepo publish 後別人裝你 repo 就看得到）');
 console.log('\n下一步：');
 console.log('  - /plugin-manager:publish 把 recommends.json 推上去，別人裝你 repo 才看得到此推薦。');
 console.log('  - /setup-plugins 會列出推薦清單讓你（或別人）挑裝。');
-console.log('  - 要實際安裝需自貼（Claude 不能代執行 /plugin）：');
-console.log('      /plugin marketplace add ' + source);
-console.log('      /plugin install ' + key);
-console.log('      /reload-plugins');
+if (installMethod === 'skill-copy') {
+  console.log('  - 這是 skill-copy 型（非 marketplace plugin）——安裝是「複製 skill 目錄」，不能 /plugin install：');
+  console.log('      /install-skill ' + source);
+  console.log('      （或 skill-fetch、或手動把該 skill 目錄放進 ~/.claude/skills/ 或 <專案>/.claude/skills/）');
+} else {
+  console.log('  - 要實際安裝需自貼（Claude 不能代執行 /plugin）：');
+  console.log('      /plugin marketplace add ' + source);
+  console.log('      /plugin install ' + key);
+  console.log('      /reload-plugins');
+}
