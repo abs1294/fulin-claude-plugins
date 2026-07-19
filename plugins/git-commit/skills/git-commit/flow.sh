@@ -146,7 +146,7 @@ extract_path_from_status() {
 # 署名 pattern：命中即代表 commit message 混入 AI 署名（使用者最硬的全域規則：禁止）。
 SIGNATURE_PATTERN='Co-Authored-By|Generated with \[?Claude|🤖|noreply@anthropic|Claude Code'
 # 敏感字 pattern（與 analyze 共用同一份，單一事實來源）。
-SENSITIVE_PATTERN='password|secret|api_key|bearer|token=|ConnectionString|console\.log|Console\.WriteLine|System\.out\.print|debugger;|TODO: remove|FIXME|XXX|// DEBUG|// TEMP|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'
+SENSITIVE_PATTERN='password|secret|api_key|bearer|token=|ConnectionString|console\.log|Console\.WriteLine|System\.out\.print|debugger;|TODO: remove|FIXME|XXX|// DEBUG|// TEMP|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|sqlcmd .{0,120}-P |Pwd[[:space:]]*=|User ?Id[[:space:]]*=|Data Source[[:space:]]*=|Initial Catalog[[:space:]]*='
 
 # 硬閘：commit message（type + desc）不得含任何 AI 署名，且必須單行。
 # 命中即 exit 1——這是機制級攔截，不是提醒。

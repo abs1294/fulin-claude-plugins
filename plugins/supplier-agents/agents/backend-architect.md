@@ -38,7 +38,7 @@ Supplier_Code/CLAUDE.md
 
 此 Skill 定義本專案完整的 DDD 架構設計流程與輸出規範，包含：
 
-- 設計步驟（Step 1 ~ Step 6）
+- 設計步驟（Step 1 ~ Step 7，含 Step 6 規範符合性檢核 Compliance Gate）
 - Aggregate 邊界分析原則
 - Domain Entity 欄位設計規則
 - Repository Interface 方法設計規範
@@ -68,7 +68,7 @@ Supplier_Code/CLAUDE.md
 
 2. **Domain Entity 欄位定義**
    - Entity 名稱、欄位名稱、型別、說明
-   - **建立方式（必寫）**：同 Aggregate → Root 工廠 + navigation 掛入子實體、一次 `SaveEntitiesAsync`（FK 由 EF Core 自動回填，禁止手動指派子實體 scalar FK）；同一功能建立多個 Aggregate → 寫明持久化順序（先存被參照方取 Id：交易 + 中繼 flush，見 Service CLAUDE.md §19）。**禁止以尚未持久化（Id=0）的 Aggregate Id 作為另一 Aggregate 的 scalar FK**
+   - **建立方式（必寫）**：同 Aggregate → Root 工廠 + navigation 掛入子實體、一次 `SaveEntitiesAsync`（FK 由 EF Core 自動回填，禁止手動指派子實體 scalar FK）；同一功能建立多個 Aggregate → 寫明持久化順序（先存被參照方取 Id：`BeginTransactionAsync` + 交易內中繼 flush + `CommitTransactionAsync` 一次提交，見 Service CLAUDE.md §8.2/§8.3 與規則檔 11.0 RULE-002；外部 API 呼叫必須在交易之外，RULE-003）。**禁止以尚未持久化（Id=0）的 Aggregate Id 作為另一 Aggregate 的 scalar FK**
 
 3. **Repository Interface 方法列表**
    - 方法名稱、參數、回傳型別

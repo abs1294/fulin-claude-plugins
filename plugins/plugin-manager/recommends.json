@@ -59,6 +59,36 @@
         "design-system",
         "frontend"
       ]
+    },
+    "example-skills@anthropic-agent-skills": {
+      "marketplace": "anthropic-agent-skills",
+      "source": "anthropics/skills",
+      "note": "Anthropic 官方 skills 包，重點 skill-creator（建立/改進/評測 skill 的官方方法論）與 frontend-design（前端視覺設計指引：美學方向/字體/避免模板感）；另含 mcp-builder、docx/pdf/pptx/xlsx 等",
+      "tags": [
+        "skills",
+        "ai",
+        "official",
+        "design"
+      ]
+    },
+    "claude-reflect@claude-reflect-marketplace": {
+      "marketplace": "claude-reflect-marketplace",
+      "source": "BayramAnnakov/claude-reflect",
+      "note": "自學習記憶：hook 即時捕捉你對 Claude 的糾正、人工核可後沉澱進 CLAUDE.md 永久記住；並掃描 session 歷史發掘重複任務、自動生成可重用指令",
+      "tags": [
+        "ai",
+        "memory"
+      ]
+    },
+    "huashu-slides@huashu-skills": {
+      "marketplace": "huashu-skills",
+      "source": "https://github.com/alchaincyf/huashu-skills/tree/master/huashu-slides",
+      "note": "一句話生成可用 PPTX：內容結構→選設計→AI插圖→組裝→精修五階段，18 種設計風格、3 種協作模式（花叔 skills 合集之一）",
+      "tags": [
+        "slides",
+        "design"
+      ],
+      "installMethod": "skill-copy"
     }
   }
 }
