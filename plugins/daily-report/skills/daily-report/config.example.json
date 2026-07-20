@@ -1,6 +1,9 @@
 {
   "_說明": "複製本檔到 ~/.claude/daily-report/config.json。寄送管道三選一，腳本依本檔內容自動判斷：① oauth 區塊（推薦，最小權限 gmail.send，跑 gmail_oauth.py setup 會自動填 refresh_token）② smtp 區塊（應用程式密碼，等同整個信箱權限）③ 兩者都不填則由 Claude 用 Gmail MCP 建草稿、你自己按送出。此檔含機密，只放家目錄、絕不進 git。",
 
+  "_channel說明": "明示你選的寄送管道：oauth / app_password / mcp_draft。留空則依偵測到的憑證自動判斷；但同一台機器有多組憑證時建議明寫，避免誤判。",
+  "channel": "",
+
   "recipients": ["主管@example.com"],
   "cc": [],
   "subject_prefix": "[工作日報]",

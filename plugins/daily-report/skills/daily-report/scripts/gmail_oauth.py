@@ -30,6 +30,7 @@ import os
 import re
 import secrets
 import socket
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -67,6 +68,14 @@ FAIL_HTML = """<!doctype html><meta charset="utf-8">
 <body style="font-family:-apple-system,'Segoe UI','Microsoft JhengHei',sans-serif;
 text-align:center;padding:60px;color:#222">
 <h2>❌ 授權未完成</h2><p>回到終端機看錯誤訊息。</p></body>"""
+
+
+def _scope_key(project_dir=None):
+    """與 confirm_gate.scope_key 同演算法——sent 標記必須落在同一個專案命名空間，
+    否則 confirm_gate.already_sent() 找不到本腳本寫的記錄。"""
+    import hashlib
+    root = os.path.abspath(project_dir or os.getcwd())
+    return hashlib.sha256(os.path.normcase(root).encode("utf-8")).hexdigest()[:10]
 
 
 def die(msg, code=1):
@@ -233,6 +242,20 @@ def cmd_setup(args):
     except RuntimeError as e:
         die("兌換 token 失敗：{}".format(e), 2)
 
+    # 順手記下授權帳號的信箱：日報表頭要顯示寄件者，而 OAuth 路徑的寄件地址
+    # 就是授權的那個帳號——這裡拿到就不必再問使用者一次。
+    # id_token 是 JWT，payload 段含 email；只解不驗（我們不用它做身分決策）。
+    try:
+        idt = tok.get("id_token") or ""
+        if idt.count(".") == 2:
+            payload = idt.split(".")[1]
+            payload += "=" * (-len(payload) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
+            if claims.get("email"):
+                cfg["from_email"] = claims["email"]
+    except (ValueError, KeyError, UnicodeDecodeError):
+        pass
+
     refresh_token = tok.get("refresh_token")
     if not refresh_token:
         die("Google 沒回傳 refresh_token。通常是該帳號先前已授權過此用戶端——\n"
@@ -359,6 +382,37 @@ def cmd_doctor(args):
     else:
         checks.append(("Gmail API", False, "跳過（需先完成授權）"))
 
+    # 4.5 寄件帳號：舊版授權沒存 from_email，doctor 順手補回設定檔，
+    # 免得使用者為了顯示寄件人而被要求重新授權。
+    if token and not cfg.get("from_email"):
+        try:
+            # 用 Gmail 自己的 profile 端點：它在 gmail.send 的權限範圍內，
+            # 而 oauth2/userinfo 需要 userinfo.email scope（我們刻意不要那個）。
+            req = urllib.request.Request(
+                "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+                headers={"Authorization": "Bearer " + token})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                info = json.loads(resp.read().decode("utf-8"))
+            info = {"email": info.get("emailAddress")}
+            if info.get("email"):
+                raw = {}
+                if os.path.exists(CONFIG_PATH):
+                    with open(CONFIG_PATH, encoding="utf-8") as fh:
+                        raw = json.load(fh)
+                raw["from_email"] = info["email"]
+                save_config(raw)
+                cfg["from_email"] = info["email"]
+        except (urllib.error.HTTPError, urllib.error.URLError,
+                json.JSONDecodeError, OSError):
+            pass  # 補不到不影響寄送，只是顯示少一項
+
+    # 非阻斷項：拿不到寄件帳號只是預覽少一行，不該讓整體健檢判定失敗
+    # （用裝飾性欄位擋住可用的設定，會讓使用者以為壞了）
+    if cfg.get("from_email"):
+        checks.append(("寄件帳號", True, cfg["from_email"]))
+    else:
+        print("  [–] {:<12} {}".format("寄件帳號", "未取得（不影響寄送，預覽會少顯示一行）"))
+
     # 5. 收件人
     recipients = [str(a).strip() for a in (cfg.get("recipients") or []) if str(a).strip()]
     src = cfg.get("_project_config") or CONFIG_PATH
@@ -403,7 +457,51 @@ def build_message(md, subject, sender, recipients, cc, html):
     return base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
 
+def assert_content_clean(report_path, project_dir=None):
+    """寄送前的內容硬閘——命中 AI/工具鏈用語即中止，不可豁免。
+
+    為何無豁免旗標：這條規則的性質是「對外不可洩漏」，跟敏感字掃描（會誤命中、
+    需要出口）不同。留了出口就會在趕時間時被用掉，等於沒有這道閘。
+    """
+    guard = os.path.join(os.path.dirname(os.path.abspath(__file__)), "content_guard.py")
+    if not os.path.exists(guard):
+        die("找不到 content_guard.py——內容硬閘缺失，拒絕寄送（避免無檢查寄出）。", 2)
+    cmd = [sys.executable, guard, report_path]
+    if project_dir:
+        cmd += ["--project", project_dir]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr or r.stdout or "")
+        die("內容檢查未通過，已中止寄送（見上方命中清單）。", 3)
+
+
+def assert_confirm_ready(date, project_dir=None):
+    """自動寄送前查驗確認窗口狀態——not-armed / still-waiting / vetoed 一律拒寄。
+
+    這道閘存在的理由：沒有它，「30 分鐘窗口」就只是 SKILL.md 裡的一句話，
+    模型可以沒呈現就寄、可以窗口沒到就寄。時間由腳本算，不由模型記。
+    """
+    gate = os.path.join(os.path.dirname(os.path.abspath(__file__)), "confirm_gate.py")
+    if not os.path.exists(gate):
+        die("找不到 confirm_gate.py——自動寄送的確認閘缺失，拒絕寄送。", 5)
+    cmd = [sys.executable, gate, "check", date]
+    if project_dir:
+        cmd += ["--project", project_dir]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    if r.returncode != 0:
+        sys.stderr.write(r.stdout or "")
+        sys.stderr.write(r.stderr or "")
+        die("確認窗口檢查未通過，中止自動寄送。"
+            "（使用者明確要求寄出時，不要帶 --auto）", 5)
+    sys.stdout.write(r.stdout or "")
+
+
 def cmd_send(args):
+    # SKILL.md 的指令用 ~ 開頭；PowerShell 與 subprocess 不會展開它，必須在程式裡做
+    args.report = os.path.expanduser(args.report)
+    if getattr(args, "project", None):
+        args.project = os.path.expanduser(args.project)
+
     cfg = load_config(getattr(args, "project", None))
     oauth = cfg.get("oauth") or {}
     if not os.path.exists(args.report):
@@ -435,6 +533,14 @@ def cmd_send(args):
     print("主旨     : " + subject)
     print("內文     : {} 字（{}）".format(len(md), args.report))
 
+    # 硬閘：內容不得含 AI / 工具鏈描述。dry-run 也要跑——不然預覽時看不出會被擋。
+    assert_content_clean(args.report, getattr(args, "project", None))
+
+    # 硬閘：--auto（喚醒觸發的自動寄）必須通過確認窗口檢查。
+    # 使用者明確說「寄」時不帶 --auto，走一般路徑——那是他的意思表示，不需等窗口。
+    if getattr(args, "auto", False):
+        assert_confirm_ready(args.date, getattr(args, "project", None))
+
     if args.dry_run:
         print("\n--dry-run：未寄送。內文前 10 行：")
         for ln in md.splitlines()[:10]:
@@ -446,9 +552,24 @@ def cmd_send(args):
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from send_gmail import md_to_html
-        html = md_to_html(md)
+        from send_gmail import build_meta
+        html = md_to_html(md, build_meta(cfg, args.date, cfg.get("from_email")))
     except Exception:
         pass  # 轉換不可用就只寄純文字，不因排版問題擋住寄送
+
+    # 已寄過就不重寄：默許窗口的喚醒可能重複觸發（cron 沒刪乾淨、session 續接…），
+    # 主管收到兩封一樣的日報比漏寄更尷尬。以「日期＋收件人」為鍵。
+    sent_dir = os.path.join(os.path.dirname(CONFIG_PATH), "sent")
+    sent_mark = os.path.join(sent_dir, "{}-{}.json".format(
+        args.date, _scope_key(getattr(args, "project", None))))
+    if os.path.exists(sent_mark) and not getattr(args, "force", False):
+        try:
+            with open(sent_mark, encoding="utf-8") as fh:
+                prev = json.load(fh)
+        except (json.JSONDecodeError, OSError):
+            prev = {}
+        die("{} 的日報已寄出過（{} → {}）。要重寄請加 --force。".format(
+            args.date, prev.get("sent_at", "?"), ", ".join(prev.get("recipients", []))), 4)
 
     token = access_token(oauth)
     raw = build_message(md, subject, {"email": cfg.get("from_email", ""),
@@ -469,6 +590,16 @@ def cmd_send(args):
         die("寄送失敗 HTTP {}：{}".format(e.code, detail[:300]), 2)
     except urllib.error.URLError as e:
         die("寄送失敗（連線）：{}".format(e.reason), 2)
+
+    try:
+        os.makedirs(sent_dir, exist_ok=True)
+        with open(sent_mark, "w", encoding="utf-8") as fh:
+            json.dump({"date": args.date, "recipients": recipients, "cc": cc,
+                       "subject": subject, "report": os.path.abspath(args.report),
+                       "sent_at": __import__("datetime").datetime.now().isoformat(timespec="seconds")},
+                      fh, ensure_ascii=False, indent=2)
+    except OSError:
+        pass  # 記錄失敗不該讓「已成功寄出」變成錯誤
 
     print("✓ 已寄出")
 
@@ -496,6 +627,9 @@ def main():
     s.add_argument("--to")
     s.add_argument("--project", help="專案目錄（省略=目前工作目錄），決定用哪份收件人設定")
     s.add_argument("--dry-run", action="store_true")
+    s.add_argument("--force", action="store_true", help="即使當日已寄過仍重寄")
+    s.add_argument("--auto", action="store_true",
+                   help="喚醒觸發的自動寄送：強制通過 confirm_gate 檢查才寄")
     s.set_defaults(func=cmd_send)
 
     args = ap.parse_args()

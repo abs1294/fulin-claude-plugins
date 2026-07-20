@@ -2,6 +2,10 @@
 
 本檔記錄 daily-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.0] - 2026-07-20
+### Changed
+- 紅藍對抗（對外釋出視角，2 個獨立 fresh-context 紅隊）修 3 CRITICAL + 4 HIGH/MEDIUM：① SMTP 路徑補齊 --auto 確認閘與 sent 去重（原本只有 OAuth 路徑有，選 app_password 的使用者等於零核可保護、可無限重寄）② content_guard 擴充憑證/個資/金額偵測（原本只擋 AI 詞彙，含明文密碼與身分證字號的日報被判通過；密碼 pattern 要求值具密碼特徵以免誤判正常敘述）③ confirm_gate 狀態改以「日期+專案雜湊」為鍵（原本只用日期，多專案同日互相覆蓋/TOCTOU 比對錯檔/veto 連坐/誤判已寄——而多專案分設收件人正是主打功能）④ setup_gate channel 明示優先於憑證偵測（mcp_draft 選項原本永遠無法完成設定）⑤ 四支腳本補 expanduser（SKILL.md 用 ~ 開頭路徑，PowerShell/subprocess 不展開）⑥ arm 補建 reports/ 目錄 ⑦ README 修正與實況矛盾的「絕不自動寄」描述、補列 setup_gate/content_guard/confirm_gate、界線改為誠實說明語意層機密與私人 session 過濾的自律本質
+
 ## [0.4.0] - 2026-07-20
 ### Changed
 - extract 預設只掃當前專案（--project/--all-projects，用 session cwd 判歸屬，輸出檔名帶專案識別）；收件人支援專案層覆寫（<專案>/.claude/daily-report.json 只能覆寫 recipients/cc/subject_prefix/from_name，憑證強制只從家目錄讀，已實測專案層假憑證被忽略）；gmail_oauth 新增 doctor 子命令：實打 API 逐項驗證（設定檔/用戶端/授權換 token/Gmail API 是否啟用/收件人），失敗輸出 Google 原始錯誤與連結而非寫死的 Console 路徑——起因是作者自己照引導跑仍漏掉啟用 Gmail API 而被 403；SKILL.md 與 guide 改為「doctor 判定、不信自我回報、Console 路徑以 Google 即時訊息為準」

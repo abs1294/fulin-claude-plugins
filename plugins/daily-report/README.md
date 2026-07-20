@@ -8,8 +8,8 @@
 
 1. 掃描 `~/.claude/projects/` 當日 session（自動濾掉 subagent、SDK 自動化、系統注入雜訊，只留人的工作）
 2. 按專案分組生成日報（做了什麼＋待辦/未完成；統計數據只在對話顯示、不寄出）
-3. **你過目核可後**才交付——沒有自動寄這回事
-4. 交付走兩條路（見下）
+3. **呈現給你過目**，並開始一段確認窗口（預設 30 分鐘，可設定）
+4. 交付：你說寄就立刻寄；你喊停就不寄；**窗口內沒回應則自動寄出**（無人值守設計，掛著不顧回來已寄好）
 
 ## 三條交付路徑（依你的設定檔自動判斷，不會每次問你）
 
@@ -45,16 +45,21 @@
 |------|------|
 | `skills/daily-report/SKILL.md` | 主流程（萃取→生成→核可→寄送） |
 | `skills/daily-report/scripts/extract_sessions.py` | 掃 session jsonl 產中間 JSON（mtime 預過濾、sidechain/SDK/注入過濾、ai-title 直取） |
+| `skills/daily-report/scripts/setup_gate.py` | 設定閘：`status`（退出碼決定走哪條管道）/`options`/`guide`——首次設定的引導由它產生內容 |
 | `skills/daily-report/scripts/gmail_oauth.py` | Gmail API OAuth：`setup`（loopback + PKCE 引導式授權）/`send`/`status`/**`doctor`**（零外部套件） |
+| `skills/daily-report/scripts/send_gmail.py` | Gmail SMTP 寄送（與 OAuth 路徑同規格：`--auto` 確認閘、sent 去重、`--dry-run`） |
+| `skills/daily-report/scripts/content_guard.py` | **內容硬閘**：擋 AI/工具鏈用語＋憑證/個資/金額，寄送前必過，無豁免旗標 |
+| `skills/daily-report/scripts/confirm_gate.py` | **確認窗口閘**：`arm`/`check`/`veto`/`clear`，時間與狀態由腳本判定，專案間隔離 |
 | `skills/daily-report/scripts/check_no_secrets.py` | 機制閘：掃 repo 內 JSON 範本有無真憑證（`--staged` 供 pre-commit 用） |
-| `skills/daily-report/scripts/send_gmail.py` | Gmail SMTP 寄送（`--dry-run` 預覽、markdown 極簡轉 HTML 雙格式） |
 | `skills/daily-report/config.example.json` | 設定檔範本 |
 
-## 界線
+## 界線（誠實說明，裝之前請讀）
 
-- 只涵蓋 Claude Code 內的工作；會議、瀏覽器操作等要口頭補充
-- 不自動排程（要固定寄可搭 Windows 工作排程器，仍建議人工核可）
-- 疑似私人 session 預設略過並告知，可要求加回
+- 只涵蓋 Claude Code 內的工作；會議、瀏覽器操作等要口頭補充。
+- **內容硬閘擋得住「形狀明確」的東西**（AI 用語、憑證、身分證字號、金額），但**擋不住語意層的機密**——客戶名稱、專案代號、商業判斷這些沒有固定形狀，靠的是產生日報時的改寫。寄出前請看過內容，這是最後一道防線。
+- **私人 session 的過濾是模型判斷，不是機制**。工具會掃你當日所有對話，包含你可能問過的私人問題；模型被指示略過明顯私人的內容並告知，但這是自律。在意的話用 `--project` 限定範圍。
+- 中間檔 `~/.claude/daily-report/out/*.json` 存有對話原文摘要，**目前不會自動清理**——家目錄若有雲端同步請留意。
+- 不自動排程。要每天固定寄，需自行搭配工作排程器。
 
 ## 已知風險與依據（2026-07 調查）
 

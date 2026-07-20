@@ -30,7 +30,9 @@ import os
 import re
 import smtplib
 import ssl
+import subprocess
 import sys
+from datetime import datetime
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -41,6 +43,14 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stderr.reconfigure(encoding="utf-8")
 
 CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".claude", "daily-report", "config.json")
+
+
+def _scope_key(project_dir=None):
+    """與 confirm_gate.scope_key 同演算法——sent 標記必須落在同一個專案命名空間，
+    否則 confirm_gate.already_sent() 找不到本腳本寫的記錄。"""
+    import hashlib
+    root = os.path.abspath(project_dir or os.getcwd())
+    return hashlib.sha256(os.path.normcase(root).encode("utf-8")).hexdigest()[:10]
 
 
 def die(msg, code=1):
@@ -83,43 +93,123 @@ def load_config(project_dir=None):
     return cfg
 
 
-def md_to_html(md):
-    """極簡 markdown → HTML（標題/粗體/清單/分隔線），夠日報用即可。
-    不引第三方套件——這裡的目標是「郵件客戶端裡看起來乾淨」，不是完整 markdown 規格。"""
-    out = ["<div style='font-family:-apple-system,\"Segoe UI\",\"Microsoft JhengHei\",sans-serif;"
-           "font-size:14px;line-height:1.7;color:#222;max-width:720px'>"]
+# 郵件 HTML 的限制決定了這裡的寫法：Gmail 會剝掉 <style> 區塊與多數 CSS 選擇器，
+# 所以一律用 inline style；不用 flex/grid（Outlook 不支援），版面靠 table 與 border 撐。
+# 目標是「像一份正式的工作報告」，不是像程式輸出。
+_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei','PingFang TC',sans-serif"
+_INK = "#1a1d21"      # 主文字
+_MUTED = "#6b7280"    # 次要文字
+_RULE = "#e5e7eb"     # 分隔線
+_ACCENT = "#2563eb"   # 標題左側強調條
+
+
+def md_to_html(md, meta=None):
+    """markdown → 郵件用 HTML。meta 可帶 {'date':..., 'subtitle':...} 產生表頭。
+
+    設計取捨：不追求完整 markdown 規格（日報只用到標題、清單、粗體、行內碼），
+    把力氣花在排版質感——章節有層次、條目好掃讀、在深色模式下不會爆掉。
+    """
+    meta = meta or {}
+    body = []
     in_list = False
+
+    def close_list():
+        nonlocal in_list
+        if in_list:
+            body.append("</ul>")
+            in_list = False
+
     for line in md.splitlines():
         s = line.rstrip()
-        esc = (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-        esc = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", esc)
-        esc = re.sub(r"`(.+?)`", r"<code style='background:#f2f2f2;padding:1px 4px;border-radius:3px'>\1</code>", esc)
-        stripped = esc.strip()
-        is_li = stripped.startswith("- ") or stripped.startswith("* ")
-        if in_list and not is_li:
-            out.append("</ul>")
-            in_list = False
-        if not stripped:
-            out.append("<div style='height:8px'></div>")
-        elif stripped.startswith("### "):
-            out.append("<h4 style='margin:14px 0 4px'>" + stripped[4:] + "</h4>")
-        elif stripped.startswith("## "):
-            out.append("<h3 style='margin:18px 0 6px;border-bottom:1px solid #ddd;padding-bottom:3px'>" + stripped[3:] + "</h3>")
-        elif stripped.startswith("# "):
-            out.append("<h2 style='margin:4px 0 10px'>" + stripped[2:] + "</h2>")
-        elif stripped in ("---", "***"):
-            out.append("<hr style='border:none;border-top:1px solid #ddd'>")
+        esc = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        esc = re.sub(r"\*\*(.+?)\*\*", r"<strong style='font-weight:600'>\1</strong>", esc)
+        esc = re.sub(
+            r"`(.+?)`",
+            r"<code style=\"font-family:'SF Mono',Consolas,monospace;font-size:12.5px;"
+            r"background:#f3f4f6;color:#374151;padding:1px 5px;border-radius:4px\">\1</code>",
+            esc)
+        st = esc.strip()
+        is_li = st.startswith("- ") or st.startswith("* ")
+
+        if not is_li:
+            close_list()
+
+        if not st:
+            continue  # 空行不產生節點，間距交給各區塊的 margin 控制
+        if st.startswith("# "):
+            continue  # 主標題改由表頭呈現，內文不重複
+        if st.startswith("### "):
+            body.append(
+                "<div style='margin:18px 0 6px;font-size:14px;font-weight:600;color:{}'>{}</div>"
+                .format(_INK, st[4:]))
+        elif st.startswith("## "):
+            # 章節標題：左側強調條 + 底線，讓收件人一眼看出區塊分界
+            body.append(
+                "<div style='margin:26px 0 10px;padding:0 0 7px 11px;"
+                "border-left:3px solid {};border-bottom:1px solid {};"
+                "font-size:15px;font-weight:600;color:{};letter-spacing:.01em'>{}</div>"
+                .format(_ACCENT, _RULE, _INK, st[3:]))
+        elif st in ("---", "***"):
+            body.append("<div style='height:1px;background:{};margin:22px 0'></div>".format(_RULE))
         elif is_li:
             if not in_list:
-                out.append("<ul style='margin:4px 0;padding-left:22px'>")
+                body.append("<ul style='margin:0;padding:0;list-style:none'>")
                 in_list = True
-            out.append("<li>" + stripped[2:] + "</li>")
+            # 自繪項目符號：郵件客戶端對 list-style 的處理差異大，用 table 排版最穩
+            body.append(
+                "<li style='margin:0 0 7px;padding:0'>"
+                "<table role='presentation' cellpadding='0' cellspacing='0' border='0'><tr>"
+                "<td style='vertical-align:top;padding:0 9px 0 2px;color:{};font-size:13px;"
+                "line-height:1.65'>▪</td>"
+                "<td style='vertical-align:top;font-size:14px;line-height:1.65;color:{}'>{}</td>"
+                "</tr></table></li>".format(_ACCENT, _INK, st[2:]))
         else:
-            out.append("<div>" + esc + "</div>")
-    if in_list:
-        out.append("</ul>")
-    out.append("</div>")
-    return "\n".join(out)
+            body.append(
+                "<div style='margin:0 0 9px;font-size:14px;line-height:1.65;color:{}'>{}</div>"
+                .format(_INK, st))
+    close_list()
+
+    date = meta.get("date", "")
+    subtitle = meta.get("subtitle", "")
+
+    # 刻意不在內文放寄件者/寄發時間：郵件 header 本來就有，內文重複是冗餘。
+    # 那些資訊屬於「寄出前給作者確認」的範疇，由 confirm_gate 的預覽呈現。
+    header = (
+        "<div style='padding:0 0 16px;border-bottom:2px solid {};margin:0 0 22px'>"
+        "<div style='font-size:11px;font-weight:600;letter-spacing:.09em;"
+        "text-transform:uppercase;color:{}'>Daily Report</div>"
+        "<div style='margin:7px 0 0;font-size:21px;font-weight:600;color:{};"
+        "letter-spacing:-.01em'>{} 工作日報</div>"
+        "{}</div>"
+    ).format(_RULE, _MUTED, _INK, date,
+             "<div style='margin:5px 0 0;font-size:13px;color:{}'>{}</div>".format(_MUTED, subtitle)
+             if subtitle else "")
+
+    footer = ("<div style='margin:30px 0 0;padding:13px 0 0;border-top:1px solid {};"
+              "font-size:11.5px;color:{}'>本報告依當日工作記錄彙整</div>").format(_RULE, _MUTED)
+
+    # 外層用 table 置中：div + margin:auto 在部分郵件客戶端（尤其 Outlook）不生效
+    return (
+        "<table role='presentation' cellpadding='0' cellspacing='0' border='0' width='100%' "
+        "style='background:#f7f8fa;margin:0;padding:26px 12px'><tr><td align='center'>"
+        "<table role='presentation' cellpadding='0' cellspacing='0' border='0' "
+        "style='max-width:680px;width:100%;background:#ffffff;border:1px solid {};"
+        "border-radius:10px'><tr><td style=\"padding:30px 34px 26px;font-family:{};"
+        "color:{};-webkit-font-smoothing:antialiased\">{}{}{}</td></tr></table>"
+        "</td></tr></table>"
+    ).format(_RULE, _FONT, _INK, header, "\n".join(body), footer)
+
+
+def build_meta(cfg, date, sender_email=None):
+    """組表頭的詮釋資料。寄件者優先顯示姓名（收件人認得的是人不是信箱），
+    兩者都有就併呈；寄發時間取當下。"""
+    name = (cfg.get("from_name") or "").strip()
+    sender = "{} <{}>".format(name, sender_email) if name and sender_email else (name or sender_email or "")
+    return {
+        "date": date,
+        "sender": sender,
+        "sent_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
 
 
 def main():
@@ -130,6 +220,9 @@ def main():
     ap.add_argument("--to", help="臨時覆寫收件人（逗號分隔），省略 = 設定檔 recipients")
     ap.add_argument("--project", help="專案目錄（省略=目前工作目錄），決定用哪份收件人設定")
     ap.add_argument("--dry-run", action="store_true", help="只預覽不寄送")
+    ap.add_argument("--force", action="store_true", help="即使當日已寄過仍重寄")
+    ap.add_argument("--auto", action="store_true",
+                    help="喚醒觸發的自動寄送：強制通過 confirm_gate 檢查才寄")
     args = ap.parse_args()
 
     if not os.path.exists(args.report):
@@ -138,6 +231,12 @@ def main():
         md = fh.read()
     if not md.strip():
         die("日報檔是空的：" + args.report)
+
+    # SKILL.md 的指令用 ~ 開頭；PowerShell 與 subprocess 不會展開它，
+    # 必須在程式裡做（紅隊：作者只在 bash 測過所以沒發現）
+    args.report = os.path.expanduser(args.report)
+    if getattr(args, "project", None):
+        args.project = os.path.expanduser(args.project)
 
     cfg = load_config(getattr(args, "project", None))
     smtp = cfg["smtp"]
@@ -162,6 +261,49 @@ def main():
     print("主旨   : " + subject)
     print("內文   : {} 字（{}）".format(len(md), args.report))
 
+    # 硬閘：內容不得含 AI / 工具鏈描述（與 OAuth 路徑共用同一支檢查，行為一致）
+    guard = os.path.join(os.path.dirname(os.path.abspath(__file__)), "content_guard.py")
+    if not os.path.exists(guard):
+        die("找不到 content_guard.py——內容硬閘缺失，拒絕寄送。", 3)
+    _cmd = [sys.executable, guard, args.report]
+    if getattr(args, "project", None):
+        _cmd += ["--project", args.project]
+    _r = subprocess.run(_cmd, capture_output=True, text=True, encoding="utf-8")
+    if _r.returncode != 0:
+        sys.stderr.write(_r.stderr or _r.stdout or "")
+        die("內容檢查未通過，已中止寄送（見上方命中清單）。", 3)
+
+    # 硬閘：--auto（喚醒觸發的自動寄）必須通過確認窗口檢查。
+    # 與 OAuth 路徑同規格——兩條寄送路徑的安全閘必須對等，
+    # 否則使用者選了「設定較快」的 SMTP 就等於放棄核可保護（紅隊實測發現的缺口）。
+    if getattr(args, "auto", False):
+        gate = os.path.join(os.path.dirname(os.path.abspath(__file__)), "confirm_gate.py")
+        if not os.path.exists(gate):
+            die("找不到 confirm_gate.py——自動寄送的確認閘缺失，拒絕寄送。", 5)
+        _gcmd = [sys.executable, gate, "check", args.date]
+        if getattr(args, "project", None):
+            _gcmd += ["--project", args.project]
+        _gr = subprocess.run(_gcmd, capture_output=True, text=True, encoding="utf-8")
+        if _gr.returncode != 0:
+            sys.stderr.write(_gr.stdout or "")
+            sys.stderr.write(_gr.stderr or "")
+            die("確認窗口檢查未通過，中止自動寄送。"
+                "（使用者明確要求寄出時，不要帶 --auto）", 5)
+        sys.stdout.write(_gr.stdout or "")
+
+    # 已寄過就不重寄（喚醒重複觸發、session 續接都可能導致重跑）
+    _sent_dir = os.path.join(os.path.dirname(CONFIG_PATH), "sent")
+    _sent_mark = os.path.join(_sent_dir, "{}-{}.json".format(
+        args.date, _scope_key(getattr(args, "project", None))))
+    if os.path.exists(_sent_mark) and not args.force and not args.dry_run:
+        try:
+            with open(_sent_mark, encoding="utf-8") as fh:
+                _prev = json.load(fh)
+        except (json.JSONDecodeError, OSError):
+            _prev = {}
+        die("{} 的日報已寄出過（{} → {}）。要重寄請加 --force。".format(
+            args.date, _prev.get("sent_at", "?"), ", ".join(_prev.get("recipients", []))), 4)
+
     if args.dry_run:
         print("\n--dry-run：未寄送。內文前 10 行：")
         for ln in md.splitlines()[:10]:
@@ -175,7 +317,8 @@ def main():
     if cc:
         msg["Cc"] = ", ".join(cc)
     msg.attach(MIMEText(md, "plain", "utf-8"))
-    msg.attach(MIMEText(md_to_html(md), "html", "utf-8"))
+    msg.attach(MIMEText(md_to_html(md, build_meta(cfg, args.date, smtp.get("user"))),
+                        "html", "utf-8"))
 
     try:
         ctx = ssl.create_default_context()
@@ -196,6 +339,20 @@ def main():
             "非 Gmail 登入密碼；且帳戶要先開兩步驟驗證）。", 2)
     except (smtplib.SMTPException, OSError) as e:
         die("寄送失敗：" + str(e), 2)
+
+    # 記錄已寄，供重複觸發時擋下（與 OAuth 路徑共用同一個 sent/ 目錄，
+    # confirm_gate.already_sent() 也讀這裡——否則 SMTP 寄出後該目錄仍空，
+    # 「已寄出」狀態對確認閘不可見）
+    try:
+        os.makedirs(_sent_dir, exist_ok=True)
+        with open(_sent_mark, "w", encoding="utf-8") as fh:
+            json.dump({"date": args.date, "recipients": recipients, "cc": cc,
+                       "subject": subject, "report": os.path.abspath(args.report),
+                       "channel": "smtp",
+                       "sent_at": datetime.now().isoformat(timespec="seconds")},
+                      fh, ensure_ascii=False, indent=2)
+    except OSError:
+        pass  # 記錄失敗不該讓「已成功寄出」變成錯誤
 
     print("✓ 已寄出")
 
