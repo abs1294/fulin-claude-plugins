@@ -5,6 +5,11 @@ node_modules/
 # delaylocal LINE 憑證（機密，勿進 git）
 **/notify-line.config.json
 
+# daily-report 憑證（正本在 ~/.claude/daily-report/config.json；這裡擋的是
+# 有人誤把真值檔複製進 repo。config.example.json 是空範本，刻意不擋、要進 git）
+**/daily-report/config.json
+**/.claude/daily-report/
+
 # 本機 per-project plugin 啟用設定（個人狀態，勿進 git）
 .claude/
 

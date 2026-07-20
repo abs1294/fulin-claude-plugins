@@ -147,6 +147,11 @@ extract_path_from_status() {
 SIGNATURE_PATTERN='Co-Authored-By|Generated with \[?Claude|🤖|noreply@anthropic|Claude Code'
 # 敏感字 pattern（與 analyze 共用同一份，單一事實來源）。
 SENSITIVE_PATTERN='password|secret|api_key|bearer|token=|ConnectionString|console\.log|Console\.WriteLine|System\.out\.print|debugger;|TODO: remove|FIXME|XXX|// DEBUG|// TEMP|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|sqlcmd .{0,120}-P |Pwd[[:space:]]*=|User ?Id[[:space:]]*=|Data Source[[:space:]]*=|Initial Catalog[[:space:]]*='
+# 真實憑證的「形狀」pattern：上面那份抓的是關鍵字（會誤命中文件與變數名），
+# 這份抓的是憑證本身長什麼樣——誤判率極低，命中幾乎必是真的外洩。
+# 動機：*.example.json 這類「隨 plugin 發布的範本」與使用者家目錄的真設定檔長得一樣，
+# 只差值是不是空的；靠文件寫「不要填真值」是自律，這裡才是他律。
+CREDENTIAL_SHAPE_PATTERN='[0-9]{6,}-[a-z0-9]+\.apps\.googleusercontent\.com|GOCSPX-[A-Za-z0-9_-]{10,}|"refresh_token"[[:space:]]*:[[:space:]]*"1//[A-Za-z0-9_-]{10,}|ya29\.[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 
 # 硬閘：commit message（type + desc）不得含任何 AI 署名，且必須單行。
 # 命中即 exit 1——這是機制級攔截，不是提醒。
@@ -171,6 +176,18 @@ assert_no_sensitive() {
   local allow="$1"
   local diff_output
   diff_output=$(git -c color.ui=false diff --staged 2>/dev/null || true)
+
+  # 憑證形狀命中 = 不可豁免的硬閘。與下方關鍵字掃描不同，--allow-sensitive 不放行——
+  # 關鍵字會誤命中（文件寫到 "password" 很正常），憑證形狀不會，命中就是真的外洩。
+  local cred_hits
+  cred_hits=$(printf '%s\n' "$diff_output" | grep -E "$CREDENTIAL_SHAPE_PATTERN" | head -10 || true)
+  if [ -n "$cred_hits" ]; then
+    echo "ERROR: staged diff 含真實憑證的特徵字串，已拒絕 commit（此閘無法用 --allow-sensitive 豁免）。" >&2
+    echo "       憑證正本應放家目錄設定檔，repo 內範本必須留空。命中行（已遮蔽值）：" >&2
+    printf '%s\n' "$cred_hits" | sed -E 's/[A-Za-z0-9_\/+-]{12,}/<已遮蔽>/g; s/^/         /' >&2
+    exit 1
+  fi
+
   local hits
   hits=$(printf '%s\n' "$diff_output" | grep -E -i "$SENSITIVE_PATTERN" | head -20 || true)
   if [ -n "$hits" ]; then

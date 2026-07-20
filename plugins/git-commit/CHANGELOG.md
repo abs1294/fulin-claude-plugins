@@ -2,6 +2,10 @@
 
 本檔記錄 git-commit 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.1.6] - 2026-07-20
+### Fixed
+- 敏感字掃描新增 CREDENTIAL_SHAPE_PATTERN 不可豁免硬閘：抓 OAuth client_id/GOCSPX secret/refresh_token/ya29 access token/AIza API key/PEM 私鑰的憑證特徵字串，命中即拒 commit 且 --allow-sensitive 不放行（關鍵字會誤命中、憑證形狀不會），輸出遮蔽值防二次外洩
+
 ## [0.1.5] - 2026-07-09
 ### Fixed
 - README 補前置依賴段（git CLI、bash/Git Bash、選用 codex plugin＋降級說明）
