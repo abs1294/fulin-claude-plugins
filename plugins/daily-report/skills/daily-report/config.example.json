@@ -1,0 +1,23 @@
+{
+  "_說明": "複製本檔到 ~/.claude/daily-report/config.json。寄送管道三選一，腳本依本檔內容自動判斷：① oauth 區塊（推薦，最小權限 gmail.send，跑 gmail_oauth.py setup 會自動填 refresh_token）② smtp 區塊（應用程式密碼，等同整個信箱權限）③ 兩者都不填則由 Claude 用 Gmail MCP 建草稿、你自己按送出。此檔含機密，只放家目錄、絕不進 git。",
+
+  "recipients": ["主管@example.com"],
+  "cc": [],
+  "subject_prefix": "[工作日報]",
+  "from_name": "寄件顯示名稱",
+
+  "oauth": {
+    "_說明": "在 Google Cloud Console 建立「桌面應用程式」用戶端後，跑：python gmail_oauth.py setup --client-id <id> --client-secret <secret>。授權完成後 refresh_token 由腳本自動寫入，不必手填。詳細步驟見 SKILL.md 的 OAuth 引導。",
+    "client_id": "",
+    "client_secret": "",
+    "refresh_token": ""
+  },
+
+  "smtp": {
+    "_說明": "選配：只有要用應用程式密碼直寄時才填（無人值守排程場景）。",
+    "host": "smtp.gmail.com",
+    "port": 465,
+    "user": "你的帳號@gmail.com",
+    "app_password": ""
+  }
+}
