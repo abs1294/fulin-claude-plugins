@@ -15,3 +15,7 @@ node_modules/
 
 # 編輯備份不進 git
 *.bak
+
+# Python 編譯快取（我的測試執行產生的，不進 git）
+__pycache__/
+*.pyc
