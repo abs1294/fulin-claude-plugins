@@ -23,6 +23,8 @@
 
 **首次使用不用自己看文件**：跟 Claude 說產日報，它偵測到沒設定會問你要哪條路，選 OAuth 就**一步一步帶你做完**（建專案 → 啟用 API → 設定同意畫面 → 建用戶端 → 執行授權），最後那步瀏覽器自動跳出、按個「允許」就完成，refresh token 自動寫進設定檔。
 
+**設定對不對不靠猜——跑 `gmail_oauth.py doctor`**：它實際打 Gmail API 逐項驗證（設定檔、用戶端、授權能否換 token、API 是否已啟用、收件人），哪一項沒過就指出來，並附上 **Google 當下回傳的**錯誤與修復連結。做這個是因為作者自己照引導跑一遍，仍漏掉「啟用 Gmail API」直到寄信被 403——**引導文字會被漏讀、Console 路徑會改版，實測不會**。
+
 **分享給別人用**：這個 plugin **不內建任何 OAuth 憑證**（刻意的——避免配額、驗證狀態、撤銷風險全綁在單一人身上）。對方裝了之後跑同樣的引導、開自己的 GCP 專案即可；或你把自己的 client_id/secret 給他填，他只需跑最後一步授權。
 
 **憑證怎麼確保不會外流**（設定檔與範本長得一樣，只差值空不空，所以靠機制不靠自律）：
@@ -43,7 +45,7 @@
 |------|------|
 | `skills/daily-report/SKILL.md` | 主流程（萃取→生成→核可→寄送） |
 | `skills/daily-report/scripts/extract_sessions.py` | 掃 session jsonl 產中間 JSON（mtime 預過濾、sidechain/SDK/注入過濾、ai-title 直取） |
-| `skills/daily-report/scripts/gmail_oauth.py` | Gmail API OAuth：`setup`（loopback + PKCE 引導式授權）/`send`/`status`（零外部套件） |
+| `skills/daily-report/scripts/gmail_oauth.py` | Gmail API OAuth：`setup`（loopback + PKCE 引導式授權）/`send`/`status`/**`doctor`**（零外部套件） |
 | `skills/daily-report/scripts/check_no_secrets.py` | 機制閘：掃 repo 內 JSON 範本有無真憑證（`--staged` 供 pre-commit 用） |
 | `skills/daily-report/scripts/send_gmail.py` | Gmail SMTP 寄送（`--dry-run` 預覽、markdown 極簡轉 HTML 雙格式） |
 | `skills/daily-report/config.example.json` | 設定檔範本 |

@@ -28,7 +28,49 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".claude", "daily-report", "config.json")
+HOME_CONFIG = os.path.join(os.path.expanduser("~"), ".claude", "daily-report", "config.json")
+# 專案層設定：放專案自己的 .claude/ 底下。plugin 裝在 project scope 時，
+# 收件人本來就該跟著專案走（Winbond 的日報不該寄給 AI Platform 的窗口）。
+PROJECT_CONFIG_REL = os.path.join(".claude", "daily-report.json")
+
+
+def resolve_config_path(project_dir=None):
+    """回傳 (使用的設定檔路徑, 是否為專案層)。
+
+    解析順序：專案層 <專案>/.claude/daily-report.json → 家目錄 config.json。
+    專案層只需覆寫收件人（recipients/cc/subject_prefix）；憑證一律留在家目錄那份，
+    因為憑證跟「人」綁定而非跟專案綁定，而且專案目錄常在 git 版控內。
+    """
+    root = os.path.abspath(project_dir or os.getcwd())
+    p = os.path.join(root, PROJECT_CONFIG_REL)
+    if os.path.exists(p):
+        return p, True
+    return HOME_CONFIG, False
+
+
+def load_merged(project_dir=None):
+    """合併家目錄（憑證）與專案層（收件人）設定。專案層的收件人欄位優先。"""
+    merged = {}
+    for path in (HOME_CONFIG,):
+        if os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    merged.update(json.load(fh))
+            except (json.JSONDecodeError, OSError):
+                pass
+    proj_path, is_proj = resolve_config_path(project_dir)
+    if is_proj:
+        try:
+            with open(proj_path, encoding="utf-8") as fh:
+                proj = json.load(fh)
+            # 只讓專案層覆寫「寄給誰」，不讓它帶憑證（避免憑證進 git）
+            for k in ("recipients", "cc", "subject_prefix", "from_name", "channel"):
+                if k in proj:
+                    merged[k] = proj[k]
+            merged["_project_config"] = proj_path
+        except (json.JSONDecodeError, OSError):
+            pass
+    return merged
 
 # 三選項的完整比較。這份文字是「必須被講出來的內容」的單一事實來源——
 # 改這裡，所有使用者看到的說明就一起改，不必期待每個模型都記得補上。
@@ -65,7 +107,9 @@ OPTIONS = [
 GUIDES = {
     "oauth": {
         "title": "Gmail API OAuth 設定引導",
-        "note": "每一步做完再進下一步；卡住就把畫面描述給我，我針對那個畫面給提示。",
+        "note": "每一步做完再進下一步；卡住就把畫面描述給我，我針對那個畫面給提示。\n"
+                "⚠ 步驟裡的 Console 網址可能隨 Google 改版而過時——最後的 doctor 會實際打 API 驗證，"
+                "並輸出 Google 當下給的正確連結。以 doctor 的輸出為準，不以本步驟文字為準。",
         "steps": [
             {"do": "開 https://console.cloud.google.com/projectcreate ，專案名稱可填 daily-report，按「建立」",
              "check": "右上角通知顯示建立完成，且畫面頂端已切換到這個新專案"},
@@ -80,8 +124,8 @@ GUIDES = {
             {"do": "把上一步兩個值填進這個指令執行（瀏覽器會自動開啟）：\n"
                    "  python \"<PLUGIN>/skills/daily-report/scripts/gmail_oauth.py\" setup --client-id <用戶端ID> --client-secret <用戶端密鑰>",
              "check": "瀏覽器若顯示「Google 尚未驗證這個應用程式」→ 點「進階」→「前往…（不安全）」。這是自建用戶端未送驗證的正常畫面。看到「授權完成」頁即成功"},
-            {"do": "驗收：python \"<PLUGIN>/skills/daily-report/scripts/gmail_oauth.py\" status",
-             "check": "應顯示「✓ 可換發 access_token，授權有效」"},
+            {"do": "驗收（必跑，不可略）：python \"<PLUGIN>/skills/daily-report/scripts/gmail_oauth.py\" doctor",
+             "check": "五項全綠才算完成。若顯示「尚未啟用 Gmail API」→ 開它附的那個連結按啟用（用 Google 給的連結，不要用步驟 2 的網址，Console 路徑會改版）；顯示 invalid_grant → 重跑 setup。doctor 是實際打 API 驗證，比自己看畫面可靠"},
         ],
     },
     "app_password": {
@@ -111,15 +155,14 @@ GUIDES = {
 }
 
 
-def detect():
+def detect(project_dir=None):
     """回傳 (管道, 說明)。管道為 None 代表尚未設定。"""
-    if not os.path.exists(CONFIG_PATH):
-        return None, "設定檔不存在：" + CONFIG_PATH
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as fh:
-            cfg = json.load(fh)
-    except (json.JSONDecodeError, OSError) as e:
-        return None, "設定檔無法解析（{}）：{}".format(CONFIG_PATH, e)
+    proj_path, is_proj = resolve_config_path(project_dir)
+    if not os.path.exists(HOME_CONFIG) and not is_proj:
+        return None, "設定檔不存在：" + HOME_CONFIG
+    cfg = load_merged(project_dir)
+    if not cfg:
+        return None, "設定檔無法解析或內容為空"
 
     oauth = cfg.get("oauth") or {}
     smtp = cfg.get("smtp") or {}
@@ -134,13 +177,17 @@ def detect():
     else:
         return None, "設定檔存在但沒有任何可用的寄送管道"
 
+    src = cfg.get("_project_config") or HOME_CONFIG
     if not recipients:
-        return None, "管道 {} 已設定，但 recipients（收件人）是空的".format(chan)
-    return chan, "管道={} 收件人={}".format(chan, ", ".join(recipients))
+        return None, "管道 {} 已設定，但 recipients（收件人）是空的（讀自 {}）".format(chan, src)
+    cc = [c for c in (cfg.get("cc") or []) if str(c).strip()]
+    return chan, "管道={} 收件人={}{} 設定來源={}".format(
+        chan, ", ".join(recipients),
+        "  副本=" + ", ".join(cc) if cc else "", src)
 
 
 def cmd_status(args):
-    chan, detail = detect()
+    chan, detail = detect(getattr(args, "project", None))
     if chan:
         print("SETUP_OK")
         print(detail)
@@ -150,6 +197,8 @@ def cmd_status(args):
     print("\n下一步：跑 `setup_gate.py options` 取得三選項的完整說明，"
           "用 AskUserQuestion 原文呈現給使用者選；選定後跑 `setup_gate.py guide <選項>`。",
           file=sys.stderr)
+    print("提示：收件人可依專案覆寫——在專案建 .claude/daily-report.json 放 "
+          "{\"recipients\": [...], \"cc\": [...]}；憑證仍統一留在家目錄那份。", file=sys.stderr)
     sys.exit(10)
 
 
@@ -189,7 +238,9 @@ def cmd_guide(args):
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("status").set_defaults(func=cmd_status)
+    st = sub.add_parser("status")
+    st.add_argument("--project", help="專案目錄（省略=目前工作目錄）")
+    st.set_defaults(func=cmd_status)
     sub.add_parser("options").set_defaults(func=cmd_options)
     g = sub.add_parser("guide")
     g.add_argument("channel", choices=list(GUIDES))

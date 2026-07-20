@@ -8,10 +8,15 @@ extract_sessions.py — 掃描 ~/.claude/projects/ 的 session jsonl，萃取指
 
 用法：
   python extract_sessions.py [--date YYYY-MM-DD] [--tz +08:00] [--out 路徑]
+                             [--project <路徑>|--all-projects]
 
-  --date  目標日期（依 --tz 的當地時間界定一天），省略 = 今天
-  --tz    時區偏移，預設 +08:00（台北）
-  --out   輸出 JSON 檔路徑，省略 = ~/.claude/daily-report/out/<date>.json
+  --date          目標日期（依 --tz 的當地時間界定一天），省略 = 今天
+  --tz            時區偏移，預設 +08:00（台北）
+  --out           輸出 JSON 檔路徑，省略 = ~/.claude/daily-report/out/<date>[-<專案>].json
+  --project       只掃這個專案路徑底下的 session（含子目錄）。
+                  省略時預設用目前工作目錄——因為 plugin 通常裝在 project scope，
+                  「這個專案的日報」才是預期行為；掃全機器會把別的客戶/專案混進來。
+  --all-projects  明確要求掃全機器所有專案（跨專案總覽時才用）
 
 Exit code：0 成功；3 = 該日無任何 session（呼叫端可據此提示）。
 
@@ -28,6 +33,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -90,6 +96,19 @@ def clean_prompt(content):
     if len(s) > PROMPT_MAX:
         s = s[:PROMPT_MAX] + "…"
     return s
+
+
+def in_scope(cwd, scope_root):
+    """session 的 cwd 是否落在 scope_root 底下（含自身與子目錄）。
+
+    用 normcase 比對：Windows 路徑大小寫不敏感，且可能混用 / 與 \\。
+    加尾綴分隔符再比前綴，避免 C:\\proj 誤匹配到 C:\\project2。
+    """
+    if not cwd:
+        return False
+    a = os.path.normcase(os.path.abspath(cwd))
+    b = os.path.normcase(os.path.abspath(scope_root))
+    return a == b or a.startswith(b + os.sep)
 
 
 def scan_file(path, day_start, day_end, tz, include_auto=False):
@@ -181,7 +200,15 @@ def main():
     ap.add_argument("--out", help="輸出 JSON 路徑")
     ap.add_argument("--include-auto", action="store_true",
                     help="連程式驅動 session（SDK/零人打 prompt）也納入")
+    ap.add_argument("--project", help="只掃此專案路徑底下的 session（省略=目前工作目錄）")
+    ap.add_argument("--all-projects", action="store_true", help="掃全機器所有專案")
     args = ap.parse_args()
+
+    # 專案範圍：預設限定當前工作目錄。plugin 多裝在 project scope，
+    # 「產日報」的預期是「這個專案今天做了什麼」，不是把所有客戶的工作混成一封信。
+    scope_root = None
+    if not args.all_projects:
+        scope_root = os.path.abspath(args.project or os.getcwd())
 
     try:
         tz = parse_tz(args.tz)
@@ -210,11 +237,21 @@ def main():
         except OSError:
             continue
         s = scan_file(path, day_start, day_end, tz, args.include_auto)
-        if s:
-            sessions.append(s)
+        if not s:
+            continue
+        # 用 session 記錄裡的 cwd 判斷歸屬，而非目錄名——目錄名是編碼過的路徑，
+        # 反解容易出錯（含空格/中文的路徑更是）。cwd 是原始絕對路徑，可靠。
+        if scope_root and not in_scope(s.get("cwd"), scope_root):
+            continue
+        sessions.append(s)
 
     if not sessions:
-        print(f"({day_start.strftime('%Y-%m-%d')} 無任何 session 記錄)", file=sys.stderr)
+        scope_note = ("（範圍：{}）".format(scope_root) if scope_root else "（範圍：全機器）")
+        print("({} 無任何 session 記錄){}".format(day_start.strftime("%Y-%m-%d"), scope_note),
+              file=sys.stderr)
+        if scope_root:
+            print("  若這天的工作在別的目錄，用 --project <路徑> 指定，"
+                  "或 --all-projects 掃全機器。", file=sys.stderr)
         sys.exit(3)
 
     # 按專案（cwd）分組；cwd 缺失的歸入 (unknown)
@@ -238,20 +275,31 @@ def main():
     result = {
         "date": day_start.strftime("%Y-%m-%d"),
         "tz": args.tz,
+        "scope": scope_root or "(all-projects)",
         "generated_at": datetime.now(tz).isoformat(timespec="seconds"),
         "project_count": len(project_list),
         "session_count": len(sessions),
         "projects": project_list,
     }
 
-    out_path = args.out or os.path.join(DEFAULT_OUT_DIR, result["date"] + ".json")
+    # 檔名帶專案識別，避免不同專案的日報互相覆蓋（同一天可能產多份）
+    if args.out:
+        out_path = args.out
+    else:
+        suffix = ""
+        if scope_root:
+            base = os.path.basename(scope_root.rstrip(os.sep)) or "root"
+            suffix = "-" + re.sub(r"[^A-Za-z0-9_.-]", "_", base)
+        out_path = os.path.join(DEFAULT_OUT_DIR, result["date"] + suffix + ".json")
     out_dir = os.path.dirname(out_path)
     if out_dir:  # --out 給純檔名（無目錄）時 dirname 為空，makedirs('') 會炸
         os.makedirs(out_dir, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(result, fh, ensure_ascii=False, indent=1)
     print(out_path)  # 唯一 stdout 輸出＝中間檔路徑，方便呼叫端接
-    print(f"  {result['date']}：{len(project_list)} 個專案、{len(sessions)} 個 session", file=sys.stderr)
+    print("  {}：{} 個專案、{} 個 session（範圍：{}）".format(
+        result["date"], len(project_list), len(sessions),
+        scope_root or "全機器"), file=sys.stderr)
 
 
 if __name__ == "__main__":
