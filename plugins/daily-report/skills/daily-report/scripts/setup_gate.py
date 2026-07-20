@@ -146,8 +146,13 @@ GUIDES = {
         "title": "MCP 草稿設定引導",
         "note": "不需憑證，只需要知道收件人。",
         "steps": [
-            {"do": "告訴我收件人 email（可多位），我寫進 ~/.claude/daily-report/config.json 的 recipients",
-             "check": "設定檔只會有 recipients / cc / subject_prefix，不含任何憑證"},
+            {"do": "告訴我收件人 email（可多位）。我會寫進設定檔的 recipients，"
+                   "並同時寫入 \"channel\": \"mcp_draft\" 標明你選的是草稿管道",
+             "check": "設定檔只會有 channel / recipients / cc / subject_prefix，不含任何憑證。"
+                      "channel 這欄不可省略——沒有它，若這台機器剛好有別的憑證，"
+                      "會被誤判成直接寄送而不是建草稿"},
+            {"do": "驗收：python \"<PLUGIN>/skills/daily-report/scripts/setup_gate.py\" status",
+             "check": "應顯示 SETUP_OK 且「管道=mcp_draft」。若顯示別的管道，代表 channel 沒寫進去"},
             {"do": "之後每次產日報，我會把它放進你的 Gmail 草稿匣",
              "check": "你開 Gmail 過目後自己按送出——按送出這一下就是最終核可"},
         ],
@@ -168,12 +173,24 @@ def detect(project_dir=None):
     smtp = cfg.get("smtp") or {}
     recipients = [r for r in (cfg.get("recipients") or []) if str(r).strip()]
 
-    if oauth.get("refresh_token"):
+    # channel 是使用者的明示選擇，優先於「偵測到有什麼憑證」。
+    # 沒有這個優先序時，選了 mcp_draft 的人會因為家目錄剛好有 OAuth 憑證
+    # 而被誤判成 oauth 管道（同一台機器多人/多情境共用時必然發生）。
+    explicit = cfg.get("channel")
+    if explicit == "mcp_draft":
+        chan = "mcp_draft"
+    elif explicit == "oauth" and oauth.get("refresh_token"):
+        chan = "oauth"
+    elif explicit == "app_password" and smtp.get("app_password"):
+        chan = "app_password"
+    elif explicit in ("oauth", "app_password"):
+        return None, ("設定檔指定管道 {} 但缺對應憑證（{}）——跑對應的引導完成設定"
+                      .format(explicit,
+                              "oauth.refresh_token" if explicit == "oauth" else "smtp.app_password"))
+    elif oauth.get("refresh_token"):
         chan = "oauth"
     elif smtp.get("app_password"):
         chan = "app_password"
-    elif cfg.get("channel") == "mcp_draft":
-        chan = "mcp_draft"
     else:
         return None, "設定檔存在但沒有任何可用的寄送管道"
 
@@ -181,9 +198,16 @@ def detect(project_dir=None):
     if not recipients:
         return None, "管道 {} 已設定，但 recipients（收件人）是空的（讀自 {}）".format(chan, src)
     cc = [c for c in (cfg.get("cc") or []) if str(c).strip()]
-    return chan, "管道={} 收件人={}{} 設定來源={}".format(
-        chan, ", ".join(recipients),
-        "  副本=" + ", ".join(cc) if cc else "", src)
+    # 標明寄件帳號：憑證一律來自家目錄，收件人可能來自專案層。
+    # 不標的話，使用者看不出這封信會用哪個帳號寄出——多帳號共用一台機器時會寄錯身分。
+    sender = cfg.get("from_email") or (cfg.get("smtp") or {}).get("user") or ""
+    parts = ["管道=" + chan, "收件人=" + ", ".join(recipients)]
+    if cc:
+        parts.append("副本=" + ", ".join(cc))
+    if sender and chan != "mcp_draft":
+        parts.append("寄件帳號={}（憑證來自 {}）".format(sender, HOME_CONFIG))
+    parts.append("收件人設定來源=" + src)
+    return chan, "  ".join(parts)
 
 
 def cmd_status(args):
