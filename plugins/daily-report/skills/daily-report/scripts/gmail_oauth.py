@@ -74,14 +74,34 @@ def die(msg, code=1):
     sys.exit(code)
 
 
-def load_config():
-    if not os.path.exists(CONFIG_PATH):
-        return {}
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as fh:
-            return json.load(fh)
-    except (json.JSONDecodeError, OSError) as e:
-        die("設定檔解析失敗（{}）：{}".format(CONFIG_PATH, e))
+PROJECT_CONFIG_REL = os.path.join(".claude", "daily-report.json")
+
+
+def load_config(project_dir=None):
+    """家目錄設定（含憑證）＋專案層覆寫（只收件人）。
+
+    憑證只從家目錄讀——它跟「人」綁定不跟專案綁定，且專案目錄通常在 git 版控內。
+    專案層只覆寫寄給誰，這樣同一組授權可以服務多個專案、各自寄給不同窗口。
+    """
+    cfg = {}
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as fh:
+                cfg = json.load(fh)
+        except (json.JSONDecodeError, OSError) as e:
+            die("設定檔解析失敗（{}）：{}".format(CONFIG_PATH, e))
+    proj = os.path.join(os.path.abspath(project_dir or os.getcwd()), PROJECT_CONFIG_REL)
+    if os.path.exists(proj):
+        try:
+            with open(proj, encoding="utf-8") as fh:
+                pc = json.load(fh)
+            for k in ("recipients", "cc", "subject_prefix", "from_name"):
+                if k in pc:
+                    cfg[k] = pc[k]
+            cfg["_project_config"] = proj
+        except (json.JSONDecodeError, OSError) as e:
+            die("專案設定檔解析失敗（{}）：{}".format(proj, e))
+    return cfg
 
 
 def save_config(cfg):
@@ -251,6 +271,113 @@ def access_token(oauth):
     return tok["access_token"]
 
 
+def probe_send_api(token):
+    """實際打一次 Gmail send 端點來探測「API 有沒有啟用、scope 對不對」。
+
+    刻意送一個必然被拒的空 raw：我們要的是 Google 的錯誤『種類』，不是真的寄信。
+    - 403 + "has not been used in project" → Gmail API 未啟用（附 Google 給的啟用連結）
+    - 403 + insufficient/scope        → 授權範圍不含 gmail.send
+    - 400                              → API 通了（400 是我們故意送壞資料造成的，代表這關過）
+    這是本檔存在的理由：不問使用者「你啟用了嗎」，直接問 Google。
+    """
+    req = urllib.request.Request(
+        SEND_URI, data=json.dumps({"raw": ""}).encode(),
+        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30):
+            return True, "Gmail API 可呼叫"
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        if e.code == 400:
+            return True, "Gmail API 可呼叫（探測用的空郵件被拒屬預期）"
+        if e.code == 403:
+            m = re.search(r"https://console\.developers\.google\.com/\S+?(?=[\s\"\\])", detail)
+            link = m.group(0) if m else None
+            if "has not been used in project" in detail or "is disabled" in detail:
+                msg = "GCP 專案尚未啟用 Gmail API"
+                if link:
+                    msg += "\n      啟用連結（Google 提供）：" + link
+                return False, msg
+            if "insufficient" in detail.lower() or "scope" in detail.lower():
+                return False, ("授權範圍不含 gmail.send —— 重跑 setup 重新授權\n"
+                               "      Google 原文：" + detail[:200])
+            return False, "Gmail API 拒絕（403）：" + detail[:250]
+        if e.code == 401:
+            return False, "access_token 被拒（401）——授權可能已撤銷，重跑 setup"
+        return False, "HTTP {}：{}".format(e.code, detail[:200])
+    except urllib.error.URLError as e:
+        return False, "無法連線 Gmail API：{}".format(e.reason)
+
+
+def cmd_doctor(args):
+    """逐項實測設定是否可用——每一項都用程式驗證，不靠使用者回報。
+
+    設計原則：使用者說「我做過了」不算數（實戰上引導步驟就是會被漏掉，
+    寫引導的人自己也會漏）。能打 API 驗的就打，不能驗的才讀檔。
+    輸出 Google 的原始錯誤與連結，而不是本腳本記憶中的 Console 路徑——
+    Console 介面會改版，Google 當下回的訊息永遠比寫死的步驟新。
+    """
+    cfg = load_config(getattr(args, "project", None))
+    oauth = cfg.get("oauth") or {}
+    checks = []   # (項目, 通過?, 說明)
+
+    # 1. 設定檔存在
+    checks.append(("設定檔", os.path.exists(CONFIG_PATH),
+                   CONFIG_PATH if os.path.exists(CONFIG_PATH)
+                   else CONFIG_PATH + " 不存在 → 跑 setup"))
+
+    # 2. 用戶端憑證
+    has_client = bool(oauth.get("client_id") and oauth.get("client_secret"))
+    checks.append(("OAuth 用戶端", has_client,
+                   "已設定" if has_client else "缺 client_id/client_secret → 跑 setup"))
+
+    # 3. 授權（refresh_token 存在且能換 access_token）
+    token = None
+    if oauth.get("refresh_token"):
+        try:
+            tok = post_form(TOKEN_URI, {
+                "client_id": oauth.get("client_id", ""),
+                "client_secret": oauth.get("client_secret", ""),
+                "refresh_token": oauth["refresh_token"],
+                "grant_type": "refresh_token"})
+            token = tok.get("access_token")
+            checks.append(("授權狀態", bool(token),
+                           "有效，可換發 access_token" if token else "換發失敗：" + json.dumps(tok)[:150]))
+        except RuntimeError as e:
+            hint = ""
+            if "invalid_grant" in str(e):
+                hint = ("\n      invalid_grant 代表授權已失效——常見原因：使用者撤銷、帳號改密碼、"
+                        "或同意畫面仍是「測試中」導致 7 天過期。重跑 setup 即可。")
+            checks.append(("授權狀態", False, str(e)[:200] + hint))
+    else:
+        checks.append(("授權狀態", False, "尚未授權（無 refresh_token）→ 跑 setup"))
+
+    # 4. Gmail API 是否啟用（實打，不問使用者）
+    if token:
+        ok, msg = probe_send_api(token)
+        checks.append(("Gmail API", ok, msg))
+    else:
+        checks.append(("Gmail API", False, "跳過（需先完成授權）"))
+
+    # 5. 收件人
+    recipients = [str(a).strip() for a in (cfg.get("recipients") or []) if str(a).strip()]
+    src = cfg.get("_project_config") or CONFIG_PATH
+    checks.append(("收件人", bool(recipients),
+                   "{}（來源：{}）".format(", ".join(recipients), src) if recipients
+                   else "未設定 → 在 config 的 recipients 填入，或在專案建 .claude/daily-report.json"))
+
+    print("== daily-report 設定健檢（實測，非自我回報）==")
+    failed = 0
+    for name, ok, msg in checks:
+        print("  [{}] {:<12} {}".format("✓" if ok else "✗", name, msg))
+        if not ok:
+            failed += 1
+    if failed:
+        print("\n{} 項未通過——依上方訊息處理後再跑一次 doctor。".format(failed))
+        sys.exit(1)
+    print("\n全部通過：可以寄送。")
+
+
 def cmd_status(args):
     cfg = load_config()
     oauth = cfg.get("oauth") or {}
@@ -277,7 +404,7 @@ def build_message(md, subject, sender, recipients, cc, html):
 
 
 def cmd_send(args):
-    cfg = load_config()
+    cfg = load_config(getattr(args, "project", None))
     oauth = cfg.get("oauth") or {}
     if not os.path.exists(args.report):
         die("找不到日報檔：" + args.report)
@@ -300,6 +427,8 @@ def cmd_send(args):
         cfg.get("subject_prefix", "[工作日報]"), args.date).strip()
 
     print("管道     : Gmail API（OAuth, gmail.send）")
+    if cfg.get("_project_config"):
+        print("收件人來源: " + cfg["_project_config"] + "（專案層覆寫）")
     print("收件人   : " + ", ".join(recipients))
     if cc:
         print("副本     : " + ", ".join(cc))
@@ -353,14 +482,19 @@ def main():
     s.add_argument("--client-secret")
     s.set_defaults(func=cmd_setup)
 
-    s = sub.add_parser("status", help="檢查授權狀態")
+    s = sub.add_parser("status", help="檢查授權狀態（簡版）")
     s.set_defaults(func=cmd_status)
+
+    s = sub.add_parser("doctor", help="逐項實測設定可用性（實打 API，不靠自我回報）")
+    s.add_argument("--project", help="專案目錄（省略=目前工作目錄）")
+    s.set_defaults(func=cmd_doctor)
 
     s = sub.add_parser("send", help="寄送日報")
     s.add_argument("--report", required=True)
     s.add_argument("--date", required=True)
     s.add_argument("--subject")
     s.add_argument("--to")
+    s.add_argument("--project", help="專案目錄（省略=目前工作目錄），決定用哪份收件人設定")
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(func=cmd_send)
 

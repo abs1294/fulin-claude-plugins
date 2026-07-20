@@ -11,6 +11,8 @@
 #   - 多行 commit message（署名常見夾帶載體）
 #   - staged diff 與 prepare 被審查版本不符（TOCTOU，防審查後掉包）
 #   - 敏感字（除非顯式 --allow-sensitive）
+#   - 真實憑證特徵字串（不可豁免）
+#   - 建置產物/快取/備份檔名（除非顯式 --allow-artifacts）
 # 其餘規範（local-overrides 過濾、禁 force/amend/no-verify）由 subcommand 封裝與旗標缺席保證。
 #
 # 用法：
@@ -152,6 +154,12 @@ SENSITIVE_PATTERN='password|secret|api_key|bearer|token=|ConnectionString|consol
 # 動機：*.example.json 這類「隨 plugin 發布的範本」與使用者家目錄的真設定檔長得一樣，
 # 只差值是不是空的；靠文件寫「不要填真值」是自律，這裡才是他律。
 CREDENTIAL_SHAPE_PATTERN='[0-9]{6,}-[a-z0-9]+\.apps\.googleusercontent\.com|GOCSPX-[A-Za-z0-9_-]{10,}|"refresh_token"[[:space:]]*:[[:space:]]*"1//[A-Za-z0-9_-]{10,}|ya29\.[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+# 檔名黑名單：不該進 repo 的建置產物 / 快取 / 備份 / 本機狀態。
+# 動機（實戰）：上面兩道閘掃的是「檔案內容」，抓不到「這個檔案根本不該存在」——
+# 曾有一次 commit 把測試執行產生的 __pycache__/*.pyc 一起推上去。
+# 這類檔案的特徵在路徑不在內容，所以獨立一道以檔名判斷。
+# 可豁免（--allow-artifacts）：少數 repo 確實會版控 dist/ 或 .env.example 之外的產物。
+ARTIFACT_PATH_PATTERN='(^|/)(__pycache__|node_modules|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.venv|venv|\.idea|\.vscode)/|\.(pyc|pyo|class|o|obj|exe|dll|so|dylib|bak|orig|rej|swp|tmp)$|(^|/)(\.DS_Store|Thumbs\.db|desktop\.ini)$|\.log$'
 
 # 硬閘：commit message（type + desc）不得含任何 AI 署名，且必須單行。
 # 命中即 exit 1——這是機制級攔截，不是提醒。
@@ -167,6 +175,29 @@ assert_no_signature() {
   if [ "$(printf '%s' "$msg" | wc -l | tr -d ' ')" != "0" ]; then
     echo "ERROR: commit message 為多行，已拒絕（規範：desc 為單行 1 句話，多行常是署名夾帶載體）。" >&2
     exit 1
+  fi
+}
+
+# 硬閘：staged 檔名命中建置產物 / 快取 / 備份黑名單即拒絕。
+# 與內容掃描互補——這類檔案的問題在「不該被版控」，內容本身沒有敏感字。
+assert_no_artifacts() {
+  local allow="$1"
+  local files hits
+  files=$(git diff --staged --name-only 2>/dev/null || true)
+  [ -z "$files" ] && return 0
+  hits=$(printf '%s\n' "$files" | grep -E "$ARTIFACT_PATH_PATTERN" | head -20 || true)
+  if [ -n "$hits" ]; then
+    if [ "$allow" = "1" ]; then
+      echo "[git-commit] 檔名黑名單命中，但已帶 --allow-artifacts，放行：" >&2
+      printf '%s\n' "$hits" | sed 's/^/  /' >&2
+    else
+      echo "ERROR: staged 含不該進版控的檔案（建置產物 / 快取 / 備份），已拒絕 commit。" >&2
+      echo "       命中檔案（最多 20 個）：" >&2
+      printf '%s\n' "$hits" | sed 's/^/         /' >&2
+      echo "       處理方式：git rm -r --cached <路徑> 並把規則加進 .gitignore；" >&2
+      echo "       確實要版控這些檔請在 ship 加 --allow-artifacts。" >&2
+      exit 1
+    fi
   fi
 }
 
@@ -353,12 +384,14 @@ cmd_prepare() {
 # ------------------------------------------------------------
 
 cmd_ship() {
-  # 解析旗標：--allow-sensitive（顯式授權保留敏感字）。其餘為位置參數。
+  # 解析旗標：--allow-sensitive（顯式授權保留敏感字）、--allow-artifacts（顯式授權版控建置產物）。
   local allow_sensitive=0
+  local allow_artifacts=0
   local positional=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --allow-sensitive) allow_sensitive=1; shift ;;
+      --allow-artifacts) allow_artifacts=1; shift ;;
       *) positional+=("$1"); shift ;;
     esac
   done
@@ -368,7 +401,7 @@ cmd_ship() {
   local type="${2:-}"
   local desc="${3:-}"
   if [ -z "$repo" ] || [ -z "$type" ] || [ -z "$desc" ]; then
-    echo "Usage: flow.sh ship <repo> <type> <description> [--allow-sensitive]" >&2
+    echo "Usage: flow.sh ship <repo> <type> <description> [--allow-sensitive] [--allow-artifacts]" >&2
     exit 1
   fi
   assert_valid_repo "$repo"
@@ -400,6 +433,9 @@ cmd_ship() {
 
   # === 真閘 3：敏感字掃描（命中即 exit 1，除非 --allow-sensitive）===
   assert_no_sensitive "$allow_sensitive"
+
+  # === 真閘 4：檔名黑名單（建置產物/快取/備份，除非 --allow-artifacts）===
+  assert_no_artifacts "$allow_artifacts"
 
   echo "=== Commit ==="
   # HEREDOC 內禁止任何 AI 署名——已由 assert_no_signature 機制級攔截（非僅註解）。
@@ -451,7 +487,7 @@ Usage: flow.sh <command> [args]
 Commands:
   analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描（僅提示）
   prepare <repo> <files...>         git add + 輸出 staged diff + 記錄 diff hash 到 .claude/.git-commit-tmp/
-  ship    <repo> <type> <desc> [--allow-sensitive]
+  ship    <repo> <type> <desc> [--allow-sensitive] [--allow-artifacts]
                                     真閘(署名/單行/diff-hash/敏感字) → git commit (HEREDOC) → push → 驗證
 
 repo 參數：
@@ -470,6 +506,7 @@ Notes:
   - 禁止 --no-verify、禁止 --amend、禁止 force push（旗標層不提供）
   - Commit message 禁止任何 AI 署名——ship 會機制級攔截（assert_no_signature），非僅提醒
   - staged diff 命中敏感字時 ship 會擋下，除非顯式 --allow-sensitive
+  - staged 含建置產物/快取/備份（__pycache__、*.pyc、node_modules、*.bak、*.log…）時 ship 會擋下，除非 --allow-artifacts
   - ship 會比對 prepare 記錄的 diff hash，內容被改動過即拒絕（防審查後掉包）
 USAGE
     ;;

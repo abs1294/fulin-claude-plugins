@@ -2,6 +2,10 @@
 
 本檔記錄 daily-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.4.0] - 2026-07-20
+### Changed
+- extract 預設只掃當前專案（--project/--all-projects，用 session cwd 判歸屬，輸出檔名帶專案識別）；收件人支援專案層覆寫（<專案>/.claude/daily-report.json 只能覆寫 recipients/cc/subject_prefix/from_name，憑證強制只從家目錄讀，已實測專案層假憑證被忽略）；gmail_oauth 新增 doctor 子命令：實打 API 逐項驗證（設定檔/用戶端/授權換 token/Gmail API 是否啟用/收件人），失敗輸出 Google 原始錯誤與連結而非寫死的 Console 路徑——起因是作者自己照引導跑仍漏掉啟用 Gmail API 而被 403；SKILL.md 與 guide 改為「doctor 判定、不信自我回報、Console 路徑以 Google 即時訊息為準」
+
 ## [0.3.0] - 2026-07-20
 ### Added
 - setup_gate.py 機制閘：把首次設定從「模型自律講清楚」改成腳本產生內容。`status`（四種未完成情境統一判定，exit 10=需引導、0=可交付）、`options`（三選項的 label/description 由腳本輸出，權限/有效期/設定成本/代價四欄固定不可摘要，供模型原文填進 AskUserQuestion）、`guide <channel>`（逐步引導含每步「確認」判準）。

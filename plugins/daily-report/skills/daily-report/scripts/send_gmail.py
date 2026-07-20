@@ -48,7 +48,10 @@ def die(msg, code=1):
     sys.exit(code)
 
 
-def load_config():
+PROJECT_CONFIG_REL = os.path.join(".claude", "daily-report.json")
+
+
+def load_config(project_dir=None):
     if not os.path.exists(CONFIG_PATH):
         die("找不到設定檔 " + CONFIG_PATH + "\n"
             "請依 config.example.json 建立（Gmail 需先開兩步驟驗證、產生應用程式密碼）。")
@@ -57,6 +60,18 @@ def load_config():
             cfg = json.load(fh)
     except (json.JSONDecodeError, OSError) as e:
         die("設定檔解析失敗：" + str(e))
+    # 專案層只覆寫收件人相關欄位（憑證一律留家目錄，不進專案 git）
+    proj = os.path.join(os.path.abspath(project_dir or os.getcwd()), PROJECT_CONFIG_REL)
+    if os.path.exists(proj):
+        try:
+            with open(proj, encoding="utf-8") as fh:
+                pc = json.load(fh)
+            for k in ("recipients", "cc", "subject_prefix", "from_name"):
+                if k in pc:
+                    cfg[k] = pc[k]
+            cfg["_project_config"] = proj
+        except (json.JSONDecodeError, OSError) as e:
+            die("專案設定檔解析失敗（{}）：{}".format(proj, e))
     smtp = cfg.get("smtp") or {}
     for k in ("user", "app_password"):
         if not smtp.get(k):
@@ -113,6 +128,7 @@ def main():
     ap.add_argument("--date", required=True, help="YYYY-MM-DD（進主旨）")
     ap.add_argument("--subject", help="自訂主旨；省略 = <subject_prefix> <date> 工作日報")
     ap.add_argument("--to", help="臨時覆寫收件人（逗號分隔），省略 = 設定檔 recipients")
+    ap.add_argument("--project", help="專案目錄（省略=目前工作目錄），決定用哪份收件人設定")
     ap.add_argument("--dry-run", action="store_true", help="只預覽不寄送")
     args = ap.parse_args()
 
@@ -123,7 +139,7 @@ def main():
     if not md.strip():
         die("日報檔是空的：" + args.report)
 
-    cfg = load_config()
+    cfg = load_config(getattr(args, "project", None))
     smtp = cfg["smtp"]
     if args.to:
         # --to 是「臨時覆寫」：連 cc 一併清空。否則拿 --to 自己測試時，
@@ -138,6 +154,8 @@ def main():
     subject = args.subject or "{} {} 工作日報".format(cfg.get("subject_prefix", "[工作日報]"), args.date).strip()
 
     print("寄件人 : {} <{}>".format(cfg.get("from_name", ""), smtp["user"]))
+    if cfg.get("_project_config"):
+        print("來源   : " + cfg["_project_config"] + "（專案層覆寫收件人）")
     print("收件人 : " + ", ".join(recipients))
     if cc:
         print("副本   : " + ", ".join(cc))
