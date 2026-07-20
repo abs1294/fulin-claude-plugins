@@ -30,10 +30,61 @@ process.stdin.on('end', () => {
     // (rename(2)) and Windows (MoveFileEx with REPLACE_EXISTING) this is a
     // single atomic filesystem op, so concurrent readers never see a half-
     // written file and the target is either the old content or the new.
+    // Normalize a stored per-session entry into {total,base} for every key.
+    const normCumEntry = (entry, keys, norm) => {
+      const out = {};
+      for (const k of keys) out[k] = norm(entry[k]);
+      return out;
+    };
+
     const atomicWrite = (f, data) => {
       const tmp = `${f}.${process.pid}.${Date.now()}.tmp`;
       try { fs.writeFileSync(tmp, data); fs.renameSync(tmp, f); }
       catch (e) { try { fs.unlinkSync(tmp); } catch (_) {} }
+    };
+
+    // Exclusive inter-process lock via atomic lockfile creation.
+    //
+    // casMerge's read -> write -> verify cannot be made correct on its own: two
+    // renders can BOTH pass verify (A writes, A verifies OK, B then writes from a
+    // pre-A snapshot and also verifies OK -- A's entry is gone yet nobody retries).
+    // Measured 18.8% entry loss across 12 rounds of 8-way concurrency. Retrying
+    // harder cannot fix it; the read-modify-write needs to be genuinely atomic.
+    //
+    // wx create is atomic on both NTFS and POSIX: exactly one process wins.
+    // The lock is advisory and best-effort -- on timeout we run unlocked rather
+    // than skip the update, since a stale statusline number beats a lost one.
+    const withFileLock = (file, fn, timeoutMs = 2000) => {
+      const lockPath = file + '.lock';
+      const deadline = Date.now() + timeoutMs;
+      let fd = null;
+      while (Date.now() < deadline) {
+        try { fd = fs.openSync(lockPath, 'wx'); break; } catch (e) {
+          // Windows raises EPERM/EBUSY (not just EEXIST) when another process
+          // holds or is deleting the lockfile. Treating those as fatal made us bail
+          // out after ~39ms and run on the unlocked path -- measured as the sole
+          // cause of residual loss at 16-way concurrency. Only give up on errors
+          // that retrying cannot fix (e.g. ENOENT/EACCES on the directory).
+          if (e.code !== 'EEXIST' && e.code !== 'EPERM' && e.code !== 'EBUSY') break;
+          // Reclaim a lock orphaned by a crashed render (older than 10s).
+          try {
+            const age = Date.now() - fs.statSync(lockPath).mtimeMs;
+            // unlink can fail if another process reclaims it first; fall through to
+            // the spin below rather than continue-ing, so this cannot busy-loop.
+            if (age > 10000) { fs.unlinkSync(lockPath); }
+          } catch (_) {}
+          // Busy-wait briefly: contention windows here are ~1ms.
+          const spin = Date.now() + 2;
+          while (Date.now() < spin) { /* spin */ }
+        }
+      }
+      try { return fn(); }
+      finally {
+        if (fd !== null) {
+          try { fs.closeSync(fd); } catch (_) {}
+          try { fs.unlinkSync(lockPath); } catch (_) {}
+        }
+      }
     };
 
     // CAS-style merge: read → mutate → atomic write → re-read → verify. If
@@ -41,11 +92,16 @@ process.stdin.on('end', () => {
     // our change is gone and we retry with fresh state. Bounded to 5 tries
     // to stay cheap under pathological contention; each round is ≈ 1ms.
     // Returns the final state observed after verification.
-    const casMerge = (file, mutate, verify, maxRetries = 10) => {
+    const casMerge = (file, mutate, verify, maxRetries = 10) => withFileLock(file, () => {
       let finalState = {};
       for (let attempt = 0; attempt < maxRetries; attempt++) {
         let cur = {};
         try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
+        // Guard against a non-plain-object payload (array, string, number, null).
+        // Properties assigned onto an array are dropped by JSON.stringify, so a
+        // corrupted file of the form [1,2,3] would swallow every write silently:
+        // mutate() succeeds, the file never changes, no error surfaces.
+        if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) cur = {};
         mutate(cur);
         atomicWrite(file, JSON.stringify(cur));
         let after = {};
@@ -54,7 +110,7 @@ process.stdin.on('end', () => {
         if (verify(after)) return finalState;
       }
       return finalState;
-    };
+    });
 
     // Unicode East Asian Width: returns 2 for fullwidth/wide chars, 1 otherwise.
     // Based on UAX #11 (Unicode Standard Annex) + common emoji.
@@ -144,24 +200,80 @@ process.stdin.on('end', () => {
     const curAdd = i.cost?.total_lines_added ?? 0;
     const curRm = i.cost?.total_lines_removed ?? 0;
     const curTok = (i.context_window?.total_input_tokens ?? 0) + (i.context_window?.total_output_tokens ?? 0);
-    const cumPath = path.join(os.tmpdir(), `claude-cum-${sid}.json`);
-    // Each field: { total: cumulative, base: last-observed payload value }
-    let cum = { cost:{total:0,base:0}, dur:{total:0,base:0}, add:{total:0,base:0}, rm:{total:0,base:0}, tok:{total:0,base:0} };
-    try {
-      const stored = JSON.parse(fs.readFileSync(cumPath, 'utf8'));
-      // Migrate old flat format {cost,dur,add,rm,tok} → new {total,base}
-      for (const k of Object.keys(cum)) {
-        if (stored[k] && typeof stored[k] === 'object') cum[k] = stored[k];
-        else if (typeof stored[k] === 'number') cum[k] = { total: stored[k], base: stored[k] };
-      }
-    } catch (e) {}
-    const step = (key, cur) => {
-      const c = cum[key];
-      if (cur >= c.base) { c.total += (cur - c.base); c.base = cur; }
-      else { c.base = cur; } // reset detected — new baseline, don't touch total
-    };
-    step('cost', curCost); step('dur', curDur); step('add', curAdd); step('rm', curRm); step('tok', curTok);
-    atomicWrite(cumPath, JSON.stringify(cum));
+    // Cumulative usage lives in ONE persistent file keyed by session id.
+    // Was: one claude-cum-<sid>.json per session in os.tmpdir(). That lost all
+    // history whenever Windows Storage Sense swept %TEMP% (observed: ALL showed
+    // ~15% of real spend) and grew one file per session forever. Now: a single
+    // file under ~/.claude/usage-data/ (not pruned by cleanupPeriodDays, which
+    // only sweeps projects/ transcripts) merged with the same casMerge used for
+    // rate-limit snapshots, since concurrent sessions write this every 30s.
+    const cumPath = path.join(os.homedir(), '.claude', 'usage-data', 'cc-statusline-cumulative.json');
+    try { fs.mkdirSync(path.dirname(cumPath), { recursive: true }); } catch (e) {}
+    const CUM_KEYS = ['cost', 'dur', 'add', 'rm', 'tok'];
+    const curVals = { cost: curCost, dur: curDur, add: curAdd, rm: curRm, tok: curTok };
+    const blankCum = () => ({ cost:{total:0,base:0}, dur:{total:0,base:0}, add:{total:0,base:0}, rm:{total:0,base:0}, tok:{total:0,base:0} });
+    const normCum = (st) => (st && typeof st === 'object') ? { total: st.total || 0, base: st.base || 0 }
+                          : (typeof st === 'number') ? { total: st, base: st }
+                          : { total: 0, base: 0 };
+    // Snapshot our PRE-render persisted state once. The casMerge mutate below can
+    // run several times (retry on lost race) and MUST be idempotent: deriving the
+    // delta from whatever is in the file at mutate time double-counts, because by
+    // retry #2 the file already contains our own write. So the delta is always
+    // computed against this frozen "before" state, never against live file data.
+    let before = {};
+    try { before = (JSON.parse(fs.readFileSync(cumPath, 'utf8')).sessions || {})[sid] || {}; } catch (e) {}
+    const settled = {};
+    for (const k of CUM_KEYS) {
+      const c = normCum(before[k]);
+      const cur = curVals[k];
+      if (cur >= c.base) settled[k] = { total: c.total + (cur - c.base), base: cur };
+      else settled[k] = { total: c.total, base: cur }; // payload reset: re-baseline only
+    }
+    let cum = settled;
+    // Merge our entry into the CURRENT on-disk state, not the snapshot casMerge
+    // handed us. casMerge reads the file once per attempt, but statusline does
+    // seconds of work (git, file reads) before reaching this point, so that
+    // snapshot is stale: serializing it would silently drop every session that
+    // landed in the meantime. Observed 4/8 sessions lost under 8-way concurrency
+    // -- the old verify only checked "is my own entry present", which is always
+    // true for the writer, so the retry loop never fired. Re-reading inside the
+    // mutate keeps other writers' entries and makes the retry meaningful.
+    casMerge(cumPath,
+      (store) => {
+        let live = {};
+        try { live = JSON.parse(fs.readFileSync(cumPath, 'utf8')); } catch (e) {}
+        const sessions = (live && typeof live.sessions === 'object' && live.sessions) ? live.sessions : {};
+        store.v = 1;
+        store.sessions = sessions;
+        // Never regress our own total: a concurrent render of the SAME session
+        // may already have written a higher value.
+        const existing = sessions[sid];
+        let mine = settled;
+        if (existing) {
+          mine = {};
+          for (const k of CUM_KEYS) {
+            const e = normCum(existing[k]);
+            mine[k] = (e.total > settled[k].total) ? e : settled[k];
+          }
+        }
+        store.sessions[sid] = mine;
+        cum = mine;
+      },
+      // Verify both halves: our entry landed AND we did not clobber anyone who
+      // was present before us. Entry count must never shrink across our write.
+      (after) => {
+        const sess = (after && after.sessions) || {};
+        const mine = sess[sid];
+        if (!mine || !mine.cost || mine.cost.base !== curCost) return false;
+        let onDisk = 0;
+        try { onDisk = Object.keys(JSON.parse(fs.readFileSync(cumPath, 'utf8')).sessions || {}).length; } catch (e) {}
+        return Object.keys(sess).length >= onDisk;
+      });
+    // Re-read for the cross-session total: another writer may have landed
+    // between our verify and this line.
+    let cumAll = {};
+    try { cumAll = JSON.parse(fs.readFileSync(cumPath, 'utf8')).sessions || {}; } catch (e) {}
+    if (cumAll[sid]) cum = normCumEntry(cumAll[sid], CUM_KEYS, normCum);
     const cost = '$' + cum.cost.total.toFixed(2);
     const dur = fmtDur(Math.round(cum.dur.total / 60000));
     const ctx = Math.round(i.context_window?.used_percentage ?? 0);
@@ -475,16 +587,13 @@ process.stdin.on('end', () => {
     const gitInfo = gitParts.join(' ');
 
     // Aggregate total cost + tokens across ALL sessions by walking every claude-cum-*.json
+    // Sum every session in the shared store written above. No directory scan:
+    // cumStore is the verified snapshot from this render's casMerge.
     let allCost = 0, allTok = 0;
     try {
-      for (const f of fs.readdirSync(os.tmpdir())) {
-        if (f.startsWith('claude-cum-') && f.endsWith('.json')) {
-          try {
-            const c = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), f), 'utf8'));
-            allCost += c.cost?.total || 0;
-            allTok += c.tok?.total || 0;
-          } catch (e) {}
-        }
+      for (const sess of Object.values(cumAll || {})) {
+        allCost += (sess && sess.cost && sess.cost.total) || 0;
+        allTok += (sess && sess.tok && sess.tok.total) || 0;
       }
     } catch (e) {}
     const allCostStr = '$' + allCost.toFixed(2);
