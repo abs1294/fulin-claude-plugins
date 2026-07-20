@@ -47,7 +47,8 @@
 | `skills/daily-report/scripts/extract_sessions.py` | 掃 session jsonl 產中間 JSON（mtime 預過濾、sidechain/SDK/注入過濾、ai-title 直取） |
 | `skills/daily-report/scripts/setup_gate.py` | 設定閘：`status`（退出碼決定走哪條管道）/`options`/`guide`——首次設定的引導由它產生內容 |
 | `skills/daily-report/scripts/gmail_oauth.py` | Gmail API OAuth：`setup`（loopback + PKCE 引導式授權）/`send`/`status`/**`doctor`**（零外部套件） |
-| `skills/daily-report/scripts/send_gmail.py` | Gmail SMTP 寄送（與 OAuth 路徑同規格：`--auto` 確認閘、sent 去重、`--dry-run`） |
+| `skills/daily-report/scripts/send_common.py` | 兩條寄送路徑共用的前置契約（展開路徑/收件人/內容閘/確認閘/sent 去重）——對等性由此保證 |
+| `skills/daily-report/scripts/send_gmail.py` | Gmail SMTP 寄送（前置走 send_common，只保留 SMTP 連線） |
 | `skills/daily-report/scripts/content_guard.py` | **內容硬閘**：擋 AI/工具鏈用語＋憑證/個資/金額，寄送前必過，無豁免旗標 |
 | `skills/daily-report/scripts/confirm_gate.py` | **確認窗口閘**：`arm`/`check`/`veto`/`clear`，時間與狀態由腳本判定，專案間隔離 |
 | `skills/daily-report/scripts/check_no_secrets.py` | 機制閘：掃 repo 內 JSON 範本有無真憑證（`--staged` 供 pre-commit 用） |

@@ -2,6 +2,10 @@
 
 本檔記錄 daily-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.1] - 2026-07-20
+### Fixed
+- 重構：抽出 send_common.py 統一兩條寄送路徑的前置契約（展開路徑/解析收件人/內容閘/確認窗口閘/sent 去重/scope_key）。原本 send_gmail 與 gmail_oauth 各自實作同一套檢查，紅隊已證實對等性靠複製貼上必然失衡（SMTP 曾漏兩道閘）；現在兩路徑跑同一份 prepare_send，各腳本只保留「怎麼把郵件送出去」（SMTP 連線 vs REST 呼叫）。scope_key/sent_path 單一事實來源移入 send_common，confirm_gate 改為 import 而非重實作，消除雜湊不一致導致去重漏接的風險。行為經 OAuth/SMTP 雙路徑實測一致（內容閘 exit 3、確認閘 exit 5、乾淨內容通過、arm→check→auto 全鏈路）
+
 ## [0.5.0] - 2026-07-20
 ### Changed
 - 紅藍對抗（對外釋出視角，2 個獨立 fresh-context 紅隊）修 3 CRITICAL + 4 HIGH/MEDIUM：① SMTP 路徑補齊 --auto 確認閘與 sent 去重（原本只有 OAuth 路徑有，選 app_password 的使用者等於零核可保護、可無限重寄）② content_guard 擴充憑證/個資/金額偵測（原本只擋 AI 詞彙，含明文密碼與身分證字號的日報被判通過；密碼 pattern 要求值具密碼特徵以免誤判正常敘述）③ confirm_gate 狀態改以「日期+專案雜湊」為鍵（原本只用日期，多專案同日互相覆蓋/TOCTOU 比對錯檔/veto 連坐/誤判已寄——而多專案分設收件人正是主打功能）④ setup_gate channel 明示優先於憑證偵測（mcp_draft 選項原本永遠無法完成設定）⑤ 四支腳本補 expanduser（SKILL.md 用 ~ 開頭路徑，PowerShell/subprocess 不展開）⑥ arm 補建 reports/ 目錄 ⑦ README 修正與實況矛盾的「絕不自動寄」描述、補列 setup_gate/content_guard/confirm_gate、界線改為誠實說明語意層機密與私人 session 過濾的自律本質
