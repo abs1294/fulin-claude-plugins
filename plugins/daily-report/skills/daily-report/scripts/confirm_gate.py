@@ -70,24 +70,15 @@ def wait_minutes(project_dir=None):
     return val
 
 
-def scope_key(project_dir=None):
-    """狀態檔的專案命名空間。
-
-    只用日期當鍵會讓多專案互撞（紅隊實測）：後 arm 的靜默覆蓋前者、
-    A 的 TOCTOU 指紋比對到 B 的檔、A 喊停連帶擋掉 B、A 寄出後 B 被判已寄。
-    而「同機多專案分設收件人」正是本 plugin 主打的功能，撞上不是例外是常態。
-    用專案絕對路徑的短雜湊當命名空間：不同專案天然隔離，同專案穩定復現。
-    """
-    root = os.path.abspath(project_dir or os.getcwd())
-    return hashlib.sha256(os.path.normcase(root).encode("utf-8")).hexdigest()[:10]
+# scope_key / sent_path 的單一事實來源在 send_common——sent 標記由寄送腳本寫、
+# 由本檔的 already_sent 讀，兩處若各算各的雜湊就會對不上。故一律從 send_common 取。
+# send_common 用 subprocess 呼叫本檔，不 import，所以沒有循環相依。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from send_common import scope_key, sent_path  # noqa: E402
 
 
 def state_path(date, project_dir=None):
     return os.path.join(PENDING_DIR, "{}-{}.json".format(date, scope_key(project_dir)))
-
-
-def sent_path(date, project_dir=None):
-    return os.path.join(SENT_DIR, "{}-{}.json".format(date, scope_key(project_dir)))
 
 
 def report_digest(path):

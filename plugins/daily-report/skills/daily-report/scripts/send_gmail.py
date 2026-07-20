@@ -45,14 +45,6 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
 CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".claude", "daily-report", "config.json")
 
 
-def _scope_key(project_dir=None):
-    """與 confirm_gate.scope_key 同演算法——sent 標記必須落在同一個專案命名空間，
-    否則 confirm_gate.already_sent() 找不到本腳本寫的記錄。"""
-    import hashlib
-    root = os.path.abspath(project_dir or os.getcwd())
-    return hashlib.sha256(os.path.normcase(root).encode("utf-8")).hexdigest()[:10]
-
-
 def die(msg, code=1):
     print("ERROR: " + msg, file=sys.stderr)
     sys.exit(code)
@@ -225,99 +217,30 @@ def main():
                     help="喚醒觸發的自動寄送：強制通過 confirm_gate 檢查才寄")
     args = ap.parse_args()
 
-    if not os.path.exists(args.report):
-        die("找不到日報檔：" + args.report)
-    with open(args.report, encoding="utf-8") as fh:
-        md = fh.read()
-    if not md.strip():
-        die("日報檔是空的：" + args.report)
-
-    # SKILL.md 的指令用 ~ 開頭；PowerShell 與 subprocess 不會展開它，
-    # 必須在程式裡做（紅隊：作者只在 bash 測過所以沒發現）
-    args.report = os.path.expanduser(args.report)
-    if getattr(args, "project", None):
-        args.project = os.path.expanduser(args.project)
-
+    import send_common as sc
+    sc.expand_paths(args)
     cfg = load_config(getattr(args, "project", None))
     smtp = cfg["smtp"]
-    if args.to:
-        # --to 是「臨時覆寫」：連 cc 一併清空。否則拿 --to 自己測試時，
-        # 設定檔裡的 cc（可能是主管）會照收測試信——誤寄對外，比漏寄嚴重。
-        recipients = [a.strip() for a in args.to.split(",") if a.strip()]
-        cc = []
-    else:
-        recipients = [str(a).strip() for a in cfg["recipients"] if str(a).strip()]
-        cc = [str(a).strip() for a in (cfg.get("cc") or []) if str(a).strip()]
-    if not recipients:
-        die("收件人清單清洗後是空的（--to 只有空白/逗號，或設定檔 recipients 全空）")
-    subject = args.subject or "{} {} 工作日報".format(cfg.get("subject_prefix", "[工作日報]"), args.date).strip()
 
+    # 所有前置閘（路徑/收件人/去重/內容/確認窗口）走共用契約——
+    # 與 OAuth 路徑同一份程式碼，對等性由此保證而非靠複製貼上。
+    plan = sc.prepare_send(args, cfg)
     print("寄件人 : {} <{}>".format(cfg.get("from_name", ""), smtp["user"]))
     if cfg.get("_project_config"):
         print("來源   : " + cfg["_project_config"] + "（專案層覆寫收件人）")
-    print("收件人 : " + ", ".join(recipients))
-    if cc:
-        print("副本   : " + ", ".join(cc))
-    print("主旨   : " + subject)
-    print("內文   : {} 字（{}）".format(len(md), args.report))
-
-    # 硬閘：內容不得含 AI / 工具鏈描述（與 OAuth 路徑共用同一支檢查，行為一致）
-    guard = os.path.join(os.path.dirname(os.path.abspath(__file__)), "content_guard.py")
-    if not os.path.exists(guard):
-        die("找不到 content_guard.py——內容硬閘缺失，拒絕寄送。", 3)
-    _cmd = [sys.executable, guard, args.report]
-    if getattr(args, "project", None):
-        _cmd += ["--project", args.project]
-    _r = subprocess.run(_cmd, capture_output=True, text=True, encoding="utf-8")
-    if _r.returncode != 0:
-        sys.stderr.write(_r.stderr or _r.stdout or "")
-        die("內容檢查未通過，已中止寄送（見上方命中清單）。", 3)
-
-    # 硬閘：--auto（喚醒觸發的自動寄）必須通過確認窗口檢查。
-    # 與 OAuth 路徑同規格——兩條寄送路徑的安全閘必須對等，
-    # 否則使用者選了「設定較快」的 SMTP 就等於放棄核可保護（紅隊實測發現的缺口）。
-    if getattr(args, "auto", False):
-        gate = os.path.join(os.path.dirname(os.path.abspath(__file__)), "confirm_gate.py")
-        if not os.path.exists(gate):
-            die("找不到 confirm_gate.py——自動寄送的確認閘缺失，拒絕寄送。", 5)
-        _gcmd = [sys.executable, gate, "check", args.date]
-        if getattr(args, "project", None):
-            _gcmd += ["--project", args.project]
-        _gr = subprocess.run(_gcmd, capture_output=True, text=True, encoding="utf-8")
-        if _gr.returncode != 0:
-            sys.stderr.write(_gr.stdout or "")
-            sys.stderr.write(_gr.stderr or "")
-            die("確認窗口檢查未通過，中止自動寄送。"
-                "（使用者明確要求寄出時，不要帶 --auto）", 5)
-        sys.stdout.write(_gr.stdout or "")
-
-    # 已寄過就不重寄（喚醒重複觸發、session 續接都可能導致重跑）
-    _sent_dir = os.path.join(os.path.dirname(CONFIG_PATH), "sent")
-    _sent_mark = os.path.join(_sent_dir, "{}-{}.json".format(
-        args.date, _scope_key(getattr(args, "project", None))))
-    if os.path.exists(_sent_mark) and not args.force and not args.dry_run:
-        try:
-            with open(_sent_mark, encoding="utf-8") as fh:
-                _prev = json.load(fh)
-        except (json.JSONDecodeError, OSError):
-            _prev = {}
-        die("{} 的日報已寄出過（{} → {}）。要重寄請加 --force。".format(
-            args.date, _prev.get("sent_at", "?"), ", ".join(_prev.get("recipients", []))), 4)
-
+    sc.print_preview(plan, "Gmail SMTP", args.dry_run)
     if args.dry_run:
-        print("\n--dry-run：未寄送。內文前 10 行：")
-        for ln in md.splitlines()[:10]:
-            print("  | " + ln)
         return
 
+    # 本檔只負責「怎麼把郵件送出去」：組 MIME → SMTP 連線
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = Header(subject, "utf-8")
+    msg["Subject"] = Header(plan.subject, "utf-8")
     msg["From"] = formataddr((cfg.get("from_name") or smtp["user"], smtp["user"]))
-    msg["To"] = ", ".join(recipients)
-    if cc:
-        msg["Cc"] = ", ".join(cc)
-    msg.attach(MIMEText(md, "plain", "utf-8"))
-    msg.attach(MIMEText(md_to_html(md, build_meta(cfg, args.date, smtp.get("user"))),
+    msg["To"] = ", ".join(plan.recipients)
+    if plan.cc:
+        msg["Cc"] = ", ".join(plan.cc)
+    msg.attach(MIMEText(plan.md, "plain", "utf-8"))
+    msg.attach(MIMEText(md_to_html(plan.md, build_meta(cfg, args.date, smtp.get("user"))),
                         "html", "utf-8"))
 
     try:
@@ -333,27 +256,14 @@ def main():
             if port == 587:
                 server.starttls(context=ctx)
             server.login(smtp["user"], smtp["app_password"])
-            server.sendmail(smtp["user"], recipients + cc, msg.as_string())
+            server.sendmail(smtp["user"], plan.recipients + plan.cc, msg.as_string())
     except smtplib.SMTPAuthenticationError:
         die("SMTP 登入失敗——檢查 app_password 是否正確（須為「應用程式密碼」，"
             "非 Gmail 登入密碼；且帳戶要先開兩步驟驗證）。", 2)
     except (smtplib.SMTPException, OSError) as e:
         die("寄送失敗：" + str(e), 2)
 
-    # 記錄已寄，供重複觸發時擋下（與 OAuth 路徑共用同一個 sent/ 目錄，
-    # confirm_gate.already_sent() 也讀這裡——否則 SMTP 寄出後該目錄仍空，
-    # 「已寄出」狀態對確認閘不可見）
-    try:
-        os.makedirs(_sent_dir, exist_ok=True)
-        with open(_sent_mark, "w", encoding="utf-8") as fh:
-            json.dump({"date": args.date, "recipients": recipients, "cc": cc,
-                       "subject": subject, "report": os.path.abspath(args.report),
-                       "channel": "smtp",
-                       "sent_at": datetime.now().isoformat(timespec="seconds")},
-                      fh, ensure_ascii=False, indent=2)
-    except OSError:
-        pass  # 記錄失敗不該讓「已成功寄出」變成錯誤
-
+    sc.mark_sent(plan, "smtp")
     print("✓ 已寄出")
 
 

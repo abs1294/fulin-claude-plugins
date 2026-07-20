@@ -1,7 +1,7 @@
 {
   "name": "msproject-wbs",
-  "version": "0.1.1",
-  "description": "MS Project WBS 時程 XML 產生器（MSPDI 格式）：兩層工作分解（功能模組→工項）含工期/資源/前置依賴，日期照依賴鏈自動展開成甘特圖；把 MSPDI 匯入器的七個雷（Task 子元素順序靜默丟欄位等）編碼進生成腳本＋生成期自檢，產出可直接匯入 MS Project。需 Node.js（生成）與 PowerShell（XML 驗證）。",
+  "version": "0.2.0",
+  "description": "MS Project WBS 時程 XML 產生器（MSPDI 格式）：兩層工作分解（功能模組→工項）含工期/資源/前置依賴，日期照依賴鏈自動展開成甘特圖；把 MSPDI 匯入器的七個雷（Task 子元素順序靜默丟欄位等）編碼進生成腳本＋生成期自檢，產出可直接匯入 MS Project。需 Node.js（生成）與 PowerShell（XML 驗證）。另附 mspdi-to-xlsx.py，可直接把 MSPDI XML 轉成內容與 MS Project 匯出一致、且加階層配色/縮排/凍結窗格的交付級 XLSX（免手動繞 MPP）。",
   "author": {
     "name": "fulin"
   },
@@ -10,6 +10,7 @@
     "wbs",
     "gantt",
     "mspdi",
-    "schedule"
+    "schedule",
+    "xlsx"
   ]
 }
