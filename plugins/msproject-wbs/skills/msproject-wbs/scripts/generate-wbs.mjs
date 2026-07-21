@@ -130,6 +130,7 @@ const rows = []
 for (const mod of MODULES) {
   const mrow = { uid: modUid[mod.name], name: mod.name, level: 1, summary: true }
   const childRows = []
+  let sawSumInModule = false   // 該模組內是否已出現 sum 主條目（決定後續一般工項是 L2 還 L3）
   for (const t of mod.tasks) {
     let start, finish, dur
     if (t.pre) {                      // 前期週次區間
@@ -157,10 +158,16 @@ for (const mod of MODULES) {
       resFree[t.res] = r.next
       done[t.id] = { finish }
     }
+    // 層級判定（避免 L1→L3 斷層）：
+    //   L2 = 主條目(sum) / 里程碑(ms) / 貫穿全期(top)；也包含「模組內尚未出現 sum 主條目」的一般工項
+    //        （兩層專案：工項直接掛在模組 L1 下，就是 L2，不能跳成 L3）。
+    //   L3 = 只有在同模組內「已出現過 sum 主條目」之後的一般工項，才是它的子項。
+    if (t.sum) sawSumInModule = true
+    let level
+    if (t.sum || t.ms || t.top) level = 2
+    else level = sawSumInModule ? 3 : 2
     childRows.push({
-      uid: taskUid[t.id], name: t.name,
-      // L2 = 主條目(sum) / 里程碑(ms) / 貫穿全期(top)；其餘為 L3 子項
-      level: (t.sum || t.ms || t.top) ? 2 : 3,
+      uid: taskUid[t.id], name: t.name, level,
       dur, start, finish, pred: t.dep ? taskUid[t.dep] : null, res: t.res, ms: !!t.ms, isSum: !!t.sum,
     })
   }
