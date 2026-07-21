@@ -121,3 +121,14 @@ try {
   - 執行：`python scripts/mspdi-to-xlsx.py <輸入.xml> <輸出.xlsx>`
   - **內容對等契約**（改動前想清楚）：8 欄＝大綱編號(1/1.1/1.1.1，依 OutlineLevel 累進非 UID)／名稱／工期("N 工作日"＝Duration 時數÷8)／開始時間(「2026年7月27日 上午 08:00」月日不補零、12 小時制)／完成時間／前置任務(PredecessorLink→對應列大綱編號)／資源名稱(摘要列空白)／完成百分比。
   - **驗收**：若客戶已有一份自己轉的 XLSX，用「名稱＋開始日」複合 key 逐欄比對，內容 diff 必須為 0（大綱編號會因模組增減位移，屬正常）。排版只走樣式層，**絕不改欄位字串內容**（不可把工期寫「3 天」、日期改 ISO），否則對不上客戶端匯出結果。
+- **使用者要「預計完成%」基準線欄**（依開檔當天算「今天照計畫該完成幾趴」）：**兩邊都能加**——
+  - **XLSX 側（已實作＋已驗證，活公式）**：`mspdi-to-xlsx.py` 產出 I 欄「預計完成%」，公式 `=IF(TODAY()<=起,0,IF(TODAY()>=迄,1,已過工作天/總工作天))` 用 `NETWORKDAYS` 算工作天，開檔當天自動重算。
+    - **關鍵設計**：D/E「開始/完成日期」存**真 Excel 日期**、只用儲存格格式 `yyyy"年"m"月"d"日"` 顯示成中文——所以畫面是中文日期、底層可運算，I 欄公式**直接引用 D/E**，不需額外輔助欄。（早期版本誤把 D/E 存成中文字串、被迫另開隱藏 J/K 放真日期，是走了冤枉路；日期一律存真值＋格式化顯示。）摘要/里程碑列留空。
+  - **XML 側（MSPDI ExtendedAttribute）——公式欄「可以」匯入，且要顯示 % 必須用 Text 欄（已查 Microsoft XSD＋MS Project COM 實測雙重確認）**：
+    - **要顯示「54%」→ 必須用 Text 欄，不能用 Number 欄**。MS Project 的 Number 型自訂欄位**沒有百分比顯示格式**（schema 無 Percent 型別、無 Format/Mask 元素）——Number 存 0.54 就永遠顯示 `0.54`。正解：用 **Text1**（FieldID `188743731`，CFType **7**），公式輸出字串：`Format(<fraction>*100,"0") & "%"` → 顯示「54%」。（本 skill 曾誤用 Number1 顯示成 0.54，已改 Text。）
+    - **FieldID 別搞錯型別**：`188743731`=Text1（`pjCustomTaskText1`），`188743767`=Number1（`pjCustomTaskNumber1`）。型別（CFType）要與 FieldID 對應，否則 MS Project 當欄位不存在（連欄名都不出現）。
+    - **Project 層定義（子元素嚴格照 XSD 序列，違序會被靜默丟）**：`FieldID→FieldName→CFType→…→Alias→…→CalculationType→Formula→…`。本 skill 用的 Text 版：`<FieldID>188743731</FieldID><FieldName>Text1</FieldName><CFType>7</CFType><Alias>顯示名</Alias><CalculationType>2</CalculationType><Formula>IIf([Duration]=0,"",Format(…*100,"0") &amp; "%")</Formula>`。CFType：0=Cost 1=Date 2=Duration 3=Finish 4=Flag 5=Number 6=Start **7=Text**。CalculationType：0=None 1=Rollup **2=Calculation**。**公式欄名用英文中括號**（`[Start]`/`[Finish]`/`[Duration]`），匯入後 MS Project 會自動在地化成 `[開始時間]/[完成時間]/[工期]`。公式內 `&` 要 XML 轉義成 `&amp;`。
+    - **Task 層引用**：本 skill 序列放在 `Manual` 之後（實測 well-formed 且 COM 匯入通過）。公式欄由 MS Project 依 Formula 自算，Text 公式欄**不寫 per-task `<Value>`**，只放 `<ValueGUID>00000000-0000-0000-0000-000000000000</ValueGUID>` 標「計算欄」。`ExtendedAttribute` 要加進 `TASK_ORDER` 白名單否則順序自檢 throw。
+    - **驗證方式（本機有 MS Project 才行）**：COM round-trip 是終極判準——`New-Object -ComObject MSProject.Application`→`FileOpen(xml)`→`CustomFieldGetName/GetFormula(188743731)`＋逐 Task `GetField(188743731)`。⚠ **兩個實測踩過的坑**：① MS Project 若已開著檔，COM 建立會 `RPC_E_CALL_REJECTED`（0x80010001），要先 `Stop-Process WINPROJ`；② 測「進行中」的值別靠改系統時鐘，改造一份把公式 `Now()` 換成固定中段日期的 probe XML 匯入，讀回值即可驗證非 0（本 skill 用 2026/9/15 驗到 100%/部分%）。
+    - **「今天顯示 0% 不是壞掉」**：公式用 `Now()`＝系統時鐘。若專案起始日在未來，今天所有任務都還沒開始→全 0% 是**正確**基準線（「以今天而言照計畫該完成幾趴」）。要看非 0 得等到專案期間、或改系統日期、或用上面的 probe XML。交付時要主動跟使用者講這點，免得誤判成 bug。
+    - 出處：Microsoft Learn MSPDI schema（ExtendedAttribute/CFType/Formula element，無 Format/Percent）、`PjCustomField` enumeration、Dale Howard MVP（Number 欄無 % 格式，須 Text＋`Format(...) & "%"`）。
