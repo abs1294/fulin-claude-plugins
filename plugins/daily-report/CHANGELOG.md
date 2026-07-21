@@ -2,6 +2,10 @@
 
 本檔記錄 daily-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.6.1] - 2026-07-21
+### Fixed
+- SKILL.md 呈現核可步驟明訂：寄送資訊每一項（尤其主旨）必須顯示 dry-run 印出的實際值，不准用「（日報前綴）」這類佔位符或示意文字——否則使用者核可的是示意版而非真正會寄的內容，呈現核可形同虛設。起因：呈現時用佔位符代替實際主旨給使用者看
+
 ## [0.6.0] - 2026-07-21
 ### Changed
 - 收件人紀律修正（安全）：收件人只認專案層 .claude/daily-report.json，家目錄的 recipients 不再當預設——沒設收件人的專案改為拒寄並走引導，不再默默借用家目錄收件人寄給不相干的人（起因：測試時未設專案收件人的專案直接寄給家目錄的 aa22942072）；send_common.resolve_recipients 與 setup_gate.detect 同步此紀律。郵件排版拿掉手刻 HTML（卡片/強調條/inline style/置中 table 全砍），md_to_html 改輸出最基本的 p/ul/li/b，交給 Gmail 預設渲染——華麗 HTML 讓信不像個人寫的；移除連帶用不到的 build_meta 與樣式常數
