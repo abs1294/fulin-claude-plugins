@@ -85,123 +85,50 @@ def load_config(project_dir=None):
     return cfg
 
 
-# 郵件 HTML 的限制決定了這裡的寫法：Gmail 會剝掉 <style> 區塊與多數 CSS 選擇器，
-# 所以一律用 inline style；不用 flex/grid（Outlook 不支援），版面靠 table 與 border 撐。
-# 目標是「像一份正式的工作報告」，不是像程式輸出。
-_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei','PingFang TC',sans-serif"
-_INK = "#1a1d21"      # 主文字
-_MUTED = "#6b7280"    # 次要文字
-_RULE = "#e5e7eb"     # 分隔線
-_ACCENT = "#2563eb"   # 標題左側強調條
-
-
 def md_to_html(md, meta=None):
-    """markdown → 郵件用 HTML。meta 可帶 {'date':..., 'subtitle':...} 產生表頭。
+    """markdown → 極簡 HTML，只做 Gmail 富文本編輯器本來就會有的東西：
+    段落、清單、粗體。**刻意不做**版面設計（無卡片、無強調條、無配色、無置中 table）。
 
-    設計取捨：不追求完整 markdown 規格（日報只用到標題、清單、粗體、行內碼），
-    把力氣花在排版質感——章節有層次、條目好掃讀、在深色模式下不會爆掉。
+    為什麼砍掉排版：沒有人寫日報會手刻 HTML 版面——一般人就是在 Gmail 打字。
+    華麗的 HTML 反而讓信「不像個人寫的」。這裡只把 markdown 語法轉成最基本的
+    HTML 標籤，樣式交給收件人的郵件客戶端預設，看起來就像手打的。
     """
-    meta = meta or {}
-    body = []
+    out = []
     in_list = False
 
     def close_list():
         nonlocal in_list
         if in_list:
-            body.append("</ul>")
+            out.append("</ul>")
             in_list = False
 
     for line in md.splitlines():
-        s = line.rstrip()
-        esc = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        esc = re.sub(r"\*\*(.+?)\*\*", r"<strong style='font-weight:600'>\1</strong>", esc)
-        esc = re.sub(
-            r"`(.+?)`",
-            r"<code style=\"font-family:'SF Mono',Consolas,monospace;font-size:12.5px;"
-            r"background:#f3f4f6;color:#374151;padding:1px 5px;border-radius:4px\">\1</code>",
-            esc)
-        st = esc.strip()
-        is_li = st.startswith("- ") or st.startswith("* ")
+        esc = line.strip().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        esc = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", esc)
+        esc = re.sub(r"`(.+?)`", r"<code>\1</code>", esc)
+        is_li = esc.startswith("- ") or esc.startswith("* ")
 
         if not is_li:
             close_list()
-
-        if not st:
-            continue  # 空行不產生節點，間距交給各區塊的 margin 控制
-        if st.startswith("# "):
-            continue  # 主標題改由表頭呈現，內文不重複
-        if st.startswith("### "):
-            body.append(
-                "<div style='margin:18px 0 6px;font-size:14px;font-weight:600;color:{}'>{}</div>"
-                .format(_INK, st[4:]))
-        elif st.startswith("## "):
-            # 章節標題：左側強調條 + 底線，讓收件人一眼看出區塊分界
-            body.append(
-                "<div style='margin:26px 0 10px;padding:0 0 7px 11px;"
-                "border-left:3px solid {};border-bottom:1px solid {};"
-                "font-size:15px;font-weight:600;color:{};letter-spacing:.01em'>{}</div>"
-                .format(_ACCENT, _RULE, _INK, st[3:]))
-        elif st in ("---", "***"):
-            body.append("<div style='height:1px;background:{};margin:22px 0'></div>".format(_RULE))
+        if not esc:
+            continue
+        if esc.startswith("### "):
+            out.append("<p><b>" + esc[4:] + "</b></p>")
+        elif esc.startswith("## "):
+            out.append("<p><b>" + esc[3:] + "</b></p>")
+        elif esc.startswith("# "):
+            out.append("<p><b>" + esc[2:] + "</b></p>")
+        elif esc in ("---", "***"):
+            out.append("<hr>")
         elif is_li:
             if not in_list:
-                body.append("<ul style='margin:0;padding:0;list-style:none'>")
+                out.append("<ul>")
                 in_list = True
-            # 自繪項目符號：郵件客戶端對 list-style 的處理差異大，用 table 排版最穩
-            body.append(
-                "<li style='margin:0 0 7px;padding:0'>"
-                "<table role='presentation' cellpadding='0' cellspacing='0' border='0'><tr>"
-                "<td style='vertical-align:top;padding:0 9px 0 2px;color:{};font-size:13px;"
-                "line-height:1.65'>▪</td>"
-                "<td style='vertical-align:top;font-size:14px;line-height:1.65;color:{}'>{}</td>"
-                "</tr></table></li>".format(_ACCENT, _INK, st[2:]))
+            out.append("<li>" + esc[2:] + "</li>")
         else:
-            body.append(
-                "<div style='margin:0 0 9px;font-size:14px;line-height:1.65;color:{}'>{}</div>"
-                .format(_INK, st))
+            out.append("<p>" + esc + "</p>")
     close_list()
-
-    date = meta.get("date", "")
-    subtitle = meta.get("subtitle", "")
-
-    # 刻意不在內文放寄件者/寄發時間：郵件 header 本來就有，內文重複是冗餘。
-    # 那些資訊屬於「寄出前給作者確認」的範疇，由 confirm_gate 的預覽呈現。
-    header = (
-        "<div style='padding:0 0 16px;border-bottom:2px solid {};margin:0 0 22px'>"
-        "<div style='font-size:11px;font-weight:600;letter-spacing:.09em;"
-        "text-transform:uppercase;color:{}'>Daily Report</div>"
-        "<div style='margin:7px 0 0;font-size:21px;font-weight:600;color:{};"
-        "letter-spacing:-.01em'>{} 工作日報</div>"
-        "{}</div>"
-    ).format(_RULE, _MUTED, _INK, date,
-             "<div style='margin:5px 0 0;font-size:13px;color:{}'>{}</div>".format(_MUTED, subtitle)
-             if subtitle else "")
-
-    footer = ("<div style='margin:30px 0 0;padding:13px 0 0;border-top:1px solid {};"
-              "font-size:11.5px;color:{}'>本報告依當日工作記錄彙整</div>").format(_RULE, _MUTED)
-
-    # 外層用 table 置中：div + margin:auto 在部分郵件客戶端（尤其 Outlook）不生效
-    return (
-        "<table role='presentation' cellpadding='0' cellspacing='0' border='0' width='100%' "
-        "style='background:#f7f8fa;margin:0;padding:26px 12px'><tr><td align='center'>"
-        "<table role='presentation' cellpadding='0' cellspacing='0' border='0' "
-        "style='max-width:680px;width:100%;background:#ffffff;border:1px solid {};"
-        "border-radius:10px'><tr><td style=\"padding:30px 34px 26px;font-family:{};"
-        "color:{};-webkit-font-smoothing:antialiased\">{}{}{}</td></tr></table>"
-        "</td></tr></table>"
-    ).format(_RULE, _FONT, _INK, header, "\n".join(body), footer)
-
-
-def build_meta(cfg, date, sender_email=None):
-    """組表頭的詮釋資料。寄件者優先顯示姓名（收件人認得的是人不是信箱），
-    兩者都有就併呈；寄發時間取當下。"""
-    name = (cfg.get("from_name") or "").strip()
-    sender = "{} <{}>".format(name, sender_email) if name and sender_email else (name or sender_email or "")
-    return {
-        "date": date,
-        "sender": sender,
-        "sent_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-    }
+    return "\n".join(out)
 
 
 def main():
@@ -240,8 +167,7 @@ def main():
     if plan.cc:
         msg["Cc"] = ", ".join(plan.cc)
     msg.attach(MIMEText(plan.md, "plain", "utf-8"))
-    msg.attach(MIMEText(md_to_html(plan.md, build_meta(cfg, args.date, smtp.get("user"))),
-                        "html", "utf-8"))
+    msg.attach(MIMEText(md_to_html(plan.md), "html", "utf-8"))
 
     try:
         ctx = ssl.create_default_context()

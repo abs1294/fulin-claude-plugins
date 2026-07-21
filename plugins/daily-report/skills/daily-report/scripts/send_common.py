@@ -58,10 +58,35 @@ def expand_paths(args):
 
 
 def resolve_recipients(args, cfg):
-    """決定收件人與副本。--to 是臨時覆寫，會連 cc 一併清空——
-    否則自己拿 --to 測試時，config 的 cc（可能是主管）會照收測試信。"""
+    """決定收件人與副本。
+
+    收件人紀律（安全）：收件人只能來自 (a) --to 臨時覆寫，或 (b) 專案層設定
+    <專案>/.claude/daily-report.json。**家目錄的 recipients 不當預設**——
+    否則一個沒設定收件人的新專案會默默借用家目錄的收件人（可能是別的專案設的、
+    或作者自己）就寄出去，等於「沒問就寄給不相干的人」。
+    家目錄只該存憑證（跟人綁定），收件人跟專案綁定，必須各專案自設。
+
+    --to 是臨時覆寫，會連 cc 一併清空——否則自己拿 --to 測試時，
+    config 的 cc（可能是主管）會照收測試信。
+    """
     if getattr(args, "to", None):
         return [a.strip() for a in args.to.split(",") if a.strip()], []
+    # 只有「收件人確實來自專案層」才採用。cfg["_project_config"] 由 load_config
+    # 在讀到專案層設定時設定；但它也可能只帶了 subject_prefix 而沒帶 recipients，
+    # 所以還要確認專案層那份真的有 recipients。
+    proj_path = cfg.get("_project_config")
+    proj_has_recipients = False
+    if proj_path and os.path.exists(proj_path):
+        try:
+            with open(proj_path, encoding="utf-8") as fh:
+                proj_has_recipients = bool((json.load(fh) or {}).get("recipients"))
+        except (json.JSONDecodeError, OSError):
+            proj_has_recipients = False
+    if not proj_has_recipients:
+        die("這個專案沒有設定收件人。\n"
+            "  收件人必須在專案自己的 .claude/daily-report.json 設定（家目錄的收件人"
+            "不會被當預設，避免誤寄給別的專案的窗口）。\n"
+            "  跑首次設定引導，或臨時指定 --to a@x,b@y。", 6)
     recipients = [str(a).strip() for a in (cfg.get("recipients") or []) if str(a).strip()]
     cc = [str(a).strip() for a in (cfg.get("cc") or []) if str(a).strip()]
     return recipients, cc

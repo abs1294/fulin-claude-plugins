@@ -1,6 +1,6 @@
 {
   "name": "daily-report",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "工作日報：掃當日 Claude Code session 記錄按專案分組摘要（做了什麼＋待辦），人工核可後寄出——支援 Gmail API OAuth（引導式授權、gmail.send 最小權限）/ SMTP 應用程式密碼 / MCP 草稿三種管道。",
   "author": {
     "name": "fulin"
