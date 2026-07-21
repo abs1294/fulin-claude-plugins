@@ -2,6 +2,10 @@
 
 本檔記錄 daily-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.6.0] - 2026-07-21
+### Changed
+- 收件人紀律修正（安全）：收件人只認專案層 .claude/daily-report.json，家目錄的 recipients 不再當預設——沒設收件人的專案改為拒寄並走引導，不再默默借用家目錄收件人寄給不相干的人（起因：測試時未設專案收件人的專案直接寄給家目錄的 aa22942072）；send_common.resolve_recipients 與 setup_gate.detect 同步此紀律。郵件排版拿掉手刻 HTML（卡片/強調條/inline style/置中 table 全砍），md_to_html 改輸出最基本的 p/ul/li/b，交給 Gmail 預設渲染——華麗 HTML 讓信不像個人寫的；移除連帶用不到的 build_meta 與樣式常數
+
 ## [0.5.1] - 2026-07-20
 ### Fixed
 - 重構：抽出 send_common.py 統一兩條寄送路徑的前置契約（展開路徑/解析收件人/內容閘/確認窗口閘/sent 去重/scope_key）。原本 send_gmail 與 gmail_oauth 各自實作同一套檢查，紅隊已證實對等性靠複製貼上必然失衡（SMTP 曾漏兩道閘）；現在兩路徑跑同一份 prepare_send，各腳本只保留「怎麼把郵件送出去」（SMTP 連線 vs REST 呼叫）。scope_key/sent_path 單一事實來源移入 send_common，confirm_gate 改為 import 而非重實作，消除雜湊不一致導致去重漏接的風險。行為經 OAuth/SMTP 雙路徑實測一致（內容閘 exit 3、確認閘 exit 5、乾淨內容通過、arm→check→auto 全鏈路）

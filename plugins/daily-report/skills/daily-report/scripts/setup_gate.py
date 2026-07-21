@@ -171,7 +171,17 @@ def detect(project_dir=None):
 
     oauth = cfg.get("oauth") or {}
     smtp = cfg.get("smtp") or {}
-    recipients = [r for r in (cfg.get("recipients") or []) if str(r).strip()]
+    # 收件人只認專案層——家目錄的 recipients 不算數（避免沒設定的專案借用別人的收件人）。
+    # 與 send_common.resolve_recipients 同紀律：收件人跟專案綁定，不跟人綁定。
+    recipients = []
+    proj_path = cfg.get("_project_config")
+    if proj_path and os.path.exists(proj_path):
+        try:
+            with open(proj_path, encoding="utf-8") as fh:
+                recipients = [r for r in ((json.load(fh) or {}).get("recipients") or [])
+                              if str(r).strip()]
+        except (json.JSONDecodeError, OSError):
+            recipients = []
 
     # channel 是使用者的明示選擇，優先於「偵測到有什麼憑證」。
     # 沒有這個優先序時，選了 mcp_draft 的人會因為家目錄剛好有 OAuth 憑證
@@ -194,9 +204,11 @@ def detect(project_dir=None):
     else:
         return None, "設定檔存在但沒有任何可用的寄送管道"
 
-    src = cfg.get("_project_config") or HOME_CONFIG
     if not recipients:
-        return None, "管道 {} 已設定，但 recipients（收件人）是空的（讀自 {}）".format(chan, src)
+        return None, ("管道 {} 已設定（憑證就緒），但這個專案還沒設收件人。\n"
+                      "  收件人要在專案自己的 .claude/daily-report.json 設定"
+                      "（家目錄的收件人不當預設，避免誤寄給別的專案的窗口）。".format(chan))
+    src = cfg.get("_project_config")
     cc = [c for c in (cfg.get("cc") or []) if str(c).strip()]
     # 標明寄件帳號：憑證一律來自家目錄，收件人可能來自專案層。
     # 不標的話，使用者看不出這封信會用哪個帳號寄出——多帳號共用一台機器時會寄錯身分。

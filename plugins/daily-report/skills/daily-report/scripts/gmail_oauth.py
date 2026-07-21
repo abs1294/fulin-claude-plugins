@@ -467,8 +467,8 @@ def cmd_send(args):
     # 本檔只負責「怎麼把郵件送出去」：換 HTML → 組 MIME → 打 Gmail API
     html = None
     try:
-        from send_gmail import md_to_html, build_meta
-        html = md_to_html(plan.md, build_meta(cfg, args.date, cfg.get("from_email")))
+        from send_gmail import md_to_html
+        html = md_to_html(plan.md)
     except Exception:
         pass  # 轉換不可用就只寄純文字，不因排版問題擋住寄送
 
