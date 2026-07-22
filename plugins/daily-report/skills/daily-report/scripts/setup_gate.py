@@ -86,12 +86,14 @@ OPTIONS = [
     },
     {
         "key": "app_password",
-        "label": "應用程式密碼（快速）",
+        "label": "應用程式密碼（快速，但公司帳號多半不可用）",
         "權限": "⚠ 等同整個信箱的完整存取權（能讀、能寄、能刪）",
         "有效期": "⚠ 永不過期，除非你手動刪除或變更帳號密碼",
         "設定成本": "約 2 分鐘：開兩步驟驗證 → 產生 16 碼密碼 → 貼進設定檔",
-        "適合": "只想快速跑起來、或需要無人值守排程自動寄送",
-        "代價": "Google 官方立場為不建議使用；密碼外洩等於信箱失守",
+        "適合": "個人 Gmail、只想快速跑起來、或需要無人值守排程自動寄送",
+        "代價": "⚠ 公司 Google Workspace 帳號常被管理員停用此功能（頁面會顯示"
+                "「setting not available」）——若你的信箱是公司發的，別花時間試，直接走 OAuth。"
+                "另外 Google 官方立場為不建議使用；密碼外洩等於信箱失守",
     },
     {
         "key": "mcp_draft",
@@ -130,8 +132,15 @@ GUIDES = {
     },
     "app_password": {
         "title": "應用程式密碼設定引導",
-        "note": "密碼請你自己填進設定檔，不要貼在對話裡。",
+        "note": "密碼請你自己填進設定檔，不要貼在對話裡。\n"
+                "⚠ 先確認帳號類型再開始：這條路對「公司 Google Workspace 帳號」多半不通"
+                "（管理員預設停用），別白花時間，不確定就先做步驟 0。",
         "steps": [
+            {"do": "【前置判斷】你的 Gmail 是公司發的（you@公司網域）還是個人 @gmail.com？"
+                   "公司帳號請直接開 https://myaccount.google.com/apppasswords 確認——"
+                   "若顯示「The setting you are looking for is not available for your account」，"
+                   "代表被管理員停用，**這條路走不通，改用 OAuth**（回 setup_gate options 選 oauth）。",
+             "check": "個人 Gmail 通常可用；公司帳號看到 not available 就停，別繼續下面步驟"},
             {"do": "確認 Google 帳戶已開啟兩步驟驗證：https://myaccount.google.com/security",
              "check": "沒開的話下一步的頁面會是空的或顯示不適用"},
             {"do": "開 https://myaccount.google.com/apppasswords ，應用程式名稱填 daily-report，按「建立」",

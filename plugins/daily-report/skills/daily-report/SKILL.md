@@ -164,7 +164,7 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/setup_gate.py" guide <
 
 過程中的兩條紅線：
 
-- **不要要求使用者把 client_secret 或 app password 貼進對話**。OAuth 的兩個值直接當參數餵給 `gmail_oauth.py setup`（腳本自己寫進他家目錄）；app password 請他自己編輯設定檔那一格。
+- **OAuth 的 client_id / client_secret 可以直接請使用者貼給你**，當參數餵給 `gmail_oauth.py setup`（腳本自己寫進他家目錄）。桌面應用程式（Desktop app）類型的 client_secret **按 Google 設計就不是機密**——它必須隨程式散佈到每台使用者電腦，本來就藏不住，Google 文件明說桌面 app 的 secret 不當機密看待。所以不必遮遮掩掩、不必叫使用者改用別的方式輸入，那只會讓人以為卡關而浪費時間。（**app password 不同**：那是真憑證＝整個信箱權限，請使用者自己編輯設定檔那一格，不要貼進對話。）
 - **`config.example.json` 是隨 plugin 發布的空範本，永遠不要把真值寫進去**。真設定檔的位置是 `~/.claude/daily-report/config.json`。（真寫進去也會被 git-commit 的憑證閘擋下，但別依賴那道補救。）
 
 ⚠ **不要把「使用者說做完了」當成做完了**。實戰教訓：本 skill 的作者自己照這份引導跑，仍漏掉「啟用 Gmail API」那步，直到寄信被 403 才發現——每步的「確認」都靠人眼判斷加口頭回報，中間兩層都會失真。**每個宣稱完成的步驟後跑一次 `gmail_oauth.py doctor`**（見步驟 3），它實際打 API 驗，不接受自我回報。

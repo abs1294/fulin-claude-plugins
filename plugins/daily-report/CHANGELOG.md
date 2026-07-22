@@ -2,6 +2,10 @@
 
 本檔記錄 daily-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.6.3] - 2026-07-22
+### Fixed
+- 把公司 Workspace 帳號的現實編進引導（實測踩雷：作者公司帳號 app password 頁顯示 setting not available）：① app_password 選項標籤與代價明標「公司 Workspace 帳號多半被管理員停用，別白試、直接走 OAuth」② app_password guide 新增步驟 0 帳號類型前置判斷，公司帳號看到 not available 就停 ③ 修正誤導措辭——桌面 app 的 client_id/secret 按 Google 設計就不是機密（隨程式散佈本來就藏不住），可直接請使用者貼給腳本，不必遮掩造成卡關錯覺；app password 才是真憑證仍不進對話
+
 ## [0.6.2] - 2026-07-22
 ### Fixed
 - README 與程式對齊 0.6.0 收件人紀律：README 到處說「寄給設定檔指定的收件人」但實際收件人只認專案層、家目錄不當預設——修正 README 開頭與新增「憑證與收件人分兩層」段講清楚兩層設定；config.example 移除誤導的家目錄 recipients（程式已不採用），新增 daily-report.project.example.json 專案設定範本；doctor 收件人檢查同步改只認專案層（原本讀家目錄 recipients，會顯示借用來的收件人為綠燈誤導使用者）；doctor 檢查項 README 從 5 改 6（補寄件帳號）；setup 完成提示不再說「設定檔補 recipients」改說「各專案自設」
