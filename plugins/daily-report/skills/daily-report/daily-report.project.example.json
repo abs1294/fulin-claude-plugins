@@ -1,0 +1,13 @@
+{
+  "_說明": "【專案設定】複製本檔到你的專案 <專案根>/.claude/daily-report.json。收件人綁定在專案，必須各專案自設——家目錄那份的 recipients 不會被當預設（避免沒設收件人的專案誤寄給別人）。這裡只覆寫『寄給誰』，憑證一律留在家目錄那份。",
+
+  "recipients": ["主管@example.com"],
+  "cc": [],
+  "subject_prefix": "[專案日報]",
+  "confirm_wait_minutes": 30,
+
+  "content_guard": {
+    "_說明": "選配：專案特有的對外別名（把內部代號換成對外名稱）。由 content_guard.py --set-alias 自動寫入，通常不必手填。",
+    "aliases": {}
+  }
+}
