@@ -2,6 +2,10 @@
 
 本檔記錄 daily-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.6.4] - 2026-07-22
+### Fixed
+- README 補公司 Workspace 帳號現實：交付路徑表的 app password 標註「公司帳號多半不可用」，新增 Workspace 警告塊（管理員預設停用 app password、頁面顯示 setting not available、判斷方式、OAuth 在 Workspace 也可能被限制需 IT 放行）；補「client_id/secret 可直接給 Claude、桌面 app secret 非機密」提示；已知風險段的 app password 條補上個人 vs 公司帳號的差別
+
 ## [0.6.3] - 2026-07-22
 ### Fixed
 - 把公司 Workspace 帳號的現實編進引導（實測踩雷：作者公司帳號 app password 頁顯示 setting not available）：① app_password 選項標籤與代價明標「公司 Workspace 帳號多半被管理員停用，別白試、直接走 OAuth」② app_password guide 新增步驟 0 帳號類型前置判斷，公司帳號看到 not available 就停 ③ 修正誤導措辭——桌面 app 的 client_id/secret 按 Google 設計就不是機密（隨程式散佈本來就藏不住），可直接請使用者貼給腳本，不必遮掩造成卡關錯覺；app password 才是真憑證仍不進對話

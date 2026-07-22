@@ -16,10 +16,14 @@
 | 你的 config 有什麼 | 走哪條 | 前置設定 |
 |---|---|---|
 | `oauth.refresh_token` | **Gmail API OAuth**（推薦） | 一次性：開 GCP 專案 + 一鍵授權（Claude 會逐步帶你做） |
-| `smtp.app_password` | **SMTP 直寄** | 兩步驟驗證 + 產生 16 碼應用程式密碼 |
+| `smtp.app_password` | **SMTP 直寄** | 兩步驟驗證 + 產生 16 碼應用程式密碼（⚠ 公司帳號多半不可用，見下） |
 | 都沒有（且有 Gmail MCP） | **MCP 建草稿** | 零設定，你自己在 Gmail 按送出 |
 
 **為什麼推薦 OAuth**：權限只有 `gmail.send`——能寄不能讀，讀不到你任何信件；token 會過期、可隨時撤銷。應用程式密碼則等同**整個信箱的完整存取權且永不過期**（Google 官方立場是不推薦）。
+
+> ⚠ **公司 Google Workspace 帳號請直接走 OAuth，別試 app password。** Workspace 管理員預設會停用應用程式密碼——你到 `myaccount.google.com/apppasswords` 只會看到「The setting you are looking for is not available for your account」。這是公司政策，不是設定錯誤，plugin 繞不過。判斷方式：信箱是公司發的（`you@公司網域`）就是 Workspace 帳號。（同理，OAuth 在 Workspace 也可能被管理員限制第三方 app 授權——若授權被擋，需請 IT 放行，或改用個人 Gmail 寄。）
+
+> 💡 **走 OAuth 時，client_id / client_secret 可以直接給 Claude**（當參數餵給 setup 腳本）。桌面應用程式類型的 secret 按 Google 設計就不是機密（隨程式散佈到每台電腦、本來就藏不住），不必遮掩。**只有 app password 是真憑證**——那個請自己填進設定檔，別貼進對話。
 
 ## 憑證與收件人分兩層（重要）
 
@@ -78,5 +82,5 @@
 ## 已知風險與依據（2026-07 調查）
 
 - **session jsonl 是非官方格式**：官方文件明言 transcript 格式屬內部實作、版本間會變（建議用 /export）。本 plugin 的解析已做防禦（單行畸形跳過不斷全局、型別守衛），但大改版後仍可能要調 extract 腳本。同類 OSS（claude-code-log ~1.2k星、claude-usage ~2k星、AgentHUD 等至少 5 個工具）都直讀 jsonl——這是社群主流做法，沒有更含敘事內容的替代源（OTel 只有數字 metrics）。
-- **Gmail app password**：2026 年中對個人帳號 SMTP 仍可用（需 2FA），但 Google 官方立場是「不推薦、建議遷移」且無明確落日日期。**本 plugin 已內建 OAuth 路徑**（`gmail_oauth.py`，走 Gmail API + `gmail.send` 最小權限），app password 保留為選配。註：若想「維持 SMTP 但改 OAuth」（XOAUTH2）反而要更寬的全信箱 scope，所以最小權限只能走 API 版。
+- **Gmail app password**：2026 年中對**個人 Gmail** 帳號 SMTP 仍可用（需 2FA），但 **公司 Google Workspace 帳號多半被管理員停用**（實測：頁面顯示 setting not available）——公司帳號請走 OAuth。Google 官方立場對 app password 是「不推薦、建議遷移」且無明確落日日期。**本 plugin 已內建 OAuth 路徑**（`gmail_oauth.py`，走 Gmail API + `gmail.send` 最小權限），app password 保留為選配。註：若想「維持 SMTP 但改 OAuth」（XOAUTH2）反而要更寬的全信箱 scope，所以最小權限只能走 API 版。
 - **OAuth 同意畫面「測試中」狀態的 refresh token 7 天過期**：長期使用要在 GCP 的「目標對象」頁按「發布應用程式」（個人自用不觸發 Google 驗證要求）。授權失效時 `send` 會回報 `invalid_grant` 並指示重跑 `setup`。
