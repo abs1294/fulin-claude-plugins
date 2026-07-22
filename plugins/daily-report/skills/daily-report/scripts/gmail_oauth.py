@@ -261,8 +261,8 @@ def cmd_setup(args):
     })
     save_config(cfg)
     print("\n✓ 授權完成，refresh_token 已寫入 " + CONFIG_PATH)
-    if not cfg.get("recipients"):
-        print("  提醒：設定檔還沒有 recipients（收件人），寄送前要補。")
+    print("  提醒：憑證已就緒，但收件人要在各專案自己的 .claude/daily-report.json 設定"
+          "（家目錄不放收件人，避免專案間誤寄）。")
 
 
 def access_token(oauth):
@@ -405,12 +405,22 @@ def cmd_doctor(args):
     else:
         print("  [–] {:<12} {}".format("寄件帳號", "未取得（不影響寄送，預覽會少顯示一行）"))
 
-    # 5. 收件人
-    recipients = [str(a).strip() for a in (cfg.get("recipients") or []) if str(a).strip()]
-    src = cfg.get("_project_config") or CONFIG_PATH
+    # 5. 收件人——只認專案層（與 send_common.resolve_recipients 同紀律）。
+    # 家目錄的 recipients 不算數，否則 doctor 會顯示「借用來的」收件人為綠燈，
+    # 讓使用者以為設好了，實際寄送時卻被拒（或誤寄）。
+    proj_path = cfg.get("_project_config")
+    recipients = []
+    if proj_path and os.path.exists(proj_path):
+        try:
+            with open(proj_path, encoding="utf-8") as fh:
+                recipients = [str(a).strip() for a in ((json.load(fh) or {}).get("recipients") or [])
+                              if str(a).strip()]
+        except (json.JSONDecodeError, OSError):
+            recipients = []
     checks.append(("收件人", bool(recipients),
-                   "{}（來源：{}）".format(", ".join(recipients), src) if recipients
-                   else "未設定 → 在 config 的 recipients 填入，或在專案建 .claude/daily-report.json"))
+                   "{}（專案層：{}）".format(", ".join(recipients), proj_path) if recipients
+                   else "此專案未設收件人 → 在 <專案>/.claude/daily-report.json 填 recipients"
+                        "（家目錄的收件人不會被採用，避免誤寄）"))
 
     print("== daily-report 設定健檢（實測，非自我回報）==")
     failed = 0

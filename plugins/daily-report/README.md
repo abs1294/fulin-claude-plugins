@@ -1,6 +1,6 @@
 # daily-report
 
-把一整天散在各專案的 Claude Code 對話，濃縮成一封「主管/客戶看得懂」的工作日報，經你過目核可後透過 Gmail 寄給設定檔指定的收件人。
+把一整天散在各專案的 Claude Code 對話，濃縮成一封「主管/客戶看得懂」的工作日報，經你過目核可後透過 Gmail 寄給**該專案指定的收件人**。
 
 ## 怎麼用
 
@@ -21,9 +21,20 @@
 
 **為什麼推薦 OAuth**：權限只有 `gmail.send`——能寄不能讀，讀不到你任何信件；token 會過期、可隨時撤銷。應用程式密碼則等同**整個信箱的完整存取權且永不過期**（Google 官方立場是不推薦）。
 
+## 憑證與收件人分兩層（重要）
+
+設定分兩個位置，刻意分開：
+
+| 放什麼 | 放哪 | 進 git？ |
+|---|---|---|
+| **憑證**（oauth / smtp）＋帳號層預設（channel、subject_prefix、from_name） | 家目錄 `~/.claude/daily-report/config.json` | 否（機密） |
+| **收件人**（recipients / cc） | **各專案** `<專案>/.claude/daily-report.json` | 由你決定 |
+
+**收件人為什麼綁專案、不放家目錄**：憑證跟「人」綁定（你就一組 Gmail 授權），收件人跟「專案」綁定（Winbond 的日報不該寄給另一個客戶的窗口）。如果家目錄的收件人被當預設，一個還沒設收件人的新專案會**默默借用**家目錄的收件人寄出去——寄給不相干的人。所以家目錄的 `recipients` **不會被採用**；沒設專案收件人的專案，`status` 會回 `SETUP_REQUIRED`、寄送會被拒（要臨時寄用 `--to a@x`）。範本見 `daily-report.project.example.json`。
+
 **首次使用不用自己看文件**：跟 Claude 說產日報，它偵測到沒設定會問你要哪條路，選 OAuth 就**一步一步帶你做完**（建專案 → 啟用 API → 設定同意畫面 → 建用戶端 → 執行授權），最後那步瀏覽器自動跳出、按個「允許」就完成，refresh token 自動寫進設定檔。
 
-**設定對不對不靠猜——跑 `gmail_oauth.py doctor`**：它實際打 Gmail API 逐項驗證（設定檔、用戶端、授權能否換 token、API 是否已啟用、收件人），哪一項沒過就指出來，並附上 **Google 當下回傳的**錯誤與修復連結。做這個是因為作者自己照引導跑一遍，仍漏掉「啟用 Gmail API」直到寄信被 403——**引導文字會被漏讀、Console 路徑會改版，實測不會**。
+**設定對不對不靠猜——跑 `gmail_oauth.py doctor`**：它實際打 Gmail API 逐項驗證（設定檔、用戶端、授權能否換 token、API 是否已啟用、寄件帳號、收件人），哪一項沒過就指出來，並附上 **Google 當下回傳的**錯誤與修復連結。做這個是因為作者自己照引導跑一遍，仍漏掉「啟用 Gmail API」直到寄信被 403——**引導文字會被漏讀、Console 路徑會改版，實測不會**。
 
 **分享給別人用**：這個 plugin **不內建任何 OAuth 憑證**（刻意的——避免配額、驗證狀態、撤銷風險全綁在單一人身上）。對方裝了之後跑同樣的引導、開自己的 GCP 專案即可；或你把自己的 client_id/secret 給他填，他只需跑最後一步授權。
 
@@ -37,7 +48,8 @@
 ## 前置依賴
 
 - Python 3（純 stdlib，零套件安裝——OAuth 流程也是自己實作，不需 google-api-python-client）
-- 設定檔：`~/.claude/daily-report/config.json`（範本見 `skills/daily-report/config.example.json`）。**含機密，只放家目錄、絕不進 git**
+- 家目錄設定檔（憑證）：`~/.claude/daily-report/config.json`（範本 `skills/daily-report/config.example.json`）。**含機密，只放家目錄、絕不進 git**
+- 專案設定檔（收件人）：`<專案>/.claude/daily-report.json`（範本 `skills/daily-report/daily-report.project.example.json`）
 
 ## 檔案
 
@@ -52,7 +64,8 @@
 | `skills/daily-report/scripts/content_guard.py` | **內容硬閘**：擋 AI/工具鏈用語＋憑證/個資/金額，寄送前必過，無豁免旗標 |
 | `skills/daily-report/scripts/confirm_gate.py` | **確認窗口閘**：`arm`/`check`/`veto`/`clear`，時間與狀態由腳本判定，專案間隔離 |
 | `skills/daily-report/scripts/check_no_secrets.py` | 機制閘：掃 repo 內 JSON 範本有無真憑證（`--staged` 供 pre-commit 用） |
-| `skills/daily-report/config.example.json` | 設定檔範本 |
+| `skills/daily-report/config.example.json` | 家目錄設定範本（憑證＋帳號層預設） |
+| `skills/daily-report/daily-report.project.example.json` | 專案設定範本（收件人；複製到 `<專案>/.claude/daily-report.json`） |
 
 ## 界線（誠實說明，裝之前請讀）
 

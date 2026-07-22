@@ -2,6 +2,10 @@
 
 本檔記錄 daily-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.6.2] - 2026-07-22
+### Fixed
+- README 與程式對齊 0.6.0 收件人紀律：README 到處說「寄給設定檔指定的收件人」但實際收件人只認專案層、家目錄不當預設——修正 README 開頭與新增「憑證與收件人分兩層」段講清楚兩層設定；config.example 移除誤導的家目錄 recipients（程式已不採用），新增 daily-report.project.example.json 專案設定範本；doctor 收件人檢查同步改只認專案層（原本讀家目錄 recipients，會顯示借用來的收件人為綠燈誤導使用者）；doctor 檢查項 README 從 5 改 6（補寄件帳號）；setup 完成提示不再說「設定檔補 recipients」改說「各專案自設」
+
 ## [0.6.1] - 2026-07-21
 ### Fixed
 - SKILL.md 呈現核可步驟明訂：寄送資訊每一項（尤其主旨）必須顯示 dry-run 印出的實際值，不准用「（日報前綴）」這類佔位符或示意文字——否則使用者核可的是示意版而非真正會寄的內容，呈現核可形同虛設。起因：呈現時用佔位符代替實際主旨給使用者看

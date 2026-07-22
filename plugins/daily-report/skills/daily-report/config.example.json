@@ -1,11 +1,10 @@
 {
-  "_說明": "複製本檔到 ~/.claude/daily-report/config.json。寄送管道三選一，腳本依本檔內容自動判斷：① oauth 區塊（推薦，最小權限 gmail.send，跑 gmail_oauth.py setup 會自動填 refresh_token）② smtp 區塊（應用程式密碼，等同整個信箱權限）③ 兩者都不填則由 Claude 用 Gmail MCP 建草稿、你自己按送出。此檔含機密，只放家目錄、絕不進 git。",
+  "_說明": "【家目錄設定】複製本檔到 ~/.claude/daily-report/config.json。這份放憑證與帳號層級的預設（管道、主旨前綴、寄件顯示名）。此檔含機密，只放家目錄、絕不進 git。",
+
+  "_收件人說明": "⚠ 收件人不放這裡。收件人跟『專案』綁定，要在各專案自己的 <專案>/.claude/daily-report.json 設定（見 daily-report.project.example.json）。家目錄的 recipients 不會被當預設——這是刻意的：否則一個沒設收件人的新專案會默默借用這裡的收件人寄出去，寄給不相干的人。",
 
   "_channel說明": "明示你選的寄送管道：oauth / app_password / mcp_draft。留空則依偵測到的憑證自動判斷；但同一台機器有多組憑證時建議明寫，避免誤判。",
   "channel": "",
-
-  "recipients": ["主管@example.com"],
-  "cc": [],
   "subject_prefix": "[工作日報]",
   "from_name": "寄件顯示名稱",
 
