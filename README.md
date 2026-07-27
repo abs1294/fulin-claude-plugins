@@ -74,7 +74,7 @@ monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建�
 | **red-blue-review** | 中文紅藍對抗：對任何命題（決策/架構/程式碼/plugin配置/文件…）做 Red 攻→Blue 守→收斂的對抗式壓力測試，產出強化版 + go/no-go。說「紅藍對抗 X」即觸發 | 無 |
 | **self-heal** | 降低並自動接力 tool call 失敗：每輪注入 XML 收尾提醒 hook + self-heal scheduler 接力規約（卡住自己續、完成則終止） | 無 |
 | **cc-statusline** | 資訊密度高的 status line：目錄/repo/model/成本/用量/quota/agents/skills/memory+MCP/近期編輯/歷史多欄顯示，含寬字對齊；可用 `/cc-statusline-rows` 逐列開關。**裝完需設 `settings.json` 的 `statusLine`**（plugin 無法自動設，官方限制）——說「幫我設定 statusline」走 `/cc-statusline-setup`（先問再寫）或手動加，詳 `plugins/cc-statusline/README.md` | Node.js |
-| **deliver-report** | 把交付產出寫成一段給外部/委託方看的口語、白話、逐檔導讀交付訊息（fulin 慣用格式語氣）：收到即回應→逐檔清單（可展開子項）→帶判斷建議的重點結論→誠實講做不到→導讀動線→輕鬆收尾。**嚴禁內部術語**、預設讀者不懂技術。內容依產出而定。說「寫交付訊息 / 交付這批檔案」即觸發 | 無 |
+| **deliver-report** | 把交付產出寫成一段給外部/委託方看的口語、白話交付訊息（fulin 慣用語氣）：**動筆前先定四件事**（檔案是主體還是佐證、有沒有對方的問題要回、單一收件人還是多類分眾、內文密度），形狀自然長出來——沒有固定骨架可套；再套七條寫法規則。含逐檔導讀／分眾／逐題回覆三種常見形狀與四個範例。**嚴禁內部術語**、預設讀者不懂技術、安全性警示一律進信。說「寫交付訊息 / 交付這批檔案 / 回覆對方問的那幾題」即觸發 | 無 |
 | **msproject-wbs** | 產生 MS Project 可直接匯入的 WBS 時程 XML（MSPDI）：模組/工項兩層、工期、資源指派、依賴鏈自動展開甘特圖。把 MSPDI 的七個雷（**元素順序靜默丟棄**、缺全域欄位打不開、日期塌陷、工期 0、BOM…）編碼進生成腳本＋順序自檢，一次到位。說「排 WBS / 產 MS Project 時程」即觸發 | Node.js（驗證用 PowerShell） |
 | **daily-report** | 工作日報：掃當日 Claude Code session 記錄（自動濾 subagent/SDK/系統注入雜訊），按專案分組摘要「做了什麼＋待辦」，**人工核可後**透過 Gmail SMTP 寄給設定檔收件人；統計只本機顯示不寄出。說「產今天的日報」即觸發 | Python 3；Gmail 應用程式密碼（設定檔放家目錄不進 git），詳 `plugins/daily-report/README.md` |
 
@@ -98,7 +98,7 @@ plugins/
 ├─ red-blue-review/                  中文紅藍對抗（多面向對抗式審查）
 ├─ self-heal/                        tool call 失敗自動接力（XML 收尾 hook + scheduler）
 ├─ cc-statusline/                    高資訊密度 status line（需手動接 settings.json）
-├─ deliver-report/                   交付訊息產生器（固定格式語氣、內容依產出而定）
+├─ deliver-report/                   交付訊息產生器（四決定導出形狀、語氣固定）
 ├─ msproject-wbs/                    MS Project WBS 時程 XML 產生器（MSPDI 七雷編碼＋順序自檢）
 └─ daily-report/                     工作日報產生＋Gmail 寄送（核可後寄、憑證不進 git）
 ```
