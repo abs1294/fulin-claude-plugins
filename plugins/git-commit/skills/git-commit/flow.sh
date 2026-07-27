@@ -364,7 +364,10 @@ cmd_prepare() {
   git -c color.ui=false diff --staged --stat
   echo ""
 
-  local diff_file="$TMP_DIR/staged-$repo.diff"
+  # repo 可能是含斜線的子路徑（例：worktree wt/frontend-devout），
+  # 斜線會被當成目錄分隔導致寫檔失敗；統一把斜線換成 __ 當檔名 slug。
+  local repo_slug="${repo//\//__}"
+  local diff_file="$TMP_DIR/staged-$repo_slug.diff"
   git -c color.ui=false diff --staged > "$diff_file"
   local lines
   lines=$(wc -l < "$diff_file" | tr -d ' ')
@@ -373,7 +376,7 @@ cmd_prepare() {
   # TOCTOU 防護：記錄「被審查的這份 staged diff」的 hash。
   # ship 會重算當下 staged diff 的 hash 並比對，不符即拒——確保 commit 的內容
   # 就是三軌審查看過的那份，中間若 index 被改動（AI 再 add、多 repo 交錯）會被擋下。
-  local hash_file="$TMP_DIR/staged-$repo.sha"
+  local hash_file="$TMP_DIR/staged-$repo_slug.sha"
   git -c color.ui=false diff --staged | git hash-object --stdin > "$hash_file"
   echo "Staged diff hash saved: $hash_file ($(cat "$hash_file"))"
 }
@@ -415,7 +418,8 @@ cmd_ship() {
   assert_no_signature "$type: $desc"
 
   # === 真閘 2：TOCTOU — 比對當下 staged diff 與 prepare 時被審查的那份 ===
-  local hash_file="$TMP_DIR/staged-$repo.sha"
+  local repo_slug="${repo//\//__}"
+  local hash_file="$TMP_DIR/staged-$repo_slug.sha"
   if [ -f "$hash_file" ]; then
     local expected current
     expected="$(cat "$hash_file")"
@@ -452,7 +456,7 @@ EOF
   if git push; then
     echo ""
     # commit+push 都成功才清本次 diff hash，避免下次沿用舊 hash 誤判。
-    rm -f "$hash_file" "$TMP_DIR/staged-$repo.diff"
+    rm -f "$hash_file" "$TMP_DIR/staged-$repo_slug.diff"
   else
     push_rc=$?
     echo "" >&2

@@ -386,6 +386,7 @@ git-commit 通用化後支援兩種工作目錄結構：
 - 只 stage 本次任務相關檔案（由 AI 依據 1.2.3 判斷清單，再把路徑傳給 `prepare`）
 - 不 stage `local-overrides.yml` 清單內的檔案（已在 `analyze` 階段過濾，不會出現在建議清單中）
 - 禁止使用 `git update-index --skip-worktree`（覆寫檔案必用 `local-overrides.yml`）
+- **禁止 `git add -A` / `git add .`**（會把 local-overrides 的本機 hack 整檔混進 staged——2026-07-17 實際事故，靠兩軌審查才攔下）；stage 一律逐檔指定（`flow.sh prepare` 本身就是逐檔）。override 清單內「混有真改動」的檔案（如 Program.cs 的 DI 註冊）：用 `git diff` 切出真改動 hunk、`git apply --cached` 精準 stage，commit 前 grep `LocalDevToken|MockSap|MockBPM|mysecret` 確認 staged diff 為 0 命中（詳見 memory `feedback_git_add_all_bypasses_overrides`）
 
 ---
 
