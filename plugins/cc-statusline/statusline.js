@@ -416,6 +416,10 @@ process.stdin.on('end', () => {
     } catch (e) {}
 
     let agentItems = [];
+    // True number of distinct agent name-groups BEFORE any display cap. The
+    // "…+N" overflow marker counts against this, not against the capped list,
+    // or N under-reports whatever the cap already discarded.
+    let totalAgentGroups = 0;
     try {
       const agents = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-agents-${sid}.json`), 'utf8'));
       // Model letter per agent instance, shown as a (f)/(o)/(s)/(h) prefix on the
@@ -458,11 +462,17 @@ process.stdin.on('end', () => {
         else { byName[n].done++; if ((info.finished || 0) > byName[n].latestFinished) byName[n].latestFinished = info.finished; }
       }
       if (modelCacheDirty) { try { fs.writeFileSync(modelCacheFile, JSON.stringify(modelCache)); } catch (e) {} }
-      // Build entries: running first, then latest-done, up to 5 most-recent.
+      totalAgentGroups = Object.keys(byName).length;
+      // Build entries: running first, then latest-done. The cap here is only a
+      // sanity bound on work done per render — the REAL truncation happens at
+      // draw time against the middle column's actual slot count, which then
+      // renders "…+N". A tight cap of 5 made that marker dead code and silently
+      // dropped the 6th+ agent, so keep this well above any plausible slot count.
+      const AGENT_BUILD_CAP = 40;
       const nameEntries = Object.entries(byName).sort((a, b) => {
         if (a[1].running !== b[1].running) return b[1].running - a[1].running;
         return b[1].latestFinished - a[1].latestFinished;
-      }).slice(0, 5);
+      }).slice(0, AGENT_BUILD_CAP);
       // One entry per agent (each becomes its own third-column row); names can be
       // wider now that they're no longer packed onto a single shared line.
       agentItems = nameEntries.map(([n, s]) => {
@@ -731,15 +741,22 @@ process.stdin.on('end', () => {
     // Don't subtract padding — let the box fill full terminal width.
     // Claude Code's padding shifts our output right, but the box itself should be terminal-wide.
 
-    // Third column (agents + skills) — moved out of the left panel to the far
-    // right of the message-history column. Each array entry is one rendered row:
-    // a dim "agents"/"skills" HEADER row followed by one indented row per item,
-    // so each agent/skill gets its own line directly beneath its header.
-    const r3rows = [];
-    if (showRow('agents') && agentItems.length) {
-      r3rows.push(`${DIM}agents${R}`);
-      for (const it of agentItems) r3rows.push(`  ${it}`);
+    // MIDDLE column — the flexible column that used to show msgHistory now shows
+    // AGENTS: a dim "agents" header row followed by one indented row per agent.
+    // It keeps the message column's old geometry (flexible width, takes whatever
+    // is left after the left panel and the third column).
+    // The header shows even with zero agents (idle): the column is persistent, so
+    // labelling it beats an unexplained blank gap. Header alone does NOT keep the
+    // frame alive — that is decided by hasMidContent below.
+    const midRows = [];
+    const hasMidContent = showRow('agents') && agentItems.length > 0;
+    if (showRow('agents')) {
+      midRows.push(`${DIM}agents${R}`);
+      for (const it of agentItems) midRows.push(`  ${it}`);
     }
+    // THIRD column — skills only now that agents own the middle column. Same
+    // header + indented-item shape as before.
+    const r3rows = [];
     if (showRow('skills') && skillItems.length) {
       r3rows.push(`${DIM}skills${R}`);
       for (const it of skillItems) r3rows.push(`  ${it}`);
@@ -749,60 +766,57 @@ process.stdin.on('end', () => {
     // 最後才知道欄高，再把「最後 |r3fixed| 個 cell」換成 cron 內容（見 r3cell 與收尾替換）。
     const r3fixed = showRow('crons') ? cronRows : [];
     const hasR3 = r3rows.length > 0 || r3fixed.length > 0;
-    // Third column target width ~32 (user-chosen), but it must not starve the
-    // message column. Space available to the right of the left panel:
-    // Thresholds lowered (was 18/20) so narrower terminals can still surface the
-    // third column instead of dumping agents/skills back into the left panel.
-    // MSG_MIN_FOR_R3 must stay >= the showMsgs cutoff (MSG_W >= 15); otherwise
-    // R3 reserves only 14 for messages, showMsgs goes false, and the whole third
-    // column is rejected — an off-by-one that hid R3 at TERM_W~130 (LEFT_W~89).
-    // R3_TARGET is CONTENT-DRIVEN: the third column should only be as wide as
-    // its widest row (capped at 32), not a fixed 32 that steals space from the
-    // message column when agents/skills are short. +2 for the cell's " … " pad.
-    const R3_CAP = 32, R3_MIN = 14, MSG_MIN_FOR_R3 = 15;
-    let r3ContentW = 0;
-    for (const r of r3rows) r3ContentW = Math.max(r3ContentW, dw(r) + 2);
-    for (const r of r3fixed) r3ContentW = Math.max(r3ContentW, dw(r) + 2);
-    const R3_TARGET = Math.min(R3_CAP, r3ContentW);
+    // Column sizing is EQUAL-SPLIT, not content-driven: the agents column and the
+    // skills column each take half of the space right of the left panel, so the
+    // two read as a balanced pair. Content narrower than its half is padded;
+    // content wider is clipped by the existing fit(). (Previously R3 took only
+    // its content width and the middle column swallowed all the rest, which made
+    // skills look starved next to a very wide agents column.)
+    const R3_USABLE_MIN = 8; // narrowest cell that still fits a header + padding
     const rightAvail = Math.max(0, TERM_W - LEFT_W - 3); // -3 = "│ … │" frame around msg col
-    // Pick R3_W so the message column keeps at least MSG_MIN_FOR_R3 chars.
-    // If even R3_MIN can't fit alongside a usable message column, R3_W = 0
-    // (the column falls back to the left panel below).
-    // R3_W as a CONTINUOUS function of rightAvail (not two hard thresholds).
-    // Two-step thresholds caused a non-monotonic jump (R-EDGE-01): widening the
-    // terminal by 1 col could make the message column shrink ~18 cols as the
-    // third column popped in. Here the third column grows smoothly from 0:
-    //   - reserve MSG_MIN_FOR_R3 for messages, give the rest to R3 (capped at TARGET)
-    //   - but if that leaves R3 below R3_MIN (too narrow to be useful), drop to 0
-    // so MSG_W is monotonic non-decreasing in TERM_W and there's no sudden cliff.
+    // Halve the space right of the left panel between the two columns. One extra
+    // column is consumed by R3's own │ divider, so the pot to share is
+    // rightAvail - 1; the odd column (if any) goes to the agents column.
+    //
+    // Degrade rather than veto: if a half is below R3_USABLE_MIN the pair is not
+    // viable at this width, so BOTH collapse together (never one alone — that is
+    // the mixed state). showMsgs below enforces the joint decision.
     let R3_W = 0;
     if (hasR3) {
-      // Space left for the third column after reserving MSG_MIN_FOR_R3 for the
-      // message column and 1 for the divider │.
-      const spaceForR3 = rightAvail - 1 - MSG_MIN_FOR_R3;
-      // Give the third column exactly its content width (R3_TARGET), capped by
-      // available space. It NEVER takes more than it needs — short agents/skills
-      // → narrow column → the message column keeps the rest (fixes truncation).
-      const cand = Math.min(R3_TARGET, spaceForR3);
-      // Show it only if the space can host a useful width: the smaller of "what
-      // the content needs" and R3_MIN. (Short content < R3_MIN is fine — we don't
-      // reject the column just because its content happens to be narrow.)
-      R3_W = (cand >= Math.min(R3_TARGET, R3_MIN)) ? cand : 0;
+      const sharePot = rightAvail - 1;
+      const half = Math.floor(sharePot / 2);
+      R3_W = (half >= R3_USABLE_MIN && sharePot - half >= R3_USABLE_MIN) ? half : 0;
     }
 
-    // Left = content-driven (never truncated). Right = remaining terminal space,
-    // minus the third column (+1 for its │ divider) when present.
+    // Left = content-driven (never truncated). The middle column takes the rest
+    // of the right-hand space after R3 and its divider, which with the split
+    // above is the same half (±1 for an odd pot).
     // `let` because the left-panel fallback below may grow LEFT_W, after which
     // MSG_W must be recomputed or the frame overflows TERM_W (V1).
     let MSG_W = Math.max(0, rightAvail - (R3_W > 0 ? R3_W + 1 : 0));
-    let showMsgs = showRow('history') && MSG_W >= 15; // hide right column if too narrow or user disabled
-    // Third column rides on the message column's frame, so it only renders when
-    // the message column does. If messages are hidden, agents/skills fall back
-    // to the left panel (handled below by re-adding them to fullLeftRows).
+    // The middle column now carries agents (was msgHistory). The 'history' row
+    // key no longer maps to any column and is ignored.
+    //
+    // The three-column frame is PERSISTENT: it stays up whenever agents, skills
+    // or crons has content, so going idle (no running agent) empties the agents
+    // column rather than collapsing the whole layout and making the box jump.
+    // It only collapses when the terminal is too narrow (the fallback below) or
+    // when all three are empty (left panel alone, full width).
+    //
+    // Two states only, never a mix: the middle column and R3 collapse TOGETHER.
+    // If R3 has content but could not secure a usable width (R3_W === 0), the
+    // middle column must not render alone — otherwise skills/crons fall back
+    // into the left panel while agents keep a column, which is the mixed state
+    // seen at COLUMNS 100-114.
+    const r3Renderable = !hasR3 || R3_W > 0;
+    let showMsgs = (hasMidContent || hasR3) && MSG_W >= 15 && r3Renderable;
+    // Third column rides on the middle column's frame, so it only renders when
+    // the middle column does. When both are hidden, skills/crons fall back to
+    // the left panel (handled below by re-adding them to fullLeftRows).
     let showR3 = hasR3 && showMsgs && R3_W > 0;
 
-    // Fallback: if the third column can't render (message column hidden), put
-    // agents/skills back into the left panel so they're never lost.
+    // Fallback: if the third column can't render (middle column hidden), put
+    // skills/crons back into the left panel so they're never lost.
     // NOTE: re-adding here is AFTER LEFT_W was finalized (line ~522), so a
     // re-added row wider than the existing left panel would overflow the frame
     // (V1). Guard: only re-add, then clamp LEFT_W-dependent draw width to the
@@ -814,23 +828,54 @@ process.stdin.on('end', () => {
         fullLeftRows.push(r);
         LEFT_W = Math.max(LEFT_W, dw(r) + 2); // V1 guard: keep frame aligned
       }
-      // LEFT_W may have grown → message column must give back that space, else
+      // LEFT_W may have grown → middle column must give back that space, else
       // LEFT_W + MSG_W frame exceeds TERM_W and the border misaligns (V1 repro).
       MSG_W = Math.max(0, TERM_W - LEFT_W - 3);
-      // If the recomputed message column is now too narrow, hide it entirely
-      // (LEFT_W-only single column) rather than render a cramped/garbled column.
-      showMsgs = showRow('history') && MSG_W >= 15;
+      // R3's content has just been folded into the left panel, so the middle
+      // column must collapse too — keeping it alive here is precisely what
+      // produced the mixed "agents column + skills as left rows" state. Only
+      // mid-column content that is NOT in the left panel can justify a column,
+      // and that is nothing once R3 fell back: collapse to the single panel.
+      showMsgs = false;
     }
     // Right cell width of the split block — depends on the (possibly grown) LEFT_W,
     // so compute it AFTER the fallback may have widened LEFT_W. (Restored: this
     // const was accidentally dropped while changing showR3 to let.)
     const LRW_RECALC = LEFT_W - LLW - 1;
 
-    // Summary wrap (character-level, matching actual render width = LEFT_W - 18)
+
+    // Total inner width of the box (everything between the outer │ │). The box
+    // ALWAYS spans the full terminal: with columns present that is left + middle
+    // + third + their dividers; with no column the left panel is padded out to
+    // TERM_W - 2 so the right border still lands on the terminal's right edge.
+    const COLS_W = (showMsgs ? MSG_W + 1 : 0) + (showR3 ? R3_W + 1 : 0);
+    const BOX_W = showMsgs ? LEFT_W + COLS_W : Math.max(LEFT_W, TERM_W - 2);
+    // When no column renders, the left panel itself stretches to fill the box.
+    const LEFT_DRAW_W = showMsgs ? LEFT_W : BOX_W;
+    // Right cell of the split block, measured against the DRAWN left width so
+    // the split block also stretches when the left panel fills the whole box.
+    const LRW_RECALC2 = LEFT_DRAW_W - LLW - 1;
+
+    // Summary wrap (character-level). The summary row spans the FULL box width,
+    // so its content area is BOX_W - 2 (inside │ │) minus the 16-char
+    // "session summary " label / indent.
     // "session summary " label is 16 chars; subsequent rows indent 16 spaces.
-    // Content area on each row is LEFT_W - 2 (inside │ │) minus 16 label/indent.
-    const MAX_SUM_LINES = 2;
-    const maxSumW_calc = LEFT_W - 18;
+    const MAX_SUM_LINES = 1;
+    // Session id, right-aligned at the far end of the summary row. Full sid when
+    // it fits, else its first 8 chars, always separated from the summary text by
+    // at least 2 spaces. The summary yields the room (it truncates with …) so the
+    // id keeps its short form even when the summary is long; dropped entirely
+    // only if the row cannot host even the short form plus the gap.
+    const SID_GAP = 2;
+    const sidFull = sid, sidShort = sid.slice(0, 8);
+    const sumRowW = BOX_W - 18; // content width available on the summary row
+    let sidText = '';
+    if (hasSummary) {
+      if (sumRowW - (dw(sidFull) + SID_GAP) >= 1) sidText = sidFull;
+      else if (sumRowW - (dw(sidShort) + SID_GAP) >= 1) sidText = sidShort;
+    }
+    const sidW = sidText ? dw(sidText) + SID_GAP : 0;
+    const maxSumW_calc = sumRowW - sidW;
     const sumLines = [];
     if (hasSummary) { let curLine = '', curW = 0, truncated = false;
       const chars = [...summary];
@@ -878,20 +923,25 @@ process.stdin.on('end', () => {
     if (hasSummary && (preSplitRows.length || hasSplitBlock || fullLeftRows.length)
         && !(hasSplitBlock && preSplitRows.length === 0)) sectionDividers++;
     if (preSplitRows.length && fullLeftRows.length && !hasSplitBlock) sectionDividers++;
-    const totalSlots = sumLines.length + splitContentRows + allFullRows + splitOpenDivider + splitCloseDivider + fullDividers + sectionDividers;
+    // The summary row now spans the WHOLE box width, so it hosts no middle/R3
+    // cell and must not be counted as a slot for them.
+    const totalSlots = splitContentRows + allFullRows + splitOpenDivider + splitCloseDivider + fullDividers + sectionDividers;
 
-    const rightMsgs = [];
-    // Show the latest `totalSlots` messages (oldest-on-top within the window)
-    const sliced = msgHistory.slice(-totalSlots);
-    const padCount = Math.max(0, totalSlots - sliced.length);
-    for (let j = 0; j < padCount; j++) rightMsgs.push('');
-    for (const m of sliced) {
-      const icon = m.r === 'u' ? `${BLUE}\u25b6${R}` : `${GREEN}\u25c0${R}`;
-      // m.t may be missing on a malformed history entry \u2014 guard or the whole
-      // statusline crashes to "statusline error: ... reading 'replace'" (MSG-3).
-      const text = trunc(String(m.t ?? '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(), MSG_W - 4);
-      rightMsgs.push(`${icon} ${text}`);
-    }
+    // Middle-column content: agents, top-down. Unlike the old message column
+    // (which showed the NEWEST entries and padded at the top), agents read as a
+    // list \u2014 fill from the top and, if there are more agents than slots, collapse
+    // the tail into a dim "\u2026+N" so nothing silently disappears.
+    // N counts hidden AGENTS, not hidden rows: midRows[0] is the "agents" header,
+    // so a dropped header must not inflate the tally (that read "\u2026+6" for 5 agents).
+    // Do NOT truncate here. totalSlots is an ESTIMATE that can DIVERGE from the
+    // number of cells the draw path actually emits (instrumented sweep: it under-
+    // counts or matches, never exceeds \u2014 e.g. 7 vs 8 with a full-width summary,
+    // 3 vs 8 with rows toggled off). Truncating against the estimate put the
+    // "\u2026+N" marker in the wrong slot, so agents vanished with no marker.
+    // Instead pass the full list; the draw path knows the real cell count (ri)
+    // and folds the tail into "\u2026+N" once it is known \u2014 see the fixup after the
+    // bottom border.
+    const rightMsgs = midRows.slice();
 
     // ── Draw ──
     const h = c => `${DIM}${c}${R}`;
@@ -909,25 +959,36 @@ process.stdin.on('end', () => {
     const output = [];
     let ri = 0; // right message index
 
+    // Column-opening run right of the left panel: "┬───[┬───]" for the middle
+    // + third columns. Empty when neither renders.
+    const colsOpen = (j) => showMsgs
+      ? `${h(j)}${h(hl(MSG_W))}${showR3 ? h(j) + h(hl(R3_W)) : ''}`
+      : '';
+
     // Top border — if the FIRST section is the split block, merge the split-open into
     // the top border so there's no redundant ├─┬─┤ right after ┌─┐.
     const topMergeSplit = hasSplitBlock && !hasSummary && preSplitRows.length === 0;
-    if (topMergeSplit) {
+    if (hasSummary) {
+      // A full-width summary row comes first, so the top border is flat across
+      // the whole box; the columns are opened by the divider BELOW the summary.
+      output.push(`${h('\u250c')}${h(hl(BOX_W))}${h('\u2510')}`);
+    } else if (topMergeSplit) {
       // top border with split column divider baked in: ┌───┬───┬───┐ (or ┌───┬───┐ if no msgs)
-      if (showMsgs) output.push(`${h('\u250c')}${h(hl(LLW))}${h('\u252c')}${h(hl(LRW_RECALC))}${h('\u252c')}${h(hl(MSG_W))}${showR3 ? h('\u252c') + h(hl(R3_W)) : ''}${h('\u2510')}`);
-      else          output.push(`${h('\u250c')}${h(hl(LLW))}${h('\u252c')}${h(hl(LRW_RECALC))}${h('\u2510')}`);
+      if (showMsgs) output.push(`${h('\u250c')}${h(hl(LLW))}${h('\u252c')}${h(hl(LRW_RECALC))}${colsOpen('\u252c')}${h('\u2510')}`);
+      else          output.push(`${h('\u250c')}${h(hl(LLW))}${h('\u252c')}${h(hl(LEFT_DRAW_W - LLW - 1))}${h('\u2510')}`);
     } else if (showMsgs) {
-      output.push(`${h('\u250c')}${h(hl(LEFT_W))}${h('\u252c')}${h(hl(MSG_W))}${showR3 ? h('\u252c') + h(hl(R3_W)) : ''}${h('\u2510')}`);
+      output.push(`${h('\u250c')}${h(hl(LEFT_W))}${colsOpen('\u252c')}${h('\u2510')}`);
     } else {
-      output.push(`${h('\u250c')}${h(hl(LEFT_W))}${h('\u2510')}`);
+      output.push(`${h('\u250c')}${h(hl(LEFT_DRAW_W))}${h('\u2510')}`);
     }
 
-    // Helper: right column cell (truncated to fit) or empty if hidden
+    // Helper: middle column cell. Emits a placeholder token during layout (same
+    // two-phase trick as r3cell) because the number of cells is only known once
+    // every host row has been emitted \u2014 and only then can the tail be folded
+    // into "\u2026+N". Substituted after the bottom border.
     const rcell = () => {
       if (!showMsgs) return '';
-      const content = fit(rightMsgs[ri] || '', MSG_W - 2);
-      ri++;
-      return ` ${content} ${h('\u2502')}`;
+      return ` \x00MID#${ri++}\x00 ${h('\u2502')}`;
     };
     // Helper: third-column cell (agents/skills + fixed crons bottom block)\u3002
     // \u5169\u6bb5\u5f0f\u6e32\u67d3\uff1a\u6392\u7248\u671f\u53ea\u767c token \u4f54\u4f4d\u4e26\u8a08\u6578\uff08\x00R3#n\x00\uff0c\u6b63\u5e38\u8f38\u51fa\u4e0d\u53ef\u80fd\u51fa\u73fe\u6b64
@@ -942,20 +1003,41 @@ process.stdin.on('end', () => {
     // Combined right suffix for every CONTENT/DIVIDER row: msg cell + third cell.
     const rsuffix = () => rcell() + r3cell();
 
-    // Summary rows
+    // The full-width summary row sits above the columns, so the first divider
+    // below it OPENS them (┬ junctions, no cells yet); every later divider
+    // continues them (┤ + cells). `colsOpened` flips on the first such divider.
+    let colsOpened = !hasSummary;
+    // Divider spanning the left panel, with the column junctions appended.
+    // Before the columns are opened it emits ├──┬──┬──┤; after, ├──┤ + live cells.
+    const ldiv = (marks) => {
+      const span = marks ? hlm(LEFT_W, marks) : hl(LEFT_W);
+      if (!colsOpened) {
+        colsOpened = true;
+        if (showMsgs) return `${h('\u251c')}${h(span)}${colsOpen('\u252c')}${h('\u2524')}`;
+        return `${h('\u251c')}${h(marks ? hlm(LEFT_DRAW_W, marks) : hl(LEFT_DRAW_W))}${h('\u2524')}`;
+      }
+      return `${h('\u251c')}${h(marks ? hlm(LEFT_DRAW_W, marks) : hl(LEFT_DRAW_W))}${h('\u2524')}${rsuffix()}`;
+    };
+
+    // Summary rows \u2014 these span the FULL box width (no middle/R3 cell), so they
+    // emit no rsuffix(). The session id sits flush against the row's right end;
+    // sumLines were wrapped against the same reduced width, so padding the text
+    // to (row width - sid width) lands the id exactly at the edge.
     if (hasSummary) {
       for (let si = 0; si < sumLines.length; si++) {
         const label = si === 0 ? `${DIM}session summary${R} ` : ' '.repeat(16);
-        output.push(`${h('\u2502')} ${label}${pad(sumLines[si], LEFT_W - 18)} ${h('\u2502')}${rsuffix()}`);
+        const tail = (si === 0 && sidText) ? `${' '.repeat(SID_GAP)}${DIM}${sidText}${R}` : '';
+        const textW = (si === 0 && sidText) ? sumRowW - sidW : sumRowW;
+        output.push(`${h('\u2502')} ${label}${pad(sumLines[si], textW)}${tail} ${h('\u2502')}`);
       }
     }
 
     // pre-split full-width rows (when an entire split column collapsed to single-cell)
     if (preSplitRows.length > 0) {
-      if (hasSummary) output.push(`${h('\u251c')}${h(hl(LEFT_W))}${h('\u2524')}${rsuffix()}`);
+      if (hasSummary) output.push(ldiv());
       for (let j = 0; j < preSplitRows.length; j++) {
-        if (j > 0) output.push(`${h('\u251c')}${h(hl(LEFT_W))}${h('\u2524')}${rsuffix()}`);
-        output.push(`${h('\u2502')} ${pad(preSplitRows[j], LEFT_W - 2)} ${h('\u2502')}${rsuffix()}`);
+        if (j > 0) output.push(ldiv());
+        output.push(`${h('\u2502')} ${pad(preSplitRows[j], LEFT_DRAW_W - 2)} ${h('\u2502')}${rsuffix()}`);
       }
     }
 
@@ -963,29 +1045,31 @@ process.stdin.on('end', () => {
     if (hasSplitBlock) {
       // Emit split-open divider only if NOT merged with top border
       if (!topMergeSplit) {
-        output.push(`${h('\u251c')}${h(hl(LLW))}${h('\u252c')}${h(hl(LRW_RECALC))}${h('\u2524')}${rsuffix()}`);
+        output.push(colsOpened
+          ? `${h('\u251c')}${h(hl(LLW))}${h('\u252c')}${h(hl(LRW_RECALC2))}${h('\u2524')}${rsuffix()}`
+          : ((colsOpened = true), `${h('\u251c')}${h(hl(LLW))}${h('\u252c')}${h(hl(LRW_RECALC2))}${colsOpen('\u252c')}${h('\u2524')}`));
       }
-      if (hasRow1) output.push(`${h('\u2502')} ${pad(splitRow1L, LLW - 2)} ${h('\u2502')} ${pad(splitRow1R, LRW_RECALC - 2)} ${h('\u2502')}${rsuffix()}`);
-      if (hasRow2) output.push(`${h('\u2502')} ${pad(splitRow2L, LLW - 2)} ${h('\u2502')} ${pad(splitRow2R, LRW_RECALC - 2)} ${h('\u2502')}${rsuffix()}`);
+      if (hasRow1) output.push(`${h('\u2502')} ${pad(splitRow1L, LLW - 2)} ${h('\u2502')} ${pad(splitRow1R, LRW_RECALC2 - 2)} ${h('\u2502')}${rsuffix()}`);
+      if (hasRow2) output.push(`${h('\u2502')} ${pad(splitRow2L, LLW - 2)} ${h('\u2502')} ${pad(splitRow2R, LRW_RECALC2 - 2)} ${h('\u2502')}${rsuffix()}`);
       if (fullLeftRows.length > 0) {
-        output.push(`${h('\u251c')}${h(hl(LLW))}${h('\u2534')}${h(hl(LRW_RECALC))}${h('\u2524')}${rsuffix()}`);
+        output.push(`${h('\u251c')}${h(hl(LLW))}${h('\u2534')}${h(hl(LRW_RECALC2))}${h('\u2524')}${rsuffix()}`);
       }
     } else if (!preSplitRows.length && hasSummary && fullLeftRows.length > 0) {
-      output.push(`${h('\u251c')}${h(hl(LEFT_W))}${h('\u2524')}${rsuffix()}`);
+      output.push(ldiv());
     } else if (preSplitRows.length > 0 && fullLeftRows.length > 0) {
-      output.push(`${h('\u251c')}${h(hl(LEFT_W))}${h('\u2524')}${rsuffix()}`);
+      output.push(ldiv());
     }
 
     // Full-width left rows
     for (let j = 0; j < fullLeftRows.length; j++) {
-      output.push(`${h('\u2502')} ${pad(fullLeftRows[j], LEFT_W - 2)} ${h('\u2502')}${rsuffix()}`);
+      output.push(`${h('\u2502')} ${pad(fullLeftRows[j], LEFT_DRAW_W - 2)} ${h('\u2502')}${rsuffix()}`);
       if (j < fullLeftRows.length - 1) {
         const marks = {};
         if (mcpHlIdx >= 0) {
           if (j + 1 === memMcpRowIdx) marks[mcpHlIdx] = '\u252c'; // ┬
           else if (j === memMcpRowIdx) marks[mcpHlIdx] = '\u2534'; // ┴
         }
-        output.push(`${h('\u251c')}${h(hlm(LEFT_W, marks))}${h('\u2524')}${rsuffix()}`);
+        output.push(ldiv(marks));
       }
     }
 
@@ -996,8 +1080,8 @@ process.stdin.on('end', () => {
     const r3Needed = r3rows.length + r3fixed.length;
     if (showR3 && r3slot < r3Needed) {
       while (r3slot < r3Needed) {
-        output.push(`${h('├')}${h(hl(LEFT_W))}${h('┤')}${rcell()}${r3cell()}`);
-        output.push(`${h('│')} ${pad('', LEFT_W - 2)} ${h('│')}${rcell()}${r3cell()}`);
+        output.push(`${h('├')}${h(hl(LEFT_DRAW_W))}${h('┤')}${rcell()}${r3cell()}`);
+        output.push(`${h('│')} ${pad('', LEFT_DRAW_W - 2)} ${h('│')}${rcell()}${r3cell()}`);
       }
     }
 
@@ -1008,15 +1092,15 @@ process.stdin.on('end', () => {
     // If split block was the last thing emitted (no full rows after), the split divider lands on bottom
     if (hasSplitBlock && fullLeftRows.length === 0) {
       if (showMsgs) {
-        output.push(`${h('\u2514')}${h(hl(LLW))}${h('\u2534')}${h(hl(LRW_RECALC))}${h('\u2534')}${h(hl(MSG_W))}${showR3 ? h('\u2534') + h(hl(R3_W)) : ''}${h('\u2518')}`);
+        output.push(`${h('\u2514')}${h(hl(LLW))}${h('\u2534')}${h(hl(LRW_RECALC2))}${colsOpen('\u2534')}${h('\u2518')}`);
       } else {
-        output.push(`${h('\u2514')}${h(hl(LLW))}${h('\u2534')}${h(hl(LRW_RECALC))}${h('\u2518')}`);
+        output.push(`${h('\u2514')}${h(hl(LLW))}${h('\u2534')}${h(hl(LRW_RECALC2))}${h('\u2518')}`);
       }
     } else {
       if (showMsgs) {
-        output.push(`${h('\u2514')}${h(hlm(LEFT_W, bottomMarks))}${h('\u2534')}${h(hl(MSG_W))}${showR3 ? h('\u2534') + h(hl(R3_W)) : ''}${h('\u2518')}`);
+        output.push(`${h('\u2514')}${h(hlm(LEFT_W, bottomMarks))}${colsOpen('\u2534')}${h('\u2518')}`);
       } else {
-        output.push(`${h('\u2514')}${h(hlm(LEFT_W, bottomMarks))}${h('\u2518')}`);
+        output.push(`${h('\u2514')}${h(hlm(LEFT_DRAW_W, bottomMarks))}${h('\u2518')}`);
       }
     }
 
@@ -1030,6 +1114,27 @@ process.stdin.on('end', () => {
       for (let oi = 0; oi < output.length; oi++) {
         if (output[oi].indexOf('\x00R3#') !== -1) {
           output[oi] = output[oi].replace(/\x00R3#(\d+)\x00/g, (_, n) => fit(r3TextFor(+n), R3_W - 2));
+        }
+      }
+    }
+
+    // Middle-column token substitution. `ri` is now the REAL number of cells the
+    // draw path emitted, so the overflow marker can be placed in a cell that
+    // actually exists. If the agents list is longer than the available cells,
+    // the LAST cell becomes "…+N" where N counts every agent group not shown —
+    // measured against totalAgentGroups, the pre-cap truth.
+    if (showMsgs) {
+      const cellCount = ri;
+      const midTextFor = (n) => {
+        if (rightMsgs.length > cellCount && n === cellCount - 1) {
+          const shownItems = Math.max(0, (cellCount - 1) - 1); // minus the header row
+          return `${DIM}…+${Math.max(0, totalAgentGroups - shownItems)}${R}`;
+        }
+        return rightMsgs[n] || '';
+      };
+      for (let oi = 0; oi < output.length; oi++) {
+        if (output[oi].indexOf('\x00MID#') !== -1) {
+          output[oi] = output[oi].replace(/\x00MID#(\d+)\x00/g, (_, n) => fit(midTextFor(+n), MSG_W - 2));
         }
       }
     }

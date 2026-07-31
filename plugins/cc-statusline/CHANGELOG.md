@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.0.0] - 2026-07-31
+### Changed
+- 版面大改版：中間欄由對話歷史改為 agents 清單、skills 留最右欄且兩欄等寬（右側剩餘寬度對半分，餘數歸 agents）、crons 釘欄底；session summary 列橫跨全盒寬、右端顯示 session id、最多 1 列超長截斷；任何模式盒子撐滿終端寬；agents 超量末格 …+N 折疊；欄位常駐（無 agent 時不收合）；三欄模式需終端約 115 欄以上，不足整組收合單欄；修 100–114 欄混合態與 agents>5 無聲消失
+
 ## [0.4.0] - 2026-07-16
 ### Changed
 - agents 列名字前加模型縮寫前綴 (f)/(o)/(s)/(h)：SubagentStart/Stop payload 無 model 欄位（實證＋官方文件確認），改由 statusline.js 渲染時 lazy 讀各 subagent transcript 前 256KB 抓 model id，快取到獨立 tmp 檔（不碰 tracker 狀態檔避免 CAS 競態）；前綴與名字共用原 20 字元預算，欄寬計算不變（0.4.0）
