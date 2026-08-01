@@ -1,28 +1,16 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+// Locked CAS merge (see lib-state.js). The previous local copy had no
+// inter-process lock, so concurrent PostToolUse hooks could lose entries.
+const { casMerge } = require('./lib-state');
 
-// Atomic write: temp file + rename (single atomic FS op on POSIX & Windows),
-// so the statusline reader never sees a half-written file.
-const atomicWrite = (f, data) => {
-  const tmp = `${f}.${process.pid}.${Date.now()}.tmp`;
-  try { fs.writeFileSync(tmp, data); fs.renameSync(tmp, f); }
-  catch (e) { try { fs.unlinkSync(tmp); } catch (_) {} }
-};
-
-// CAS merge: retry until our change is visible in a fresh re-read. Guards
-// against two concurrent PostToolUse hooks overwriting each other's entry.
-const casMerge = (file, mutate, verify, maxRetries = 10) => {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    let cur = {};
-    try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
-    mutate(cur);
-    atomicWrite(file, JSON.stringify(cur));
-    let after = {};
-    try { after = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
-    if (verify(after)) return;
-  }
-};
+// Skills are already keyed BY NAME (one entry per skill, with a count), so
+// unlike the agents file there is no instance/name mismatch to fix here — every
+// entry is a distinct name and the cap can only ever drop whole names.
+// Raised 20 -> 40 to match the agents budget and push that cliff further out;
+// the display only shows the top 5, so this is purely retention headroom.
+const SKILL_BUDGET = 40;
 
 let d = '';
 process.stdin.on('data', c => d += c);
@@ -50,10 +38,10 @@ process.stdin.on('end', () => {
       (state) => {
         const prev = state[name] || { count: 0, last: 0 };
         state[name] = { count: prev.count + 1, last: myStamp };
-        // Prune: keep the 20 most-recently-used skills
+        // Prune: keep the most-recently-used skills, newest first.
         const entries = Object.entries(state)
-          .sort((a, b) => b[1].last - a[1].last)
-          .slice(0, 20);
+          .sort((a, b) => (b[1].last || 0) - (a[1].last || 0))
+          .slice(0, SKILL_BUDGET);
         for (const k of Object.keys(state)) delete state[k];
         for (const [k, v] of entries) state[k] = v;
       },

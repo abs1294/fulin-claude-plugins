@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.0.1] - 2026-08-01
+### Fixed
+- 修 agents/skills 欄同 session 莫名刷新：tracker prune 改名稱保底（done 每名稱至少留最新 1 筆、額度 20→40）不再擠掉整個 agent 名稱；tracker 寫入抽共用 lib-state.js 加跨程序檔案鎖，並發啟停掉資料歸零；running 超 4h 未收到 Stop 事件降級為 done 保留名稱
+
 ## [1.0.0] - 2026-07-31
 ### Changed
 - 版面大改版：中間欄由對話歷史改為 agents 清單、skills 留最右欄且兩欄等寬（右側剩餘寬度對半分，餘數歸 agents）、crons 釘欄底；session summary 列橫跨全盒寬、右端顯示 session id、最多 1 列超長截斷；任何模式盒子撐滿終端寬；agents 超量末格 …+N 折疊；欄位常駐（無 agent 時不收合）；三欄模式需終端約 115 欄以上，不足整組收合單欄；修 100–114 欄混合態與 agents>5 無聲消失
