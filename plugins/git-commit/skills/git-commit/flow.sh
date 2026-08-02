@@ -18,7 +18,8 @@
 # 用法：
 #   flow.sh analyze <repo>
 #   flow.sh prepare <repo> <files...>
-#   flow.sh ship <repo> <type> <description>
+#   flow.sh ship <repo> <type> <description>            # 只 local commit（預設）
+#   flow.sh ship <repo> <type> <description> --push     # 經使用者核可後才推遠端
 # ============================================================
 
 set -euo pipefail
@@ -382,19 +383,24 @@ cmd_prepare() {
 }
 
 # ------------------------------------------------------------
-# Command: ship <repo> <type> <description>
-#   git commit (HEREDOC) → push → 驗證結果
+# Command: ship <repo> <type> <description> [--push]
+#   git commit (HEREDOC) → 驗證結果；帶 --push 才推遠端
+#   預設 local commit only：push 是不可逆的對外動作，必須使用者當次明確核可。
 # ------------------------------------------------------------
 
 cmd_ship() {
   # 解析旗標：--allow-sensitive（顯式授權保留敏感字）、--allow-artifacts（顯式授權版控建置產物）。
   local allow_sensitive=0
   local allow_artifacts=0
+  # 預設只做 local commit。push 是對外動作、不可逆（推出去就在遠端歷史上），
+  # 必須由使用者當次明確核可才做——故設計成顯式 --push 才推，不提供「預設推」的路徑。
+  local do_push=0
   local positional=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --allow-sensitive) allow_sensitive=1; shift ;;
       --allow-artifacts) allow_artifacts=1; shift ;;
+      --push) do_push=1; shift ;;
       *) positional+=("$1"); shift ;;
     esac
   done
@@ -404,7 +410,7 @@ cmd_ship() {
   local type="${2:-}"
   local desc="${3:-}"
   if [ -z "$repo" ] || [ -z "$type" ] || [ -z "$desc" ]; then
-    echo "Usage: flow.sh ship <repo> <type> <description> [--allow-sensitive] [--allow-artifacts]" >&2
+    echo "Usage: flow.sh ship <repo> <type> <description> [--push] [--allow-sensitive] [--allow-artifacts]" >&2
     exit 1
   fi
   assert_valid_repo "$repo"
@@ -449,6 +455,20 @@ EOF
 )"
   echo ""
 
+  if [ "$do_push" -eq 0 ]; then
+    echo "=== Push: 略過（local commit only）==="
+    echo "  本次只在本地 commit，未推上遠端。"
+    echo "  要推請在使用者明確核可後，重跑同一條指令並加 --push："
+    echo "    flow.sh ship $repo $type \"$desc\" --push"
+    echo ""
+    # 未 push 不算完成，保留 diff hash 與 staged diff 供後續 --push 時比對／人接手。
+    echo "=== Verify ==="
+    git -c color.ui=false status
+    echo "--- last commit ---"
+    git -c color.ui=false log -1 --oneline
+    return 0
+  fi
+
   echo "=== Push ==="
   # push 可能因遠端有新 commit 被拒（non-fast-forward）。用 if 攔住，避免 set -e 直接中止
   # 而留下「已 commit、未 push」的懸置狀態卻無下一步指引（AI 易自行裸跑 pull / push -f）。
@@ -491,8 +511,9 @@ Usage: flow.sh <command> [args]
 Commands:
   analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描（僅提示）
   prepare <repo> <files...>         git add + 輸出 staged diff + 記錄 diff hash 到 .claude/.git-commit-tmp/
-  ship    <repo> <type> <desc> [--allow-sensitive] [--allow-artifacts]
-                                    真閘(署名/單行/diff-hash/敏感字) → git commit (HEREDOC) → push → 驗證
+  ship    <repo> <type> <desc> [--push] [--allow-sensitive] [--allow-artifacts]
+                                    真閘(署名/單行/diff-hash/敏感字) → git commit (HEREDOC) → 驗證
+                                    預設只 local commit；--push 才推遠端（需使用者明確核可）
 
 repo 參數：
   工作目錄底下的 git 子目錄名（多 repo workspace），或 "." 代表工作目錄本身就是 git repo。
@@ -504,10 +525,12 @@ Examples:
   flow.sh analyze .                              # 工作目錄本身是 git repo
   flow.sh analyze WEHQ.SupplierManager.Frontend  # 多 repo workspace 底下的子 repo
   flow.sh prepare . src/foo.vue src/bar.js
-  flow.sh ship    WEHQ.SupplierManager.Frontend Modify "修正 XXX"
+  flow.sh ship    WEHQ.SupplierManager.Frontend Modify "修正 XXX"           # local commit
+  flow.sh ship    WEHQ.SupplierManager.Frontend Modify "修正 XXX" --push    # 核可後才推
 
 Notes:
   - 禁止 --no-verify、禁止 --amend、禁止 force push（旗標層不提供）
+  - 預設 local commit only：未帶 --push 不會推遠端，且保留 diff hash（未 push 不算完成）
   - Commit message 禁止任何 AI 署名——ship 會機制級攔截（assert_no_signature），非僅提醒
   - staged diff 命中敏感字時 ship 會擋下，除非顯式 --allow-sensitive
   - staged 含建置產物/快取/備份（__pycache__、*.pyc、node_modules、*.bak、*.log…）時 ship 會擋下，除非 --allow-artifacts
