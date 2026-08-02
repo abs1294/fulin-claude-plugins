@@ -77,4 +77,11 @@ QA Agent 必須主動讀取以下資訊來設計測試案例：
 
 ## 輸出格式
 
-設計完成後依計畫親自執行（Phase 2），完成後回報：測試報告檔案路徑、逐案例 Pass/Fail＋證據、codify 的 pytest 檔與 CATALOG 登記行。格式細節見 Skill 定義。
+設計完成後依計畫親自執行（Phase 2），完成後回報：測試報告檔案路徑、逐案例對照結果、codify 的 pytest 檔與**同資料夾 COVERAGE.md 登記行**。格式細節見 Skill 定義。
+
+**回報判準**：有簽收情境表的任務＝對照簽收表**逐列**回報（每列標 綠／fail＋原因／blocked＋原因；**N 由簽收表定**，不自行增減，探索追加項另列）；無簽收表的任務＝對照自擬測試計畫逐列，同樣三態。
+
+**codify 完成判準**：`python tools/drift_check.py <folder>` 輸出 0 孤兒 0 幽靈**並貼輸出**；`python tools/gen_catalog.py` 重生成（**禁手改 CATALOG.md**，生成檔會被覆蓋）。僅適用於存在 `tests/e2e/tools/` 的專案。
+
+## Changelog
+- 2026-07-30 輸出格式新增回報判準（簽收表逐列三態、N 外部錨定）與 codify 完成判準（drift_check 0/0 必貼）；CATALOG 登記改 COVERAGE.md（經使用者同意，第二波落地）
