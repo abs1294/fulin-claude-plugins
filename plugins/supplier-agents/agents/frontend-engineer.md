@@ -29,6 +29,7 @@ Frontend Engineer 負責：
 
 1. API Contract 已由 backend-architect 確認
 2. 已讀取 `frontend-development` Skill（見下方「必須使用的 Skill」）
+3. **實作前自檢**：先讀 `.claude/skills/code-review/rules/frontend/` 中與本次變更相關的檔（元件結構／命名／反模式／API／狀態管理，依觸及面選讀）＋`rules/0.0.Design-Quality-Baseline.md`（🟢 建議級，寫時避開）。僅適用於存在該目錄的專案；無則跳過。
 
 ---
 
@@ -69,19 +70,8 @@ Frontend Engineer 負責：
 
 # 註解撰寫規範（必須遵守）
 
-公司禁止在程式碼揭露 AI 參與。以下「罐頭 / 複述」型註解一律禁止（＝AI 痕跡指紋。此核心清單三個 agent 檔同步維護、內容一致，完整正本見 workspace 根目錄 `註解撰寫規範.md`）：
+公司禁止在程式碼揭露 AI 參與——罐頭／複述型註解＝AI 痕跡指紋。寫或改任何註解前，**必須先讀 workspace 根目錄 `註解撰寫規範.md`（唯一正本）並照做**：含禁止清單、該寫什麼（Why 不寫 What）、前端 JSDoc 與 Vue template 的專屬處置。不讀不寫。
 
-- **空殼 doc**：`/// <summary></summary>`、空 `<param name="logger"></param>`、`/** */` 留空。
-- **複述名稱**：`/// <summary>Handle</summary>`、`/// <summary>處理 XxxCommand</summary>`、`/** 取得表頭文字 */`——只把方法/類名翻譯一次。
-- **生硬英文範本**：`Initializes a new instance of the <see cref="X"/> class.` 之類套話。
-- **教科書分隔線 / 硬編號**：`// === 1. 參數驗證 ===`、`// 1.` `// 2.` 逐步流水帳、debug 字串裡的 `[Step 1]`。
-- **解釋顯而易見的程式碼**：`// 將 count 加一` 配 `count++`、`// 設置攔截器` 配 `setRequestInterceptors()`。
-- **過度詳盡的教學式 doc**：為自解釋的簡單成員寫「設計原則＋使用範例」整段。
-- **同檔中英風格突變**：上半英文 doc、下半中文。
-
-**正確做法 — 註解寫 Why 不寫 What：** 記錄為什麼這樣做、踩過什麼坑、有什麼約束（如「naive-ui virtual-scroll 需 row 等高，否則底部留白」「量測走 DOM 很貴，只取前 N 列當樣本」）。沒有資訊量的註解寧可不寫。中文為主，一檔語言一致。
-
-**前端特例：**
-
-- 前端無 CS1591 之類限制，沒有資訊量的內部函式 JSDoc 直接刪即可，不會有警告。
-- Vue template `<!-- -->`：維持短標籤式（`<!-- 篩選區 -->`、`<!-- 查詢結果表格 -->`）即可，這是現狀最好的部分，不要過度展開。
+## Changelog
+- 2026-07-30 前置條件新增第 3 點「實作前自檢」（rules/frontend/ 選讀＋DQ 基線；條件式生效）（經使用者同意，第二波落地）
+- 2026-07-31 註解規範內聯內容改為指標（唯一正本＝workspace 根 `註解撰寫規範.md`；冷啟探針驗證後定案）（經使用者同意）

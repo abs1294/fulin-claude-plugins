@@ -87,27 +87,13 @@ description: 當使用者說「請code reviewer」、「code review」、「程�
 
 # 註解審查（AI 痕跡 / 罐頭註解）
 
-公司禁止在程式碼揭露 AI 參與。審查時必須把下列「罐頭 / 複述」型註解視為缺陷（🟡 Important）並要求改善（此核心清單三個 agent 檔同步維護、內容一致，完整正本見 workspace 根目錄 `註解撰寫規範.md`）：
-
-- **空殼 doc**：`/// <summary></summary>`、空 `<param name="logger"></param>`、`/** */` 留空。
-- **複述名稱**：`/// <summary>Handle</summary>`、`/// <summary>處理 XxxCommand</summary>`、`/** 取得表頭文字 */`——只把方法/類名翻譯一次。
-- **生硬英文範本**：`Initializes a new instance of the <see cref="X"/> class.` 之類套話。
-- **教科書分隔線 / 硬編號**：`// === 1. 參數驗證 ===`、`// 1.` `// 2.` 逐步流水帳、debug 字串裡的 `[Step 1]`。
-- **解釋顯而易見的程式碼**：`// 將 count 加一` 配 `count++`、`// 設置攔截器` 配 `setRequestInterceptors()`。
-- **過度詳盡的教學式 doc**：為自解釋的簡單成員寫「設計原則＋使用範例」整段。
-- **同檔中英風格突變**：上半英文 doc、下半中文。
-
-**修正方向**：註解應寫 Why（設計理由 / 約束 / 踩坑），而非複述程式碼。沒有資訊量者應刪除或改寫。
-
-**CS1591 但書（後端 C#，避免誤判）：** 內站 `WEHQ.SupplierManager.API`、外站 `WEHQ.Supplier.Service` 有開 `GenerateDocumentationFile`，`public` / `protected` 成員缺 XML doc 會跳 CS1591。因此審查時：
-
-- **不可**要求「補一個空殼 / 複述 summary 去壓 CS1591」——那本身就是缺陷。
-- 正確要求是：`public` / `protected` 成員**換成有意義的 summary**；`private` 成員直接刪 doc。
-
-完整規範見 workspace 根目錄 `註解撰寫規範.md`。
+公司禁止在程式碼揭露 AI 參與。審查前**必須先讀 workspace 根目錄 `註解撰寫規範.md`（唯一正本）**：把其中禁止清單的指紋視為缺陷（🟡 Important），修正方向與 CS1591 但書（不可要求補空殼 summary 壓警告）照該檔要求。不讀不判。
 
 ---
 
 # 輸出格式
 
 參考 `code-review` Skill 定義的審查輸出格式與審查摘要格式。
+
+## Changelog
+- 2026-07-31 註解審查內聯清單改為指標（唯一正本＝workspace 根 註解撰寫規範.md；冷啟探針驗證後定案）（經使用者同意）

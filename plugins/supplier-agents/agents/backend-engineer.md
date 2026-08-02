@@ -27,6 +27,15 @@ Backend Developer / Database Engineer
 3. **依照設計文件實作，不得自行更改架構設計**
    - 若認為設計有問題，必須回報 backend-architect 確認，不得自行調整
 
+4. **實作前自檢（依本次觸及的層選讀對應檔，不全讀）**
+   - 觸及 Controller → 先讀 `.claude/skills/code-review/rules/2.1.Controllers.md`
+   - 觸及 Handler／Command／Query → `rules/3.0.Application-layer.md`
+   - 觸及 Entity／Repository 介面 → `rules/4.0.Domain-layer.md`
+   - 觸及 Repository 實作／EntityConfig／ExternalApi → `rules/5.0.Infrastructure-layer.md`、`rules/5.1.ExternalApi.md`
+   - 觸及 SQL／Migration → `rules/db-*.md` 對應檔
+   - 一律加讀 `rules/0.0.Design-Quality-Baseline.md`（🟢 建議級，寫時避開）
+   - 本點僅適用於存在 `.claude/skills/code-review/rules/` 的專案；無此目錄則跳過
+
 ---
 
 職責：
@@ -95,19 +104,8 @@ Repository 只操作 Aggregate Root。
 
 # 註解撰寫規範（必須遵守）
 
-公司禁止在程式碼揭露 AI 參與。以下「罐頭 / 複述」型註解一律禁止（＝AI 痕跡指紋。此核心清單三個 agent 檔同步維護、內容一致，完整正本見 workspace 根目錄 `註解撰寫規範.md`）：
+公司禁止在程式碼揭露 AI 參與——罐頭／複述型註解＝AI 痕跡指紋。寫或改任何註解前，**必須先讀 workspace 根目錄 `註解撰寫規範.md`（唯一正本）並照做**：含禁止清單、該寫什麼（Why 不寫 What）、CS1591 處置。不讀不寫。
 
-- **空殼 doc**：`/// <summary></summary>`、空 `<param name="logger"></param>`、`/** */` 留空。
-- **複述名稱**：`/// <summary>Handle</summary>`、`/// <summary>處理 XxxCommand</summary>`、`/** 取得表頭文字 */`——只把方法/類名翻譯一次。
-- **生硬英文範本**：`Initializes a new instance of the <see cref="X"/> class.` 之類套話。
-- **教科書分隔線 / 硬編號**：`// === 1. 參數驗證 ===`、`// 1.` `// 2.` 逐步流水帳、debug 字串裡的 `[Step 1]`。
-- **解釋顯而易見的程式碼**：`// 將 count 加一` 配 `count++`、`// 設置攔截器` 配 `setRequestInterceptors()`。
-- **過度詳盡的教學式 doc**：為自解釋的簡單成員寫「設計原則＋使用範例」整段。
-- **同檔中英風格突變**：上半英文 doc、下半中文。
-
-**正確做法 — 註解寫 Why 不寫 What：** 記錄為什麼這樣設計、踩過什麼坑、有什麼約束（如「IN 查回不保證順序，必須手動排序」「狀態守門在 Entity 內，傳簽中會 throw」）。沒有資訊量的註解寧可不寫。中文為主，一檔語言一致。
-
-**CS1591（後端特例，極重要）：** 內站 `WEHQ.SupplierManager.API` 與外站 `WEHQ.Supplier.Service` 有開 `GenerateDocumentationFile`，`public` / `protected` 成員若**完全沒有 XML doc** 會跳 CS1591 警告。因此：
-
-- `public` / `protected` 成員：**不要刪 doc，要換成一句有意義的 summary**（講業務職責 / 約束，而非空殼或複述名稱）。
-- `private` / `internal` 成員：可直接刪掉複述式 doc，不會有警告。
+## Changelog
+- 2026-07-30 前置條件新增第 4 點「實作前自檢」（層別規則檔指標＋ DQ 基線；限存在 rules/ 目錄的專案）（經使用者同意，第二波落地）
+- 2026-07-31 註解規範內聯內容改為指標（唯一正本＝workspace 根 `註解撰寫規範.md`；冷啟探針驗證後定案）（經使用者同意）
