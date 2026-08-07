@@ -189,6 +189,13 @@ process.stdin.on('end', () => {
     // ── Data ──
     const model = (i.model?.display_name || '?').replace('Claude ', '');
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
+    // Key for the cumulative store ONLY. sid stays truncated at 24 chars because
+    // hooks derive the same tmp state filenames from it -- changing that breaks the
+    // pairing. But 24 chars of a stripped UUID drops the last 8 hex digits, and 3
+    // real cross-project collisions were found in the store, silently merging two
+    // sessions' spend. The store is keyed by an in-process map, not a filename, so
+    // it can safely use the full id. Pre-existing 24-char keys stay as history.
+    const cumKey = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '');
 
     // Claude Code sometimes resets total_cost / duration / lines (context compact,
     // auto-recovery, etc). Instead of freezing at max (which could over-report),
@@ -212,22 +219,153 @@ process.stdin.on('end', () => {
     const CUM_KEYS = ['cost', 'dur', 'add', 'rm', 'tok'];
     const curVals = { cost: curCost, dur: curDur, add: curAdd, rm: curRm, tok: curTok };
     const blankCum = () => ({ cost:{total:0,base:0}, dur:{total:0,base:0}, add:{total:0,base:0}, rm:{total:0,base:0}, tok:{total:0,base:0} });
-    const normCum = (st) => (st && typeof st === 'object') ? { total: st.total || 0, base: st.base || 0 }
-                          : (typeof st === 'number') ? { total: st, base: st }
-                          : { total: 0, base: 0 };
+    // Stored shape per key: { settled, peak, lowSince }. `settled` is spend from
+    // epochs that have already ended (each payload reset closes an epoch); `peak` is
+    // the highest payload seen in the CURRENT epoch. Reported total is settled+peak.
+    // `lowSince` is the epoch-ms timestamp when the payload first dropped below the
+    // reset threshold, or 0 when it is healthy -- see the debounce note below.
+    //
+    // Older files stored { total, base }; `total` maps onto settled+peak and `base`
+    // is exactly the old epoch peak, so reading base as peak and settled as
+    // (total - base) carries history forward without a migration pass.
+    const normCum = (st) => {
+      if (st && typeof st === 'object') {
+        if (typeof st.peak === 'number') return { settled: st.settled || 0, peak: st.peak, lowSince: st.lowSince || 0 };
+        const total = st.total || 0, base = st.base || 0;
+        return { settled: Math.max(0, total - base), peak: base, lowSince: 0 };
+      }
+      if (typeof st === 'number') return { settled: 0, peak: st, lowSince: 0 };
+      return { settled: 0, peak: 0, lowSince: 0 };
+    };
     // Snapshot our PRE-render persisted state once. The casMerge mutate below can
     // run several times (retry on lost race) and MUST be idempotent: deriving the
     // delta from whatever is in the file at mutate time double-counts, because by
     // retry #2 the file already contains our own write. So the delta is always
     // computed against this frozen "before" state, never against live file data.
     let before = {};
-    try { before = (JSON.parse(fs.readFileSync(cumPath, 'utf8')).sessions || {})[sid] || {}; } catch (e) {}
+    let firstSeen = true;
+    try {
+      const priorSessions = JSON.parse(fs.readFileSync(cumPath, 'utf8')).sessions || {};
+      if (Object.prototype.hasOwnProperty.call(priorSessions, cumKey)) {
+        before = priorSessions[cumKey] || {};
+        firstSeen = false;
+      }
+    } catch (e) {}
+    // Accounting model: PEAK PER EPOCH, not per-render deltas.
+    //
+    // total_cost_usd is already the session's own cumulative figure, so the only
+    // reason to accumulate at all is that Claude Code occasionally RESETS it
+    // (context compact, auto-recovery). Deltas were the wrong tool for that: two
+    // concurrent renders of one session hold different snapshots of the same
+    // counter, and charging each render's rise re-charged the gap between the two
+    // snapshots every ~30s. That pumped one session to $1,008,997 against a true
+    // spend of $690.
+    //
+    // Tracking the epoch PEAK is immune to it. A stale render reporting a LOWER
+    // payload cannot raise the peak, so it contributes nothing no matter how often
+    // it interleaves -- the result depends only on the highest payload observed,
+    // never on the order or number of renders. That makes the merge idempotent and
+    // commutative, which is what a lock-free multi-writer store actually needs.
+    //
+    // Identifying "which render wrote this" was tried first and cannot work: the
+    // payload carries no per-render identity, and transcript_path is per SESSION,
+    // so two concurrent renders of the blown-up session share it (verified: that
+    // session has exactly one transcript file). Any writer-id scheme therefore
+    // collapses to a single id in precisely the case that caused the bug.
+    //
+    // Telling a real reset from a stale concurrent snapshot is the whole problem,
+    // and with identical writerIds the two look the same at the instant they occur:
+    // both are "payload below the stored peak". They differ in MAGNITUDE. Claude
+    // Code resets these counters by starting a fresh context, so the payload falls
+    // to near zero. A concurrent render, by contrast, is only one refresh behind and
+    // sits just under the peak (observed $689.90 vs $73.83 on the same session, and
+    // small $10-scale skews in testing).
+    //
+    // So a drop only closes an epoch when the payload retains less than this
+    // fraction of the peak. Treating a shallow dip as a reset is the expensive
+    // mistake -- it banks the entire epoch and then re-banks it on every cycle
+    // (measured: $110 banked per cycle, reaching $2,300 against a true $110).
+    //
+    // The fraction alone misfires while a counter is still small: early in a session
+    // a lagging render can sit at $1.50 against a $4.50 peak, which is a 67% drop by
+    // ratio yet only $3 in absolute terms. RESET_MIN requires the epoch to be worth
+    // banking at all, so those early wobbles cannot open spurious epochs.
+    //
+    // DEBOUNCE (RESET_N). A deep drop alone is still not enough. When two concurrent
+    // renders are far apart -- the real case, $689.90 against $73.83 -- every low
+    // render clears the fraction test and banks another full epoch, so the total
+    // grows by the peak every cycle: measured $13,871.83 after 20 alternations,
+    // 20.1x the single-snapshot figure. Per-cycle bounded is NOT bounded; over a
+    // 13-hour session that is the original six-figure blow-up again.
+    //
+    // What separates the two cases is PERSISTENCE, not depth. A stale snapshot is
+    // immediately contradicted by the leading render returning a high value. A real
+    // compact stays low: every render from then on reports the restarted counter.
+    //
+    // Persistence is measured in TIME, not in render count. Counting renders fails
+    // under real concurrency: two parallel low renders both read the same stored
+    // count and both increment it, so a count of 2 is reached by a single dip
+    // observed twice rather than by a dip that lasted (measured: $5,519.20 after 25
+    // parallel rounds even with a 2-render debounce). A timestamp cannot be
+    // double-counted -- the first low render stamps lowSince, and banking requires
+    // the CLOCK to have advanced RESET_MS past it, which no number of simultaneous
+    // renders can fake. Any payload at or above the peak clears the stamp.
+    //
+    // RESET_MS sits above the ~30s render cadence so a genuine compact banks on the
+    // next render or two, while alternating snapshots -- which clear the stamp every
+    // other render -- can never accumulate the required dwell time. It is tied to
+    // that cadence: if the status line is ever refreshed markedly less often, raise
+    // RESET_MS to stay above the new interval, or a single slow cycle will look like
+    // sustained silence and bank an epoch that never ended.
+    const RESET_FRAC = 0.5;
+    const RESET_MIN = { cost: 5, dur: 300000, add: 500, rm: 500, tok: 500000 };
+    const RESET_MS = 45000;
+    const nowMs = Date.now();
+    // Two ACCEPTED trade-offs fall out of the "cur >= peak clears the clock" rule.
+    // Both are known, both self-correct, and neither compounds -- they are recorded
+    // here so a later reader does not mistake them for a fresh bug and "fix" the
+    // rule that keeps the ping-pong dead.
+    //
+    // B1 (stale echo -> brief OVER-report): after a real compact, a render still
+    // holding the pre-compact payload re-clears the clock and restores the old high
+    // peak, so the reported figure jumps back up for a cycle. It resolves as soon as
+    // that render exits, and because the peak is only ever restored -- never added
+    // to settled -- repeated echoes cannot compound the way the original delta bug
+    // did. A transient overstatement beats reviving unbounded accumulation.
+    //
+    // B2 (lingering old render -> brief UNDER-report): symmetrically, an old render
+    // that keeps reporting a value exactly equal to the stored peak holds the epoch
+    // open, so genuinely new spend below that peak is not yet visible. It clears the
+    // moment the stale render stops or the live payload climbs past the peak.
     const settled = {};
     for (const k of CUM_KEYS) {
       const c = normCum(before[k]);
       const cur = curVals[k];
-      if (cur >= c.base) settled[k] = { total: c.total + (cur - c.base), base: cur };
-      else settled[k] = { total: c.total, base: cur }; // payload reset: re-baseline only
+      const deepLow = cur < c.peak * RESET_FRAC && c.peak >= RESET_MIN[k];
+      if (firstSeen) {
+        // No prior entry: the payload's own figure is the truth to seed with.
+        settled[k] = { settled: 0, peak: cur, lowSince: 0 };
+      } else if (cur >= c.peak) {
+        // Counter still climbing within this epoch: raise the peak. No addition, so
+        // replaying this render any number of times changes nothing. This also
+        // clears the debounce -- the counter is demonstrably alive at this level, so
+        // any earlier low reading was a stale snapshot, not a restart.
+        settled[k] = { settled: c.settled, peak: cur, lowSince: 0 };
+      } else if (deepLow && c.lowSince && nowMs - c.lowSince >= RESET_MS) {
+        // Deep, and low for longer than a render cycle: the counter really
+        // restarted. Bank the ended epoch and open a new one at cur. Banking the
+        // PEAK (not our own payload) is what lets a resumed session pick up without
+        // losing the tail of the previous epoch.
+        settled[k] = { settled: c.settled + c.peak, peak: cur, lowSince: 0 };
+      } else if (deepLow) {
+        // Deep but not yet sustained: hold everything and start (or keep) the clock.
+        // Concurrent renders all stamp the same window rather than each adding a
+        // tick, so simultaneity cannot manufacture the dwell time.
+        settled[k] = { settled: c.settled, peak: c.peak, lowSince: c.lowSince || nowMs };
+      } else {
+        // Shallow dip: a concurrent render one refresh behind. Contributes nothing.
+        settled[k] = { settled: c.settled, peak: c.peak, lowSince: c.lowSince };
+      }
     }
     let cum = settled;
     // Merge our entry into the CURRENT on-disk state, not the snapshot casMerge
@@ -245,26 +383,51 @@ process.stdin.on('end', () => {
         const sessions = (live && typeof live.sessions === 'object' && live.sessions) ? live.sessions : {};
         store.v = 1;
         store.sessions = sessions;
-        // Never regress our own total: a concurrent render of the SAME session
-        // may already have written a higher value.
-        const existing = sessions[sid];
+        // settled and peak are ONE unit and must be merged as a pair, never
+        // field-wise. Taking max on each independently breaks the reset: banking an
+        // epoch lowers peak while raising settled, but an independent max keeps the
+        // OLD peak, so the same epoch is re-banked on every later render (measured:
+        // $232 where $41 was correct). Compare on the reported figure instead --
+        // settled + peak is what the model means by "spend so far", it only ever
+        // grows, and the pair that produced the larger one is internally consistent.
+        //
+        // Ties keep the entry with the larger settled: that is the one that has
+        // already banked an epoch, so a render still holding the pre-reset pair
+        // cannot undo the banking.
+        //
+        // lowSince rides with the winning pair. Do NOT combine the two sides
+        // arithmetically: an earlier attempt min()'d the debounce counter across
+        // both, which floored our own fresh observation against the stored 0 every
+        // render so resets never banked at all (6 tests red, post-reset spend
+        // frozen). A concurrent render seeing a healthy payload already clears the
+        // debounce correctly -- it takes the `cur >= peak` branch, writing lowSince 0
+        // into the pair that then wins the comparison below.
+        const existing = sessions[cumKey];
         let mine = settled;
         if (existing) {
           mine = {};
           for (const k of CUM_KEYS) {
             const e = normCum(existing[k]);
-            mine[k] = (e.total > settled[k].total) ? e : settled[k];
+            const eTot = e.settled + e.peak;
+            const sTot = settled[k].settled + settled[k].peak;
+            const keepExisting = eTot > sTot || (eTot === sTot && e.settled > settled[k].settled);
+            const win = keepExisting ? e : settled[k];
+            mine[k] = { settled: win.settled, peak: win.peak, lowSince: win.lowSince };
           }
         }
-        store.sessions[sid] = mine;
+        store.sessions[cumKey] = mine;
         cum = mine;
       },
       // Verify both halves: our entry landed AND we did not clobber anyone who
       // was present before us. Entry count must never shrink across our write.
       (after) => {
         const sess = (after && after.sessions) || {};
-        const mine = sess[sid];
-        if (!mine || !mine.cost || mine.cost.base !== curCost) return false;
+        const mine = sess[cumKey];
+        // peak bears no fixed relation to curCost (a concurrent render may hold a
+        // higher payload, and a reset lowers it), so asserting one would fail
+        // legitimate rounds and burn all 10 retries. Verify only what this check is
+        // for: our entry is present and well-formed, i.e. nobody clobbered the write.
+        if (!mine || !mine.cost || typeof mine.cost.peak !== 'number') return false;
         let onDisk = 0;
         try { onDisk = Object.keys(JSON.parse(fs.readFileSync(cumPath, 'utf8')).sessions || {}).length; } catch (e) {}
         return Object.keys(sess).length >= onDisk;
@@ -273,9 +436,11 @@ process.stdin.on('end', () => {
     // between our verify and this line.
     let cumAll = {};
     try { cumAll = JSON.parse(fs.readFileSync(cumPath, 'utf8')).sessions || {}; } catch (e) {}
-    if (cumAll[sid]) cum = normCumEntry(cumAll[sid], CUM_KEYS, normCum);
-    const cost = '$' + cum.cost.total.toFixed(2);
-    const dur = fmtDur(Math.round(cum.dur.total / 60000));
+    if (cumAll[cumKey]) cum = normCumEntry(cumAll[cumKey], CUM_KEYS, normCum);
+    // Reported value = spend banked from ended epochs + the current epoch's peak.
+    const cumTotal = (entry, k) => { const n = normCum(entry && entry[k]); return n.settled + n.peak; };
+    const cost = '$' + (cum.cost.settled + cum.cost.peak).toFixed(2);
+    const dur = fmtDur(Math.round((cum.dur.settled + cum.dur.peak) / 60000));
     const ctx = Math.round(i.context_window?.used_percentage ?? 0);
     // If a rate-limit window's reset has already passed in real time, payload's
     // used_percentage is stale (payload only refreshes on message submit). Assume
@@ -355,9 +520,9 @@ process.stdin.on('end', () => {
     };
     const r5h = Math.round(aggMax('five_hour'));
     const r7d = Math.round(aggMax('seven_day'));
-    const added = cum.add.total;
-    const removed = cum.rm.total;
-    const tokTotal = cum.tok.total;
+    const added = cum.add.settled + cum.add.peak;
+    const removed = cum.rm.settled + cum.rm.peak;
+    const tokTotal = cum.tok.settled + cum.tok.peak;
     const sessionName = i.session_name || '';
 
     let branch = '', dirty = 0, repoName = '';
@@ -599,11 +764,26 @@ process.stdin.on('end', () => {
     // Aggregate total cost + tokens across ALL sessions by walking every claude-cum-*.json
     // Sum every session in the shared store written above. No directory scan:
     // cumStore is the verified snapshot from this render's casMerge.
+    // The store was once keyed by a 24-char truncation of the session id and is now
+    // keyed by the full id, so one session can hold BOTH an old short entry and a
+    // new full one -- and while it is still running, both keep growing. Summing
+    // them double-counts (measured: 8 such pairs, $3,836 double-counted). Skip a
+    // short key whenever a longer key extends it: the full-length entry is the live
+    // one, and the truncated entry's spend is already inside the session it names.
+    //
+    // Truncation could in principle map two different sessions onto one short key,
+    // in which case dropping it loses the half that never got a full-length entry.
+    // That is preferred to inflating every affected session's running cost, and the
+    // live store currently has no such collision (each short key extends to exactly
+    // one long key). Nothing is deleted here -- the entries stay on disk.
     let allCost = 0, allTok = 0;
     try {
-      for (const sess of Object.values(cumAll || {})) {
-        allCost += (sess && sess.cost && sess.cost.total) || 0;
-        allTok += (sess && sess.tok && sess.tok.total) || 0;
+      const allKeys = Object.keys(cumAll || {});
+      const supersededBy = (k) => allKeys.some(o => o.length > k.length && o.startsWith(k));
+      for (const [k, sess] of Object.entries(cumAll || {})) {
+        if (supersededBy(k)) continue;
+        allCost += cumTotal(sess, 'cost');
+        allTok += cumTotal(sess, 'tok');
       }
     } catch (e) {}
     const allCostStr = '$' + allCost.toFixed(2);

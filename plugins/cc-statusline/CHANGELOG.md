@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.0.2] - 2026-08-07
+### Fixed
+- 修 cost 累計天文數字（單 session 顯示一百萬美元）：併發 render 乒乓累加根治——累計帳改 epoch 峰值制（settled+peak，與 render 順序無關）＋深跌需持續 45s 的時戳防抖；累計檔 key 改完整 session id 並修新舊 key 雙算；新增 scripts/repair-cumulative.js（idempotent，修復被灌爆的歷史資料，含 --list-fixtures）；已知自癒取捨 B1/B2 註解在案
+
 ## [1.0.1] - 2026-08-01
 ### Fixed
 - 修 agents/skills 欄同 session 莫名刷新：tracker prune 改名稱保底（done 每名稱至少留最新 1 筆、額度 20→40）不再擠掉整個 agent 名稱；tracker 寫入抽共用 lib-state.js 加跨程序檔案鎖，並發啟停掉資料歸零；running 超 4h 未收到 Stop 事件降級為 done 保留名稱
