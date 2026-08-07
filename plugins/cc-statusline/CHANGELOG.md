@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.1.0] - 2026-08-07
+### Changed
+- 紅藍對抗（token 段）產出：tokens 列改真 session 用量——transcript usage 四欄增量累加（StringDecoder 串流、offset 快取、message.id 去重 keep-first、truncate 重掃、0-byte/目錄 fallback）、tok 退出 epoch 累計器改單調 max、payload 數值入口統一夾取、fmtTok 補 T 檔與進位；ctx% 不動（官方語意本就正確）。(all) 過渡期新舊混合、隨 session 讀取跳升至真值
+
 ## [1.0.2] - 2026-08-07
 ### Fixed
 - 修 cost 累計天文數字（單 session 顯示一百萬美元）：併發 render 乒乓累加根治——累計帳改 epoch 峰值制（settled+peak，與 render 順序無關）＋深跌需持續 45s 的時戳防抖；累計檔 key 改完整 session id 並修新舊 key 雙算；新增 scripts/repair-cumulative.js（idempotent，修復被灌爆的歷史資料，含 --list-fixtures）；已知自癒取捨 B1/B2 註解在案

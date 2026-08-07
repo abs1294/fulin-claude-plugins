@@ -3,6 +3,7 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { StringDecoder } = require('string_decoder');
 
 let d = '';
 process.stdin.on('data', c => d += c);
@@ -183,7 +184,25 @@ process.stdin.on('end', () => {
       const dd = Math.floor(min/1440), h = Math.floor((min%1440)/60);
       return h > 0 ? `${dd}d ${h}hr` : `${dd}d`;
     };
-    const fmtTok = n => n >= 1e9 ? (n/1e9).toFixed(1)+'B' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
+    // Tokens now carry real session usage (tens of millions per session, and the
+    // cross-session (all) figure reaches billions), so the top tier is load-bearing
+    // rather than theoretical -- hence T, and hence the carry check below.
+    //
+    // Rounding must be decided BEFORE picking the unit: 999,999 rounds to "1000.0K"
+    // if the unit is chosen first, which is both wrong and one char wider than the
+    // column budget. Promote to the next unit whenever rounding would reach 1000.
+    const fmtTok = (n) => {
+      if (!Number.isFinite(n) || n < 0) n = 0;
+      // Largest unit first. The threshold for each unit is 999.95 x the NEXT unit
+      // down, not 1.0 x its own scale: at 999,999 the K form would round to
+      // "1000.0K", so the M row must claim it and render "1.0M". Comparing against
+      // the rounded-up boundary is what makes that happen without a retry loop.
+      const units = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']];
+      for (const [scale, suffix] of units) {
+        if (n >= scale * 0.99995) return (n / scale).toFixed(1) + suffix;
+      }
+      return String(Math.round(n));
+    };
     const ago = ms => { const m = Math.round((Date.now()-ms)/60000); return m < 1 ? 'now' : m < 60 ? m+'m ago' : Math.floor(m/60)+'h ago'; };
 
     // ── Data ──
@@ -202,11 +221,139 @@ process.stdin.on('end', () => {
     // track DELTAS: when payload >= last_baseline, add delta to total; when payload
     // resets (drops below baseline), just re-baseline without touching total.
     // This way total keeps climbing through resets but never double-counts.
-    const curCost = i.cost?.total_cost_usd ?? 0;
-    const curDur = i.cost?.total_duration_ms ?? 0;
-    const curAdd = i.cost?.total_lines_added ?? 0;
-    const curRm = i.cost?.total_lines_removed ?? 0;
-    const curTok = (i.context_window?.total_input_tokens ?? 0) + (i.context_window?.total_output_tokens ?? 0);
+    // Single entry point for every payload-derived number. The payload is JSON from
+    // another process: a string, null, NaN, Infinity or a negative can all arrive,
+    // and any of them poison the cumulative store permanently once written (an
+    // Infinity peak makes every later comparison false; a string turns arithmetic
+    // into concatenation). Clamp once, here, so nothing downstream has to re-check.
+    const num = (x) => (Number.isFinite(x) ? Math.max(0, x) : 0);
+    const curCost = num(i.cost?.total_cost_usd);
+    const curDur = num(i.cost?.total_duration_ms);
+    const curAdd = num(i.cost?.total_lines_added);
+    const curRm = num(i.cost?.total_lines_removed);
+    // Context-window occupancy, NOT cumulative session usage -- see the tokens row
+    // below. Kept only as the fallback when the transcript cannot be read.
+    const ctxTok = num(i.context_window?.total_input_tokens) + num(i.context_window?.total_output_tokens);
+    // ── Real session token usage ──
+    //
+    // The payload has no cumulative token field. context_window.total_input_tokens /
+    // total_output_tokens are the CURRENT context occupancy (cache reads and writes
+    // already folded in), so feeding them to a cumulative accumulator produced a
+    // quantity with no meaning -- it read 1.79M against a peak single-turn occupancy
+    // of 0.91M. Real usage comes from the transcript: every assistant turn logs
+    // message.usage with the four billed components.
+    //
+    // Turns are DEDUPED BY message.id, KEEPING THE FIRST copy seen. The same
+    // assistant message is written to the transcript several times (4x is common),
+    // so summing every line double-counts badly -- measured 59.60M naive against
+    // 31.81M deduped on this session, and 344.46M against 161.03M on another.
+    //
+    // Keep-first is deliberate; do NOT "simplify" it to keep-last. Copies are almost
+    // always identical, but two opposite exceptions exist in real data, so the tie
+    // has to be broken one way and first is the safe end:
+    //   - a streaming snapshot can be written before the turn finishes, making the
+    //     first copy low by a few thousand tokens;
+    //   - a trailing copy can be written with usage entirely ZEROED.
+    // Across 508 local transcripts and 50,842 distinct ids, exactly one id varied
+    // and it was the zeroed-tail kind: keep-last would have dropped 998,464 tokens
+    // (0.005% low), while keep-first matched keep-max exactly (0.000000% error).
+    // The streaming-snapshot case costs keep-first at most a few thousand tokens.
+    //
+    // Read INCREMENTALLY: the state file holds the byte offset already consumed plus
+    // the running sums, so each render only parses bytes appended since last time.
+    // Two concurrent renders that re-read the same span compute the same sums from
+    // the same offset, so the write converges rather than double-counting -- the
+    // operation is idempotent in the offset, not an increment of shared state.
+    //
+    // Known and accepted: usage inside a subagent's own transcript is not counted
+    // (only the main transcript is read), and a resumed session that copies its
+    // transcript can be counted in both entries of the (all) figure.
+    const tokStatePath = path.join(os.tmpdir(), `claude-toksum-${sid}.json`);
+    const readTranscriptTokens = () => {
+      const tp = i.transcript_path;
+      if (!tp) return null;
+      let st;
+      try { st = fs.statSync(tp); } catch (e) { return null; }
+      let prev = { off: 0, tok: 0, ids: [] };
+      try {
+        const raw = JSON.parse(fs.readFileSync(tokStatePath, 'utf8'));
+        if (raw && typeof raw === 'object') {
+          prev = { off: num(raw.off), tok: num(raw.tok), ids: Array.isArray(raw.ids) ? raw.ids : [] };
+        }
+      } catch (e) {}
+      // Offset past EOF means the file was truncated or rotated (a new session
+      // reusing the path): rescan from the start rather than trusting stale sums.
+      if (prev.off > st.size) prev = { off: 0, tok: 0, ids: [] };
+      // A zero-length target means there is nothing to count yet -- a brand-new
+      // session whose transcript has not been written, or (on Windows) a path that
+      // is actually a DIRECTORY, since statSync reports size 0 for one and openSync
+      // happily opens it. Both would otherwise report a confident "0 tokens"; return
+      // null so the caller falls back to the payload figure instead. A session that
+      // has genuinely used 0 tokens always has size > 0, so this cannot mask one.
+      if (st.size === 0) return null;
+      if (prev.off === st.size) return prev.tok;
+
+      // Stream the appended region in chunks. A first full read of a large
+      // transcript can be tens of MB, so it is never slurped whole.
+      let buf = '';
+      let consumed = prev.off;
+      const seen = new Set(prev.ids);
+      let tok = prev.tok;
+      let fd = null;
+      try {
+        fd = fs.openSync(tp, 'r');
+        const CHUNK = 1 << 20;
+        const chunk = Buffer.allocUnsafe(CHUNK);
+        // StringDecoder, not chunk.toString(): a multi-byte character straddling a
+        // chunk boundary would otherwise decode as two U+FFFD replacements. That
+        // corrupts the JSON on that line AND inflates Buffer.byteLength by 2 bytes
+        // per occurrence, so the stored offset drifts past the real position and the
+        // next render skips live data. Measured on a 2.7MB transcript: 3 split
+        // characters, offset 6 bytes beyond EOF. The decoder holds the partial
+        // sequence until the next chunk completes it.
+        const decoder = new StringDecoder('utf8');
+        let pos = prev.off;
+        while (pos < st.size) {
+          const n = fs.readSync(fd, chunk, 0, Math.min(CHUNK, st.size - pos), pos);
+          if (n <= 0) break;
+          pos += n;
+          buf += decoder.write(chunk.subarray(0, n));
+          // Process only whole lines; a trailing partial line stays in buf and is
+          // re-read next time, because `consumed` never advances past it.
+          let nl;
+          while ((nl = buf.indexOf('\n')) !== -1) {
+            const line = buf.slice(0, nl);
+            buf = buf.slice(nl + 1);
+            consumed += Buffer.byteLength(line, 'utf8') + 1;
+            if (!line) continue;
+            try {
+              const j = JSON.parse(line);
+              const u = j.message && j.message.usage;
+              if (!u) continue;
+              const id = j.message.id;
+              if (id) { if (seen.has(id)) continue; seen.add(id); }
+              tok += num(u.input_tokens) + num(u.output_tokens)
+                   + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens);
+            } catch (e) { /* half-written or non-JSON line: skip */ }
+          }
+        }
+      } catch (e) {
+        return prev.off > 0 ? prev.tok : null;
+      } finally {
+        if (fd !== null) { try { fs.closeSync(fd); } catch (_) {} }
+      }
+      // Cap the id list: only ids that could still reappear matter, and an unbounded
+      // array would grow the state file forever on long sessions.
+      const ids = [...seen].slice(-4000);
+      try { atomicWrite(tokStatePath, JSON.stringify({ off: consumed, tok, ids })); } catch (e) {}
+      return tok;
+    };
+    let sessionTok = null;
+    try { sessionTok = readTranscriptTokens(); } catch (e) { sessionTok = null; }
+    // Fallback keeps the row populated (degraded, not broken) when the transcript is
+    // missing or unreadable.
+    const curTok = sessionTok === null ? ctxTok : sessionTok;
+
     // Cumulative usage lives in ONE persistent file keyed by session id.
     // Was: one claude-cum-<sid>.json per session in os.tmpdir(). That lost all
     // history whenever Windows Storage Sense swept %TEMP% (observed: ALL showed
@@ -342,6 +489,17 @@ process.stdin.on('end', () => {
       const c = normCum(before[k]);
       const cur = curVals[k];
       const deepLow = cur < c.peak * RESET_FRAC && c.peak >= RESET_MIN[k];
+      if (k === 'tok') {
+        // tok is exempt from the epoch machinery. It is now a real cumulative total
+        // computed from the transcript, so it only ever grows and never "resets" the
+        // way a payload counter does -- running it through epoch banking would add
+        // the same tokens again on every compact. Monotonic max keeps it correct and
+        // still immune to a stale concurrent render reporting a lower figure.
+        // Old entries hold the previous mixed context/cumulative quantity; they are
+        // left untouched as history, so (all) reads low until sessions turn over.
+        settled[k] = { settled: 0, peak: Math.max(c.settled + c.peak, cur), lowSince: 0 };
+        continue;
+      }
       if (firstSeen) {
         // No prior entry: the payload's own figure is the truth to seed with.
         settled[k] = { settled: 0, peak: cur, lowSince: 0 };
