@@ -83,7 +83,7 @@ function main(raw) {
   //   覆蓋鑽子目錄」）；CLAUDE_PROJECT_DIR / cwd() 僅當 input.cwd 缺席時的備援。
   //   正常情況（未亂 export、session 未 cd 離開起始目錄）下三者一致，與 qa-flow.sh 同源。
   //   若調整此解析順序，務必同步檢視 qa-flow.sh :~31，勿讓兩端在正常情況下發散。
-  const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const cwd = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
   const tp = input.transcript_path;
   const sid = (input.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
 

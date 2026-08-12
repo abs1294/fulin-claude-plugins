@@ -28,6 +28,17 @@
 #     - path: src/utils/user.js
 #       reason: 本地測試用 hardcoded JWT
 #
-# 匹配規則：flow.sh 以「頂層 key」或「repo: 的值」任一等於目標 repo 即套用該區塊。
+# 匹配規則：flow.sh 以「頂層 key」或「repo: 的值」比對目標 repo 的候選識別字，任一命中即套用該區塊。
 #   → 多 repo workspace 請讓每個區塊的【頂層 key 各自不同】（例如用子目錄名當 key），
 #     不要多個區塊都只靠 `repo: .` 區分——那樣會被視為同一 repo 而合併，互相污染清單。
+#
+# 候選識別字（不必逐一列出，寫其中一種即可，flow.sh 會自動推導）：
+#   1. 呼叫 flow.sh 時傳入的 repo 參數（相對路徑或 "."）
+#   2. 該路徑的最後一段（wt/dapfe → dapfe）
+#   3. remote origin URL 的 repo 名（去掉 .git，例：WEHQ.SupplierManager.Frontend）
+#   4. 無 remote 時退到 git common dir 上層的目錄名
+#
+#   → 因此 git worktree 也吃得到同一份清單：worktree 目錄名（wt/xxx、.worktrees/xxx）與主 repo
+#     不同，但兩者共用同一個 remote，靠第 3 項對上。若寫的是 repo 正名而非 worktree 路徑，
+#     在 worktree 下依然會正確排除。
+#   → 建議 `repo:` 填 remote 的 repo 正名（最穩定，不隨目錄擺放位置變動）。

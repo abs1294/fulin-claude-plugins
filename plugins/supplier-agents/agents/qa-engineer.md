@@ -81,7 +81,8 @@ QA Agent 必須主動讀取以下資訊來設計測試案例：
 
 **回報判準**：有簽收情境表的任務＝對照簽收表**逐列**回報（每列標 綠／fail＋原因／blocked＋原因；**N 由簽收表定**，不自行增減，探索追加項另列）；無簽收表的任務＝對照自擬測試計畫逐列，同樣三態。
 
-**codify 完成判準**：`python tools/drift_check.py <folder>` 輸出 0 孤兒 0 幽靈**並貼輸出**；`python tools/gen_catalog.py` 重生成（**禁手改 CATALOG.md**，生成檔會被覆蓋）。僅適用於存在 `tests/e2e/tools/` 的專案。
+**codify 完成判準**：`python tools/drift_check.py <folder>` 輸出 **0 孤兒 0 幽靈 0 佔位**（情境欄禁留「待補」——起草後當場改寫白話）**並貼輸出**；`python tools/gen_catalog.py` 重生成（**禁手改 CATALOG.md**，生成檔會被覆蓋）。僅適用於存在 `tests/e2e/tools/` 的專案。
 
 ## Changelog
 - 2026-07-30 輸出格式新增回報判準（簽收表逐列三態、N 外部錨定）與 codify 完成判準（drift_check 0/0 必貼）；CATALOG 登記改 COVERAGE.md（經使用者同意，第二波落地）
+- 2026-08-07 codify 完成判準加第三類「0 佔位」（drift_check 同日新增待補偵測；健檢抓到 120 列佔位債）（經使用者同意）

@@ -19,7 +19,7 @@ description: >
 | Step 1 | `analyze` 分析 → `prepare` stage → **同一輪並行三軌**（1.3a 預覽＋1.3b Codex＋1.3c code-reviewer）→ 匯流 |
 | Step 2 | `ship`（commit → push → 驗證） |
 
-多步驟照 `feedback_task_tracking_discipline`：TaskCreate 追蹤、完成當下關、流程結束清空清單。
+多步驟用 TaskCreate 追蹤、完成當下關、流程結束清空清單。
 
 ## 核心原則（默許機制）
 
@@ -58,7 +58,7 @@ description: >
 
 **local-overrides.yml**（`.claude/local-overrides.yml`，記錄本機常駐覆寫檔——Mock 切換、本地連線、測試 JWT）：清單內檔案不告警、不 stage、不進預覽。使用者明示要 commit 清單內檔案 → 本次 override 走完整流程，commit 後問「本地預設值變了嗎？要不要移出清單？」。同一 tracked 檔連續多次未 stage → 主動建議入清單。
 
-**Stage 紀律（事故收據 2026-07-17）**：**禁止 `git add -A` / `git add .`**——會把 local-overrides 的本機 hack 整檔混進 staged。一律逐檔 `prepare`；覆寫清單內「混有真改動」的檔案（如 Program.cs 的 DI 註冊）用 `git diff` 切 hunk、`git apply --cached` 精準 stage，commit 前 grep `LocalDevToken|MockSap|MockBPM|mysecret` 確認 staged diff 0 命中（詳見 memory `feedback_git_add_all_bypasses_overrides`）。禁 `git update-index --skip-worktree`。
+**Stage 紀律（事故收據 2026-07-17）**：**禁止 `git add -A` / `git add .`**——會把 local-overrides 的本機 hack 整檔混進 staged。一律逐檔 `prepare`；覆寫清單內「混有真改動」的檔案（如 Program.cs 的 DI 註冊）用 `git diff` 切 hunk、`git apply --cached` 精準 stage，commit 前 grep `LocalDevToken|MockSap|MockBPM|mysecret` 確認 staged diff 0 命中。禁 `git update-index --skip-worktree`。
 
 ### 1.3 並行三軌（同一輪訊息啟動）
 

@@ -41,7 +41,7 @@ function main(raw) {
     return silent();
   }
 
-  const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const cwd = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
   const sid = (input.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
 
   // remind-once：這個 session 已提醒過就退。marker 檢查/建立任何失敗 → 靜默退（寧可少提醒）。

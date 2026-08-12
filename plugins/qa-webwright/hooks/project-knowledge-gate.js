@@ -53,7 +53,7 @@ function main(raw) {
     return allow();
   }
 
-  const cwd = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const cwd = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
   const sid = (input.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
 
   let marker;

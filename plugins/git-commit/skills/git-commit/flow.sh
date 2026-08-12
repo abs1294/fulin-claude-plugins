@@ -92,25 +92,66 @@ ensure_overrides_file() {
   echo "[git-commit] 已自動建立 local-overrides：$OVERRIDES_FILE（目前為空範本，可填入本地覆寫檔）" >&2
 }
 
+# 推導一個 repo 的所有候選識別字（每行一個），供 overrides 區塊比對。
+# 不只用呼叫端傳進來的相對路徑，因為 git worktree 的目錄名（如 wt/dapfe、.worktrees/feat-x）
+# 與 overrides 慣用的 repo 正名（如 WEHQ.SupplierManager.Frontend）天生不同，
+# 只比路徑會讓整份 overrides 在 worktree 下靜默失效——本機 hack 檔於是全部裸奔進 staging。
+# 候選順序不影響結果（任一命中即可），涵蓋：
+#   1. 呼叫端傳入的字串（相容既有用法：頂層 key 或 repo: 值直接寫路徑）
+#   2. 路徑最後一段（wt/dapfe → dapfe）
+#   3. remote URL 的 repo 名（worktree 與其主 repo 共用 remote，這是跨目錄的天然錨點）
+#   4. git common dir 的上層目錄名（無 remote 時的退路，指向主 repo 目錄）
+repo_identity_candidates() {
+  local repo="$1"
+  local repo_path
+  repo_path="$(resolve_repo_path "$repo")"
+
+  echo "$repo"
+  [ "$repo" != "." ] && basename "$repo"
+
+  local url
+  url="$(git -C "$repo_path" remote get-url origin 2>/dev/null || true)"
+  if [ -n "$url" ]; then
+    url="${url%.git}"
+    url="${url%/}"
+    basename "$url"
+  fi
+
+  # worktree 的 commondir 指向主 repo 的 .git；其上層目錄名即主 repo 目錄名
+  local common
+  common="$(git -C "$repo_path" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  if [ -n "$common" ]; then
+    basename "$(dirname "$common")"
+  fi
+}
+
 # 從 local-overrides.yml 取得指定 repo 的 path 清單（每行一個）。
-# 匹配鍵：頂層 YAML key（如 `my-repo:`）或區塊內 `repo:` 的值，任一等於 target 即命中。
+# 匹配鍵：頂層 YAML key（如 `my-repo:`）或區塊內 `repo:` 的值，等於任一候選識別字即命中。
 #   - 頂層 key 天生唯一，是防「多個區塊都寫 repo: . 而互相污染」的正解。
-#   - 同時仍接受舊的 `repo:` 值匹配，向後相容既有 overrides 檔。
-# 一個區塊只要頂層 key 或 repo 值其一命中 target，就輸出它 files 下所有 path。
+#   - 同時仍接受 `repo:` 值匹配，向後相容既有 overrides 檔。
+# 一個區塊只要頂層 key 或 repo 值其一命中，就輸出它 files 下所有 path。
 parse_overrides_for_repo() {
   local target_repo="$1"
   [ -f "$OVERRIDES_FILE" ] || return 0
-  awk -v target="$target_repo" '
+
+  local candidates
+  candidates="$(repo_identity_candidates "$target_repo" | awk 'NF && !seen[$0]++' | paste -sd '|' -)"
+  [ -z "$candidates" ] && candidates="$target_repo"
+
+  awk -v targets="$candidates" '
+    BEGIN { n = split(targets, t, "|") }
+    function hits(v,   i) {
+      for (i = 1; i <= n; i++) if (v == t[i]) return 1
+      return 0
+    }
     # 頂層 key：行首無縮排、以 : 結尾（排除註解）
     /^[^[:space:]#][^:]*:[[:space:]]*$/ {
       top_key = $0; sub(/:.*$/, "", top_key)
-      block_match = (top_key == target) ? 1 : 0
-      repo_val = ""
+      block_match = hits(top_key) ? 1 : 0
       next
     }
     /^  repo:[[:space:]]/ {
-      repo_val = $2
-      if (repo_val == target) block_match = 1
+      if (hits($2)) block_match = 1
     }
     /^    - path:[[:space:]]/ {
       if (block_match) { sub(/^    - path:[[:space:]]*/, ""); print }
@@ -422,6 +463,31 @@ cmd_ship() {
 
   # === 真閘 1：署名 + 單行檢查（機制級，命中即 exit 1）===
   assert_no_signature "$type: $desc"
+
+  # === Push-only 分支：ship（無 --push）完成 commit 後，staged 已空、hash 必不符，
+  #     原「重跑同指令加 --push」的指引會被真閘 2 擋死（2026-08-10 實測）。
+  #     四條件全符才視為「補推先前已 commit 的那筆」，跳過 commit 直接 push；
+  #     任一不符即落回原流程（照樣被真閘擋，不放水）。
+  if [ "$do_push" -eq 1 ] && git diff --staged --quiet; then
+    local head_subject
+    head_subject="$(git log -1 --format=%s)"
+    if [ "$head_subject" = "$type: $desc" ] && [ -n "$(git log @{u}..HEAD --oneline 2>/dev/null || echo pending)" ]; then
+      echo "=== Push-only：偵測到同 message 的未推 commit，跳過 commit 直接推 ==="
+      local push_only_rc=0
+      if git push; then
+        rm -f "$TMP_DIR/staged-${repo//\//__}.sha" "$TMP_DIR/staged-${repo//\//__}.diff"
+      else
+        push_only_rc=$?
+        echo "ERROR: push 失敗（exit $push_only_rc）。處置同主流程：pull --rebase 後重推，禁止 force。" >&2
+        exit "$push_only_rc"
+      fi
+      echo "=== Verify ==="
+      git -c color.ui=false status -sb | head -2
+      echo "--- last commit ---"
+      git -c color.ui=false log --oneline -1
+      return 0
+    fi
+  fi
 
   # === 真閘 2：TOCTOU — 比對當下 staged diff 與 prepare 時被審查的那份 ===
   local repo_slug="${repo//\//__}"

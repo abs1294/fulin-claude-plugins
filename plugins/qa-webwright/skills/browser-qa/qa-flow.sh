@@ -42,7 +42,13 @@ WORKSPACE_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 TESTS_DIR="$WORKSPACE_DIR/tests/e2e"
 REPORTS_DIR="$TESTS_DIR/reports"
 # catalog 與它索引的 test 檔 / report 同層（tests/e2e/），一眼找得到；仍是跨功能一份總表。
-CATALOG_FILE="$TESTS_DIR/catalog.md"
+# 檔名大小寫沿用專案既有那份：不少專案的 SSOT 是 CATALOG.md，本腳本硬寫小寫時，
+# 在大小寫敏感的檔案系統上會另建一份小寫檔，變成兩份互不同步的索引。
+if [ -f "$TESTS_DIR/CATALOG.md" ]; then
+  CATALOG_FILE="$TESTS_DIR/CATALOG.md"
+else
+  CATALOG_FILE="$TESTS_DIR/catalog.md"
+fi
 
 VALID_RUNNERS=(pytest playwright-js)
 VALID_STATES=("完整" "部分" "未覆蓋")   # ✅完整 / ⚠️部分 / ❌未覆蓋
@@ -168,13 +174,13 @@ resolve_test_file() {
       exit 1
       ;;
   esac
-  # 一律要求落在 tests/e2e/ 下（接受給 tests/e2e/x.py 或裸檔名 x.py 兩種寫法）
+  # 一律要求落在 tests/e2e/ 下。接受三種寫法：
+  #   1. tests/e2e/<模組>/x.py（完整相對路徑）
+  #   2. <模組>/x.py（相對 tests/e2e 的模組路徑）—— 多數專案把測試分模組放子目錄，此為常態
+  #   3. x.py（裸檔名，直接放 tests/e2e 根下）
+  # 早期版本把 2 誤判成「不在 tests/e2e 下」而擋掉，導致子目錄式專案完全無法用 run。
   case "$f" in
     tests/e2e/*) ;;
-    */*)
-      echo "ERROR: test-file 必須位於 tests/e2e/ 下（落點鎖定），得到：$f" >&2
-      exit 1
-      ;;
     *) f="tests/e2e/$f" ;;
   esac
   local path="$WORKSPACE_DIR/$f"
@@ -400,9 +406,13 @@ cmd_run() {
   canon_test="$( { cd "$(dirname "$abs_test")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$abs_test")"; } || true)"
   canon_expected_dir="$( { cd "$TESTS_DIR" 2>/dev/null && pwd -P; } || true)"
 
+  # 比對用「前綴涵蓋」而非「父目錄相等」：測試檔常放在 tests/e2e/<模組>/ 子目錄，
+  # 要求 parent 恰等於 tests/e2e 會把所有子目錄式專案誤判成落點錯誤。
+  # 前綴比對同樣擋得住 symlink 逃逸（實體路徑跑到 tests/e2e 外就不會有此前綴）。
   if [ -n "$canon_test" ] && [ -n "$canon_expected_dir" ]; then
     test_parent="$(dirname "$canon_test")"
-    if [ "$test_parent" != "$canon_expected_dir" ]; then
+    if [ "$test_parent" != "$canon_expected_dir" ] && \
+       [ "${test_parent#"$canon_expected_dir"/}" = "$test_parent" ]; then
       echo "ERROR: 測試檔落點不對——實體路徑不在啟動目錄的 tests/e2e/ 下（可能是 symlink 指向外部）。" >&2
       echo "       啟動目錄(WORKSPACE_DIR)：$WORKSPACE_DIR" >&2
       echo "       應在：           $canon_expected_dir" >&2
