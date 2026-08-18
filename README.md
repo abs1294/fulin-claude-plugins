@@ -77,6 +77,7 @@ monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建�
 | **deliver-report** | 把交付產出寫成一段給外部/委託方看的口語、白話交付訊息（fulin 慣用語氣）：**動筆前先定四件事**（檔案是主體還是佐證、有沒有對方的問題要回、單一收件人還是多類分眾、內文密度），形狀自然長出來——沒有固定骨架可套；再套七條寫法規則。含逐檔導讀／分眾／逐題回覆三種常見形狀與四個範例。**嚴禁內部術語**、預設讀者不懂技術、安全性警示一律進信。說「寫交付訊息 / 交付這批檔案 / 回覆對方問的那幾題」即觸發 | 無 |
 | **msproject-wbs** | 產生 MS Project 可直接匯入的 WBS 時程 XML（MSPDI）：模組/工項兩層、工期、資源指派、依賴鏈自動展開甘特圖。把 MSPDI 的七個雷（**元素順序靜默丟棄**、缺全域欄位打不開、日期塌陷、工期 0、BOM…）編碼進生成腳本＋順序自檢，一次到位。說「排 WBS / 產 MS Project 時程」即觸發 | Node.js（驗證用 PowerShell） |
 | **daily-report** | 工作日報：掃當日 Claude Code session 記錄（自動濾 subagent/SDK/系統注入雜訊），按專案分組摘要「做了什麼＋待辦」，**人工核可後**透過 Gmail SMTP 寄給設定檔收件人；統計只本機顯示不寄出。說「產今天的日報」即觸發 | Python 3；Gmail 應用程式密碼（設定檔放家目錄不進 git），詳 `plugins/daily-report/README.md` |
+| **fable-quote** | 產生「寓意科技」格式的正式軟體開發報價單 .docx：套已脫敏的公司標準模板（版式/乙方資料/通用條款內建），只填客戶資料與專案 JSON，明細列動態展開、含稅總計自動算。說「做報價單 / 寓意報價 / 幫客戶出報價」即觸發 | Python 3 + python-docx |
 
 ---
 
@@ -100,7 +101,8 @@ plugins/
 ├─ cc-statusline/                    高資訊密度 status line（需手動接 settings.json）
 ├─ deliver-report/                   交付訊息產生器（四決定導出形狀、語氣固定）
 ├─ msproject-wbs/                    MS Project WBS 時程 XML 產生器（MSPDI 七雷編碼＋順序自檢）
-└─ daily-report/                     工作日報產生＋Gmail 寄送（核可後寄、憑證不進 git）
+├─ daily-report/                     工作日報產生＋Gmail 寄送（核可後寄、憑證不進 git）
+└─ fable-quote/                      寓意科技報價單產生器（模板套版、含稅自動算）
 ```
 
 ## 開發模式（C 折衷）

@@ -59,6 +59,11 @@
       "name": "msproject-wbs",
       "source": "./plugins/msproject-wbs",
       "description": "產生 MS Project 可直接匯入的 WBS 時程 XML（MSPDI）：模組/工項兩層、工期、資源指派、依賴鏈展開甘特圖；MSPDI 七雷（元素順序靜默丟棄等）已編碼進生成腳本＋順序自檢"
+    },
+    {
+      "name": "fable-quote",
+      "source": "./plugins/fable-quote",
+      "description": "（adopt 自動建立，請用 /plugin-manager:update 補描述）skill fable-quote"
     }
   ]
 }

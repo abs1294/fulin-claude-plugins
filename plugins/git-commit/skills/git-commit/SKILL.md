@@ -94,7 +94,7 @@ Commit message 用 unicode double-line box 框住＋包 fenced code block（高�
 
 `run_in_background: true`，與 1.3a/1.3c 同輪。diff 已在 `.claude/.git-commit-tmp/staged-<repo>.diff`。
 
-**Codex 不可用時的降級**：先排除命名坑；確認叫不到 → 單軌降級（B 軌記 `skipped: codex-unavailable`、匯流視為 PASS），預覽明講「本環境不可用，已降為單軌」；**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認。**審查軌逾時**（數分鐘未回）→ 不無限等也不當 PASS，告知使用者問「續等還是以現有結果決策」。
+**Codex 不可用時的降級**：先排除命名坑；確認叫不到 → 單軌降級（B 軌記 `skipped: codex-unavailable`、匯流視為 PASS），預覽明講「本環境不可用，已降為單軌」；**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認。**審查軌逾時**：Codex 常態需 2–5 分鐘，**5 分鐘內一律續等、不打擾使用者**；逾 5 分鐘才告知並問「續等還是以現有結果決策」。不當 PASS 的原則不變。另需分辨**工具層逾時**——agent 回報「任務仍在背景跑但我不被允許輪詢」而非 Codex 算得慢 → 直接重送一次，不計入上述 5 分鐘（2026-08-16 實證：首次工具層 2 分鐘卡住無 VERDICT，重送後 37 秒回覆）。
 
 Prompt 範本：
 
@@ -183,4 +183,5 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
 
 ## Changelog
+- 2026-08-16 審查軌逾時門檻明定為 5 分鐘（使用者當次指示：「我願意等他到 5 分鐘」）：5 分鐘內續等不打擾，逾時才問；並補「工具層逾時 vs Codex 算得慢」的分辨與重送處置。
 - 2026-07-31 713 行壓縮至本版（Claude 5 世代 context engineering 調整，經使用者核准）：砍 9-task 編排時序細則（追蹤紀律歸 memory `feedback_task_tracking_discipline`）、三處重複豁免說明合一、20 列匯流矩陣壓成四條核心原則、排版細則壓行。三軌架構、默許機制、豁免判準、flow.sh 介面、事故收據條款（git add -A／codex 命名坑／hook 故障處置／AI 署名禁令）全數保留。

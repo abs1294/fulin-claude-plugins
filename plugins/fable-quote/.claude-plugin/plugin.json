@@ -1,0 +1,11 @@
+{
+  "name": "fable-quote",
+  "version": "0.1.0",
+  "description": "（adopt 自動建立，請用 /plugin-manager:update 補描述）skill fable-quote",
+  "author": {
+    "name": "fulin"
+  },
+  "keywords": [
+    "fable-quote"
+  ]
+}
