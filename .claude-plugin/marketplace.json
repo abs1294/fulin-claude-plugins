@@ -64,6 +64,11 @@
       "name": "fable-quote",
       "source": "./plugins/fable-quote",
       "description": "（adopt 自動建立，請用 /plugin-manager:update 補描述）skill fable-quote"
+    },
+    {
+      "name": "harness",
+      "source": "./plugins/harness",
+      "description": "AI 工作流制度層引擎：/harness:init 把通用紀律骨架（模型調度/停損熔斷/派工模板/知識協議）實例化到任何專案的 .claude/harness/。引擎在 plugin、實例在專案（plugin 更新不覆蓋實例）；既有治理層（AGENTS.md 等）自動讓位；規則從各專案自己的事故長出來，不預載別專案的條款。含 SessionStart 條件式入口提醒 hook（僅對已 init 的專案輸出）。"
     }
   ]
 }

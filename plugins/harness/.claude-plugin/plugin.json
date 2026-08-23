@@ -1,0 +1,18 @@
+{
+  "name": "harness",
+  "version": "0.1.0",
+  "description": "AI 工作流制度層引擎：把 Supplier_Code 淬煉出的通用紀律骨架（模型調度/停損熔斷/派工模板/知識協議）用 /harness:init 實例化到任何專案。引擎在 plugin、實例在專案 .claude/harness/（plugin 更新不覆蓋實例）；規則從各專案自己的事故長出來，不預載別專案的條款。",
+  "author": {
+    "name": "fulin"
+  },
+  "keywords": [
+    "harness",
+    "workflow",
+    "dispatch",
+    "delegation",
+    "discipline",
+    "制度層",
+    "派工",
+    "停損"
+  ]
+}

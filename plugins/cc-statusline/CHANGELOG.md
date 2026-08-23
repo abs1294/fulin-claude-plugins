@@ -2,6 +2,20 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.2.0] - 2026-08-23
+### Changed
+- cost 改由 transcript 實算，不再取用 payload 的 total_cost_usd：新增官方 API 定價表（platform.claude.com，2026-08-23 查證；含 fable-5/mythos-5 $10/$50、opus-5/4.8 $5/$25、sonnet-5 $2/$10 與各自 cache write/read 費率），依 message.usage 四欄逐筆計價
+- transcript 讀取器同時掃 subagent（<session-id>/subagents/*.jsonl），每檔各自 offset 增量續讀、message.id 跨檔去重 keep-first。實測單一 session 40 檔 1846.3M tokens，subagent 佔本機總花費 23.9%
+- (all) 改為快取式全掃 ~/.claude/projects（新增 scripts/all-usage-refresh.js，單執行鎖＋6h 新鮮度，背景 detached 執行約 29s），取代原本只加總 cumulative store 的做法——舊法僅涵蓋 68/591 個主 session（11.5%）且不含 subagent，實測低估 3.2 倍（$26,085 vs 實際 $38,380）
+- 無定價的模型不猜費率：其 token 記入 unpricedTok，(all) 顯示前綴 ~ 表示數字不完整；快取缺失時顯示 --
+
+### Removed
+- cum store 不再保存 cost 欄位，連同其 epoch/峰值/時戳防抖等專為 payload reset 而設的機制一併退出 cost 路徑（dur/add/rm/tok 仍沿用）；移除已無呼叫者的 cumTotal
+
+### Fixed
+- casMerge verify 原本斷言 mine.cost.peak，cost 退出 store 後會每次失敗並燒完 10 次重試，改為斷言 mine.tok.peak
+- token state 檔更名 claude-toksum2-*（結構改為 per-file offset），舊 v1 檔自然失效重掃，不會被誤讀為「已掃完且零成本」
+
 ## [1.1.0] - 2026-08-07
 ### Changed
 - 紅藍對抗（token 段）產出：tokens 列改真 session 用量——transcript usage 四欄增量累加（StringDecoder 串流、offset 快取、message.id 去重 keep-first、truncate 重掃、0-byte/目錄 fallback）、tok 退出 epoch 累計器改單調 max、payload 數值入口統一夾取、fmtTok 補 T 檔與進位；ctx% 不動（官方語意本就正確）。(all) 過渡期新舊混合、隨 session 讀取跳升至真值

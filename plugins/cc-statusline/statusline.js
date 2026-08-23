@@ -227,6 +227,52 @@ process.stdin.on('end', () => {
     // Infinity peak makes every later comparison false; a string turns arithmetic
     // into concatenation). Clamp once, here, so nothing downstream has to re-check.
     const num = (x) => (Number.isFinite(x) ? Math.max(0, x) : 0);
+
+    // ── API list-price table, USD per million tokens ──
+    // Source: https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-08-23)
+    // cw = 5-minute cache write (1.25x input), cr = cache hit (0.1x input).
+    //
+    // Cost is derived HERE from transcript usage rather than read from the payload's
+    // total_cost_usd, because that field covers only the main session and omits every
+    // subagent -- measured 23.9% of real spend on this machine. An unknown model
+    // contributes 0 rather than a guessed rate, and its tokens are counted separately
+    // so the display can flag that the figure is incomplete.
+    const PRICE = {
+      'fable-5':    { in: 10,   out: 50, cw: 12.50, cr: 1.0  },
+      'mythos-5':   { in: 10,   out: 50, cw: 12.50, cr: 1.0  },
+      'opus-5':     { in: 5,    out: 25, cw: 6.25,  cr: 0.5  },
+      'opus-4-8':   { in: 5,    out: 25, cw: 6.25,  cr: 0.5  },
+      'opus-4-7':   { in: 5,    out: 25, cw: 6.25,  cr: 0.5  },
+      'opus-4-6':   { in: 5,    out: 25, cw: 6.25,  cr: 0.5  },
+      'opus-4-5':   { in: 5,    out: 25, cw: 6.25,  cr: 0.5  },
+      'opus-4-1':   { in: 15,   out: 75, cw: 18.75, cr: 1.5  },
+      'opus-4':     { in: 15,   out: 75, cw: 18.75, cr: 1.5  },
+      'sonnet-5':   { in: 2,    out: 10, cw: 2.50,  cr: 0.2  },
+      'sonnet-4-6': { in: 3,    out: 15, cw: 3.75,  cr: 0.3  },
+      'sonnet-4-5': { in: 3,    out: 15, cw: 3.75,  cr: 0.3  },
+      'sonnet-4':   { in: 3,    out: 15, cw: 3.75,  cr: 0.3  },
+      'haiku-4-5':  { in: 1,    out: 5,  cw: 1.25,  cr: 0.1  },
+      'haiku-3-5':  { in: 0.80, out: 4,  cw: 1.00,  cr: 0.08 },
+      '3-5-haiku':  { in: 0.80, out: 4,  cw: 1.00,  cr: 0.08 },
+    };
+    // Longest key first so 'opus-4-8' cannot be shadowed by an 'opus-4' substring.
+    const PRICE_ORDER = Object.keys(PRICE).sort((a, b) => b.length - a.length);
+    // Ids arrive as 'claude-opus-4-8' or 'claude-3-5-haiku-20241022', and some carry
+    // dots ('opus-4.8'), so dots normalise to dashes before the substring match.
+    const priceOf = (m) => {
+      const k = String(m || '').toLowerCase().split('.').join('-');
+      for (const name of PRICE_ORDER) if (k.includes(name)) return PRICE[name];
+      return null;
+    };
+    const usageCost = (u, model) => {
+      const pr = priceOf(model);
+      if (!pr) return null;
+      return (num(u.input_tokens) * pr.in
+            + num(u.output_tokens) * pr.out
+            + num(u.cache_creation_input_tokens) * pr.cw
+            + num(u.cache_read_input_tokens) * pr.cr) / 1e6;
+    };
+
     const curCost = num(i.cost?.total_cost_usd);
     const curDur = num(i.cost?.total_duration_ms);
     const curAdd = num(i.cost?.total_lines_added);
@@ -265,94 +311,136 @@ process.stdin.on('end', () => {
     // the same offset, so the write converges rather than double-counting -- the
     // operation is idempotent in the offset, not an increment of shared state.
     //
-    // Known and accepted: usage inside a subagent's own transcript is not counted
-    // (only the main transcript is read), and a resumed session that copies its
-    // transcript can be counted in both entries of the (all) figure.
-    const tokStatePath = path.join(os.tmpdir(), `claude-toksum-${sid}.json`);
-    const readTranscriptTokens = () => {
+    // Subagent transcripts ARE counted: Claude Code writes them under
+    // <transcript-dir>/<session-id>/subagents/*.jsonl, and they carried 23.9% of
+    // real spend here, so omitting them understated cost badly. Dedup is by
+    // message.id across the whole set, so a subagent turn echoed into the parent
+    // transcript is still counted once.
+    // Known and accepted: a resumed session that copies its transcript can be
+    // counted in both entries of the (all) figure.
+    // v2: state now carries per-file offsets plus cost. The filename is versioned so
+    // a v1 file is ignored rather than misread as a costless single-file scan.
+    const tokStatePath = path.join(os.tmpdir(), `claude-toksum2-${sid}.json`);
+    // The main transcript plus every subagent transcript beside it. Claude Code
+    // stores those under <dir>/<session-id>/subagents/*.jsonl.
+    const transcriptTargets = () => {
       const tp = i.transcript_path;
-      if (!tp) return null;
-      let st;
-      try { st = fs.statSync(tp); } catch (e) { return null; }
-      let prev = { off: 0, tok: 0, ids: [] };
+      if (!tp) return [];
+      const out = [tp];
+      try {
+        const dir = path.join(path.dirname(tp), path.basename(tp, '.jsonl'), 'subagents');
+        for (const f of fs.readdirSync(dir)) if (f.endsWith('.jsonl')) out.push(path.join(dir, f));
+      } catch (e) { /* no subagents dir: main transcript only */ }
+      return out;
+    };
+    // Returns { tok, cost, unpricedTok }, or null when no transcript could be read.
+    // Each file keeps its own byte offset so renders stay incremental.
+    const readTranscriptUsage = () => {
+      const targets = transcriptTargets();
+      if (!targets.length) return null;
+
+      let prev = { files: {}, ids: [] };
       try {
         const raw = JSON.parse(fs.readFileSync(tokStatePath, 'utf8'));
-        if (raw && typeof raw === 'object') {
-          prev = { off: num(raw.off), tok: num(raw.tok), ids: Array.isArray(raw.ids) ? raw.ids : [] };
+        if (raw && typeof raw === 'object' && raw.files && typeof raw.files === 'object') {
+          prev = { files: raw.files, ids: Array.isArray(raw.ids) ? raw.ids : [] };
         }
       } catch (e) {}
-      // Offset past EOF means the file was truncated or rotated (a new session
-      // reusing the path): rescan from the start rather than trusting stale sums.
-      if (prev.off > st.size) prev = { off: 0, tok: 0, ids: [] };
-      // A zero-length target means there is nothing to count yet -- a brand-new
-      // session whose transcript has not been written, or (on Windows) a path that
-      // is actually a DIRECTORY, since statSync reports size 0 for one and openSync
-      // happily opens it. Both would otherwise report a confident "0 tokens"; return
-      // null so the caller falls back to the payload figure instead. A session that
-      // has genuinely used 0 tokens always has size > 0, so this cannot mask one.
-      if (st.size === 0) return null;
-      if (prev.off === st.size) return prev.tok;
 
-      // Stream the appended region in chunks. A first full read of a large
-      // transcript can be tens of MB, so it is never slurped whole.
-      let buf = '';
-      let consumed = prev.off;
       const seen = new Set(prev.ids);
-      let tok = prev.tok;
-      let fd = null;
-      try {
-        fd = fs.openSync(tp, 'r');
-        const CHUNK = 1 << 20;
-        const chunk = Buffer.allocUnsafe(CHUNK);
-        // StringDecoder, not chunk.toString(): a multi-byte character straddling a
-        // chunk boundary would otherwise decode as two U+FFFD replacements. That
-        // corrupts the JSON on that line AND inflates Buffer.byteLength by 2 bytes
-        // per occurrence, so the stored offset drifts past the real position and the
-        // next render skips live data. Measured on a 2.7MB transcript: 3 split
-        // characters, offset 6 bytes beyond EOF. The decoder holds the partial
-        // sequence until the next chunk completes it.
-        const decoder = new StringDecoder('utf8');
-        let pos = prev.off;
-        while (pos < st.size) {
-          const n = fs.readSync(fd, chunk, 0, Math.min(CHUNK, st.size - pos), pos);
-          if (n <= 0) break;
-          pos += n;
-          buf += decoder.write(chunk.subarray(0, n));
-          // Process only whole lines; a trailing partial line stays in buf and is
-          // re-read next time, because `consumed` never advances past it.
-          let nl;
-          while ((nl = buf.indexOf('\n')) !== -1) {
-            const line = buf.slice(0, nl);
-            buf = buf.slice(nl + 1);
-            consumed += Buffer.byteLength(line, 'utf8') + 1;
-            if (!line) continue;
-            try {
-              const j = JSON.parse(line);
-              const u = j.message && j.message.usage;
-              if (!u) continue;
-              const id = j.message.id;
-              if (id) { if (seen.has(id)) continue; seen.add(id); }
-              tok += num(u.input_tokens) + num(u.output_tokens)
-                   + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens);
-            } catch (e) { /* half-written or non-JSON line: skip */ }
-          }
+      const files = {};
+      let tok = 0, cost = 0, unpricedTok = 0;
+      let readAny = false;
+
+      for (const tp of targets) {
+        let st;
+        try { st = fs.statSync(tp); } catch (e) { continue; }
+        // size 0 is a not-yet-written transcript or (on Windows) a directory, which
+        // statSync also reports as size 0 while openSync would happily open it.
+        if (!st.isFile() || st.size === 0) continue;
+
+        const p0 = prev.files[tp];
+        let off = p0 ? num(p0.off) : 0;
+        let fTok = p0 ? num(p0.tok) : 0;
+        let fCost = p0 ? num(p0.cost) : 0;
+        let fUnp = p0 ? num(p0.unpricedTok) : 0;
+        // Offset past EOF means truncation or a rotated path: rescan from scratch
+        // rather than trusting sums that describe different bytes.
+        if (off > st.size) { off = 0; fTok = 0; fCost = 0; fUnp = 0; }
+
+        readAny = true;
+        if (off === st.size) {
+          files[tp] = { off, tok: fTok, cost: fCost, unpricedTok: fUnp };
+          tok += fTok; cost += fCost; unpricedTok += fUnp;
+          continue;
         }
-      } catch (e) {
-        return prev.off > 0 ? prev.tok : null;
-      } finally {
-        if (fd !== null) { try { fs.closeSync(fd); } catch (_) {} }
+
+        let buf = '';
+        let consumed = off;
+        let fd = null;
+        try {
+          fd = fs.openSync(tp, 'r');
+          const CHUNK = 1 << 20;
+          const chunk = Buffer.allocUnsafe(CHUNK);
+          // StringDecoder, not chunk.toString(): a multi-byte character straddling a
+          // chunk boundary would otherwise decode as two U+FFFD replacements. That
+          // corrupts the JSON on that line AND inflates Buffer.byteLength by 2 bytes
+          // per occurrence, so the stored offset drifts past the real position and
+          // the next render skips live data. The decoder holds the partial sequence
+          // until the next chunk completes it.
+          const decoder = new StringDecoder('utf8');
+          let pos = off;
+          while (pos < st.size) {
+            const n = fs.readSync(fd, chunk, 0, Math.min(CHUNK, st.size - pos), pos);
+            if (n <= 0) break;
+            pos += n;
+            buf += decoder.write(chunk.subarray(0, n));
+            // Only whole lines are processed; a trailing partial line stays in buf
+            // and is re-read next time, because consumed never advances past it.
+            let nl;
+            while ((nl = buf.indexOf('\n')) !== -1) {
+              const line = buf.slice(0, nl);
+              buf = buf.slice(nl + 1);
+              consumed += Buffer.byteLength(line, 'utf8') + 1;
+              if (!line) continue;
+              try {
+                const j = JSON.parse(line);
+                const u = j.message && j.message.usage;
+                if (!u) continue;
+                // Dedup by message.id across ALL files: the same assistant turn is
+                // written several times, and a subagent turn can also be echoed into
+                // the parent transcript. keep-first, per the note above.
+                const id = j.message.id;
+                if (id) { if (seen.has(id)) continue; seen.add(id); }
+                const t = num(u.input_tokens) + num(u.output_tokens)
+                        + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens);
+                fTok += t;
+                const c = usageCost(u, j.message.model);
+                if (c === null) fUnp += t; else fCost += c;
+              } catch (e) { /* half-written or non-JSON line: skip */ }
+            }
+          }
+        } catch (e) {
+          // Keep whatever this file contributed before the failure.
+        } finally {
+          if (fd !== null) { try { fs.closeSync(fd); } catch (_) {} }
+        }
+        files[tp] = { off: consumed, tok: fTok, cost: fCost, unpricedTok: fUnp };
+        tok += fTok; cost += fCost; unpricedTok += fUnp;
       }
+
+      if (!readAny) return null;
       // Cap the id list: only ids that could still reappear matter, and an unbounded
       // array would grow the state file forever on long sessions.
       const ids = [...seen].slice(-4000);
-      try { atomicWrite(tokStatePath, JSON.stringify({ off: consumed, tok, ids })); } catch (e) {}
-      return tok;
+      try { atomicWrite(tokStatePath, JSON.stringify({ files, ids })); } catch (e) {}
+      return { tok, cost, unpricedTok };
     };
-    let sessionTok = null;
-    try { sessionTok = readTranscriptTokens(); } catch (e) { sessionTok = null; }
-    // Fallback keeps the row populated (degraded, not broken) when the transcript is
-    // missing or unreadable.
-    const curTok = sessionTok === null ? ctxTok : sessionTok;
+    let sessionUsage = null;
+    try { sessionUsage = readTranscriptUsage(); } catch (e) { sessionUsage = null; }
+    // Fallback keeps the row populated (degraded, not broken) when no transcript is
+    // readable: tokens fall back to context occupancy.
+    const curTok = sessionUsage === null ? ctxTok : sessionUsage.tok;
 
     // Cumulative usage lives in ONE persistent file keyed by session id.
     // Was: one claude-cum-<sid>.json per session in os.tmpdir(). That lost all
@@ -363,9 +451,13 @@ process.stdin.on('end', () => {
     // rate-limit snapshots, since concurrent sessions write this every 30s.
     const cumPath = path.join(os.homedir(), '.claude', 'usage-data', 'cc-statusline-cumulative.json');
     try { fs.mkdirSync(path.dirname(cumPath), { recursive: true }); } catch (e) {}
-    const CUM_KEYS = ['cost', 'dur', 'add', 'rm', 'tok'];
-    const curVals = { cost: curCost, dur: curDur, add: curAdd, rm: curRm, tok: curTok };
-    const blankCum = () => ({ cost:{total:0,base:0}, dur:{total:0,base:0}, add:{total:0,base:0}, rm:{total:0,base:0}, tok:{total:0,base:0} });
+    // cost is NOT stored here any more. It is computed from transcript usage on
+    // every render (see PRICE / readTranscriptUsage), which is idempotent and needs
+    // none of the epoch/reset machinery below -- that existed only because the
+    // payload's total_cost_usd could reset mid-session.
+    const CUM_KEYS = ['dur', 'add', 'rm', 'tok'];
+    const curVals = { dur: curDur, add: curAdd, rm: curRm, tok: curTok };
+    const blankCum = () => ({ dur:{total:0,base:0}, add:{total:0,base:0}, rm:{total:0,base:0}, tok:{total:0,base:0} });
     // Stored shape per key: { settled, peak, lowSince }. `settled` is spend from
     // epochs that have already ended (each payload reset closes an epoch); `peak` is
     // the highest payload seen in the CURRENT epoch. Reported total is settled+peak.
@@ -465,7 +557,7 @@ process.stdin.on('end', () => {
     // RESET_MS to stay above the new interval, or a single slow cycle will look like
     // sustained silence and bank an epoch that never ended.
     const RESET_FRAC = 0.5;
-    const RESET_MIN = { cost: 5, dur: 300000, add: 500, rm: 500, tok: 500000 };
+    const RESET_MIN = { dur: 300000, add: 500, rm: 500, tok: 500000 };
     const RESET_MS = 45000;
     const nowMs = Date.now();
     // Two ACCEPTED trade-offs fall out of the "cur >= peak clears the clock" rule.
@@ -581,11 +673,11 @@ process.stdin.on('end', () => {
       (after) => {
         const sess = (after && after.sessions) || {};
         const mine = sess[cumKey];
-        // peak bears no fixed relation to curCost (a concurrent render may hold a
-        // higher payload, and a reset lowers it), so asserting one would fail
+        // peak bears no fixed relation to the payload value (a concurrent render may
+        // hold a higher one, and a reset lowers it), so asserting one would fail
         // legitimate rounds and burn all 10 retries. Verify only what this check is
         // for: our entry is present and well-formed, i.e. nobody clobbered the write.
-        if (!mine || !mine.cost || typeof mine.cost.peak !== 'number') return false;
+        if (!mine || !mine.tok || typeof mine.tok.peak !== 'number') return false;
         let onDisk = 0;
         try { onDisk = Object.keys(JSON.parse(fs.readFileSync(cumPath, 'utf8')).sessions || {}).length; } catch (e) {}
         return Object.keys(sess).length >= onDisk;
@@ -596,8 +688,10 @@ process.stdin.on('end', () => {
     try { cumAll = JSON.parse(fs.readFileSync(cumPath, 'utf8')).sessions || {}; } catch (e) {}
     if (cumAll[cumKey]) cum = normCumEntry(cumAll[cumKey], CUM_KEYS, normCum);
     // Reported value = spend banked from ended epochs + the current epoch's peak.
-    const cumTotal = (entry, k) => { const n = normCum(entry && entry[k]); return n.settled + n.peak; };
-    const cost = '$' + (cum.cost.settled + cum.cost.peak).toFixed(2);
+    // Transcript-derived; falls back to the payload figure (main session only) when
+    // no transcript could be read.
+    const sessionCost = sessionUsage === null ? curCost : sessionUsage.cost;
+    const cost = '$' + sessionCost.toFixed(2);
     const dur = fmtDur(Math.round((cum.dur.settled + cum.dur.peak) / 60000));
     const ctx = Math.round(i.context_window?.used_percentage ?? 0);
     // If a rate-limit window's reset has already passed in real time, payload's
@@ -919,32 +1013,40 @@ process.stdin.on('end', () => {
     if (branch) gitParts.push(`${MAGENTA}${branch}${R}${dirty ? ` ${DIM}(${dirty} changed)${R}` : ''}`);
     const gitInfo = gitParts.join(' ');
 
-    // Aggregate total cost + tokens across ALL sessions by walking every claude-cum-*.json
-    // Sum every session in the shared store written above. No directory scan:
-    // cumStore is the verified snapshot from this render's casMerge.
-    // The store was once keyed by a 24-char truncation of the session id and is now
-    // keyed by the full id, so one session can hold BOTH an old short entry and a
-    // new full one -- and while it is still running, both keep growing. Summing
-    // them double-counts (measured: 8 such pairs, $3,836 double-counted). Skip a
-    // short key whenever a longer key extends it: the full-length entry is the live
-    // one, and the truncated entry's spend is already inside the session it names.
+    // ── Cross-session (all) totals ──
     //
-    // Truncation could in principle map two different sessions onto one short key,
-    // in which case dropping it loses the half that never got a full-length entry.
-    // That is preferred to inflating every affected session's running cost, and the
-    // live store currently has no such collision (each short key extends to exactly
-    // one long key). Nothing is deleted here -- the entries stay on disk.
-    let allCost = 0, allTok = 0;
+    // Cost comes from a cached full scan of ~/.claude/projects, NOT from the
+    // cumulative store. The store only ever held sessions that rendered a statusline
+    // (measured: 68 of 591 main transcripts, 11.5%) and its cost came from the
+    // payload, which excludes subagents (a further 23.9%). Both gaps understated the
+    // figure; the two together put it 3.2x low.
+    //
+    // The scan is far too heavy for a render, so allUsageRefresh writes a cache and
+    // this only reads it. A missing cache shows nothing rather than a wrong number.
+    const allCachePath = path.join(os.homedir(), '.claude', 'usage-data', 'cc-statusline-all-usage.json');
+    let allCost = null, allTok = null, allUnpriced = 0, allStale = false;
     try {
-      const allKeys = Object.keys(cumAll || {});
-      const supersededBy = (k) => allKeys.some(o => o.length > k.length && o.startsWith(k));
-      for (const [k, sess] of Object.entries(cumAll || {})) {
-        if (supersededBy(k)) continue;
-        allCost += cumTotal(sess, 'cost');
-        allTok += cumTotal(sess, 'tok');
+      const c = JSON.parse(fs.readFileSync(allCachePath, 'utf8'));
+      if (c && typeof c.cost === 'number' && typeof c.tok === 'number') {
+        allCost = c.cost; allTok = c.tok; allUnpriced = num(c.unpricedTok);
+        // The scan takes seconds on a multi-GB history; anything within a few hours
+        // is close enough for an at-a-glance figure, older is flagged rather than
+        // silently presented as current.
+        allStale = !c.at || (Date.now() - c.at) > 6 * 3600 * 1000;
+      }
+    } catch (e) { /* no cache yet: the row degrades to session-only */ }
+    // Spawn the refresher when the cache is missing or stale. It self-skips if
+    // another one is already running or the cache is fresh.
+    try {
+      const refresher = path.join(__dirname, 'scripts', 'all-usage-refresh.js');
+      if ((allCost === null || allStale) && fs.existsSync(refresher)) {
+        const { spawn } = require('child_process');
+        const p2 = spawn(process.execPath, [refresher], { detached: true, stdio: 'ignore', windowsHide: true });
+        p2.unref();
       }
     } catch (e) {}
-    const allCostStr = '$' + allCost.toFixed(2);
+    // '~' marks a figure that excludes tokens from models with no price in PRICE.
+    const allCostStr = allCost === null ? '--' : (allUnpriced > 0 ? '~' : '') + '$' + allCost.toFixed(2);
 
     // Split rows: [leftCol, rightCol] — each cell gated by /cc-statusline:rows config.
     // Empty cells collapse: if a whole column (left OR right across both rows) is empty,
@@ -976,7 +1078,7 @@ process.stdin.on('end', () => {
 
     // Full-width left rows — each row gated by /cc-statusline:rows config
     const compactLabel = `${compactCount} time${compactCount === 1 ? '' : 's'}`;
-    const ctxLine = `${DIM}tokens${R} ${fmtTok(tokTotal)} ${DIM}(all${R} ${fmtTok(allTok)}${DIM})${R}  ${DIM}context${R} ${cc(ctx)}${bar(ctx)} ${ctx}%${R}  ${DIM}compact${R} ${compactLabel}`;
+    const ctxLine = `${DIM}tokens${R} ${fmtTok(tokTotal)} ${DIM}(all${R} ${allTok === null ? '--' : fmtTok(allTok)}${DIM})${R}  ${DIM}context${R} ${cc(ctx)}${bar(ctx)} ${ctx}%${R}  ${DIM}compact${R} ${compactLabel}`;
     // 5h and 7d quota side by side. The verbose "resets" word before each
     // countdown is replaced with a compact "│" separator to keep width down.
     const reset5hCompact = resetInfo.replace(`${DIM}resets${R} `, `${DIM}│${R} `);
