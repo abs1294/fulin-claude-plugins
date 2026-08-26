@@ -2,6 +2,14 @@
 
 本檔記錄 git-commit 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.2.1] - 2026-08-26
+### Fixed
+- 補「codex 拒絕在非 git 目錄啟動」的必死坑：subagent 預設 cwd 是 workspace 根、根目錄非 git repo，codex 會回 Not inside a trusted directory 即退出，死狀與「還在算」相同（只送 idle、無 VERDICT），實證白等逾 1 小時。prompt 開頭強制指定 cd 到 repo，並把「先跑最小題」提到「耐心等」之前。另 B 軌等待門檻 5 分鐘改為 10 分鐘告知一次後續等、至多 1 小時。
+
+## [0.2.0] - 2026-08-25
+### Changed
+- B 軌等待門檻 5 分鐘改為 10 分鐘：滿 10 分鐘告知一次後續等不再打擾，至多等到 1 小時才停下請使用者決定。原門檻與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者。
+
 ## [0.1.6] - 2026-07-20
 ### Fixed
 - 敏感字掃描新增 CREDENTIAL_SHAPE_PATTERN 不可豁免硬閘：抓 OAuth client_id/GOCSPX secret/refresh_token/ya29 access token/AIza API key/PEM 私鑰的憑證特徵字串，命中即拒 commit 且 --allow-sensitive 不放行（關鍵字會誤命中、憑證形狀不會），輸出遮蔽值防二次外洩
