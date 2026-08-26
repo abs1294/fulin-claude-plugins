@@ -40,6 +40,16 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
    > - 若環境無 ScheduleWakeup，用 `CronCreate({ recurring:false, durable:false, cron:<現在+5分>, prompt: "[publish 默許自動發布] 若使用者自呈現後未否決/未改 message，直接用建議 message 跑 commit + push + finalize。" })`，並記下 job id。
    > - **喚醒時的守衛**：先檢查 ① 使用者是否已在窗口內否決/改 message（是 → 不推、結束）② git 是否已 commit/push（已推 → 結束，不重複）；兩者皆否才執行步驟 4。
    > - **使用者在 5 分鐘內回應時**：先 `CronDelete <id>`（或讓 ScheduleWakeup 的守衛自然 no-op），再依回應處理，避免喚醒重複觸發。
+   >
+   > ⚠️ **cron 只是備援，不是主路徑**（2026-08-26 實戰教訓）：cron job **只在 REPL 閒置時才 fire**。
+   > 若使用者在窗口期間**持續互動**（問別的事、派別的工），REPL 從來不會 idle，cron 永遠不會觸發——
+   > 而且是**靜默不推**，使用者不問就不會發現（實證：排了 02:17 的 job，一直對話到 03:40 都沒推）。
+   >
+   > **正解：每一輪回覆前自己檢查窗口是否已過，過了就直接推，不要等 cron。**
+   > 具體做法：呈現 message 後的**每一輪**（不論使用者問的是不是 publish 相關），先判定：
+   > ① 距離呈現是否已過 5 分鐘？② 使用者期間有否否決或改 message？③ git 是否已推？
+   > ① 是、② 否、③ 否 → **當輪直接跑 commit + push + finalize**，並在回覆中順帶一句告知已發布。
+   > cron 保留作為「使用者真的離開了」的備援，兩路以 ③ 守衛互斥、不會重複推。
 
    **commit message 必須註明本次改了哪一個/哪些 skill（規則 3 — 版本追蹤）**。格式 `<動作>: <skill 名> — <摘要>`，動作詞 Add/Update/Fix，不得加 AI 署名。範例：`Update: delaylocal skill — 修正 LINE 通知逾時重試`。完整格式與範例詳 `../../CONVENTIONS.md`。
    - 因為有默許機制，建議 message 必須**夠完整可直接發布**（照規則 3 寫好），不能只丟半成品等使用者補。

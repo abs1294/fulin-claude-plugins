@@ -2,6 +2,10 @@
 
 本檔記錄 plugin-manager 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.17.1] - 2026-08-26
+### Fixed
+- publish skill：cron 只在 REPL 閒置時 fire，使用者持續互動時永遠不觸發且靜默不推。改為每輪回覆前自檢窗口是否已過，過了就當輪直接推，cron 降為備援。
+
 ## [0.17.0] - 2026-07-19
 ### Changed
 - recommends 加 installMethod 欄位：skill-copy 型（非 marketplace 的裸 skill 合集）登記帶 --install-method skill-copy，register-external 與 setup-plugins 依此顯示複製安裝指引（/install-skill / skill-fetch / 手動放 .claude/skills/），不再對其誤導 /plugin install；登記子流程強制先驗來源 repo 有無 .claude-plugin/ 再定型態
