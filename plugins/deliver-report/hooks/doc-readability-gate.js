@@ -17,13 +17,17 @@
  * 判不準（只提醒，不擋）：
  *   鐵則 1 兩邊對照 / 2 資訊放一起 / 6 能自查卻丟給讀者 / 10 該腳本化
  *
+ * 觸發條件：本回合（最後一個 promptId 的區段）有調用 deliver-report skill 才啟動。
+ *   ——不是「session 動過 docx」。舊版用後者，導致改過文件之後每一句話都跑檢查、
+ *   連跟文件無關的對話都被擋。交付檢查該綁「交付動作」，不是綁「檔案存在」。
+ *
  * ★ 最高原則：FAIL-OPEN。任何讀檔失敗、解析例外、判斷不確定 → 一律放行。
  *   這 hook 會影響 session 能不能結束，寧可漏擋，絕不卡死。
- * ★ 同一份文件最多擋 2 次，之後只警告——避免無限迴圈。
+ * ★ 不設擋下次數上限：觸發條件已收窄成「本回合調用過本 skill」，
+ *   每次交付都該檢查。舊版的「擋 2 次就放行」會讓第三次交付沒人把關。
  */
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
@@ -42,23 +46,18 @@ function writeThenExit(obj) {
 function block(reason) { writeThenExit({ decision: 'block', reason }); }
 function warn(msg) { writeThenExit({ systemMessage: msg }); }
 
-const MAX_BLOCKS = 2;
-
 function main(raw) {
   let payload = {};
   try { payload = JSON.parse(raw || '{}'); } catch (_) { return allow(); }
 
   const cwd = payload.cwd || process.cwd();
-  const sessionId = payload.session_id || 'nosession';
 
-  // 只在「這個 session 動過 .docx」時才啟動
+  // 只在「本回合調用過 deliver-report skill」時才啟動。
+  // 判不出來（沒有 transcript_path、讀檔失敗、解析失敗）一律放行。
+  if (calledSkillThisTurn(payload.transcript_path) !== true) return allow();
+
   const docs = recentDocx(cwd);
   if (!docs.length) return allow();
-
-  // 擋過太多次就不再擋
-  if (blockCount(sessionId) >= MAX_BLOCKS) {
-    return allow();
-  }
 
   let findings = [];
   for (const d of docs) {
@@ -69,7 +68,6 @@ function main(raw) {
 
   if (!findings.length) return allow();
 
-  bumpBlockCount(sessionId);
   const lines = [];
   lines.push('【交付前機械閘】文件易讀性檢查未通過，請修正後再結束：');
   lines.push('');
@@ -89,6 +87,47 @@ function main(raw) {
 }
 
 // ---------- 找出這個 session 動過的 .docx ----------
+function calledSkillThisTurn(tp) {
+  // 回傳 true = 本回合確實調用了 deliver-report skill；
+  //       false = 確實沒有；null = 判不出來（呼叫端一律放行）。
+  if (!tp) return null;
+  let raw;
+  try { raw = fs.readFileSync(tp, 'utf8'); } catch (_) { return null; }
+
+  const lines = raw.split('\n');
+  // 由後往前找最後一個 user 訊息的 promptId——那是本回合的起點。
+  // 用 promptId 而不是「最後 N 行」：一個回合可能有數十次工具往返，行數不固定。
+  let pid = null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (!l) continue;
+    let o;
+    try { o = JSON.parse(l); } catch (_) { continue; }
+    if (o && o.type === 'user' && o.promptId) { pid = o.promptId; break; }
+  }
+  if (!pid) return null;
+
+  for (const l of lines) {
+    if (!l) continue;
+    // 先用字串快篩，避免每行都 JSON.parse（transcript 可達數十 MB）
+    if (l.indexOf(pid) === -1) continue;
+    if (l.indexOf('deliver-report') === -1) continue;
+    let o;
+    try { o = JSON.parse(l); } catch (_) { continue; }
+    if (o.promptId !== pid) continue;
+    const c = o.message && o.message.content;
+    if (!Array.isArray(c)) continue;
+    for (const b of c) {
+      if (b && b.type === 'tool_use' && b.name === 'Skill' &&
+          b.input && typeof b.input.skill === 'string' &&
+          b.input.skill.indexOf('deliver-report') !== -1) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function recentDocx(cwd) {
   const out = [];
   const seen = new Set();
@@ -272,16 +311,3 @@ function readDocXml(file) {
 function strip(x) { return x.replace(/<[^>]+>/g, ''); }
 
 // ---------- 擋次計數 ----------
-function statePath(sid) {
-  return path.join(os.tmpdir(), `doc-gate-${String(sid).replace(/[^\w-]/g, '')}.json`);
-}
-function blockCount(sid) {
-  try { return JSON.parse(fs.readFileSync(statePath(sid), 'utf8')).n || 0; }
-  catch (_) { return 0; }
-}
-function bumpBlockCount(sid) {
-  try {
-    const n = blockCount(sid) + 1;
-    fs.writeFileSync(statePath(sid), JSON.stringify({ n }), 'utf8');
-  } catch (_) { /* 寫不了就算了，寧可少擋 */ }
-}
