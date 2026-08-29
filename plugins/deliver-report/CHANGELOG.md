@@ -2,6 +2,28 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.9.0] - 2026-08-29
+### Added
+- **併入 daily-report 成為第三個 skill**（`skills/daily-report/`，plugin 名維持 `deliver-report`）。三個 skill 都是「把工作成果變成對外產物」：交付訊息、測試報告 DOCX、工作日報。
+- 併入理由：日報同樣是**對外產物**，同樣不能出現 AI／工具鏈字眼與異動紀錄用語——daily-report 自己就有 `content_guard.py` 硬閘（其 docstring 記載首次寄出的日報含 9 處洩漏）。規則同源，該放一起管。
+- scope 由 user 改為 project：查證 `extract_sessions.py` 後確認日報**預設就是掃單一專案**（`--all-projects` 才掃全機），本來就是 per-project 設計，user scope 只是安裝位置而非功能需求。
+
+### Notes
+- daily-report 的腳本路徑全走 `${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/`，skill 資料夾名不變故無需改寫；腳本間 import 走 `__file__` 相對路徑，`check_no_secrets.py` 的 repo 上溯深度亦不變。
+- 設定檔位置不變（`~/.claude/daily-report/`、專案層 `.claude/daily-report.json`），既有使用者的 OAuth／SMTP 設定不受影響。
+- **兩份禁字實作仍是兩份**：`content_guard.py`（Python 掃 .md）與 `doc-readability-gate.js`（Node 掃 .docx）掃描對象與時機不同，併 plugin 不會自動去重。後續若要單一事實來源，需另抽資料檔讓兩邊讀。
+
+
+## [0.8.0] - 2026-08-29
+### Changed
+- **拆成兩個 skill**：`deliver-report`（交付訊息）與 `test-report-docx`（測試報告 DOCX）。原本測試報告是主 skill 的一個「模式」、靠 `references/test-report-docx.md` 分流——但那個分流是 prompt 層的自律指令（「請讀 references/…」），沒有機制保證會被執行；且寫報告時仍全載主檔 511 行，其中約 320 行（四個決定／三種形狀／四個範例）完全用不到。改成獨立 skill 後，分流交給 harness 的 skill 選擇機制，各自只載需要的。
+- **`document-readability.md` 上移至 plugin 層級**（`plugins/deliver-report/references/`），兩個 skill 以 `../../references/` 共用同一份，不複製、不漂移。本 repo 有前例：plugin-manager 的 skill 以 `../../CONVENTIONS.md` 引用 plugin 層級檔案。
+- **Stop hook 的 skill 偵測改成明確清單**（`GATED_SKILLS` + `isGatedSkill()`）。舊版 `indexOf('deliver-report')` 是子字串比對，新 skill 命名為 `test-report-docx`（不帶前綴）時完全比不中——閘門看起來還在、實際不觸發，是最糟的失敗模式。新版支援裸名、`plugin:skill` 前綴、`/` 分隔三種形式。
+- 主 skill 移除「模式分流」整節，改為一句判準（對方收到的是文字還是檔案）＋指向 `test-report-docx`；`test-report-docx` 內原有七處「主文」相對稱謂改為明確指名 skill。
+
+### Verified
+- Hook **實跑驗證**（非僅語法檢查）：以合成 transcript ＋ 含鐵則 5 禁字的 .docx 實測五種情境——`deliver-report`／`test-report-docx`／`deliver-report:test-report-docx` 三者皆正確 block，`git-commit` 與「本回合未調用 skill」皆正確放行。
+
 ## [0.7.0] - 2026-08-25
 ### Added
 - **新增 Stop hook `doc-readability-gate.js`**：把 document-readability.md 中「機器判得準」的鐵則做成交付前機械閘（純 prompt 規範擋不住——實證：該文件寫完鐵則 8「修完一類要全文重掃」後，作者接著又在同一批文件犯了三次同類問題）
@@ -133,3 +155,63 @@
 - 收件人不預填人名（使用者要求）。
 - 寫訊息前順手整理交付清單：列實際檔案、檢查版本一致性、依「彙總→明細→原始資料→實作/設定」邏輯排序，不擅自改檔。
 - 內建 few-shot 範例（AWS WAF 交付），作為語氣與密度的對齊基準。
+
+---
+
+## 併入前的 daily-report 版本紀錄（獨立 plugin 時期，至 0.6.4）
+
+併入時原樣保留，供追溯 Gmail OAuth／Workspace 帳號等踩雷紀錄。
+
+## [0.6.4] - 2026-07-22
+### Fixed
+- README 補公司 Workspace 帳號現實：交付路徑表的 app password 標註「公司帳號多半不可用」，新增 Workspace 警告塊（管理員預設停用 app password、頁面顯示 setting not available、判斷方式、OAuth 在 Workspace 也可能被限制需 IT 放行）；補「client_id/secret 可直接給 Claude、桌面 app secret 非機密」提示；已知風險段的 app password 條補上個人 vs 公司帳號的差別
+
+## [0.6.3] - 2026-07-22
+### Fixed
+- 把公司 Workspace 帳號的現實編進引導（實測踩雷：作者公司帳號 app password 頁顯示 setting not available）：① app_password 選項標籤與代價明標「公司 Workspace 帳號多半被管理員停用，別白試、直接走 OAuth」② app_password guide 新增步驟 0 帳號類型前置判斷，公司帳號看到 not available 就停 ③ 修正誤導措辭——桌面 app 的 client_id/secret 按 Google 設計就不是機密（隨程式散佈本來就藏不住），可直接請使用者貼給腳本，不必遮掩造成卡關錯覺；app password 才是真憑證仍不進對話
+
+## [0.6.2] - 2026-07-22
+### Fixed
+- README 與程式對齊 0.6.0 收件人紀律：README 到處說「寄給設定檔指定的收件人」但實際收件人只認專案層、家目錄不當預設——修正 README 開頭與新增「憑證與收件人分兩層」段講清楚兩層設定；config.example 移除誤導的家目錄 recipients（程式已不採用），新增 daily-report.project.example.json 專案設定範本；doctor 收件人檢查同步改只認專案層（原本讀家目錄 recipients，會顯示借用來的收件人為綠燈誤導使用者）；doctor 檢查項 README 從 5 改 6（補寄件帳號）；setup 完成提示不再說「設定檔補 recipients」改說「各專案自設」
+
+## [0.6.1] - 2026-07-21
+### Fixed
+- SKILL.md 呈現核可步驟明訂：寄送資訊每一項（尤其主旨）必須顯示 dry-run 印出的實際值，不准用「（日報前綴）」這類佔位符或示意文字——否則使用者核可的是示意版而非真正會寄的內容，呈現核可形同虛設。起因：呈現時用佔位符代替實際主旨給使用者看
+
+## [0.6.0] - 2026-07-21
+### Changed
+- 收件人紀律修正（安全）：收件人只認專案層 .claude/daily-report.json，家目錄的 recipients 不再當預設——沒設收件人的專案改為拒寄並走引導，不再默默借用家目錄收件人寄給不相干的人（起因：測試時未設專案收件人的專案直接寄給家目錄的 aa22942072）；send_common.resolve_recipients 與 setup_gate.detect 同步此紀律。郵件排版拿掉手刻 HTML（卡片/強調條/inline style/置中 table 全砍），md_to_html 改輸出最基本的 p/ul/li/b，交給 Gmail 預設渲染——華麗 HTML 讓信不像個人寫的；移除連帶用不到的 build_meta 與樣式常數
+
+## [0.5.1] - 2026-07-20
+### Fixed
+- 重構：抽出 send_common.py 統一兩條寄送路徑的前置契約（展開路徑/解析收件人/內容閘/確認窗口閘/sent 去重/scope_key）。原本 send_gmail 與 gmail_oauth 各自實作同一套檢查，紅隊已證實對等性靠複製貼上必然失衡（SMTP 曾漏兩道閘）；現在兩路徑跑同一份 prepare_send，各腳本只保留「怎麼把郵件送出去」（SMTP 連線 vs REST 呼叫）。scope_key/sent_path 單一事實來源移入 send_common，confirm_gate 改為 import 而非重實作，消除雜湊不一致導致去重漏接的風險。行為經 OAuth/SMTP 雙路徑實測一致（內容閘 exit 3、確認閘 exit 5、乾淨內容通過、arm→check→auto 全鏈路）
+
+## [0.5.0] - 2026-07-20
+### Changed
+- 紅藍對抗（對外釋出視角，2 個獨立 fresh-context 紅隊）修 3 CRITICAL + 4 HIGH/MEDIUM：① SMTP 路徑補齊 --auto 確認閘與 sent 去重（原本只有 OAuth 路徑有，選 app_password 的使用者等於零核可保護、可無限重寄）② content_guard 擴充憑證/個資/金額偵測（原本只擋 AI 詞彙，含明文密碼與身分證字號的日報被判通過；密碼 pattern 要求值具密碼特徵以免誤判正常敘述）③ confirm_gate 狀態改以「日期+專案雜湊」為鍵（原本只用日期，多專案同日互相覆蓋/TOCTOU 比對錯檔/veto 連坐/誤判已寄——而多專案分設收件人正是主打功能）④ setup_gate channel 明示優先於憑證偵測（mcp_draft 選項原本永遠無法完成設定）⑤ 四支腳本補 expanduser（SKILL.md 用 ~ 開頭路徑，PowerShell/subprocess 不展開）⑥ arm 補建 reports/ 目錄 ⑦ README 修正與實況矛盾的「絕不自動寄」描述、補列 setup_gate/content_guard/confirm_gate、界線改為誠實說明語意層機密與私人 session 過濾的自律本質
+
+## [0.4.0] - 2026-07-20
+### Changed
+- extract 預設只掃當前專案（--project/--all-projects，用 session cwd 判歸屬，輸出檔名帶專案識別）；收件人支援專案層覆寫（<專案>/.claude/daily-report.json 只能覆寫 recipients/cc/subject_prefix/from_name，憑證強制只從家目錄讀，已實測專案層假憑證被忽略）；gmail_oauth 新增 doctor 子命令：實打 API 逐項驗證（設定檔/用戶端/授權換 token/Gmail API 是否啟用/收件人），失敗輸出 Google 原始錯誤與連結而非寫死的 Console 路徑——起因是作者自己照引導跑仍漏掉啟用 Gmail API 而被 403；SKILL.md 與 guide 改為「doctor 判定、不信自我回報、Console 路徑以 Google 即時訊息為準」
+
+## [0.3.0] - 2026-07-20
+### Added
+- setup_gate.py 機制閘：把首次設定從「模型自律講清楚」改成腳本產生內容。`status`（四種未完成情境統一判定，exit 10=需引導、0=可交付）、`options`（三選項的 label/description 由腳本輸出，權限/有效期/設定成本/代價四欄固定不可摘要，供模型原文填進 AskUserQuestion）、`guide <channel>`（逐步引導含每步「確認」判準）。
+- check_no_secrets.py：掃 repo 內 JSON 範本有無真憑證（`--staged` 供 pre-commit）。
+- .gitignore 擋 daily-report 真設定檔路徑。
+
+### Changed
+- SKILL.md 第 5 步改為「先跑 setup_gate status，退出碼決定走哪條」，禁止自行讀檔推論或直接詢問使用者；首次設定引導改為搬運腳本輸出，並明訂兩條紅線（憑證不進對話、範本不填真值）。
+
+## [0.2.0] - 2026-07-20
+### Added
+- Gmail API OAuth 路徑（gmail_oauth.py）：`setup` 引導式授權（loopback redirect + PKCE S256 + state 防 CSRF，瀏覽器自動開、使用者按一下允許即完成，refresh_token 自動寫入 config）、`send`（refresh→access token 現換不落盤、Gmail API users.messages.send）、`status`（授權健檢）。零外部套件（urllib 直打 endpoint），scope 僅 gmail.send（能寄不能讀）。
+- 交付管道三選一自動判斷（oauth → smtp → MCP 草稿），依使用者 config 內容決定，不重複詢問。
+- SKILL.md 新增首次設定引導：Claude 逐步帶使用者開 GCP 專案→啟用 Gmail API→同意畫面→測試使用者→建桌面用戶端→執行授權，含「未驗證應用程式」警告畫面與測試模式 7 天過期的預先說明。
+
+### Changed
+- 刻意不內建任何 OAuth 憑證（選項 B）：避免配額/驗證狀態/撤銷風險綁在單一發布者，也避免個人憑證進公開 repo 的 git 歷史。
+
+## [0.1.0] - 2026-07-20
+### Added
+- 初版：extract_sessions.py（掃 session jsonl → 按專案分組中間 JSON；mtime 預過濾、isSidechain/SDK/promptSource 系統注入過濾、ai-title 直取、prompt 截 400 字）＋ send_gmail.py（Gmail SMTP 應用程式密碼寄送，--dry-run 預覽、plain+HTML 雙格式、收件人設定檔管理）＋ SKILL.md 流程（萃取→生成→人工核可→寄送；統計僅本機顯示；私人 session 預設略過）

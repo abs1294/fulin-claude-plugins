@@ -76,7 +76,7 @@ function main(raw) {
     for (const it of f.items) lines.push(`   · ${it}`);
     lines.push('');
   }
-  lines.push('依據：deliver-report skill 的 references/document-readability.md');
+  lines.push('依據：deliver-report plugin 的 references/document-readability.md');
   lines.push('');
   lines.push('機器判不了、需你自己確認的四條：');
   lines.push('  1 讀者是否要兩邊對照才能做完一件事？');
@@ -84,6 +84,18 @@ function main(raw) {
   lines.push('  6 有沒有「待確認」其實你自己查得到？');
   lines.push(' 10 有沒有機械性步驟該寫成腳本而不是叫人手動做？');
   block(lines.join('\n'));
+}
+
+// 本 plugin 中「會產出交付文件」的 skill 名單。
+// 兩個都要列：deliver-report 產交付訊息、test-report-docx 產報告 DOCX。
+// ⚠ 這裡曾經是 indexOf('deliver-report') 的子字串比對——skill 一旦改名或新增，
+//   閘門會靜默失效（看起來還在，實際沒守）。改成明確清單，新增 skill 請一併加進來。
+const GATED_SKILLS = ['deliver-report', 'test-report-docx'];
+
+// skill 名可能帶 plugin 前綴（如 'deliver-report:test-report-docx'），
+// 故用「結尾比對或完全相等」而非寬鬆子字串。
+function isGatedSkill(name) {
+  return GATED_SKILLS.some((n) => name === n || name.endsWith(':' + n) || name.endsWith('/' + n));
 }
 
 // ---------- 找出這個 session 動過的 .docx ----------
@@ -111,7 +123,7 @@ function calledSkillThisTurn(tp) {
     if (!l) continue;
     // 先用字串快篩，避免每行都 JSON.parse（transcript 可達數十 MB）
     if (l.indexOf(pid) === -1) continue;
-    if (l.indexOf('deliver-report') === -1) continue;
+    if (!GATED_SKILLS.some((n) => l.indexOf(n) !== -1)) continue;
     let o;
     try { o = JSON.parse(l); } catch (_) { continue; }
     if (o.promptId !== pid) continue;
@@ -120,7 +132,7 @@ function calledSkillThisTurn(tp) {
     for (const b of c) {
       if (b && b.type === 'tool_use' && b.name === 'Skill' &&
           b.input && typeof b.input.skill === 'string' &&
-          b.input.skill.indexOf('deliver-report') !== -1) {
+          isGatedSkill(b.input.skill)) {
         return true;
       }
     }

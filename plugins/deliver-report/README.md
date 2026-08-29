@@ -1,10 +1,41 @@
 # deliver-report
 
-把本次的**交付產出**寫成一段口語、務實的**交付訊息**——固定 fulin 慣用的語氣，形狀依當次情境而定。
+把工作成果變成**對外產物**。三個 skill，共用同一套對外鐵則。
 
-## 測試報告 DOCX 模式（0.4.0 起）
+| skill | 產出什麼 | 什麼時候用 |
+|-------|----------|-----------|
+| **deliver-report** | 一段**訊息／信**（可整段複製） | 一批檔案已產好、要寫段話交給客戶／工程端／主管；或回覆對方的提問並附報告 |
+| **test-report-docx** | 一份**測試報告 DOCX 檔** | 測試已做完、證據在手，要把結果文件化給 PM／客戶簽核轉發 |
+| **daily-report** | 一封**工作日報**（核可後寄出） | 把當天散在各專案的工作，濃縮成主管／客戶看得懂的日報 |
 
-除交付訊息外，另支援把**已完成的測試結果**產成測試報告 DOCX（給 PM／客戶簽核轉發）。觸發：「測試報告」「修復測試報告」「驗收報告」「report 要 Word/DOCX 檔」。規格見 `skills/deliver-report/references/test-report-docx.md`（組裝決定＋段落構件庫，不套固定格式）。測試還沒跑、要設計或執行測試的請用 qa 系 skill——本模式只做結果文件化。
+前兩者的分流判準一句：**對方收到的是「文字」還是「檔案」？** 兩者常前後接續——報告檔產好之後要寫段訊息把它交出去，就換 `deliver-report`。
+
+## 為什麼這三個放在一起
+
+因為它們是同一件事的三種形態：**把我方做的事，講給不懂技術、也不該知道我方流程的人聽。**
+
+共通鐵則：**嚴禁 AI／內部流程／異動紀錄字眼**（紅藍對抗、QA、plugin、session、AI、「本次查核」、「第 N 輪」…）、**預設讀者不懂技術**、**只講交付物與結論，不講我方怎麼做出來的**。
+
+這條鐵則兩邊都是**血淚換來的**，而且各自獨立踩過同一個坑——daily-report 的 `content_guard.py` docstring 記載：首次寄出的日報就含 9 處洩漏（「Claude Code 用量」「AI 工作流程」「plugin 推薦清單」）。
+
+## 共用的東西
+
+- `references/document-readability.md`（**plugin 層級共用一份**）：交付文件易讀性八條鐵則＋交付前必做的五項機械掃描。每一條都是使用者當面指出過 2~4 次的實案。
+- `hooks/doc-readability-gate.js`：Stop hook，把上述鐵則中「機器判得準」的幾條做成交付前機械閘。**deliver-report 與 test-report-docx 都會觸發**（純 prompt 規範擋不住——實證：該文件寫完「修完一類要全文重掃」之後，作者接著又在同一批文件犯了三次同類問題）。
+- `skills/daily-report/scripts/content_guard.py`：日報**寄送前**的硬閘（Python 掃 .md，命中 exit 1），另含憑證／個資 pattern。
+  > ⚠ 這兩個閘是**兩份獨立實作**（掃描對象與時機不同：Stop hook 掃 .docx、content_guard 掃待寄的 .md），禁字清單目前**各自維護**。改動其中一份的禁字時，記得同步另一份。
+
+---
+
+# skill：test-report-docx（測試報告 DOCX）
+
+規格與段落構件庫見 `skills/test-report-docx/SKILL.md`：九條鐵則（禁字清單／不寫 meta 句／讀者不懂技術／實機截圖為主證據／缺陷走交付揭露不進報告／只寫最終狀態不寫我方作業時序／不寫我方修了什麼 bug／宣稱須逐項對得上實際檢核／易讀性鐵則適用），以及按需取用的段落構件庫。**前提是測試已做完、證據在手**——還沒跑的測試先用 qa 系 skill 執行，本 skill 只做結果文件化。
+
+前置依賴：python-docx。
+
+---
+
+# skill：deliver-report（交付訊息）
 
 ## 解決的痛
 
@@ -44,4 +75,61 @@
 - **不擅自改寫對方的問題**：前提客觀失效才校正；只是「我認為他該問別的」一律照答再建議。
 - **寫前順手整理**：列實際檔案、檢查版本一致性、依邏輯排序（彙總→明細→原始資料→實作/設定），但不擅自改檔。
 
-前置依賴：無。
+前置依賴：無（daily-report skill 另有依賴，見該節）。
+
+---
+
+# skill：daily-report（工作日報）
+
+## 怎麼用
+
+跟 Claude 說「產今天的日報」「昨天的日報補寄」即觸發。流程：
+
+1. 掃描 `~/.claude/projects/` 當日 session（自動濾掉 subagent、SDK 自動化、系統注入雜訊，只留人的工作）
+2. 按專案分組生成日報（做了什麼＋待辦/未完成；統計數據只在對話顯示、不寄出）
+3. **呈現給你過目**，並開始一段確認窗口（預設 30 分鐘，可設定）
+4. 交付：你說寄就立刻寄；你喊停就不寄；**窗口內沒回應則自動寄出**（無人值守設計，掛著不顧回來已寄好）
+
+## 三條交付路徑（依你的設定檔自動判斷，不會每次問你）
+
+| 你的 config 有什麼 | 走哪條 | 前置設定 |
+|---|---|---|
+| `oauth.refresh_token` | **Gmail API OAuth**（推薦） | 一次性：開 GCP 專案 + 一鍵授權（Claude 會逐步帶你做） |
+| `smtp.app_password` | **SMTP 直寄** | 兩步驟驗證 + 產生 16 碼應用程式密碼（⚠ 公司帳號多半不可用，見下） |
+| 都沒有（且有 Gmail MCP） | **MCP 建草稿** | 零設定，你自己在 Gmail 按送出 |
+
+**為什麼推薦 OAuth**：權限只有 `gmail.send`——能寄不能讀，讀不到你任何信件；token 會過期、可隨時撤銷。應用程式密碼則等同**整個信箱的完整存取權且永不過期**（Google 官方立場是不推薦）。
+
+> ⚠ **公司 Google Workspace 帳號請直接走 OAuth，別試 app password。** Workspace 管理員預設會停用應用程式密碼——你到 `myaccount.google.com/apppasswords` 只會看到「The setting you are looking for is not available for your account」。這是公司政策，不是設定錯誤，plugin 繞不過。判斷方式：信箱是公司發的（`you@公司網域`）就是 Workspace 帳號。（同理，OAuth 在 Workspace 也可能被管理員限制第三方 app 授權——若授權被擋，需請 IT 放行，或改用個人 Gmail 寄。）
+
+> 💡 **走 OAuth 時，client_id / client_secret 可以直接給 Claude**（當參數餵給 setup 腳本）。桌面應用程式類型的 secret 按 Google 設計就不是機密（隨程式散佈到每台電腦、本來就藏不住），不必遮掩。**只有 app password 是真憑證**——那個請自己填進設定檔，別貼進對話。
+
+## 憑證與收件人分兩層（重要）
+
+設定分兩個位置，刻意分開：
+
+| 放什麼 | 放哪 | 進 git？ |
+|---|---|---|
+| **憑證**（oauth / smtp）＋帳號層預設（channel、subject_prefix、from_name） | 家目錄 `~/.claude/daily-report/config.json` | 否（機密） |
+| **收件人**（recipients / cc） | **各專案** `<專案>/.claude/daily-report.json` | 由你決定 |
+
+**收件人為什麼綁專案、不放家目錄**：憑證跟「人」綁定（你就一組 Gmail 授權），收件人跟「專案」綁定（Winbond 的日報不該寄給另一個客戶的窗口）。如果家目錄的收件人被當預設，一個還沒設收件人的新專案會**默默借用**家目錄的收件人寄出去——寄給不相干的人。所以家目錄的 `recipients` **不會被採用**；沒設專案收件人的專案，`status` 會回 `SETUP_REQUIRED`、寄送會被拒（要臨時寄用 `--to a@x`）。範本見 `daily-report.project.example.json`。
+
+**首次使用不用自己看文件**：跟 Claude 說產日報，它偵測到沒設定會問你要哪條路，選 OAuth 就**一步一步帶你做完**（建專案 → 啟用 API → 設定同意畫面 → 建用戶端 → 執行授權），最後那步瀏覽器自動跳出、按個「允許」就完成，refresh token 自動寫進設定檔。
+
+**設定對不對不靠猜——跑 `gmail_oauth.py doctor`**：它實際打 Gmail API 逐項驗證（設定檔、用戶端、授權能否換 token、API 是否已啟用、寄件帳號、收件人），哪一項沒過就指出來，並附上 **Google 當下回傳的**錯誤與修復連結。做這個是因為作者自己照引導跑一遍，仍漏掉「啟用 Gmail API」直到寄信被 403——**引導文字會被漏讀、Console 路徑會改版，實測不會**。
+
+**分享給別人用**：這個 plugin **不內建任何 OAuth 憑證**（刻意的——避免配額、驗證狀態、撤銷風險全綁在單一人身上）。對方裝了之後跑同樣的引導、開自己的 GCP 專案即可；或你把自己的 client_id/secret 給他填，他只需跑最後一步授權。
+
+**憑證怎麼確保不會外流**（設定檔與範本長得一樣，只差值空不空，所以靠機制不靠自律）：
+
+1. 真設定檔在 `~/.claude/daily-report/config.json`（**家目錄**），plugin 從 marketplace 裝下來只會進 `~/.claude/plugins/cache/`，兩者不相干——別人下載 plugin 不會拿到任何人的憑證。
+2. `.gitignore` 擋掉誤複製進 repo 的真設定檔。
+3. `git-commit` plugin 的 commit 硬閘（0.1.6+）掃 staged diff 的**憑證特徵字串**（`*.apps.googleusercontent.com`、`GOCSPX-`、`1//` refresh token、`ya29.`、`AIza`、PEM 私鑰），命中即拒絕 commit 且**不可用 `--allow-sensitive` 豁免**，輸出還會遮蔽值本身。
+4. `check_no_secrets.py` 可獨立掃全 repo 的 JSON 範本作二次確認。
+
+## 前置依賴
+
+- Python 3（純 stdlib，零套件安裝——OAuth 流程也是自己實作，不需 google-api-python-client）
+- 家目錄設定檔（憑證）：`~/.claude/daily-report/config.json`（範本 `skills/daily-report/config.example.json`）。**含機密，只放家目錄、絕不進 git**
+- 專案設定檔（收件人）：`<專案>/.claude/daily-report.json`（範本 `skills/daily-report/daily-report.project.example.json`）
