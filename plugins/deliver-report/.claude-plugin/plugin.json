@@ -1,7 +1,7 @@
 {
   "name": "deliver-report",
-  "version": "0.9.0",
-  "description": "把工作成果變成對外產物，三個 skill：**deliver-report**（把已產好的一批檔案寫成一段口語、白話的交付訊息或逐題回覆信，fulin 慣用語氣；動筆前先定四件事——檔案是主體還是佐證、有沒有對方的問題要回、單一收件人還是多類分眾、內文密度，再套七條寫法規則，含三種形狀與四個範例）；**test-report-docx**（把已做完的測試結果產成給 PM／客戶簽核轉發的測試報告 DOCX，九條鐵則＋段落構件庫，不套固定目錄）；**daily-report**（掃當日 Claude Code session 記錄按專案分組摘要「做了什麼＋待辦」，人工核可後經 Gmail OAuth／SMTP／MCP 草稿寄給設定檔指定的收件人）。三者共通：對外產物一律嚴禁 AI／內部流程／異動紀錄字眼，預設讀者不懂技術。交付文件易讀性八條鐵則見 references/document-readability.md，由 Stop hook 於交付前機械掃描把關；日報另有寄送前的 content_guard 硬閘。",
+  "version": "0.9.1",
+  "description": "把工作成果變成對外產物，三個 skill：**deliver-report**（把已產好的一批檔案寫成一段口語、白話的交付訊息或逐題回覆信，fulin 慣用語氣；動筆前先定四件事——檔案是主體還是佐證、有沒有對方的問題要回、單一收件人還是多類分眾、內文密度，再套七條寫法規則，含三種形狀與四個範例）；**test-report-docx**（把已做完的測試結果產成給 PM／客戶簽核轉發的測試報告 DOCX，九條鐵則＋段落構件庫，不套固定目錄）；**daily-report**（掃當日 Claude Code session 記錄按專案分組摘要「做了什麼＋待辦」，人工核可後經 Gmail OAuth／SMTP／MCP 草稿寄給設定檔指定的收件人）。三者共通：對外產物一律嚴禁 AI／內部流程／異動紀錄字眼，預設讀者不懂技術。交付文件易讀性十二條鐵則見 references/document-readability.md，由 Stop hook 於交付前機械掃描把關；日報另有寄送前的 content_guard 硬閘。",
   "author": {
     "name": "fulin"
   },

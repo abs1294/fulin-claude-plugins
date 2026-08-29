@@ -2,6 +2,12 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.9.1] - 2026-08-30
+### Fixed
+- 修正「八條鐵則」的過時說法：`references/document-readability.md` 正本實際有 **12 條**（檔案開頭自述「這十二條就適用」），但外部引用仍寫八條——鐵則 9~12（視覺標記成套一致／能腳本化就不叫人手動／改文件前先讀實際樣貌／做完的事寫成做完）是後續踩坑陸續補上的，引用處沒跟著更新。
+- 掃全 repo 後共修 6 處：`marketplace.json`、`plugin.json`、plugin `README.md`、`skills/deliver-report/SKILL.md`（frontmatter + 內文各一）、`skills/test-report-docx/SKILL.md`、根 `README.md`。
+- **未改**正本第 339 行的「這八條」——該處是歷史敘述（記錄初版 8 條的由來與使用者原話），不是現況宣稱。「五項機械掃描」經核對與正本鐵則 8 的「五項必掃」一致，無需更動。
+
 ## [0.9.0] - 2026-08-29
 ### Added
 - **併入 daily-report 成為第三個 skill**（`skills/daily-report/`，plugin 名維持 `deliver-report`）。三個 skill 都是「把工作成果變成對外產物」：交付訊息、測試報告 DOCX、工作日報。
