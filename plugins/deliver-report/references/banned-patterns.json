@@ -1,0 +1,106 @@
+{
+  "_readme": [
+    "對外產物的禁用樣式，單一事實來源。兩個閘各自讀這一份，改一次兩邊生效：",
+    "  - hooks/doc-readability-gate.js（Node，Stop hook，掃 .docx）",
+    "  - skills/daily-report/scripts/content_guard.py（Python，寄送前，掃 .md）",
+    "",
+    "為什麼分組：錯誤訊息要能講出「這屬於哪一類」，使用者才知道為何被擋。",
+    "為什麼不是全部共用：兩種產物該擋的東西不同（見各組的 applies_to）。",
+    "  credentials / pii  → 兩邊都要（任何對外產物都不該夾帶）",
+    "  ai_toolchain       → 只有日報（測試報告本身就在講系統，禁字另有九條鐵則管）",
+    "  revision_history   → 只有文件（易讀性鐵則 5；日報是當日快照，無此問題）",
+    "",
+    "正則寫法：以 JS 相容語法為準（Python 端 re 也吃得下這個子集）。",
+    "  - 不使用 lookbehind（Python re 需固定長度，JS 可變長度，兩邊行為不一致）",
+    "  - Python 端載入時直接餵給 re.compile，不做轉換",
+    "  - 需要忽略大小寫的用 (?i) 前綴；JS 端載入時會轉成 i flag"
+  ],
+
+  "credentials": {
+    "label": "憑證與密鑰",
+    "applies_to": ["docx", "daily"],
+    "note": "抓的是『形狀』不是關鍵字，誤判率低。誤判會訓練使用者忽略警告，比漏抓更難補救，所以寧可窄一點。",
+    "patterns": [
+      "GOCSPX-[A-Za-z0-9_-]{6,}",
+      "\\bAIza[A-Za-z0-9_-]{20,}",
+      "\\bya29\\.[A-Za-z0-9_-]{10,}",
+      "\\bsk-[A-Za-z0-9]{20,}",
+      "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+      "(?i)\\bBearer\\s+[A-Za-z0-9._-]{20,}",
+      "(?i)\\bapi[_-]?key\\b\\s*[:=]?\\s*[!-~]{8,}",
+      "(?i)\\bsecret\\b\\s*[:=]\\s*[!-~]{6,}",
+      "(?i)\\btoken\\b\\s*[:=]\\s*\\S+",
+      "(?i)(?:密碼|passw?o?r?d)\\s*[:：=]?\\s*(?=[!-~]{6,})(?=[!-~]*\\d)(?:(?=[!-~]*[A-Z])(?=[!-~]*[a-z])|(?=[!-~]*[^\\w\\s]))[!-~]{6,}",
+      "\\b1//[A-Za-z0-9_-]{20,}",
+      "[A-Za-z0-9_-]+\\.apps\\.googleusercontent\\.com"
+    ]
+  },
+
+  "pii": {
+    "label": "個資",
+    "applies_to": ["docx", "daily"],
+    "note": "測試報告的截圖說明、資料修正紀錄最容易夾帶真實個資。",
+    "patterns": [
+      "\\b[A-Z][12]\\d{8}\\b",
+      "\\b\\d{4}[- ]?\\d{4}[- ]?\\d{4}[- ]?\\d{4}\\b",
+      "\\b09\\d{2}[- ]?\\d{3}[- ]?\\d{3}\\b"
+    ],
+    "pattern_labels": {
+      "\\b[A-Z][12]\\d{8}\\b": "身分證字號",
+      "\\b\\d{4}[- ]?\\d{4}[- ]?\\d{4}[- ]?\\d{4}\\b": "信用卡號",
+      "\\b09\\d{2}[- ]?\\d{3}[- ]?\\d{3}\\b": "手機號碼"
+    }
+  },
+
+  "email": {
+    "label": "電子郵件位址",
+    "applies_to": ["daily"],
+    "note": "日報的收件人由 config 管，內文不該有 email。測試報告的截圖裡可能有系統畫面的信箱，不一律擋。",
+    "patterns": [
+      "\\b[\\w.+-]+@[\\w-]+\\.[\\w.]+\\b"
+    ]
+  },
+
+  "money": {
+    "label": "金額",
+    "applies_to": ["daily"],
+    "note": "日報不寫金額（報價、成本屬敏感）。測試報告可能正當出現金額欄位，不擋。",
+    "patterns": [
+      "(?:NT\\$|NTD|US\\$|USD|＄|\\$)\\s?[\\d,]{4,}",
+      "[\\d,]{4,}\\s*(?:萬元|億元|元整)"
+    ]
+  },
+
+  "ai_toolchain": {
+    "label": "AI 與工具鏈",
+    "applies_to": ["daily"],
+    "note": "測試報告的同類禁字寫在 skills/test-report-docx/SKILL.md 鐵則 1（那份含 e2e/pytest 等 runner 名，與日報需求不同），不從這裡讀。",
+    "subgroups": {
+      "AI 與模型": [
+        "\\bAI\\b", "\\bA\\.I\\.", "人工智慧", "人工智能",
+        "\\bClaude\\b", "\\bAnthropic\\b", "\\bChatGPT\\b", "\\bGPT-?[0-9]?\\b",
+        "\\bCopilot\\b", "\\bGemini\\b", "\\bCodex\\b", "\\bLLM\\b",
+        "大語言模型", "語言模型", "生成式"
+      ],
+      "工具鏈與提示詞": [
+        "\\bprompt\\b", "提示詞", "\\bagent\\b", "\\bsubagent\\b", "代理人",
+        "\\bplugin\\b", "外掛", "\\bskill\\b(?!s?-)", "技能包",
+        "\\btoken\\b", "權杖", "\\bMCP\\b", "\\bhook\\b",
+        "紅藍對抗", "對抗式審查", "自動生成", "自動產生"
+      ],
+      "自動化痕跡": [
+        "由.{0,6}協助", "協助完成", "自動彙整", "智能助理", "智慧助理",
+        "機器人", "\\bbot\\b"
+      ]
+    }
+  },
+
+  "revision_history": {
+    "label": "異動紀錄用語",
+    "applies_to": ["docx"],
+    "note": "易讀性鐵則 5：交付文件只寫現況，不寫版本沿革。字面比對即可，不是正則。",
+    "literals": [
+      "本次查核", "本文件初版", "原文件", "上一版", "第 N 輪", "本次清點"
+    ]
+  }
+}

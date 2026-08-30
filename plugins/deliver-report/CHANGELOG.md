@@ -2,6 +2,16 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.10.0] - 2026-08-30
+### Added
+- **`references/banned-patterns.json`：兩道閘共用的禁用樣式單一來源**。`doc-readability-gate.js`（Node，掃 .docx）與 `content_guard.py`（Python，掃待寄的 .md）改為讀同一份，改一次兩邊生效。每組帶 `applies_to` 標明適用產物，因為兩種產物該擋的東西不同（金額與 email 只擋日報；異動紀錄用語只擋文件）。
+- **交付文件檢查補上憑證與個資掃描**：`doc-readability-gate.js` 先前只查易讀性（異動紀錄用語、編號、代號），完全沒有憑證偵測——但測試報告的截圖說明、資料修正紀錄、參數對照表都是常見落點。現在會擋 GOCSPX-／AIza／ya29.／sk-／PEM 私鑰／Bearer／`1//` refresh token／googleusercontent.com 用戶端 id，以及身分證字號、信用卡號、手機號碼。**命中一律遮蔽值本身再回報**（訊息會出現在終端機，不該把憑證再印一次）。
+
+### Notes
+- 兩邊都保留內建 fallback：共用檔讀不到或 JSON 壞掉時照樣運作。Node 端退回最小清單（該閘會影響 session 能否結束，必須 fail-open）；Python 端退回完整內建清單（寄信前的最後一道，不降級）。
+- **實跑驗證**（非僅語法檢查）：Node 端以含 api_key／身分證／googleusercontent.com 的 .docx 實測——三類全部命中且值已遮蔽；乾淨文件正確放行；共用檔改壞後不崩潰、正確 fail-open。Python 端實測——真實日報通過、只有共用檔才有的 `1//` token 被擋、AI 字眼回歸測試仍擋；共用檔壞掉與檔案不存在兩種情境都正確回退且不降級。
+- 施作過程踩到兩個「語法檢查與 grep 都會過」的坑，均由實跑抓出：① 以 heredoc 產生 Python 時 `` 被吃成 `b`，正則邊界消失；② 載入器用了 `io.open` 但該檔沒有 `import io`，`NameError` 被 bare except 吞掉，靜默回退 fallback（`_shared is None` 才發現）。前者改用檔案讀寫避開跳脫、後者改用內建 `open`。
+
 ## [0.9.1] - 2026-08-30
 ### Fixed
 - 修正「八條鐵則」的過時說法：`references/document-readability.md` 正本實際有 **12 條**（檔案開頭自述「這十二條就適用」），但外部引用仍寫八條——鐵則 9~12（視覺標記成套一致／能腳本化就不叫人手動／改文件前先讀實際樣貌／做完的事寫成做完）是後續踩坑陸續補上的，引用處沒跟著更新。

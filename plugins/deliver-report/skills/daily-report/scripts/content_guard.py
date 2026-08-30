@@ -86,6 +86,61 @@ BANNED = {
     ],
 }
 
+# ---- 共用禁用樣式（plugin 層級 references/banned-patterns.json）----
+# 上面的 BANNED 是內建 fallback；若共用檔可讀，改用它——與 Node 端的
+# hooks/doc-readability-gate.js 讀同一份，改一次兩邊生效。
+#
+# 為什麼要共用：兩支閘掃描對象不同（.md vs .docx）、語言不同（Python vs Node），
+# 但「什麼不該外洩」是同一件事；各留一份必然漂移。
+# 為什麼保留 fallback：寄送前的閘不該因為少一個檔就整個失效。
+_SHARED_PATTERNS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))),
+    "references", "banned-patterns.json")
+
+
+def _load_shared_banned():
+    """讀共用檔，組成與 BANNED 同形狀的 dict。任何異常回傳 None（沿用內建）。"""
+    try:
+        with open(_SHARED_PATTERNS, encoding="utf-8") as fh:
+            j = json.load(fh)
+    except Exception:
+        return None
+
+    out = {}
+    for key, g in j.items():
+        if key.startswith("_") or not isinstance(g, dict):
+            continue
+        if "daily" not in (g.get("applies_to") or []):
+            continue
+        if g.get("subgroups"):
+            for sub, pats in g["subgroups"].items():
+                out.setdefault(sub, []).extend(pats)
+        elif g.get("patterns"):
+            out.setdefault(g.get("label", key), []).extend(g["patterns"])
+
+    # 逐條驗證可編譯——壞的略過，不讓一條爛 pattern 廢掉整份
+    clean = {}
+    for k, pats in out.items():
+        ok = [pt for pt in pats if _compilable(pt)]
+        if ok:
+            clean[k] = ok
+    return clean or None
+
+
+def _compilable(pattern):
+    try:
+        re.compile(pattern)
+        return True
+    except Exception:
+        return False
+
+
+_shared = _load_shared_banned()
+if _shared:
+    BANNED = _shared
+
+
 # 這些是「看起來像但其實合法」的情況，預設放行（可被 config 的 allow 擴充）。
 # 例：ChAIn、AIR 之類含 AI 的英文詞；正則已用 \b 邊界，這裡是額外保險。
 DEFAULT_ALLOW = []

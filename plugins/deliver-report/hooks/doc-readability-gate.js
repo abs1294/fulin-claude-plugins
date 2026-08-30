@@ -86,6 +86,38 @@ function main(raw) {
   block(lines.join('\n'));
 }
 
+// ---------- 共用禁用樣式（references/banned-patterns.json）----------
+// 單一事實來源，與 skills/daily-report/scripts/content_guard.py 讀同一份。
+// ★ FAIL-OPEN：讀不到 / 壞掉 → 回退到內建最小清單，絕不因此擋住 session。
+function loadBanned() {
+  const fallback = {
+    literals: ['本次查核', '本文件初版', '原文件', '上一版', '第 N 輪', '本次清點'],
+    groups: [],
+  };
+  try {
+    const f = path.join(__dirname, '..', 'references', 'banned-patterns.json');
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const groups = [];
+    for (const key of Object.keys(j)) {
+      if (key.startsWith('_')) continue;
+      const g = j[key];
+      if (!g || !Array.isArray(g.applies_to) || !g.applies_to.includes('docx')) continue;
+      for (const src of g.patterns || []) {
+        // (?i) 前綴轉成 JS 的 i flag（JS 不支援行內 (?i)）
+        let flags = 'g', body = src;
+        if (body.startsWith('(?i)')) { body = body.slice(4); flags += 'i'; }
+        try { groups.push({ label: g.label || key, re: new RegExp(body, flags) }); }
+        catch (_) { /* 單一 pattern 壞掉 → 略過該條，不影響其餘 */ }
+      }
+    }
+    const lits = (j.revision_history && j.revision_history.literals) || fallback.literals;
+    return { literals: lits, groups };
+  } catch (_) {
+    return fallback;   // 讀不到就用內建，維持原有行為
+  }
+}
+const BANNED = loadBanned();
+
 // 本 plugin 中「會產出交付文件」的 skill 名單。
 // 兩個都要列：deliver-report 產交付訊息、test-report-docx 產報告 DOCX。
 // ⚠ 這裡曾經是 indexOf('deliver-report') 的子字串比對——skill 一旦改名或新增，
@@ -174,10 +206,25 @@ function scan(file) {
 
   const bad = [];
 
-  // ---- 鐵則 5：異動紀錄用語 ----
-  const banned = ['本次查核', '本文件初版', '原文件', '上一版', '第 N 輪', '本次清點'];
-  const hitBanned = banned.filter(w => full.includes(w));
+  // ---- 鐵則 5：異動紀錄用語（清單來自共用檔）----
+  const hitBanned = BANNED.literals.filter(w => full.includes(w));
   if (hitBanned.length) bad.push(`鐵則5 異動紀錄用語：${hitBanned.join('、')}`);
+
+  // ---- 憑證與個資（共用檔的 credentials / pii）----
+  // 交付文件同樣會夾帶：截圖說明、資料修正紀錄、參數對照表都是常見落點。
+  // 命中一律遮蔽值本身再回報——訊息會出現在終端機，不該把憑證再印一次。
+  for (const g of BANNED.groups) {
+    let m;
+    g.re.lastIndex = 0;
+    const hits = [];
+    while ((m = g.re.exec(full)) !== null) {
+      const v = m[0];
+      hits.push(v.length > 12 ? v.slice(0, 4) + '…' + v.slice(-2) : v.slice(0, 2) + '…');
+      if (hits.length >= 3) break;
+      if (m.index === g.re.lastIndex) g.re.lastIndex++;   // 零寬匹配防呆
+    }
+    if (hits.length) bad.push(`${g.label}：疑似 ${hits.join('、')}（已遮蔽，請確認是否該出現在交付文件）`);
+  }
 
   // ---- 鐵則 3：小數點式編號 ----
   if (/步驟[一二三四五六七八九十]+之[二三四五]/.test(full)) {
