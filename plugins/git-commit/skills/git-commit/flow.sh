@@ -191,6 +191,14 @@ extract_path_from_status() {
 SIGNATURE_PATTERN='Co-Authored-By|Generated with \[?Claude|🤖|noreply@anthropic|Claude Code'
 # 敏感字 pattern（與 analyze 共用同一份，單一事實來源）。
 SENSITIVE_PATTERN='password|secret|api_key|bearer|token=|ConnectionString|console\.log|Console\.WriteLine|System\.out\.print|debugger;|TODO: remove|FIXME|XXX|// DEBUG|// TEMP|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|sqlcmd .{0,120}-P |Pwd[[:space:]]*=|User ?Id[[:space:]]*=|Data Source[[:space:]]*=|Initial Catalog[[:space:]]*='
+# AI 痕跡 pattern：註解引用「維護者手上沒有的文件」＝ 交付物洩漏 AI 參與（公司禁止揭露）。
+# 掃的是新增行，既有痕跡不重複告警；.md 不掃（文件引用文件很正常）。
+# 三段分別對應三種漏法（實戰：單一判準必漏——刪掉「CLAUDE.md §8.2」後，
+# 同段落下一行的裸「§8.4」不含任何關鍵字，前兩段都抓不到，是第三段才撈出來的）：
+#   1) 文件檔名：CLAUDE.md / skill / harness / 設計文件 / docs/*.md / openspec
+#   2) 對話脈絡：使用者要求/實證/指示
+#   3) 裸章節號：§ 符號本身（設計文件會改名、章節會重編，出處必爛）
+AI_TRACE_PATTERN='CLAUDE\.md|code-review skill|frontend-development skill|backend-ddd|harness|設計文件|規劃書|需求文件|openspec|docs/[a-z0-9-]+\.md|使用者(實證|要求|指示)|§'
 # 真實憑證的「形狀」pattern：上面那份抓的是關鍵字（會誤命中文件與變數名），
 # 這份抓的是憑證本身長什麼樣——誤判率極低，命中幾乎必是真的外洩。
 # 動機：*.example.json 這類「隨 plugin 發布的範本」與使用者家目錄的真設定檔長得一樣，
@@ -274,6 +282,45 @@ assert_no_sensitive() {
       exit 1
     fi
   fi
+}
+
+# 取 staged diff 中「新增行」的 AI 痕跡命中（排除 .md）。
+# prepare 顯示、ship 攔截，兩處共用這個函式，避免判準漂移。
+collect_ai_trace_hits() {
+  git -c color.ui=false diff --staged 2>/dev/null \
+    | awk '
+        /^\+\+\+ b\// { f = substr($0, 7); next }
+        /^\+/ && !/^\+\+\+/ { if (f !~ /\.md$/) print f ": " substr($0, 2) }
+      ' \
+    | grep -E "$AI_TRACE_PATTERN" \
+    | head -20 || true
+}
+
+# 硬閘：新增的註解引用了維護者手上沒有的文件 → 拒絕 commit。
+# 動機（實戰 2026-08-31）：一次清出 53 處同型痕跡，散在 4 個 repo、跨多個 session。
+# 根因是「註解撰寫規範」曾有一條「✅ 指向規範文件」明文鼓勵，照做的人都會產生痕跡。
+# 條文已刪，但光刪條文只擋得住「之後照規範寫的人」，擋不住習慣——所以要有他律。
+assert_no_ai_trace() {
+  local allow="$1"
+  local hits
+  hits=$(collect_ai_trace_hits)
+  [ -z "$hits" ] && return 0
+
+  if [ "$allow" = "1" ]; then
+    echo "[git-commit] AI 痕跡命中，但已帶 --allow-ai-trace，放行：" >&2
+    printf '%s\n' "$hits" | sed 's/^/  /' >&2
+    return 0
+  fi
+
+  echo "ERROR: staged diff 的新增行引用了外部文件出處，已拒絕 commit。" >&2
+  echo "       交付物不得出現 AI 痕跡——註解要寫『理由本身』，不寫『哪份文件第幾節說的』：" >&2
+  echo "         ✗ // 對齊「無附件則欄位空」的語意（見設計文件 §6.2）" >&2
+  echo "         ✓ // 對齊「無附件則欄位空」的語意" >&2
+  echo "       文件會改名、章節會重編，出處必爛；讀碼的人手上通常也沒有那份文件。" >&2
+  echo "       確認是誤判（例如 ECMAScript 規範這類公開標準）請在 ship 加 --allow-ai-trace。" >&2
+  echo "       命中內容（最多 20 行）：" >&2
+  printf '%s\n' "$hits" | sed 's/^/         /' >&2
+  exit 1
 }
 
 # ------------------------------------------------------------
@@ -406,6 +453,18 @@ cmd_prepare() {
   git -c color.ui=false diff --staged --stat
   echo ""
 
+  # AI 痕跡預掃：這裡只顯示不擋（真閘在 ship），讓 A 軌預覽能先把命中列給使用者。
+  local ai_hits
+  ai_hits=$(collect_ai_trace_hits)
+  echo "--- AI trace scan (新增行，排除 .md) ---"
+  if [ -n "$ai_hits" ]; then
+    echo "HITS (ship 會實際攔截，除非帶 --allow-ai-trace):"
+    printf '%s\n' "$ai_hits" | sed 's/^/  /'
+  else
+    echo "(none)"
+  fi
+  echo ""
+
   # repo 可能是含斜線的子路徑（例：worktree wt/frontend-devout），
   # 斜線會被當成目錄分隔導致寫檔失敗；統一把斜線換成 __ 當檔名 slug。
   local repo_slug="${repo//\//__}"
@@ -430,9 +489,11 @@ cmd_prepare() {
 # ------------------------------------------------------------
 
 cmd_ship() {
-  # 解析旗標：--allow-sensitive（顯式授權保留敏感字）、--allow-artifacts（顯式授權版控建置產物）。
+  # 解析旗標：--allow-sensitive（顯式授權保留敏感字）、--allow-artifacts（顯式授權版控建置產物）、
+  # --allow-ai-trace（顯式授權保留文件出處引用，例如引用的是公開標準而非內部文件）。
   local allow_sensitive=0
   local allow_artifacts=0
+  local allow_ai_trace=0
   # 預設只做 local commit。push 是對外動作、不可逆（推出去就在遠端歷史上），
   # 必須由使用者當次明確核可才做——故設計成顯式 --push 才推，不提供「預設推」的路徑。
   local do_push=0
@@ -441,6 +502,7 @@ cmd_ship() {
     case "$1" in
       --allow-sensitive) allow_sensitive=1; shift ;;
       --allow-artifacts) allow_artifacts=1; shift ;;
+      --allow-ai-trace) allow_ai_trace=1; shift ;;
       --push) do_push=1; shift ;;
       *) positional+=("$1"); shift ;;
     esac
@@ -451,7 +513,7 @@ cmd_ship() {
   local type="${2:-}"
   local desc="${3:-}"
   if [ -z "$repo" ] || [ -z "$type" ] || [ -z "$desc" ]; then
-    echo "Usage: flow.sh ship <repo> <type> <description> [--push] [--allow-sensitive] [--allow-artifacts]" >&2
+    echo "Usage: flow.sh ship <repo> <type> <description> [--push] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]" >&2
     exit 1
   fi
   assert_valid_repo "$repo"
@@ -512,6 +574,9 @@ cmd_ship() {
 
   # === 真閘 4：檔名黑名單（建置產物/快取/備份，除非 --allow-artifacts）===
   assert_no_artifacts "$allow_artifacts"
+
+  # === 真閘 5：AI 痕跡（註解引用外部文件出處，除非 --allow-ai-trace）===
+  assert_no_ai_trace "$allow_ai_trace"
 
   echo "=== Commit ==="
   # HEREDOC 內禁止任何 AI 署名——已由 assert_no_signature 機制級攔截（非僅註解）。
@@ -577,8 +642,8 @@ Usage: flow.sh <command> [args]
 Commands:
   analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描（僅提示）
   prepare <repo> <files...>         git add + 輸出 staged diff + 記錄 diff hash 到 .claude/.git-commit-tmp/
-  ship    <repo> <type> <desc> [--push] [--allow-sensitive] [--allow-artifacts]
-                                    真閘(署名/單行/diff-hash/敏感字) → git commit (HEREDOC) → 驗證
+  ship    <repo> <type> <desc> [--push] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]
+                                    真閘(署名/單行/diff-hash/敏感字/建置產物/AI痕跡) → git commit (HEREDOC) → 驗證
                                     預設只 local commit；--push 才推遠端（需使用者明確核可）
 
 repo 參數：
@@ -598,6 +663,9 @@ Notes:
   - 禁止 --no-verify、禁止 --amend、禁止 force push（旗標層不提供）
   - 預設 local commit only：未帶 --push 不會推遠端，且保留 diff hash（未 push 不算完成）
   - Commit message 禁止任何 AI 署名——ship 會機制級攔截（assert_no_signature），非僅提醒
+  - 新增行的註解禁止引用外部文件出處（CLAUDE.md / skill / 設計文件 / §章節號）——
+    交付物不得洩漏 AI 參與；寫「理由本身」而非「哪份文件第幾節說的」。
+    誤判（引用的是公開標準如 ECMAScript）才用 --allow-ai-trace 放行
   - staged diff 命中敏感字時 ship 會擋下，除非顯式 --allow-sensitive
   - staged 含建置產物/快取/備份（__pycache__、*.pyc、node_modules、*.bak、*.log…）時 ship 會擋下，除非 --allow-artifacts
   - ship 會比對 prepare 記錄的 diff hash，內容被改動過即拒絕（防審查後掉包）

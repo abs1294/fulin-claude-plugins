@@ -74,6 +74,7 @@ Commit message 用 unicode double-line box 框住＋包 fenced code block（高�
 
 **⚠️ 掃描警示：**（若有才出）
 - 敏感字：`<file>:<line>` 發現 `"password"`
+- AI 痕跡：`<file>` 新增行引用文件出處（`§`／`CLAUDE.md`／`設計文件`）——ship 會擋，須先改掉
 
 ### 📝 建議 Commit Message
 
@@ -102,12 +103,18 @@ Commit message 用 unicode double-line box 框住＋包 fenced code block（高�
 > agent 也不在 `ListAgents` 清單——不是算很久，是**啟動即死**。同一道最小題在 workspace 根失敗、切到 repo 內即回 `PING_OK`。
 > **所以判不可用前的第一件事是跑最小題（在 repo 內），不是耐心等**——耐心等只對「真的在算」有意義，對「根本沒啟動」只是白費時間。
 
+> ⚠️ **`codex exec` 一律要重導 stdin：`codex exec ... "$PROMPT" < /dev/null`**（2026-08-31 實證，根治性修法）。
+> 不帶 `< /dev/null` 時，codex CLI 讀完 arg 的 prompt 後**仍會去等一個永遠不會結束的 stdin**，
+> 輸出檔卡在 `Reading additional input from stdin...` 不再增長，程序存活但 CPU 幾乎不動。
+> 現象與「算很久」肉眼無法分辨——實證卡死 16.5 分鐘、CPU 僅 0.03 秒才被 CPU 判準揪出。
+> 補上重導後同一份審查立刻正常跑完（EXIT_CODE=0）。**這是必死坑，不是偶發。**
+
 **Codex 要時間，別把「我等不下去」當成「它壞了」**（2026-08-23 實證，同輪犯三次）：
 
 - **idle 通知 ≠ 沒在跑、≠ 死了**。subagent 送出 idle 只代表它此刻沒訊息要說；催它、看不到動靜都不構成「不可用」的證據。實證：`codex-fe2` 被催兩次仍無回應，第 3 分鐘回了完整 VERDICT 並糾正三個疑慮；`codex-be3` 亦在放手等待後正常回覆。
-- **判定不可用前，必須有客觀證據**，至少其一：①`Get-Process codex` 為 0 且重跑最小題（`codex exec --json "回 PING_OK"`）也失敗；②agent 明確回 `VERDICT: UNAVAILABLE`。**「我設的 timeout 到了」不是證據。**
+- **判定不可用前，必須有客觀證據**，至少其一：①`Get-Process codex` 為 0 且重跑最小題（`codex exec --json "回 PING_OK" < /dev/null`）也失敗；②程序在但**CPU 近乎為零且持續數分鐘不動**（＝卡死，見下方判活）；③agent 明確回 `VERDICT: UNAVAILABLE`。**「我設的 timeout 到了」不是證據。**
 - **逾 10 分鐘先告知一次＋同步檢查 codex 活性、之後續等不再打擾，至多等到 1 小時**：滿 10 分鐘時告知使用者「已逾時、仍在等」並附現有軌別狀態，**不必問、不停下**；同一時點做活性檢查——**活著就繼續等，死了就重新起**：
-  - **判活**：存在「StartTime 晚於本輪送審時刻」的 codex 程序（`Get-Process codex` 逐筆看 StartTime）→ 在算，安靜續等。**只數程序數會被殭屍污染**（2026-08-28 實證：8/27 殘留 PID 兩度被誤判成「正在算」，白等）。
+  - **判活**：程序要同時滿足**兩個**條件才算在算——①StartTime 晚於本輪送審時刻，②**CPU 時間有在累積**（`Get-Process codex | Select Id, StartTime, CPU` 三欄一起看）。**只看程序存在會漏掉「啟動了但沒在算」**（2026-08-31 實證：PID 存活 16.5 分鐘、CPU 僅 0.03 秒＝卡在等 stdin，比同機 8/27 殭屍的 68 秒還低，卻因符合「StartTime 晚於送審」而被判成正在算，白等）。**只數程序數更會被殭屍污染**（2026-08-28 實證：8/27 殘留 PID 兩度被誤判）。存活數分鐘而 CPU 仍近乎為零 → 直接當卡死處理，不要續等。
   - **查無新程序 ≠ 死**：codex exec 跑完即退（同日實證：agent 已把完整 VERDICT 寫入輸出檔、程序早退查不到）。此時 SendMessage 向 agent 要狀態（回 VERDICT／`RUNNING since <時間>`／`VERDICT: UNAVAILABLE` 附錯誤原文），並可在 repo 內跑最小題（`codex exec --json "回 PING_OK"`）驗 CLI 本體。
   - **確認死**（agent 要不出結果＋無新程序＋最小題可過＝agent 端沒起）→ **重新起**：重送同一份審查請求（必要時重派 agent），計時重算；重起一次仍死才走單軌降級。
   之後安靜續等，不再每輪回報。滿 1 小時仍無 VERDICT 才停下請使用者決定（續等／以現有結果單軌降級）。期間使用者隨時可指示改以現有結果決策。自行判定不可用就 commit＝違規。
@@ -204,6 +211,8 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
 
 ## Changelog
+- 2026-08-31 新增真閘 5「AI 痕跡」（使用者當次指示，`--allow-ai-trace` 可豁免）：掃 staged diff **新增行**是否引用外部文件出處（`CLAUDE.md`／skill／設計文件／`docs/*.md`／裸 `§` 章節號），`.md` 除外；prepare 顯示、ship 攔截。起因是一次清出 53 處同型痕跡散在 4 個 repo，根因為「註解撰寫規範」曾有「✅ 指向規範文件」的鼓勵條文（已刪並改立 N9）。**判準含裸 `§` 是必要的**——實證刪掉「CLAUDE.md §8.2」後，同段落下一行的 `§8.4` 不含任何關鍵字，關鍵字與「見/依+章節」兩種判準都抓不到，第三種純掃 `§` 才撈出 13 處。已實跑紅綠測（含 `.md` 排除、裸 `§` 命中、刪除行不誤判、`--allow-ai-trace` 放行）。
+- 2026-08-31 B 軌判活補 CPU 判準＋stdin 根治條款（使用者當次指示）：原規則只看「StartTime 晚於送審」，擋得住殭屍污染卻擋不住「啟動了但沒在算」——實證 PID 存活 16.5 分鐘 CPU 僅 0.03 秒（比同機殭屍的 68 秒還低）卻被判成正在算，白等 16 分鐘。修正為 StartTime 與 CPU 累積**兩個條件並用**。根因是 `codex exec` 未重導 stdin 導致 CLI 卡在 `Reading additional input from stdin...`，已列為必死坑，一律帶 `< /dev/null`。
 - 2026-08-28 10 分鐘通知點加入 codex 活性同步檢查（使用者當次指示）：活著→續等；死了→重送同一審查（重起一次、計時重算），重起仍死才降級。判活必看程序 StartTime 是否晚於送審時刻——同日兩個實證：殭屍 PID（8/27 殘留）污染「正在算」判讀白等；codex exec 跑完即退，「查無程序」時 agent 其實已寫完 VERDICT，先要狀態再判死。
 - 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
 - 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
