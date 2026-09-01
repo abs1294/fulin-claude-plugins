@@ -58,7 +58,7 @@
     {
       "name": "fable-quote",
       "source": "./plugins/fable-quote",
-      "description": "（adopt 自動建立，請用 /plugin-manager:update 補描述）skill fable-quote"
+      "description": "產生「寓意科技」格式的正式軟體開發報價單 .docx：套已脫敏的公司標準模板（版式／乙方資料／通用條款內建），只填客戶資料與專案 JSON，明細列依階段動態展開、含稅金額與總計自動算並互相校驗。說「做報價單 / 寓意報價 / 幫客戶出報價」即觸發。"
     },
     {
       "name": "harness",
