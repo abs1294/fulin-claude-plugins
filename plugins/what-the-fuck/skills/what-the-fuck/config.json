@@ -1,6 +1,8 @@
 {
   "terminalWidth": null,
   "_terminalWidth": "使用者終端機視窗的可用寬度（字元數，中文佔兩格）。畫 ASCII 圖表時每行不得超過此值，超過會折行、整個框爛掉。null = 尚未問過，第一次調用本 skill 時必須先問到才能畫圖。",
+  "widthPromptDeclined": false,
+  "_widthPromptDeclined": "使用者明確說過「不要再問寬度」時才設為 true——設了之後 hook 不再擋，你就不用一直問他。⚠️ 這個欄位只管「還要不要再問」，不管排版：terminalWidth 有數字就照那個數字排，只有 terminalWidth 仍是 null 時才退回 80。不准因為他一次沒回答、或覺得問了很煩就自己設。",
   "_howToFill": "程式量不到（tput cols 回子行程的 80、process.stdout.columns 因 stdout 被導管線而 undefined、PowerShell WindowSize.Width 與 P/Invoke CONOUT$ 讀到的是中間層 console buffer，都不是使用者眼睛看的視窗）。唯一方法是印階梯標尺請使用者目視回報，見 SKILL.md「怎麼取得寬度」一節。拿到數字後直接改寫本檔的 terminalWidth。",
-  "_note": "本檔隨 plugin 發布時 terminalWidth 為 null，每位使用者在自己機器上填入自己的值。plugin 更新可能把它覆蓋回 null，那不是錯誤——重新問一次即可。"
+  "_note": "本檔隨 plugin 發布時 terminalWidth 為 null，每位使用者在自己機器上填入自己的值。plugin 更新後這個值會是 null，但**舊值沒有被蓋掉**——Claude Code 的 plugin cache 按版本號分資料夾，舊版連同它的 config.json 原封不動留著，新版是全新資料夾、config.json 就是發布時的空檔。所以更新後會重問一次，不是因為值被覆寫、而是因為新版還沒問過。這不是錯誤。"
 }
