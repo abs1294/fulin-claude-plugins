@@ -2,6 +2,19 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.6.1 — 2026-09-06
+
+紅藍對抗（實作模式，4 輪收斂）。紅方專攻十輪靜態審查的盲區：真的跑、異機異人異 shell。抓到 5 個 ≥MEDIUM 真弱點全修，全部附實跑重現與修後複驗。
+
+- **hook 對 `null`／陣列／字串 payload 拋 TypeError（exit 1）**：官方語義「非 0/2 退出碼不阻擋」＝閘靜默失效。`try/catch` 原本只包 `JSON.parse`，後續 `input.tool_input` 沒防。已把型別檢查做滿（不是物件、`tool_input` 不是物件、`skill` 不是字串一律 exit 0 放行），8 種異常 payload 實測全放行、11 項正常矩陣不受影響。
+- **config.json 壞掉時 stderr 說「terminalWidth = null」誤導模型重問**：尾逗號／截斷／空檔／BOM／檔案不存在五形態都落 catch 當成「未設定」，模型會以為沒問過而重問，問完寫回壞檔還是壞的→無限迴圈。已加 `configBroken` 分支：壞檔時早退、只印 6 行（不計空行）「這不是沒問過，是檔壞了，先重建再重新調用」，不印標尺雜訊；正常 null 路徑一字未動。
+- **symlink 開發模式沒有 hook 但文件沒說**：把 skill symlink 進 `.claude/skills/` 只暴露 SKILL.md，plugin 的 hooks.json 不會註冊、閘不存在。SKILL.md 補一段警告；frontmatter 原本無條件寫「有 hook 機械閘擋著」改為「以 plugin 安裝時有…；symlink 模式沒有」。
+- **E2E 七步實跑通過**（十輪靜態審查未做過）：發布 null→擋、寫回 170→放行、拒答設 declined→放行、拒答後主動補 200→放行。用 `CLAUDE_PLUGIN_ROOT` 指向副本、官方完整 payload 格式跑 hooks.json 的 command 原文。
+- **hook 不查 `tool_name`，任何工具的 `tool_input` 恰好有 `skill` 欄位就被誤擋**（Codex 審查抓到，實測 `tool_name=NotSkill` 中招；v0.6.0 既有設計缺陷，紅藍對抗時我誤判為 LOW）。`matcher: "Skill"` 是 regex，未來以 Skill 開頭命名的其他工具也會觸發本 hook。修法：官方 payload 必帶 `tool_name`，帶了且不是 `Skill` 就放行；沒帶（手動測試）沿用只看 `skill`。實測三態：NotSkill 放行、Skill 仍擋、無 tool_name 相容。
+- catch 分流補 `EACCES`／`EPERM` → 「沒有讀取權限」（原本混進「不是合法 JSON」支，code-reviewer 抓到）。`EISDIR` 落 JSON 支是 `readFileSync` 對目錄的必然結果，不誤導修復方向。
+- 假陽性 3 個（stdin 永不 EOF、env 未設、冷啟動超時）經藍驗以本機 10 個生產 hook 同法運作／官方保證注入／實測 110ms 駁回。LOW 5 個只記錄不修：陣列 skill 名（型別檢查已順帶消除）、stderr 印含帳號名路徑、前導空白／大小寫 skill 名放行、多 session 同時寫 config 競態（後寫者贏且語意不衝突）、matcher `Skill` 為 regex 可能匹配未來以 Skill 開頭命名的工具（型別檢查已兜底）。
+- 使用者本機 cache 仍是 0.5.0（無 hook），0.6.x 尚未 update——不是缺陷，但「已推、可以用」對使用者當下不成立。
+
 ## 0.6.0 — 2026-09-05
 
 - 新增 **PreToolUse hook 機械閘**（`hooks/guard-terminal-width.js`，matcher 為 Skill）：調用本 skill 時若 `config.json` 的 `terminalWidth` 不是正整數，直接 exit 2 擋下本次調用，並把「印階梯標尺→問使用者→寫回設定檔」的完整指令從 stderr 塞回給模型。**為什麼要機械閘**：規則寫在 SKILL.md 裡靠模型自覺遵守，實測會漏——上一版才把讀設定檔寫成硬性第一步，下一個 session 仍然沒讀檔就直接問使用者，而使用者早就答過了。只認 skill 名為 `what-the-fuck`（含帶 namespace 的寫法），其他 skill 一律放行，裝了本 plugin 但不用這個 skill 的人不受影響；無 stdin 或 stdin 非 JSON 時放行，閘壞掉不卡使用者。已實跑十項紅綠測（擋：null／0／負數／字串型別／設定檔不存在／帶 namespace；放行：另外三個 skill／無 stdin／非 JSON／寬度 170）。
