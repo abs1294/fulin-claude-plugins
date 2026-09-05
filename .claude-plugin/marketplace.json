@@ -43,7 +43,7 @@
     {
       "name": "deliver-report",
       "source": "./plugins/deliver-report",
-      "description": "把工作成果變成對外產物，三個 skill：**deliver-report** 寫交付訊息／逐題回覆信；**test-report-docx** 產測試報告 DOCX（給 PM／客戶簽核轉發）；**daily-report** 掃當日 session 產工作日報、核可後經 Gmail 寄出。三者共通：對外產物嚴禁 AI／內部流程／異動紀錄字眼，預設讀者不懂技術。含易讀性十二條鐵則與 Stop hook 機械閘，日報另有寄送前 content_guard 硬閘。"
+      "description": "把工作成果變成對外產物，四個 skill：**deliver-report** 寫交付訊息／逐題回覆信；**test-report-docx** 產測試報告 DOCX（給 PM／客戶簽核轉發）；**daily-report** 掃當日 session 產工作日報、核可後經 Gmail 寄出；**to-questionnaire** 把答不了的決策變成給第三方逐題填的問卷檔。四者共通：對外產物嚴禁 AI／內部流程／異動紀錄字眼，預設讀者不懂技術。含易讀性十二條鐵則與 Stop hook 機械閘，日報另有寄送前 content_guard 硬閘。"
     },
     {
       "name": "cc-statusline",
@@ -64,6 +64,11 @@
       "name": "harness",
       "source": "./plugins/harness",
       "description": "AI 工作流制度層引擎：/harness:init 把通用紀律骨架（模型調度/停損熔斷/派工模板/知識協議）實例化到任何專案的 .claude/harness/。引擎在 plugin、實例在專案（plugin 更新不覆蓋實例）；既有治理層（AGENTS.md 等）自動讓位；規則從各專案自己的事故長出來，不預載別專案的條款。含 SessionStart 條件式入口提醒 hook（僅對已 init 的專案輸出）。"
+    },
+    {
+      "name": "what-the-fuck",
+      "source": "./plugins/what-the-fuck",
+      "description": "看不懂上一則回覆時按的重講鈕：使用者打 /what-the-fuck，模型用更簡單的字重講一次（先給脈絡、一句 20 字、講到「所以呢」）；專案名詞須逐層查證後才用，查無就據實說沒有固定名字、禁止瞎掰；錯誤訊息與數字等證據原文逐字保留不簡化。僅使用者手動觸發，模型不得自行啟動。"
     }
   ]
 }
