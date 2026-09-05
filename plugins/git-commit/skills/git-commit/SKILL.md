@@ -122,6 +122,8 @@ Commit message 用 unicode double-line box 框住＋包 fenced code block（高�
 - **前景 `codex exec` 的失敗完全不能拿來判 subagent 生死**：兩者是不同執行路徑，且在本機實測**結果相反**——同一份審查任務，subagent（`codex-be3`）數分鐘內回完整 PASS，前景 `codex exec` 給到 **20 分鐘仍 timeout、零輸出**（2026-08-23 背景任務實證）。也就是說前景路徑在本機對「審查」等級的任務根本跑不出來，前景失敗**不代表任何事**。要診斷 Codex 本身請用 `--json`（事件流即時輸出，繞開 renderer 緩衝）逐步加壓（純文字→shell→讀小檔→讀大檔→完整審查）定位斷點；但**要判 subagent 可用與否，只看 subagent 自己的回覆**。
 - 逾 600 秒會被工具層轉背景續跑，**那是繼續執行、不是失敗**，等通知即可。
 
+**降級前先排除 model 下架**：Codex 可用模型會隨帳戶方案／服務端調整而變動（2026-09-05 實證：`gpt-5.4` 於 8/31 退役、config 仍寫該值 → 兩個 agent 皆回 400 `not supported`，實為設定過期而非環境故障，卻走完整套降級流程）。錯誤訊息含 `model is not supported` 或 `Model metadata for X not found` 時，先在任一 repo 內跑 `bash .claude/skills/git-commit/codex-model-sync.sh`——它讀 `~/.codex/models_cache.json`（CLI 維護的**帳號專屬**可用清單，非全球目錄）取 priority 最小者、實測送得出請求才寫回 config；exit 0＝已對齊，exit 1＝需人工處理。對齊後重送 B 軌即可，**不必降級**。官方文件明列 `gpt-5.4`／`gpt-5.4-mini` 為 deprecated，此類退役會再發生。
+
 **真的不可用時的降級**：先排除命名坑（見上方 ⚠️）；取得上述客觀證據後 → 單軌降級（B 軌記 `skipped: codex-unavailable`、匯流視為 PASS），預覽明講「本環境不可用，已降為單軌」，並補做 B 軌該查的項目（注入風險、跨檔一致性、邊界守門）；**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認。不當 PASS 的原則不變。另需分辨**工具層逾時**——agent 回報「任務仍在背景跑但我不被允許輪詢」而非 Codex 算得慢 → 直接重送一次，不計入等待時間（2026-08-16 實證：首次工具層 2 分鐘卡住無 VERDICT，重送後 37 秒回覆）。
 
 Prompt 範本：
@@ -211,6 +213,10 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
 
 ## Changelog
+- 2026-09-05 補第三輪最後一個觀察項：探測失敗時原始輸出被刪、只留 `✗`，事後無法回溯真因。已改為把失敗原文存到 `$TMPDIR/codex-model-probe-fail/<slug>.log` 並在輸出標明路徑（每次執行先清上一輪，避免陳舊資訊誤導）。**這正是本輪吃過的虧**：腳本一度報「最強可用是 gpt-5.4-mini」卻看不到 astra 失敗的原文，只能手動重跑才發現真因是 slug 尾端帶 `\r`。實測：插一個 priority 0 的假 model 觸發失敗分支，確認原文留存 940 bytes 且具診斷價值、腳本仍正確選出 gpt-6-astra。
+- 2026-09-05 同兩支腳本再送 Codex 覆審兩輪（第二輪 BLOCK、第三輪 PASS）：第二輪抓到**我上一輪加 trap 時引進的新缺陷**——`trap cleanup INT TERM` 只刪暫存檔卻不結束腳本，控制流帶著「檔案已消失」的狀態跑到 `grep`，把探測中的模型誤判為不可用、進而把次強模型寫回 config。已獨立重現（`grep: ... No such file` 接 `✗`）後修正：訊號處理與正常結束分離，訊號版清完立刻退出；兩處 grep 補 `2>/dev/null`。第三輪 PASS 並提兩個觀察項，一併修掉：INT/TERM 共用 exit 130 不精確，改為依慣例回 128+訊號值（INT=130／TERM=143／HUP=129）並補攔 SIGHUP。**教訓：修一個小瑕疵（暫存檔殘留）可以引進更嚴重的缺陷（寫錯設定），修完必須重送審查而非只跑正常路徑。**
+- 2026-09-05 `codex-model-sync.sh` 經 Codex 審查回 BLOCK 後修三項（使用者要求拿自己寫的腳本送審）：①**寫回 config 後未檢查 python 回傳碼、也未回讀驗證**——實測 python 拋 FileNotFoundError 時腳本仍印「已更新」並 exit 0，正是本檔一再防的「跑得動但結論錯誤」，已補 rc 檢查＋回讀比對（紅測：修前 exit 0 謊報成功、修後 exit 1 並明講未變更）；②缺 `trap`，暫存檔在 Ctrl+C／kill 時殘留（check.sh 本來就有，兩支不對稱）；③備份 `config.toml.bak.*` 無限累積，改為只留最近 5 份。Codex 另指 `current` 變數未防 `\r`，實測 `tr -d [:space:]` 已涵蓋 `\r`，**該項不成立故未改**——審查意見仍須逐條驗證再採納。
+- 2026-09-05 降級段落前置「先排除 model 下架」（使用者當次核准）：`gpt-5.4` 8/31 退役而 config 未更新，導致兩個 codex agent 各撞一次 400、並補做完整單軌降級——實際只需改一行設定。新增 `.claude/skills/git-commit/codex-model-sync.sh` （讀帳號專屬 models_cache.json 取 priority 最小者、實測後寫回 config，三條路徑均已實跑驗證）。官方文件（learn.chatgpt.com/docs/models）明說未指定 model 時用「recommended」且依帳戶層級而定，**不保證最強**，故不採「不設 model 讓 CLI 自選」。判活紀律與等待門檻一字未改。
 - 2026-08-31 新增真閘 5「AI 痕跡」（使用者當次指示，`--allow-ai-trace` 可豁免）：掃 staged diff **新增行**是否引用外部文件出處（`CLAUDE.md`／skill／設計文件／`docs/*.md`／裸 `§` 章節號），`.md` 除外；prepare 顯示、ship 攔截。起因是一次清出 53 處同型痕跡散在 4 個 repo，根因為「註解撰寫規範」曾有「✅ 指向規範文件」的鼓勵條文（已刪並改立 N9）。**判準含裸 `§` 是必要的**——實證刪掉「CLAUDE.md §8.2」後，同段落下一行的 `§8.4` 不含任何關鍵字，關鍵字與「見/依+章節」兩種判準都抓不到，第三種純掃 `§` 才撈出 13 處。已實跑紅綠測（含 `.md` 排除、裸 `§` 命中、刪除行不誤判、`--allow-ai-trace` 放行）。
 - 2026-08-31 B 軌判活補 CPU 判準＋stdin 根治條款（使用者當次指示）：原規則只看「StartTime 晚於送審」，擋得住殭屍污染卻擋不住「啟動了但沒在算」——實證 PID 存活 16.5 分鐘 CPU 僅 0.03 秒（比同機殭屍的 68 秒還低）卻被判成正在算，白等 16 分鐘。修正為 StartTime 與 CPU 累積**兩個條件並用**。根因是 `codex exec` 未重導 stdin 導致 CLI 卡在 `Reading additional input from stdin...`，已列為必死坑，一律帶 `< /dev/null`。
 - 2026-08-28 10 分鐘通知點加入 codex 活性同步檢查（使用者當次指示）：活著→續等；死了→重送同一審查（重起一次、計時重算），重起仍死才降級。判活必看程序 StartTime 是否晚於送審時刻——同日兩個實證：殭屍 PID（8/27 殘留）污染「正在算」判讀白等；codex exec 跑完即退，「查無程序」時 agent 其實已寫完 VERDICT，先要狀態再判死。

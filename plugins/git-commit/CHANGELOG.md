@@ -2,6 +2,24 @@
 
 本檔記錄 git-commit 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.3.0] - 2026-09-05
+### Added
+- `codex-model-sync.sh`：找出帳戶當下可用的最強 Codex 模型並寫回 `~/.codex/config.toml`。判準為 `~/.codex/models_cache.json`（CLI 維護的**帳號專屬**清單，非全球目錄）中 `visibility=list` 且 priority 最小者，選出後一律送真請求驗證才採用；`--check` 為唯讀模式，供 hook/CI 使用。
+- `codex-model-check.sh`：列出所有候選的可用狀態，不改檔。
+
+### Changed
+- 降級流程前置「先排除 model 下架」：B 軌報 400 `model is not supported` 時，先跑 `codex-model-sync.sh` 判斷是設定過期還是環境故障，對齊後重送即可，不必走單軌降級。
+
+### Fixed
+- 修正三個會讓「腳本跑得動但結論錯誤」的缺陷（經 Codex 三輪審查，前兩輪皆 BLOCK）：
+  - 寫回 config 後未檢查 python 回傳碼、也未回讀驗證——實測 python 拋例外時仍印「已更新」並 exit 0。已補回傳碼檢查＋寫入後重讀比對。
+  - trap 收到 INT/TERM 只刪暫存檔卻不結束腳本，控制流帶著「檔案已消失」的狀態跑到 grep，把探測中的模型誤判為不可用、進而把次強模型寫進 config。已將訊號處理與正常結束分離，訊號版清完立刻退出。
+  - Windows 版 python 的 stdout 為文字模式，`\n` 會被轉成 `\r\n`，slug 尾端帶 `\r` 導致每個判斷都錯。已在 bash 端 `tr -d '\r'`。
+
+### Notes
+- 探測失敗的原始輸出保留於 `$TMPDIR/codex-model-probe-fail/<slug>.log` 供回溯；每次執行先清上一輪，避免陳舊資訊誤導診斷。
+- 訊號離開碼依慣例區分：INT=130／TERM=143／HUP=129。
+
 ## [0.2.1] - 2026-08-26
 ### Fixed
 - 補「codex 拒絕在非 git 目錄啟動」的必死坑：subagent 預設 cwd 是 workspace 根、根目錄非 git repo，codex 會回 Not inside a trusted directory 即退出，死狀與「還在算」相同（只送 idle、無 VERDICT），實證白等逾 1 小時。prompt 開頭強制指定 cd 到 repo，並把「先跑最小題」提到「耐心等」之前。另 B 軌等待門檻 5 分鐘改為 10 分鐘告知一次後續等、至多 1 小時。
