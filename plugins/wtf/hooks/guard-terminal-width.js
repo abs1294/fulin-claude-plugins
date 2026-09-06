@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * 寬度未定閘 — 調用 what-the-fuck 時，若設定檔沒有終端機寬度就擋下，
+ * 寬度未定閘 — 調用 wtf 時，若設定檔沒有終端機寬度就擋下，
  * 強迫先問到寬度才准往下做。
  *
  * 為什麼要機械閘而不是寫在 SKILL.md 裡：
@@ -10,14 +10,14 @@
  * 下一個 session 仍然沒讀設定檔就直接問使用者，而使用者早就答過了。
  * 真正的保證只能來自「調用當下檢查、不符就 exit 2 擋掉」。
  *
- * 只在 skill 名為 what-the-fuck 時作用；其他 skill 一律放行，
+ * 只在 skill 名為 wtf（或全名 what-the-fuck）時作用；其他 skill 一律放行，
  * 所以裝了本 plugin 但不用這個 skill 的人不受影響。
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const CONFIG = path.join(__dirname, '..', 'skills', 'what-the-fuck', 'config.json');
+const CONFIG = path.join(__dirname, '..', 'skills', 'wtf', 'config.json');
 
 function readStdin() {
   try {
@@ -49,8 +49,8 @@ try {
   process.exit(0); // 解析不了就不擋，閘壞掉不該卡住使用者
 }
 
-// plugin skill 的名稱可能帶 namespace（what-the-fuck:what-the-fuck），兩種都要認
-if (!/(^|:)what-the-fuck$/.test(skill)) process.exit(0);
+// 正式名 wtf，全名 what-the-fuck 也認；plugin skill 可能帶 namespace（wtf:wtf），前綴一併吃掉
+if (!/(^|:)(wtf|what-the-fuck)$/.test(skill)) process.exit(0);
 
 let width = null;
 let declined = false;
@@ -82,7 +82,7 @@ if (typeof width === 'number' && width > 0) process.exit(0); // 有值 → 放�
 // 而且會誘導它跳過重建檔直接去問（紅藍對抗 R3 實測）。
 if (configBroken) {
   process.stderr.write(
-    '[what-the-fuck] 設定檔讀取失敗，本次調用已擋下。\n' +
+    '[wtf] 設定檔讀取失敗，本次調用已擋下。\n' +
     '\n' +
     '設定檔：' + CONFIG + '\n' +
     '原因：' + configBroken + '\n' +
@@ -95,7 +95,7 @@ if (configBroken) {
 }
 
 process.stderr.write(
-  '[what-the-fuck] 終端機寬度未設定，本次調用已擋下。\n' +
+  '[wtf] 終端機寬度未設定，本次調用已擋下。\n' +
   '\n' +
   '設定檔：' + CONFIG + '\n' +
   '目前 terminalWidth = ' + JSON.stringify(width) + '\n' +

@@ -2,6 +2,11 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.7.1 — 2026-09-06
+
+- **更名 `what-the-fuck` → `wtf`**（使用者裁決：太長不好打）。plugin 目錄、skill 目錄、`plugin.json` name、`marketplace.json` name/source、SKILL.md frontmatter 一併改；hook 的 regex 改為 `/(^|:)(wtf|what-the-fuck)$/` **兩個名字都認**，打全名仍可用；`CONFIG` 路徑跟著 skill 目錄改。config.json 隨目錄 rename，發布值不變（null／false）。
+- ⚠️ 已裝舊名的機器：marketplace update 後會看到新 plugin `wtf`，舊的 `what-the-fuck` 條目消失；需 `/plugin install wtf@fulin-plugins`，舊 cache 目錄留著不影響。已填過的 terminalWidth 在舊目錄裡，新目錄要重問一次（同「更新後重問」機制）。
+
 ## 0.7.0 — 2026-09-06
 
 實戰回饋：使用者指出「為什麼沒有按照 170 設計，右邊一堆空白」。當次回覆把三個區塊上下堆疊，170 格的視窗只用了 45 格。三處缺口都在「知道規則但排版時沒想到」，故一律改成機械判定。

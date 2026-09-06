@@ -1,7 +1,7 @@
 ---
-name: what-the-fuck
+name: wtf
 description: >
-  上一則回覆看不懂時按的重講鈕。使用者打 `/what-the-fuck`（或說「看不懂」「聽不懂」「重講」「講白話」
+  上一則回覆看不懂時按的重講鈕。使用者打 `/wtf`（全名 `/what-the-fuck` 也認）（或說「看不懂」「聽不懂」「重講」「講白話」
   「說人話」「這什麼意思」）時觸發，把剛才那則重講一次——**更簡單的字，同樣的事實佔更少版面**
   （描述關係一律改畫 ASCII 圖表、左右並排把版面用滿；**框字不是畫圖**——刪掉框線意思沒變就是裝飾清單；
   **寬度上限存在與本檔同層的 `config.json`**，第一步硬性讀檔，`terminalWidth` 是 null 就強制問到再畫、
@@ -152,7 +152,7 @@ disable-model-invocation: true
 寬度存在**與本檔同層的 `config.json`**（隨 plugin 發布，發布時 `terminalWidth` 是 `null`）。
 
 ```
-                                    使用者按下 /what-the-fuck
+                                         使用者按下 /wtf
                                                 │
                                                 ▼
                               讀同層 config.json 的兩個欄位
