@@ -5,6 +5,7 @@
 ## 0.7.1 — 2026-09-06
 
 - **更名 `what-the-fuck` → `wtf`**（使用者裁決：太長不好打）。plugin 目錄、skill 目錄、`plugin.json` name、`marketplace.json` name/source、SKILL.md frontmatter 一併改；hook 的 regex 改為 `/(^|:)(wtf|what-the-fuck)$/` **兩個名字都認**，打全名仍可用；`CONFIG` 路徑跟著 skill 目錄改。config.json 隨目錄 rename，發布值不變（null／false）。
+- 相容殘留一併清掉（使用者裁決）：hook regex 改回單名 `/(^|:)wtf$/`，plugin.json description／keywords 與 SKILL.md frontmatter 不再提舊名。舊名 `/what-the-fuck` 不再存在，打了會找不到。
 - ⚠️ 已裝舊名的機器：marketplace update 後會看到新 plugin `wtf`，舊的 `what-the-fuck` 條目消失；需 `/plugin install wtf@fulin-plugins`，舊 cache 目錄留著不影響。已填過的 terminalWidth 在舊目錄裡，新目錄要重問一次（同「更新後重問」機制）。
 
 ## 0.7.0 — 2026-09-06

@@ -10,7 +10,7 @@
  * 下一個 session 仍然沒讀設定檔就直接問使用者，而使用者早就答過了。
  * 真正的保證只能來自「調用當下檢查、不符就 exit 2 擋掉」。
  *
- * 只在 skill 名為 wtf（或全名 what-the-fuck）時作用；其他 skill 一律放行，
+ * 只在 skill 名為 wtf 時作用；其他 skill 一律放行，
  * 所以裝了本 plugin 但不用這個 skill 的人不受影響。
  */
 
@@ -49,8 +49,8 @@ try {
   process.exit(0); // 解析不了就不擋，閘壞掉不該卡住使用者
 }
 
-// 正式名 wtf，全名 what-the-fuck 也認；plugin skill 可能帶 namespace（wtf:wtf），前綴一併吃掉
-if (!/(^|:)(wtf|what-the-fuck)$/.test(skill)) process.exit(0);
+// plugin skill 可能帶 namespace（wtf:wtf），前綴一併吃掉
+if (!/(^|:)wtf$/.test(skill)) process.exit(0);
 
 let width = null;
 let declined = false;
