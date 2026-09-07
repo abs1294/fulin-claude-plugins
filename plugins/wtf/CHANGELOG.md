@@ -2,6 +2,17 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.8.0 — 2026-09-07
+
+整合 humanlayer/skills 的 `show-me`（MIT，3.3KB 純範例、無硬規則）。使用者裁決：「show-me 可以讓我更看懂」——我原本把 mermaid 與 HTML 判「不抄」，理由是「wtf 是終端機場景」，那是我替 skill 設的限制，不是使用者的需求；使用者要的是看懂，不是留在終端機。
+
+- **判準表補四列**：呼叫樹（縮排代表被誰呼叫，箭頭圖三層就爆寬）、偽代碼（縮排的中文句子，無語法無型別，**不算程式碼**——與「能用圖講就不貼 code」的邊界明寫）、diff 形式（`+`/`-` 講改了什麼，整段都新才貼整段）、檔案樹＋一行職責註解。
+- **新增「終端機塞不下就升級成 HTML」一節**：門檻寫死三種（主題是視覺佈局／太密 170 格塞不進／需要 mermaid），「排 ASCII 很麻煩」不是理由。開檔指令三平台各寫（Windows `start`、macOS `open`、Linux `xdg-open`；show-me 原版只有 `open`，Windows 不通）；mermaid 只出現在這層，終端機不渲染。升級後終端機仍要留一句結論。
+- 原版不抄的：`Bash(open …)` 單一平台寫法；「HTML 支援桌機與手機」（wtf 場景是本機瀏覽器）。原版一句話保留進文件：「挑能把重點講清楚的最小視圖，可以用一種或幾種，不會全部用上」。
+- 送審後補三處（Codex BLOCK、code-reviewer 同時抓到其一）：①**判準表補「元件樹」**——原版 show-me 有 component tree（UI 結構＋state 邊界），我先前說「併入呼叫樹」是錯的：呼叫樹畫「誰呼叫誰」、元件樹畫「誰包誰」，兩件事。②**「太密」升級門檻綁死 `check()`**：必須先實跑 `check()` 失敗、拆成兩張並排仍失敗才算數，沒跑就說太密＝憑感覺不准——原本這節放棄了判準表其他規則都有的機械閘。③**開檔失敗的 fallback**：SSH／無 GUI 下 `start`/`open` 會失敗，exit 非 0 就改說「檔在此路徑、無法自動開」，絕不能開失敗仍宣稱「已開在瀏覽器」。另修 mermaid 措辭：原寫「只出現在 HTML 層」是我自加的綁定，原版 mermaid 是獨立 code block；改成「終端機看到的是原始碼不是圖（Claude Code 只在 Artifact 渲染），所以要圖就進 HTML」——結論同、理由講對。
+- 複審再補（code-reviewer 抓到、Codex 沒抓——它只對照原版沒回頭看表內既有列）：新增的「元件樹」列與既有「包含關係、層級→縮排樹」列同時命中 UI 元件情境，違反判準表自己「這些項目不會同時成立」的要求。修法：縮排樹列縮窄為「目錄、組織、分類——不含 UI 元件」，元件樹列明寫「UI 元件一律用這列」。另 fallback 段「結論寫滿」補一句「寫滿＝事實不因降級而漏，不是多寫廢話」，防與密度規則誤讀。
+- 自檢十六題 → 十七題（新增「有沒有把 ASCII 排得出來的圖丟成 HTML」）。frontmatter／plugin.json／marketplace 三處描述同步。
+
 ## 0.7.1 — 2026-09-06
 
 - **更名 `what-the-fuck` → `wtf`**（使用者裁決：太長不好打）。plugin 目錄、skill 目錄、`plugin.json` name、`marketplace.json` name/source、SKILL.md frontmatter 一併改；hook 的 regex 改為 `/(^|:)(wtf|what-the-fuck)$/` **兩個名字都認**，打全名仍可用；`CONFIG` 路徑跟著 skill 目錄改。config.json 隨目錄 rename，發布值不變（null／false）。
