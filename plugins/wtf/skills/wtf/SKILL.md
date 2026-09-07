@@ -119,16 +119,26 @@ disable-model-invocation: true
 使用者按這個鈕是要**看懂**，不是要被丟一個檔案。
 
 **升級時怎麼做**：
-- 一個檔只講一件事，檔名 `wtf-<主題>.html`，放專案的暫存目錄
+- **放作業系統暫存目錄，不放專案目錄**：Windows 在 Bash 下讀 `$TEMP`、PowerShell 下讀 `$env:TEMP`
+  （實際值依環境而定，不可寫死路徑）；macOS／Linux 用 `${TMPDIR:-/tmp}`。
+  檔名 `wtf-<主題>-<yyyyMMdd-HHmmss>.html`，帶主題與時間戳，他要回頭找得到；一個檔只講一件事。
+  **禁止覆蓋既有檔**：用排他建立（python `open(path, 'x')`、bash `set -o noclobber` 後 `>`），
+  **只有「檔案已存在」才換序號後綴重試**，權限不足／目錄不存在／磁碟滿等其他錯誤一律停下回報，不重試；
+  「先檢查不存在再寫」不算排他，兩個 session 同時檢查會互相覆蓋。
+  放 OS 暫存目錄的理由：那裡的檔案要不要清、多久清，取決於使用者的系統設定（Windows Storage Sense、
+  macOS／Linux 的暫存清理機制），本 skill 不負責清理、也不承諾保留期限；專案目錄本 skill 同樣不清，
+  放那裡只會累積，還會被 git 或搜尋掃到。
 - mermaid 要圖就進 HTML 渲染：終端機裡的 mermaid code block 使用者看到的是原始碼不是圖
   （Claude Code 只在 Artifact 頁面渲染 mermaid，終端機不會），所以「需要 mermaid」本身就是升級理由
 - 用真實的標籤與資料，不用 lorem ipsum；配色跟產品一致
 - **開給他看，不是叫他自己開**：
-  - Windows：`start "" "路徑.html"`（Git Bash 下用 `cmd //c start "" "路徑"`）
+  - Windows：CMD `start "" "路徑.html"`；Git Bash `cmd //c start "" "路徑"`；
+    PowerShell `Start-Process -FilePath "路徑.html" -ErrorAction Stop`（PowerShell 的 `start` 是 Start-Process 別名，
+    CMD 寫法的空字串會被當 FilePath 直接報錯；不帶 `-ErrorAction Stop` 開失敗只是警告、exit code 抓不到）
   - macOS：`open 路徑.html`
   - Linux：`xdg-open 路徑.html`
   開完在回覆裡放一句「已開在瀏覽器，講的是 X」，不要把 HTML 原始碼貼進對話
-- **開檔指令失敗（SSH、無 GUI、headless）不准假裝開了**：exit code 非 0 就改說「檔案已寫到 `路徑`，
+- **開檔指令失敗（SSH、無 GUI、headless）不准假裝開了**：exit code 非 0 或 PowerShell 拋錯就改說「檔案已寫到 `路徑`，
   這個環境無法自動開啟，請自行開」——並把終端機那段結論寫滿一點，讓他不開檔也看得懂主線
   （寫滿＝事實不因降級而漏，不是多寫廢話；密度規則照常適用）。
   絕對不能在開失敗後仍宣稱「已開在瀏覽器」。
@@ -519,6 +529,7 @@ def check(lines, term):     # 送出前必跑：太寬會折行，太窄是版�
 11. **我跑過 `check()` 了嗎？**——目測看不出「版面沒用滿」，`widest < 視窗寬 × 0.7` 就是區塊該並排沒並排
 12. **有沒有貼程式碼，但其實可以用圖講？**——偽代碼不算程式碼，可以用
 13. **有沒有把 ASCII 排得出來的圖丟成 HTML？**——只有視覺佈局／太密／要 mermaid 三種才准升級
+    升級了的話，檔案是不是放在 OS 暫存目錄、用排他建立？——放專案目錄就是在堆本 skill 不會清的垃圾
 14. **有沒有只寫「是什麼」沒寫「為什麼」？**——設計取捨、為何不選別條路，那才是他要的
 15. 第一句有沒有給脈絡？有沒有句子超過 20 字？
 16. **文中每個專案名詞，我是查到的還是想到的？**——想到的就是瞎掰，回去查

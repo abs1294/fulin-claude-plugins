@@ -2,6 +2,10 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.8.1 — 2026-09-07
+
+HTML 升級路線的檔案改放**作業系統暫存目錄**（Windows Bash `$TEMP`／PowerShell `$env:TEMP`、macOS／Linux `${TMPDIR:-/tmp}`），不再放專案暫存目錄；檔名 `wtf-<主題>-<yyyyMMdd-HHmmss>.html` 帶時間戳可回頭找，以排他建立防覆蓋（只有檔案已存在才換序號重試，其他錯誤停下回報）。開檔指令補 PowerShell `Start-Process -ErrorAction Stop`，失敗處理涵蓋 PowerShell 拋錯。使用者顧慮：「HTML 檔畢竟只是解釋給我的，我擔心太常用就一堆垃圾」——專案目錄本 skill 不清、只會累積（實測 Claude 的專案暫存 22 GB、1533 個 session 資料夾），OS 暫存目錄清不清取決於使用者系統設定，本 skill 不承諾保留期限（本機 Storage Sense 已開、`%TEMP%` 4842 項只有 3 項超過 30 天，那是這台的設定不是通則）。我第一版改成固定單檔覆蓋，使用者否決：要能 recall，時間戳與主題要留。自檢第 13 題補「是不是放在 OS 暫存目錄、用排他建立」。
+
 ## 0.8.0 — 2026-09-07
 
 整合 humanlayer/skills 的 `show-me`（MIT，3.3KB 純範例、無硬規則）。使用者裁決：「show-me 可以讓我更看懂」——我原本把 mermaid 與 HTML 判「不抄」，理由是「wtf 是終端機場景」，那是我替 skill 設的限制，不是使用者的需求；使用者要的是看懂，不是留在終端機。
