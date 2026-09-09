@@ -2,6 +2,14 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.3.0] - 2026-09-09
+### Changed
+- session summary 列右端由 session id 改顯示 **session 定址名**（`fulin-claude-plugins-13` 這類），即 ListAgents 列出、`SendMessage({to: ...})` 收的名字，看到就能直接貼去發訊息給該 session
+- 名稱來源為 `~/.claude/sessions/<pid>.json` 的 `name` 欄位（以 payload 未清洗的 `session_id` 比對其 `sessionId`）——statusline payload 本身的 `session_name` 是對話標題不是定址名，不可用
+- 顯示上限 24 格寬，超出截斷加 `…`（衍生短名普遍 ≤23 格不受影響；被使用者／Remote Control 命名成整句標題的 session 會截斷，該類名稱本就非短 handle）
+- registry 查不到對應 entry 時退回原本的 session id 行為；一旦取到名字，各寬度下都顯示名字（窄終端縮短名字而非退回 id——截短的名字仍認得出視窗，UUID 認不出）
+- 截斷寬度計算須扣掉 `…` 自身佔的一格（開發中實測抓到 off-by-one：`out` 累積滿 cap 後再附 `…` 會使實際寬度為 cap+1，撐破東亞寬字框線對齊）。已以 11 組邊界輸入（全形／中英混排／恰好等於上限／空字串／cap=12）實跑驗證輸出寬度全部 ≤ cap
+
 ## [1.2.0] - 2026-08-23
 ### Changed
 - cost 改由 transcript 實算，不再取用 payload 的 total_cost_usd：新增官方 API 定價表（platform.claude.com，2026-08-23 查證；含 fable-5/mythos-5 $10/$50、opus-5/4.8 $5/$25、sonnet-5 $2/$10 與各自 cache write/read 費率），依 message.usage 四欄逐筆計價

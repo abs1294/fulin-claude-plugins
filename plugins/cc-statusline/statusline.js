@@ -1307,7 +1307,50 @@ process.stdin.on('end', () => {
     // id keeps its short form even when the summary is long; dropped entirely
     // only if the row cannot host even the short form plus the gap.
     const SID_GAP = 2;
-    const sidFull = sid, sidShort = sid.slice(0, 8);
+    // Prefer the session's addressable NAME (what ListAgents shows and what
+    // SendMessage({to: ...}) accepts) over the raw session id. Claude Code keeps
+    // the registry at ~/.claude/sessions/<pid>.json, one file per live session,
+    // each carrying {sessionId, name}. Match on the UNSANITIZED session_id from
+    // the payload -- `sid` has already had its dashes stripped. Yields '' when no
+    // registry entry matches (session not registered, or file gone), and only
+    // then does the row fall back to showing the raw id. Once a name is found it
+    // is what the row shows at every width: the narrow-terminal fallback shortens
+    // the name rather than reverting to the id, since a clipped name still
+    // identifies the window and a UUID does not.
+    const sessionAddr = (() => {
+      try {
+        const rawSid = i.session_id;
+        if (!rawSid) return '';
+        const dir = path.join(os.homedir(), '.claude', 'sessions');
+        for (const f of fs.readdirSync(dir)) {
+          if (!f.endsWith('.json')) continue;
+          let e;
+          try { e = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch (err) { continue; }
+          if (e && e.sessionId === rawSid && e.name) return String(e.name);
+        }
+      } catch (e) {}
+      return '';
+    })();
+    // Truncation guard: derived names are short (`fulin-claude-plugins-13` is 23
+    // cells), but a user- or Remote-Control-named session carries a full sentence
+    // as its name, which would eat the summary. Cap the display at 24 cells; a
+    // truncated name is no longer paste-able into SendMessage, which is the
+    // accepted trade for names that were never short handles to begin with.
+    const clipCells = (str, cap) => {
+      if (dw(str) <= cap) return str;
+      // Truncating: the ellipsis itself occupies one cell, so the kept text must
+      // fit in cap-1 or the result overruns the cap by one and shears the border.
+      let out = '', w = 0;
+      for (const ch of [...str]) {
+        const cw = isWide(ch.codePointAt(0)) ? 2 : 1;
+        if (w + cw > cap - 1) break;
+        out += ch; w += cw;
+      }
+      return out + '…';
+    };
+    const addrDisp = sessionAddr ? clipCells(sessionAddr, 24) : '';
+    const sidFull = addrDisp || sid;
+    const sidShort = addrDisp ? clipCells(addrDisp, 12) : sid.slice(0, 8);
     const sumRowW = BOX_W - 18; // content width available on the summary row
     let sidText = '';
     if (hasSummary) {
