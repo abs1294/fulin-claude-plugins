@@ -2,6 +2,12 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.5.0] - 2026-09-10
+### Added
+- **面板寬度邊距改為可設定的個別設定，不再是寫死常數**：正確的邊距值取決於終端程式、字型與 TUI 自身的渲染邊距，**因機器而異**，腳本量不出來（1.4.0 的預設 4 只在單一台 Windows Terminal 上測得）。新增 `~/.claude/cc-statusline-rows.json` 的 `widthMargin` 鍵（與既有列開關同檔），值須為有限的非負數，小數無條件捨去；負數、字串（含 `"6"` 這類數字字串）、布林、`null`、物件陣列、`NaN` 與 `Infinity` 一律忽略並回到預設（判準是 `Number.isFinite`，故不轉型字串、也排除無限大）。無上界檢查：值過大時面板收斂到最小版面而非報錯
+- 解析優先序：環境變數 `CC_STATUSLINE_MARGIN`（一次性試值）> 設定檔 `widthMargin`（該機器的固定值）> 預設 `4`
+- `/cc-statusline-rows` skill 與 README 同步補上 widthMargin 的設定方式與**目視判準**（框線右端的 `┐` 是否出現、每列右端有無 TUI 折行記號 `…`、session 名字是否完整），並明訂此值只能由使用者目視回報、不得自行宣稱已對齊
+
 ## [1.4.0] - 2026-09-10
 ### Fixed
 - **面板寬度預留安全邊距，修正右端被 TUI 截斷**：原本按 `COLUMNS` 全寬繪製（舊註解明寫「Don't subtract padding」），實測會超出視窗可用寬度，導致每一列被 TUI 折行，被切掉的正是最右端——也就是 session 名字所在處。實測證據：探針測得 `COLUMNS=179`（來源確為 Claude Code 匯出的環境變數，非 PowerShell 的假值 120），而視窗實際僅容得下約 175 格，`fulin-claude-plugins-89` 被截成 `fulin-claude-plugins…`、右框線消失、十列全部折行。改為排版寬度扣 4 格，可用環境變數 `CC_STATUSLINE_MARGIN` 覆寫（預設 4，設 0 即恢復舊行為）

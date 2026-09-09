@@ -48,7 +48,7 @@
     {
       "name": "cc-statusline",
       "source": "./plugins/cc-statusline",
-      "description": "資訊密度高的 Claude Code status line：目錄/repo/model/成本/用量/quota/agents/skills/memory+MCP/近期編輯/歷史多欄顯示，含寬字對齊與跨進程狀態快取；可用 /cc-statusline-rows 逐列開關。需手動在 settings.json 指向腳本（見 plugin README）。"
+      "description": "資訊密度高的 Claude Code status line：目錄/repo/model/成本/用量/quota/agents/skills/memory+MCP/近期編輯/歷史多欄顯示，含寬字對齊與跨進程狀態快取；可用 /cc-statusline-rows 逐列開關與調整面板寬度邊距（widthMargin，因機器而異）。需手動在 settings.json 指向腳本（見 plugin README）。"
     },
     {
       "name": "msproject-wbs",

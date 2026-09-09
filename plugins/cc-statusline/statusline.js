@@ -15,10 +15,18 @@ process.stdin.on('end', () => {
     const rowDefaults = { summary:1, dir:1, repo:1, model:1, cost:1, usage:1, quota:1, agents:1, skills:1, crons:1, memory_mcp:1, edited:1, history:1 };
     let rowCfg = { ...rowDefaults };
     let cfgEnabled = true;
+    // Per-machine width margin (see the WIDTH_MARGIN block further down). It lives
+    // in the same per-user config as the row switches because it is the same kind
+    // of setting: a local preference, not something the plugin can derive. null
+    // means "not configured" and leaves the default in force.
+    let cfgWidthMargin = null;
     try {
       const stored = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'cc-statusline-rows.json'), 'utf8'));
       for (const k of Object.keys(rowDefaults)) if (k in stored) rowCfg[k] = !!stored[k];
       if (stored.enabled === false) cfgEnabled = false;
+      // Floor it: a fractional margin would make TERM_W fractional and feed a
+      // non-integer width into every box-drawing calculation downstream.
+      if (Number.isFinite(stored.widthMargin) && stored.widthMargin >= 0) cfgWidthMargin = Math.floor(stored.widthMargin);
     } catch (e) {}
     // Master switch off — print nothing (Claude Code shows blank status area)
     if (!cfgEnabled) { process.stdout.write(''); return; }
@@ -1186,10 +1194,17 @@ process.stdin.on('end', () => {
     // The cause of the gap is UNVERIFIED: statusLine.padding is already 0 and our
     // own output carries no leading whitespace (rows start at the border glyph),
     // so it is neither. Hence a configurable margin rather than a hardcoded one.
-    // Configurable via CC_STATUSLINE_MARGIN for terminals whose padding differs.
+    // The right value is MACHINE-SPECIFIC -- it depends on the terminal, the font
+    // and the TUI's own chrome, none of which this script can measure -- so it is
+    // a setting, not a constant. Resolution order, first hit wins:
+    //   1. CC_STATUSLINE_MARGIN   (env var; one-off override, e.g. while testing)
+    //   2. widthMargin            (~/.claude/cc-statusline-rows.json; per machine)
+    //   3. 4                      (default; measured on one Windows Terminal only)
     const WIDTH_MARGIN = (() => {
-      const v = parseInt(process.env.CC_STATUSLINE_MARGIN, 10);
-      return Number.isFinite(v) && v >= 0 ? v : 4;
+      const env = parseInt(process.env.CC_STATUSLINE_MARGIN, 10);
+      if (Number.isFinite(env) && env >= 0) return env;
+      if (cfgWidthMargin !== null) return cfgWidthMargin;
+      return 4;
     })();
     TERM_W = Math.max(40, TERM_W - WIDTH_MARGIN);
 

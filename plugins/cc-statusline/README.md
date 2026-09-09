@@ -7,7 +7,7 @@
 - **多欄排版**：左右分欄 + 全寬列混排，資訊多但不亂。
 - **East-Asian 寬字對齊**：中文/emoji 等寬字元照 UAX #11 正確算寬，欄位不會歪。
 - **原子寫入的跨進程狀態快取**：多個 Claude Code session 同時跑也不會寫壞共享狀態（CAS-style merge + rename 原子寫）。
-- **逐列開關**：附 `/cc-statusline-rows` skill，用自然語言開關任一列或整條關閉。
+- **逐列開關**：附 `/cc-statusline-rows` skill，用自然語言開關任一列或整條關閉，也可調面板寬度邊距。
 
 ---
 
@@ -89,6 +89,22 @@ Claude Code **不支援由 plugin 自動設定主 status line**（plugin.json �
 `summary`（頂部摘要）、`dir`、`repo`、`model`、`cost`、`usage`、`quota`、`agents`、`skills`、`crons`（排程狀態，有排程時佔 agents/skills 欄底兩行）、`memory_mcp`、`edited`、`history`，外加總開關 `enabled`。
 
 也可手動編那個 JSON——只寫要關的 key 即可，例如 `{ "cost": false, "history": false }`。
+
+### 面板寬度邊距 `widthMargin`
+
+面板依 `COLUMNS` 繪製，但實際可用寬度通常比它少幾格（TUI 自身的渲染邊距），**差幾格因機器而異**——終端程式、字型、視窗設定都有影響。畫太寬會讓每一列被 TUI 折行，被切掉的是每列最右端（session 名字所在處）。
+
+繪製寬度 = `COLUMNS - widthMargin`，預設 `4`：
+
+```json
+{ "widthMargin": 6 }
+```
+
+**值必須是數字**，不是字串也不是布林——`"6"`（加引號）、`true` 都會被靜默忽略而回到預設 4。小數無條件捨去（`3.7` → 3），負數與非數字忽略。設太大不會報錯，面板會靜默收斂到最小版面（約 87 格）並在右側留一大片空白——看到這個症狀就是值給太大了。
+
+**該設多少只能目視**，腳本量不出來。看最上面那條 `┌───…┐` 的右端 `┐` 是否出現、每列右端有沒有多出 `…`（TUI 的折行記號）、session 名字是否完整。被切就每次加 2 重試；右側空白過多就往下調。
+
+臨時試值可用環境變數 `CC_STATUSLINE_MARGIN`（優先於設定檔），確認好再寫進 JSON。優先序：環境變數 > 設定檔 > 預設 4。
 
 ---
 
