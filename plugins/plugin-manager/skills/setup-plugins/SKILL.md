@@ -71,6 +71,7 @@ setup 做**偵測 + 推薦 + 核可後代裝**，**不手寫 settings**：
 7. **提醒前置**：
    - 啟用 `csharp-lsp`/`typescript-lsp` → 對應 binary（`csharp-ls`/`typescript-language-server`）需在 PATH，否則 `/plugin` Errors tab 報 `Executable not found`。
    - 裝完執行 `/reload-plugins`（或重開 session）才生效——這步 CLI 做不到，請使用者自己按。
+   - 裝了 **cc-statusline** → 兩件事都要做，缺一不可：①`settings.json` 要寫 `statusLine` 才會生效（走 `/cc-statusline-setup`，plugin 無法自動設）；②**生效後帶使用者做寬度目視校正**——面板依 `COLUMNS` 繪製，實際可用寬度通常少幾格且**因機器而異**，畫太寬會讓每列被 TUI 折行、切掉最右端（session 名字所在處）。請使用者看框線右上角的 `┐` 有沒有出現、每列右端有無多出 `…`；被切就把 `~/.claude/cc-statusline-rows.json` 的 `widthMargin` 從預設 4 每次加 2。**此值你判定不了，只能請使用者目視回報**。
 
 ## 子流程：一字核可代裝（auto mode）
 

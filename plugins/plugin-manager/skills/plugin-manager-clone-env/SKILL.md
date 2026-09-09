@@ -40,6 +40,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/restore-env.js" [snapshotPath] [--enabled-on
 2. 跑 `init.js` 初始化 config（指向新機 clone 的 monorepo；自製 plugin 復現需 monorepo 在本地，故新機仍需 `git clone` monorepo 一次）。
 3. 跟 Claude 說「**復現環境**」→ 本 skill 跑 restore-env，**從 `${CLAUDE_PLUGIN_ROOT}/env-snapshot.json`（cache 內的快照）讀** → 列出其餘 plugin 的安裝指令。
 4. 使用者逐行貼那串 `/plugin marketplace add` + `install` → `/reload-plugins`。完成。
+5. **若快照含 cc-statusline，還要做兩件事**：①新機的 `settings.json` 要另外寫 `statusLine`（走 `/cc-statusline-setup`）——快照只復現「裝了哪些 plugin」，不含這個欄位；②**帶使用者重做寬度校正**：`widthMargin` 是**逐機器**的值（終端程式、字型、視窗設定都影響），舊機器的值搬過來多半不對。請他看框線右上角的 `┐` 有沒有出現、每列右端有無多出 `…`（TUI 折行記號）、session 名字是否完整；被切就把 `~/.claude/cc-statusline-rows.json` 的 `widthMargin` 從預設 4 每次加 2。**此值無法由腳本或你推導，只能使用者目視回報**。
 
 ### 快照從哪讀（restore 找快照順序）
 參數 > `${CLAUDE_PLUGIN_ROOT}/env-snapshot.json`（新機從 cache 讀的關鍵）> monorepo 內 plugin 目錄（開發機）> cwd。
@@ -49,3 +50,4 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/restore-env.js" [snapshotPath] [--enabled-on
 - **第三方 plugin 能不能裝起來，看其上游 marketplace** 是否可及、使用者有無權限（有些要登入/授權）。自製 plugin（在使用者自己 repo）一定裝得起來。
 - env-snapshot.json 含「你啟用了哪些 plugin」——預設寫 plugin 內（`plugins/plugin-manager/`，隨 git/publish，repo private 故只自己看得到）。不想入 git 可用 outputPath 參數指定 monorepo 外路徑。
 - 首次在新機器初始化（`init.js`）那步是 bootstrap，plugin-manager 還沒裝起來時 Claude 跑不了，需使用者自己打一次（之後就都能自然語言）。
+- **快照不含逐機器的顯示設定**：`~/.claude/cc-statusline-rows.json` 的 `widthMargin`（面板寬度邊距）取決於新機器的終端與字型，不能沿用舊機器的值，新機需重做一次目視校正。

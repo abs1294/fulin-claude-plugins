@@ -2,6 +2,11 @@
 
 本檔記錄 plugin-manager 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.18.0] - 2026-09-10
+### Added
+- setup-plugins 與 clone-env 補「裝完 cc-statusline 要帶使用者做寬度目視校正」：面板依 `COLUMNS` 繪製但實際可用寬度少幾格，**差幾格因機器而異**（終端程式、字型、視窗設定），畫太寬會讓每列被 TUI 折行並切掉最右端（session 名字所在處）。兩支 skill 都寫明判準（框線右上角 `┐` 是否出現、每列右端有無 TUI 折行記號 `…`、名字是否完整）與「此值無法由腳本或 AI 推導、只能使用者目視回報」
+- clone-env 的「重要限制」補一條：環境快照**不含**逐機器的顯示設定（`widthMargin`），舊機器的值不能沿用，新機需重做校正
+
 ## [0.17.1] - 2026-08-26
 ### Fixed
 - publish skill：cron 只在 REPL 閒置時 fire，使用者持續互動時永遠不觸發且靜默不推。改為每輪回覆前自檢窗口是否已過，過了就當輪直接推，cron 降為備援。
