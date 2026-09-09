@@ -1178,8 +1178,20 @@ process.stdin.on('end', () => {
     // Fallback width — 120 is conservative; bump to 160 so wider terminals
     // (common 160/180/210 cols) get more room for the message history column.
     if (!TERM_W) TERM_W = 160;
-    // Don't subtract padding — let the box fill full terminal width.
-    // Claude Code's padding shifts our output right, but the box itself should be terminal-wide.
+    // Reserve a safety margin. A box drawn at the full reported COLUMNS overruns
+    // the usable window, so the TUI wraps every row and clips each row's RIGHT
+    // end -- which is where the session name sits, making the name the visible
+    // casualty. Observed: COLUMNS=179 on a window that fit ~175, clipping
+    // `fulin-claude-plugins-89` to `fulin-claude-plugins…`, all ten rows wrapped.
+    // The cause of the gap is UNVERIFIED: statusLine.padding is already 0 and our
+    // own output carries no leading whitespace (rows start at the border glyph),
+    // so it is neither. Hence a configurable margin rather than a hardcoded one.
+    // Configurable via CC_STATUSLINE_MARGIN for terminals whose padding differs.
+    const WIDTH_MARGIN = (() => {
+      const v = parseInt(process.env.CC_STATUSLINE_MARGIN, 10);
+      return Number.isFinite(v) && v >= 0 ? v : 4;
+    })();
+    TERM_W = Math.max(40, TERM_W - WIDTH_MARGIN);
 
     // MIDDLE column — the flexible column that used to show msgHistory now shows
     // AGENTS: a dim "agents" header row followed by one indented row per agent.
@@ -1247,7 +1259,9 @@ process.stdin.on('end', () => {
     // If R3 has content but could not secure a usable width (R3_W === 0), the
     // middle column must not render alone — otherwise skills/crons fall back
     // into the left panel while agents keep a column, which is the mixed state
-    // seen at COLUMNS 100-114.
+    // seen at COLUMNS 104-118 (the range shifted up by 4 when TERM_W started
+    // reserving WIDTH_MARGIN above; measured against the pre-margin build, whose
+    // same transition sat at 100-114).
     const r3Renderable = !hasR3 || R3_W > 0;
     let showMsgs = (hasMidContent || hasR3) && MSG_W >= 15 && r3Renderable;
     // Third column rides on the middle column's frame, so it only renders when

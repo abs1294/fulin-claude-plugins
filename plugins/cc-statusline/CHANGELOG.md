@@ -2,6 +2,12 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.4.0] - 2026-09-10
+### Fixed
+- **面板寬度預留安全邊距，修正右端被 TUI 截斷**：原本按 `COLUMNS` 全寬繪製（舊註解明寫「Don't subtract padding」），實測會超出視窗可用寬度，導致每一列被 TUI 折行，被切掉的正是最右端——也就是 session 名字所在處。實測證據：探針測得 `COLUMNS=179`（來源確為 Claude Code 匯出的環境變數，非 PowerShell 的假值 120），而視窗實際僅容得下約 175 格，`fulin-claude-plugins-89` 被截成 `fulin-claude-plugins…`、右框線消失、十列全部折行。改為排版寬度扣 4 格，可用環境變數 `CC_STATUSLINE_MARGIN` 覆寫（預設 4，設 0 即恢復舊行為）
+- 那 4 格差距的確切成因**未經證實**：`settings.json` 的 `statusLine.padding` 已是 0，腳本輸出本身也不含前導空白（實測每列開頭即為框線字元），故非本腳本或該設定所致；推測與 TUI 自身的渲染邊距有關，但無法從腳本端驗證。邊距值因此設為可覆寫而非寫死
+- 此為既有缺陷，非 1.3.0 引入——改動前尾端顯示的 session id 同樣會被截，只是截 UUID 不易察覺
+
 ## [1.3.0] - 2026-09-09
 ### Changed
 - session summary 列右端由 session id 改顯示 **session 定址名**（`fulin-claude-plugins-13` 這類），即 ListAgents 列出、`SendMessage({to: ...})` 收的名字，看到就能直接貼去發訊息給該 session
