@@ -13,6 +13,8 @@
 #   - 敏感字（除非顯式 --allow-sensitive）
 #   - 真實憑證特徵字串（不可豁免）
 #   - 建置產物/快取/備份檔名（除非顯式 --allow-artifacts）
+#   - commit message 含 AI 痕跡/作業過程敘述（除非顯式 --allow-message-trace）
+#   - commit message 顯示寬度超標（不可豁免）
 # 其餘規範（local-overrides 過濾、禁 force/amend/no-verify）由 subcommand 封裝與旗標缺席保證。
 #
 # 用法：
@@ -23,6 +25,10 @@
 # ============================================================
 
 set -euo pipefail
+
+# 向 PreToolUse hook（hooks/block-bare-git-commit.sh）宣告「本次 git commit 走的是正規流程」。
+# hook 只在此變數不為 1 時攔截裸 commit；不 export 的話 flow.sh 自己的 commit 會被自家 hook 擋死。
+export GIT_COMMIT_FLOW=1
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -189,6 +195,38 @@ extract_path_from_status() {
 
 # 署名 pattern：命中即代表 commit message 混入 AI 署名（使用者最硬的全域規則：禁止）。
 SIGNATURE_PATTERN='Co-Authored-By|Generated with \[?Claude|🤖|noreply@anthropic|Claude Code'
+# Commit message 專用的痕跡 pattern。
+# 為什麼要獨立一份：AI_TRACE_PATTERN 只掃 staged diff 的新增行、不掃 message 本身，
+# SIGNATURE_PATTERN 又只認 5 個署名關鍵字。「經語法樹掃描確認 25 個 await 全在 try 內」
+# 這種句子兩道都不擋，得靠這一份。
+# 判準：**一般正常人會寫的文字**。
+#   正常人寫 commit message 描述「改了什麼」，不會寫「我用什麼方法確認它是對的」。
+#   所以抓的是「作業過程」的語言特徵，不是主題關鍵字——關鍵字黑名單必漏（同 AI_TRACE 的教訓）。
+# **抓詞組不抓裸詞**——單一名詞分不出業務語意與作業過程：
+#   「審查」是簽核業務、「agent」是代理商，裸詞會擋掉正常 commit。
+#   作業過程的特徵在句式（動詞＋結果、冒號帶結論），不在單一名詞。
+#   優先度代碼（P0-P3）刻意不抓：在缺陷單系統裡 P1 缺陷／P2 問題／P3 項
+#   都是業務欄位命名，接任何詞都可能誤攔。「補 P0 防護」的問題其實是
+#   描述太模糊，那該由人判斷、不該由 regex 攔。
+#   ⚠️ 中介用 `.` 不用 `[^，。；]`：grep -E 的否定字元類按 byte 運作，
+#      會排除 CJK 字的個別 byte，導致整段完全不匹配（「經完整比對」測不到）。
+#   ⚠️ 同理不要對 CJK 字用 `?`／`*`：量詞只作用在該字的最後一個 byte，
+#      `對抗式?審查` 永遠配不到「對抗審查」。要選擇性就寫成 (A|B) 分支。
+#   ⚠️ `.{0,N}` 的 N 也是 byte 數：中文 1 字＝3 bytes，要放行 6 個中文字得寫 {0,18}。
+#      寫成中文字數會讓後綴配不到（`驗證：.{0,12}正常` 抓不到「驗證：登入功能正常」）。
+#   1) AI/工具身分：專有名詞，業務語境不會出現，可用裸詞
+#   2) 作業過程句式：經…確認／實測…通過／驗證：後接結論——要有「動作＋結論」的結構
+#   刻意不抓的（試過、會誤擋，交由人在審查時判斷）：
+#     優先度代碼 P0-P3  → 缺陷單系統的欄位命名（P1 缺陷／P2 問題）
+#     本輪／第 N 輪     → 招標、面試、報價按輪次進行
+#     複查             → 保險、稽核、品管的標準流程名詞
+#     紅隊             → 資安演練產品的業務命名
+#     審查／agent      → 簽核流程／代理商
+MESSAGE_TRACE_PATTERN='Claude|Anthropic|Codex|code-reviewer|subagent|紅藍對抗|AI 署名|經.{0,24}(掃描|確認|比對|檢查|審查)[後，,]?|掃描確認|實測.{0,24}(通過|失敗|確認|回應|則)|實跑.{0,24}(通過|確認|驗證)|驗證[：:].{0,36}(通過|正常|無誤|一致|符合|皆已|全數|確認|沒問題|OK)'
+# Commit message 描述的顯示寬度上限。單位必須明確定義——寫「N 字」而不說是
+# 字元/中文字/byte，同一顆 commit 會被算出兩種不同長度。
+# 這裡的定義：全形（CJK、全形標點）算 2，半形算 1。
+MESSAGE_MAX_WIDTH=72
 # 敏感字 pattern（與 analyze 共用同一份，單一事實來源）。
 SENSITIVE_PATTERN='password|secret|api_key|bearer|token=|ConnectionString|console\.log|Console\.WriteLine|System\.out\.print|debugger;|TODO: remove|FIXME|XXX|// DEBUG|// TEMP|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|sqlcmd .{0,120}-P |Pwd[[:space:]]*=|User ?Id[[:space:]]*=|Data Source[[:space:]]*=|Initial Catalog[[:space:]]*='
 # AI 痕跡 pattern：註解引用「維護者手上沒有的文件」＝ 交付物洩漏 AI 參與（公司禁止揭露）。
@@ -224,6 +262,67 @@ assert_no_signature() {
   # 多行 desc 是署名夾帶的常見載體；SKILL.md 規範 desc 為「1 句話」，故只允許單行。
   if [ "$(printf '%s' "$msg" | wc -l | tr -d ' ')" != "0" ]; then
     echo "ERROR: commit message 為多行，已拒絕（規範：desc 為單行 1 句話，多行常是署名夾帶載體）。" >&2
+    exit 1
+  fi
+}
+
+# 計算字串的顯示寬度：全形（CJK / 全形標點）算 2，其餘算 1。
+# 用 Python 的 unicodedata.east_asian_width 判斷，這是唯一可靠的判準。
+# ⚠️ 不要用 awk：多數 awk 實作非 locale-aware，substr 按 byte 切，
+#    「中文五個字元」會被算成 18（byte 數）而非 12（顯示寬度）——已實測踩過。
+# Python 不可用時 fallback 到 wc -m（字元數，CJK 會低估但不會爆錯），
+# 並在 stderr 提示，避免閘門靜默失準。
+display_width() {
+  local s="$1"
+  if command -v python >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1; then
+    local py
+    py="$(command -v python3 2>/dev/null || command -v python)"
+    printf '%s' "$s" | "$py" -c '
+import sys, unicodedata
+t = sys.stdin.buffer.read().decode("utf-8", "replace")
+print(sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in t))
+'
+  else
+    echo "[git-commit] WARNING: 找不到 python，寬度改以字元數估算（CJK 會低估）" >&2
+    printf '%s' "$s" | wc -m | tr -d ' '
+  fi
+}
+
+# 硬閘：commit message 的 description 不得含 AI/作業過程痕跡，且顯示寬度不得超標。
+# 註：SIGNATURE_PATTERN 只認署名詞、AI_TRACE_PATTERN 只掃 diff，兩者都攔不住
+# 「把作業過程寫進 message」這類洩漏，所以需要本函式。
+assert_message_clean() {
+  local desc="$1"
+  local allow_trace="${2:-0}"
+
+  if printf '%s' "$desc" | grep -E -q "$MESSAGE_TRACE_PATTERN"; then
+    if [ "$allow_trace" = "1" ]; then
+      echo "[git-commit] message 痕跡命中，但已帶 --allow-message-trace，放行：" >&2
+      printf '%s
+' "$desc" | grep -E -o "$MESSAGE_TRACE_PATTERN" | sort -u | sed 's/^/  /' >&2
+    else
+    echo "ERROR: commit message 含 AI 痕跡或作業過程敘述，已拒絕 commit。" >&2
+    echo "       命中內容：" >&2
+    printf '%s\n' "$desc" | grep -E -o "$MESSAGE_TRACE_PATTERN" | sort -u | sed 's/^/         /' >&2
+    echo "" >&2
+    echo "       判準：一般正常人會寫的 commit message。" >&2
+    echo "       描述「改了什麼」，不要寫「我用什麼方法確認它是對的」。" >&2
+    echo "       ❌ Fix: 經語法樹掃描確認 25 個 await 全數位於 try 保護中" >&2
+    echo "       ✅ Fix: DAP 推送的 await 全數移入 try 保護範圍" >&2
+    echo "" >&2
+    echo "       確認是誤判（命中的是業務詞彙，例如簽核審查流程、代理商 agent）" >&2
+    echo "       請在 ship 加 --allow-message-trace 放行。" >&2
+    exit 1
+    fi
+  fi
+
+  local width
+  width="$(display_width "$desc")"
+  if [ "$width" -gt "$MESSAGE_MAX_WIDTH" ]; then
+    echo "ERROR: commit message 描述過長，已拒絕 commit。" >&2
+    echo "       顯示寬度 $width（上限 $MESSAGE_MAX_WIDTH；全形算 2、半形算 1）" >&2
+    echo "       描述：$desc" >&2
+    echo "       改法：只留最關鍵的那一件事；改動涵蓋多個議題請拆成多個 commit。" >&2
     exit 1
   fi
 }
@@ -494,6 +593,9 @@ cmd_ship() {
   local allow_sensitive=0
   local allow_artifacts=0
   local allow_ai_trace=0
+  # 真閘 6 的豁免：痕跡判準是文字比對，必然有誤判（業務詞彙撞上作業過程用語）。
+  # 沒有出口＝誤判時使用者完全無法 commit，與 hook 端 fail-open 的設計目標矛盾。
+  local allow_message_trace=0
   # 預設只做 local commit。push 是對外動作、不可逆（推出去就在遠端歷史上），
   # 必須由使用者當次明確核可才做——故設計成顯式 --push 才推，不提供「預設推」的路徑。
   local do_push=0
@@ -503,6 +605,7 @@ cmd_ship() {
       --allow-sensitive) allow_sensitive=1; shift ;;
       --allow-artifacts) allow_artifacts=1; shift ;;
       --allow-ai-trace) allow_ai_trace=1; shift ;;
+      --allow-message-trace) allow_message_trace=1; shift ;;
       --push) do_push=1; shift ;;
       *) positional+=("$1"); shift ;;
     esac
@@ -513,7 +616,7 @@ cmd_ship() {
   local type="${2:-}"
   local desc="${3:-}"
   if [ -z "$repo" ] || [ -z "$type" ] || [ -z "$desc" ]; then
-    echo "Usage: flow.sh ship <repo> <type> <description> [--push] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]" >&2
+    echo "Usage: flow.sh ship <repo> <type> <description> [--push] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace] [--allow-message-trace]" >&2
     exit 1
   fi
   assert_valid_repo "$repo"
@@ -525,6 +628,10 @@ cmd_ship() {
 
   # === 真閘 1：署名 + 單行檢查（機制級，命中即 exit 1）===
   assert_no_signature "$type: $desc"
+
+  # === 真閘 6：message 痕跡 + 長度 ===
+  # 位置在真閘 1 之後、TOCTOU 之前：message 有問題就沒必要往下算 hash。
+  assert_message_clean "$desc" "$allow_message_trace"
 
   # === Push-only 分支：ship（無 --push）完成 commit 後，staged 已空、hash 必不符，
   #     原「重跑同指令加 --push」的指引會被真閘 2 擋死（2026-08-10 實測）。
@@ -642,8 +749,9 @@ Usage: flow.sh <command> [args]
 Commands:
   analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描（僅提示）
   prepare <repo> <files...>         git add + 輸出 staged diff + 記錄 diff hash 到 .claude/.git-commit-tmp/
-  ship    <repo> <type> <desc> [--push] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]
-                                    真閘(署名/單行/diff-hash/敏感字/建置產物/AI痕跡) → git commit (HEREDOC) → 驗證
+  ship    <repo> <type> <desc> [--push] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace] [--allow-message-trace]
+                                    真閘(署名/單行/message痕跡+長度/diff-hash/敏感字/建置產物/AI痕跡)
+                                    → git commit (HEREDOC) → 驗證
                                     預設只 local commit；--push 才推遠端（需使用者明確核可）
 
 repo 參數：
@@ -669,6 +777,11 @@ Notes:
   - staged diff 命中敏感字時 ship 會擋下，除非顯式 --allow-sensitive
   - staged 含建置產物/快取/備份（__pycache__、*.pyc、node_modules、*.bak、*.log…）時 ship 會擋下，除非 --allow-artifacts
   - ship 會比對 prepare 記錄的 diff hash，內容被改動過即拒絕（防審查後掉包）
+  - commit message 描述須為「一般正常人會寫的文字」：寫改了什麼，不寫「用什麼方法確認它是對的」。
+    含 Claude/Codex/agent、實測/掃描確認/驗證：、P0/本輪/第N輪 等痕跡即擋（不可豁免）
+  - commit message 痕跡誤判（命中的是業務詞彙如簽核審查、代理商 agent）用 --allow-message-trace 放行
+  - commit message 描述顯示寬度上限 72（全形算 2、半形算 1），超標即擋（不可豁免——長度是客觀事實）
+  - 搭配 hooks/block-bare-git-commit.sh（PreToolUse）攔裸 git commit；本腳本 export GIT_COMMIT_FLOW=1 放行
 USAGE
     ;;
   *)

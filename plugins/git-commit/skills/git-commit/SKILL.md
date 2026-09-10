@@ -50,6 +50,13 @@ description: >
 
 腳本不能代勞的：豁免判斷、1.3a 預覽、啟動兩個審查 subagent、匯流決策。
 
+### hook：`hooks/block-bare-git-commit.sh`（他律）
+
+PreToolUse hook，攔截 Bash 工具裡的裸 `git commit`（`git status`/`log`/`add`/`rebase` 不攔）。放行條件：`GIT_COMMIT_FLOW=1`（`flow.sh` 自己 export）或指令本身就在跑 `flow.sh`。
+
+> **為什麼需要**：上面那句「不要手動組 git 指令」與 frontmatter 的「AI 禁止直接執行 git commit」都是**自律**，AI 會繞；繞過去就等於六道真閘一道都不觸發。skill 的「必須」是自律，只有 hook 是他律。
+> hook **fail-open**：自身任何錯誤（空輸入、壞 JSON、無 python）一律放行並印警告，絕不把使用者鎖在無法 commit 的狀態。
+
 ## Step 1
 
 ### 1.1–1.2 分析與 Stage
@@ -58,7 +65,7 @@ description: >
 
 **local-overrides.yml**（`.claude/local-overrides.yml`，記錄本機常駐覆寫檔——Mock 切換、本地連線、測試 JWT）：清單內檔案不告警、不 stage、不進預覽。使用者明示要 commit 清單內檔案 → 本次 override 走完整流程，commit 後問「本地預設值變了嗎？要不要移出清單？」。同一 tracked 檔連續多次未 stage → 主動建議入清單。
 
-**Stage 紀律（事故收據 2026-07-17）**：**禁止 `git add -A` / `git add .`**——會把 local-overrides 的本機 hack 整檔混進 staged。一律逐檔 `prepare`；覆寫清單內「混有真改動」的檔案（如 Program.cs 的 DI 註冊）用 `git diff` 切 hunk、`git apply --cached` 精準 stage，commit 前 grep `LocalDevToken|MockSap|MockBPM|mysecret` 確認 staged diff 0 命中。禁 `git update-index --skip-worktree`。
+**Stage 紀律**：**禁止 `git add -A` / `git add .`**——會把 local-overrides 的本機 hack 整檔混進 staged。一律逐檔 `prepare`；覆寫清單內「混有真改動」的檔案（如 Program.cs 的 DI 註冊）用 `git diff` 切 hunk、`git apply --cached` 精準 stage，commit 前 grep `LocalDevToken|MockSap|MockBPM|mysecret` 確認 staged diff 0 命中。禁 `git update-index --skip-worktree`。
 
 ### 1.3 並行三軌（同一輪訊息啟動）
 
@@ -191,7 +198,11 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 
 ## Commit Message 規範
 
-格式：`{Type}: {簡短描述}`——Type 首字大寫、冒號後空格、中文描述 1 句 ≤50 字。例：`Feat: 相關申請紀錄新增發起人欄位與 Excel 匯出`。
+格式：`{Type}: {簡短描述}`——Type 首字大寫、冒號後空格、中文描述 1 句。例：`Feat: 相關申請紀錄新增發起人欄位與 Excel 匯出`。
+
+**單行，不寫 body。** `flow.sh ship <repo> <type> <description>` 只吃單行 description，`assert_no_signature` 會機制級擋掉多行。理由要留就留在 PR／issue，不進 git message。
+
+**長度上限：顯示寬度 ≤72**——全形字（中文、全形標點）算 2、半形算 1。由 `flow.sh ship` 機械檢查，超標即 exit 1，無豁免旗標。
 
 | 類型 | 說明 |
 |------|------|
@@ -206,13 +217,71 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 | Fix | 錯誤修正 |
 | Hotfix | 緊急修正嚴重 bug |
 
-**描述只寫「改了什麼」，禁止對話脈絡**：`P0/P1/Critical`、`紅藍對抗/紅隊/Codex/code-reviewer`、`PoC/第 N 輪/補修`、任何 reviewer 名稱或流程關鍵字都不得出現。辨識法：未來看 git log 的人沒有今天的 context——message 離了 context 看不懂就重寫成「對著 diff 也讀得懂」的純動作描述（❌ `Fix: 補 P0 防護` → ✅ `Fix: handleConfirmFinalReply 失敗時保留 dialog`）。
+**判準一句話：寫成一般正常人會寫的樣子。**
+
+正常人寫 commit message 是描述「改了什麼」，**不會寫「我用什麼方法確認它是對的」**。後者是作業過程，只有今天在場的人看得懂，而 git log 是給六個月後的人看的。
+
+| ❌ 不是正常人會寫的 | ✅ 正常人會寫的 |
+|---|---|
+| `Fix: 經語法樹掃描確認 25 個 await 全數位於 try 保護中` | `Fix: DAP 推送的 await 全數移入 try 保護範圍` |
+| `Fix: 實測七則官方回應，六則失敗已修正` | `Fix: DAP 回應信封改為型別無關，失敗不再擲例外` |
+| `Fix: 補 P0 防護` | `Fix: handleConfirmFinalReply 失敗時保留 dialog` |
+| `Chore: 將 .claude 納入 gitignore，該目錄為 Claude Code 的本機設定` | `Chore: 將 .claude 納入 gitignore` |
+
+機制側由 `flow.sh ship` 的 `MESSAGE_TRACE_PATTERN` 擋三類（命中即 exit 1）：
+
+1. **AI／工具身分**：`Claude`、`Anthropic`、`Codex`、`code-reviewer`、`subagent`、`紅藍對抗`
+2. **作業過程句式**：`經…掃描/確認/比對`、`實測…通過/失敗`、`實跑…通過`、`掃描確認`、`驗證：`後接結論
+
+> 抓的是**詞組不是裸詞**——單一名詞分不出業務語意與作業過程。「審查」是簽核業務、`agent` 是代理商，用裸詞會擋掉正常 commit（`新增審查流程狀態欄位`、`agent-based 架構調整` 都該放行）。作業過程的特徵在句式，不在名詞。
+>
+> **刻意不抓的**（試過、會誤擋，交由人在審查時判斷）：
+>
+> | 不抓 | 因為它在業務上是 |
+> |---|---|
+> | `P0`–`P3` | 缺陷單系統的欄位命名（`P1 缺陷`、`P2 問題`） |
+> | `本輪`、`第 N 輪` | 招標、面試、報價按輪次進行 |
+> | `複查` | 保險、稽核、品管的標準流程名詞 |
+> | `紅隊` | 資安演練產品的業務命名 |
+> | `審查`、`agent` | 簽核流程、代理商 |
+>
+> `Fix: 補 P0 防護` 真正的問題是描述太模糊——那該由人在審查時判斷，不是 regex 的事。這道閘只負責攔「一眼就知道是作業過程」的寫法。
+>
+> 即便如此，文字比對仍必然有誤判，所以這道閘留了出口：確認命中的是業務詞彙，用 `--allow-message-trace` 放行。**長度上限沒有出口**——長度是客觀事實，不會誤判。
+
+> ⚠️ 黑名單只是兜底，**判準是上面那句話**。關鍵字清單永遠有漏網的寫法，寫之前先自問：**這句話，一個拿到 diff 但沒有今天對話的人，能不能自己驗證？**
+
+## 歷史改寫（rebase / amend / reset）
+
+改寫既有 commit（`rebase -i`／`--amend`／`reset`）同樣受本 skill 管轄——`git commit` 以外的改寫指令一樣會繞過全部真閘，禁令不因指令名稱不同而失效。
+
+規則：
+
+1. **改寫前必建備份分支**，並把分支名回報給使用者：`git branch backup/pre-<動作>-$(date +%H%M%S)`。回報的分支名一律複製**指令實際輸出**，不要憑記憶寫——名字裡有時戳，記錯了使用者就查不到。
+2. **只改 message、不改碼** → 免三軌審查，但**每顆的新 message 都要過 §Commit Message 規範**（含痕跡與寬度）。
+3. **有改到碼** → 走完整三軌流程，等同新 commit。
+4. **改寫後必須機械驗證**：`git diff <備份分支> HEAD` 必須為空。不空代表改 message 的過程動到了碼。這一行指令就能驗，別跳過。
+5. **已 push 的 branch 禁止改寫**，除非使用者明示且確認無人共用。
+6. 改寫完 `git log --format='%h %s' <range>` 逐顆看過再回報，不要只看最上面那顆。
+
+## 交付路徑不只有 push
+
+`format-patch` / `bundle` / `archive` 產出的檔案**內含完整 commit message 原文**，會直接送到客戶或上游手上——比 push 更難收回。
+
+產出後必須對**產出物本身**掃一次，而不是只掃 repo：
+
+```bash
+grep -n -i -E 'Claude|Anthropic|Codex|subagent|實測|掃描確認|本輪' <產出的 patch/bundle>
+```
+
+> 這是「用目標軟體驗、不要用自己的 parser 驗」的同型教訓：驗 repo 不等於驗交付物。
 
 ## 多議題拆 Commit（不要問）
 
 Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
 
 ## Changelog
+- 2026-09-10 補 hook（他律）＋真閘 6（message 痕跡與長度）＋§歷史改寫＋§交付路徑，並把 body 政策與長度單位明文寫死。**起因**：另一 session 在 KMS-dev 繞過本 skill 直接跑 `rebase -i`／`--amend` 改寫 8 顆 commit，把「經語法樹掃描確認」「實測七則官方回應」「Claude Code 的本機設定」寫進 git 歷史，**五道既有真閘一道都沒觸發**——因為它根本沒經過 flow.sh。三個結構缺口各自補上：①規範全是自律，AI 會繞 → PreToolUse hook 攔裸 `git commit`（fail-open，14 項紅綠測）；②`AI_TRACE_PATTERN` 只掃 staged diff、從不掃 message，`SIGNATURE_PATTERN` 只認 5 個署名詞且沒有單獨的 `Claude` → 新增 `MESSAGE_TRACE_PATTERN`（16 項紅綠測，測資用 KMS 真實 message）；③「≤50 字」沒定義單位、「能不能有 body」規範空白 → 該 session 先寫長 body（沒禁）、事後又自認「skill 要求不含 body」全砍（也沒要求），**兩次都在填空白且方向相反**，現已寫死「單行、寬度 ≤72」。**開發中自撞一次**：`display_width()` 初版用 awk，`bash -n` 過但實跑把「中文五個字元」算成 18（byte 數）——多數 awk 非 locale-aware、`substr` 按 byte 切，改用 Python `east_asian_width` 才對。語法檢查過 ≠ 能跑。
 - 2026-09-05 補第三輪最後一個觀察項：探測失敗時原始輸出被刪、只留 `✗`，事後無法回溯真因。已改為把失敗原文存到 `$TMPDIR/codex-model-probe-fail/<slug>.log` 並在輸出標明路徑（每次執行先清上一輪，避免陳舊資訊誤導）。**這正是本輪吃過的虧**：腳本一度報「最強可用是 gpt-5.4-mini」卻看不到 astra 失敗的原文，只能手動重跑才發現真因是 slug 尾端帶 `\r`。實測：插一個 priority 0 的假 model 觸發失敗分支，確認原文留存 940 bytes 且具診斷價值、腳本仍正確選出 gpt-6-astra。
 - 2026-09-05 同兩支腳本再送 Codex 覆審兩輪（第二輪 BLOCK、第三輪 PASS）：第二輪抓到**我上一輪加 trap 時引進的新缺陷**——`trap cleanup INT TERM` 只刪暫存檔卻不結束腳本，控制流帶著「檔案已消失」的狀態跑到 `grep`，把探測中的模型誤判為不可用、進而把次強模型寫回 config。已獨立重現（`grep: ... No such file` 接 `✗`）後修正：訊號處理與正常結束分離，訊號版清完立刻退出；兩處 grep 補 `2>/dev/null`。第三輪 PASS 並提兩個觀察項，一併修掉：INT/TERM 共用 exit 130 不精確，改為依慣例回 128+訊號值（INT=130／TERM=143／HUP=129）並補攔 SIGHUP。**教訓：修一個小瑕疵（暫存檔殘留）可以引進更嚴重的缺陷（寫錯設定），修完必須重送審查而非只跑正常路徑。**
 - 2026-09-05 `codex-model-sync.sh` 經 Codex 審查回 BLOCK 後修三項（使用者要求拿自己寫的腳本送審）：①**寫回 config 後未檢查 python 回傳碼、也未回讀驗證**——實測 python 拋 FileNotFoundError 時腳本仍印「已更新」並 exit 0，正是本檔一再防的「跑得動但結論錯誤」，已補 rc 檢查＋回讀比對（紅測：修前 exit 0 謊報成功、修後 exit 1 並明講未變更）；②缺 `trap`，暫存檔在 Ctrl+C／kill 時殘留（check.sh 本來就有，兩支不對稱）；③備份 `config.toml.bak.*` 無限累積，改為只留最近 5 份。Codex 另指 `current` 變數未防 `\r`，實測 `tr -d [:space:]` 已涵蓋 `\r`，**該項不成立故未改**——審查意見仍須逐條驗證再採納。
