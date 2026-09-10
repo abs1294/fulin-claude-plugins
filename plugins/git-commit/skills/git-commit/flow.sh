@@ -214,6 +214,8 @@ SIGNATURE_PATTERN='Co-Authored-By|Generated with \[?Claude|🤖|noreply@anthropi
 #      `對抗式?審查` 永遠配不到「對抗審查」。要選擇性就寫成 (A|B) 分支。
 #   ⚠️ `.{0,N}` 的 N 也是 byte 數：中文 1 字＝3 bytes，要放行 6 個中文字得寫 {0,18}。
 #      寫成中文字數會讓後綴配不到（`驗證：.{0,12}正常` 抓不到「驗證：登入功能正常」）。
+#   ⚠️ 不要對 CJK 用字元類 `[經以]`：byte 模式下它匹配這兩字的**任一 byte**，
+#      等於變成通配符——實測「理賠案件複查確認」「供應商審查」全被撈進來。用 (A|B) 分支。
 #   1) AI/工具身分：專有名詞，業務語境不會出現，可用裸詞
 #   2) 作業過程句式：經…確認／實測…通過／驗證：後接結論——要有「動作＋結論」的結構
 #   刻意不抓的（試過、會誤擋，交由人在審查時判斷）：
@@ -222,10 +224,18 @@ SIGNATURE_PATTERN='Co-Authored-By|Generated with \[?Claude|🤖|noreply@anthropi
 #     複查             → 保險、稽核、品管的標準流程名詞
 #     紅隊             → 資安演練產品的業務命名
 #     審查／agent      → 簽核流程／代理商
-MESSAGE_TRACE_PATTERN='Claude|Anthropic|Codex|code-reviewer|subagent|紅藍對抗|AI 署名|經.{0,24}(掃描|確認|比對|檢查|審查)[後，,]?|掃描確認|實測.{0,24}(通過|失敗|確認|回應|則)|實跑.{0,24}(通過|確認|驗證)|驗證[：:].{0,36}(通過|正常|無誤|一致|符合|皆已|全數|確認|沒問題|OK)'
+MESSAGE_TRACE_PATTERN='Claude|Anthropic|Codex|code-reviewer|subagent|紅藍對抗|AI 署名|(經|以實際|以程式).{0,24}(掃描|確認|比對|檢查|審查)|掃描確認|實測.{0,24}(通過|失敗|確認|回應|則)|實跑.{0,24}(通過|確認|驗證)|驗證[：:].{0,36}(通過|正常|無誤|一致|符合|皆已|全數|確認|沒問題|OK)'
 # Commit message 描述的顯示寬度上限。單位必須明確定義——寫「N 字」而不說是
 # 字元/中文字/byte，同一顆 commit 會被算出兩種不同長度。
 # 這裡的定義：全形（CJK、全形標點）算 2，半形算 1。
+# 軟清單：命中只印提醒、不擋（無豁免旗標，因為它本來就不擋）。
+# 為什麼要有這層：硬擋清單為了不誤傷業務詞而收得很窄，於是「本輪修正登入逾時問題」
+# 「第三輪修正後通過驗證」「複查確認無誤後合併」這類句子完全不會被攔、也不會有任何提示。
+# 這些詞在業務上確實常見（招標輪次、稽核複查、資安紅隊），硬擋會天天誤傷；
+# 但它們同時也是作業過程敘述的典型開頭，全無提示等於防線只剩專有名詞。
+# 折衷：印一行提醒，讓寫的人自己判斷。不 exit、不影響回傳碼。
+MESSAGE_SOFT_PATTERN='本輪|上輪|本次迭代|第[0-9一二三四五六七八九十]+輪|複查|紅隊|對抗審查|PoC|[Pp][0-3][ -]?(防護|修正|問題|項|缺陷)'
+
 MESSAGE_MAX_WIDTH=72
 # 敏感字 pattern（與 analyze 共用同一份，單一事實來源）。
 SENSITIVE_PATTERN='password|secret|api_key|bearer|token=|ConnectionString|console\.log|Console\.WriteLine|System\.out\.print|debugger;|TODO: remove|FIXME|XXX|// DEBUG|// TEMP|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|sqlcmd .{0,120}-P |Pwd[[:space:]]*=|User ?Id[[:space:]]*=|Data Source[[:space:]]*=|Initial Catalog[[:space:]]*='
@@ -298,8 +308,7 @@ assert_message_clean() {
   if printf '%s' "$desc" | grep -E -q "$MESSAGE_TRACE_PATTERN"; then
     if [ "$allow_trace" = "1" ]; then
       echo "[git-commit] message 痕跡命中，但已帶 --allow-message-trace，放行：" >&2
-      printf '%s
-' "$desc" | grep -E -o "$MESSAGE_TRACE_PATTERN" | sort -u | sed 's/^/  /' >&2
+      echo "$desc" | grep -E -o "$MESSAGE_TRACE_PATTERN" | sort -u | sed 's/^/  /' >&2
     else
     echo "ERROR: commit message 含 AI 痕跡或作業過程敘述，已拒絕 commit。" >&2
     echo "       命中內容：" >&2
@@ -314,6 +323,15 @@ assert_message_clean() {
     echo "       請在 ship 加 --allow-message-trace 放行。" >&2
     exit 1
     fi
+  fi
+
+  # 軟清單：不擋，只提醒。放在硬擋之後——硬擋沒過就不必再提醒。
+  local soft_hits
+  soft_hits=$(printf %s "$desc" | grep -E -o "$MESSAGE_SOFT_PATTERN" | sort -u | paste -sd " " - || true)
+  if [ -n "$soft_hits" ]; then
+    echo "[git-commit] 提醒（不擋）：message 含 ${soft_hits}" >&2
+    echo "             確認這是業務描述（招標輪次／稽核複查／缺陷單編號）而非作業過程。" >&2
+    echo "             若是「本輪修正…」「第三輪…後通過驗證」這種寫法，請改成描述改了什麼。" >&2
   fi
 
   local width
@@ -352,10 +370,23 @@ assert_no_artifacts() {
 
 # 硬閘：staged diff 命中敏感字時，除非帶 --allow-sensitive，否則 exit 1。
 # repo_path 已 cd 進去才呼叫。allow=1 表示使用者已顯式授權保留。
+# 只取 staged diff 的新增行（去掉 +++ 標頭與行首的 +），供關鍵字掃描使用。
+# 與 collect_ai_trace_hits 同一作法。關鍵字掃描若吃整份 diff，會掃到：
+#   - 刪除行（`-`）：正在移除的東西不該再擋一次
+#   - context 行：這次根本沒改到
+#   - 本檔自己的 SENSITIVE_PATTERN 定義（那一行本身就列滿了要抓的字）
+# 一次 commit 同時撞到這三種，全是誤判。
+staged_added_lines() {
+  git -c color.ui=false diff --staged 2>/dev/null     | awk '/^\+/ && !/^\+\+\+/ { print substr($0, 2) }' || true
+}
+
 assert_no_sensitive() {
   local allow="$1"
-  local diff_output
+  # 憑證形狀掃全 diff（含 context）：憑證出現在未改動行也代表 repo 裡有它，
+  # 不因「這次沒改到」而放過。關鍵字掃描則只看新增行。
+  local diff_output added_output
   diff_output=$(git -c color.ui=false diff --staged 2>/dev/null || true)
+  added_output="$(staged_added_lines)"
 
   # 憑證形狀命中 = 不可豁免的硬閘。與下方關鍵字掃描不同，--allow-sensitive 不放行——
   # 關鍵字會誤命中（文件寫到 "password" 很正常），憑證形狀不會，命中就是真的外洩。
@@ -369,7 +400,7 @@ assert_no_sensitive() {
   fi
 
   local hits
-  hits=$(printf '%s\n' "$diff_output" | grep -E -i "$SENSITIVE_PATTERN" | head -20 || true)
+  hits=$(printf '%s\n' "$added_output" | grep -E -i "$SENSITIVE_PATTERN" | head -20 || true)
   if [ -n "$hits" ]; then
     if [ "$allow" = "1" ]; then
       echo "[git-commit] 敏感字命中，但已帶 --allow-sensitive，放行：" >&2
@@ -502,7 +533,7 @@ cmd_analyze() {
   echo ""
 
   # 敏感字掃描 — 只掃 staged 檔案的 diff（避免誤報）
-  echo "--- Sensitive scan (staged diff) ---"
+  echo "--- Sensitive scan (staged diff 新增行) ---"
   if [ ${#staged[@]} -eq 0 ]; then
     echo "(no staged files)"
   else
@@ -511,11 +542,14 @@ cmd_analyze() {
       staged_paths+=("$(extract_path_from_status "$entry")")
     done
 
-    local diff_output
-    diff_output=$(git -c color.ui=false diff --staged -- "${staged_paths[@]}" 2>/dev/null || true)
+    # 與 ship 的 assert_no_sensitive 一致：只掃新增行。
+    # 兩邊判準必須相同，否則會出現「analyze 報 HITS 但 ship 放行」的矛盾。
+    local added_output
+    added_output=$(git -c color.ui=false diff --staged -- "${staged_paths[@]}" 2>/dev/null \
+      | awk '/^\+/ && !/^\+\+\+/ { print substr($0, 2) }' || true)
 
     local hits
-    hits=$(printf '%s\n' "$diff_output" | grep -E -i "$SENSITIVE_PATTERN" | head -20 || true)
+    hits=$(printf '%s\n' "$added_output" | grep -E -i "$SENSITIVE_PATTERN" | head -20 || true)
 
     if [ -z "$hits" ]; then
       echo "CLEAN"

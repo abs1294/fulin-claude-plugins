@@ -2,6 +2,22 @@
 
 本檔記錄 git-commit 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.4.1] - 2026-09-10
+### Fixed
+- **真閘 3（敏感字）不再掃到自己**：關鍵字掃描改為只看 staged diff 的**新增行**（比照 `collect_ai_trace_hits`），新增 `staged_added_lines()`。原本吃整份 diff，會誤命中刪除行、未改動的 context 行、以及本檔自己的 `SENSITIVE_PATTERN` 定義。`analyze` 的預掃同步改用相同判準——兩邊判準必須一致，否則會出現「analyze 報 HITS 但 ship 放行」的矛盾。**憑證形狀那道仍掃全 diff**：憑證出現在未改動行也代表 repo 裡有它，不因「這次沒改到」而放過。
+- `assert_message_clean` 豁免路徑的 `printf` 原本以字面換行寫成兩行（與全檔 `
+` 轉義風格不一致），改用 `echo` 一行完成。
+- 硬擋清單補 `以…確認` 句式（原本只抓 `經…確認`），這是漏擋的作業過程寫法。
+
+### Added
+- **軟清單 `MESSAGE_SOFT_PATTERN`（只提醒、不擋、無豁免旗標）**：`本輪`／`上輪`／`本次迭代`／`第 N 輪`／`複查`／`紅隊`／`對抗審查`／`PoC`／`P0-P3 防護|修正|問題|項|缺陷`。
+  硬擋清單為了不誤傷業務詞（招標輪次、稽核複查、資安紅隊、缺陷單編號）收得很窄，於是「本輪修正登入逾時問題」這類作業過程敘述完全不會被攔、也無任何提示，防線退到只剩專有名詞。折衷成軟提醒：印一行讓寫的人自己判斷，不影響回傳碼。
+- `references/codex-troubleshooting.md`：B 軌 codex 的疑難排解（idle 無 VERDICT／`Agent type not found`／`Not inside a trusted directory`／model 下架／卡在 stdin／判活與客觀證據／降級條件）。
+
+### Changed
+- SKILL.md 的 1.3b 從 58 行縮到 41 行（佔比 19%→14%），只留日常派工必需的（subagent_type、prompt 開頭兩條必寫、等待紀律、prompt 範本），疑難排解移入 references 並在主文留醒目路標，列出「什麼狀況該進去看」。
+- **單軌降級與「兩軌都不可用不可自動 commit」提升到核心原則第 5 條**——這是主流程決策規則，不該只存在於 reference。
+
 ## [0.4.0] - 2026-09-10
 ### Added
 - **`hooks/block-bare-git-commit.sh`（PreToolUse hook）**：機制級攔截 Bash 工具裡的裸 `git commit`，只在 `GIT_COMMIT_FLOW=1`（flow.sh 自 export）或指令本身跑 `flow.sh` 時放行。射程只含 `commit`——`status`/`log`/`add`/`rebase` 不攔。**fail-open**：空輸入、壞 JSON、無 python 一律放行並印警告，絕不把使用者鎖在無法 commit 的狀態。已跑 14 項紅綠測（含 `git -C <path> commit`、分號與 `&&` 後的 commit、三種 fail-open 情境）。
