@@ -2,6 +2,10 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.2.1] - 2026-09-11
+### Fixed
+- goal skill 回報：未裝 wtf plugin 時結尾提示可安裝 wtf 以取得精簡表格式回報
+
 ## [0.2.0] - 2026-09-11
 ### Changed
 - **plugin 由 `delaylocal` 更名為 `goal2`**（取 goal2 以避開 Claude Code 內建 `/goal` 指令），原 skill 整目錄搬到 `skills/delaylocal/`，觸發名改為 `/goal2:delaylocal`。plain 模式、fast-path、quota 計算、LINE 通知的 CLI 與輸出**逐字不變**（以 HEAD 舊版對新版 diff 驗證）；goal 模式改走子程序引擎（見下）。舊 plugin 使用者請 `/plugin uninstall delaylocal@fulin-plugins` 後 `/plugin install goal2@fulin-plugins`；plugin 安裝模式下 LINE 憑證建議改用環境變數 `LINE_TOKEN`／`LINE_USER_ID`（cache 目錄的 config 檔重裝會被清掉）。
