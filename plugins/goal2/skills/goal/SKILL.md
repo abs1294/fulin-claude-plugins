@@ -73,7 +73,17 @@ CronCreate({ cron: <JSON.confirm_timer_cron>, recurring: false, durable: false,
 
 ### 4b. 進行中：終止與看進度
 - 使用者說「停」「終止」「取消」→ 跑 `<JSON.stop_command>`（= `goal.js --stop <run_dir>`）：殺整棵子程序樹（`taskkill /T` 或 kill 群組）、meta 標 `stopped`，帳本與 stream.jsonl 保留；印出的 JSON 有 `killed`。背景中的 `run_command` 會自己收尾並印出 `stopped: true` 的 summary。
-- 使用者問「做到哪」→ 跑 `<JSON.status_command>`（不阻塞）：`status`、`alive`、`compactions`、`num_turns`、`progress_md` 原文。
+- 使用者問「做到哪」「進度」「還在跑嗎」→ 跑 `<JSON.status_command>`（不阻塞）。**回報要講人話，不准把 JSON 欄位丟給使用者**：第一句直接用 `summary_zh`（工具已組好：狀態＋回合數＋擋停次數＋壓縮次數＋最後一個動作＋最後一句），接著貼 `progress_md` 的「已完成」與「剩餘」兩節原文。欄位對照（要解釋時用）：
+
+  | 欄位 | 白話 |
+  |---|---|
+  | `status` | `prepared` 還沒啟動／`running` 進行中／`done` 完成且達成／`failed` 結束但沒達成／`stopped` 被終止 |
+  | `alive` | 子程序此刻還在不在跑 |
+  | `num_turns` | 引擎總回合數（結束後才有）；進行中看 `assistant_messages`（目前幾則回覆） |
+  | `continuations` | 引擎的檢查器擋停、要求繼續的次數；0 表示還沒被打回過 |
+  | `compactions` / `anchor_injections` | 上下文壓縮次數／壓縮後錨定注回次數（兩者應相等） |
+  | `last_tool` / `last_text` | 引擎最後一個工具動作／最後一句話（它此刻在做什麼） |
+  | `last_event_at` | 最後一個事件的時間，久沒動就可疑 |
 
 ### 5. 回報使用者
 

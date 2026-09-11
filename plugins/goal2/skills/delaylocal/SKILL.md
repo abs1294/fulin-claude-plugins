@@ -139,7 +139,7 @@ CronCreate({
 ### 6. cron 到點後（goal 模式，final_prompt 會指示你做這些）
 1. Session 守衛通過 → 用 Bash、`run_in_background: true` 原樣執行 `run_command`（`node "<delaylocal.js>" --run "<run_dir>"`）。它阻塞到引擎結束，最後印 summary JSON。
 2. 收到背景結束通知後讀 JSON：`goal_achieved`、`continuations`、`compactions`／`anchor_injections`（壓縮次數與壓縮後錨定注回次數）、`num_turns`、`result_text`（引擎最後一則回覆＝報告全文，**原文保留**）、`run_dir`（`stream.jsonl` 可追查、`progress.md` 是進度帳本）。固定格式回報，不加提問或 offer。
-3. 進行中要終止：`node "<skill_dir>/delaylocal.js" --stop <run_dir>`（殺整棵子程序樹、標 stopped）；要看進度：`--status <run_dir>`。不要只 TaskStop 背景指令，子程序會變孤兒。
+3. 進行中要終止：`node "<skill_dir>/delaylocal.js" --stop <run_dir>`（殺整棵子程序樹、標 stopped）；要看進度：`--status <run_dir>`，回報時第一句直接用它的 `summary_zh`（狀態＋回合＋擋停次數＋壓縮次數＋最後動作＋最後一句，已是人話），再貼 `progress_md` 的已完成／剩餘；欄位對照見 goal skill 的 SKILL.md 4b。不要只 TaskStop 背景指令，子程序會變孤兒。
 
 **嚴禁**在回報結尾追加任何「建議 / 下一步 / 要不要我改用別的方式」之類的提問或 offer。
 回報到「取消方式」就結束。

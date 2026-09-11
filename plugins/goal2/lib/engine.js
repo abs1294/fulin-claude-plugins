@@ -293,17 +293,65 @@ function stopRun(runDir) {
   return { ...out, ok: !alive, killed: !alive, kill_detail: k.detail.trim(), note: alive ? '5 秒後程序仍在，請手動終止' : '子程序樹已終止；進度帳本與 stream.jsonl 保留在 run 目錄' };
 }
 
+/** 從 stream.jsonl 取「引擎最後在做什麼」：最後一則 assistant 文字、最後一個工具呼叫、最後事件時間 */
+function lastActivity(streamPath) {
+  const out = { last_text: null, last_tool: null, last_event_at: null, assistant_messages: 0 };
+  let lines; try { lines = fs.readFileSync(streamPath, 'utf8').split('\n').filter(Boolean); } catch (_) { return out; }
+  for (const l of lines) {
+    let o; try { o = JSON.parse(l); } catch (_) { continue; }
+    if (o.timestamp) out.last_event_at = o.timestamp;
+    if (o.type === 'assistant') {
+      out.assistant_messages++;
+      for (const c of (o.message && o.message.content) || []) {
+        if (c.type === 'text' && c.text.trim()) out.last_text = c.text.trim();
+        if (c.type === 'tool_use') {
+          const inp = c.input || {};
+          const brief = String(inp.description || inp.command || inp.file_path || inp.pattern || '').split('\n')[0].trim();
+          out.last_tool = `${c.name}${brief ? '：' + brief.slice(0, 100) + (brief.length > 100 ? '…' : '') : ''}`;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** 把狀態講成一句人話（給主 session 直接轉述用；欄位本身也保留） */
+function describeStatus(st) {
+  const state = {
+    prepared: '已準備、還沒啟動',
+    running: st.alive ? '進行中' : '狀態寫 running 但子程序已不在（可能被外力殺掉），請看 stream.jsonl 尾端',
+    done: '已完成並達成完成條件',
+    failed: '已結束但沒達成（看 result.json 的 terminal_reason 與 result_text）',
+    stopped: '被 --stop 終止',
+    spawn_failed: '子程序起不來（看 stderr.txt）'
+  }[st.status] || `狀態 ${st.status}`;
+  const parts = [state];
+  if (st.num_turns != null) parts.push(`共 ${st.num_turns} 回合`);
+  else if (st.assistant_messages) parts.push(`目前 ${st.assistant_messages} 則回覆`);
+  parts.push(st.continuations ? `被檢查器擋停要求繼續 ${st.continuations} 次` : '尚未被擋停過');
+  if (st.compactions) parts.push(`上下文壓縮 ${st.compactions} 次、錨定注回 ${st.anchor_injections} 次`);
+  if (st.last_tool) parts.push(`最後一個動作：${st.last_tool}`);
+  if (st.last_text) parts.push(`最後一句：「${st.last_text.replace(/\s+/g, ' ').slice(0, 160)}${st.last_text.length > 160 ? '…' : ''}」`);
+  return parts.join('；') + '。';
+}
+
 /** 讀一個 run 的即時狀態（不阻塞） */
 function runStatus(runDir) {
   const meta = readMeta(runDir);
-  const s = summarizeStream(path.join(runDir, 'stream.jsonl'));
+  const streamPath = path.join(runDir, 'stream.jsonl');
+  const s = summarizeStream(streamPath);
+  const la = lastActivity(streamPath);
   let progress = ''; try { progress = fs.readFileSync(path.join(runDir, 'progress.md'), 'utf8'); } catch (_) {}
-  return {
+  const st = {
     ok: true, run_dir: runDir, run_id: meta.runId, skill: meta.skill, status: meta.status,
     pid: meta.pid || null, alive: isAlive(meta.pid), started_at: meta.startedAt || null, ended_at: meta.endedAt || null,
     goal_set: s.goal_set, continuations: s.continuations, compactions: s.compactions, anchor_injections: s.anchor_injections,
-    num_turns: s.num_turns, progress_md: progress
+    num_turns: s.num_turns, assistant_messages: la.assistant_messages,
+    last_event_at: la.last_event_at, last_tool: la.last_tool, last_text: la.last_text,
+    progress_md: progress
   };
+  st.summary_zh = describeStatus(st);
+  return st;
 }
 
 /** 偵測 wtf plugin（重講紀律）：找 plugin cache 裡最新版的 skills/wtf，回 SKILL.md 路徑與 terminalWidth */

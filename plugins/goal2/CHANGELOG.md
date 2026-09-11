@@ -2,6 +2,10 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.3.1] - 2026-09-11
+### Changed
+- **`--status` 看得懂了**：新增 `last_text`（引擎最後一句）、`last_tool`（最後一個工具動作，單行）、`last_event_at`、`assistant_messages`，以及一行白話 `summary_zh`（例：「進行中；目前 8 則回覆；被檢查器擋停要求繼續 1 次；上下文壓縮 2 次、錨定注回 2 次；最後一個動作：Bash：…；最後一句：「…」」）。兩份 SKILL.md 規定回報進度時第一句直接用 summary_zh、再貼帳本，**不准把 JSON 欄位丟給使用者**，並附欄位白話對照表（status 五種值、alive、num_turns、continuations、compactions／anchor_injections、last_*）。
+
 ## [0.3.0] - 2026-09-11
 ### Added
 - **長任務壓縮防漂移（三層錨定）**：子程序上下文滿了自動壓縮後常忘記目標或做到哪。現在 ① `anchor.md`（完成條件＋任務全文＋帳本規則）以 `--append-system-prompt-file` 放進子程序**系統提示**，每回合重送、壓縮碰不到；② `progress.md` 進度帳本：引擎 prompt 規定開工先拆里程碑、每完成一項搬到「已完成」附證據、壓縮後先讀再動手；③ `hooks/compact-anchor.js`：engine.js 用 `--settings` 只對該子程序掛 SessionStart（matcher `compact`）hook，壓縮一結束把 ①＋② 以 additionalContext 注回，並記 `compact-log.txt`；非 compact／無 `GOAL2_RUN_DIR`／任何錯誤一律靜默放行。**實測**（2.1.268，24 段 × 8KB、autocompact=100000）：6 次壓縮、6 次注回、24 段依序零重印、24 個 secret 全對、引擎正常達成。summary 新增 `compactions`、`anchor_injections`、`progress_path`。
