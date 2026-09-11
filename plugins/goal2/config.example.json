@@ -1,6 +1,6 @@
 {
-  "_comment": "goal2 設定範本。複製到 ~/.claude/goal2/config.json（家目錄，重裝 plugin 不會被清掉）。所有欄位選填、沒寫的用預設。engine.permissionMode：子程序 claude -p 的權限模式，無人值守建議 bypassPermissions，保守可用 acceptEdits；engine.stopHookBlockCap：/goal 引擎本質是 Stop hook，連續擋停 N 次後 Claude Code 會強制結束回合（Claude Code 預設 8），0 = 不設上限做到達成為止；engine.model：子程序模型，null 沿用預設；goal.confirmTimeoutMinutes：propose 後等你確認的逾時分鐘數，逾時自動採納並啟動引擎；delaylocal.confirmTimeoutMinutes：propose 後等你確認的逾時分鐘數，逾時自動採納並排程；delaylocal.bufferSeconds：quota 重置後再等幾秒才 fire（/goal2:delaylocal 帶裸數字可臨時覆蓋）。",
-  "engine": { "permissionMode": "bypassPermissions", "stopHookBlockCap": 0, "model": null },
-  "goal": { "confirmTimeoutMinutes": 1 },
+  "_comment": "goal2 設定範本。複製到 ~/.claude/goal2/config.json（家目錄，重裝 plugin 不會被清掉）。所有欄位選填、沒寫的用預設。engine.permissionMode：子程序 claude -p 的權限模式，無人值守建議 bypassPermissions，保守可用 acceptEdits；engine.stopHookBlockCap：/goal 引擎本質是 Stop hook，連續擋停 N 次後 Claude Code 會強制結束回合（Claude Code 預設 8），0 = 不設上限做到達成為止；engine.model：子程序模型，null 沿用預設；engine.autocompact：子程序的上下文自動壓縮視窗，auto 或 100000–1000000（tokens）的整數，長任務想讓壓縮晚點發生就調大（壓縮後另有 anchor.md／progress.md／hook 三層錨定）；goal.confirmTimeoutMinutes：0（預設）= propose 完直接啟動引擎、不等確認（隨時可 --stop）；≥1 = 等你確認幾分鐘，逾時自動採納啟動；delaylocal.confirmTimeoutMinutes：propose 後等你確認的逾時分鐘數，逾時自動採納並排程；delaylocal.bufferSeconds：quota 重置後再等幾秒才 fire（/goal2:delaylocal 帶裸數字可臨時覆蓋）。",
+  "engine": { "permissionMode": "bypassPermissions", "stopHookBlockCap": 0, "model": null, "autocompact": "auto" },
+  "goal": { "confirmTimeoutMinutes": 0 },
   "delaylocal": { "confirmTimeoutMinutes": 10, "bufferSeconds": 900 }
 }

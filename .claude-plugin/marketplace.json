@@ -18,7 +18,7 @@
     {
       "name": "goal2",
       "source": "./plugins/goal2",
-      "description": "goal 引擎啟動器＋quota 排程，兩個 skill：**goal** 推導可測量完成條件→確認或逾時自動採納→以 claude -p 子程序跑官方 /goal 引擎做到完成；**delaylocal** 把 prompt 排到 5h quota 重置後在本機無人值守執行（goal/plain/fast-path 三模式），完成發 LINE 通知。plugin 名取 goal2 以避開內建 /goal。"
+      "description": "goal 引擎啟動器＋quota 排程，兩個 skill：**goal** 推導可測量完成條件→確認或逾時自動採納→以 claude -p 子程序跑官方 /goal 引擎做到完成（長任務壓縮不忘目標、可終止）；**delaylocal** 把 prompt 排到 5h quota 重置後在本機無人值守執行（goal/plain/fast-path 三模式），完成發 LINE 通知。plugin 名取 goal2 以避開內建 /goal。"
     },
     {
       "name": "git-commit",

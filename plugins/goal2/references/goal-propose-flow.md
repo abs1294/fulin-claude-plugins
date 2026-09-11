@@ -33,8 +33,9 @@
 1. **理解任務**：讀懂使用者要做的事的目的與範圍。
 2. **propose ＋ 排確認 timer**：
    - 一次 propose 出來：**完成條件**（核心，照第 2 節寫）、任務拆解、（delaylocal 另有）緩衝秒數 / 預計 fire 時間。
-   - **同時** `CronCreate` 一個 `recurring:false` 的確認 timer，**記下 job id**。timer 的 cron 由各 skill 的 js 算（不要心算）；timer 的 prompt 是**給未來的自己的文字指令**，兩個 skill 不同（見下表）。
-   - 回報使用者：完成條件全文、timer 的 job id、「N 分鐘內沒回覆將自動採納」（N = 工具回報的逾時分鐘數）。
+   - **goal skill 預設（`confirmTimeoutMinutes` = 0）不排 timer**：propose 印給使用者後直接啟動，錯了用 `--stop` 終止再改。設 ≥1 才走下面的 timer。delaylocal 一律走 timer（預設 10 分）。
+   - 走 timer 時：**同時** `CronCreate` 一個 `recurring:false` 的確認 timer，**記下 job id**。timer 的 cron 由各 skill 的 js 算（不要心算）；timer 的 prompt 是**給未來的自己的文字指令**，兩個 skill 不同（見下表）。
+   - 回報使用者：完成條件全文、（有 timer 時）job id 與「N 分鐘內沒回覆將自動採納」、run_dir、終止方式。
 3. **收斂（兩種）**：
    - **a. 使用者逾時前回覆** → **先 `CronDelete <timer id>`**，再依回覆處理：同意 → 進第 4 步；要改 → 調整條件、重新 propose（並重排新 timer）；取消 → 到此結束。
    - **b. 逾時無回覆** → timer fire → **自動採納** propose 的條件，進第 4 步。
@@ -43,9 +44,10 @@
 | | `goal` skill（現在就做） | `delaylocal` skill（quota 重置後做） |
 |---|---|---|
 | 準備 | `goal.js --prompt-file … --goal …` → run_dir + `run_command` + `confirm_timer_cron` | `delaylocal.js --show-config` 拿 `confirm_timer_cron`；確認後 `delaylocal.js … --goal …` → run_dir + `run_command` + 任務 cron |
-| timer 的 prompt | 文字指令：「[goal2 逾時自動採納] …請用 Bash 背景執行 `<run_command>`」 | 文字指令：「[delaylocal 逾時自動採納] …請跑 delaylocal.js --goal 後 CronCreate」 |
+| timer 的 prompt | （預設不排）開啟時：文字指令「[goal2 逾時自動採納] …請用 Bash 背景執行 `<run_command>`」 | 文字指令：「[delaylocal 逾時自動採納] …請跑 delaylocal.js --goal 後 CronCreate」 |
 | 使用者同意後 | `CronDelete` timer → Bash 背景執行 `run_command` | `CronDelete` timer → `delaylocal.js --goal` → `CronCreate(任務 cron)` |
-| 引擎何時起 | 立刻（或 timer 逾時） | 任務 cron 到點 → fire 進來的 prompt 叫 Claude 背景執行 `run_command` |
+| 引擎何時起 | propose 完立刻（或開 timer 時：同意／逾時） | 任務 cron 到點 → fire 進來的 prompt 叫 Claude 背景執行 `run_command` |
+| 終止／進度 | `goal.js --stop <run_dir>`／`--status <run_dir>` | `delaylocal.js --stop <run_dir>`／`--status <run_dir>` |
 | 任務 cron | 無 | quota 重置後 + `delaylocal.bufferSeconds`（預設 900）；session-only，另有 session 守衛 |
 | 收尾 | 主 session 讀 summary 回報（有 wtf 就套 wtf 格式）；不發 LINE | 子程序寫報告檔 + `notify-line.js` 發 LINE（選用）；主 session 再讀 summary 回報 |
 
@@ -60,19 +62,20 @@
 - **連續擋停上限**：Claude Code 對 Stop hook 連續 block 有上限（程式碼 `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP ?? 8`，超過就強制結束回合並警告）。engine.js 依設定檔 `engine.stopHookBlockCap` 設此環境變數給子程序，**預設 0＝不設上限**。
 - **`durable` 無效**：CronCreate 的 `durable` 參數由遠端旗標控制、目前關閉（工具 schema 明寫「Has no effect — all jobs are session-only」；六月與現在皆如此）。排程只活在本 Claude Code process。
 - **到點時 REPL 忙碌**（Claude 在跑、或使用者剛送出訊息）→ 排程器等下一個 idle 再 fire、不會漏掉（依 CronCreate 工具說明）。
+- **長任務與上下文壓縮**：引擎的完成條件存在 app state（`activeGoal`＋session 級 Stop hook），壓縮不影響驗收；會流失的是任務細節與進度。goal2 三層錨定：① `anchor.md` 以 `--append-system-prompt-file` 進系統提示（每回合重送）；② `progress.md` 進度帳本（引擎 prompt 規定里程碑更新、壓縮後先讀）；③ `hooks/compact-anchor.js` 以 `--settings` 只掛在該子程序的 SessionStart(compact)，壓縮後把 ①＋② 注回。`engine.autocompact` 可把壓縮視窗調到 100k–1M tokens。summary 的 `compactions`／`anchor_injections` 回報這兩件事發生了幾次。**實測**（2.1.268）：autocompact=100000、每回合 25KB 輸出 → 3 次壓縮、3 次注回、壓縮後從帳本接續零重做，但第 3 次後被 Claude Code 的 `rapid_refill_breaker` 熔斷（壓縮空轉保護）；autocompact 別設太小、大檔分小塊讀。
 
 ## 5. 兩層時間別混淆（弱模型最常錯的點）
 
 | 層 | `goal` skill | `delaylocal` skill |
 |---|---|---|
 | 第 1 層＝引擎何時起 | 使用者同意當下（或 timer 逾時） | 任務 cron 到點（quota 重置後 + 緩衝） |
-| 第 2 層＝propose 確認逾時 | 確認 timer（預設 1 分，逾時就起引擎） | 確認 timer（預設 10 分，逾時就排任務 cron），與第 1 層是**不同的 job** |
+| 第 2 層＝propose 確認逾時 | 預設沒有（直接起）；設 ≥1 分才有確認 timer | 確認 timer（預設 10 分，逾時就排任務 cron），與第 1 層是**不同的 job** |
 
 delaylocal 的 fast-path 與 plain 模式**沒有**第 2 層，也不起子程序。
 
 ## 6. 回報紀律
 
 - 只回報固定欄位（各 SKILL.md 列的那幾項），格式固定。
-- 引擎結束後的回報要含 `goal_achieved`、`continuations`、`num_turns`、`result_text`（**原文保留**）、`run_dir`。
+- 引擎結束後的回報要含 `goal_achieved`、`continuations`、`compactions`、`num_turns`、`result_text`（**原文保留**）、`run_dir`；被終止的要標明 `stopped` 並說做到哪。
 - **嚴禁**在回報結尾追加「建議 / 下一步 / 要不要我改用別的方式」之類的提問或 offer。
 - 排程是時間敏感操作，任何多餘的反問都在浪費使用者的視窗。

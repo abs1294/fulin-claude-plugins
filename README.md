@@ -69,7 +69,7 @@ monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建�
 |--------|------|----------|
 | **git-commit** | 並行審查模式的 Git Commit 流程（使用者確認 message + Codex + code-reviewer 三軌）→ commit → push | Codex CLI（缺則該軌略過） |
 | **qa-webwright** | webwright 驅動的 QA 測試框架：QA Agent 設計測試計畫，主 Agent code-as-action 執行 + 截圖自我驗證 | webwright plugin + `playwright install firefox`，詳 `plugins/qa-webwright/README.md` |
-| **goal2** | goal 引擎啟動器＋quota 排程，兩個 skill：**goal**（推導可測量完成條件→確認或逾時自動採納→以 claude -p 子程序跑官方 /goal 引擎做到完成）；**delaylocal**（排到 5h quota 重置後無人值守執行，完成發 LINE）。plugin 名取 goal2 以避開內建 /goal | Node.js；LINE 憑證放本機（不進 git），詳 `plugins/goal2/README.md` |
+| **goal2** | goal 引擎啟動器＋quota 排程，兩個 skill：**goal**（推導可測量完成條件→確認或逾時自動採納→以 claude -p 子程序跑官方 /goal 引擎做到完成，長任務壓縮不忘目標、可終止）；**delaylocal**（排到 5h quota 重置後無人值守執行，完成發 LINE）。plugin 名取 goal2 以避開內建 /goal | Node.js；LINE 憑證放本機（不進 git），詳 `plugins/goal2/README.md` |
 | **supplier-agents** | Winbond 供應商平台 DDD 開發 agent 組（backend-architect/engineer、frontend-engineer、code-reviewer、qa-engineer，共 5 個 agent） | 無（裝了 plugin 即自動載入其 agents） |
 | **red-blue-review** | 中文紅藍對抗：對任何命題（決策/架構/程式碼/plugin配置/文件…）做 Red 攻→Blue 守→收斂的對抗式壓力測試，產出強化版 + go/no-go。說「紅藍對抗 X」即觸發 | 無 |
 | **self-heal** | 降低並自動接力 tool call 失敗：每輪注入 XML 收尾提醒 hook + self-heal scheduler 接力規約（卡住自己續、完成則終止） | 無 |

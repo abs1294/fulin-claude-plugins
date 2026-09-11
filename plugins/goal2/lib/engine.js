@@ -28,20 +28,59 @@ function ts14() {
 }
 
 /**
- * 建立 run 目錄並落地 prompt。
- * @param {{ skill: 'goal'|'delaylocal', prompt: string, cwd: string, meta?: object }} o
- * @returns {{ runDir: string, promptPath: string, metaPath: string, runId: string }}
+ * 進度帳本規則（放進 anchor.md 與引擎 prompt，兩邊同一份文字）。
+ * 為什麼要帳本：長任務跑到上下文滿會自動壓縮，壓縮後 Claude 常忘記做到哪、重做或偏離。
+ * anchor.md 走系統提示（每回合重送、壓縮碰不到）保住「目標與任務」；progress.md 保住「做到哪」。
  */
-function prepareRun({ skill, prompt, cwd, meta = {} }) {
+function ledgerRules(runDir) {
+  const p = path.join(runDir, 'progress.md');
+  return `【進度帳本規則（長任務防漂移，必守）】
+- 帳本檔：${p}
+- 每完成一個里程碑（一個子任務、一個檔案、一個驗證通過）就更新帳本，格式固定三節：
+  ## 已完成（一行一項，附驗證證據或路徑）
+  ## 剩餘（一行一項，依順序）
+  ## 決策與注意（做過的取捨、別再重做的事、踩過的坑）
+- 上下文被壓縮後、或任何時候不確定「目標是什麼／做到哪」，**先讀 anchor.md 與帳本再動手**，不要憑印象猜。
+- 帳本只寫事實，不寫鋪陳；已完成的項目不要重做。`;
+}
+
+/**
+ * 組 anchor.md：放進子程序系統提示的錨（完成條件 + 任務全文 + 帳本規則）。
+ */
+function buildAnchor({ condition, task, runDir, extra = '' }) {
+  return `# goal2 錨定（本區塊在系統提示中，每回合重送、上下文壓縮也不會消失）
+
+## 完成條件（引擎據此驗收；達成才准停）
+${condition}
+
+## 任務全文
+${task}
+${extra ? `\n## 補充\n${extra}\n` : ''}
+${ledgerRules(runDir)}
+`;
+}
+
+/**
+ * 建立 run 目錄並落地 prompt / anchor / 帳本模板。
+ * @param {{ skill: 'goal'|'delaylocal', prompt: string, cwd: string, meta?: object, anchor?: string }} o
+ * @returns {{ runDir: string, promptPath: string, metaPath: string, anchorPath: string, progressPath: string, runId: string }}
+ */
+function prepareRun({ skill, prompt, cwd, meta = {}, anchor = null }) {
   if (!prompt.startsWith('/goal ')) throw new Error('prepareRun: prompt 第一行必須以 "/goal " 開頭');
   const runId = `${ts14()}-${skill}-${Math.random().toString(16).slice(2, 6)}`;
   const runDir = path.join(RUNS_DIR, runId);
   fs.mkdirSync(runDir, { recursive: true });
   const promptPath = path.join(runDir, 'prompt.txt');
   const metaPath = path.join(runDir, 'meta.json');
-  fs.writeFileSync(promptPath, prompt, 'utf8');
-  fs.writeFileSync(metaPath, JSON.stringify({ runId, skill, cwd, createdAt: new Date().toISOString(), status: 'prepared', ...meta }, null, 2) + '\n');
-  return { runDir, promptPath, metaPath, runId };
+  const anchorPath = path.join(runDir, 'anchor.md');
+  const progressPath = path.join(runDir, 'progress.md');
+  // prompt 內的 <RUN_DIR> 佔位換成真實路徑（呼叫端組 prompt 時還不知道 runDir）
+  const finalPrompt = prompt.split('<RUN_DIR>').join(runDir);
+  fs.writeFileSync(promptPath, finalPrompt, 'utf8');
+  if (anchor) fs.writeFileSync(anchorPath, anchor.split('<RUN_DIR>').join(runDir), 'utf8');
+  fs.writeFileSync(progressPath, `# 進度帳本（${runId}）\n\n## 已完成\n（尚無）\n\n## 剩餘\n（開工時依任務拆解填入）\n\n## 決策與注意\n（無）\n`, 'utf8');
+  fs.writeFileSync(metaPath, JSON.stringify({ runId, skill, cwd, createdAt: new Date().toISOString(), status: 'prepared', hasAnchor: !!anchor, ...meta }, null, 2) + '\n');
+  return { runDir, promptPath, metaPath, anchorPath, progressPath, runId };
 }
 
 function readMeta(runDir) {
@@ -71,6 +110,8 @@ function summarizeStream(streamPath) {
   const out = {
     goal_set: false,            // stream 裡看到引擎回「Goal set: …」
     continuations: 0,           // 引擎擋停、要求繼續的次數（"Stop hook feedback" 使用者訊息）
+    compactions: 0,             // 上下文壓縮次數（system 事件 subtype 含 compact）
+    anchor_injections: 0,       // 壓縮後 compact-anchor hook 成功注回錨定的次數
     num_turns: null,
     result_subtype: null,       // success | error_* …
     is_error: null,
@@ -85,6 +126,8 @@ function summarizeStream(streamPath) {
   for (const l of lines) {
     let o; try { o = JSON.parse(l); } catch (_) { continue; }
     if (o.type === 'system' && o.subtype === 'init') out.session_id = o.session_id || out.session_id;
+    if (o.type === 'system' && /compact/i.test(o.subtype || '') && !/hook/.test(o.subtype || '')) out.compactions++;
+    if (o.type === 'system' && o.subtype === 'hook_response' && /goal2 壓縮後錨定/.test(String(o.output || o.stdout || ''))) out.anchor_injections++;
     if (o.type === 'assistant') {
       for (const c of (o.message && o.message.content) || []) {
         if (c.type === 'text' && /^Goal set: /.test(c.text)) out.goal_set = true;
@@ -125,14 +168,29 @@ function runEngine(runDir, engine) {
 
   const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--permission-mode', engine.permissionMode];
   if (engine.model) args.push('--model', engine.model);
+  if (Number.isInteger(engine.autocompact)) args.push('--autocompact', String(engine.autocompact));
+
+  // 長任務防漂移三層：
+  //  ① anchor.md 進系統提示（每回合重送，壓縮碰不到）
+  const anchorPath = path.join(runDir, 'anchor.md');
+  const hasAnchor = fs.existsSync(anchorPath);
+  if (hasAnchor) args.push('--append-system-prompt-file', anchorPath);
+  //  ③ 只對這個子程序掛 SessionStart(compact) hook，壓縮後把 anchor + 帳本注回（fail-open）
+  const hookScript = path.join(__dirname, '..', 'hooks', 'compact-anchor.js');
+  if (hasAnchor && fs.existsSync(hookScript)) {
+    const hookSettings = { hooks: { SessionStart: [{ matcher: 'compact', hooks: [{ type: 'command', command: `node "${hookScript}"`, timeout: 15 }] }] } };
+    args.push('--settings', JSON.stringify(hookSettings));
+  }
+  //  ② 帳本規則在 anchor 與 prompt 內，由 Claude 執行
 
   const env = { ...process.env };
   delete env.CLAUDECODE;                       // 避免子程序被當成巢狀 session
   env.MSYS_NO_PATHCONV = '1';                  // 保險：即使經 shell 也不轉 /goal
   env.CLAUDE_CODE_STOP_HOOK_BLOCK_CAP = String(engine.stopHookBlockCap);
+  env.GOAL2_RUN_DIR = runDir;                  // compact-anchor hook 靠它找 run 目錄
 
   const startedAt = new Date().toISOString();
-  writeMeta(runDir, { ...meta, status: 'running', startedAt, permissionMode: engine.permissionMode, stopHookBlockCap: engine.stopHookBlockCap, model: engine.model || null });
+  writeMeta(runDir, { ...meta, status: 'running', startedAt, permissionMode: engine.permissionMode, stopHookBlockCap: engine.stopHookBlockCap, model: engine.model || null, autocompact: engine.autocompact, anchorInSystemPrompt: hasAnchor });
 
   return new Promise((resolve) => {
     const outFd = fs.openSync(streamPath, 'w');
@@ -147,6 +205,8 @@ function runEngine(runDir, engine) {
       fs.writeFileSync(resultPath, JSON.stringify(summary, null, 2) + '\n');
       return resolve(summary);
     }
+    // 記 PID：goal.js --stop / --status 靠它殺程序樹、看還活著沒
+    try { writeMeta(runDir, { ...readMeta(runDir), pid: child.pid, runnerPid: process.pid }); } catch (_) {}
     child.on('error', (e) => {
       fs.writeFileSync(stderrPath, `spawn error: ${e.message}\n`, { flag: 'a' });
     });
@@ -166,6 +226,9 @@ function runEngine(runDir, engine) {
         goal_set: s.goal_set,
         goal_achieved: achieved,     // 引擎有設目標且正常結束 = 達成（引擎達成才會放行結束）
         continuations: s.continuations,
+        compactions: s.compactions,
+        anchor_injections: s.anchor_injections,
+        progress_path: path.join(runDir, 'progress.md'),
         num_turns: s.num_turns,
         result_subtype: s.result_subtype,
         terminal_reason: s.terminal_reason,
@@ -179,11 +242,68 @@ function runEngine(runDir, engine) {
         stderr_tail: stderr ? stderr.slice(-800) : '',
         stream_path: streamPath
       };
-      writeMeta(runDir, { ...readMeta(runDir), status: summary.ok ? 'done' : 'failed', endedAt, exitCode: code });
+      const prev = readMeta(runDir);
+      // 若是被 --stop 殺掉的，保留 stopped 狀態，不要蓋成 failed
+      const status = prev.status === 'stopped' ? 'stopped' : (summary.ok ? 'done' : 'failed');
+      if (status === 'stopped') { summary.ok = false; summary.stopped = true; summary.goal_achieved = false; }
+      writeMeta(runDir, { ...prev, status, endedAt, exitCode: code });
       fs.writeFileSync(resultPath, JSON.stringify(summary, null, 2) + '\n');
       resolve(summary);
     });
   });
+}
+
+/** 程序還活著嗎（不送訊號，只探測） */
+function isAlive(pid) {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
+/** 殺掉整棵程序樹（Windows 用 taskkill /T，其餘用 kill 群組 + 本體） */
+function killTree(pid) {
+  const { spawnSync } = require('child_process');
+  if (process.platform === 'win32') {
+    const r = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { encoding: 'utf8', windowsHide: true });
+    return { ok: r.status === 0, detail: (r.stdout || '') + (r.stderr || '') };
+  }
+  let ok = false, detail = '';
+  try { process.kill(-pid, 'SIGTERM'); ok = true; } catch (e) { detail += `group: ${e.message}; `; }
+  try { process.kill(pid, 'SIGTERM'); ok = true; } catch (e) { detail += `pid: ${e.message}; `; }
+  return { ok, detail };
+}
+
+/**
+ * 終止一個進行中的 run：殺子程序樹（claude -p 與它的工具子程序），meta 標 stopped。
+ * runner（goal.js --run 那個 node）會因 child close 事件正常收尾並寫 result.json。
+ */
+function stopRun(runDir) {
+  const meta = readMeta(runDir);
+  const out = { run_dir: runDir, run_id: meta.runId, previous_status: meta.status, pid: meta.pid || null };
+  if (meta.status !== 'running') return { ...out, ok: false, error: `run 不在執行中（status=${meta.status}），沒有東西可終止` };
+  if (!meta.pid) return { ...out, ok: false, error: 'meta.json 沒有 pid（可能是舊版準備的 run），請手動找 claude 子程序終止' };
+  if (!isAlive(meta.pid)) {
+    writeMeta(runDir, { ...meta, status: 'stopped', stoppedAt: new Date().toISOString(), stopNote: 'pid 已不存在' });
+    return { ...out, ok: true, note: '子程序早已結束，僅更新狀態為 stopped' };
+  }
+  writeMeta(runDir, { ...meta, status: 'stopped', stoppedAt: new Date().toISOString() }); // 先標，讓 runner 的 close 不會蓋成 failed
+  const k = killTree(meta.pid);
+  const deadline = Date.now() + 5000;
+  while (isAlive(meta.pid) && Date.now() < deadline) { const t = Date.now() + 100; while (Date.now() < t) {} }
+  const alive = isAlive(meta.pid);
+  return { ...out, ok: !alive, killed: !alive, kill_detail: k.detail.trim(), note: alive ? '5 秒後程序仍在，請手動終止' : '子程序樹已終止；進度帳本與 stream.jsonl 保留在 run 目錄' };
+}
+
+/** 讀一個 run 的即時狀態（不阻塞） */
+function runStatus(runDir) {
+  const meta = readMeta(runDir);
+  const s = summarizeStream(path.join(runDir, 'stream.jsonl'));
+  let progress = ''; try { progress = fs.readFileSync(path.join(runDir, 'progress.md'), 'utf8'); } catch (_) {}
+  return {
+    ok: true, run_dir: runDir, run_id: meta.runId, skill: meta.skill, status: meta.status,
+    pid: meta.pid || null, alive: isAlive(meta.pid), started_at: meta.startedAt || null, ended_at: meta.endedAt || null,
+    goal_set: s.goal_set, continuations: s.continuations, compactions: s.compactions, anchor_injections: s.anchor_injections,
+    num_turns: s.num_turns, progress_md: progress
+  };
 }
 
 /** 偵測 wtf plugin（重講紀律）：找 plugin cache 裡最新版的 skills/wtf，回 SKILL.md 路徑與 terminalWidth */
@@ -208,4 +328,4 @@ function detectWtf() {
   return best || { installed: false };
 }
 
-module.exports = { prepareRun, runEngine, summarizeStream, locateClaude, detectWtf, readMeta };
+module.exports = { prepareRun, runEngine, stopRun, runStatus, summarizeStream, locateClaude, detectWtf, readMeta, buildAnchor, ledgerRules };

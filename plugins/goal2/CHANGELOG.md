@@ -2,6 +2,16 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.3.0] - 2026-09-11
+### Added
+- **長任務壓縮防漂移（三層錨定）**：子程序上下文滿了自動壓縮後常忘記目標或做到哪。現在 ① `anchor.md`（完成條件＋任務全文＋帳本規則）以 `--append-system-prompt-file` 放進子程序**系統提示**，每回合重送、壓縮碰不到；② `progress.md` 進度帳本：引擎 prompt 規定開工先拆里程碑、每完成一項搬到「已完成」附證據、壓縮後先讀再動手；③ `hooks/compact-anchor.js`：engine.js 用 `--settings` 只對該子程序掛 SessionStart（matcher `compact`）hook，壓縮一結束把 ①＋② 以 additionalContext 注回，並記 `compact-log.txt`；非 compact／無 `GOAL2_RUN_DIR`／任何錯誤一律靜默放行。**實測**（2.1.268，24 段 × 8KB、autocompact=100000）：6 次壓縮、6 次注回、24 段依序零重印、24 個 secret 全對、引擎正常達成。summary 新增 `compactions`、`anchor_injections`、`progress_path`。
+- **`--stop <run_dir>`／`--status <run_dir>`**（goal.js 與 delaylocal.js 皆有）：engine.js 把子程序 PID 記進 meta.json；`--stop` 殺整棵程序樹（Windows `taskkill /T /F`、其他平台 kill 群組）、meta 標 `stopped`，runner 收尾時 summary 帶 `stopped: true`，帳本與 stream.jsonl 保留；`--status` 不阻塞地回 status／alive／壓縮次數／帳本原文。實測：90 秒任務起跑後 --stop，11 個子孫程序全部終止、目標檔未被寫。準備輸出 JSON 新增 `stop_command`、`status_command`。
+- **`engine.autocompact`** 設定：`auto` 或 100000–1000000 tokens。⚠️ 設太小加上大塊工具輸出會觸發 Claude Code 的壓縮空轉熔斷（`terminal_reason: rapid_refill_breaker`，實測 autocompact=100000＋每回合 25KB 時第 3 次壓縮後終止）；summary 的 `terminal_reason` 會回報。
+### Changed
+- **goal skill 預設直接啟動、不等確認**：`goal.confirmTimeoutMinutes` 預設由 1 改為 **0**＝propose 印給使用者後立刻背景起引擎（隨時 `--stop`）；設 ≥1 才走確認 timer。準備輸出多 `start_mode`（`direct`／`confirm-timer`），direct 時 `confirm_timer_*` 為 null。delaylocal 流程不變（仍走 10 分鐘 timer）。
+- 引擎 prompt 工作清單改為 ①開工拆里程碑進帳本 ②執行任務 ③收尾（goal：補帳本＋簡短回報；delaylocal：補帳本＋寫報告＋LINE）。
+- ⚠️ **升級順序**：設定檔驗證是嚴格的，舊版 0.2.x 不認識 `engine.autocompact`、也不接受 `goal.confirmTimeoutMinutes: 0`，會直接報錯罷工。請**先升級到 0.3.0 再改設定檔**。
+
 ## [0.2.1] - 2026-09-11
 ### Fixed
 - goal skill 回報：未裝 wtf plugin 時結尾提示可安裝 wtf 以取得精簡表格式回報
