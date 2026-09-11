@@ -45,16 +45,29 @@ function ledgerRules(runDir) {
 }
 
 /**
- * 組 anchor.md：放進子程序系統提示的錨（完成條件 + 任務全文 + 帳本規則）。
+ * 組 anchor.md：放進子程序系統提示的錨。
+ * /goal prompt 本身受 4000 字元限制（-p 路徑整段都算），所以任務全文、工作清單、報告格式、帳本規則全都放這裡。
+ * @param {{ condition: string, conditionOverflow?: boolean, task: string, workList: string, runDir: string, extra?: string }} o
+ *   conditionOverflow 為 true 時，/goal 第一行只放指針句，這裡的「完成條件全文」就是檢查器要對的清單，
+ *   並要求引擎第一則回覆先把它貼進對話。
  */
-function buildAnchor({ condition, task, runDir, extra = '' }) {
+function buildAnchor({ condition, conditionOverflow = false, task, workList, runDir, extra = '' }) {
+  const condSection = conditionOverflow
+    ? `## 完成條件全文（/goal 第一行因 4000 字元上限只放指針句；引擎據此逐項驗收）
+${condition}
+
+⚠️ 你的第一則回覆必須先把上面「完成條件全文」逐項原文貼出，再開始做事——檢查器要在對話裡看得到它。`
+    : `## 完成條件（引擎據此驗收；達成才准停）
+${condition}`;
   return `# goal2 錨定（本區塊在系統提示中，每回合重送、上下文壓縮也不會消失）
 
-## 完成條件（引擎據此驗收；達成才准停）
-${condition}
+${condSection}
 
 ## 任務全文
 ${task}
+
+## 工作清單（依序）
+${workList}
 ${extra ? `\n## 補充\n${extra}\n` : ''}
 ${ledgerRules(runDir)}
 `;
@@ -65,8 +78,12 @@ ${ledgerRules(runDir)}
  * @param {{ skill: 'goal'|'delaylocal', prompt: string, cwd: string, meta?: object, anchor?: string }} o
  * @returns {{ runDir: string, promptPath: string, metaPath: string, anchorPath: string, progressPath: string, runId: string }}
  */
+const GOAL_PROMPT_HARD_MAX = 3900; // 與 goal-head.js 的 GOAL_PROMPT_MAX 一致；-p 路徑整段都算進條件
 function prepareRun({ skill, prompt, cwd, meta = {}, anchor = null }) {
   if (!prompt.startsWith('/goal ')) throw new Error('prepareRun: prompt 第一行必須以 "/goal " 開頭');
+  if (prompt.length > GOAL_PROMPT_HARD_MAX) {
+    throw new Error(`prepareRun: /goal prompt 共 ${prompt.length} 字，超過 ${GOAL_PROMPT_HARD_MAX}（Claude Code 在 claude -p 下把 /goal 後整段都算進 4000 字元上限）。任務全文與工作清單應放 anchor.md，不要塞進 prompt。`);
+  }
   const runId = `${ts14()}-${skill}-${Math.random().toString(16).slice(2, 6)}`;
   const runDir = path.join(RUNS_DIR, runId);
   fs.mkdirSync(runDir, { recursive: true });
@@ -109,6 +126,7 @@ function locateClaude() {
 function summarizeStream(streamPath) {
   const out = {
     goal_set: false,            // stream 裡看到引擎回「Goal set: …」
+    goal_error: null,           // 引擎拒收目標的訊息（例：Goal condition is limited to 4000 characters (got N)）
     continuations: 0,           // 引擎擋停、要求繼續的次數（"Stop hook feedback" 使用者訊息）
     compactions: 0,             // 上下文壓縮次數（system 事件 subtype 含 compact）
     anchor_injections: 0,       // 壓縮後 compact-anchor hook 成功注回錨定的次數
@@ -131,8 +149,10 @@ function summarizeStream(streamPath) {
     if (o.type === 'assistant') {
       for (const c of (o.message && o.message.content) || []) {
         if (c.type === 'text' && /^Goal set: /.test(c.text)) out.goal_set = true;
+        if (c.type === 'text') { const m = c.text.match(/Goal condition is limited to \d+ characters[^\n<]*/); if (m) out.goal_error = m[0]; }
       }
     }
+    if (o.type === 'result' && typeof o.result === 'string') { const m = o.result.match(/Goal condition is limited to \d+ characters[^\n<]*/); if (m) out.goal_error = m[0]; }
     if (o.type === 'user') {
       const c = o.message && o.message.content;
       const txt = typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => x.text || '').join('') : '';
@@ -165,6 +185,7 @@ function runEngine(runDir, engine) {
   const resultPath = path.join(runDir, 'result.json');
   const prompt = fs.readFileSync(promptPath, 'utf8');
   if (!prompt.startsWith('/goal ')) throw new Error(`runEngine: ${promptPath} 第一行不是 /goal，拒絕執行`);
+  if (prompt.length > GOAL_PROMPT_HARD_MAX) throw new Error(`runEngine: ${promptPath} 共 ${prompt.length} 字，超過 ${GOAL_PROMPT_HARD_MAX}——Claude Code 會以「Goal condition is limited to 4000 characters」拒收（-p 路徑整段都算）。請縮短完成條件或 tail；任務全文應在 anchor.md。`);
 
   const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--permission-mode', engine.permissionMode];
   if (engine.model) args.push('--model', engine.model);
@@ -215,9 +236,11 @@ function runEngine(runDir, engine) {
       const s = summarizeStream(streamPath);
       let stderr = ''; try { stderr = fs.readFileSync(stderrPath, 'utf8').trim(); } catch (_) {}
       const endedAt = new Date().toISOString();
-      const achieved = s.goal_set && s.result_subtype === 'success' && !s.is_error;
+      const achieved = s.goal_set && !s.goal_error && s.result_subtype === 'success' && !s.is_error;
       const summary = {
-        ok: code === 0 && s.result_subtype === 'success',
+        ok: code === 0 && s.result_subtype === 'success' && !s.goal_error,
+        error: s.goal_error ? `引擎拒收目標：${s.goal_error}（/goal prompt 整段超過 4000 字元；這版工具已把任務與工作清單移到 anchor.md，若仍出現代表條件本身或 tail 太長）` : undefined,
+        goal_error: s.goal_error,
         run_dir: runDir,
         run_id: meta.runId,
         skill: meta.skill,

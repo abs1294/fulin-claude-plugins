@@ -9,7 +9,7 @@ description: 當使用者要「把一段 prompt 排程到 5 小時 quota 重置�
 
 確定性邏輯全在工具裡，skill 只負責「呼叫工具 → 拿結果 → CronCreate」，不靠 AI 即興。
 
-- `delaylocal.js`：鎖定**當前 session**（讀 `CLAUDE_CODE_SESSION_ID`）的 5h quota 重置時間。goal 模式（預設）：排程時就把引擎 prompt（`/goal <條件>；已發 LINE` + 任務 + 報告 + notify）落到 `~/.claude/goal2/runs/<id>/prompt.txt`，cron 的 final_prompt 只做「session 守衛 → 叫 Claude 背景執行 `delaylocal.js --run <run_dir>`」；到點後 `--run` 起子程序 `claude -p "/goal …"` 跑官方引擎到達成。plain 模式：final_prompt 內建「session 守衛 + 無人值守文字紀律 + 任務 + LINE 通知」，不起子程序。
+- `delaylocal.js`：鎖定**當前 session**（讀 `CLAUDE_CODE_SESSION_ID`）的 5h quota 重置時間。goal 模式（預設）：排程時就把引擎 prompt（只有 `/goal <條件>；已發 LINE` 加一句指向錨定區，≤3900 字）落到 `~/.claude/goal2/runs/<id>/prompt.txt`，任務全文、工作清單、報告格式、notify 指令全進同目錄 `anchor.md`（走系統提示，不受 /goal 的 4000 字元限制），cron 的 final_prompt 只做「session 守衛 → 叫 Claude 背景執行 `delaylocal.js --run <run_dir>`」；到點後 `--run` 起子程序 `claude -p "/goal …"` 跑官方引擎到達成。plain 模式：final_prompt 內建「session 守衛 + 無人值守文字紀律 + 任務 + LINE 通知」，不起子程序。
 - **為什麼 goal 模式要繞子程序**：2.1.196 起 cron fire 的 prompt 不再解析 slash command，開頭 `/goal` 只是純文字（官方 scheduled-tasks 文件、GitHub #75837）；`claude -p "/goal …"` 是唯一入口（見 `../../lib/engine.js` 檔頭與 goal skill 的 SKILL.md）。
 - `notify-line.js`：LINE push 通知工具（node https，處理中文 / emoji）。
 
@@ -162,7 +162,7 @@ goal 是**預設模式**。通用骨架（為什麼要 propose、可測量條件
 - **無人值守（unattended）**：plain 模式的 final prompt 內建紀律——假設使用者不在線、不停下來問、持續執行直到無可執行項目、每次收尾前強制自問清單全「否」才可結束、只有真 blocker 才停。goal 模式則交給官方引擎的檢查器。
 - **goal 引擎在子程序**：/goal 引擎契約（第一行必須是 `/goal`、4000 字元上限、達成後自動清除、本質是 Stop hook）見 `../../references/goal-propose-flow.md` 第 4 節。2.1.195 時 cron 送 `/goal` 曾能啟動引擎；**2.1.196 起不再解析**（GitHub #75837），所以現在分兩層：
   - **cron 的 final_prompt**（fire 進本 session）：session 守衛 → 叫 Claude 背景執行 `delaylocal.js --run <run_dir>`。
-  - **引擎 prompt**（排程時落在 `run_dir/prompt.txt`，由 `--run` 交給 `claude -p`）：**第一行** = `/goal <完成條件>；並且已執行 notify-line.js 完成收尾通知（…）`——把「已收尾通知」**納入完成條件**：goal 達成後會自動清除、不接後續指示，唯有把這步寫進條件，引擎才會強迫做完才停（未設憑證時 notify-line.js 回 exit 0，同樣算達成、不卡）。第一行超過 3900 字元時由 `lib/goal-head.js` 換成指針句、完整條件下放步驟 0。工作清單 = ①開工先拆里程碑進帳本 ②執行任務 ③補帳本＋寫報告＋發 LINE。子程序沒有 session 守衛的問題（它就是為這個任務起的）。
+  - **引擎 prompt**（排程時落在 `run_dir/prompt.txt`，由 `--run` 交給 `claude -p`）：**第一行** = `/goal <完成條件>；並且已執行 notify-line.js 完成收尾通知（…）`——把「已收尾通知」**納入完成條件**：goal 達成後會自動清除、不接後續指示，唯有把這步寫進條件，引擎才會強迫做完才停（未設憑證時 notify-line.js 回 exit 0，同樣算達成、不卡）。⚠️ -p 路徑下 4000 字元上限算的是**整段 prompt**（2026-09-12 實測），所以任務、工作清單、報告格式一律在 anchor.md；條件本身超長時 `lib/goal-head.js` 把第一行換成指針句、全文放 anchor「完成條件全文」並要求引擎第一則回覆先貼出。工作清單（在 anchor）= ①開工先拆里程碑進帳本 ②執行任務 ③補帳本＋寫報告＋發 LINE。子程序沒有 session 守衛的問題（它就是為這個任務起的）。
   - **長任務防漂移**：`anchor.md`（條件＋任務＋帳本規則）進子程序系統提示、`progress.md` 帳本邊做邊更新、SessionStart(compact) hook 壓縮後注回——與 goal skill 同一套，細節見 goal skill 的 SKILL.md「運作原理」與 references 第 4 節。
 - **為什麼 goal 要先 propose**：見 references 第 1 節。無法定義可測量條件的少數任務，才加 `--plain` 退回文字版紀律（不需條件、跳過 propose）。
 - **LINE 通知（選用）**：final prompt 結尾呼叫 `notify-line.js` 嘗試發總結；未設憑證則自動略過、不影響完成。

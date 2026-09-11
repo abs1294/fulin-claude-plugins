@@ -2,6 +2,12 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.3.2] - 2026-09-11
+### Fixed
+- **/goal 4000 字元上限判準錯誤（真 bug，使用者實際踩到 got 12511）**：`goal-head.js` 只量第一行，但 Claude Code 在 `claude -p` 路徑把 `/goal` 後的**整段 prompt**（工作清單、任務、帳本規則）都算進完成條件，超過就 0 回合退場。實測：第一行 156 字、整段 6368 字 → `Goal condition is limited to 4000 characters (got 6361)`；同 prompt 砍到 2958 字 → Goal set。（2.1.195 互動模式只算第一行，0.1.3 的「下放步驟 0」因此曾有效；-p 不行。）修法：`/goal` prompt 只放「條件（含 tail）＋一句指向錨定區」，任務全文、工作清單、報告格式、帳本規則全移到 `anchor.md`（`--append-system-prompt-file`，不受限）；`goal-head.js`／`engine.prepareRun`／`runEngine` 對整段 prompt 做 ≤3900 硬檢查，超過直接報錯不起子程序。條件本身超長 → 第一行換指針句「已逐項達成本 run 錨定區「完成條件全文」…」、全文放 anchor 並要求引擎第一則回覆先貼進對話（檢查器看得到）。實測 11.5KB 任務：prompt 243 字、Goal set、達成。
+- **引擎拒收可見**：summary 新增 `goal_error`（例：`Goal condition is limited to 4000 characters (got N)`），此時 `ok:false`、`goal_set:false`、`error` 帶說明，不再只看到 num_turns 0。
+- 準備輸出 JSON 新增 `goal_prompt_length`。
+
 ## [0.3.1] - 2026-09-11
 ### Changed
 - **`--status` 看得懂了**：新增 `last_text`（引擎最後一句）、`last_tool`（最後一個工具動作，單行）、`last_event_at`、`assistant_messages`，以及一行白話 `summary_zh`（例：「進行中；目前 8 則回覆；被檢查器擋停要求繼續 1 次；上下文壓縮 2 次、錨定注回 2 次；最後一個動作：Bash：…；最後一句：「…」」）。兩份 SKILL.md 規定回報進度時第一句直接用 summary_zh、再貼帳本，**不准把 JSON 欄位丟給使用者**，並附欄位白話對照表（status 五種值、alive、num_turns、continuations、compactions／anchor_injections、last_*）。

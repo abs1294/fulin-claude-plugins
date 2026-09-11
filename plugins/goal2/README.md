@@ -39,7 +39,7 @@
 - **`delaylocal.js`**：讀 `CLAUDE_CODE_SESSION_ID` 鎖定當前 session 的 5h quota 重置時間。排程時就把引擎 prompt（`/goal <條件>；已發 LINE` + 任務 + 寫報告 + `notify-line.js`）落到 run 目錄；cron 的 prompt 只做「session 守衛 → 叫 Claude 背景執行 `delaylocal.js --run`」。「已嘗試發 LINE」寫進完成條件，引擎才不會在通知前提早結束。
 - **連續擋停上限**：`/goal` 本質是 Stop hook，Claude Code 預設連續 8 次擋停就放棄；設定檔 `engine.stopHookBlockCap` 預設 0 = 不設上限，做到達成為止。
 - **長任務不忘目標**：上下文滿了會自動壓縮，壓縮後 Claude 常忘記最初目標或做到哪。goal2 三層錨定：`anchor.md`（條件＋任務＋帳本規則）放進子程序的系統提示，每回合重送、壓縮碰不到；`progress.md` 進度帳本邊做邊更新；壓縮一結束由只掛在該子程序的 SessionStart(compact) hook 把兩者注回。引擎自己的完成條件也存在對話之外，做不到就停不下來。run 目錄裡的 `progress.md` 隨時能看它做到哪。
-- **4000 字元上限**：`/goal` 條件超過會卡死引擎。`lib/goal-head.js` 統一處理——第一行 ≤ 3900 照放，超過則換指針句、完整條件下放工作清單步驟 0。
+- **4000 字元上限（整段 prompt 都算）**：`claude -p` 路徑下 `/goal` 後面整段文字都算進條件長度，超過就 0 回合退場。所以 goal2 只把「條件＋一句指向錨定區」放進 prompt（≤3900，工具硬檢查），任務全文、工作清單、報告格式都走 anchor.md 的系統提示；條件本身太長就換指針句、全文放 anchor 並要引擎第一則回覆先貼出。
 
 ## 設定（選用）
 

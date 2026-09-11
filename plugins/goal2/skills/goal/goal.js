@@ -104,26 +104,21 @@ if (runDir) {
   if (!userPrompt) fail('任務原文為空：請用 --prompt-file <path> 或 stdin 提供要做的事。');
   if (!goalCondition || !goalCondition.trim()) fail('需提供完成條件 --goal "<可測量完成條件>"。請先把完成條件 propose 給使用者、確認（或逾時採納）後再準備。');
 
-  // 第一行 = /goal <完成條件>（3900 門檻 / 指針句 / 步驟 0 下放的邏輯在 lib/goal-head.js，與 delaylocal 共用）。
-  // 無 tail：本 skill 沒有「必做收尾」要納入條件（不發 LINE；最終回報由主 session 依 SKILL 步驟做）。
-  const { goalLine, goalFullBlock, overflow, length } = buildGoalHead({ condition: goalCondition });
+  // /goal prompt 只放「條件＋指向錨定區的一句」（-p 路徑整段都算進 4000 字元上限，見 lib/goal-head.js 檔頭）。
+  // 任務全文、工作清單、帳本規則全在 anchor.md（系統提示）。無 tail：本 skill 沒有「必做收尾」要納入條件。
+  let head;
+  try { head = buildGoalHead({ condition: goalCondition }); } catch (e) { fail(e.message); }
+  const { goalPrompt: finalPrompt, overflow, length, conditionForAnchor } = head;
 
-  const finalPrompt = `${goalLine}
-
-（上面第一行是 goal 完成條件。下面是達成它要依序完成的工作清單，當作你的執行指引；全程繁體中文、無人值守：不停下來問使用者、需要決定時自己選風險最小做法、做到完成。）
-
-工作清單（依序）：
-${goalFullBlock}1. [開工] 先把任務拆成里程碑寫進進度帳本的「剩餘」節（帳本路徑見下方規則），再開始做。
-2. [執行任務] 完成以下任務（持續做到完成；遇真正 blocker 先把其餘能做的做完再記錄）：
-${userPrompt}
-3. [收尾] 完成條件達成後，把帳本「剩餘」清空、「已完成」補齊；最後一則回覆只寫一段簡短文字：做了什麼、怎麼驗證的（附實際指令輸出或檔案內容）、未完成項（沒有就寫「無」）。這段會被主 session 讀取當成最終回報素材。不要追加任何提問或 offer。
-
-${ledgerRules('<RUN_DIR>')}
-（完成條件與任務全文另存於 <RUN_DIR>/anchor.md，且已放進你的系統提示；上下文被壓縮後仍在，以它為準。）`;
+  const workList = `1. [開工] 先把任務拆成里程碑寫進進度帳本的「剩餘」節，再開始做。${overflow ? '（開工前先照上方要求把「完成條件全文」貼進第一則回覆。）' : ''}
+2. [執行任務] 完成「任務全文」（持續做到完成；遇真正 blocker 先把其餘能做的做完再記錄）。全程繁體中文、無人值守：不停下來問使用者、需要決定時自己選風險最小做法。
+3. [收尾] 完成條件達成後，把帳本「剩餘」清空、「已完成」補齊；最後一則回覆只寫一段簡短文字：做了什麼、怎麼驗證的（附實際指令輸出或檔案內容）、未完成項（沒有就寫「無」）。這段會被主 session 讀取當成最終回報素材。不要追加任何提問或 offer。`;
 
   const cwd = process.cwd();
-  const anchor = buildAnchor({ condition: goalCondition, task: userPrompt, runDir: '<RUN_DIR>' });
-  const { runDir: rd, runId, promptPath } = prepareRun({ skill: 'goal', prompt: finalPrompt, cwd, anchor, meta: { condition: goalCondition, overflow } });
+  const anchor = buildAnchor({ condition: goalCondition, conditionOverflow: overflow, task: userPrompt, workList, runDir: '<RUN_DIR>' });
+  let prepared;
+  try { prepared = prepareRun({ skill: 'goal', prompt: finalPrompt, cwd, anchor, meta: { condition: goalCondition, overflow } }); } catch (e) { fail(e.message); }
+  const { runDir: rd, runId, promptPath } = prepared;
 
   // 確認逾時 timer 的 cron：現在 + confirmTimeoutMinutes，向上取整到整分（cron 是分鐘粒度，避免只剩幾秒）。
   // confirmTimeoutMinutes = 0（預設）→ 不排 timer，skill 直接背景執行 run_command；隨時可 --stop。
@@ -155,6 +150,7 @@ ${ledgerRules('<RUN_DIR>')}
     config_loaded: cfg.loaded,
     goal_overflow: overflow,
     goal_line_length: length,
+    goal_prompt_length: finalPrompt.length,
     anchor_path: path.join(rd, 'anchor.md'),
     progress_path: path.join(rd, 'progress.md'),
     final_prompt: fs.readFileSync(promptPath, 'utf8')

@@ -233,35 +233,27 @@ if (!plainMode) {
   //    - 超過 → 第一行換成固定「指針句」（指向工作清單的完成條件全文），完整 goalCondition
   //      原封不動下放到工作清單步驟 0，避免機械截斷破壞語意。
   const GOAL_TAIL = '並且已將完整報告寫入暫存檔、執行 notify-line.js 完成收尾通知（只要已「嘗試發送」即視為此步完成：有設憑證就發出、未設則自動略過；即使 API 回非 200 或 token 失效，notify-line.js 也回 exit 0，此步同樣視為完成——絕不可因為沒收到 LINE、或發送未回 200 就重試或卡住）';
-  // 3900 門檻 / 指針句 / 步驟 0 下放的邏輯在 lib/goal-head.js（與 goal skill 共用、單一來源）。
-  // pointer 沿用本 skill 原句（多了「且已完成步驟 2 的任務全部項目」），輸出與 0.1.5 逐字相同。
-  const { goalLine, goalFullBlock } = buildGoalHead({
-    condition: goalCondition,
-    tail: GOAL_TAIL,
-    pointer: '已逐項達成「工作清單步驟 0」列出的完整完成條件（每一項皆為真），且已完成步驟 2 的任務全部項目'
-  });
+  // /goal prompt 只放「條件＋tail＋指向錨定區的一句」——claude -p 路徑下整段都算進 4000 字元上限（見 lib/goal-head.js 檔頭）。
+  // 工作清單、任務全文、報告格式、帳本規則全進 anchor.md（系統提示）。
+  let head;
+  try { head = buildGoalHead({ condition: goalCondition, tail: GOAL_TAIL }); } catch (e) { fail(e.message); }
+  const { goalPrompt, overflow: goalOverflow } = head;
   // 引擎 prompt（交給 claude -p 子程序；子程序沒有 session 守衛的問題，守衛留在 cron prompt）
-  enginePrompt = `${goalLine}
-
-（上面第一行是 goal 完成條件。下面是達成它要依序完成的工作清單，當作你的執行指引；全程繁體中文、無人值守：不停下來問使用者、需要決定時自己選風險最小做法、做到完成。）
-
-工作清單（依序）：
-${goalFullBlock}1. [開工] 先把任務拆成里程碑寫進進度帳本的「剩餘」節（帳本路徑見下方規則），再開始做。
-2. [執行任務] 完成以下任務（持續做到完成；遇真正 blocker 先把其餘能做的做完再記錄）：
-${userPrompt}
+  enginePrompt = goalPrompt;
+  const workList = `1. [開工] 先把任務拆成里程碑寫進進度帳本的「剩餘」節，再開始做。${goalOverflow ? '（開工前先照上方要求把「完成條件全文」貼進第一則回覆。）' : ''}
+2. [執行任務] 完成「任務全文」（持續做到完成；遇真正 blocker 先把其餘能做的做完再記錄）。全程繁體中文、無人值守：不停下來問使用者、需要決定時自己選風險最小做法。
 3. [收尾通知] 把帳本「剩餘」清空、「已完成」補齊；把依「報告格式」填好的報告寫進 "${reportPath}"，再執行：
    cat "${reportPath}" | node "${notifyPath}"
    （notify-line.js 走 node https，自動拆多則、可帶中文/emoji。LINE 為選用：有設憑證就發出；未設則自動略過並回 exit 0、不算失敗——報告已寫入暫存檔即視為此步完成，別因為沒收到 LINE 就重試或卡住。）
-   最後一則回覆貼上報告全文（主 session 會讀取它當最終回報素材），不要追加任何提問或 offer。
+   最後一則回覆貼上報告全文（主 session 會讀取它當最終回報素材），不要追加任何提問或 offer。`;
+  const anchor = buildAnchor({
+    condition: goalCondition, conditionOverflow: goalOverflow, task: userPrompt, workList, runDir: '<RUN_DIR>',
+    extra: `報告格式（步驟 3 用，嚴格照填、不增不減）：
 
-${ledgerRules('<RUN_DIR>')}
-（完成條件與任務全文另存於 <RUN_DIR>/anchor.md，且已放進你的系統提示；上下文被壓縮後仍在，以它為準。）
-
-報告格式（步驟 3 用，嚴格照填、不增不減）：
-
-${REPORT_FORMAT}`;
-  const anchor = buildAnchor({ condition: goalCondition, task: userPrompt, runDir: '<RUN_DIR>', extra: `收尾必做：報告寫進 "${reportPath}" 後執行 cat "${reportPath}" | node "${notifyPath}"（LINE 選用，已嘗試即算完成）。` });
-  const prepared = prepareRun({ skill: 'delaylocal', prompt: enginePrompt, cwd: process.cwd(), anchor, meta: { sessionId: envId, condition: goalCondition, overflow: enginePrompt.includes('0. [完成條件全文]') } });
+${REPORT_FORMAT}`
+  });
+  let prepared;
+  try { prepared = prepareRun({ skill: 'delaylocal', prompt: enginePrompt, cwd: process.cwd(), anchor, meta: { sessionId: envId, condition: goalCondition, overflow: goalOverflow } }); } catch (e) { fail(e.message); }
   enginePrompt = fs.readFileSync(prepared.promptPath, 'utf8');
   runDirOut = prepared.runDir;
   runCommandOut = `node "${path.resolve(__filename)}" --run "${prepared.runDir}"`;

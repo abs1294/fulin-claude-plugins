@@ -24,7 +24,7 @@ description: 當使用者要「先定一條可測量完成條件、再讓 Claude
 
 - `goal.js`：**準備**（建 run 目錄、落 `/goal` prompt、anchor、帳本模板）→ **執行**（`--run <run_dir>`：起子程序、收 stream、產 summary）→ 隨時 **`--status <run_dir>`**（看進度，不阻塞）／**`--stop <run_dir>`**（殺整棵子程序樹並標 stopped）。
 - `../../lib/`：`goal-head.js`（4000 字元門檻）、`cron-time.js`、`config.js`（設定檔）、`engine.js`（子程序引擎、wtf 偵測）。**本 skill 須整個 plugin 一起安裝**，只複製 `skills/goal/` 會找不到 lib（工具會明確報錯）。
-- run 目錄：`~/.claude/goal2/runs/<時間戳-goal-隨機>/`，內含 `prompt.txt`、`anchor.md`（完成條件＋任務全文＋帳本規則，會放進子程序的系統提示）、`progress.md`（進度帳本，子程序邊做邊更新）、`meta.json`、`stream.jsonl`（子程序完整事件流）、`result.json`（summary）、`compact-log.txt`（壓縮後錨定 hook 有 fire 才出現）。要追查引擎做了什麼就看 stream.jsonl；要看它做到哪就看 progress.md。
+- run 目錄：`~/.claude/goal2/runs/<時間戳-goal-隨機>/`，內含 `prompt.txt`（只有 `/goal 條件` 加一句指向錨定區，≤3900 字）、`anchor.md`（完成條件全文＋任務全文＋工作清單＋帳本規則，會放進子程序的系統提示）、`progress.md`（進度帳本，子程序邊做邊更新）、`meta.json`、`stream.jsonl`（子程序完整事件流）、`result.json`（summary）、`compact-log.txt`（壓縮後錨定 hook 有 fire 才出現）。要追查引擎做了什麼就看 stream.jsonl；要看它做到哪就看 progress.md。
 
 > `goal.js` 與這份 `SKILL.md` **同目錄**。執行時用「本 SKILL.md 所在目錄」組出 js 絕對路徑即可。
 
@@ -113,6 +113,7 @@ CronCreate({ cron: <JSON.confirm_timer_cron>, recurring: false, durable: false,
 - **`stopHookBlockCap` 預設 0**：官方引擎預設連續 8 次擋停就放棄；無人值守要的是做到達成，所以關掉上限。要保險就在設定檔給個數字。
 - **成本**：每次 run 是一個獨立 session，任務再小也有固定開銷（實測極簡任務約 0.8 USD）；要省就設 `engine.model`。
 - **壓縮空轉熔斷（實測）**：`engine.autocompact` 設 100000 且每回合灌 25KB 工具輸出時，Claude Code 在第 3 次壓縮後以 `rapid_refill_breaker` 終止（「Autocompact is thrashing」）。這是引擎的保護，不是漂移；錨定在那三次壓縮都正常注回、沒有重做。對策：不要把 autocompact 調太小、任務裡讀大檔要分小塊、必要時提高 autocompact。
+- **4000 字元上限算的是整段 prompt，不只第一行**（2026-09-12 實測：第一行 156 字、整段 6368 字 → `Goal condition is limited to 4000 characters (got 6361)`，0 回合 0 成本就退；使用者實際踩到 got 12511）。所以 `/goal` prompt 只放條件＋一句指向錨定區，任務全文、工作清單、帳本規則全走 anchor.md 的系統提示；`lib/goal-head.js` 與 `engine.js` 對整段 prompt 做 ≤3900 硬檢查，超過直接報錯不上車。條件本身超長 → 第一行換指針句、全文放 anchor「完成條件全文」，並要求引擎第一則回覆先把它貼進對話（檢查器在對話裡看得到）。summary 若出現 `goal_error` 就是引擎拒收，`ok:false`、`goal_set:false`。
 - **長任務防漂移（上下文壓縮後不忘目標）**，三層缺一不可：
   1. `anchor.md`（完成條件＋任務全文＋帳本規則）用 `--append-system-prompt-file` 放進子程序的**系統提示**——系統提示每回合重送，壓縮只動對話紀錄，碰不到它。
   2. `progress.md` 進度帳本：引擎 prompt 規定開工先拆里程碑寫進「剩餘」、每完成一項就搬到「已完成」附證據；壓縮後或不確定時先讀 anchor 與帳本再動手。
