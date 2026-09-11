@@ -377,7 +377,12 @@ assert_no_artifacts() {
 #   - 本檔自己的 SENSITIVE_PATTERN 定義（那一行本身就列滿了要抓的字）
 # 一次 commit 同時撞到這三種，全是誤判。
 staged_added_lines() {
-  git -c color.ui=false diff --staged 2>/dev/null     | awk '/^\+/ && !/^\+\+\+/ { print substr($0, 2) }' || true
+  # 可選帶 path 參數限定範圍（analyze 用）；不帶則取全部 staged（ship 用）。
+  if [ $# -gt 0 ]; then
+    git -c color.ui=false diff --staged -- "$@" 2>/dev/null | awk '/^\+/ && !/^\+\+\+/ { print substr($0, 2) }' || true
+  else
+    git -c color.ui=false diff --staged 2>/dev/null | awk '/^\+/ && !/^\+\+\+/ { print substr($0, 2) }' || true
+  fi
 }
 
 assert_no_sensitive() {
@@ -542,11 +547,10 @@ cmd_analyze() {
       staged_paths+=("$(extract_path_from_status "$entry")")
     done
 
-    # 與 ship 的 assert_no_sensitive 一致：只掃新增行。
-    # 兩邊判準必須相同，否則會出現「analyze 報 HITS 但 ship 放行」的矛盾。
+    # 與 ship 的 assert_no_sensitive 共用同一個抽取函式——判準必須相同，
+    # 否則會出現「analyze 報 HITS 但 ship 放行」的矛盾。
     local added_output
-    added_output=$(git -c color.ui=false diff --staged -- "${staged_paths[@]}" 2>/dev/null \
-      | awk '/^\+/ && !/^\+\+\+/ { print substr($0, 2) }' || true)
+    added_output="$(staged_added_lines "${staged_paths[@]}")"
 
     local hits
     hits=$(printf '%s\n' "$added_output" | grep -E -i "$SENSITIVE_PATTERN" | head -20 || true)
@@ -769,6 +773,126 @@ EOF
 }
 
 # ------------------------------------------------------------
+# Command: audit <repo> [<range>]
+#   體檢既有 commit 的 message：空 message / 缺 Type 前綴 / Type 不合法 /
+#   超長 / 痕跡命中 / 軟清單命中。唯讀，不改動任何東西。
+#   用途：交付 patch（format-patch / bundle）或推上游前先掃一次，
+#         patch 檔內含完整 message 原文，會直接送到對方手上。
+# ------------------------------------------------------------
+
+cmd_audit() {
+  local repo="${1:-}"
+  [ -z "$repo" ] && { echo "Usage: flow.sh audit <repo> [<range>]" >&2; exit 1; }
+  assert_valid_repo "$repo"
+  local range="${2:-}"
+
+  local repo_path
+  repo_path="$(resolve_repo_path "$repo")"
+  cd "$repo_path"
+
+  # 預設範圍：有 upstream 就掃未推的，否則掃最近 20 顆
+  if [ -z "$range" ]; then
+    if git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+      range="@{u}..HEAD"
+      echo "=== audit: $repo（範圍 $range＝尚未推上遠端的 commit）==="
+    else
+      range="-20"
+      echo "=== audit: $repo（無 upstream，掃最近 20 顆）==="
+    fi
+  else
+    echo "=== audit: $repo（範圍 $range）==="
+  fi
+
+  # range 先驗證再掃——打錯的 range 會讓 git log 靜默回空，
+  # 輸出「0 顆、exit 0」與「掃過且全乾淨」無法區分，使用者會以為體檢過了。
+  if ! git -c color.ui=false log --format='%h' $range >/dev/null 2>&1; then
+    echo "ERROR: 無效的 range：$range" >&2
+    echo "       請確認分支／commit 是否存在（例：@{u}..HEAD、-20、abc123..HEAD）。" >&2
+    return 2
+  fi
+
+  local total=0 bad=0 warn=0
+  local valid_types_re
+  valid_types_re="$(printf '%s|' "${VALID_TYPES[@]}")"
+  valid_types_re="${valid_types_re%|}"
+
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    total=$((total + 1))
+    local sha subject issues
+    sha="${line%% *}"
+    subject="${line#* }"
+    issues=""
+
+    # 空 message
+    if [ -z "$subject" ] || [ "$subject" = "$sha" ]; then
+      issues="${issues}空 message；"
+    else
+      # Type 前綴
+      if ! printf '%s' "$subject" | grep -E -q "^($valid_types_re): "; then
+        if printf '%s' "$subject" | grep -E -q '^[A-Za-z]+: '; then
+          issues="${issues}Type 不在允許清單；"
+        else
+          issues="${issues}缺 Type 前綴；"
+        fi
+      fi
+      # 長度（只算冒號後的描述）
+      local desc width
+      desc="${subject#*: }"
+      width="$(display_width "$desc")"
+      if [ "$width" -gt "$MESSAGE_MAX_WIDTH" ]; then
+        issues="${issues}描述寬度 $width 超過 $MESSAGE_MAX_WIDTH；"
+      fi
+      # 痕跡
+      if printf '%s' "$subject" | grep -E -q "$MESSAGE_TRACE_PATTERN"; then
+        local th
+        th="$(printf '%s' "$subject" | grep -E -o "$MESSAGE_TRACE_PATTERN" | sort -u | paste -sd " " -)"
+        issues="${issues}痕跡命中［$th］；"
+      fi
+    fi
+
+    # 多行 body
+    local body_lines
+    body_lines="$(git log -1 --format=%b "$sha" | grep -c . || true)"
+    if [ "$body_lines" -gt 0 ]; then
+      issues="${issues}含 $body_lines 行 body（規範為單行）；"
+    fi
+
+    # 軟清單獨立判斷，不放在 else 分支——否則一顆同時「缺 Type」又命中軟清單的 commit
+    # 只會報前者，使用者修完才看到後者，等於要跑兩輪。audit 的價值就是一次列完。
+    local soft_note=""
+    if [ -n "$subject" ] && [ "$subject" != "$sha" ]; then
+      local sh
+      sh="$(printf %s "$subject" | grep -E -o "$MESSAGE_SOFT_PATTERN" | sort -u | paste -sd " " - || true)"
+      [ -n "$sh" ] && soft_note="軟清單命中［$sh］，確認是業務描述而非作業過程"
+    fi
+
+    if [ -n "$issues" ]; then
+      bad=$((bad + 1))
+      echo "  [X] $sha $subject"
+      echo "        → ${issues%；}"
+      [ -n "$soft_note" ] && echo "        → $soft_note"
+    elif [ -n "$soft_note" ]; then
+      warn=$((warn + 1))
+      echo "  [!] $sha $subject"
+      echo "        → $soft_note"
+    fi
+  done < <(git -c color.ui=false log --format='%h %s' $range 2>/dev/null)
+
+  echo ""
+  if [ "$total" -eq 0 ]; then
+    echo "--- 此範圍內沒有任何 commit（range: $range）——不是「全部乾淨」，是沒東西可掃 ---"
+    return 0
+  fi
+  echo "--- 共 $total 顆：$bad 顆有問題、$warn 顆待確認、$((total - bad - warn)) 顆乾淨 ---"
+  if [ "$bad" -gt 0 ]; then
+    echo "有問題的 commit 若尚未推上遠端可用 rebase 改寫——改寫前務必先建備份分支。" >&2
+    return 1
+  fi
+  return 0
+}
+
+# ------------------------------------------------------------
 # Entry
 # ------------------------------------------------------------
 
@@ -776,6 +900,7 @@ case "${1:-}" in
   analyze) shift; cmd_analyze "$@" ;;
   prepare) shift; cmd_prepare "$@" ;;
   ship)    shift; cmd_ship "$@" ;;
+  audit)   shift; cmd_audit "$@" ;;
   -h|--help|"")
     cat <<USAGE
 Usage: flow.sh <command> [args]
@@ -783,6 +908,10 @@ Usage: flow.sh <command> [args]
 Commands:
   analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描（僅提示）
   prepare <repo> <files...>         git add + 輸出 staged diff + 記錄 diff hash 到 .claude/.git-commit-tmp/
+  audit   <repo> [<range>]          體檢既有 commit 的 message，唯讀。抓：空 message／缺 Type: 前綴／
+                                    Type 不在允許清單／描述超長／痕跡命中／含多行 body
+                                    不帶 range 時：有 upstream 掃未推的，否則掃最近 20 顆
+                                    exit 0=乾淨、1=有問題、2=range 無效。交付 patch 或推上游前先跑一次
   ship    <repo> <type> <desc> [--push] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace] [--allow-message-trace]
                                     真閘(署名/單行/message痕跡+長度/diff-hash/敏感字/建置產物/AI痕跡)
                                     → git commit (HEREDOC) → 驗證

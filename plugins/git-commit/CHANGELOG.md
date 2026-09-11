@@ -2,6 +2,17 @@
 
 本檔記錄 git-commit 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.0] - 2026-09-10
+### Added
+- **`flow.sh audit <repo> [<range>]`**：體檢既有 commit 的 message，唯讀不改動任何東西。抓六種問題——空 message、缺 `Type:` 前綴、Type 不在允許清單、描述寬度超標、痕跡命中、含多行 body；軟清單命中另標為「待確認」。不帶 range 時：有 upstream 掃未推的 commit，否則掃最近 20 顆。exit 碼三態： 乾淨、 有問題、 range 無效——打錯的 range 會讓 git log 靜默回空，若不分辨，「0 顆」看起來就跟「全部乾淨」一樣。
+  用途是交付前體檢：`format-patch` / `bundle` 產出的檔案內含完整 message 原文，會直接送到對方手上，比 push 更難收回。SKILL.md 的 §交付路徑已加上「先跑 audit 再掃產出物」。
+
+### Changed
+- `staged_added_lines()` 支援選用的 path 參數，`cmd_analyze` 改為呼叫它而非自己維護一份相同的 awk——兩處判準必須共用同一份實作，否則會漂移成「analyze 報 HITS 但 ship 放行」。
+
+### Verified
+- PreToolUse hook 已在**真實 Claude Code 環境**驗證：安裝 plugin 後直接下 `git commit -m test`，確認被攔下。先前只驗過直接餵 JSON 給腳本，這次補上端到端證據。
+
 ## [0.4.1] - 2026-09-10
 ### Fixed
 - **真閘 3（敏感字）不再掃到自己**：關鍵字掃描改為只看 staged diff 的**新增行**（比照 `collect_ai_trace_hits`），新增 `staged_added_lines()`。原本吃整份 diff，會誤命中刪除行、未改動的 context 行、以及本檔自己的 `SENSITIVE_PATTERN` 定義。`analyze` 的預掃同步改用相同判準——兩邊判準必須一致，否則會出現「analyze 報 HITS 但 ship 放行」的矛盾。**憑證形狀那道仍掃全 diff**：憑證出現在未改動行也代表 repo 裡有它，不因「這次沒改到」而放過。
