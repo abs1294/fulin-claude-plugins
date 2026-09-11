@@ -51,7 +51,8 @@ fulin 的**自製 Claude Code plugin monorepo**。所有自製 plugin 集中在 
 | 瀏覽器 QA / 沉澱可重跑測試 | `qa-webwright` |
 | tool call 失敗自動接力 | `self-heal`（背景運作，不需手動） |
 | 把產出寫成給外部看的交付訊息 | `deliver-report` |
-| 排程到 quota 重置後本機執行 | `delaylocal` |
+| 排程到 quota 重置後本機執行 | `goal2` plugin 的 `delaylocal` skill |
+| 定可測量完成條件、讓 /goal 引擎（子程序）做到完成 | `goal2` plugin 的 `goal` skill |
 | Winbond 供應商平台 DDD 開發 | `supplier-agents`（5 個 agent） |
 
 各 plugin 細節見各自 `plugins/<name>/README.md`。

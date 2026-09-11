@@ -1,19 +1,31 @@
 #!/usr/bin/env node
-// delaylocal 主工具：算當前 session 的 5h quota 重置時間，組裝排程用的 final prompt。
+// delaylocal 主工具（goal2 plugin 的 delaylocal skill）：算當前 session 的 5h quota 重置時間，組裝排程用的 final prompt。
+// /goal 第一行組裝與 cron 轉換抽在 plugin 根層 ../../lib/（goal-head.js、cron-time.js），與 goal skill 共用。
 //
 // 用法：
 //   echo "<使用者要排的 prompt 原文>" | node delaylocal.js [bufferSeconds]
 //   node delaylocal.js [bufferSeconds] --prompt-file <path>
 //   node delaylocal.js [bufferSeconds] --prompt-file <path> --goal "<可測量完成條件>"
+//   node delaylocal.js --run <run_dir>          # cron 到點後由 Claude 呼叫：起 claude -p "/goal …" 子程序跑到完成
+//   node delaylocal.js --show-config
+//
+// 設定檔（選用）：~/.claude/goal2/config.json 的 delaylocal 區段，結構與驗證見 ../../lib/config.js。
+//   bufferSeconds（預設 900）：CLI 裸數字可覆蓋。confirmTimeoutMinutes（預設 10）：propose 確認逾時，
+//   本檔據此算出 confirm_timer_cron 給 skill 直接 CronCreate，不讓 Claude 心算「現在＋N 分」。
 //
 // 兩種模式：
-//   - 預設：final_prompt 內建「session 守衛 + 無人值守文字紀律 + 任務 + 發 LINE」。
-//   - --goal：final_prompt 第一行為 `/goal <完成條件>`（含「已發 LINE」），靠 Claude Code 的
-//     goal 引擎 + Haiku 檢查器持續做到達成；session 守衛改成工作清單第①項（不搶第一行）。
-//     已實測：durable cron fire 進活著的 REPL 時，開頭的 /goal 會被解析成 slash command。
+//   - 預設（--goal 必填）：排程時就把「/goal <完成條件>（含已發 LINE）+ 任務 + 報告 + notify」組成引擎 prompt
+//     落到 ~/.claude/goal2/runs/<id>/prompt.txt；cron 的 final_prompt 只做兩件事：session 守衛、
+//     叫 Claude 用 Bash 背景執行 `delaylocal.js --run <run_dir>`（起 claude -p 子程序跑官方 goal 引擎）。
+//     ⚠️ 2.1.196 起 cron fire 的 prompt 不再解析 slash command，開頭 /goal 只是純文字（GitHub #75837），
+//        所以不能再把 /goal 放 cron prompt 第一行；唯一可用入口是 claude -p（見 ../../lib/engine.js）。
+//   - --plain：final_prompt 內建「session 守衛 + 無人值守文字紀律 + 任務 + 發 LINE」，不需完成條件、不起子程序。
 //
-// 輸出：JSON { ok, sessionId, snapshotKey, resets_at_local, target_local, cron, fire_in_minutes, buffer_seconds, mode, final_prompt }
-// skill 拿 cron + final_prompt 去 CronCreate({ recurring:false, durable:true })。
+// 輸出：JSON { ok, sessionId, snapshotKey, resets_at_local, target_local, cron, cron_warning, fire_in_minutes, buffer_seconds, buffer_source,
+//             confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, config_path, config_loaded, mode,
+//             run_dir, run_command, engine, engine_prompt（goal 模式）, final_prompt（cron 用） }
+// --run 模式輸出：{ mode:"ran", ok, goal_set, goal_achieved, continuations, num_turns, result_text, stream_path, … }
+// skill 拿 cron + final_prompt 去 CronCreate({ recurring:false, durable:false })（durable 在目前版本無效，一律 session-only）。
 'use strict';
 const fs = require('fs');
 const os = require('os');
@@ -22,6 +34,18 @@ const path = require('path');
 function fail(msg) {
   console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
   process.exit(1);
+}
+
+// --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
+const LIB = path.join(__dirname, '..', '..', 'lib');
+let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine;
+try {
+  ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
+  ({ dateToCron, ceilToMinute, crossMonthWarning } = require(path.join(LIB, 'cron-time.js')));
+  ({ loadConfig } = require(path.join(LIB, 'config.js')));
+  ({ prepareRun, runEngine } = require(path.join(LIB, 'engine.js')));
+} catch (e) {
+  fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
 
 // --- 暫存檔清理（防止 os.tmpdir() 無限累積、殘留任務報告等敏感內容）---
@@ -60,16 +84,47 @@ if (!envId) fail('CLAUDE_CODE_SESSION_ID 環境變數不存在，無法鎖定當
 const snapshotKey = envId.replace(/-/g, '').slice(0, 24);
 
 // --- 2. 讀參數與使用者 prompt（stdin 優先，否則 --prompt-file）---
+// --- 設定檔（~/.claude/goal2/config.json 的 delaylocal 區段）---
+let cfg;
+try { cfg = loadConfig(); } catch (e) { fail(e.message); }
+const dlConfig = cfg.config.delaylocal;
+
 const args = process.argv.slice(2);
-let bufferSeconds = 900; // 預設緩衝 15 分鐘
+let bufferSeconds = dlConfig.bufferSeconds; // 預設 900（15 分鐘）；設定檔可改；CLI 裸數字覆蓋
+let bufferSource = cfg.loaded ? 'config' : 'default';
 let promptFile = null;
 let goalCondition = null; // 完成條件（預設 goal 模式必填；由 Claude propose、使用者確認後填入）
 let plainMode = false;    // --plain 才退回舊的文字紀律模式
+let showConfig = false;
+let runDir = null;        // --run <run_dir>：cron 到點後起引擎
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--prompt-file') promptFile = args[++i];
   else if (args[i] === '--goal') goalCondition = args[++i];
   else if (args[i] === '--plain') plainMode = true;
-  else if (/^\d+$/.test(args[i])) bufferSeconds = parseInt(args[i], 10);
+  else if (args[i] === '--show-config') showConfig = true;
+  else if (args[i] === '--run') runDir = args[++i];
+  else if (/^\d+$/.test(args[i])) { bufferSeconds = parseInt(args[i], 10); bufferSource = 'cli'; }
+}
+if (runDir) {
+  // 執行模式：起 claude -p 子程序跑官方 goal 引擎，阻塞到完成，印 summary（skill 用 Bash 背景執行）
+  if (!fs.existsSync(path.join(runDir, 'prompt.txt'))) fail(`--run 目錄不存在或缺 prompt.txt：${runDir}`);
+  runEngine(runDir, cfg.config.engine).then((summary) => {
+    console.log(JSON.stringify({ mode: 'ran', ...summary }, null, 2));
+    process.exit(summary.ok ? 0 : 1);
+  }).catch((e) => fail(`引擎執行失敗：${e.message}`));
+  return; // 下面是排程準備流程
+}
+// propose 確認逾時 timer 的 cron：現在 + confirmTimeoutMinutes，向上取整到整分（同 goal.js 的取整理由）。
+// --show-config 也輸出它：skill 在 propose 當下跑 --show-config 就能直接拿 cron 去 CronCreate timer。
+const confirmTarget = ceilToMinute(Math.floor(Date.now() / 1000) + dlConfig.confirmTimeoutMinutes * 60);
+const confirmTimerCron = dateToCron(new Date(confirmTarget * 1000));
+if (showConfig) {
+  console.log(JSON.stringify({
+    ok: true, mode: 'show-config', config_path: cfg.path, config_loaded: cfg.loaded, delaylocal: dlConfig, goal: cfg.config.goal, engine: cfg.config.engine,
+    confirm_timeout_minutes: dlConfig.confirmTimeoutMinutes, confirm_timer_cron: confirmTimerCron,
+    confirm_timer_target_local: new Date(confirmTarget * 1000).toLocaleString(), buffer_seconds_default: dlConfig.bufferSeconds
+  }, null, 2));
+  process.exit(0);
 }
 let userPrompt = '';
 if (promptFile) {
@@ -105,7 +160,7 @@ if (base < now) base = now;
 
 const target = base + bufferSeconds;
 const d = new Date(target * 1000);
-const cron = `${d.getMinutes()} ${d.getHours()} ${d.getDate()} ${d.getMonth() + 1} *`;
+const cron = dateToCron(d);
 
 // --- 跨月/跨年防呆 ---
 // CronCreate 只吃 5 欄 cron（分 時 日 月 週），無年份欄、亦不支援絕對時間戳（已查官方
@@ -116,14 +171,7 @@ const cron = `${d.getMinutes()} ${d.getHours()} ${d.getDate()} ${d.getMonth() + 
 // 讓 skill / 使用者知道這個一次性 cron 是週期式表達、fire 時點依引擎「下一個符合」語意，
 // 若跨到非預期年份需人工確認。純加提示，不改 cron 值（避免破壞短任務的既有行為）。
 const nowD = new Date(now * 1000);
-let cronWarning = null;
-if (d.getFullYear() !== nowD.getFullYear() || d.getMonth() !== nowD.getMonth()) {
-  cronWarning =
-    `目標時間 ${d.toLocaleString()} 與現在 ${nowD.toLocaleString()} 不在同一個月/年。` +
-    `CronCreate 只支援 5 欄週期式 cron（無年份、無絕對時間），此 cron「${cron}」的一次性 fire ` +
-    `依排程引擎「下一個符合日期」語意解讀，跨月/跨年時可能 fire 到非預期年份。` +
-    `排程後請核對回報的觸發時間是否為你要的那一天；若不對，請縮短 bufferSeconds 或改用較近的排程時點。`;
-}
+const cronWarning = crossMonthWarning(d, nowD, cron); // 文案與判定在 lib/cron-time.js
 
 // notify-line.js 與本檔同目錄；用 __dirname 取絕對路徑，plugin 裝在哪都能找到。
 const notifyPath = path.join(__dirname, 'notify-line.js');
@@ -155,6 +203,9 @@ const REPORT_FORMAT = `[delaylocal 完成] <一句話結論>
 
 // --- 4. 組裝 final prompt ---
 let finalPrompt;
+let enginePrompt = null;   // goal 模式：交給子程序引擎的 prompt（已落 run 目錄）
+let runDirOut = null;
+let runCommandOut = null;
 if (!plainMode) {
   // === goal 模式（預設）===
   // 第一行 = /goal <完成條件>，把「已發 LINE」納入條件（goal 達成後自動清除、不接後續，
@@ -168,38 +219,45 @@ if (!plainMode) {
   //    - 超過 → 第一行換成固定「指針句」（指向工作清單的完成條件全文），完整 goalCondition
   //      原封不動下放到工作清單步驟 0，避免機械截斷破壞語意。
   const GOAL_TAIL = '並且已將完整報告寫入暫存檔、執行 notify-line.js 完成收尾通知（只要已「嘗試發送」即視為此步完成：有設憑證就發出、未設則自動略過；即使 API 回非 200 或 token 失效，notify-line.js 也回 exit 0，此步同樣視為完成——絕不可因為沒收到 LINE、或發送未回 200 就重試或卡住）';
-  const GOAL_MAX = 3900; // 4000 上限留邊際；含 "/goal " 前綴一起算
-  const fullFirstLine = `/goal ${goalCondition}；${GOAL_TAIL}`;
-  let goalLine;       // 實際放第一行的 /goal 內容
-  let goalFullBlock;  // 超長時要下放到工作清單的「完成條件全文」區塊（不超長則為空）
-  if (fullFirstLine.length <= GOAL_MAX) {
-    goalLine = fullFirstLine;
-    goalFullBlock = '';
-  } else {
-    // 指針句：本身簡短可驗證，把「完整條件」指向步驟 0，收尾通知尾巴照樣納入（goal 引擎才會強迫發 LINE）。
-    goalLine = `/goal 已逐項達成「工作清單步驟 0」列出的完整完成條件（每一項皆為真），且已完成步驟 2 的任務全部項目；${GOAL_TAIL}`;
-    goalFullBlock = `0. [完成條件全文] 本目標達成的判定 = 下列每一項皆為真（第一行 /goal 因 4000 字元上限只放指針，完整條件在此，逐項核對）：
-${goalCondition}
-
-`;
-  }
-  finalPrompt = `${goalLine}
+  // 3900 門檻 / 指針句 / 步驟 0 下放的邏輯在 lib/goal-head.js（與 goal skill 共用、單一來源）。
+  // pointer 沿用本 skill 原句（多了「且已完成步驟 2 的任務全部項目」），輸出與 0.1.5 逐字相同。
+  const { goalLine, goalFullBlock } = buildGoalHead({
+    condition: goalCondition,
+    tail: GOAL_TAIL,
+    pointer: '已逐項達成「工作清單步驟 0」列出的完整完成條件（每一項皆為真），且已完成步驟 2 的任務全部項目'
+  });
+  // 引擎 prompt（交給 claude -p 子程序；子程序沒有 session 守衛的問題，守衛留在 cron prompt）
+  enginePrompt = `${goalLine}
 
 （上面第一行是 goal 完成條件。下面是達成它要依序完成的工作清單，當作你的執行指引；全程繁體中文、無人值守：不停下來問使用者、需要決定時自己選風險最小做法、做到完成。）
 
 工作清單（依序）：
-${goalFullBlock}1. [Session 守衛] 確認環境變數 CLAUDE_CODE_SESSION_ID 是否等於 ${envId}。
-   - 不等於 → 這是別的 session 誤觸發本排程：不要執行任務、不要發 LINE，直接視為本目標達成（本 session 無事可做）。
-   - 等於 → 繼續下面步驟。
-2. [執行任務] 完成以下任務（持續做到完成；遇真正 blocker 先把其餘能做的做完再記錄）：
+${goalFullBlock}1. [執行任務] 完成以下任務（持續做到完成；遇真正 blocker 先把其餘能做的做完再記錄）：
 ${userPrompt}
-3. [收尾通知] 把依「報告格式」填好的報告寫進 "${reportPath}"，再執行：
+2. [收尾通知] 把依「報告格式」填好的報告寫進 "${reportPath}"，再執行：
    cat "${reportPath}" | node "${notifyPath}"
    （notify-line.js 走 node https，自動拆多則、可帶中文/emoji。LINE 為選用：有設憑證就發出；未設則自動略過並回 exit 0、不算失敗——報告已寫入暫存檔即視為此步完成，別因為沒收到 LINE 就重試或卡住。）
+   最後一則回覆貼上報告全文（主 session 會讀取它當最終回報素材），不要追加任何提問或 offer。
 
-報告格式（步驟 3 用，嚴格照填、不增不減）：
+報告格式（步驟 2 用，嚴格照填、不增不減）：
 
 ${REPORT_FORMAT}`;
+  const prepared = prepareRun({ skill: 'delaylocal', prompt: enginePrompt, cwd: process.cwd(), meta: { sessionId: envId, condition: goalCondition, overflow: enginePrompt.includes('0. [完成條件全文]') } });
+  runDirOut = prepared.runDir;
+  runCommandOut = `node "${path.resolve(__filename)}" --run "${prepared.runDir}"`;
+
+  // cron 到點時送進 REPL 的 prompt：不能放 /goal（2.1.196 起不解析），只做守衛 + 起引擎
+  finalPrompt = `[delaylocal 排程任務 — 綁定 session ${envId}]
+
+依序做，全程繁體中文、無人值守（不停下來問使用者）：
+
+1. [Session 守衛] 確認環境變數 CLAUDE_CODE_SESSION_ID 是否等於 ${envId}。
+   - 不等於 → 這是別的 session 誤觸發本排程：什麼都不做、不要執行下一步，回一句「非目標 session，略過」即可結束。
+   - 等於 → 繼續。
+2. [啟動 goal 引擎] 用 Bash 工具、run_in_background: true 執行下面這條指令（原樣執行，不要改參數）：
+   ${runCommandOut}
+   它會另起一個 headless Claude Code session，用官方 /goal 引擎把任務做到完成條件達成，並在收尾時寫報告、嘗試發 LINE。指令會阻塞到引擎結束，最後印一份 JSON summary。
+3. [等待與回報] 背景指令結束後（你會收到通知），讀它印出的 JSON：goal_achieved、continuations、num_turns、result_text（引擎最後一則回覆＝報告全文）。用固定格式回報：達成與否、回合數、報告內容、run_dir 路徑（含 stream.jsonl 可追查）。不要追加任何提問或 offer。`;
 } else {
   // === 文字紀律模式（--plain，選用 fallback）===
   finalPrompt = `[delaylocal 排程任務 — 綁定 session ${envId}]
@@ -245,6 +303,16 @@ console.log(JSON.stringify({
   cron_warning: cronWarning,
   fire_in_minutes: Math.round((target - now) / 60),
   buffer_seconds: bufferSeconds,
+  buffer_source: bufferSource,
+  confirm_timeout_minutes: dlConfig.confirmTimeoutMinutes,
+  confirm_timer_cron: confirmTimerCron,
+  confirm_timer_target_local: new Date(confirmTarget * 1000).toLocaleString(),
+  config_path: cfg.path,
+  config_loaded: cfg.loaded,
   mode: plainMode ? 'plain' : 'goal',
+  run_dir: runDirOut,
+  run_command: runCommandOut,
+  engine: cfg.config.engine,
+  engine_prompt: enginePrompt,
   final_prompt: finalPrompt
 }, null, 2));
