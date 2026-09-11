@@ -1,6 +1,6 @@
 {
   "name": "fulin-plugins",
-  "description": "fulin 的 Claude Code 工具集：自製 plugin 管理器、runner（pytest）沉澱式 QA 方法論框架、goal2（/goal 引擎啟動器＋delaylocal quota 排程）。",
+  "description": "fulin 的 Claude Code 工具集：自製 plugin 管理器、QA 方法論、goal 引擎啟動與 quota 排程、對外交付產物、status line 等。",
   "owner": {
     "name": "fulin"
   },
@@ -8,22 +8,22 @@
     {
       "name": "plugin-manager",
       "source": "./plugins/plugin-manager",
-      "description": "自製 plugin 集中管理器：納管各專案散落的自製 skill 進 monorepo（move+symlink）、一鍵發布、集中 registry。"
+      "description": "自製 plugin 集中管理器：納管各專案的自製 skill 進 monorepo、一鍵發布、集中 registry。"
     },
     {
       "name": "qa-webwright",
       "source": "./plugins/qa-webwright",
-      "description": "瀏覽器功能 QA 方法論：設計測試計畫→探索→沉澱成可重跑 pytest（結構化證據自驗，非看截圖）。qa-flow.sh 把落地動作鎖進腳本、落點鎖 session 目錄；內建 Stop hook 強制測試落地（他律，AI 繞不過）。webwright 為選用的外部站備用探索器。"
+      "description": "瀏覽器功能 QA 方法論：測試計畫→探索→沉澱成可重跑 pytest；qa-flow.sh 與 Stop hook 強制測試落地。"
     },
     {
       "name": "goal2",
       "source": "./plugins/goal2",
-      "description": "goal 引擎啟動器＋quota 排程，兩個 skill：**goal** 推導可測量完成條件→確認或逾時自動採納→以 claude -p 子程序跑官方 /goal 引擎做到完成（長任務壓縮不忘目標、可終止）；**delaylocal** 把 prompt 排到 5h quota 重置後在本機無人值守執行（goal/plain/fast-path 三模式），完成發 LINE 通知。plugin 名取 goal2 以避開內建 /goal。"
+      "description": "goal 引擎啟動器＋quota 排程：goal 現在做到完成、delaylocal 排到 5h quota 重置後做；子程序跑官方 /goal，壓縮不忘目標、可終止、完成可發 LINE。"
     },
     {
       "name": "git-commit",
       "source": "./plugins/git-commit",
-      "description": "並行審查模式的 Git Commit 流程：Stage → 並行三軌（使用者確認 message + Codex 審查 + code-reviewer 審查）→ Commit → Push。AI 禁止直接執行 git 指令，一律走本 skill 完整流程。"
+      "description": "並行審查的 Git Commit 流程：stage → 使用者確認＋Codex＋code-reviewer 三軌 → commit → push；禁止裸 git 指令。"
     },
     {
       "name": "supplier-agents",
@@ -33,42 +33,42 @@
     {
       "name": "red-blue-review",
       "source": "./plugins/red-blue-review",
-      "description": "中文紅藍對抗：對任何命題做 Red 攻→Blue 守→收斂的對抗式壓力測試（多面向、可接 Workflow 實作）。"
+      "description": "中文紅藍對抗：對任何命題做 Red 攻→Blue 守→收斂的對抗式壓力測試。"
     },
     {
       "name": "self-heal",
       "source": "./plugins/self-heal",
-      "description": "降低並自動接力 tool call 失敗：每輪注入 XML 收尾提醒 hook + self-heal scheduler 接力規約（卡住自己續、完成則終止）。"
+      "description": "降低並自動接力 tool call 失敗：每輪注入收尾提醒 hook＋接力規約（卡住自己續、完成則終止）。"
     },
     {
       "name": "deliver-report",
       "source": "./plugins/deliver-report",
-      "description": "把工作成果變成對外產物，四個 skill：**deliver-report** 寫交付訊息／逐題回覆信；**test-report-docx** 產測試報告 DOCX（給 PM／客戶簽核轉發）；**daily-report** 掃當日 session 產工作日報、核可後經 Gmail 寄出；**to-questionnaire** 把答不了的決策變成給第三方逐題填的問卷檔。四者共通：對外產物嚴禁 AI／內部流程／異動紀錄字眼，預設讀者不懂技術。含易讀性十二條鐵則與 Stop hook 機械閘，日報另有寄送前 content_guard 硬閘。"
+      "description": "對外產物四件套：deliver-report 交付訊息、test-report-docx 測試報告 DOCX、daily-report 工作日報寄 Gmail、to-questionnaire 問卷檔；禁 AI／內部流程字眼，含易讀性鐵則與 Stop hook 閘。"
     },
     {
       "name": "cc-statusline",
       "source": "./plugins/cc-statusline",
-      "description": "資訊密度高的 Claude Code status line：目錄/repo/model/成本/用量/quota/agents/skills/memory+MCP/近期編輯/歷史多欄顯示，含寬字對齊與跨進程狀態快取；可用 /cc-statusline-rows 逐列開關與調整面板寬度邊距（widthMargin，因機器而異）。需手動在 settings.json 指向腳本（見 plugin README）。"
+      "description": "高資訊密度 status line（目錄/model/成本/quota/agents/skills 等多欄）；/cc-statusline-rows 逐列開關與寬度邊距；需手動接 settings.json。"
     },
     {
       "name": "msproject-wbs",
       "source": "./plugins/msproject-wbs",
-      "description": "產生 MS Project 可直接匯入的 WBS 時程 XML（MSPDI）：模組/工項兩層、工期、資源指派、依賴鏈展開甘特圖；MSPDI 七雷（元素順序靜默丟棄等）已編碼進生成腳本＋順序自檢"
+      "description": "產生 MS Project 可直接匯入的 WBS 時程 XML（MSPDI）：模組/工項兩層、工期、資源、依賴鏈甘特圖；常見七雷已編碼進腳本。"
     },
     {
       "name": "fable-quote",
       "source": "./plugins/fable-quote",
-      "description": "產生「寓意科技」格式的正式軟體開發報價單 .docx：套已脫敏的公司標準模板（版式／乙方資料／通用條款內建），只填客戶資料與專案 JSON，明細列依階段動態展開、含稅金額與總計自動算並互相校驗。說「做報價單 / 寓意報價 / 幫客戶出報價」即觸發。"
+      "description": "產生「寓意科技」格式報價單 .docx：套公司模板，只填客戶與專案 JSON，明細動態展開、含稅總計自動算。"
     },
     {
       "name": "harness",
       "source": "./plugins/harness",
-      "description": "AI 工作流制度層引擎：/harness:init 把通用紀律骨架（模型調度/停損熔斷/派工模板/知識協議）實例化到任何專案的 .claude/harness/。引擎在 plugin、實例在專案（plugin 更新不覆蓋實例）；既有治理層（AGENTS.md 等）自動讓位；規則從各專案自己的事故長出來，不預載別專案的條款。含 SessionStart 條件式入口提醒 hook（僅對已 init 的專案輸出）。"
+      "description": "AI 工作流制度層引擎：/harness:init 把紀律骨架實例化到專案 .claude/harness/；引擎在 plugin、實例在專案，含 SessionStart 入口提醒 hook。"
     },
     {
       "name": "wtf",
       "source": "./plugins/wtf",
-      "description": "看不懂上一則回覆時按的重講鈕：使用者打 /wtf，模型重講一次——更簡單的字、同樣的事實佔更少版面（先給脈絡、一句 20 字、描述關係一律改畫 ASCII 圖表（呼叫樹／偽代碼／diff 依主題挑）、左右並排、同構區塊合成大表、塞不下才升級 HTML（框字不是畫圖：刪掉框線意思沒變就是裝飾清單）、寬度上限＝使用者視窗寬度（存在同層 config.json，預設 null；第一次調用讀到 null 就強制問到並寫回，不設 fallback；附 hook 機械閘擋下寬度未定的調用）、講到「所以呢」與「為什麼」、深度採六層可選階梯只展開他還不懂的那層；不設字數上限，砍的是廢話不是內容）；專案名詞須逐層查證後才用，查無就據實說沒有固定名字、禁止瞎掰；錯誤訊息與數字等證據原文逐字保留不簡化。僅使用者手動觸發，模型不得自行啟動。"
+      "description": "看不懂上一則回覆時按的重講鈕（/wtf）：更簡單的字、同樣事實更少版面、關係一律畫 ASCII 圖表、證據原文保留；僅使用者手動觸發。"
     }
   ]
 }
