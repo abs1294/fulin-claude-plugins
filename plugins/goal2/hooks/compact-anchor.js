@@ -25,7 +25,9 @@ try {
   if (raw.trim()) { try { input = JSON.parse(raw); } catch (_) { process.exit(0); } }
   if (!input || typeof input !== 'object' || Array.isArray(input)) process.exit(0);
   if (input.hook_event_name && input.hook_event_name !== 'SessionStart') process.exit(0);
-  if (input.source && input.source !== 'compact') process.exit(0);
+  // 嚴格要求 source === 'compact'：沒有 source 欄位（手動測試、其他事件誤接）也不注入，
+  // 不能只靠 engine.js 那邊的 matcher 當唯一保險
+  if (input.source !== 'compact') process.exit(0);
 
   const runDir = process.env.GOAL2_RUN_DIR;
   if (!runDir || !fs.existsSync(runDir)) process.exit(0);
@@ -35,17 +37,49 @@ try {
   const progress = read('progress.md');
   if (!anchor && !progress) process.exit(0);
 
+  // anchor.md 整份已經在系統提示裡（--append-system-prompt-file，壓縮碰不到），這裡不重送一遍——
+  // 只抽「完成條件」那一節（最容易在壓縮摘要裡被改寫的東西）＋帳本＋提醒。
+  // 取某個「## 標題」到下一個「## 」之間的內容（逐行掃，不用 regex 的 $——多行模式下會在第一行就停）
+  // 節邊界：0.4.0 起 buildAnchor 在每節前放 <!-- goal2:sec=NAME --> 標記，任務書／條件自帶的「## 」標題不會誤切；
+  // 舊版 anchor（沒標記）退回用固定標題文字切（只認 buildAnchor 那幾個標題的首次出現）
+  const hasMarkers = /<!-- goal2:sec=/.test(anchor);
+  const sectionByMarker = (name) => {
+    const m = anchor.match(new RegExp(`<!-- goal2:sec=${name} -->\\n(?:## [^\\n]*\\n)?([\\s\\S]*?)(?=\\n<!-- goal2:sec=|$(?![\\s\\S]))`));
+    return m ? m[1].trim() : '';
+  };
+  const TOP = ['## 工作目錄', '## 完成條件', '## 任務全文', '## 工作清單', '## 補充', '【進度帳本規則'];
+  const sectionByHeading = (prefix) => {
+    const lines = anchor.split('\n'); const out = []; let on = false; const seen = new Set();
+    for (const l of lines) {
+      const top = TOP.find((t) => l.startsWith(t) && !seen.has(t));
+      if (top) { seen.add(top); if (on) break; on = top === prefix; continue; }
+      if (on) out.push(l);
+    }
+    return out.join('\n').trim();
+  };
+  const condition = hasMarkers ? sectionByMarker('condition') : sectionByHeading('## 完成條件');
+  // 任務書若外置（anchor 只放「先去讀某檔」），壓縮後最容易漏的就是那份檔的細節：把錨定區提到的檔案路徑列出來要求重讀
+  const taskSection = hasMarkers ? sectionByMarker('task') : sectionByHeading('## 任務全文');
+  // 檔案路徑：token 以 .md/.txt/.json/.yaml/.yml 結尾且後接邊界（空白／引號／各式括號／中英標點含頓號、冒號、問號）；
+  // 含 :// 的是 URL 不算；必須含路徑分隔符或以 ~ 開頭；token 前面若緊貼中文也從路徑字元起算
+  const SEP = '\\s"\'`()（）「」【】\\[\\],;，；、。：:？?!！<>';
+  const scanText = taskSection.length > 30000 ? taskSection.slice(0, 30000) : taskSection;   // base64／超長任務書：regex 平方級會撞 hook 15 秒 timeout
+  const tokens = scanText.match(new RegExp(`(?:[A-Za-z]:[\\\\/]|~[\\\\/]|\\.{1,2}[\\\\/]|[A-Za-z0-9_\\-\\u4e00-\\u9fff.]+[\\\\/])[^${SEP}]*\\.(?:md|txt|json|yaml|yml)(?=[${SEP}]|$)`, 'g')) || [];
+  const filePaths = Array.from(new Set(tokens.filter((t) => t.length <= 400 && !/:\/\//.test(t)))).slice(0, 12);
+  const progressOut = progress.length > 20000 ? '（帳本超過 20KB，只注回最後 20KB；完整檔在 run 目錄 progress.md）\n…' + progress.slice(-20000) : progress;
+
   // 記一筆，方便事後從 run 目錄看 hook 有沒有真的 fire
-  try { fs.appendFileSync(path.join(runDir, 'compact-log.txt'), `${new Date().toISOString()} compact-anchor injected (anchor ${anchor.length} chars, progress ${progress.length} chars)\n`); } catch (_) {}
+  try { fs.appendFileSync(path.join(runDir, 'compact-log.txt'), `${new Date().toISOString()} compact-anchor injected (condition ${condition.length} chars, progress ${progress.length} chars, task files ${filePaths.length})\n`); } catch (_) {}
 
   const ctx = [
-    '[goal2 壓縮後錨定] 上下文剛被壓縮。以下是本 run 的完成條件、任務全文與進度帳本，以此為準繼續，不要重做已完成項、不要偏離任務。',
+    '[goal2 壓縮後錨定] 上下文剛被壓縮。完成條件、任務全文、工作清單與帳本規則都還在你的系統提示「goal2 錨定」區塊（壓縮碰不到它），先重讀那一區再動手；以下只重申最容易被壓縮摘要改寫的兩樣東西。不要重做已完成項、不要偏離任務。',
     '',
-    '===== anchor.md =====',
-    anchor || '（無）',
+    '===== 完成條件（逐項皆為真才算達成）=====',
+    condition || '（見系統提示錨定區）',
     '',
+    ...(filePaths.length ? [`===== 任務書外置檔案（壓縮後細節最容易丟，繼續前先重讀）=====`, ...filePaths, ''] : []),
     '===== progress.md（進度帳本，繼續前先讀，做完里程碑要更新）=====',
-    progress || '（尚未建立：請先依 anchor.md 的帳本規則建立它）'
+    progressOut || '（尚未建立：請先依錨定區的帳本規則建立它）'
   ].join('\n');
 
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx } }));

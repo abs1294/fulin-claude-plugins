@@ -6,9 +6,9 @@
 
 無人值守最大的風險是 AI 自以為做完就停了、其實漏了一半。Claude Code 的 `/goal` 引擎解這個問題——不是讓 AI 自己覺得「差不多了」，而是先定一條**可測量的完成條件**，引擎每回合用檢查器驗證、**做到達成為止**。
 
-但完成條件寫得模糊，引擎會空轉燒 token；寫得好才能真正「做到完成」。所以由 Claude 先擬、使用者過目。使用者可能離線，故 **逾時無回覆即自動採納**，不讓流程卡在等確認。逾時分鐘數在 `~/.claude/goal2/config.json`（`goal.confirmTimeoutMinutes` 預設 1、`delaylocal.confirmTimeoutMinutes` 預設 10；結構見 `lib/config.js`、範本 `config.example.json`）。
+但完成條件寫得模糊，引擎會空轉燒 token；寫得好才能真正「做到完成」。所以由 Claude 先擬、使用者過目。使用者可能離線，故 **逾時無回覆即自動採納**，不讓流程卡在等確認。逾時分鐘數在 `~/.claude/goal2/config.json`（`goal.confirmTimeoutMinutes` 預設 **0**＝印出條件後直接啟動、`delaylocal.confirmTimeoutMinutes` 預設 10；結構見 `lib/config.js`、範本 `config.example.json`）。
 
-**禁止未經 propose 就啟動引擎。**
+**禁止沒把完成條件印給使用者看就啟動引擎。** goal skill 預設「印出即啟動」：條件必須先完整出現在回覆裡，啟動後使用者隨時可 `--stop`；這是設計選擇（CHANGELOG 0.3.0），不是漏了 propose。要「先看過再跑」就把 `goal.confirmTimeoutMinutes` 設 ≥1。
 
 ## 2. 可測量完成條件怎麼寫
 
@@ -25,6 +25,18 @@
 判準：**一個不知道任務脈絡的檢查器，能不能光靠跑指令 / 看檔案就判真假？** 不能就重寫。
 
 多項條件用「且」串起來、逐項列出；不要寫「等等」「諸如此類」。
+
+**條件要極端（等式＋全稱），不准自己放寬**：
+
+| 使用者說 | ✅ 寫成 | ❌ 不准 |
+|---|---|---|
+| 把 A 類工作做完 | A 類未完成數 **= 0**（附算未完成數的指令或檔案）；例外清單內項目不計，每項附 blocker 類別＋證據＋原因 | 未完成數 < 0（永遠不成立）、≤ 1、「大部分完成」、沒有原因的例外 |
+| 測試都要過 | `npm test` exit 0 **且**失敗數 = 0 **且**跳過數 = 0（或明列允許跳過的清單） | 「主要測試通過」、「失敗數明顯下降」 |
+| 文件都修好 | 清單裡**每一份**（列出清單或產生清單的指令）皆… | 「重要的幾份」 |
+
+**例外條款（允許，但要極端地明確）**：條件寫成「… = 0；**例外清單內的項目不計**」，例外清單由引擎在執行時建立，每一項必須同時滿足：(1) 屬於真 blocker——需使用者決策／授權的破壞性操作、外部系統不可用、缺只有使用者能給的祕密或資料、與任務書明文規範衝突；(2) 附證據（指令輸出、錯誤原文、檔案路徑）與一句原因；(3) 寫進進度帳本「決策與注意」並在最後回報以「例外清單」標題逐項列出。「太花時間」「不確定要不要」「看起來不重要」都不是例外。例外清單為空時就是純 = 0。這樣檢查器有明確依據放行，你事後也看得到每一個例外是為什麼。
+
+引擎與檢查器不得把 `= 0` 讀成「差不多 0」；不在例外清單裡的未完成項就是未達成。2026-09-12 實例：使用者要「A 類完成」，propose 出來的是「A 類未完成數 < 0」——這種條件一出現就重寫。
 
 **子程序看不到本對話**：引擎在另一個 headless session 跑，任務原文與完成條件必須自足（路徑寫絕對路徑、需要的脈絡寫進任務）。
 
@@ -43,11 +55,13 @@
 
 | | `goal` skill（現在就做） | `delaylocal` skill（quota 重置後做） |
 |---|---|---|
-| 準備 | `goal.js --prompt-file … --goal …` → run_dir + `run_command` + `confirm_timer_cron` | `delaylocal.js --show-config` 拿 `confirm_timer_cron`；確認後 `delaylocal.js … --goal …` → run_dir + `run_command` + 任務 cron |
-| timer 的 prompt | （預設不排）開啟時：文字指令「[goal2 逾時自動採納] …請用 Bash 背景執行 `<run_command>`」 | 文字指令：「[delaylocal 逾時自動採納] …請跑 delaylocal.js --goal 後 CronCreate」 |
+| 準備 | `goal.js --prompt-file … --goal … --cwd <專案根>` → run_dir + `run_command` + `confirm_timer_cron` | `delaylocal.js --show-config` 拿 `confirm_timer_cron`；確認後 `delaylocal.js … --goal … --cwd <專案根>` → run_dir + `run_command` + 任務 cron |
+| 並行 | 不擋；`active_runs_in_tree` 列出同棵樹活著的 run，回報時提醒。路徑不重疊仍會共用 DB／port／測試結果，任務書要寫範圍切分；`--stop` 殺不到 `&`／nohup 起的背景服務 | 同左 |
+| timer 的 prompt | （預設不排）開啟時：文字指令「[goal2 逾時自動採納] …請用 Bash 背景執行 `<run_command>`」 | 文字指令：「[delaylocal 逾時自動採納] …請以 --goal-file 跑 delaylocal.js 後 CronCreate」 |
 | 使用者同意後 | `CronDelete` timer → Bash 背景執行 `run_command` | `CronDelete` timer → `delaylocal.js --goal` → `CronCreate(任務 cron)` |
 | 引擎何時起 | propose 完立刻（或開 timer 時：同意／逾時） | 任務 cron 到點 → fire 進來的 prompt 叫 Claude 背景執行 `run_command` |
-| 終止／進度 | `goal.js --stop <run_dir>`／`--status <run_dir>` | `delaylocal.js --stop <run_dir>`／`--status <run_dir>` |
+| 終止／進度 | `goal.js --stop <run_dir>`／`--status <run_dir>`；多個活著的 run 時先問停哪一個 | `delaylocal.js --stop <run_dir>`／`--status <run_dir>`（不需 session id） |
+| 煞車 | `engine.maxBudgetUsd`（預設 300，觸發 → `status: budget`）、`engine.maxMinutes`（預設 480，≤10080）；殺 runner 引擎會跟著死（實測），關掉主 Claude Code 後是否存活未實測 | 同左 |
 | 任務 cron | 無 | quota 重置後 + `delaylocal.bufferSeconds`（預設 900）；session-only，另有 session 守衛 |
 | 收尾 | 主 session 讀 summary 回報（有 wtf 就套 wtf 格式）；不發 LINE | 子程序寫報告檔 + `notify-line.js` 發 LINE（選用）；主 session 再讀 summary 回報 |
 
@@ -59,9 +73,12 @@
 - **第一行必須以 `/goal ` 開頭**，其後即完成條件；可含多行 args（第二行起是工作清單）。
 - **4000 字元硬上限，-p 路徑算整段 prompt**：超過回 `Goal condition is limited to 4000 characters (got N)`、0 回合就退。2026-09-12 實測：第一行 156 字、整段 6368 字 → got 6361 被拒（2.1.195 互動模式只算第一行，所以舊版「下放步驟 0」曾有效；-p 不行）。goal2 的做法：`/goal` prompt 只放「條件（含 tail）＋一句指向系統提示錨定區」，任務全文／工作清單／報告格式／帳本規則全在 anchor.md；`lib/goal-head.js` 與 `engine.js` 對整段 prompt 做 ≤3900 硬檢查。條件本身超長 → 第一行換指針句「已逐項達成本 run 錨定區「完成條件全文」列出的每一項」，全文放 anchor 並要求引擎第一則回覆先貼出（讓檢查器在對話裡看到）。引擎拒收時 summary 有 `goal_error`。
 - **達成後自動清除、不接後續指示**：任何「一定要做的收尾」必須**寫進完成條件**，引擎才會強迫做完才停。delaylocal 的「已執行 notify-line.js」tail 就是這樣來的；goal skill 沒有必做收尾，所以沒有 tail。
-- **連續擋停上限**：Claude Code 對 Stop hook 連續 block 有上限（程式碼 `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP ?? 8`，超過就強制結束回合並警告）。engine.js 依設定檔 `engine.stopHookBlockCap` 設此環境變數給子程序，**預設 0＝不設上限**。
+- **連續擋停上限**：Claude Code 對 Stop hook 連續 block 有上限（程式碼 `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP ?? 8`，`cap > 0` 才生效，超過就強制結束回合並警告）。engine.js 依設定檔 `engine.stopHookBlockCap` 設此環境變數給子程序，**預設 0＝不設上限**。
+- **達成判定只認子程序 transcript**：stream-json 裡沒有檢查器判定；transcript（`~/.claude/projects/<cwd 編碼>/<session>.jsonl`）每次 Stop 檢查寫一筆 `attachment {type:"goal_status", met, failed?, reason?}`（Goal set 當下那筆 `sentinel:true` 不算）。engine.js 收尾時讀最後一筆 → `goal_verdict`：`met`→`done`；`failed:true`→`impossible`；只有 sentinel 或沒有→`unverified`（引擎未經檢查就 end_turn，不可當達成）；找不到 transcript→`no_transcript`。2026-09-12 實測三種結局都出現過（達成／判不可能放行／未經檢查結束），舊版全記成達成。
+- **檢查器會為了達成改系統狀態**：bypassPermissions 下，條件「Z 槽下某檔存在」被擋 2 次後引擎用 `subst` 造出 Z 槽達成（實測）。條件與任務書要寫清楚不准動什麼；`maxBudgetUsd`／`maxMinutes` 是最後煞車。
 - **`durable` 無效**：CronCreate 的 `durable` 參數由遠端旗標控制、目前關閉（工具 schema 明寫「Has no effect — all jobs are session-only」；六月與現在皆如此）。排程只活在本 Claude Code process。
 - **到點時 REPL 忙碌**（Claude 在跑、或使用者剛送出訊息）→ 排程器等下一個 idle 再 fire、不會漏掉（依 CronCreate 工具說明）。
+- **runs 目錄是全機共用的**：`~/.claude/goal2/runs/` 被所有 session、所有專案共用。禁止整批刪除；清理只能 `goal.js --prune`（只刪已結束且程序不在的）。同一棵工作樹（相同／祖先／子孫目錄）已有活著的 run 時不阻擋（使用者的工作型態就是同一專案並行多個調整），但準備輸出的 `active_runs_in_tree` 會列出來，回報時要提醒使用者兩個引擎可能互相改檔。
 - **長任務與上下文壓縮**：引擎的完成條件存在 app state（`activeGoal`＋session 級 Stop hook），壓縮不影響驗收；會流失的是任務細節與進度。goal2 三層錨定：① `anchor.md` 以 `--append-system-prompt-file` 進系統提示（每回合重送）；② `progress.md` 進度帳本（引擎 prompt 規定里程碑更新、壓縮後先讀）；③ `hooks/compact-anchor.js` 以 `--settings` 只掛在該子程序的 SessionStart(compact)，壓縮後把 ①＋② 注回。`engine.autocompact` 可把壓縮視窗調到 100k–1M tokens。summary 的 `compactions`／`anchor_injections` 回報這兩件事發生了幾次。**實測**（2.1.268）：autocompact=100000、每回合 25KB 輸出 → 3 次壓縮、3 次注回、壓縮後從帳本接續零重做，但第 3 次後被 Claude Code 的 `rapid_refill_breaker` 熔斷（壓縮空轉保護）；autocompact 別設太小、大檔分小塊讀。
 
 ## 5. 兩層時間別混淆（弱模型最常錯的點）
@@ -76,6 +93,7 @@ delaylocal 的 fast-path 與 plain 模式**沒有**第 2 層，也不起子程�
 ## 6. 回報紀律
 
 - 只回報固定欄位（各 SKILL.md 列的那幾項），格式固定。
-- 引擎結束後的回報要含 `goal_achieved`、`continuations`、`compactions`、`num_turns`、`result_text`（**原文保留**）、`run_dir`；被終止的要標明 `stopped` 並說做到哪。
+- 引擎結束後的回報要含 `status`／`goal_verdict`（`unverified` 必須明講不可當達成）、`continuations`、`compactions`、`num_turns`、`total_cost_usd`、`result_text`（**原文保留**）、`run_dir`、`plugin_version`；被終止的要標明 `stopped`／`timeout` 並說做到哪。
+- 「停」的消歧問題（多個活著的 run 時問停哪一個）不算下面禁止的 offer。
 - **嚴禁**在回報結尾追加「建議 / 下一步 / 要不要我改用別的方式」之類的提問或 offer。
 - 排程是時間敏感操作，任何多餘的反問都在浪費使用者的視窗。

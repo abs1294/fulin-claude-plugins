@@ -31,22 +31,26 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+let versionFields = {}; // lib 載入後填入 plugin_version / plugin_root，讓錯誤輸出也看得出版本
 function fail(msg) {
-  console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
+  console.log(JSON.stringify({ ok: false, error: msg, ...versionFields }, null, 2));
   process.exit(1);
 }
 
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
-let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules;
+let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute, crossMonthWarning } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
-  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules } = require(path.join(LIB, 'engine.js')));
+  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
+// 每個 JSON 輸出都帶版本與路徑：主 session 才看得出「載入的是 cache 舊版還是 repo 工作樹」
+const VERSION_FIELDS = { plugin_version: pluginVersion(), plugin_root: PLUGIN_ROOT };
+versionFields = VERSION_FIELDS;
 
 // --- 暫存檔清理（防止 os.tmpdir() 無限累積、殘留任務報告等敏感內容）---
 // 生命週期分析：
@@ -67,7 +71,7 @@ function sweepStaleTempFiles() {
     const cutoff = Date.now() - CLEANUP_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
     for (const name of fs.readdirSync(dir)) {
       // 只清本工具自己產生的兩類暫存檔，前綴嚴格比對，避免誤刪同目錄他人檔案。
-      if (!/^delaylocal-(report|line)-/.test(name)) continue;
+      if (!/^(delaylocal-(report|line|input|cond)|goal-(input|cond))-/.test(name)) continue;   // 含 0.4.0 起失敗路徑保留的中繼檔（input／cond）
       const fp = path.join(dir, name);
       try {
         const st = fs.statSync(fp);
@@ -78,62 +82,72 @@ function sweepStaleTempFiles() {
 }
 sweepStaleTempFiles();
 
-// --- 1. 當前 session id ---
-const envId = process.env.CLAUDE_CODE_SESSION_ID || '';
-if (!envId) fail('CLAUDE_CODE_SESSION_ID 環境變數不存在，無法鎖定當前 session');
-const snapshotKey = envId.replace(/-/g, '').slice(0, 24);
-
-// --- 2. 讀參數與使用者 prompt（stdin 優先，否則 --prompt-file）---
 // --- 設定檔（~/.claude/goal2/config.json 的 delaylocal 區段）---
 let cfg;
 try { cfg = loadConfig(); } catch (e) { fail(e.message); }
 const dlConfig = cfg.config.delaylocal;
 
+// --- 1. 參數 ---
 const args = process.argv.slice(2);
 let bufferSeconds = dlConfig.bufferSeconds; // 預設 900（15 分鐘）；設定檔可改；CLI 裸數字覆蓋
 let bufferSource = cfg.loaded ? 'config' : 'default';
 let promptFile = null;
 let goalCondition = null; // 完成條件（預設 goal 模式必填；由 Claude propose、使用者確認後填入）
+let goalFile = null;      // --goal-file <path>：條件含引號／$／反引號時用檔案傳，避免 shell 改寫
 let plainMode = false;    // --plain 才退回舊的文字紀律模式
 let showConfig = false;
 let runDir = null;        // --run <run_dir>：cron 到點後起引擎
 let stopDir = null;       // --stop <run_dir>：終止進行中的引擎子程序
+let forceStop = false;    // --stop … --force：程序狀態不明時只收狀態、不殺
 let statusDir = null;     // --status <run_dir>：看進度（不阻塞）
+let cwdArg = null;        // --cwd <dir>：子程序工作目錄（一律明確帶；Bash 工具的 cwd 會漂移）
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--prompt-file') promptFile = args[++i];
+  else if (args[i] === '--cwd') cwdArg = args[++i];
   else if (args[i] === '--goal') goalCondition = args[++i];
+  else if (args[i] === '--goal-file') goalFile = args[++i];
   else if (args[i] === '--plain') plainMode = true;
   else if (args[i] === '--show-config') showConfig = true;
   else if (args[i] === '--run') runDir = args[++i];
-  else if (args[i] === '--stop') stopDir = args[++i];
+  else if (args[i] === '--stop') { stopDir = args[++i]; if (!stopDir || stopDir.startsWith('--')) fail('--stop 後面要接 run 目錄路徑'); }
+  else if (args[i] === '--force') forceStop = true;
   else if (args[i] === '--status') statusDir = args[++i];
   else if (/^\d+$/.test(args[i])) { bufferSeconds = parseInt(args[i], 10); bufferSource = 'cli'; }
+  else fail(`未知參數：${args[i]}（打錯旗標會讓 cwd 退回當下目錄、條件被忽略，所以直接拒絕）`);
 }
+// --- 1a. 終止 / 狀態 / 執行：這三個不需要 session id（使用者在自己的終端、或 Claude Code 已關掉後也能查／停）---
 if (stopDir) {
   if (!fs.existsSync(path.join(stopDir, 'meta.json'))) fail(`--stop 目錄不存在或缺 meta.json：${stopDir}`);
-  let r; try { r = stopRun(stopDir); } catch (e) { fail(`終止失敗：${e.message}`); }
+  let r; try { r = stopRun(stopDir, { force: forceStop }); } catch (e) { fail(`終止失敗：${e.message}`); }
   console.log(JSON.stringify({ mode: 'stopped', ...r }, null, 2)); process.exit(r.ok ? 0 : 1);
 }
 if (statusDir) {
   if (!fs.existsSync(path.join(statusDir, 'meta.json'))) fail(`--status 目錄不存在或缺 meta.json：${statusDir}`);
-  console.log(JSON.stringify({ mode: 'status', ...runStatus(statusDir) }, null, 2)); process.exit(0);
+  let r; try { r = runStatus(statusDir); } catch (e) { fail(`讀狀態失敗：${e.message}`); }
+  console.log(JSON.stringify({ mode: 'status', ...r }, null, 2)); process.exit(0);
 }
 if (runDir) {
   // 執行模式：起 claude -p 子程序跑官方 goal 引擎，阻塞到完成，印 summary（skill 用 Bash 背景執行）
   if (!fs.existsSync(path.join(runDir, 'prompt.txt'))) fail(`--run 目錄不存在或缺 prompt.txt：${runDir}`);
-  runEngine(runDir, cfg.config.engine).then((summary) => {
+  let p; try { p = runEngine(runDir, cfg.config.engine); } catch (e) { fail(`引擎啟動前檢查失敗：${e.message}`); }
+  p.then((summary) => {
     console.log(JSON.stringify({ mode: 'ran', ...summary }, null, 2));
     process.exit(summary.ok ? 0 : 1);
   }).catch((e) => fail(`引擎執行失敗：${e.message}`));
   return; // 下面是排程準備流程
 }
+
+// --- 2. 當前 session id（排程準備才需要：鎖定要算誰的 quota）---
+const envId = process.env.CLAUDE_CODE_SESSION_ID || '';
+if (!envId) fail('CLAUDE_CODE_SESSION_ID 環境變數不存在，無法鎖定當前 session');
+const snapshotKey = envId.replace(/-/g, '').slice(0, 24);
 // propose 確認逾時 timer 的 cron：現在 + confirmTimeoutMinutes，向上取整到整分（同 goal.js 的取整理由）。
 // --show-config 也輸出它：skill 在 propose 當下跑 --show-config 就能直接拿 cron 去 CronCreate timer。
 const confirmTarget = ceilToMinute(Math.floor(Date.now() / 1000) + dlConfig.confirmTimeoutMinutes * 60);
 const confirmTimerCron = dateToCron(new Date(confirmTarget * 1000));
 if (showConfig) {
   console.log(JSON.stringify({
-    ok: true, mode: 'show-config', config_path: cfg.path, config_loaded: cfg.loaded, delaylocal: dlConfig, goal: cfg.config.goal, engine: cfg.config.engine,
+    ok: true, mode: 'show-config', ...VERSION_FIELDS, config_path: cfg.path, config_loaded: cfg.loaded, delaylocal: dlConfig, goal: cfg.config.goal, engine: cfg.config.engine,
     confirm_timeout_minutes: dlConfig.confirmTimeoutMinutes, confirm_timer_cron: confirmTimerCron,
     confirm_timer_target_local: new Date(confirmTarget * 1000).toLocaleString(), buffer_seconds_default: dlConfig.bufferSeconds
   }, null, 2));
@@ -141,15 +155,18 @@ if (showConfig) {
 }
 let userPrompt = '';
 if (promptFile) {
-  userPrompt = fs.readFileSync(promptFile, 'utf8');
-  // 中繼檔是一次性消耗品：讀完立刻刪除，避免殘留被其他流程誤讀 / 覆寫競態。
-  try { fs.unlinkSync(promptFile); } catch (_) {}
+  try { userPrompt = fs.readFileSync(promptFile, 'utf8'); } catch (e) { fail(`讀 --prompt-file 失敗：${e.message}`); }
+  // 中繼檔到排程準備成功後才刪（見下方 prepareRun 之後）：任何驗證失敗都保留原檔，重跑不必重寫任務書
 } else {
   try { userPrompt = fs.readFileSync(0, 'utf8'); } catch (_) { userPrompt = ''; }
 }
 userPrompt = (userPrompt || '').trim();
 if (!userPrompt) fail('沒有收到要排程的 prompt（請用 stdin 或 --prompt-file 傳入）');
-if (!plainMode && !goalCondition) fail('delaylocal 預設為 goal 模式：需提供完成條件 --goal "<可測量完成條件>"。請先把完成條件 propose 給使用者、確認後再排程。若確實要用無目標的文字紀律模式，加 --plain。');
+if (goalFile) {
+  if (goalCondition) fail('--goal 與 --goal-file 只能擇一。');
+  try { goalCondition = fs.readFileSync(goalFile, 'utf8').replace(/\r\n/g, '\n').trim(); } catch (e) { fail(`讀 --goal-file 失敗：${e.message}`); }
+}
+if (!plainMode && !goalCondition) fail('delaylocal 預設為 goal 模式：需提供完成條件 --goal "<可測量完成條件>" 或 --goal-file <path>。請先把完成條件 propose 給使用者、確認後再排程。若確實要用無目標的文字紀律模式，加 --plain。');
 
 // --- 3. 讀 quota 重置時間（鎖定當前 session）---
 const snapFile = path.join(os.homedir(), '.claude', 'rate-limit-snapshots.json');
@@ -220,6 +237,7 @@ let enginePrompt = null;   // goal 模式：交給子程序引擎的 prompt（�
 let runDirOut = null;
 let runCommandOut = null;
 let stopCommandOut = null;
+let activeRunsOut = [];
 if (!plainMode) {
   // === goal 模式（預設）===
   // 第一行 = /goal <完成條件>，把「已發 LINE」納入條件（goal 達成後自動清除、不接後續，
@@ -246,16 +264,21 @@ if (!plainMode) {
    cat "${reportPath}" | node "${notifyPath}"
    （notify-line.js 走 node https，自動拆多則、可帶中文/emoji。LINE 為選用：有設憑證就發出；未設則自動略過並回 exit 0、不算失敗——報告已寫入暫存檔即視為此步完成，別因為沒收到 LINE 就重試或卡住。）
    最後一則回覆貼上報告全文（主 session 會讀取它當最終回報素材），不要追加任何提問或 offer。`;
+  const engineCwd = path.resolve(cwdArg || process.env.CLAUDE_PROJECT_DIR || process.cwd());
   const anchor = buildAnchor({
-    condition: goalCondition, conditionOverflow: goalOverflow, task: userPrompt, workList, runDir: '<RUN_DIR>',
+    condition: goalCondition, conditionOverflow: goalOverflow, task: userPrompt, workList, runDir: '<RUN_DIR>', cwd: engineCwd,
     extra: `報告格式（步驟 3 用，嚴格照填、不增不減）：
 
 ${REPORT_FORMAT}`
   });
   let prepared;
-  try { prepared = prepareRun({ skill: 'delaylocal', prompt: enginePrompt, cwd: process.cwd(), anchor, meta: { sessionId: envId, condition: goalCondition, overflow: goalOverflow } }); } catch (e) { fail(e.message); }
+  try { prepared = prepareRun({ skill: 'delaylocal', prompt: enginePrompt, cwd: engineCwd, anchor, meta: { sessionId: envId, condition: goalCondition, overflow: goalOverflow, cwdSource: cwdArg ? 'cli' : (process.env.CLAUDE_PROJECT_DIR ? 'env:CLAUDE_PROJECT_DIR' : 'process.cwd'), pluginVersion: pluginVersion(), scheduledFor: d.toISOString() } }); } catch (e) { fail(e.message); }
   enginePrompt = fs.readFileSync(prepared.promptPath, 'utf8');
+  // 準備成功、任務全文已落進 run 目錄 → 中繼檔才可刪
+  if (promptFile) { try { fs.unlinkSync(promptFile); } catch (_) {} }
+  if (goalFile) { try { fs.unlinkSync(goalFile); } catch (_) {} }
   runDirOut = prepared.runDir;
+  activeRunsOut = prepared.activeRunsInTree || [];
   runCommandOut = `node "${path.resolve(__filename)}" --run "${prepared.runDir}"`;
   stopCommandOut = `node "${path.resolve(__filename)}" --stop "${prepared.runDir}"`;
 
@@ -270,7 +293,7 @@ ${REPORT_FORMAT}`
 2. [啟動 goal 引擎] 用 Bash 工具、run_in_background: true 執行下面這條指令（原樣執行，不要改參數）：
    ${runCommandOut}
    它會另起一個 headless Claude Code session，用官方 /goal 引擎把任務做到完成條件達成，並在收尾時寫報告、嘗試發 LINE。指令會阻塞到引擎結束，最後印一份 JSON summary。
-3. [等待與回報] 背景指令結束後（你會收到通知），讀它印出的 JSON：goal_achieved、continuations、compactions、num_turns、result_text（引擎最後一則回覆＝報告全文）。用固定格式回報：達成與否、回合數、報告內容、run_dir 路徑（含 stream.jsonl 可追查、progress.md 是進度帳本）。不要追加任何提問或 offer。
+3. [等待與回報] 背景指令結束後（你會收到通知），讀它印出的 JSON：**status 與 goal_verdict**（done＝檢查器確認達成；unverified＝正常結束但沒有達成判定，不可當作達成，要明講；impossible＝檢查器判條件不可能；failed＝拒收或異常；timeout＝超過時限；budget＝花費達上限；unknown＝stream 遺失）、continuations、compactions、num_turns、total_cost_usd、result_text（引擎最後一則回覆＝報告全文，原文保留）。用固定格式回報：狀態與是否達成、回合數與花費、報告內容、run_dir 路徑（含 stream.jsonl 可追查、progress.md 是進度帳本、child_transcript 是檢查器紀錄）。不要追加任何提問或 offer。
    （要中途終止：${stopCommandOut}；要看進度：把 --stop 換成 --status。）`;
 } else {
   // === 文字紀律模式（--plain，選用 fallback）===
@@ -307,8 +330,12 @@ ${userPrompt}
 ${REPORT_FORMAT}`;
 }
 
+// plain 模式沒有 run 目錄；final_prompt 已含任務全文，中繼檔此時可刪
+if (plainMode && promptFile) { try { fs.unlinkSync(promptFile); } catch (_) {} }
+
 console.log(JSON.stringify({
   ok: true,
+  ...VERSION_FIELDS,
   sessionId: envId,
   snapshotKey,
   resets_at_local: new Date(base * 1000).toLocaleString(),
@@ -327,6 +354,8 @@ console.log(JSON.stringify({
   run_dir: runDirOut,
   run_command: runCommandOut,
   stop_command: stopCommandOut,
+  engine_cwd: runDirOut ? require(path.join(runDirOut, 'meta.json')).cwd : null,
+  active_runs_in_tree: activeRunsOut,
   engine: cfg.config.engine,
   engine_prompt: enginePrompt,
   final_prompt: finalPrompt

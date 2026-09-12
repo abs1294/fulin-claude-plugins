@@ -33,14 +33,14 @@ description: 當使用者要「把一段 prompt 排程到 5 小時 quota 重置�
 
 （`delaylocal.js` / `notify-line.js` 以 `__dirname` 解析同目錄與 `../../lib`，Node 對 symlink 取真身路徑，所以 symlink、plugin 安裝、user-level 三情境都成立，不依賴執行平台。）
 
-**設定檔（選用）**：`~/.claude/goal2/config.json`（家目錄，重裝 plugin 不會被清掉；範本在 plugin 根層 `config.example.json`）。本 skill 用的欄位：`delaylocal.confirmTimeoutMinutes`（propose 後等使用者確認的逾時，**預設 10 分鐘**）、`delaylocal.bufferSeconds`（quota 重置後再等幾秒才 fire，**預設 900**，CLI 裸數字可臨時覆蓋）、`engine.permissionMode`（子程序權限模式，**預設 bypassPermissions**）、`engine.stopHookBlockCap`（引擎連續擋停上限，**預設 0＝做到達成為止**）、`engine.model`、`engine.autocompact`（子程序壓縮視窗，預設 auto；長任務可調大）。沒檔就用預設；檔案壞掉或欄位錯會直接報錯不靜默退回。`node "<skill_dir>/delaylocal.js" --show-config` 可看生效值與當下的 `confirm_timer_cron`。
+**設定檔（選用）**：`~/.claude/goal2/config.json`（家目錄，重裝 plugin 不會被清掉；範本在 plugin 根層 `config.example.json`）。本 skill 用的欄位：`delaylocal.confirmTimeoutMinutes`（propose 後等使用者確認的逾時，**預設 10 分鐘**）、`delaylocal.bufferSeconds`（quota 重置後再等幾秒才 fire，**預設 900**，CLI 裸數字可臨時覆蓋）、`engine.permissionMode`（子程序權限模式，**預設 bypassPermissions**）、`engine.stopHookBlockCap`（引擎連續擋停上限，**預設 0＝做到達成為止**）、`engine.model`、`engine.autocompact`（子程序壓縮視窗，預設 auto；長任務可調大）、`engine.maxBudgetUsd`（子程序 `--max-budget-usd`，花到自停 `status: budget`，**預設 300**）、`engine.maxMinutes`（runner 時限，超過殺樹標 timeout，**預設 480**）。沒檔就用預設；檔案壞掉或欄位錯會直接報錯不靜默退回。`node "<skill_dir>/delaylocal.js" --show-config` 可看生效值與當下的 `confirm_timer_cron`。
 
 LINE 通知為**選用**：**有設憑證就發、沒設就自動略過、完全不影響任務執行**。
 要啟用通知再設定其一（憑證**不進 git**）：
 
-- **設定檔（建議）**：複製本 skill 目錄下的 `notify-line.config.example.json`
+- **環境變數（建議）**：設 `LINE_TOKEN`、`LINE_USER_ID`。plugin 安裝模式下 skill 目錄在 cache，重裝會被清掉，所以憑證放環境變數最穩。
+- **或設定檔**：複製本 skill 目錄下的 `notify-line.config.example.json`
   成 `notify-line.config.json`（同目錄），填入你的 LINE Channel Access Token 與 userId。
-- **或環境變數**：設 `LINE_TOKEN`、`LINE_USER_ID`。
 
 沒設好的話，排程照常建立、任務照常無人值守執行；結束時 `notify-line.js` 只會印一行
 `LINE SKIP …` 並以 exit 0 結束（不算失敗、不卡 goal）。
@@ -80,7 +80,7 @@ LINE 通知為**選用**：**有設憑證就發、沒設就自動略過、完全
 ---
 
 **（一般情況）預設為 goal 模式。** 先做下方「goal 模式排程流程」的 propose → 確認，拿到使用者確認的**完成條件**，
-再走下列步驟（步驟 3 會帶 `--goal "<完成條件>"`）。只有在這個任務實在無法定義可測量條件時，
+再走下列步驟（步驟 3 會以 `--goal-file <條件檔>` 帶入完成條件）。只有在這個任務實在無法定義可測量條件時，
 才改用 `--plain` 文字模式（可跳過 propose、不需完成條件）。
 > 若使用者要求「無條件直接排」，**上方 fast-path 優先**，跳過本 goal propose 流程。
 
@@ -99,18 +99,20 @@ LINE 通知為**選用**：**有設憑證就發、沒設就自動略過、完全
 
 > 步驟 3、收尾的 `node "<skill_dir>/..."` 與 `cat "<path>" | node ...` 指令在 macOS / Linux 原生 shell（bash / zsh）即可執行；Windows 則在 git-bash 下執行（語法相同）。
 
-> 此中繼檔是一次性消耗品：`delaylocal.js` 讀取後會**自動刪除**。
+> 此中繼檔在**排程準備成功後**才由 `delaylocal.js` 刪除；驗證失敗（缺 --goal、cwd 不存在、超長）會保留，補參數重跑即可。
 
 ### 3. 跑主工具拿 JSON
 ```bash
 # <skill_dir> = 本 SKILL.md 所在目錄
-# 預設 goal 模式：帶 --goal "<使用者已確認的完成條件>"
-node "<skill_dir>/delaylocal.js" [bufferSeconds] --prompt-file <步驟2的唯一檔名> --goal "<已確認的完成條件>"
+# 預設 goal 模式：帶 --goal-file <條件檔>（使用者已確認的完成條件）
+node "<skill_dir>/delaylocal.js" [bufferSeconds] --prompt-file <步驟2的唯一檔名> --goal-file <條件檔> --cwd "<專案根目錄>"
+# 條件先用 Write 寫進 delaylocal-cond-<時間戳>-<隨機>.txt 再以 --goal-file 傳（含引號／$／反引號／路徑時 --goal "<條件>" 會被 shell 改寫）；一句話純文字的條件才用 --goal "<條件>"
 # 文字模式（少數無法定義可測量條件時）：改帶 --plain、省略 --goal
 ```
+- **`--cwd` 必帶**（goal 模式）：引擎子程序的工作目錄；不帶會退回 Bash 工具當下的 cwd，那會漂移。同一棵工作樹已有活著的 run 不會擋，JSON 的 `active_runs_in_tree` 會列出來，排程回報時一併提醒。**並行時路徑不重疊不代表沒干擾**（共用 DB／測試結果／dev server port／git 工作樹），任務書要寫明本 run 的範圍切分與「別的 run 可能同時在動什麼」。`--stop` 殺不到引擎內用 `&`／nohup 起、已脫離父子鏈的背景服務，停完提醒使用者查 port。
 - `bufferSeconds` 預設 900（15 分），可在設定檔 `~/.claude/goal2/config.json` 的 `delaylocal.bufferSeconds` 改預設；要臨時不同緩衝就帶數字（例 `1800`=30 分，CLI 優先於設定檔）。輸出的 `buffer_source` 說明用了哪個（cli / config / default）。
-- 工具讀完 prompt 會**自動刪除**該 `--prompt-file`。
-- 工具輸出 JSON：`{ ok, sessionId, snapshotKey, resets_at_local, target_local, cron, cron_warning, fire_in_minutes, buffer_seconds, buffer_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, config_path, config_loaded, mode, run_dir, run_command, stop_command, engine, engine_prompt, final_prompt }`。goal 模式時 `run_dir` 已建好、`engine_prompt`（`/goal` 開頭）已落在裡面；plain 模式這三個為 null。
+- 準備成功後工具才刪 `--prompt-file`／`--goal-file`；失敗保留。未知旗標（例 `--cwdd`）直接報錯，不會靜默吃掉。
+- 工具輸出 JSON：`{ ok, plugin_version, plugin_root, sessionId, snapshotKey, resets_at_local, target_local, cron, cron_warning, fire_in_minutes, buffer_seconds, buffer_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, config_path, config_loaded, mode, run_dir, run_command, stop_command, engine, engine_prompt, final_prompt }`。goal 模式時 `run_dir` 已建好、`engine_prompt`（`/goal` 開頭）已落在裡面；plain 模式這三個為 null。
 - `ok:false` → 把 error 告訴使用者，停止。
 
 ### 4. 用工具輸出的 cron + final_prompt 排程
@@ -138,8 +140,8 @@ CronCreate({
 
 ### 6. cron 到點後（goal 模式，final_prompt 會指示你做這些）
 1. Session 守衛通過 → 用 Bash、`run_in_background: true` 原樣執行 `run_command`（`node "<delaylocal.js>" --run "<run_dir>"`）。它阻塞到引擎結束，最後印 summary JSON。
-2. 收到背景結束通知後讀 JSON：`goal_achieved`、`continuations`、`compactions`／`anchor_injections`（壓縮次數與壓縮後錨定注回次數）、`num_turns`、`result_text`（引擎最後一則回覆＝報告全文，**原文保留**）、`run_dir`（`stream.jsonl` 可追查、`progress.md` 是進度帳本）。固定格式回報，不加提問或 offer。
-3. 進行中要終止：`node "<skill_dir>/delaylocal.js" --stop <run_dir>`（殺整棵子程序樹、標 stopped）；要看進度：`--status <run_dir>`，回報時第一句直接用它的 `summary_zh`（狀態＋回合＋擋停次數＋壓縮次數＋最後動作＋最後一句，已是人話），再貼 `progress_md` 的已完成／剩餘；欄位對照見 goal skill 的 SKILL.md 4b。不要只 TaskStop 背景指令，子程序會變孤兒。
+2. 收到背景結束通知後讀 JSON：**`status` 與 `goal_verdict`**（`done`＝檢查器確認達成；`unverified`＝正常結束但沒有達成判定，**不可當作達成**，要明講；`impossible`／`failed`／`timeout`／`budget`／`unknown` 各照 goal skill 步驟 5 的說法講）、`continuations`、`compactions`／`anchor_injections`（壓縮次數與壓縮後錨定注回次數）、`num_turns`、`total_cost_usd`、`result_text`（引擎最後一則回覆＝報告全文，**原文保留**）、`run_dir`（`stream.jsonl` 可追查、`progress.md` 是進度帳本、`child_transcript` 是檢查器紀錄）。固定格式回報，不加提問或 offer。
+3. `runs/` 目錄全機共用，**禁止整批 rm**；清理只能 `goal.js --prune`（見 goal skill；等 cron 的 delaylocal prepared run 以 meta 的 `scheduledFor` 起算，到點前不會被清）。進行中要終止：`node "<skill_dir>/delaylocal.js" --stop <run_dir>`（先核對 pid 身分再殺整棵子程序樹、標 stopped；多個活著的 run 時先問停哪一個；`--stop`／`--status` 不需要 `CLAUDE_CODE_SESSION_ID`，使用者在自己的終端也能用）；要看進度：`--status <run_dir>`，回報時第一句直接用它的 `summary_zh`（狀態＋回合＋擋停次數＋壓縮次數＋最後動作＋最後一句，已是人話），再貼 `progress_md` 的已完成／剩餘；欄位對照見 goal skill 的 SKILL.md 4b。不要只 TaskStop 背景指令：殺 runner 引擎會跟著死，但 meta 停在 running、沒有 result.json，之後只能 `--stop` 收狀態。
 
 **嚴禁**在回報結尾追加任何「建議 / 下一步 / 要不要我改用別的方式」之類的提問或 offer。
 回報到「取消方式」就結束。
@@ -150,10 +152,10 @@ goal 是**預設模式**。通用骨架（為什麼要 propose、可測量條件
 
 本 skill 的具體差異（對照 references 第 3 節的表）：
 
-1. **propose 時**一併給：完成條件、任務拆解、**緩衝秒數 / 預計 fire 時間**。
-2. **確認 timer 的 cron 由工具算，不要心算**：先跑 `node "<skill_dir>/delaylocal.js" --show-config`，拿 `confirm_timer_cron`（= 現在 + 設定檔 `delaylocal.confirmTimeoutMinutes`，預設 10 分鐘，向上取整到整分）與 `confirm_timeout_minutes`。timer 的 prompt 是**文字指令**（不是任務本體）：`CronCreate({ cron: <confirm_timer_cron>, recurring:false, durable:false, prompt: "[delaylocal 逾時自動採納] 若使用者自此 propose 後尚未回覆，視為自動採納，直接完成排程。完成條件：<condition 全文>；任務：<task>；buffer：<秒>。請跑 delaylocal.js --goal 後 CronCreate。" })`。**記下 timer 的 job id。**回報時把 `confirm_timeout_minutes` 講給使用者（「N 分鐘內沒回覆將自動採納」）。
+1. **propose 時**一併給：完成條件（照 references 第 2 節，**極端**：等式與全稱，`= 0`／每一項，不用 `<`、`≤`、「大部分」；條件內含例外條款「例外清單內的項目不計」，例外限真 blocker＋證據＋原因，回報時逐項列出）、任務拆解、**緩衝秒數 / 預計 fire 時間**。
+2. **確認 timer 的 cron 由工具算，不要心算**：先跑 `node "<skill_dir>/delaylocal.js" --show-config`，拿 `confirm_timer_cron`（= 現在 + 設定檔 `delaylocal.confirmTimeoutMinutes`，預設 10 分鐘，向上取整到整分）與 `confirm_timeout_minutes`。timer 的 prompt 是**文字指令**（不是任務本體）：`CronCreate({ cron: <confirm_timer_cron>, recurring:false, durable:false, prompt: "[delaylocal 逾時自動採納] 若使用者自此 propose 後尚未回覆，視為自動採納，直接完成排程。完成條件：<condition 全文>；任務：<task>；buffer：<秒>。請把條件寫進條件檔後跑 delaylocal.js --goal-file … --cwd …，再 CronCreate。" })`。**記下 timer 的 job id。**回報時把 `confirm_timeout_minutes` 講給使用者（「N 分鐘內沒回覆將自動採納」）。
 3. **收斂**：使用者回覆 → 先 `CronDelete <timer id>` 再處理（同意 → 第 4 步；改 → 重 propose 並重排 timer）；逾時 → timer fire 自動採納，進第 4 步。
-4. **排程任務**：跑 `delaylocal.js … --goal "<採納的完成條件>"`（此時引擎 prompt 已落 `run_dir`）取得 final_prompt，再 `CronCreate`（到 quota 重置後 fire；fire 進來的 prompt 會叫你背景執行 `run_command` 起引擎）。timer 與任務是**兩個不同的 job**。
+4. **排程任務**：把採納的完成條件寫進條件檔，跑 `delaylocal.js … --goal-file <條件檔> --cwd <專案根>`（此時引擎 prompt 已落 `run_dir`）取得 final_prompt，再 `CronCreate`（到 quota 重置後 fire；fire 進來的 prompt 會叫你背景執行 `run_command` 起引擎）。timer 與任務是**兩個不同的 job**。
 
 ## 運作原理（why，不是執行步驟）
 

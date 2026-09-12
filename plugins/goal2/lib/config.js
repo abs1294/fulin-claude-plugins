@@ -3,7 +3,8 @@
 //
 // 結構（所有欄位選填，沒寫的用預設）：
 //   {
-//     "engine":     { "permissionMode": "bypassPermissions", "stopHookBlockCap": 0, "model": null, "autocompact": "auto" },
+//     "engine":     { "permissionMode": "bypassPermissions", "stopHookBlockCap": 0, "model": null, "autocompact": "auto",
+//                     "maxBudgetUsd": 300, "maxMinutes": 480 },
 //     "goal":       { "confirmTimeoutMinutes": 0 },
 //     "delaylocal": { "confirmTimeoutMinutes": 10, "bufferSeconds": 900 }
 //   }
@@ -13,6 +14,10 @@
 //   engine.model                     子程序用的模型（null = 沿用預設）
 //   engine.autocompact               子程序的 --autocompact：'auto' 或 100000–1000000（tokens）的整數。
 //                                    長任務想讓壓縮晚一點發生就調大；壓縮後的錨定另有 anchor.md / progress.md / hook 三層
+//   engine.maxBudgetUsd              子程序的 --max-budget-usd（引擎花到這個金額就自己停，status: budget）；null = 不設。預設 300
+//                                    （實測正常任務約 0.5 USD/分鐘，300 ≈ 10 小時；使用者的長任務跑過 115 分鐘≈60 USD）。
+//   engine.maxMinutes                runner 的時限：超過就殺整棵子程序樹、status 標 timeout；null = 不設。預設 480（8 小時）。
+//                                    這兩個是無人值守唯一的自動煞車——條件寫錯或永遠達不到時，沒有它們引擎會跑到 quota 用光。
 //   goal.confirmTimeoutMinutes       propose 後等使用者確認的分鐘數；0（預設）= 不等，propose 完直接啟動引擎（隨時可 --stop）；
 //                                    ≥1 = 排確認 timer，逾時自動採納啟動
 //   delaylocal.confirmTimeoutMinutes propose 後等使用者確認的逾時分鐘數；逾時後自動採納並排任務
@@ -31,7 +36,7 @@ const RUNS_DIR = path.join(GOAL2_HOME, 'runs');
 const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'auto', 'dontAsk'];
 
 const DEFAULTS = {
-  engine: { permissionMode: 'bypassPermissions', stopHookBlockCap: 0, model: null, autocompact: 'auto' },
+  engine: { permissionMode: 'bypassPermissions', stopHookBlockCap: 0, model: null, autocompact: 'auto', maxBudgetUsd: 300, maxMinutes: 480 },
   goal: { confirmTimeoutMinutes: 0 },
   delaylocal: { confirmTimeoutMinutes: 10, bufferSeconds: 900 }
 };
@@ -42,6 +47,8 @@ const VALIDATORS = {
   'engine.stopHookBlockCap': (v) => (Number.isInteger(v) && v >= 0 ? null : '需為 ≥0 的整數（0 = 不設上限）'),
   'engine.model': (v) => (v === null || (typeof v === 'string' && v.trim()) ? null : '需為模型名稱字串或 null'),
   'engine.autocompact': (v) => (v === 'auto' || (Number.isInteger(v) && v >= 100000 && v <= 1000000) ? null : "需為 'auto' 或 100000–1000000 的整數（tokens）"),
+  'engine.maxBudgetUsd': (v) => (v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0) ? null : '需為 >0 的數字（USD）或 null（不設上限）'),
+  'engine.maxMinutes': (v) => (v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 10080) ? null : '需為 0–10080（7 天）之間的數字（分鐘）或 null（不設上限）'),
   'goal.confirmTimeoutMinutes': (v) => (Number.isInteger(v) && v >= 0 ? null : '需為 ≥0 的整數（0 = 不等確認，propose 後直接啟動）'),
   'delaylocal.confirmTimeoutMinutes': (v) => (Number.isInteger(v) && v >= 1 ? null : '需為 ≥1 的整數'),
   'delaylocal.bufferSeconds': (v) => (Number.isInteger(v) && v >= 1 ? null : '需為 ≥1 的整數')

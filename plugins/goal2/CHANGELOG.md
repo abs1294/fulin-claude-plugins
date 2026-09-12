@@ -2,6 +2,53 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.4.0] - 2026-09-12
+紅藍對抗四輪（紅方 51 條＋藍方複驗新發現 14 條，全部有實跑證據）＋兩個 session 四個 run 的使用檢視，一次修完。**升級後請重裝**：`/plugin update goal2@fulin-plugins` → `/reload-plugins`；設定檔多兩個欄位（見下），舊版不認識會報錯，先升級再改設定檔。
+### Fixed
+- **達成判定是代理值（CRITICAL）**：舊版 `goal_achieved = goal_set && exit 0 && subtype success`，從不看檢查器。實例 55a0：130 回合、12.62 USD、報告檔根本不存在，被記成達成。真相：`claude -p` 的 stream-json 裡**沒有**檢查器判定，只有子程序自己的 transcript（`~/.claude/projects/<cwd 編碼>/<session>.jsonl`）每次 Stop 檢查寫一筆 `attachment {type:"goal_status", met, failed?, reason?}`。現在 `runEngine` 收尾時讀最後一筆 → 新欄位 `goal_verdict`（`met`／`impossible`／`unverified`／`no_transcript`）、`goal_checks`、`goal_verdict_reason`、`child_transcript`；`status` 新增 `unverified`（正常結束但沒有任何判定，**不可當達成**）、`impossible`（檢查器判不可能而放行）、`timeout`、`unknown`；`done` 只在 `met`。`--status` 的 `summary_zh` 逐狀態講清楚。實測（2.1.268）：不可能的條件被擋 2 次後引擎 `subst` 造出 Z 槽達成；條件註明不可能 → `failed:true` 放行 0 次擋停；兩個 session 的 4750 實為達成（transcript `met:true`）卻因 stream 被刪記成 failed。
+- **`goal_error` 誤判**：偵測掃整條 stream，引擎讀到別的 run 的拒收紀錄再引述一次就被當成自己被拒（run 5cd6：60 回合達成，卻回 `ok:false` "got 14304"）。現只認第一則 assistant 回覆（引擎對 `/goal` 的立即回應）或 `goal_set` 為 false 時的 result。
+- **stream.jsonl 被刪＝假失敗**：`summarizeStream` 讀不到檔靜默回全預設 → `goal_set:false → failed`。現在 `stream_missing:true` → `status: unknown`，錯誤訊息指向 `child_transcript`。
+- **pid 重用會殺錯程序樹（HIGH）**：`--stop`／`--list`／並行提醒只看 pid。現在啟動時記 `pidStart`（程序啟動時間）＋`pidName`，`aliveState()` 回 `alive`／`dead`／`stale`（pid 在但身分對不上）／`unknown`（探測被拒）；`stale` 只收狀態不殺、`unknown` 拒絕動手；EPERM 不再當活著。所有終止分支都寫 `endedAt`。
+- **無預算／時間煞車（HIGH）**：新設定 `engine.maxBudgetUsd`（預設 **300**，傳 `--max-budget-usd`；觸發時引擎回 `error_max_budget_usd` → `status: budget`，訊息含實花金額）與 `engine.maxMinutes`（預設 480、上限 10080 以免 setTimeout 溢位，runner 超時 `killTree` 標 `timeout`）；null 可關。預設 300／480 為使用者指定（實測正常任務 0.45–0.55 USD/分鐘；使用者的 4750 跑了 115 分鐘≈60 USD（紅方第二輪指出原訂 20 約 40 分鐘就會砍掉正常任務，第三輪指出 60 剛好砍在 115 分鐘那種 run 上）。實例：16 分鐘 12.62 USD 零產出、6918 秒的 run 都沒有任何東西攔。
+- **安裝版≠repo 版看不出來（HIGH）**：所有 JSON 輸出（prepared／ran／status／stopped／list／prune／show-config）帶 `plugin_version`、`plugin_root`；meta 記 `pluginVersion`；SKILL 要求回報版本並在落後時提醒升級。兩個 session 實際跑的是 0.3.1、審查的是 0.3.3。
+- **prune 殘骸永不可清／EBUSY 整支崩**：可清類別擴為四種（已結束且程序不在、`running` 但 pid 死或被重用、`prepared` 從未啟動、無 meta 壞目錄），年齡以 `endedAt`／`createdAt`／run id 時間戳判（刪一半的殘骸不再因 mtime 刷新而要多等 24 小時）；逐目錄 try/catch＋`rmSync maxRetries:3`，失敗記 `failed[]` 繼續、`ok:false`。實測 PowerShell 獨占鎖住檔案時其餘 4 個照刪。
+- **meta.json 非原子寫入／壞 meta 直接 stack trace**：`writeMeta` 改 tmp＋rename；`readMeta` 重試兩次；`--status`／`--stop`／`--run`／`--list`／`--prune` 外層 try → JSON `ok:false`；`--run` 遇缺 meta 寫 `spawn_failed` meta 不炸。
+- **`--prompt-file` 讀完即刪，失敗路徑任務書就沒了**：改為準備成功（run 目錄建好）後才刪；`--goal`／cwd／超長任何驗證失敗都保留原檔。兩個 session 都踩過 `cp: cannot stat`。
+- **條件含引號／`$`／反引號被 shell 改寫**：新增 `--goal-file <path>`（goal.js 與 delaylocal.js），SKILL 改為條件一律走檔案。
+- **delaylocal 未知旗標靜默吃掉**（`--cwdd` 不報錯 → cwd 退回當下目錄）：與 goal.js 同樣 `未知參數` 直接拒絕。
+- **delaylocal `--stop`／`--status`／`--run` 不需 session id**：使用者在自己的終端、或 Claude Code 已關掉後也能查／停。
+- **compact hook 重複注入＋任務書外置壓縮後只剩指針**：hook 不再重送整份 anchor（它本來就在系統提示裡），只注回「完成條件」那一節＋帳本＋錨定區「任務全文」提到的外置檔案路徑（要求重讀）；`source !== "compact"` 一律不注（缺欄位也不注，不再只靠 engine.js 的 matcher）。
+- **同一 run 目錄 `--run` 可重入（紅方第二輪 HIGH）**：第二次 `--run` 會覆寫 pid、重開 stream.jsonl，第一個引擎變成找不到的孤兒。現在 `runEngine` 只接受 `status: prepared`，其餘回 `reentry_refused` 並說明（不覆寫既有 result.json）（running 且活著 → 用 --status/--stop；running 但程序不在 → 先 --stop 收狀態再重新準備）。
+- **`alive_state: unknown` 沒有出口**：pid 落在受保護程序（EPERM）或身分抓不到時，`--stop` 拒絕、prune 不碰，狀態永遠收不掉。新增 `--stop <run_dir> --force`：使用者確認引擎已不在後只把狀態收成 stopped、不殺任何程序。另外 0.4.0 的 meta 若沒記到身分（`pidStart` null），每次判活都重探：程式名像 claude/node 且啟動時間落在 run 的 startedAt 後 2 分鐘內 → alive，否則 stale；抓不到 → unknown（舊版 meta 才退回只信 pid）；啟動時身分抓不到會在 500ms 後再抓一次。`--force` 有安全閥：pid 仍是活著的 claude 就拒絕收狀態（紅方第三輪：否則活引擎會被收成 stopped、24 小時後被 prune 連目錄一起刪）。
+- **等 cron 的 delaylocal prepared run 會被 `--prune --keep-hours N` 清掉**：delaylocal 準備時把預計 fire 時間寫進 meta `scheduledFor`，prune 的「never-started」以它起算（舊 meta 沒有就以 createdAt＋6h）；到點前不清。
+- **compact hook 的節邊界與路徑抽取**：任務書或條件內自帶的 `## ` 子標題會截斷「完成條件」與「任務全文」（後半段的外置檔全漏）；路徑 regex 把相對路徑抽成 `/e2e/x.md`、把 URL 當檔案、`.md.bak` 截成 `.md`。現在 `buildAnchor` 在每節前放 `<!-- goal2:sec=NAME -->` 標記、hook 依標記切節（舊 anchor 退回只認固定標題首次出現）；路徑改抓「磁碟／`~`／`./`／目錄名＋分隔符」起頭的 token、邊界含中英標點與頓號、排除含 `://` 的。
+- **`--stop` 與引擎收尾同時發生**：引擎已 `met` 正在收尾時被 `--stop`，原本記成 stopped；現在 verdict 為 met 且正常結束就仍算 `done`。
+- **找不到 claude 可執行檔**只回通用 failed：現在引擎沒起來（無 Goal set、非零退出）且 stderr 有 `spawn … ENOENT` 就記 `spawn_failed` 並提示 PATH／`GOAL2_CLAUDE_BIN`（Windows 需 .exe）；工作目錄在準備後被移除（worktree 清掉、delaylocal 隔數小時才 fire）另外先擋、訊息講明是 cwd 不在（紅方第三輪：Node 對 cwd 不存在也報 spawn ENOENT，原本會誤導去修 PATH）。
+- **stream.jsonl 被刪就找不到 transcript**：runner 起跑後每 2 秒讀 stream 第一筆 init，抓到 `childSessionId` 立刻寫進 meta，收尾時 stream 不在也能靠它找 transcript 判定。
+- **`timeout`／`stopped` 但引擎其實還活著**：`--list`／`--status`／prune 對這兩種狀態也探活，活著就不當 finished、不 prune、`--stop` 可再殺一次（只對 0.4.0 記了身分的 meta；舊版 meta 的 stopped run 不探活，免得 pid 被重用時殺到無關程序）；`--force` 對程式名像 claude／node 或拿不到身分的活 pid 一律拒絕。
+- hook 防呆：只掃任務全文前 30KB 抽路徑、單一 token ≤400 字（base64 任務書曾讓 regex 跑 29 秒撞 15 秒 timeout）、帳本超過 20KB 只注回尾段。
+- **timeout／stopped 落在引擎已達成之後**仍算 `done`；prune 只碰名稱符合 `<14位時間戳>-<skill>-<4位>` 的目錄，runs/ 底下其他東西列為 `foreign` 不動；`--stop` 後面沒接路徑直接報錯。
+- **失敗路徑保留的中繼檔會累積**：`delaylocal.js` 的暫存清掃納入 `goal-input-*`／`goal-cond-*`／`delaylocal-input-*`／`delaylocal-cond-*`（>7 天），`goal.js` 清掃自己的 `goal-input-*`／`goal-cond-*`。
+- **delaylocal cron 到點的 final_prompt 仍教讀 `goal_achieved`**（與 SKILL 矛盾）：改為讀 `status`／`goal_verdict`，逐狀態說法同 goal skill。
+- 文件：SKILL「TaskStop 會讓子程序變孤兒繼續跑」與實測相反（殺 runner 引擎跟著死，但 meta 停在 running）；「主 Claude Code 關掉引擎照跑」未實測，改標 HYPOTHESIS。
+- **`--stop` busy-wait 100% 單核 5 秒**：改 `Atomics.wait`。`kill_detail` 不再塞 taskkill 的 cp950 文字（一律亂碼），只回 exit code。
+- **`--status` 中文在 cp950 終端糊掉**：每次 `--status` 順手寫 `status.json` 到 run 目錄（`status_path`），可改用 Read。
+- 文件：references「禁止未經 propose 就啟動」殘句改成與 0.3.0 一致（印出條件即可啟動）；`goal.confirmTimeoutMinutes` 預設 1 → 0 的殘句；delaylocal SKILL 的 LINE 憑證建議改與 README 一致（環境變數優先）。
+### Added
+- SKILL：多個活著的 run 時說「停」先問停哪一個（消歧問不算禁止的 offer）；並行時路徑不重疊仍會共用 DB／port／測試結果，任務書要寫範圍切分；`--stop` 殺不到 `&`／nohup 起的背景服務，停完提醒查 port；wtf 只管版面、事實與證據完整性依本 skill，且不再要求每次讀整份 wtf SKILL；背景啟動後先 `--status` 看到 `goal_set:true` 再說「已啟動」；能停引擎的只有 `--stop`／煞車（殺 runner 引擎會跟著死；關掉主 Claude Code 後是否存活未實測）；`--stop --force` 收掉狀態不明的 run；同一 run 目錄不可重複 `--run`。
+- 完成條件寫法規定**極端**（references 第 2 節新表、兩份 SKILL propose 步驟、anchor 條件節提醒）：等式與全稱（`= 0`、每一項），不准 `<`／`≤`／「大部分」；例外條款允許但要明確：條件寫「= 0；例外清單內的項目不計」，例外限真 blocker＋證據＋原因，寫進帳本並在回報以「例外清單」逐項列出。實例：使用者要「A 類完成」被 propose 成「未完成數 < 0」。
+- `GOAL2_CLAUDE_BIN` 環境變數：`claude` 不在 PATH 或要用包裝器時指定；指到 `.js` 以 node 執行（測試用）。Windows 不再嘗試 `.cmd`（Node 22 spawn `.cmd` 會 EINVAL）。
+- `--list` 每筆多 `alive_state`、`condition` 摘要、`pluginVersion`。
+- 隔離環境測試 e12（61 案＋）：goal_error 誤判、transcript 判定四種結局、預算旗標、pid 身分四態、stale 不殺／真殺、prune 四類＋EBUSY、原子 meta、goal-file、未知旗標、hook 三態、假引擎端到端 done／unverified／impossible／timeout。
+
+## [0.3.3] - 2026-09-11
+### Fixed
+- **兩個 goal2 同時跑會互相干擾（使用者回報）**。真因有兩層：① `~/.claude/goal2/runs/` 全機共用、跨 session，沒有任何保護——本次實際發生「一個 session 清測試 run 時把另一個 session 正在跑的 run 目錄整個刪掉」（引擎本身照跑，但帳本／stream／summary 全失）；② 兩個引擎可以在同一棵工作樹（一個在專案根、一個在它的子目錄）同時開工，互相改檔、搶測試。修法：
+  - `prepareRun` **並行提醒（不阻擋）**：同一棵工作樹（相同、祖先或子孫目錄）已有活著的 run（meta.pid 探活）→ 準備輸出多 `active_runs_in_tree`（run id、pid、cwd），skill 回報時提醒使用者。原本做成拒絕，使用者明確表示會在同一專案並行多個調整，故改為只提醒。實測：對正在跑的 Supplier_Code 樹準備新 run 放行並列出 2 個活著的 run。
+  - **`--cwd <專案根>` 必帶**（goal.js／delaylocal.js）：子程序工作目錄不再默默用 Bash 工具當下的 cwd（會漂移）；輸出 `cwd`／`cwd_source`（cli／env:CLAUDE_PROJECT_DIR／process.cwd），anchor.md 多「工作目錄」一節。
+  - **`--list`／`--prune [--dry-run] [--keep-hours N]`**：唯一允許的清理方式，只刪已結束（done/failed/stopped/spawn_failed）、程序不在、結束超過 N 小時（預設 24）的 run；running／prepared 一律不碰。文件明寫禁止整批 rm runs 目錄。
+  - run 目錄建立改用非 recursive mkdir，撞名（同秒同隨機）改隨機重試，不再靜默共用同一目錄；`prepareRun` 先驗 cwd 存在。
+
 ## [0.3.2] - 2026-09-11
 ### Fixed
 - **/goal 4000 字元上限判準錯誤（真 bug，使用者實際踩到 got 12511）**：`goal-head.js` 只量第一行，但 Claude Code 在 `claude -p` 路徑把 `/goal` 後的**整段 prompt**（工作清單、任務、帳本規則）都算進完成條件，超過就 0 回合退場。實測：第一行 156 字、整段 6368 字 → `Goal condition is limited to 4000 characters (got 6361)`；同 prompt 砍到 2958 字 → Goal set。（2.1.195 互動模式只算第一行，0.1.3 的「下放步驟 0」因此曾有效；-p 不行。）修法：`/goal` prompt 只放「條件（含 tail）＋一句指向錨定區」，任務全文、工作清單、報告格式、帳本規則全移到 `anchor.md`（`--append-system-prompt-file`，不受限）；`goal-head.js`／`engine.prepareRun`／`runEngine` 對整段 prompt 做 ≤3900 硬檢查，超過直接報錯不起子程序。條件本身超長 → 第一行換指針句「已逐項達成本 run 錨定區「完成條件全文」…」、全文放 anchor 並要求引擎第一則回覆先貼進對話（檢查器看得到）。實測 11.5KB 任務：prompt 243 字、Goal set、達成。
