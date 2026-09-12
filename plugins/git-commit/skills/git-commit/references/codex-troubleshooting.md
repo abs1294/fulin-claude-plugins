@@ -8,9 +8,34 @@
 > - codex 回 `Not inside a trusted directory`
 > - 回 400 `model is not supported` 或 `Model metadata for X not found`
 > - 輸出檔卡在 `Reading additional input from stdin...` 不再增長
+> - agent 回 `VERDICT: UNAVAILABLE` 且錯誤含 `rejected: blocked by policy`（**不是 codex 壞了**，見下）
 > - 你想判定「codex 壞了、要降級單軌」——**判定前必讀**，這裡列了什麼才算客觀證據
 >
 > 一句話總則：**「我等不下去」不是「它壞了」的證據。** 判不可用之前先跑最小題。
+
+---
+
+## 讀 diff 被沙箱擋：`rejected: blocked by policy`（2026-09-11）
+
+**症狀**：agent 回 `VERDICT: UNAVAILABLE`，錯誤原文長這樣——
+
+```
+exec_command failed: CreateProcess { message: "Rejected(\"`\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -Command \"Get-Content -LiteralPath '.../staged-<repo>.diff'\"` rejected: blocked by policy\")" }
+```
+
+**這不是 codex 不可用**，也不該據此降級單軌。codex 本身活著、模型正常，被擋的只是
+它為了讀 diff 檔而起的 **PowerShell 子程序**——沙箱 policy 不放行 `powershell.exe -Command`。
+
+**處置（兩個都有效，擇一）**：
+
+1. **把 diff 直接內嵌進 prompt**（小 diff 首選）。實測 13 行的 diff 內嵌後重送，35 秒回 `VERDICT: PASS`。
+2. prompt 裡明講「用 `cat` 讀，不要用 PowerShell」。
+
+⚠ 重送時把**上一次的錯誤原文**也貼進 prompt，並明寫「這次 diff 已內嵌、不需要讀任何檔案」——
+否則 agent 很可能再走一次同樣的讀檔路徑。實測這樣寫就一次過。
+
+**為什麼值得單獨列**：它的外觀（`UNAVAILABLE` ＋一長串 CreateProcess 錯誤）與「codex 真的掛了」
+幾乎一樣，而處置完全相反——前者換個讀檔方式就過，後者才需要降級。誤判的代價是**白白跳過一軌審查**。
 
 ---
 

@@ -2,6 +2,10 @@
 
 本檔記錄 git-commit 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.1] - 2026-09-12
+### Changed
+- SKILL：TaskCreate 三條紀律＋禁止情境、匯流第 6 條（兩軌判不同嚴重度主 agent 實跑再匯流）；codex-troubleshooting：讀 diff 被沙箱擋（rejected: blocked by policy）不是 codex 不可用，改內嵌 diff 或 cat
+
 ## [0.5.0] - 2026-09-10
 ### Added
 - **`flow.sh audit <repo> [<range>]`**：體檢既有 commit 的 message，唯讀不改動任何東西。抓六種問題——空 message、缺 `Type:` 前綴、Type 不在允許清單、描述寬度超標、痕跡命中、含多行 body；軟清單命中另標為「待確認」。不帶 range 時：有 upstream 掃未推的 commit，否則掃最近 20 顆。exit 碼三態： 乾淨、 有問題、 range 無效——打錯的 range 會讓 git log 靜默回空，若不分辨，「0 顆」看起來就跟「全部乾淨」一樣。

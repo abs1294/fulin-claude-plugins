@@ -19,7 +19,11 @@ description: >
 | Step 1 | `analyze` 分析 → `prepare` stage → **同一輪並行三軌**（1.3a 預覽＋1.3b Codex＋1.3c code-reviewer）→ 匯流 |
 | Step 2 | `ship`（commit → push → 驗證） |
 
-多步驟用 TaskCreate 追蹤、完成當下關、流程結束清空清單。
+多步驟用 TaskCreate 追蹤、完成當下關、流程結束清空清單。三條紀律（本 skill 是跨場景通則在 commit 流程的具體化；通則同樣適用多檔案 Playwright 測試／多步驟前後端開發／skill 與 memory 維護／bug 追查修復）：
+1. **開始前立即 TaskCreate**：超過 2 步的工作先建清單。
+2. **步驟開始與完成當下更新**：開始前 `in_progress`，完成**同一輪訊息內** `completed`，不拖到下一步。常見漏關：預覽類 task 送出後就該關、agent 審查類收到完成通知當下就關、批次指令（`flow.sh ship` 做 commit+push+verify）同一輪一起關多個 task。
+3. **流程結束清空整個 task list**：最終一步完成的同一輪訊息內，`TaskList` 檢查全部 `completed`（補漏 `in_progress` 殘留）→ 全部 `TaskUpdate status=deleted` → 摘要中主動告訴使用者「task 清單已清空」。
+禁止情境：流程明顯結束但 task list 還留 completed 條目；使用者已確認 OK 還留任務不處理；下次流程觸發時才發現上次 task 還在（2026-04-20 實證：預覽送出後漏關 task #8、結束後 9 個 completed 沒清，使用者提醒「任務結束了還沒有關閉」）。
 
 ## 核心原則（默許機制）
 
@@ -31,6 +35,7 @@ description: >
 4. PASS 附清單＝「可 commit 但有建議」，預設放行；使用者要先修 → 改碼 → 重跑 `prepare` → 兩軌重送（diff 變了就重判豁免）。BLOCK 後重做同樣走完整 Step 1。禁止沿用先前確認過的 message 直接 commit（碼可能已變）。
 5. **某一軌確定不可用** → 單軌降級（該軌記 `skipped: <原因>`、匯流視為 PASS），預覽明講已降為單軌，並由主 agent 補做該軌該查的項目。**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認。
    > 「確定不可用」有嚴格判準，不是「我等不下去」——B 軌見 `references/codex-troubleshooting.md`，**自行判定不可用就 commit ＝ 違規**。
+6. **兩軌對同一項判不同嚴重度（一軌 BLOCK、一軌 Minor／PASS）→ 主 agent 自己實跑驗證再匯流**，不可取中間值、不可選寬鬆那軌放行（實證：Codex 判 BLOCK／code-reviewer 判 Minor，實測 Codex 對；「需要更好的工具才能正確處理」≠「可以不正確」）。驗證結果貼進預覽，才決定走 1 或 2。
 
 ## Review 豁免規則
 
@@ -267,6 +272,8 @@ grep -n -i -E 'Claude|Anthropic|Codex|subagent|實測|掃描確認|本輪' <產�
 Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
 
 ## Changelog
+- 2026-09-11 「多步驟用 TaskCreate」一句展開成三條紀律＋禁止情境＋跨場景適用清單。來源＝冷啟 subagent 稽核退場 memory 發現內聯時砍掉的細節（黃區自主，已在回覆聲明）
+- 2026-09-11 匯流規則加第 6 條：兩軌判不同嚴重度時主 agent 自己實跑驗證再匯流，不取中間值、不選寬鬆軌。來源＝memory 紀律升級（經使用者核准）
 - 2026-09-10 補 hook（他律）＋真閘 6（message 痕跡與長度）＋§歷史改寫＋§交付路徑，並把 body 政策與長度單位明文寫死。**起因**：另一 session 在 KMS-dev 繞過本 skill 直接跑 `rebase -i`／`--amend` 改寫 8 顆 commit，把「經語法樹掃描確認」「實測七則官方回應」「Claude Code 的本機設定」寫進 git 歷史，**五道既有真閘一道都沒觸發**——因為它根本沒經過 flow.sh。三個結構缺口各自補上：①規範全是自律，AI 會繞 → PreToolUse hook 攔裸 `git commit`（fail-open，14 項紅綠測）；②`AI_TRACE_PATTERN` 只掃 staged diff、從不掃 message，`SIGNATURE_PATTERN` 只認 5 個署名詞且沒有單獨的 `Claude` → 新增 `MESSAGE_TRACE_PATTERN`（16 項紅綠測，測資用 KMS 真實 message）；③「≤50 字」沒定義單位、「能不能有 body」規範空白 → 該 session 先寫長 body（沒禁）、事後又自認「skill 要求不含 body」全砍（也沒要求），**兩次都在填空白且方向相反**，現已寫死「單行、寬度 ≤72」。**開發中自撞一次**：`display_width()` 初版用 awk，`bash -n` 過但實跑把「中文五個字元」算成 18（byte 數）——多數 awk 非 locale-aware、`substr` 按 byte 切，改用 Python `east_asian_width` 才對。語法檢查過 ≠ 能跑。
 - 2026-09-05 補第三輪最後一個觀察項：探測失敗時原始輸出被刪、只留 `✗`，事後無法回溯真因。已改為把失敗原文存到 `$TMPDIR/codex-model-probe-fail/<slug>.log` 並在輸出標明路徑（每次執行先清上一輪，避免陳舊資訊誤導）。**這正是本輪吃過的虧**：腳本一度報「最強可用是 gpt-5.4-mini」卻看不到 astra 失敗的原文，只能手動重跑才發現真因是 slug 尾端帶 `\r`。實測：插一個 priority 0 的假 model 觸發失敗分支，確認原文留存 940 bytes 且具診斷價值、腳本仍正確選出 gpt-6-astra。
 - 2026-09-05 同兩支腳本再送 Codex 覆審兩輪（第二輪 BLOCK、第三輪 PASS）：第二輪抓到**我上一輪加 trap 時引進的新缺陷**——`trap cleanup INT TERM` 只刪暫存檔卻不結束腳本，控制流帶著「檔案已消失」的狀態跑到 `grep`，把探測中的模型誤判為不可用、進而把次強模型寫回 config。已獨立重現（`grep: ... No such file` 接 `✗`）後修正：訊號處理與正常結束分離，訊號版清完立刻退出；兩處 grep 補 `2>/dev/null`。第三輪 PASS 並提兩個觀察項，一併修掉：INT/TERM 共用 exit 130 不精確，改為依慣例回 128+訊號值（INT=130／TERM=143／HUP=129）並補攔 SIGHUP。**教訓：修一個小瑕疵（暫存檔殘留）可以引進更嚴重的缺陷（寫錯設定），修完必須重送審查而非只跑正常路徑。**
