@@ -39,12 +39,12 @@ function fail(msg) {
 
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
-let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT;
+let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, detectGrilling;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute, crossMonthWarning } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
-  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT } = require(path.join(LIB, 'engine.js')));
+  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, detectGrilling } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
@@ -167,6 +167,9 @@ if (goalFile) {
   try { goalCondition = fs.readFileSync(goalFile, 'utf8').replace(/\r\n/g, '\n').trim(); } catch (e) { fail(`讀 --goal-file 失敗：${e.message}`); }
 }
 if (!plainMode && !goalCondition) fail('delaylocal 預設為 goal 模式：需提供完成條件 --goal "<可測量完成條件>" 或 --goal-file <path>。請先把完成條件 propose 給使用者、確認後再排程。若確實要用無目標的文字紀律模式，加 --plain。');
+// 事實層閘（goal 模式）：含對話指涉又沒有「## 項目清單」→ 不自足（plain 模式不檢查：它本來就是照文字跑）
+const suff = selfSufficiency(userPrompt);
+if (!plainMode && !suff.self_sufficient) fail(`任務不自足：原文含對話指涉「${suff.conversational_refs.join('、')}」但沒有「## 項目清單」節。引擎到點時在另一個 headless session 跑，看不到本對話——這是 Claude（主 session）的工作、不要回去問使用者：從本對話與相關文件把要做的項目逐條展開成「## 項目清單」（編號、內容、驗收方式、來源檔:行）寫進任務書，再重跑。`);
 
 // --- 3. 讀 quota 重置時間（鎖定當前 session）---
 const snapFile = path.join(os.homedir(), '.claude', 'rate-limit-snapshots.json');
@@ -356,6 +359,9 @@ console.log(JSON.stringify({
   stop_command: stopCommandOut,
   engine_cwd: runDirOut ? require(path.join(runDirOut, 'meta.json')).cwd : null,
   active_runs_in_tree: activeRunsOut,
+  items_count: suff.items_count,
+  has_items_section: suff.has_items,
+  grill_rounds: cfg.config.goal.grillRounds,
   engine: cfg.config.engine,
   engine_prompt: enginePrompt,
   final_prompt: finalPrompt

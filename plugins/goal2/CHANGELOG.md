@@ -2,6 +2,15 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.0] - 2026-09-12
+### Added
+- **事實層閘**：使用者的四次真實呼叫全是「請把你掌握到的未完成項目做完」「我同意按照你的建議開始執行」「把這 6 個補完」——引擎在另一個 session 看不到本對話，收到的就是那十幾個字。現在 SKILL 規定 propose 前先把項目逐條展開成任務書的 `## 項目清單`（編號、內容、驗收方式、來源）；`goal.js`／`delaylocal.js`（goal 模式）對「含對話指涉（你掌握的／你的建議／這 N 個／上述／剛才…）又沒有 `## 項目清單`」的任務直接拒絕（`任務不自足`）。anchor 多一節 `<!-- goal2:sec=items -->`，壓縮後 hook 會連清單一起注回；輸出多 `items_count`／`has_items_section`。
+- **grill 決策輪**（借 mattpocock grilling 的做法：facts are your job、decisions are the user's、每題附建議答案）：新設定 `goal.grillRounds`（預設 1，0 = 跳過，上限 3），只問會改變完成條件的六類分岔（範圍邊界／驗收方式／例外條款／禁止動作／並行共用資源／產出落點），不答照建議；本機有 grilling skill 就套它的 ❓/➡️ 格式（`--show-config` 的 `grilling.installed`；不呼叫它）。delaylocal fast-path／plain 與使用者說「直接跑」跳過。
+
+## [0.4.1] - 2026-09-12
+### Added
+- **`hooks/runs-guard.js`（PreToolUse，matcher `Bash|PowerShell`）**：SKILL／CLAUDE.md 寫「禁止整批刪 runs/」是自律、AI 會繞，改成他律。指令提到 `goal2/runs`（任何斜線寫法）且含刪除動詞（rm／rmdir／rd／del／Remove-Item／rimraf／rmSync／fs.rm／rmtree／-delete）時，只放行「每個 runs 路徑都指到完整 run id、無萬用字元、無 for／forEach／readdir／Get-ChildItem 迴圈」；`--prune --keep-hours` 小於 2 也攔。攔下時 stderr 指引改用 `--prune --dry-run` 或指名單一 id。stdin 壞掉、非 Bash/PowerShell 一律放行。25 案實測（12 攔／13 放）。裝了 goal2 的 session 與其子 agent 都受管。
+
 ## [0.4.0] - 2026-09-12
 紅藍對抗四輪（紅方 51 條＋藍方複驗新發現 14 條，全部有實跑證據）＋兩個 session 四個 run 的使用檢視，一次修完。**升級後請重裝**：`/plugin update goal2@fulin-plugins` → `/reload-plugins`；設定檔多兩個欄位（見下），舊版不認識會報錯，先升級再改設定檔。
 ### Fixed

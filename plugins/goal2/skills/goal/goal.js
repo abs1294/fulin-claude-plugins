@@ -30,12 +30,12 @@ function fail(msg) {
 
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
-let buildGoalHead, dateToCron, ceilToMinute, loadConfig, prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT;
+let buildGoalHead, dateToCron, ceilToMinute, loadConfig, prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, detectGrilling, selfSufficiency, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
-  ({ prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT } = require(path.join(LIB, 'engine.js')));
+  ({ prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, detectGrilling, selfSufficiency, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
@@ -88,7 +88,7 @@ for (let i = 0; i < args.length; i++) {
 }
 
 if (showConfig) {
-  console.log(JSON.stringify({ ok: true, mode: 'show-config', ...VERSION_FIELDS, config_path: cfg.path, config_loaded: cfg.loaded, engine: engineCfg, goal: goalCfg, delaylocal: cfg.config.delaylocal, wtf: detectWtf() }, null, 2));
+  console.log(JSON.stringify({ ok: true, mode: 'show-config', ...VERSION_FIELDS, config_path: cfg.path, config_loaded: cfg.loaded, engine: engineCfg, goal: goalCfg, delaylocal: cfg.config.delaylocal, wtf: detectWtf(), grilling: detectGrilling() }, null, 2));
   process.exit(0);
 }
 
@@ -142,6 +142,9 @@ if (runDir) {
     try { goalCondition = fs.readFileSync(goalFile, 'utf8').replace(/\r\n/g, '\n').trim(); } catch (e) { fail(`讀 --goal-file 失敗：${e.message}`); }
   }
   if (!goalCondition || !goalCondition.trim()) fail('需提供完成條件 --goal "<可測量完成條件>" 或 --goal-file <path>。請先把完成條件 propose 給使用者、確認（或逾時採納）後再準備。');
+  // 事實層閘：任務原文含對話指涉（引擎在另一個 session 看不到本對話）又沒有「## 項目清單」→ 不自足，拒絕
+  const suff = selfSufficiency(userPrompt);
+  if (!suff.self_sufficient) fail(`任務不自足：原文含對話指涉「${suff.conversational_refs.join('、')}」但沒有「## 項目清單」節。引擎在另一個 headless session 跑，看不到本對話——這是 Claude（主 session）的工作、不要回去問使用者：從本對話與相關文件把要做的項目逐條展開成「## 項目清單」（編號、內容、驗收方式、來源檔:行）寫進任務書，再重跑。`);
 
   // /goal prompt 只放「條件＋指向錨定區的一句」（-p 路徑整段都算進 4000 字元上限，見 lib/goal-head.js 檔頭）。
   // 任務全文、工作清單、帳本規則全在 anchor.md（系統提示）。無 tail：本 skill 沒有「必做收尾」要納入條件。
@@ -200,6 +203,10 @@ if (runDir) {
     goal_overflow: overflow,
     goal_line_length: length,
     goal_prompt_length: finalPrompt.length,
+    items_count: suff.items_count,
+    has_items_section: suff.has_items,
+    grill_rounds: goalCfg.grillRounds,
+    grilling: detectGrilling(),
     anchor_path: path.join(rd, 'anchor.md'),
     progress_path: path.join(rd, 'progress.md'),
     final_prompt: fs.readFileSync(promptPath, 'utf8')

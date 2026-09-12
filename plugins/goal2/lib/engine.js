@@ -63,7 +63,21 @@ function ledgerRules(runDir) {
  *   conditionOverflow 為 true 時，/goal 第一行只放指針句，這裡的「完成條件全文」就是檢查器要對的清單，
  *   並要求引擎第一則回覆先把它貼進對話。
  */
+/** 從任務原文抽出「## 項目清單」節（到下一個 ## 為止）；沒有就回 '' */
+function extractItems(task) {
+  const m = String(task || '').match(/^##\s*項目清單[^\n]*\n([\s\S]*?)(?=\n##\s|\s*$(?![\s\S]))/m);
+  return m ? m[1].trim() : '';
+}
+/** 任務原文是否自足：對話指涉（引擎在另一個 session，看不到本對話）且沒有項目清單 → 不自足 */
+const CONVERSATIONAL_REF = /你掌握|你的建議|你建議|剛才|剛剛|上述|上面(提到|說)|前面(提到|說)|如上|這\s*\d+\s*(個|項|條)|那\s*\d+\s*(個|項|條)|按照你|照你說|之前討論|我們討論/;
+function selfSufficiency(task) {
+  const refs = (String(task || '').match(CONVERSATIONAL_REF) || []);
+  const items = extractItems(task);
+  return { conversational_refs: refs, has_items: !!items, items_count: items ? items.split('\n').filter((l) => /^\s*(\d+[.)、]|[-*])\s+/.test(l)).length : 0, self_sufficient: refs.length === 0 || !!items };
+}
+
 function buildAnchor({ condition, conditionOverflow = false, task, workList, runDir, cwd = '', extra = '' }) {
+  const items = extractItems(task);
   const condSection = conditionOverflow
     ? `## 完成條件全文（/goal 第一行因 4000 字元上限只放指針句；引擎據此逐項驗收）
 ${condition}
@@ -86,7 +100,7 @@ ${cwd || '（未指定；以子程序啟動時的 cwd 為準）'}
 <!-- goal2:sec=condition -->
 ${condSection}
 
-<!-- goal2:sec=task -->
+${items ? `<!-- goal2:sec=items -->\n## 項目清單（完成條件對著這份清單算；每一項都要處理到，例外照條件裡的例外條款）\n${items}\n\n` : ''}<!-- goal2:sec=task -->
 ## 任務全文
 ${task}
 
@@ -714,6 +728,19 @@ function runStatus(runDir) {
   return st;
 }
 
+/** 偵測 mattpocock 的 grilling skill（只套格式、不呼叫）：plugin cache 或 ~/.claude/skills 下任何 grilling/SKILL.md */
+function detectGrilling() {
+  const cands = [];
+  try {
+    const base = path.join(os.homedir(), '.claude', 'plugins', 'cache');
+    for (const mp of fs.readdirSync(base)) for (const pl of fs.readdirSync(path.join(base, mp))) for (const ver of fs.readdirSync(path.join(base, mp, pl))) {
+      for (const rel of ['skills/productivity/grilling/SKILL.md', 'skills/grilling/SKILL.md']) { const p = path.join(base, mp, pl, ver, rel); if (fs.existsSync(p)) cands.push(p); }
+    }
+  } catch (_) {}
+  for (const p of [path.join(os.homedir(), '.claude', 'skills', 'grilling', 'SKILL.md')]) if (fs.existsSync(p)) cands.push(p);
+  return cands.length ? { installed: true, skill_md: cands[0] } : { installed: false };
+}
+
 /** 偵測 wtf plugin（重講紀律）：找 plugin cache 裡最新版的 skills/wtf，回 SKILL.md 路徑與 terminalWidth */
 function detectWtf() {
   const base = path.join(os.homedir(), '.claude', 'plugins', 'cache');
@@ -736,4 +763,4 @@ function detectWtf() {
   return best || { installed: false };
 }
 
-module.exports = { prepareRun, runEngine, stopRun, runStatus, listRuns, findActiveRunsIn, pruneRuns, summarizeStream, locateClaude, detectWtf, readMeta, writeMeta, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, aliveState, procIdentity, findChildTranscript, goalVerdictFromTranscript, buildEngineArgs, describeStatus, FINISHED_STATUSES };
+module.exports = { prepareRun, runEngine, stopRun, runStatus, listRuns, findActiveRunsIn, pruneRuns, summarizeStream, locateClaude, detectWtf, detectGrilling, extractItems, selfSufficiency, readMeta, writeMeta, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, aliveState, procIdentity, findChildTranscript, goalVerdictFromTranscript, buildEngineArgs, describeStatus, FINISHED_STATUSES };

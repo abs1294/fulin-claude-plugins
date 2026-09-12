@@ -58,6 +58,8 @@ try {
     return out.join('\n').trim();
   };
   const condition = hasMarkers ? sectionByMarker('condition') : sectionByHeading('## 完成條件');
+  const itemsRaw = hasMarkers ? sectionByMarker('items') : '';
+  const items = itemsRaw.length > 8000 ? itemsRaw.slice(0, 8000) + '\n…（清單超過 8KB，其餘見系統提示錨定區）' : itemsRaw;
   // 任務書若外置（anchor 只放「先去讀某檔」），壓縮後最容易漏的就是那份檔的細節：把錨定區提到的檔案路徑列出來要求重讀
   const taskSection = hasMarkers ? sectionByMarker('task') : sectionByHeading('## 任務全文');
   // 檔案路徑：token 以 .md/.txt/.json/.yaml/.yml 結尾且後接邊界（空白／引號／各式括號／中英標點含頓號、冒號、問號）；
@@ -77,6 +79,7 @@ try {
     '===== 完成條件（逐項皆為真才算達成）=====',
     condition || '（見系統提示錨定區）',
     '',
+    ...(items ? ['===== 項目清單（完成條件對著它算，每一項都要處理到）=====', items, ''] : []),
     ...(filePaths.length ? [`===== 任務書外置檔案（壓縮後細節最容易丟，繼續前先重讀）=====`, ...filePaths, ''] : []),
     '===== progress.md（進度帳本，繼續前先讀，做完里程碑要更新）=====',
     progressOut || '（尚未建立：請先依錨定區的帳本規則建立它）'

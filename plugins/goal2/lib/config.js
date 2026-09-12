@@ -5,7 +5,7 @@
 //   {
 //     "engine":     { "permissionMode": "bypassPermissions", "stopHookBlockCap": 0, "model": null, "autocompact": "auto",
 //                     "maxBudgetUsd": 300, "maxMinutes": 480 },
-//     "goal":       { "confirmTimeoutMinutes": 0 },
+//     "goal":       { "confirmTimeoutMinutes": 0, "grillRounds": 1 },
 //     "delaylocal": { "confirmTimeoutMinutes": 10, "bufferSeconds": 900 }
 //   }
 //   engine.permissionMode            子程序 claude -p 的 --permission-mode（無人值守建議 bypassPermissions）
@@ -20,6 +20,8 @@
 //                                    這兩個是無人值守唯一的自動煞車——條件寫錯或永遠達不到時，沒有它們引擎會跑到 quota 用光。
 //   goal.confirmTimeoutMinutes       propose 後等使用者確認的分鐘數；0（預設）= 不等，propose 完直接啟動引擎（隨時可 --stop）；
 //                                    ≥1 = 排確認 timer，逾時自動採納啟動
+//   goal.grillRounds                 propose 前的決策問答輪數（grill）：每輪只問會改變完成條件的分岔、每題附建議答案，
+//                                    使用者不答就照建議。0 = 跳過直接起；預設 1；上限 3。事實層（項目清單落檔）不受此開關影響、一律做。
 //   delaylocal.confirmTimeoutMinutes propose 後等使用者確認的逾時分鐘數；逾時後自動採納並排任務
 //   delaylocal.bufferSeconds         quota 重置時間之後再等幾秒才 fire（CLI 裸數字可覆蓋）
 //
@@ -37,7 +39,7 @@ const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan',
 
 const DEFAULTS = {
   engine: { permissionMode: 'bypassPermissions', stopHookBlockCap: 0, model: null, autocompact: 'auto', maxBudgetUsd: 300, maxMinutes: 480 },
-  goal: { confirmTimeoutMinutes: 0 },
+  goal: { confirmTimeoutMinutes: 0, grillRounds: 1 },
   delaylocal: { confirmTimeoutMinutes: 10, bufferSeconds: 900 }
 };
 
@@ -49,6 +51,7 @@ const VALIDATORS = {
   'engine.autocompact': (v) => (v === 'auto' || (Number.isInteger(v) && v >= 100000 && v <= 1000000) ? null : "需為 'auto' 或 100000–1000000 的整數（tokens）"),
   'engine.maxBudgetUsd': (v) => (v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0) ? null : '需為 >0 的數字（USD）或 null（不設上限）'),
   'engine.maxMinutes': (v) => (v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 10080) ? null : '需為 0–10080（7 天）之間的數字（分鐘）或 null（不設上限）'),
+  'goal.grillRounds': (v) => (Number.isInteger(v) && v >= 0 && v <= 3 ? null : '需為 0–3 的整數（0 = 不問直接起）'),
   'goal.confirmTimeoutMinutes': (v) => (Number.isInteger(v) && v >= 0 ? null : '需為 ≥0 的整數（0 = 不等確認，propose 後直接啟動）'),
   'delaylocal.confirmTimeoutMinutes': (v) => (Number.isInteger(v) && v >= 1 ? null : '需為 ≥1 的整數'),
   'delaylocal.bufferSeconds': (v) => (Number.isInteger(v) && v >= 1 ? null : '需為 ≥1 的整數')

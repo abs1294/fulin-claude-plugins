@@ -14,7 +14,7 @@
 |---|---|---|
 | 一句話 | 定好完成條件，**現在**就讓引擎做到完成 | 定好完成條件，**quota 重置後**在本機無人值守做到完成 |
 | 觸發 | `/goal2:goal <任務>`、「幫我定完成條件再跑」、「用 goal 引擎做到完成」 | `/goal2:delaylocal <任務>`、「排程到 quota 之後」、「等 5h 額度回來再跑」 |
-| 引擎何時起 | propose 印給你看完就直接起（預設）；想先確認可在設定檔開 timer | 5h quota 重置後 + 緩衝（預設 15 分）的 cron 到點時；確認逾時預設 10 分鐘 |
+| 引擎何時起 | 先把項目清單落檔（任務不自足會被拒）、問一輪影響條件的分岔（`goal.grillRounds`），propose 印給你看完就直接起；想先確認可在設定檔開 timer | 5h quota 重置後 + 緩衝（預設 15 分）的 cron 到點時；確認逾時預設 10 分鐘 |
 | 中途終止／看進度 | 說「停」→ `goal.js --stop`（核對 pid 身分後殺整棵子程序樹；多個 run 時先問停哪個）；`--status` 看帳本；`--list` 看全機所有 run | `delaylocal.js --stop`／`--status` 同上（不需 session id） |
 | 達成怎麼判 | 讀子程序 transcript 的檢查器紀錄（`goal_verdict`：met／impossible／unverified／no_transcript）；`status: done` 只在 `met` 時 | 同左 |
 | 煞車 | `engine.maxBudgetUsd`（預設 300 USD → `status: budget`）、`engine.maxMinutes`（預設 480）；能停它的只有這兩個與 `--stop`（殺 runner 引擎會跟著死；關掉主 Claude Code 後是否存活未實測） | 同左 |
@@ -54,7 +54,7 @@
 {
   "engine":     { "permissionMode": "bypassPermissions", "stopHookBlockCap": 0, "model": null, "autocompact": "auto",
                   "maxBudgetUsd": 300, "maxMinutes": 480 },
-  "goal":       { "confirmTimeoutMinutes": 0 },
+  "goal":       { "confirmTimeoutMinutes": 0, "grillRounds": 1 },
   "delaylocal": { "confirmTimeoutMinutes": 10, "bufferSeconds": 900 }
 }
 ```
@@ -68,6 +68,7 @@
 | `engine.maxBudgetUsd` | 子程序的 `--max-budget-usd`，花到就自己停（`status: budget`）；實測正常任務約 0.5 USD/分鐘，300 ≈ 10 小時；null 不設 | 300 |
 | `engine.maxMinutes` | runner 時限（分鐘，≤10080），超過殺整棵子程序樹、`status: timeout`；null 不設 | 480 |
 | `goal.confirmTimeoutMinutes` | 0 = propose 完直接啟動、不等確認（隨時可停）；≥1 = 等你確認幾分鐘，逾時自動採納 | 0 |
+| `goal.grillRounds` | propose 前問幾輪「會改變完成條件的分岔」（每題附建議答案，不答照建議）；0 = 不問直接起；項目清單落檔不受此影響 | 1 |
 | `delaylocal.confirmTimeoutMinutes` | propose 後等你確認幾分鐘；逾時自動採納並排程 | 10 |
 | `delaylocal.bufferSeconds` | quota 重置後再等幾秒才 fire（`/goal2:delaylocal` 帶裸數字可臨時覆蓋） | 900 |
 
@@ -113,6 +114,6 @@
 # delaylocal 直接排不囉嗦：「直接排程 / 不要問直接排」→ fast-path，立刻排不反問
 ```
 
-goal 啟動後回報完成條件與 run_dir，說「停」就終止（`goal.js --stop <run_dir>`），問「做到哪」就看進度（`--status`）。`~/.claude/goal2/runs/` 全機共用、跨 session：**不要整批刪**，清理用 `goal.js --prune`（只清已結束且程序不在、running 但 pid 已死或被重用、prepared 從未啟動、壞目錄四類，且都超過保留時數，預設 24 小時；活著的一律不碰）。delaylocal 排程後回報 Cron Job ID、觸發時間、完成條件；取消用 `CronDelete <id>`，引擎起來後同樣可 `--stop`。
+goal 啟動後回報完成條件與 run_dir，說「停」就終止（`goal.js --stop <run_dir>`），問「做到哪」就看進度（`--status`）。`~/.claude/goal2/runs/` 全機共用、跨 session：**不要整批刪**，清理用 `goal.js --prune`（只清已結束且程序不在、running 但 pid 已死或被重用、prepared 從未啟動、壞目錄四類，且都超過保留時數，預設 24 小時；活著的一律不碰）。plugin 附 PreToolUse hook `runs-guard`：Bash／PowerShell 對 runs 目錄的整批、萬用字元、迴圈式刪除與 `--prune --keep-hours <2` 會被直接攔下，只放行指名完整 run id 的單筆刪除。delaylocal 排程後回報 Cron Job ID、觸發時間、完成條件；取消用 `CronDelete <id>`，引擎起來後同樣可 `--stop`。
 
 > ⚠️ cron 只活在本 Claude Code process（`durable` 在目前版本無效），且 REPL idle 時才會 fire——「無人值守」指的是你人不用守著，但 Claude Code 程式要開著。引擎子程序起來後本對話可以繼續做別的事；殺掉 runner（TaskStop）引擎會跟著死，關掉整個 Claude Code 後引擎是否存活未實測。

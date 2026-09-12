@@ -7,6 +7,6 @@
     "maxBudgetUsd": 300,
     "maxMinutes": 480
   },
-  "goal": { "confirmTimeoutMinutes": 0 },
+  "goal": { "confirmTimeoutMinutes": 0, "grillRounds": 1 },
   "delaylocal": { "confirmTimeoutMinutes": 10, "bufferSeconds": 900 }
 }
