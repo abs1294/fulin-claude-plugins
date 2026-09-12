@@ -728,19 +728,6 @@ function runStatus(runDir) {
   return st;
 }
 
-/** 偵測 mattpocock 的 grilling skill（只套格式、不呼叫）：plugin cache 或 ~/.claude/skills 下任何 grilling/SKILL.md */
-function detectGrilling() {
-  const cands = [];
-  try {
-    const base = path.join(os.homedir(), '.claude', 'plugins', 'cache');
-    for (const mp of fs.readdirSync(base)) for (const pl of fs.readdirSync(path.join(base, mp))) for (const ver of fs.readdirSync(path.join(base, mp, pl))) {
-      for (const rel of ['skills/productivity/grilling/SKILL.md', 'skills/grilling/SKILL.md']) { const p = path.join(base, mp, pl, ver, rel); if (fs.existsSync(p)) cands.push(p); }
-    }
-  } catch (_) {}
-  for (const p of [path.join(os.homedir(), '.claude', 'skills', 'grilling', 'SKILL.md')]) if (fs.existsSync(p)) cands.push(p);
-  return cands.length ? { installed: true, skill_md: cands[0] } : { installed: false };
-}
-
 /** 偵測 wtf plugin（重講紀律）：找 plugin cache 裡最新版的 skills/wtf，回 SKILL.md 路徑與 terminalWidth */
 function detectWtf() {
   const base = path.join(os.homedir(), '.claude', 'plugins', 'cache');
@@ -763,4 +750,4 @@ function detectWtf() {
   return best || { installed: false };
 }
 
-module.exports = { prepareRun, runEngine, stopRun, runStatus, listRuns, findActiveRunsIn, pruneRuns, summarizeStream, locateClaude, detectWtf, detectGrilling, extractItems, selfSufficiency, readMeta, writeMeta, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, aliveState, procIdentity, findChildTranscript, goalVerdictFromTranscript, buildEngineArgs, describeStatus, FINISHED_STATUSES };
+module.exports = { prepareRun, runEngine, stopRun, runStatus, listRuns, findActiveRunsIn, pruneRuns, summarizeStream, locateClaude, detectWtf, extractItems, selfSufficiency, readMeta, writeMeta, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, aliveState, procIdentity, findChildTranscript, goalVerdictFromTranscript, buildEngineArgs, describeStatus, FINISHED_STATUSES };

@@ -30,12 +30,12 @@ function fail(msg) {
 
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
-let buildGoalHead, dateToCron, ceilToMinute, loadConfig, prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, detectGrilling, selfSufficiency, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT;
+let buildGoalHead, dateToCron, ceilToMinute, loadConfig, prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, selfSufficiency, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
-  ({ prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, detectGrilling, selfSufficiency, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT } = require(path.join(LIB, 'engine.js')));
+  ({ prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, selfSufficiency, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
@@ -88,7 +88,7 @@ for (let i = 0; i < args.length; i++) {
 }
 
 if (showConfig) {
-  console.log(JSON.stringify({ ok: true, mode: 'show-config', ...VERSION_FIELDS, config_path: cfg.path, config_loaded: cfg.loaded, engine: engineCfg, goal: goalCfg, delaylocal: cfg.config.delaylocal, wtf: detectWtf(), grilling: detectGrilling() }, null, 2));
+  console.log(JSON.stringify({ ok: true, mode: 'show-config', ...VERSION_FIELDS, config_path: cfg.path, config_loaded: cfg.loaded, engine: engineCfg, goal: goalCfg, delaylocal: cfg.config.delaylocal, wtf: detectWtf() }, null, 2));
   process.exit(0);
 }
 
@@ -205,8 +205,7 @@ if (runDir) {
     goal_prompt_length: finalPrompt.length,
     items_count: suff.items_count,
     has_items_section: suff.has_items,
-    grill_rounds: goalCfg.grillRounds,
-    grilling: detectGrilling(),
+    grill: goalCfg.grill,
     anchor_path: path.join(rd, 'anchor.md'),
     progress_path: path.join(rd, 'progress.md'),
     final_prompt: fs.readFileSync(promptPath, 'utf8')

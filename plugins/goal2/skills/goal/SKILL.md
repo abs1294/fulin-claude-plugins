@@ -42,7 +42,7 @@ description: 當使用者要「先定一條可測量完成條件、再讓 Claude
   - `engine.maxBudgetUsd`：子程序的 `--max-budget-usd`，花到就自己停、`status: budget`，**預設 300**（實測正常任務約 0.5 USD/分鐘，300 ≈ 10 小時；使用者的長任務跑過 115 分鐘≈60 USD）；null 不設。
   - `engine.maxMinutes`：runner 時限（≤10080），超過就殺整棵子程序樹、`status: timeout`，**預設 480**（8 小時）；null 不設。這兩個是無人值守唯一的自動煞車（條件寫錯或永遠達不到時，沒有它們會跑到 quota 用光；實例：一個 16 分鐘 12.62 USD 零產出的 run）。
   - `goal.confirmTimeoutMinutes`：**預設 0＝不等確認，propose 完直接啟動引擎**（使用者隨時可終止）；設 ≥1 則排確認 timer、逾時自動採納。
-  - `goal.grillRounds`：propose 前的決策問答輪數，**預設 1**（0 = 不問直接起，上限 3）；事實層（項目清單）不受此開關影響。
+  - `goal.grill`：propose 前先 grill 到 frontier 空，**預設 true**（false = 不問直接起）；事實層（項目清單）不受此開關影響。
   - 沒檔就用預設；檔案壞掉、值錯、欄位名打錯會直接報錯不靜默退回。`node "<skill_dir>/goal.js" --show-config` 可看生效值與 wtf 偵測結果。
 
 ## 執行步驟
@@ -56,16 +56,16 @@ description: 當使用者要「先定一條可測量完成條件、再讓 Claude
 
 **2a. 事實層（一律做，不問使用者）**：引擎在另一個 headless session，看不到本對話。任務原文若含「你掌握的」「你的建議」「這 N 個」「上述」「剛才」這類對話指涉，或指向一份交接文件說「把裡面沒做完的做完」——先把「集合」落檔：讀該文件／回顧本對話，把要做的項目**逐條展開成任務書的 `## 項目清單` 節**（每項：編號、內容、驗收方式、來源檔:行），不確定算不算的項目也列進去、標「待決」。`goal.js` 對「含對話指涉又沒有 `## 項目清單`」的任務會直接拒絕（`任務不自足`）。這一步就是 grilling 的「facts are your job」——事實自己查，不拿去問使用者。2026-09-12 兩個 session 的四次呼叫全是「請把你掌握到的未完成項目做完」「我同意按照你的建議開始執行」「把這 6 個補完」，引擎收到的就是那十幾個字。
 
-**2b. 決策層（grill，輪數看設定檔 `goal.grillRounds`，預設 1、0 = 跳過）**：只問**會改變完成條件**的分岔，一輪把能問的全問完，每題編號＋附你的建議答案，使用者不答（或說「照建議」「直接跑」）就照建議走。固定題庫（沒有分岔的題不問）：
+**2b. 決策層（grill；設定檔 `goal.grill`，預設 true）**：把這個任務當**設計樹**——每個決策底下掛著它衍生的決策。每一輪把「前提已定、現在能問」的**全部**分岔一次問完（frontier），每題編號＋附你的建議答案；使用者答完，樹被重塑，再算下一個 frontier、再問一輪；**問到 frontier 空為止**——沒有任何決策是你默默假設的。不限輪數。事實類的問題不算 frontier：自己查（讀檔、派 sub-agent），只有決策才問使用者。使用者說「直接跑」「照建議」→ 立刻停止 grill、未答的題全照你的建議。下面是這類任務最常漏掉的分岔，當起手式而不是題庫（沒有分岔的不問，樹長出來的別漏）：
 1. 範圍邊界：清單裡哪些「待決」項算、哪些明確不算（附你的判斷）
 2. 驗收方式：每類項目用什麼指令／檔案判真假（附你擬的指令）
 3. 例外條款：允許哪類 blocker 進例外清單（附預設：需你決策／外部系統／缺祕密／與規範衝突）
 4. 禁止動作：不准改 DB、不准 git push、不准動哪些目錄（附你從專案 CLAUDE.md 讀到的）
 5. 並行：同棵樹還有別的 run 時，本 run 只動哪些目錄／表／port（`--list` 查得到就附）
 6. 產出落點：報告寫哪、commit 不 commit
-第 2 輪只問第 1 輪答案新開出來的分岔；沒有就啟動。`grillRounds` 為 0、delaylocal fast-path／plain、或使用者說「直接跑／不用問」→ 跳過 2b。
+`goal.grill` 為 false、delaylocal fast-path／plain、或使用者說「直接跑／不用問」→ 跳過 2b。
 
-**格式**：`--show-config` 的 `grilling.installed` 為 true（本機有 mattpocock 的 grilling skill）就沿用它的格式——每題 `❓ **Q1** - **標題**：內容` 接 `➡️ 建議答案`，題間 `---`；**不要用 Skill 工具呼叫它**（跟 wtf 一樣只套格式）。沒裝就用同樣的編號＋建議答案骨架。
+**格式**（固定）：每題 `❓ **Q1** - **標題**：內容` 接 `➡️ 建議答案`，題間 `---`。
 
 **2c. propose**：依 references 第 2 節寫出**可測量、有驗證方法、極端**的完成條件（對著 `## 項目清單` 算：「清單內未完成數 = 0；例外清單內項目不計」）。先不要跑。
 
@@ -82,7 +82,7 @@ node "<skill_dir>/goal.js" --prompt-file <暫存檔> --goal-file <條件檔> --c
 ```
 **`--cwd` 必帶**：子程序在哪個目錄工作就是它。不帶會退回 Bash 工具當下的 cwd，而那個 cwd 會漂移（前一個指令 `cd` 過就留在那），同 session 多個 goal2 時尤其危險。輸出的 `cwd` / `cwd_source` 要一併回報。
 
-輸出 JSON：`{ ok, mode:"prepared", plugin_version, plugin_root, items_count, has_items_section, grill_rounds, grilling, start_mode, run_dir, run_command, stop_command, status_command, cwd, cwd_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, goal_overflow, goal_prompt_length, anchor_path, progress_path, final_prompt, … }`。`ok:false` → 把 error 告訴使用者，停止。
+輸出 JSON：`{ ok, mode:"prepared", plugin_version, plugin_root, items_count, has_items_section, grill, start_mode, run_dir, run_command, stop_command, status_command, cwd, cwd_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, goal_overflow, goal_prompt_length, anchor_path, progress_path, final_prompt, … }`。`ok:false` → 把 error 告訴使用者，停止。
 
 **同一棵工作樹已有活著的 run 時不會擋**（使用者常在同一專案並行多個調整），但 JSON 會多 `active_runs_in_tree`（run id、pid、cwd）。回報「已啟動」時把它一併講出來（例：「注意：同一棵樹還有 2 個 run 在跑：…」），讓使用者知道有並行；不要自作主張停別人的 run。**並行時路徑不重疊不代表沒干擾**：共用的 DB、測試 DB／結果檔、dev server port、`git` 工作樹狀態都會互相污染。有並行時，任務書裡要寫明本 run 的範圍切分（只動哪些目錄／表／port）與「別的 run 可能同時在動什麼」，讓引擎遇到不是自己改的差異時不要去修它。
 

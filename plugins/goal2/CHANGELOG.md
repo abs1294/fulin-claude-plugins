@@ -2,10 +2,17 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.1] - 2026-09-12
+### Changed
+- **grill 不限輪數、不限題目**：0.5.0 的 `goal.grillRounds`（上限 3、只問影響完成條件的分岔）改為 `goal.grill` 布林（預設 true）：把任務當設計樹，每輪問完當下能問的全部分岔、答完重算 frontier 再問，問到沒有任何決策是默默假設的為止；使用者說「直接跑」就停、未答照建議。原因：限定輪數與題目會問不完整，跑出來的不是使用者要的更麻煩。
+- 拿掉 mattpocock grilling skill 的偵測（`--show-config` 的 `grilling` 欄位、prepared 輸出的 `grilling`）：格式固定 ❓/➡️，不需要偵測。
+- 事實層閘的錯誤訊息明講「這是 Claude（主 session）的工作、不要回去問使用者」。
+- README 新增「執行流程」一節：主線 0–9 步（誰做什麼、你看到什麼）、可以停下來的點、delaylocal 差異、runs-guard 他律。
+
 ## [0.5.0] - 2026-09-12
 ### Added
 - **事實層閘**：使用者的四次真實呼叫全是「請把你掌握到的未完成項目做完」「我同意按照你的建議開始執行」「把這 6 個補完」——引擎在另一個 session 看不到本對話，收到的就是那十幾個字。現在 SKILL 規定 propose 前先把項目逐條展開成任務書的 `## 項目清單`（編號、內容、驗收方式、來源）；`goal.js`／`delaylocal.js`（goal 模式）對「含對話指涉（你掌握的／你的建議／這 N 個／上述／剛才…）又沒有 `## 項目清單`」的任務直接拒絕（`任務不自足`）。anchor 多一節 `<!-- goal2:sec=items -->`，壓縮後 hook 會連清單一起注回；輸出多 `items_count`／`has_items_section`。
-- **grill 決策輪**（借 mattpocock grilling 的做法：facts are your job、decisions are the user's、每題附建議答案）：新設定 `goal.grillRounds`（預設 1，0 = 跳過，上限 3），只問會改變完成條件的六類分岔（範圍邊界／驗收方式／例外條款／禁止動作／並行共用資源／產出落點），不答照建議；本機有 grilling skill 就套它的 ❓/➡️ 格式（`--show-config` 的 `grilling.installed`；不呼叫它）。delaylocal fast-path／plain 與使用者說「直接跑」跳過。
+- **grill 決策輪**（借 mattpocock grilling 的做法：facts are your job、decisions are the user's、每題附建議答案）：新設定 `goal.grill`（預設 true，false = 跳過）：把任務當設計樹，每輪問完當下能問的全部分岔、答完重算 frontier 再問，**問到沒有任何決策是默默假設的為止、不限輪數**；每題附建議答案（❓/➡️），不答照建議；常見分岔：範圍邊界／驗收方式／例外條款／禁止動作／並行共用資源／產出落點。delaylocal fast-path／plain 與使用者說「直接跑」跳過。
 
 ## [0.4.1] - 2026-09-12
 ### Added

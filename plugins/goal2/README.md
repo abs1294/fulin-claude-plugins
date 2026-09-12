@@ -14,7 +14,7 @@
 |---|---|---|
 | 一句話 | 定好完成條件，**現在**就讓引擎做到完成 | 定好完成條件，**quota 重置後**在本機無人值守做到完成 |
 | 觸發 | `/goal2:goal <任務>`、「幫我定完成條件再跑」、「用 goal 引擎做到完成」 | `/goal2:delaylocal <任務>`、「排程到 quota 之後」、「等 5h 額度回來再跑」 |
-| 引擎何時起 | 先把項目清單落檔（任務不自足會被拒）、問一輪影響條件的分岔（`goal.grillRounds`），propose 印給你看完就直接起；想先確認可在設定檔開 timer | 5h quota 重置後 + 緩衝（預設 15 分）的 cron 到點時；確認逾時預設 10 分鐘 |
+| 引擎何時起 | 先把項目清單落檔（任務不自足會被拒）、grill 到沒有默默假設的決策（`goal.grill`），propose 印給你看完就直接起；想先確認可在設定檔開 timer | 5h quota 重置後 + 緩衝（預設 15 分）的 cron 到點時；確認逾時預設 10 分鐘 |
 | 中途終止／看進度 | 說「停」→ `goal.js --stop`（核對 pid 身分後殺整棵子程序樹；多個 run 時先問停哪個）；`--status` 看帳本；`--list` 看全機所有 run | `delaylocal.js --stop`／`--status` 同上（不需 session id） |
 | 達成怎麼判 | 讀子程序 transcript 的檢查器紀錄（`goal_verdict`：met／impossible／unverified／no_transcript）；`status: done` 只在 `met` 時 | 同左 |
 | 煞車 | `engine.maxBudgetUsd`（預設 300 USD → `status: budget`）、`engine.maxMinutes`（預設 480）；能停它的只有這兩個與 `--stop`（殺 runner 引擎會跟著死；關掉主 Claude Code 後是否存活未實測） | 同左 |
@@ -32,6 +32,27 @@
 - 「這件事幫我定好驗收條件，然後做到完成再叫我」→ `goal`
 - 「quota 快滿了，這個任務排到額度回來再自動跑」→ `delaylocal`
 - 「排好就去睡，跑完用 LINE 通知我結果」→ `delaylocal`
+
+## 執行流程（`/goal2:goal <任務>` 主線）
+
+| 步 | 誰 | 做什麼 | 你看到什麼 |
+|---|---|---|---|
+| 0 | Claude | `goal.js --show-config` 讀設定（`goal.grill`、`confirmTimeoutMinutes`、`engine.*`），回報 `plugin_version`；安裝版落後 repo 就先提醒升級 | 版本一行 |
+| 1 事實層 | Claude | 讀交接文件／回顧對話，把要做的項目**逐條展開**成任務書的 `## 項目清單`（編號、內容、驗收方式、來源檔:行）；不確定的標「待決」。事實自己查（讀檔、派 sub-agent），**不問你** | 沒有對話，只有 Claude 在讀檔 |
+| 2 grill | Claude↔你 | 把任務當設計樹：一輪把當下能問的全部分岔問完，每題 ❓ 編號＋➡️ 建議答案；你答完重算 frontier 再問一輪；**問到沒有任何決策是默默假設的**。你說「直接跑／照建議」→ 立刻停，未答照建議。`goal.grill: false` 也跳過 | 一到數輪問答 |
+| 3 propose | Claude | 寫**極端**完成條件：「`## 項目清單` 內未完成數 **= 0**（附算法）；例外清單內項目不計」＋例外條款（限真 blocker＋證據＋原因）＋禁止動作。印給你看 | 條件全文 |
+| 4 準備 | Claude | 任務書寫 `goal-input-<ts>-<rnd>.txt`、條件寫 `goal-cond-…txt`，跑 `goal.js --prompt-file … --goal-file … --cwd <專案根>`。工具檢查：`/goal` prompt ≤3900、cwd 存在、**任務自足**（含對話指涉又無清單 → 拒絕，Claude 回去補清單）、同棵樹活著的 run（只提醒） | 若被拒，你看到 Claude 自己補清單重跑 |
+| 5 啟動 | Claude | `confirmTimeoutMinutes` = 0（預設）→ 直接 Bash 背景跑 `run_command`；等 10–15 秒 `--status` 看到 `goal_set:true` 才說「已啟動」（拒收會在幾秒內死掉，先講「在跑」會讓你白等） | 「已啟動」＋條件＋run_dir＋停法 |
+| 6 引擎 | 子程序 | `claude -p "/goal <條件>；…"`，`--append-system-prompt-file anchor.md`（工作目錄、條件、項目清單、任務全文、工作清單、帳本規則，每回合重送、壓縮碰不到）、`--max-budget-usd`（預設 300）、runner 時限（預設 480 分）、`bypassPermissions`、擋停上限 0。工作清單：①拆里程碑進 `progress.md` ②執行 ③收尾寫簡短回報。每次它想停，`/goal` 檢查器對條件驗收，未達成推回去；壓縮後 hook 注回條件＋清單＋帳本 | 什麼都不用做 |
+| 7 中途 | 你 | 「做到哪」→ `--status`：`summary_zh` 一句人話＋帳本已完成／剩餘。「停」→ 只有一個 run 直接 `--stop`（核對 pid 身分再殺樹）；多個活著的就問你停哪個 | 進度或已停 |
+| 8 收尾 | runner | 讀子程序 transcript 最後一筆 `goal_status` → `goal_verdict`：`met`→`done`；只有 sentinel→`unverified`（**不算達成**）；`failed:true`→`impossible`；另有 `timeout`／`budget`／`stopped`／`failed`／`unknown`。寫 `result.json`、meta | — |
+| 9 回報 | Claude | 依 `status`／`goal_verdict` 講達成沒（`unverified` 明講不可當達成）、回合數、花費、`result_text` 原文（含例外清單）、run_dir；有 wtf 就套版面、事實不刪。結尾不加 offer | 最終報告 |
+
+**可以停下來的點**：步 2 任何一輪你說「直接跑」；步 4 工具拒收（超長、cwd 不存在、不自足）；步 5 起跑後拒收；步 7 隨時 `--stop`；步 8 煞車（`engine.maxBudgetUsd`／`engine.maxMinutes`）。
+
+**delaylocal 的差異**：步 0 多算本 session 的 5h quota 重置時間；步 2–3 同（fast-path「直接排別問」與 `--plain` 跳過 1–3）；步 3 條件尾巴多「已執行 notify-line.js」；步 4 的 `delaylocal.js` 除了建 run 目錄還算 cron，然後 `CronCreate` 兩個 job：10 分鐘確認 timer、quota 重置＋900 秒的任務 cron；步 5 改成 cron 到點 fire 進本 session → session 守衛 → 背景跑 `--run`；步 8 引擎收尾多寫報告檔＋發 LINE；步 9 同。prepared 的 run 以 `scheduledFor` 起算，等 cron 期間不會被 prune。
+
+**全程的他律**：`hooks/runs-guard.js`（PreToolUse）——任何裝了 goal2 的 session 對 `~/.claude/goal2/runs/` 的整批／萬用字元／迴圈式刪除、`--prune --keep-hours <2` 直接攔。
 
 ## 運作原理
 
@@ -54,7 +75,7 @@
 {
   "engine":     { "permissionMode": "bypassPermissions", "stopHookBlockCap": 0, "model": null, "autocompact": "auto",
                   "maxBudgetUsd": 300, "maxMinutes": 480 },
-  "goal":       { "confirmTimeoutMinutes": 0, "grillRounds": 1 },
+  "goal":       { "confirmTimeoutMinutes": 0, "grill": true },
   "delaylocal": { "confirmTimeoutMinutes": 10, "bufferSeconds": 900 }
 }
 ```
@@ -68,7 +89,7 @@
 | `engine.maxBudgetUsd` | 子程序的 `--max-budget-usd`，花到就自己停（`status: budget`）；實測正常任務約 0.5 USD/分鐘，300 ≈ 10 小時；null 不設 | 300 |
 | `engine.maxMinutes` | runner 時限（分鐘，≤10080），超過殺整棵子程序樹、`status: timeout`；null 不設 | 480 |
 | `goal.confirmTimeoutMinutes` | 0 = propose 完直接啟動、不等確認（隨時可停）；≥1 = 等你確認幾分鐘，逾時自動採納 | 0 |
-| `goal.grillRounds` | propose 前問幾輪「會改變完成條件的分岔」（每題附建議答案，不答照建議）；0 = 不問直接起；項目清單落檔不受此影響 | 1 |
+| `goal.grill` | propose 前把任務當設計樹 grill 到 frontier 空（每輪問完當下能問的全部分岔、每題附建議答案，不答照建議）；false = 不問直接起；項目清單落檔不受此影響 | true |
 | `delaylocal.confirmTimeoutMinutes` | propose 後等你確認幾分鐘；逾時自動採納並排程 | 10 |
 | `delaylocal.bufferSeconds` | quota 重置後再等幾秒才 fire（`/goal2:delaylocal` 帶裸數字可臨時覆蓋） | 900 |
 

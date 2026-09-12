@@ -39,12 +39,12 @@ function fail(msg) {
 
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
-let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, detectGrilling;
+let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute, crossMonthWarning } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
-  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, detectGrilling } = require(path.join(LIB, 'engine.js')));
+  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
@@ -361,7 +361,7 @@ console.log(JSON.stringify({
   active_runs_in_tree: activeRunsOut,
   items_count: suff.items_count,
   has_items_section: suff.has_items,
-  grill_rounds: cfg.config.goal.grillRounds,
+  grill: cfg.config.goal.grill,
   engine: cfg.config.engine,
   engine_prompt: enginePrompt,
   final_prompt: finalPrompt

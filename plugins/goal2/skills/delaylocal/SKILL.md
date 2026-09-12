@@ -152,7 +152,7 @@ goal 是**預設模式**。通用骨架（為什麼要 propose、可測量條件
 
 本 skill 的具體差異（對照 references 第 3 節的表）：
 
-0. **事實層＋grill**（同 goal skill 步驟 2a／2b）：任務原文含對話指涉（「你掌握的」「這 N 個」「你的建議」）就先把項目逐條展開成任務書的 `## 項目清單`（`delaylocal.js` 對不自足的任務會拒絕）；再依 `goal.grillRounds`（預設 1）問一輪會改變完成條件的分岔、附建議答案。fast-path 與 plain 模式跳過這一步。
+0. **事實層＋grill**（同 goal skill 步驟 2a／2b）：任務原文含對話指涉（「你掌握的」「這 N 個」「你的建議」）就先把項目逐條展開成任務書的 `## 項目清單`（`delaylocal.js` 對不自足的任務會拒絕）；再依 `goal.grill`（預設 true）grill 到 frontier 空：每輪問完當下能問的全部分岔、附建議答案，沒有默默假設的決策才 propose。fast-path 與 plain 模式跳過這一步。
 1. **propose 時**一併給：完成條件（照 references 第 2 節，**極端**：等式與全稱，`= 0`／每一項，不用 `<`、`≤`、「大部分」；條件內含例外條款「例外清單內的項目不計」，例外限真 blocker＋證據＋原因，回報時逐項列出）、任務拆解、**緩衝秒數 / 預計 fire 時間**。
 2. **確認 timer 的 cron 由工具算，不要心算**：先跑 `node "<skill_dir>/delaylocal.js" --show-config`，拿 `confirm_timer_cron`（= 現在 + 設定檔 `delaylocal.confirmTimeoutMinutes`，預設 10 分鐘，向上取整到整分）與 `confirm_timeout_minutes`。timer 的 prompt 是**文字指令**（不是任務本體）：`CronCreate({ cron: <confirm_timer_cron>, recurring:false, durable:false, prompt: "[delaylocal 逾時自動採納] 若使用者自此 propose 後尚未回覆，視為自動採納，直接完成排程。完成條件：<condition 全文>；任務：<task>；buffer：<秒>。請把條件寫進條件檔後跑 delaylocal.js --goal-file … --cwd …，再 CronCreate。" })`。**記下 timer 的 job id。**回報時把 `confirm_timeout_minutes` 講給使用者（「N 分鐘內沒回覆將自動採納」）。
 3. **收斂**：使用者回覆 → 先 `CronDelete <timer id>` 再處理（同意 → 第 4 步；改 → 重 propose 並重排 timer）；逾時 → timer fire 自動採納，進第 4 步。
