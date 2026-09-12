@@ -62,7 +62,7 @@
 | 使用者同意後 | `CronDelete` timer → Bash 背景執行 `run_command` | `CronDelete` timer → `delaylocal.js --goal` → `CronCreate(任務 cron)` |
 | 引擎何時起 | propose 完立刻（或開 timer 時：同意／逾時） | 任務 cron 到點 → fire 進來的 prompt 叫 Claude 背景執行 `run_command` |
 | 終止／進度 | `goal.js --stop <run_dir>`／`--status <run_dir>`；多個活著的 run 時先問停哪一個 | `delaylocal.js --stop <run_dir>`／`--status <run_dir>`（不需 session id） |
-| 煞車 | `engine.maxBudgetUsd`（預設 300，觸發 → `status: budget`）、`engine.maxMinutes`（預設 480，≤10080）；殺 runner 引擎會跟著死（實測），關掉主 Claude Code 後是否存活未實測 | 同左 |
+| 煞車 | `engine.maxBudgetUsd`（預設 300，觸發 → `status: budget`）、`engine.maxMinutes`（預設 480，≤10080）；殺 runner 或主 Claude Code 退出，引擎都跟著死（實測）；預算在回合邊界才對帳 | 同左 |
 | 任務 cron | 無 | quota 重置後 + `delaylocal.bufferSeconds`（預設 900）；session-only，另有 session 守衛 |
 | 收尾 | 主 session 讀 summary 回報（有 wtf 就套 wtf 格式）；不發 LINE | 子程序寫報告檔 + `notify-line.js` 發 LINE（選用）；主 session 再讀 summary 回報 |
 

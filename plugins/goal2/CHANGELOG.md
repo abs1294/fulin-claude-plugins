@@ -2,6 +2,10 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.2] - 2026-09-13
+### Changed
+- 兩件 HYPOTHESIS 實測後改寫：① `--max-budget-usd` 真觸發：result `subtype: error_max_budget_usd`、`is_error: true`、`terminal_reason: budget_exhausted`、`errors: ["Reached maximum budget ($N)"]`，引擎在回合邊界才對帳（上限 0.05 實花 0.28），goal2 記 `status: budget` 正確；② 主 Claude Code 退出：以 headless `claude -p` 當主程式背景起 runner 後結束，runner 與引擎當下一起消失、meta 停在 running——引擎不會在主程式關閉後存活，SKILL／README／references 已改成事實。
+
 ## [0.5.1] - 2026-09-12
 ### Changed
 - **grill 不限輪數、不限題目**：0.5.0 的 `goal.grillRounds`（上限 3、只問影響完成條件的分岔）改為 `goal.grill` 布林（預設 true）：把任務當設計樹，每輪問完當下能問的全部分岔、答完重算 frontier 再問，問到沒有任何決策是默默假設的為止；使用者說「直接跑」就停、未答照建議。原因：限定輪數與題目會問不完整，跑出來的不是使用者要的更麻煩。
