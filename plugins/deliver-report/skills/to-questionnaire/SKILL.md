@@ -19,7 +19,7 @@ Turn something the user can't answer alone into a **questionnaire** — a Markdo
 
 3. **Write the questionnaire.** Draft questions aimed at the gap from steps 1–2, following the Document structure below. Write it to `to-questionnaire-<slug>.md` in the current directory (slug from the topic) and report the path. Done when the file exists and every item the user named in step 2 is covered by a question.
 
-> **本 plugin 補充**：對外送出的問卷屬交付物——語氣與術語密度照同 plugin `deliver-report` 的鐵則②③（預設讀者不懂技術、嚴禁內部流程字眼）；易讀性照 `../../references/document-readability.md` 十二條鐵則，交付前跑五項機械掃描。問卷寫好後若要配一封寄送信，走 `deliver-report`。
+> **本 plugin 補充**：對外送出的問卷屬交付物——語氣與術語密度照同 plugin `deliver-report` 的鐵則②③（預設讀者不懂技術、嚴禁內部流程字眼）；易讀性照 `../../references/document-readability.md` 十三條鐵則，交付前跑五項機械掃描。問卷寫好後若要配一封寄送信，走 `deliver-report`。
 
 ## Document structure
 

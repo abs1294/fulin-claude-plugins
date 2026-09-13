@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.12.0] - 2026-09-13
+### Added
+- 新增易讀性鐵則 13：我方的內部推導過程不進對外文件（定價折扣、人天估算擺盪、工期 buffer、候選方案比較、內部風險分級與人員配置、與其他客戶的比較基準六類）；照 hook 既有慣例歸入「判不準只提醒不擋」（同一金額在「折後 320,000」要擋、在「總價 320,000」是必要欄位，正則分不出，誤判比漏抓難補救），改以鐵則 8 必掃表第 8 列的自檢落地；連帶同步全 repo 7 處「十二條」為「十三條」
+
 ## [0.10.0] - 2026-08-30
 ### Added
 - **`references/banned-patterns.json`：兩道閘共用的禁用樣式單一來源**。`doc-readability-gate.js`（Node，掃 .docx）與 `content_guard.py`（Python，掃待寄的 .md）改為讀同一份，改一次兩邊生效。每組帶 `applies_to` 標明適用產物，因為兩種產物該擋的東西不同（金額與 email 只擋日報；異動紀錄用語只擋文件）。
