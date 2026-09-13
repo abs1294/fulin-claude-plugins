@@ -2,6 +2,22 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.9.0 — 2026-09-13
+
+**HTML 升級分支改為優先調用 archify**（tt-a1i/archify，MIT）。使用者比較 wtf 與 archify 後裁決：兩者不是同類，wtf 是溝通紀律、archify 是渲染引擎，唯一重疊處是 wtf 的「ASCII 排不出來 → 升級 HTML」那條——原本叫模型手刻 HTML，等於寫的人跟驗的人是同一個，沒有外部檢查擋得住排爛。
+
+- **偵測跑 CLI 驗活，不看目錄**：依序試 `~/.claude/skills/archify`、`~/.agents/skills/archify`，跑 `node <路徑>/bin/archify.mjs doctor`，**exit 0 才算可用**。實測依據：本機 `~/.claude/skills/archify` 是 symlink 指向 `~/.agents/skills/archify`，`test -d` 會過但不代表跑得動（Node 版本不符、檔案缺一半，目錄照樣存在）。兩條路徑實跑 doctor 皆 exit 0，不存在路徑 exit 1。
+- **沒裝就問，不准自己裝**：安裝會寫檔到家目錄、會對外連線抓套件。偵測不到就問「要不要我幫你裝 archify？」，他明確說要才動手；說不要或沒回應一律回退手刻，不卡著等他（他按 /wtf 是要看懂東西，不是要處理安裝）。官方指令 `npx skills add tt-a1i/archify -g`，不自創 clone 寫法；裝完再驗活一次才走 archify。
+- **圖型對照**：wtf 三個升級理由對得上 archify 五型——要 mermaid 的時序圖→`sequence`、狀態機→`lifecycle`、太密的流程→`workflow`；另有 `architecture`、`dataflow`。手上已有 mermaid 直接餵給它轉。
+- **`deliver` exit 非 0 就是沒產出，不准說成功**。實測：正常輸入 exit 0、9/9 checks pass、產出 814102 bytes HTML；壞輸入 exit 1 且 HTML 完全不產出。
+- **archify 的回報口吻不進對話**：它要求回報 validation summary、receipt、SHA-256、browser-evidence status，那是工程交付格式，跟本 skill 的白話重講相反——使用者按 /wtf 是看不懂，丟一串雜湊值只會更看不懂。對話裡只留「已開在瀏覽器，講的是 X」。
+- **archify 有連外的版本檢查**（`scripts/check-update.mjs`）：報有新版時給一則精簡通知就好，不准自己更新。
+- 原有五條 HTML 規則全部保留，移到「回退手刻」分支：放 OS 暫存目錄、排他建立、開給他看、開檔失敗不准假裝開了、終端機仍留一句結論。
+- 自檢第 14 題擴充為五問（驗活跑了沒／有沒有自己裝或靜默跳過／deliver exit／暫存目錄與排他建立／有沒有把 SHA-256 丟進對話）。
+- **問使用者要不要裝時，不准只丟名字**。使用者裁決：「你問人家要不要裝的時候要說明一下這是啥」——對一個正在說「我看不懂」的人問「要不要裝 archify？」，等於要他為一個陌生名詞做決定，違反本 skill 自己的「非用不可的新詞第一次出現就要當場白話解釋」。規則改成四件事一次講完（這是什麼／為什麼要它／裝了會動到什麼／不裝會怎樣），附可改寫的範本；問句放回覆末尾不放開頭（先把圖給他，安裝的事附在後面），同一對話問過一次就不再問。自檢第 14 題補兩問。
+- 偵測段的 symlink 說明從推測改為實證：`npx skills add` 真身放 `~/.agents/skills/<名稱>/`、`~/.claude/skills/` 掛 symlink，安裝紀錄在 `~/.agents/.skill-lock.json`（本機實測該檔記 `"source": "tt-a1i/archify"`、`"sourceType": "github"`、資料夾雜湊）；真身底下**沒有 `.git` 也沒有 `node_modules`**，是解壓後的純檔案，所以不能用「有沒有 .git」判斷裝了沒。
+- 致謝區記下 archify 的「三種宣稱嚴格分離」（確定性檢查／瀏覽器證據／真人感知審查，通過其一不蘊含其二），對應本 skill 的「開檔失敗不准假裝開了」。
+
 ## 0.8.2 — 2026-09-07
 
 **同構區塊合成一張大表**。使用者拿一張實戰截圖（四個 bug 各一塊散文、2×2 並排，每塊都是「在哪／怎麼發生／後果／修法」）說「像這種一個區塊一個區塊，應該畫大表格給我，閱讀體驗比較好」。原規則只分「同一件事→並排」「不相干→上下排」，漏了第三種：不相干的主題但**結構相同**——那是一張表的幾列，讀者要橫向對照「④的修法跟①差在哪」，散文對不起來。
