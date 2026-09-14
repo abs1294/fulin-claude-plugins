@@ -2,6 +2,17 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.12.0 — 2026-09-14
+
+**archify `workflow` 圖特化：六條硬規則讓線走直、泳道不虛高**。使用者比對兩張 archify 產出的 HTML 後指出結構差異，原話：「我喜歡 STRAIGHT 的線，不要繞 + 高度要拉低，沒特化的版本每一個泳道的高度都很怪」。
+
+- **成因查到原始碼層**（`renderers/workflow/workflow-compiler.mjs:489-490`）：`baseContentH = max(74, ceil(maxVerticalExtent*2+8))`、`laneH = 30 + baseContentH`，其中 `maxVerticalExtent` 取**全圖**任一節點的 `|yOffset| + 節點高/2`，算出的 `laneH` **套用到每一條泳道**。所以任何一個節點設了 `yOffset`，全部泳道一起變高——節點少的那幾條就空一大片，這就是「每個泳道高度都很怪」。
+- **本機反推驗證**：沒特化版泳道 298px → `baseContentH=268` → `maxVerticalExtent=130`；該圖最高節點 68px（半高 34）→ 反推 `|yOffset|=96`，算式完全吻合。⚠️ 過程中一度誤判成因是「有 256/257px 的超高節點」，實際查證發現那兩個是 `composition-frame-kind="group"` 的 group 框不是節點，該推論**已推翻**。
+- **六條硬規則**（寫進 SKILL.md 的 archify 分支）：① 主線節點全放同一 lane、`col` 連號 0..5；② 主線每條 edge 三件套 `route:"straight"` ＋ `fromSide:"right"` ＋ `toSide:"left"`（只給 route 不夠，自動路由仍會繞）；③ **全圖禁用 `yOffset`**；④ `col` 上限 5；⑤ 角色用獨立 lane 以 `variant:"dashed"`／`role:"async"` 虛線連；⑥ 分岔節點與來源節點同 `col`。附可直接套用的 JSON 骨架與三道指令（validate／deliver／visual-check）。
+- `route` 合法值記錄為 `auto｜straight｜drop｜outside-right｜return-left｜bottom-channel｜up-channel`，並註明**只有 `straight` 經實測**，其餘未驗。`meta.viewBox` 只吃兩個值且有硬下限。
+- **實跑驗證**（archify 2.17.0-dev.1）：照骨架寫 JSON 實際跑完三道指令——`validate` exit 0 且 issues 空、`deliver` exit 0 產出 801KB HTML、`visual-check` exit 0 且 `readabilityOk:true`（真 Chrome 四張截圖）。量測結果：三條泳道**全部 104px**（＝archify 預設下限，無虛高）、三條主線 edge **全為 1 段直線**。對照沒特化版：泳道 298px、主線直線率僅 20%（3/15）。
+- 資料來源：佈局參數與六條規則由另一 session（claude-0f）提供並附其 A/B 實測（同一份 JSON 只加 `yOffset:80`，viewBox 從 `1033×528` 變 `1033×966`，高 +83%、寬不變）；本 session 獨立以兩份 HTML 量測與原始碼反推交叉印證後才寫入。
+
 ## 0.11.0 — 2026-09-14
 
 **寬度標尺改為機械產生（`ruler.js`），兩輪二分法**。使用者實測回報：「同一個電腦同一個螢幕，有的你量出來是 170，有的 200」，並裁決「量法我要機械的方式處理，我不要你用模型產出」。

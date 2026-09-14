@@ -280,6 +280,96 @@ npx skills add tt-a1i/archify -g
 - 照它 SKILL.md 的流程走：寫候選 JSON → `validate` → 有錯照 `supportedFixes` 修 → `deliver` 產 HTML。
   **`deliver` exit 非 0 就是沒產出，不准說成功**（它自己的規則，也是本 skill 的規則）。
 - **產出的 HTML 仍然要照下面那幾條處理**：放暫存目錄、開給他看、開失敗不准假裝開了、終端機仍留結論。
+- ⚠️ **`workflow` 圖必須照下面「六條硬規則」寫 JSON**，否則線會繞、泳道會虛高。
+  使用者原話：「我喜歡 STRAIGHT 的線，不要繞 + 高度要拉低，沒特化的版本每一個泳道的高度都很怪」。
+
+### archify `workflow` 六條硬規則——線要直、泳道要矮
+
+**為什麼要有這一節**：archify 預設佈局會為了避讓而繞路，且泳道高度是**全域單一值**——
+任何一個節點把它撐高，**每一條泳道都跟著變高**，節點少的那幾條就空一大片。
+
+實測對照（同一套 archify 2.17.0-dev.1 產的兩張圖）：
+
+```
+                        沒特化              特化後
+泳道高度                298 px              104 px   ← archify 預設值
+泳道間距                318 px              124 px
+一段直線的連線          3 條 (20%)          8 條 (62%)
+多段繞路的連線         12 條               5 條
+```
+
+**成因在原始碼**（`renderers/workflow/workflow-compiler.mjs:489-490`）：
+
+```js
+const baseContentH = Math.max(74, Math.ceil(maxVerticalExtent * 2 + 8));
+const laneH = 30 + baseContentH;          // ← 這個值套用到「每一條」泳道
+```
+
+`maxVerticalExtent` ＝ **全圖任一節點的 `|yOffset| + 節點高/2`**，取最大值。
+所以一個節點設了 `yOffset`，全部泳道一起變高。
+
+實際反推（本機實測）：沒特化版泳道 298px → `baseContentH = 268` → `maxVerticalExtent = 130`；
+最高節點 68px（半高 34）→ 反推 **`|yOffset| = 96`**。算式完全吻合，這就是虛高的來源。
+（另有 A/B 實測：同一份 JSON 只加 `yOffset:80`，viewBox 從 `1033×528` 變 `1033×966`，高度 +83%、寬度不變。）
+
+**六條硬規則：**
+
+| # | 規則 | 為什麼 |
+|---|---|---|
+| 1 | **主線節點全放同一條 lane，`col` 連號 0..5** | 主線在多條 lane 間來回跳，每跨一次就彎兩下 |
+| 2 | **主線每條 edge 三件套**：`route:"straight"` ＋ `fromSide:"right"` ＋ `toSide:"left"` | 只給 `route` 不夠，自動路由仍會為避讓而繞 |
+| 3 | **全圖禁用 `yOffset`** | 全域副作用，撐高所有泳道。要錯開節點就換 lane 或換 col |
+| 4 | **`col` 上限 5**（0..5 共六欄） | 超過 schema 直接擋 |
+| 5 | **角色用獨立 lane**，以 `variant:"dashed"` ／ `role:"async"` 虛線連到主線 | 角色混進主線就會製造跨 lane 彎折 |
+| 6 | **分岔節點與來源節點同 `col`** | 同 col 才會垂直直下，否則斜插 |
+
+`route` 的合法值：`auto` ｜ `straight` ｜ `drop` ｜ `outside-right` ｜ `return-left` ｜ `bottom-channel` ｜ `up-channel`。
+**只有 `straight` 經過實測**，其餘未驗。
+
+⚠️ `meta.viewBox` 只吃兩個值 `[寬, 高]`（不是四個），且編譯器有硬下限，壓太小會被拒：
+`Workflow viewBox 1280×720 cannot contain the readable-v2 layout; minimum 918×954`。
+
+**可直接套用的 JSON 骨架**（欄位名稱照抄，內容換成這次要畫的）：
+
+```json
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": { "title": "…", "quality_profile": "showcase" },
+  "lanes": [
+    {"id":"role","label":"經手角色"},
+    {"id":"plat","label":"單據流程"},
+    {"id":"stop","label":"退件與阻擋","variant":"exception"}
+  ],
+  "phases": [
+    {"id":"p1","label":"階段一","fromCol":0,"toCol":1},
+    {"id":"p2","label":"階段二","fromCol":2,"toCol":3,"variant":"emphasis"}
+  ],
+  "mainPath": ["n0","n1","n2","n3"],
+  "nodes": [
+    {"id":"n0","lane":"plat","col":0,"type":"frontend","label":"…","width":124},
+    {"id":"n1","lane":"plat","col":1,"type":"backend","label":"…","width":124},
+    {"id":"r0","lane":"role","col":0,"type":"external","label":"申請人","width":118},
+    {"id":"s0","lane":"stop","col":1,"type":"security","label":"阻擋","width":124}
+  ],
+  "edges": [
+    {"id":"m0","from":"n0","to":"n1","label":"送出","variant":"emphasis",
+     "route":"straight","fromSide":"right","toSide":"left"},
+    {"id":"t0","from":"r0","to":"n0","variant":"dashed","role":"async"},
+    {"id":"x0","from":"n1","to":"s0","label":"阻擋原因","variant":"security","role":"error"}
+  ]
+}
+```
+
+**三道指令按順序跑，`validate` 要 9/9、0 錯 0 警告才算過：**
+
+```bash
+node <archify>/bin/archify.mjs validate     workflow x.json          --quality showcase --json
+node <archify>/bin/archify.mjs deliver      workflow x.json x.html   --quality showcase --json
+node <archify>/bin/archify.mjs visual-check x.html                   --json
+```
+
+
 - ⚠️ **archify 的回報口吻不要照抄進對話。** 它要求回報 validation summary、receipt、
   SHA-256、browser-evidence status——那是工程交付格式，跟本 skill 的白話重講是相反的東西。
   使用者按 `/wtf` 是看不懂，你丟一串雜湊值給他只會更看不懂。
