@@ -60,10 +60,30 @@ const { execFileSync } = require('child_process');
 
 const MAX_COL = 5;
 const HOME = process.env.HOME || process.env.USERPROFILE || '';
+
+// archify 可能裝在哪裡。這個 plugin 會被別人拉下去裝，不能假設跟作者同一個位置：
+//   1. 環境變數 ARCHIFY_PATH 指定的完整路徑（最優先，給裝在非標準位置的人）
+//   2. npx skills add 的兩個標準位置（~/.claude/skills、~/.agents/skills）
+//   3. 同層 node_modules / 全域 npm 安裝
+// 每個候選都跑 doctor 驗活，exit 0 才算數——目錄存在不代表跑得動。
 const ARCHIFY_CANDIDATES = [
+  process.env.ARCHIFY_PATH,
   path.join(HOME, '.claude', 'skills', 'archify', 'bin', 'archify.mjs'),
   path.join(HOME, '.agents', 'skills', 'archify', 'bin', 'archify.mjs'),
-];
+  path.join(HOME, '.local', 'share', 'skills', 'archify', 'bin', 'archify.mjs'),
+  path.join(HOME, 'node_modules', 'archify', 'bin', 'archify.mjs'),
+].filter(Boolean);
+
+// archify 要求 Node >= 18（它的 package.json engines）。本腳本也用到 String.matchAll（Node 12+）。
+// 版本太舊時要講清楚，不要讓使用者看到莫名其妙的語法錯誤。
+{
+  const major = Number(String(process.versions.node).split('.')[0]);
+  if (Number.isFinite(major) && major < 18) {
+    process.stderr.write('[flow] 這台機器的 Node 是 v' + process.versions.node
+      + '，archify 需要 v18 以上。請先升級 Node。\n');
+    process.exit(1);
+  }
+}
 
 function die(msg) {
   process.stderr.write('[flow] ' + msg + '\n');
@@ -350,9 +370,17 @@ if (!fs.existsSync(specPath)) die('找不到 spec：' + specPath);
 
 const archify = findArchify();
 if (!archify) {
-  die('archify 驗活失敗（跑過 doctor，exit 非 0 或找不到）。\n'
+  die('找不到可用的 archify（每個候選都跑過 doctor，沒有一個 exit 0）。\n'
     + '       它是產架構圖／流程圖的第三方工具（tt-a1i/archify，MIT、免費）。\n'
-    + '       要裝請先問過使用者，指令：npx skills add tt-a1i/archify -g\n'
+    + '\n'
+    + '       找過這幾個位置：\n'
+    + ARCHIFY_CANDIDATES.map(function (p) { return '         ' + p; }).join('\n') + '\n'
+    + '\n'
+    + '       已經裝了但在別的位置 → 設環境變數指過去：\n'
+    + '         Bash:       export ARCHIFY_PATH=/你的路徑/bin/archify.mjs\n'
+    + '         PowerShell: $env:ARCHIFY_PATH = "C:\\你的路徑\\bin\\archify.mjs"\n'
+    + '\n'
+    + '       還沒裝 → 先問過使用者再裝，指令：npx skills add tt-a1i/archify -g\n'
     + '       不准自己裝——那會連網抓套件並寫進他的家目錄。');
 }
 

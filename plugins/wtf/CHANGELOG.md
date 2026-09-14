@@ -2,6 +2,17 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.15.1 — 2026-09-14
+
+**可攜性修正：這個 plugin 會被別人拉下去裝，不能假設跟作者同一台機器。** 使用者提醒「這個 SKILL 不是只有我在用，別人也會拉下來裝來用」。
+
+- **`flow.js` 的 archify 路徑不再寫死兩條**。原本只找 `~/.claude/skills/archify` 與 `~/.agents/skills/archify`，裝在別處的人直接卡死。現在候選為：`ARCHIFY_PATH` 環境變數（最優先）→ 前述兩個標準位置 → `~/.local/share/skills/archify` → `~/node_modules/archify`，每個都跑 `doctor` 驗活才算數。
+- **找不到時的訊息會列出實際找過哪些路徑**，並附兩種 shell 的 `ARCHIFY_PATH` 設法（Bash／PowerShell），不再只丟一句「驗活失敗」。
+- **加 Node 版本檢查**：archify 的 `package.json` 要求 `node >=18`，本腳本也用到 `String.matchAll`。版本太舊時明講「這台機器的 Node 是 vX，archify 需要 v18 以上」，不讓使用者看到莫名其妙的語法錯誤。
+- **SKILL.md 新增「更省事的做法：用同層的 `flow.js` 代跑」**一節，說明 spec 格式、自動化範圍與 `ARCHIFY_PATH` 的用法——否則別人看不到這個逃生門。
+- **交付前全檔掃描**：整個 plugin 的 `.md`／`.js`／`.json` 檢查控制字元（0x00–0x1b）與 CRLF，結果全部為 0。⚠️ 過程中抓到兩處自己造成的隱形字元：用 Python 寫 `"C:\你的路徑inrchify.mjs"` 時 ``／`` 被當成跳脫序列寫成退格與響鈴字元，使用者會看到 `C:你的路徑inrchify.mjs`。已改用 raw string 並驗證。
+- 確認 `.bak` 備份檔未被 git 追蹤（`.gitignore` 的 `*.bak` `*.bak-*` 生效），實際發布的是 9 個檔。
+
 ## 0.15.0 — 2026-09-14
 
 **新增 `flow.js` 產圖腳本：九條規則從「自律」變成「腳本代勞」**。使用者要求「能不能讓他用你的腳本做 archify，我不想要再 hook 了」——不加攔截，改成一支照規則幫你做完的工具。

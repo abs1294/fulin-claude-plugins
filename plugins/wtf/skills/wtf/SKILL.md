@@ -535,6 +535,31 @@ y 值取兩條泳道之間即可（泳道 y 從 `data-composition-frame-id="lane
 （實測：`/lanes/2/variant must be equal to one of the allowed values`）——
 `emphasis` 是 `phases[]` 與 `edges[]` 才有的值，別混用。
 
+### 更省事的做法：用同層的 `flow.js` 代跑
+
+上面九條規則可以不用自己記——同層有一支 `flow.js`，給它一份簡單描述就自動套完規則：
+
+```bash
+node <本 skill 目錄>/flow.js spec.json out.html
+```
+
+`spec.json` 只要寫「有哪幾條泳道、主線幾步、誰連到誰」，**不必寫** `route`／`fromSide`／
+`via` 座標／泳道順序——那些正是最容易寫錯的部分，腳本會自己補。格式看 `flow.js` 開頭的註解。
+
+它會自動跑完 `validate` → `deliver` → `visual-check`，並回報泳道高度、直線條數、
+哪幾條線算不出垂直路徑。**validate 失敗時它會把 archify 的 `evidence` 帶出來**
+（哪一句字太小、差幾 px、整張圖多寬），不必自己去翻 JSON。
+
+⚠️ **archify 裝在非標準位置時**，用環境變數指過去（腳本預設會找 `~/.claude/skills/`、
+`~/.agents/skills/`、`~/.local/share/skills/`、`~/node_modules/`）：
+
+```bash
+export ARCHIFY_PATH=/你的路徑/bin/archify.mjs          # Bash
+$env:ARCHIFY_PATH = "C:\你的路徑\bin\archify.mjs"     # PowerShell
+```
+
+要自己手寫 archify 原生 JSON 時，才需要下面這三道指令與上面那九條規則。
+
 **三道指令按順序跑，`validate` 要 9/9、0 錯 0 警告才算過：**
 
 ```bash
