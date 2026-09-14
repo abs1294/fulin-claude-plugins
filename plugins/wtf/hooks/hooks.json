@@ -8,6 +8,21 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-terminal-width.js\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-no-execute.js\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit|MultiEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-no-execute.js\"",
+            "timeout": 10
           }
         ]
       }

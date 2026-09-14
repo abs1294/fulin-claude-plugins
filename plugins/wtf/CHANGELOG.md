@@ -2,6 +2,22 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.10.0 — 2026-09-14
+
+**第零鐵則：只解釋，不執行**。使用者實際遭遇：按了 `/wtf` 之後模型仍去改了檔案，他的原話是「我用 wtf 是讓你解釋耶，不是要你改耶」「他不要再去執行了他是要解釋，今天就算是我傳一個動詞過去，他也要解釋」。
+
+根因是本檔自己寫的規則。舊版「特別注意這幾種情況」第一條明文寫著**「先照他原本的話做，再解釋」**——模型讀到那條就會動手。而 frontmatter 的 `disable-model-invocation: true` 只擋「模型自主啟動 wtf」，完全沒管「使用者啟動 wtf 之後，模型怎麼對待他接下來說的話」。兩者合起來就是這次的洞。
+
+- **新增第零鐵則（凌駕本檔所有其他規則）**：使用者在 `/wtf` 之後說的每一句話都是「要被解釋的材料」，不是「要被執行的指令」。附判斷流程圖與六列對照表，明確涵蓋三種型態——**祈使句**（「改那個檔」→ 講那是什麼、改了會影響什麼）、**單一動詞**（「改」「跑」「修」→ 講清楚有哪幾種可能意思再問）、**罵人的話**（「你這個白癡」→ 他在表達沒看懂或不滿，不是在下指令，不准慌了就動手補償）。
+- **兩條常見藉口寫死禁止**：「他語氣很急、應該是真的要我做」（語氣急代表他更需要看懂）、「這件事很小、做了比較快」（他按 /wtf 就是還沒搞清楚狀況，這種時候動手最危險）。
+- **刪掉矛盾規則**：「先照他原本的話做，再解釋」改為「當場把落差講清楚（做了什麼／差在哪／為什麼差／照做會動到什麼），然後問要不要現在動手」，並加一句「不要因為心虛就直接動手補救」。
+- **新增 PreToolUse 機械閘 `hooks/guard-no-execute.js`**。使用者裁決要文字鐵則＋機械閘兩層，理由是既有教訓「skill 寫『必須』是自律、AI 會繞；只有 hook 是他律」。做法：看到 `Skill`＝wtf 就在 `os.tmpdir()` 立旗（沿用 cc-statusline `skill-tracker.js` 的 session_id 命名法），旗在期間 Edit／Write／NotebookEdit／MultiEdit／Bash／PowerShell 一律 exit 2 擋下，stderr 告訴模型該改為解釋。**30 分鐘 TTL 自動失效**，避免一次 /wtf 鎖住整個 session。全程 fail-open（空 stdin／壞 JSON／null payload／讀不到旗一律放行）。
+- **白名單放行 wtf 自身動作**（使用者裁決：寬度設定與畫圖是 wtf 的本體功能，不是在執行使用者的指令）：寫 `skills/wtf/config.json`、寫 OS 暫存目錄的 `.html` 圖表、開瀏覽器指令（`start ""`／`Start-Process`／`open`／`xdg-open`）、`archify.mjs doctor|guide|validate|deliver`。路徑比對用 `path.relative` 防目錄跳脫。
+- `hooks.json` 註冊兩個 matcher：`Skill`（兩支 hook 並存，寬度閘不受影響）與 `Edit|Write|NotebookEdit|MultiEdit|Bash|PowerShell`。
+- frontmatter description 與 `plugin.json` description 同步寫入本鐵則——模型載入時第一眼就看到，不必讀到正文。
+- 自檢十八題 → **十九題**，新增第 0 題「我這一輪有沒有動手改東西、跑指令、裝東西？」置於清單最前。
+- **驗證**：13 項實跑（非語法檢查）全過——沒按 wtf 時放行、按了之後擋 Edit、擋 `rm -rf`、四種白名單放行、跨 session 不污染、三種 fail-open、寬度閘未被破壞、非 wtf skill 不立旗、過期旗自動清除、hooks.json 兩支 hook 檔案皆存在。SKILL.md 與 plugin.json 均驗過 CRLF=0、YAML frontmatter 三鍵完整。
+
 ## 0.9.0 — 2026-09-13
 
 **HTML 升級分支改為優先調用 archify**（tt-a1i/archify，MIT）。使用者比較 wtf 與 archify 後裁決：兩者不是同類，wtf 是溝通紀律、archify 是渲染引擎，唯一重疊處是 wtf 的「ASCII 排不出來 → 升級 HTML」那條——原本叫模型手刻 HTML，等於寫的人跟驗的人是同一個，沒有外部檢查擋得住排爛。
