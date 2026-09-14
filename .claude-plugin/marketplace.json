@@ -43,7 +43,7 @@
     {
       "name": "deliver-report",
       "source": "./plugins/deliver-report",
-      "description": "對外產物四件套：deliver-report 交付訊息、test-report-docx 測試報告 DOCX、daily-report 工作日報寄 Gmail、to-questionnaire 問卷檔；禁 AI／內部流程字眼，含易讀性鐵則與 Stop hook 閘。"
+      "description": "對外產物四件套：deliver-report 交付訊息、test-report-docx 測試報告 DOCX（總覽表＋逐項展開版面，證據對應由 report_gate.py 三道機械閘強制）、daily-report 工作日報寄 Gmail、to-questionnaire 問卷檔；禁 AI／內部流程字眼，含易讀性鐵則與 Stop hook 閘。"
     },
     {
       "name": "cc-statusline",

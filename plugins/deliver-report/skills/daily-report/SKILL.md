@@ -54,6 +54,19 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/extract_sessions.py" -
 - **待辦線索**：對話尾段的「之後再」、「明天」、被中斷的工作、使用者說要做但當天沒做完的事。
 - **私人 session 要過濾**：掃出來的 session 可能含私人事務（非工作專案）。判斷明顯私人的（如個人研究、家庭事務）**預設不寫進報告**，並在對話中告知使用者「已略過 N 個疑似私人 session（列標題）」，讓使用者可要求加回。
 
+**表格**：內容本來就是表格的（工時、明細、逐項數據）直接寫 markdown 表格，`md_to_html()` 會轉成帶框線的 HTML `<table>`（1px 灰框、`#f4f4f4` 表頭底、Arial 13px；樣式硬寫不可調）。
+
+```markdown
+| Week | Start Date | End Date | Hours | Description |
+|:-:|:-:|:-:|:-:|:-:|
+| 2 | 07/09/2026 | 13/09/2026 | 9.0 | 供應商平台簽核流程 |
+|  |  | Total hours | 9.0 |  |
+```
+
+- **對齊列（`|:-:|:-:|`）會被自動丟棄**，不會渲染成資料列。
+- **合計列就寫成普通一列**（前幾格留空、寫 `Total hours` 與數字），轉換器不做特殊處理。
+- 表格是「敘述放不下才用」的工具——一般日報的專案進度仍用條列，不要為了表格而表格。
+
 ### 4. 內容硬閘（寫完必跑，不可略）
 
 ```
@@ -98,7 +111,7 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/confirm_gate.py" arm <
 **接著同一輪排喚醒源**（arm 的輸出也會提醒）：
 
 - `ScheduleWakeup({ delaySeconds: <分鐘數×60>, reason: "日報確認窗口", prompt: "<重述：回到 daily-report 寄送步驟>" })`
-- 無 ScheduleWakeup 時用 `CronCreate({ recurring:false, durable:false, cron:<現在+N分> })`，記下 job id。
+- 無 ScheduleWakeup 時用 `CronCreate({ recurring:false, cron:<現在+N分> })`，記下 job id。（**不要傳 `durable`**——工具契約明寫該參數無效、所有 job 都只活在本 session。）
 
 > ⚠ **不排喚醒 = 空頭承諾**：這一輪結束後控制權交還使用者，沒有計時器就沒有任何東西會觸發寄送。`confirm_gate check` 在逾期超過 1 小時時會回報 warning，那就是「當初漏排」的證據。
 
@@ -112,7 +125,7 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/confirm_gate.py" arm <
 
 **喚醒觸發時**：寄送指令**必須帶 `--auto`**，腳本會強制查 `confirm_gate check`——not-armed / still-waiting / vetoed / 內容被改過，任一情況都拒寄。
 
-### 5. 交付（先跑閘，由腳本告訴你走哪條）
+### 6. 交付（先跑閘，由腳本告訴你走哪條）
 
 **不要自己讀 config 判斷，也不要問使用者「你想用哪種」**——跑這行，退出碼就是答案：
 
@@ -139,6 +152,76 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/send_gmail.py" --repor
 
 **C. MCP 建草稿**（session 有 `mcp__claude_ai_Gmail__create_draft`；工具未載入先 ToolSearch）
 `create_draft`：`to`/`cc` 讀 config、`subject`=`<subject_prefix> <date> 工作日報`、`body`=markdown 原文、`htmlBody`=`send_gmail.py` 的 `md_to_html()` 轉換結果。完成後告知「草稿已在你的 Gmail 草稿匣，過目後自己按送出」——**按送出即人工核可**，本 skill 不代按。
+
+## 定時觸發（`schedule` 區塊，自續鏈）
+
+設定檔的 `schedule` 區塊讓日報定時自動產生，用 **Claude Code 內建的 `CronCreate`**。
+
+**架構是自續鏈，不是循環排程**：寄成功 → 立刻排下一次（一次性 job）→ 到點觸發 → 產稿 → 核可 → 寄出 → 再排下一次。**任何時刻只有一個 job 活著。**
+
+為什麼不用 `recurring: true`：
+
+| | `recurring:true` | 自續鏈 |
+|---|---|---|
+| 重複排導致爆量 | 靠 Claude 記得先 `CronList` 查重——**自律，會被繞過** | 結構上不可能：只在「寄成功」這單一時點排，一次一個 |
+| 7 天自動過期 | 過期就斷，要有人記得重排 | 不受限——該限制只適用 `recurring:true` |
+| 斷鏈 | 這次沒觸發，下次還會來 | **一次失敗就終止**（所以需要下面的候補檢查） |
+
+> ⚠ **這是 session 級排程，不是系統排程**。工具契約原文：`Jobs live only in this Claude session — nothing is written to disk, and the job is gone when Claude exits`。**關掉 Claude Code 排程就消失**。要無人值守請另外用系統排程器（Windows 工作排程器 / crontab），那不在本 skill 範圍。
+
+### 一、寄出成功之後，排下一次（鏈就是這樣接起來的）
+
+`schedule.enabled` 為 `true` 時，**寄成功的同一輪**就要接上鏈：
+
+```
+python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/schedule_gate.py" next --project <目錄>
+```
+
+輸出會給下一次的時間與可直接用的 cron 欄位，照它排：
+
+```
+CronCreate({
+  cron: "<next 輸出的 cron 欄位>",
+  recurring: false,
+  prompt: "產生今天的工作日報：依 daily-report skill 的執行步驟，萃取 session、生成日報、跑內容硬閘，然後呈現給我並進確認窗口。"
+})
+```
+
+三件要注意的：
+
+1. **`recurring: false`**——自續鏈每次只排一個一次性 job。排成 `true` 會同時有循環與自續兩套，重複觸發。
+2. **prompt 寫自然語言，不要寫 slash command**——排程送出的 prompt 裡 slash 是純文字、不會被解析（Claude Code 2.1.196 起的行為）。
+3. **不要傳 `durable`**——工具契約明寫該參數無效。
+
+`enabled: false` 或無 `schedule` 區塊 → 不排，也**不要主動問要不要排**（沒設就是不要）。
+
+### 二、忘了接鏈或鏈斷過，Stop hook 會講（他律，不靠你記得）
+
+上面那句「寄成功的同一輪就要接上鏈」寫在這裡是**自律**——會被漏掉，而鏈一旦斷了就是靜默地永遠斷著。所以真正的保證在 `hooks/daily-report-chain-gate.js`（Stop hook，講完話就觸發）：
+
+| 情況 | hook 的反應 |
+|---|---|
+| 本回合寄出成功，但沒呼叫 `CronCreate` | **硬擋**（`decision:block`）並告訴你怎麼補——鏈斷在這裡最可惜，當下補排只要一步 |
+| 過去有該寄而沒寄的日期 | **只警告**，列出缺口日期；補不補是使用者的選擇，不卡住結束對話 |
+| 這輪沒碰 daily-report／`enabled:false`／任何判斷不確定 | 靜默放行 |
+
+兩個設計上的硬性限制：
+
+- **每個日報週期只提醒一次**（使用者明定）。hook 記下「上次提醒時的寄送狀態」，沒有新的寄送發生就不再問——所以一次執行或一次排程觸發之後最多問一次，不會每輪重複。
+- **FAIL-OPEN**：讀檔失敗、解析例外、判斷不確定一律放行。這 hook 影響 session 能不能結束，寧可漏擋絕不卡死。
+
+缺口判定由 `scripts/schedule_gate.py` 提供（`check` 列缺口、`next` 算下次時間）。它**不依賴 cron 有沒有觸發**，只比對 `sent/` 目錄裡事實上哪幾天沒有寄出紀錄，所以四種斷鏈成因都抓得到：使用者 veto、內容閘擋下、cron 到點時 REPL 不是 idle、Claude Code 被關掉。回溯天數讀 `schedule.lookback_days`（預設 30）。
+
+### 三、觸發之後做什麼——看 `require_approval`
+
+| `require_approval` | 觸發時的行為 |
+|---|---|
+| `true`（預設） | 產日報 → 內容硬閘 → **呈現並 arm 確認窗口** → 停在這裡等回應。使用者說「寄」才寄（不帶 `--auto`）。**沒看過的信不會寄出去** |
+| `false` | 產日報 → 內容硬閘 → 呈現並 arm → **同一輪再排一個 `recurring:false` 的喚醒**（`confirm_wait_minutes` 之後）→ 喚醒時帶 `--auto` 寄出，`confirm_gate` 沒擋就送 |
+
+`require_approval: false` 時**仍然要 arm、仍然要呈現**——確認窗口是給使用者喊停的機會，不是可跳過的步驟。差別只在「沒喊停會不會自動寄」。
+
+> **鏈斷在哪都不會靜默**：`confirm_gate` 管「arm 之後沒寄」，`schedule_gate check` 管「根本沒觸發所以沒 arm」。兩者合起來，才補上 `confirm_gate.py` docstring 裡明文承認的缺口——「模型有沒有真的去排喚醒無法由腳本強制」。
 
 ## 首次設定引導（`status` 回 exit 10 時走這裡）
 
@@ -199,5 +282,5 @@ OAuth 管道跑 `gmail_oauth.py doctor`——五項全綠才算完成。常見�
 ## 界線（誠實告知）
 
 - 日報品質取決於 session 記錄的可讀性；純瀏覽器操作、外部會議等 Claude Code 之外的工作不會出現，提醒使用者可口頭補充後由 Claude 補進報告。
-- 不自動排程。要每天固定寄，另行搭配 Windows 工作排程器或 delaylocal（屆時仍建議人工核可後寄）。
+- **排程只到 session 級**：`schedule` 區塊用 Claude Code 內建 CronCreate 走自續鏈（寄成功排下一次，見「定時觸發」章），**關掉 Claude Code 就失效**。斷鏈由 `schedule_gate.py check` 事後偵測（比對實際寄出紀錄），不是即時的。要真正無人值守的每日寄送，仍須另行搭配 Windows 工作排程器或 delaylocal（屆時仍建議人工核可後寄）。
 - 寄送對象由設定檔管理；本 skill 不維護聯絡人清單。

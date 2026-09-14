@@ -1,10 +1,26 @@
 {
-  "_說明": "【專案設定】複製本檔到你的專案 <專案根>/.claude/daily-report.json。收件人綁定在專案，必須各專案自設——家目錄那份的 recipients 不會被當預設（避免沒設收件人的專案誤寄給別人）。這裡只覆寫『寄給誰』，憑證一律留在家目錄那份。",
+  "_說明": "【專案設定】複製本檔到你的專案 <專案根>/.claude/daily-report.json。收件人綁定在專案，必須各專案自設——家目錄那份的 recipients 不會被當預設（避免沒設收件人的專案誤寄給別人）。這裡只覆寫『寄給誰』與『什麼時候產』，憑證一律留在家目錄那份。",
 
   "recipients": ["主管@example.com"],
   "cc": [],
   "subject_prefix": "[專案日報]",
   "confirm_wait_minutes": 30,
+
+  "schedule": {
+    "_說明": "選配：定時觸發日報。走『自續鏈』——寄成功後立刻排下一次（CronCreate 的一次性 job），一次只有一個排程活著。**session 開著才會跑**：關掉 Claude Code 排程就沒了（工具契約原文：jobs live only in this Claude session, nothing is written to disk）。要無人值守請另外用系統排程器，不是這裡。",
+
+    "_enabled說明": "true 才排。false 或整個 schedule 區塊不存在＝不排，維持手動觸發。",
+    "enabled": false,
+
+    "_cron說明": "5 欄位 cron，本機時區，不必換算 UTC。『57 17 * * 1-5』＝週一到週五 17:57。只有『分、時、星期』三欄有意義：分時決定當天幾點，星期決定哪幾天該有日報。**刻意避開 :00 與 :30**（全球使用者都排整點會擠在同一瞬間打 API）；要精準整點就照寫。**不支援步進寫法**（*/2），寫了會被當成『每天』處理。",
+    "cron": "57 17 * * 1-5",
+
+    "_require_approval說明": "true＝觸發後只產日報、進確認窗口，**等你核可才寄**。false＝過了 confirm_wait_minutes 沒喊停就自動寄出（走 --auto）。預設 true：沒看過就寄出去的信收不回來。兩種都會先呈現並 arm——確認窗口是喊停的機會，不是可跳過的步驟。",
+    "require_approval": true,
+
+    "_lookback_days說明": "缺口回溯幾天。自續鏈的固有失效模式是『斷了就靜默地永遠斷著』（veto、內容閘擋下、cron 到點時 REPL 不是 idle、Claude Code 被關掉），所以 Stop hook（daily-report-chain-gate.js）會在你講完話時比對 sent/ 找缺口並提醒。每個日報週期只提醒一次，不會每輪重複。預設 30 天。",
+    "lookback_days": 30
+  },
 
   "content_guard": {
     "_說明": "選配：專案特有的對外別名（把內部代號換成對外名稱）。由 content_guard.py --set-alias 自動寫入，通常不必手填。",

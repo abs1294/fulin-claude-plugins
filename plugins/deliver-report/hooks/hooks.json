@@ -8,6 +8,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/doc-readability-gate.js\"",
             "timeout": 25
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/daily-report-chain-gate.js\"",
+            "timeout": 15
           }
         ]
       }

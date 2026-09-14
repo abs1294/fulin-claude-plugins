@@ -2,6 +2,56 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.13.0] - 2026-09-14
+### Changed（test-report-docx）
+- **`test-report-docx` 測試結果版面改為「總覽表＋逐項展開」，廢除舊的「測試表一節、實測畫面一節」**。舊版面把情境與它的證據放在文件兩處，中間只靠圖說那句「對應第 N 項」牽線——單向、無約束，於是「情境 7 沒有任何圖」「圖 9 對不到任何情境」在版面上看不出來（表是滿的、圖也是滿的），只有讀者交叉比對才會發現。**分兩節是對不上的成因，不是表現**，加欄位或加掃描都只是讓錯誤比較容易被抓到，不是讓它不會發生。
+- 新版面：總覽表只有三欄（編號／測試情境／判定，供簽核者一眼掃完），預期／實測／證據全部移進逐項段落，每項的圖就在該項標題底下；圖號改為 `N-M`（情境號－該情境內序號），自帶情境號，孤兒圖與缺圖在版面上直接露餡。
+- 〔實測畫面〕構件降為〈截圖紀律〉小節併入〔測試結果〕，原有紀律（等 DOM 載入不用 sleep、敏感區裁切、三方一致採證、圖寬 16.5cm）全數保留未刪。
+
+### Added（test-report-docx）
+- **鐵則 10：每個進報告的情境都必須指得出證明，形式不限圖片**（使用者裁定：「一定要有證明，不管證明是不是圖片」）。可接受六種形式：實機截圖／資料庫查詢結果／系統傳輸紀錄／執行紀錄／信件實體／匯出檔案。判定欄的「通過」與實測欄的「已驗證」「正常」這類無指涉詞不算證據；補不出證據的情境從報告移除、走交付揭露。
+- **`skills/test-report-docx/scripts/report_gate.py`：三道機械閘**，保證總表每一列與逐項標題 100% 對應。
+  - **閘一（結構性，最強）**：情境只在 `CASES` 定義一次，總表與逐項段落由同一個 list 渲染（`summary_rows()` / `detail_title()`）——兩邊拿的是同一個 `title` 變數，對不上在結構上不可能發生。
+  - **閘二（產出前）**：`validate_cases()` 擋編號非 1..N 連續、情境名重複、缺欄位、實測欄是無指涉詞、判定值非法、**情境無證據**、證據缺 caption、非圖片證據缺 content、截圖檔不存在、截圖 < 20 KB（疑似空白頁）。不通過 `raise GateError`（繼承 `SystemExit`）**不產出任何檔案**。
+  - **閘三（產出後）**：`verify_docx()` 用**不同判準**反向讀 DOCX 對帳（抽總表第一欄、抽 Heading 3、數 inline_shapes），再以 **Word COM 實開**。理由是施作與驗證共用同一份判準時盲區完全同構，且 python-docx 開得了 ≠ Word 開得了。
+- `report_gate.py --selftest`：8 種違規案例的自測，改閘後必跑。
+
+### Notes（test-report-docx）
+- **閘為什麼不能只做「產出後掃描 DOCX」**：掃描抓得到「我寫錯」，抓不到「我根本沒寫」——而使用者要防的「有漏」正是後者。唯一有效的做法是讓兩節共用同一份資料源。
+- **實跑驗證**（非僅語法檢查）：`--selftest` 合法案例放行、8 種違規全數攔下；閘三另以實際產出的 DOCX 實測三種情境——正向一致通過（含 Word COM 實開成功）、逐項標題被竄改為「意思像但字不同」時擋下並指出第 2 項兩邊不一致、逐項漏一項時擋下並指出「編號 2 在總表有、逐項沒有」。
+- CRLF 檢查：`report_gate.py` 與 `SKILL.md` 二進位計數 CRLF 皆為 0。
+- 連帶同步 `SKILL.md` 四處舊版面引用（frontmatter 九條鐵則→十條、鐵則 8 標題的「測試表」、證據盤點段、組裝決定二）與一處「鐵則 8」引用歧義（明確限定為 readability 文件的鐵則 8）。
+
+### Added（daily-report）
+- **日報信支援 markdown 表格**（`send_gmail.py` 的 `md_to_html`，SMTP 與 Gmail API 兩條路徑共用）。工時、明細這類內容本來就是表格，而郵件客戶端對無框線 `<table>` 的預設渲染會糊成一團，所以框線與表頭底色必須內嵌（Gmail 會剝掉 `<style>` 區塊，只認 inline style）。
+- 樣式固定不可調：1px `#d0d0d0` 框線、`#f4f4f4` 表頭底、Arial 13px、`cellpadding=8`、`width:100%`、資料格 `vertical-align:top`。抄自使用者實際寄出並認可的信件；**可調樣式等於重新打開「華麗 HTML」的門**，故不給旋鈕。
+- **修正 markdown 對齊分隔列被當成資料列渲染的缺陷**：`|:-:|:-:|` 是語法不是資料，未攔截時會在表格裡多出一行 `:-:`（實際寄出過）。
+- 合計列不特殊處理——md 寫 `|  |  | Total hours | 40.0 |  |` 就照一般列渲染，轉換器不懂「合計」這件事。
+- `md_to_html` 原本反裝飾的設計意圖保留未刪，改為限定「表格是例外，且只是表格該有的框線」。
+- **`schedule` 設定區塊：用 Claude Code 內建 CronCreate 定時觸發日報，架構是「自續鏈」**（`daily-report.project.example.json`，與 recipients 同層綁專案）。寄成功 → 立刻排下一次（`recurring:false` 一次性 job）→ 到點觸發 → 產稿 → 核可 → 寄出 → 再排下一次，**任何時刻只有一個 job 活著**。欄位：`enabled`／`cron`（只有分、時、星期三欄有意義，本機時區，預設避開 :00 與 :30）／`require_approval`（預設 true＝產完只進確認窗口等人核可）／`lookback_days`（候補檢查回溯天數，預設 30）。
+- **不用 `recurring:true` 的理由**（兩個都是結構性的，不是偏好）：① 防爆量在 recurring 下只能靠 Claude 記得先 `CronList` 查重——那是自律會被繞過；自續鏈只在「寄成功」這單一時點排，結構上不可能重複。② `recurring` job 7 天自動過期（工具契約：`Recurring tasks auto-expire after 7 days`），過期就斷且要有人記得重排；一次性 job 不受此限。
+- **`hooks/daily-report-chain-gate.js`：第二支 Stop hook，講完話就觸發**。自續鏈的「寄成功要記得排下一次」若只寫在 SKILL.md 就是自律，會被漏掉，而鏈一斷就是靜默地永遠斷著。依本 repo 既有範式（`qa-webwright` 的 qa-landing-gate、本 plugin 的 doc-readability-gate）做成他律：
+  - **本回合寄出成功卻沒呼叫 CronCreate → 硬擋**（`decision:block`），訊息直接給補排指令。
+  - **過去有該寄而沒寄的日期 → 只警告**，列出缺口；補不補是使用者的選擇，不卡住結束對話。
+  - **每個日報週期只提醒一次**（使用者明定）：狀態檔記下上次提醒時的寄送快照，沒有新寄送就靜默——一次執行或一次排程觸發後最多問一次。
+  - 觸發條件收窄成「**本回合**（最後一個 promptId 區段）真的跑過 daily-report 腳本」，抄 doc-readability-gate 的教訓（用「session 曾經跑過」會讓之後每句話都被檢查）。
+  - **FAIL-OPEN**：讀檔失敗、解析例外、判斷不確定一律放行。
+- **`scripts/schedule_gate.py`：缺口判定與下次時間計算**（供 hook 與人工呼叫）。**不依賴 cron 有沒有觸發，只比對 `sent/` 目錄裡事實上哪幾天沒有寄出紀錄**：`check` 列缺口（exit 20）、`next` 算下一次該排的時間。四種斷鏈成因都抓得到：使用者 veto、內容閘擋下、cron 到點時 REPL 不是 idle（工具契約：`Jobs only fire while the REPL is idle`）、Claude Code 被關掉。
+- SKILL.md 新增「定時觸發」章：候補檢查必跑、寄成功後接鏈、`require_approval` 兩種行為，以及三項硬限制（`recurring:false`、prompt 寫自然語言不寫 slash、不傳 `durable`）。
+
+### Fixed（daily-report）
+- SKILL.md 兩個章節都編號「### 5.」（呈現與核可、交付），後者改為 6，編號回復連續（readability 鐵則 3）。
+- SKILL.md 確認窗口那段寫 `CronCreate({ recurring:false, durable:false })`——`durable` 依工具契約**無效**（`Has no effect — durable persistence is not available`），保留會誤導成「可以持久化」。已移除並加註說明。
+- 「界線」章原寫「**不自動排程**」，加了 `schedule` 後該句已不成立，改寫為「排程只到 session 級」並說明關掉 Claude Code 就失效、7 天過期。
+
+### Notes（daily-report）
+- **session 級排程的邊界已寫進設定檔與 SKILL.md**：CronCreate 的 job 只活在當前 session（工具契約原文：`Jobs live only in this Claude session — nothing is written to disk`），關掉 Claude Code 就沒了，且 recurring job 7 天自動過期。要無人值守仍須系統排程器。
+- 這批補上了 `confirm_gate.py` docstring 裡明文承認的缺口：「模型有沒有真的去排喚醒無法由腳本強制」。兩道檢查分工：`confirm_gate` 管「arm 之後沒寄」，`schedule_gate check` 管「根本沒觸發所以沒 arm」。
+- **`daily-report-chain-gate.js` 實跑驗證**（spawn 真行程、餵真 stdin、看真 exit code，18 項）：FAIL-OPEN 五種（stdin 非 JSON／空／無 transcript_path／transcript 不存在／transcript 壞 JSON）全部放行；觸發條件兩種（只有 Read、跑別的 python）正確不管；`enabled:false` 不管；寄了沒排正確 block；**每週期只問一次**——第二、三次靜默，寫入新的寄送紀錄後可再提醒一次，之後又靜默；寄了也排了放行；`--dry-run` 不算寄出；缺口只 warn 不 block；block 訊息含補排指令與「刻意不續排」的出口，exit code 0。
+  > 過程中測試腳本本身失敗三次（case 之間的 sent/state 互相污染），依定位紀律停止修補丁、改為每個 case 用獨立臨時專案目錄（scope key 不同，天然隔離）後一次通過。hook 邏輯自始正確，失敗全在測試設計。
+- **`schedule_gate.py` 實跑驗證**：cron 星期欄位解析 12 種寫法（`1-5`／`*`／單日／`1,3,5`／`0`／`7`＝週日／`6,0`／跨週 `5-1`／`mon-fri`／步進 `*/2` 安全退成每天／欄位不足／空字串）全部符合預期；`cron_hhmm` 五種含非法值正確；python weekday（0=週一）→ cron dow（0=週日）換算以 2026-09-14(一)、2026-09-13(日) 實證；缺口計算用真的臨時檔案與真的日期驗——週末正確排除、今天不算缺口、已寄日期正確扣除；`next_fire` 平日與跨週末（週五 20:00 → 下週一 17:57）皆正確。CLI 在「未設定 schedule」時正確退場不亂報（exit 0）。
+- **實跑驗證**（非僅語法檢查）：`md_to_html` 十組實測全過——timesheet 原樣轉換、五種對齊列寫法皆被正確丟棄、無對齊列表格、表格後接內文的關閉順序、兩表格夾內文、原有語法回歸（標題／清單／粗體／code／hr 不變）、HTML 注入跳脫（`<script>` → `&lt;script&gt;`）、內文單一 `|` 不誤判成表格、cell 內粗體、清單後接表格的 `</ul>` 順序。另以程式化字串比對確認產出的 `<table>`／`<th>`／`<td>` 三項屬性與使用者認可的信件原文**逐字元一致**。Gmail API 路徑（`gmail_oauth.py` 的 `from send_gmail import md_to_html`）實跑確認同步生效。
+
 ## [0.12.0] - 2026-09-13
 ### Added
 - 新增易讀性鐵則 13：我方的內部推導過程不進對外文件（定價折扣、人天估算擺盪、工期 buffer、候選方案比較、內部風險分級與人員配置、與其他客戶的比較基準六類）；照 hook 既有慣例歸入「判不準只提醒不擋」（同一金額在「折後 320,000」要擋、在「總價 320,000」是必要欄位，正則分不出，誤判比漏抓難補救），改以鐵則 8 必掃表第 8 列的自檢落地；連帶同步全 repo 7 處「十二條」為「十三條」
