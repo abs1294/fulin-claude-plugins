@@ -31,6 +31,17 @@
  *   "main":  [ {"label":"按下 /wtf","sub":"或說看不懂","type":"frontend"} ],
  *   "side":  [ {"lane":"who","col":0,"label":"使用者","to":"main0","edgeLabel":"…"} ],
  *   "exits": [ {"lane":"gate","col":1,"label":"擋下","from":"main1","edgeLabel":"…"} ],
+ *
+ *   每個 main/side/exits 節點都可加：
+ *     "type"   節點顏色與圖示，預設 main=backend／side=external／exits=security
+ *              可選：frontend backend database cloud security messagebus external
+ *     "width"  節點寬度（預設 132）
+ *     "sub"    第二行小字
+ *   exits 另可加（**這是把「合法分支」畫成綠色的關鍵**）：
+ *     "variant" 線的樣式，預設 security（紅）；合法分支用 emphasis 或 dashed
+ *     "role"    線的語意，預設 error；合法分支用 branch 或 async
+ *   ⚠ 只把泳道排除在 exceptionLanes 之外還不夠——節點與線的預設值仍是紅色的
+ *     security/error。畫合法分支要同時改 type／variant／role，否則語意還是反的。
  *   "exceptionLanes": ["gate"]
  * }
  *   exceptionLanes = 哪幾條泳道要畫成「例外」（紅虛線框）。不給就預設所有 exits 的 lane。
@@ -39,6 +50,12 @@
  *   main  = 主線，陣列順序就是 col 0..5
  *   side  = 旁邊的參與者（自動虛線連到主線）
  *   exits = 分岔（自動垂直落下，自動量 via）
+ *
+ * ⚠ 泳道順序**不是**看 `lanes` 物件的 key 順序（那個會被忽略）。
+ *   實際規則：參與者泳道（側邊）→ 主線泳道 → 例外泳道 → 其餘，
+ *   而多條例外泳道之間的先後，取自 **`exits[]` 陣列裡各條 exit 出現的順序**——
+ *   第一個出現的 exit 泳道會拿到緊貼主線的位置。
+ *   要讓某條泳道貼著主線（規則7：分岔線多的貼主線），就把它的 exits 排在陣列前面。
  *
  * ⚠ 分岔節點放哪條泳道，判準是「它是被擋住了，還是走了另一條合法的路」：
  *     被擋住／失敗／不該發生        → 例外泳道（列進 exceptionLanes，畫紅虛線框）
@@ -441,6 +458,7 @@ if (!d1.ok) die('deliver 失敗（exit ' + d1.status + '）：\n' + String(d1.ou
 // 主線（m*）是左右向的，跳過。
 const mainEdgeIds = new Set(spec.main.map((_, i) => 'm' + i));
 let viaCount = 0;
+let acceptedIds = [];
 {
   const measured = measureVia(outPath, mainEdgeIds);
   const viaMap = measured.primary;
@@ -468,6 +486,7 @@ let viaCount = 0;
       if (!done) rejected.push(eid);
     }
     viaCount = Object.keys(accepted).length;
+    acceptedIds = Object.keys(accepted);
     const vrf = writeAndValidate(compile(spec, viaCount ? accepted : null));
     if (vrf !== true) die('最終 validate 失敗：\n       ' + vrf);
     const d2 = run(archify, ['deliver', 'workflow', jsonPath, outPath, '--quality', 'showcase', '--json']);
@@ -497,7 +516,8 @@ process.stdout.write(
   '[flow] 產出：' + outPath + '\n'
   + '       泳道高度：' + [...new Set(laneHs)].join(', ') + 'px（104 = archify 下限，無虛高）\n'
   + '       一段直線：' + straight + ' 條 / 共 ' + allPaths.length + ' 條\n'
-  + '       垂直線套用 via：' + viaCount + ' 條\n'
+  + '       垂直線套用 via：' + viaCount + ' 條'
+  + (acceptedIds.length ? '（' + acceptedIds.join(', ') + '）' : '') + '\n'
   + '       visual-check：' + (vc.ok ? 'exit 0（頁面能開能讀）' : 'exit 非 0') + '\n'
   + '       中繼 JSON：' + jsonPath + '\n'
 );
