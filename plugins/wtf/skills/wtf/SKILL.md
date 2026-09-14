@@ -322,6 +322,96 @@ const laneH = 30 + baseContentH;          // ← 這個值套用到「每一條�
 | 4 | **`col` 上限 5**（0..5 共六欄） | 超過 schema 直接擋 |
 | 5 | **角色用獨立 lane**，以 `variant:"dashed"` ／ `role:"async"` 虛線連到主線 | 角色混進主線就會製造跨 lane 彎折 |
 | 6 | **分岔節點與來源節點同 `col`** | 同 col 才會垂直直下，否則斜插 |
+| 7 | **需要接分岔的泳道，排在主線泳道的「正下方」**（中間不要隔別的泳道） | 隔一條泳道，連線就得繞過它——實測繞出 120px 再折回 186px |
+| 8 | **垂直分岔線不要給 `fromSide`/`toSide`，也不要給 `route`** | 兩者都會被幾何約束擋掉，見下方 |
+| 9 | **要垂直線就給 `via`**：`"via":[[來源節點中心x, 兩泳道間的y]]` | 這是唯一有效的做法，見下方「垂直分岔線要走直線」 |
+
+**規則 7 的實測證據**（同一份 JSON，唯一變因是泳道順序）：
+
+```
+泳道順序 who→flow→out→gate        泳道順序 who→flow→gate→out
+（gate 與 flow 中間隔著 out）      （gate 緊貼 flow 下方）
+
+M 1079.6 243                       M 1013.6 269
+  L 1200   243   ← 橫向繞出 120      L 1013.6 290   ← 垂直下 21
+  L 1200   533   ← 垂直落 290        L 1100.6 290   ← 橫移 87
+  L 1013.6 533   ← 折回 186          L 1100.6 367   ← 下 77
+  L 1013.6 517                       L 1084.6 367
+
+整張圖 viewBox 1216×652            整張圖 viewBox 1132×652（窄 84px）
+```
+
+⚠️ **這條規則有取捨，不是免費的**：泳道只能有一個「正下方」。
+把 `gate` 移上來，原本在那個位置的 `out` 就被推遠，換成它的連線變長。
+**判準：哪一條泳道的分岔線比較多、比較重要，就讓它貼著主線。**
+分岔線少的那條放遠一點，代價比較小。
+
+### 垂直分岔線要走直線——用 `via`，不是 `route` 也不是 `fromSide`
+
+**現象**：分岔線（主線 → 例外泳道）預設不會垂直落下，而是「下 → 橫移 80 多px → 下 → 左折進節點」的 S 形。
+同 col、同寬度、相鄰泳道都一樣會繞——**自動路由就是這樣算的，跟你的欄位沒關係**。
+
+**解法：給 `via` 一個座標點，x 與起點相同。**
+
+```json
+{"id":"x1","from":"f1","to":"g1","label":"想動手改東西",
+ "variant":"security","role":"error",
+ "via":[[279, 320]]}
+```
+
+`via` 是 `edges[]` 的欄位（`schemas/workflow.schema.json` 有定義），型別是座標點陣列，
+用來手動指定路徑要經過哪裡。**x 填來源節點的中心 x、y 填兩條泳道中間**，線就會垂直落下。
+
+實測對照（同一條線，唯一變因是 `via`）：
+
+```
+沒給 via                                        給了 via: [[279,320]]
+M 279 269                                        M 279 269
+  L 279 290                                        L 279 320
+  L 362 290   ← 橫移 83                            L 279 341
+  L 362 367
+  L 346 367   ← 左折 16 進節點                    x 座標全部 279，純垂直
+4 段 S 形                                        2 段直線
+```
+
+**怎麼拿到起點 x**：先照常 `deliver` 一次，從產出的 HTML 撈該條線的路徑起點：
+
+```bash
+grep -o 'data-edge-id="x1"[^>]*' out.html   # 或用 data-relationship-id
+# 取 d="M <這個數字> ..." 的第一個座標
+```
+
+y 值取兩條泳道之間即可（泳道 y 從 `data-composition-frame-id="lane-N"` 的 `y`＋`height` 算）。
+
+⚠️ **`via` 不要跟 `route` 一起給**——`route` 是預設路徑樣板，`via` 是手動座標，同時給會打架。
+用 `via` 就把 `route` 拿掉。
+
+⛔ **以下四種做法都試過，對這個 S 形完全無效**（路徑座標一個像素都沒變，別再試）：
+
+| 試過什麼 | 結果 |
+|---|---|
+| 調泳道順序讓例外泳道緊貼主線 | 路徑座標完全沒變 |
+| 統一同 col 的節點寬度 | 路徑座標完全沒變 |
+| 改 `variant`／`role`（試 `dashed`+`async`） | 路徑座標完全沒變 |
+| 給 `route:"drop"` | validate 失敗：`cannot satisfy route preset "drop" under readable-v2 constraints (minimum 8px endpoint stubs, 16px interior turns, and 28px direct clearance)`——泳道間距 `laneGap` 寫死 20px，小於 drop 需要的 28px |
+
+📌 **查工具能力的正確順序**：先讀**輸入 schema**（`schemas/*.schema.json`，它列出你能給什麼），
+再讀執行端原始碼。反過來做會把「我沒給對參數」誤判成「工具做不到」——
+本節初版就是這樣寫成「archify 硬限制、無解」的，實際上 `via` 一直都在 schema 裡。
+
+**規則 8 ——「垂直線給方向」為什麼行不通**（連續三次實測）：
+
+| 做法 | validate 結果 | 錯誤原文 |
+|---|---|---|
+| `route:"straight"` ＋ `fromSide:"bottom"` ＋ `toSide:"top"` | ✗ 失敗 | `cannot satisfy route preset "straight" under readable-v2 constraints (minimum 8px endpoint stubs, 16px interior turns, and 28px direct clearance)` |
+| 只給 `fromSide:"bottom"` ＋ `toSide:"top"`（多條一起給） | ✗ 失敗 | `has explicit geometry that violates explicit route-route crossing` |
+| 只給一條垂直線 `bottom`/`top` | ✗ 失敗 | `Final artifact failed composition/desktop-readability` |
+
+**`route:"straight"` 與 `fromSide`/`toSide` 是主線（左右向）專用**。
+垂直分岔線**什麼都不要給**，讓 archify 自動路由——它算得出合法的最短 S 形折線；
+你手動指定只會撞上 readable-v2 的幾何下限（端點 8px、內折 16px、直線淨空 28px）。
+
+要縮短垂直線，改用**規則 7 調泳道順序**，不要去指定方向。
 
 `route` 的合法值：`auto` ｜ `straight` ｜ `drop` ｜ `outside-right` ｜ `return-left` ｜ `bottom-channel` ｜ `up-channel`。
 **只有 `straight` 經過實測**，其餘未驗。
@@ -347,19 +437,38 @@ const laneH = 30 + baseContentH;          // ← 這個值套用到「每一條�
   ],
   "mainPath": ["n0","n1","n2","n3"],
   "nodes": [
-    {"id":"n0","lane":"plat","col":0,"type":"frontend","label":"…","width":124},
-    {"id":"n1","lane":"plat","col":1,"type":"backend","label":"…","width":124},
+    {"id":"n0","lane":"plat","col":0,"type":"frontend","label":"填單","width":124},
+    {"id":"n1","lane":"plat","col":1,"type":"backend","label":"送審","width":124},
+    {"id":"n2","lane":"plat","col":2,"type":"backend","label":"簽核","width":124},
+    {"id":"n3","lane":"plat","col":3,"type":"cloud","label":"歸檔","width":124},
     {"id":"r0","lane":"role","col":0,"type":"external","label":"申請人","width":118},
-    {"id":"s0","lane":"stop","col":1,"type":"security","label":"阻擋","width":124}
+    {"id":"s0","lane":"stop","col":1,"type":"security","label":"退件","width":124}
   ],
   "edges": [
     {"id":"m0","from":"n0","to":"n1","label":"送出","variant":"emphasis",
      "route":"straight","fromSide":"right","toSide":"left"},
+    {"id":"m1","from":"n1","to":"n2","label":"轉簽","variant":"emphasis",
+     "route":"straight","fromSide":"right","toSide":"left"},
+    {"id":"m2","from":"n2","to":"n3","label":"核准","variant":"emphasis",
+     "route":"straight","fromSide":"right","toSide":"left"},
     {"id":"t0","from":"r0","to":"n0","variant":"dashed","role":"async"},
-    {"id":"x0","from":"n1","to":"s0","label":"阻擋原因","variant":"security","role":"error"}
+    {"id":"x0","from":"n1","to":"s0","label":"不符規定","variant":"security","role":"error",
+     "via":[[272, 290]]}
   ]
 }
 ```
+
+⚠️ 骨架裡 `x0` 的 `"via":[[272, 290]]` 是**這個骨架量出來的實值**（已驗證可跑）。
+換成你自己的圖時**一定要重新量**——
+先不帶 `via` 跑一次 `deliver`，從 HTML 撈該線的起點 x 與泳道間的 y，再填回去重跑。
+填錯不會報錯，只是線畫歪。
+
+⚠️ **schema 不准任何額外欄位**，連 `_` 開頭的註解欄位都會被擋
+（實測：`/ must NOT have additional properties`）。要註解就寫在 JSON 外面。
+
+⚠️ **`lanes[].variant` 只吃 `normal` ｜ `exception`**。寫 `emphasis` 會被擋
+（實測：`/lanes/2/variant must be equal to one of the allowed values`）——
+`emphasis` 是 `phases[]` 與 `edges[]` 才有的值，別混用。
 
 **三道指令按順序跑，`validate` 要 9/9、0 錯 0 警告才算過：**
 

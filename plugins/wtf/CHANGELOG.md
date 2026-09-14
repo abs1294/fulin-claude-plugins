@@ -2,6 +2,18 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.13.0 — 2026-09-14
+
+**垂直分岔線用 `via` 走直線——推翻 0.12.0 寫下的「archify 硬限制」結論**。使用者看圖後質疑「這些不是可以直接往下嗎」，再追問「DEEP RESEARCH 一下，你確定嗎」——質疑成立，我錯了。
+
+- **0.12.0 的錯誤結論已推翻**：該版寫了一整節「⛔ 跨泳道的分岔線一定會繞 S 形——這是 archify 的硬限制，別浪費時間調」，依據是 `workflow-compiler.mjs:97` 的 `laneGap: 20` 寫死、小於 `route:"drop"` 需要的 28px 淨空。**該節整節刪除改寫。**
+- **真正的解法是 `edges[].via`**：型別是座標點陣列（`schemas/workflow.schema.json` 有定義），手動指定路徑經過哪裡。給 `"via":[[來源節點中心x, 兩泳道間的y]]`，線就垂直落下。實測（唯一變因是 via）：`M 279 269 L 279 290 L 362 290 L 362 367 L 346 367`（4 段 S 形）→ `M 279 269 L 279 320 L 279 341`（2 段純垂直，x 座標全部相同）。四條例外線全部套用後皆為 VERTICAL。
+- **根因是我查證的順序錯了**：只讀了執行端原始碼（compiler 的路由演算法），從來沒讀輸入端 schema（`schemas/*.schema.json`）。schema 裡 `edges[]` 有 18 個欄位，我只用過 6 個，`via`／`channelX`／`channelY`／`bias` 全都沒發現。於是把「我沒給對參數」誤判成「工具做不到」。SKILL.md 已加註「查工具能力先讀輸入 schema、再讀執行端原始碼」。
+- **規則第 9 條**：要垂直線就給 `via`，並明列 `via` 不可與 `route` 併用（一個是樣板一個是手動座標，會打架）。
+- **四種無效做法保留在文件裡**（調泳道順序／統一同 col 寬度／改 variant-role／`route:"drop"`），實測路徑座標一個像素都沒變，寫進去避免下次重試。
+- **JSON 骨架補上 `via` 實例**並附取值方法（先不帶 via 跑一次 deliver，從 HTML 撈起點 x 與泳道間 y）。⚠️ 過程紀錄：骨架初版我填了瞎猜的 `[[277,320]]`，validate 直接失敗 `has explicit geometry that violates orthogonal route segments`；量出實值 272/290 後才過——證明 via 填錯會被擋下，不是靜默畫歪。
+- **驗證**：骨架原樣抽出跑完三道指令全綠（validate ok／deliver exit 0／visual-check exit 0），`x0` 路徑 `M 272 269 L 272 290 L 272 341` 純垂直；wtf 流程圖四條例外線全部 VERTICAL、四條泳道仍 104px。
+
 ## 0.12.0 — 2026-09-14
 
 **archify `workflow` 圖特化：六條硬規則讓線走直、泳道不虛高**。使用者比對兩張 archify 產出的 HTML 後指出結構差異，原話：「我喜歡 STRAIGHT 的線，不要繞 + 高度要拉低，沒特化的版本每一個泳道的高度都很怪」。
