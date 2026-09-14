@@ -2,6 +2,28 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.15.0 — 2026-09-14
+
+**新增 `flow.js` 產圖腳本：九條規則從「自律」變成「腳本代勞」**。使用者要求「能不能讓他用你的腳本做 archify，我不想要再 hook 了」——不加攔截，改成一支照規則幫你做完的工具。
+
+- **`skills/wtf/flow.js`**：吃一份簡單 spec（`lanes`／`main`／`side`／`exits`），自動套用九條規則並跑完 validate → deliver → visual-check。spec 裡**不必寫** `route`／`fromSide`／`via` 座標／lane 順序——那些正是最容易寫錯的部分。
+- **自動量 via（規則9）**：先 deliver 一次撈實際座標，再填回去重跑。**逐條試**而非全有全無——一條算不出來只丟那一條，其餘照樣走直線，並在 stderr 列出是哪幾條。候選依序為起點 x → 終點 x → 同節點多線時沿寬度分散。
+- **泛化修正**（使用者指出「你這樣確定可以泛化嗎，任一兩個泳道都要檢查吧」）：原本按「來源類別」（exits 處理、side 不處理）決定，那個分類本身沒道理。改成掃 HTML 裡**所有** edge，判準只有一條：兩端點是否落在不同泳道；只跳過主線（左右向）。修正後「參與者→主線」那類線也會拉直。
+- **`exceptionLanes` 欄位**：哪幾條泳道畫成例外由 spec 明說，不再是「有 exits 指過來就算」。使用者指出交付路徑泳道被多畫一層紅框，成因是 archify 對 `variant:"exception"` 會在原框內縮 6px 再疊一個紅虛線框（`workflow-compiler.mjs:4159`），標錯就多一層。
+
+**冷啟動 subagent 實測**（使用者要求：只給 SKILL.md 規則節＋flow.js＋`plugins/git-commit` 目錄，不給任何本輪 context），它畫出可用的圖並抓到四個缺陷，全部已修：
+
+- **`writeAndValidate` 丟掉 `evidence`**（最大時間損耗點）：desktop-readability 失敗時 `j.error` 只說 `Final artifact check failed.`，但 `evidence.text` 直接寫著是哪一句字太小、差幾 px。原本只取 `error` 與 `supportedFixes`，把唯一可行動的資訊丟了，subagent 為此卡兩輪、得自己去跑 archify 拿 JSON。現在帶出 `text`／`projectedFontPx`／`viewBoxWidth`／`scale`，並加一句「這是全域耦合，縮短任何節點的字都能救」。實測輸出已驗證。
+- **SKILL.md 標題寫「六條硬規則」但表格是九條**（三處，0.12.0 的殘留）：subagent 說「讀到標題時以為規則 7/8/9 是後來補的、可能不重要，差點跳過規則 9（via）」——那是唯一能拉直垂直線的做法。三處一次改完。
+- **S 形警告沒給處置建議**：原本 stderr 只印 edge id，subagent「不知道該不該處理，只好回頭讀原始碼」還試了一次。現在附完整說明（已知限制、成因、把線改掛別的節點不是解法）。
+- **泳道判準只在 flow.js 註解、SKILL.md 沒有**：subagent 仍踩坑——把「Style／Docs 豁免」放進標題叫「擋下與例外路徑」的例外泳道，語意變成豁免被擋下。它給的判準寫進 SKILL.md：**「這個節點是被擋住了，還是走了另一條合法的路」**。
+- **sublabel 長度指引**（subagent 指出骨架範例都是 2–4 字，寫 8–12 字會撞牆）：查證公式 `projectedFontPx = sourceFontPx × min(1, 930 / viewBoxWidth)`、下限 6px（`renderers/shared/desktop-readability.mjs`），sublabel 的 font-size 是 7.5 → **viewBox 寬度上限約 1162px**，實務上 sublabel 控制在 10 個全形字內。
+
+⚠️ 已知限制（實測，寫進腳本註解）：archify 為了讓同一節點的多條線不重疊，會安排某些線從節點**側緣**出線，從側緣往下拉必然有斜段，via 給任何 x 都違反正交約束。把線改掛到別的節點**不是**解法（實測 via 數反而從 5 降到 4）。這種線維持 S 形即可。
+
+⚠️ 過程紀錄：用 Python 改寫 flow.js 時第三次犯「非 raw string 導致 `
+` 寫成真換行」，JS 字串 literal 斷行 SyntaxError。已從備份還原改用 raw string。
+
 ## 0.14.0 — 2026-09-14
 
 **畫在哪裡的判準改成「先看題材」，不再是「ASCII 排不出來才准升級」**。使用者裁決：「我覺得適合流程圖的就應該可以用這個畫，像是系統流程圖，有一大串不同情境不同操作單位的圖，就適合直接用 archify，或者如果是一張流程圖就可以講清楚的就用 archify」。
