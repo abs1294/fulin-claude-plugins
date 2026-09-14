@@ -18,8 +18,11 @@
     "_require_approval說明": "true＝觸發後只產日報、進確認窗口，**等你核可才寄**。false＝過了 confirm_wait_minutes 沒喊停就自動寄出（走 --auto）。預設 true：沒看過就寄出去的信收不回來。兩種都會先呈現並 arm——確認窗口是喊停的機會，不是可跳過的步驟。",
     "require_approval": true,
 
-    "_lookback_days說明": "缺口回溯幾天。自續鏈的固有失效模式是『斷了就靜默地永遠斷著』（veto、內容閘擋下、cron 到點時 REPL 不是 idle、Claude Code 被關掉），所以 Stop hook（daily-report-chain-gate.js）會在你講完話時比對 sent/ 找缺口並提醒。每個日報週期只提醒一次，不會每輪重複。預設 30 天。",
-    "lookback_days": 30
+    "_lookback_days說明": "缺口回溯幾天。自續鏈的固有失效模式是『斷了就靜默地永遠斷著』（veto、內容閘擋下、cron 到點時 REPL 不是 idle、Claude Code 被關掉），所以 Stop hook（daily-report-chain-gate.js）會在你講完話時比對 sent/ 找缺口並提醒。預設 30 天。",
+    "lookback_days": 30,
+
+    "_acknowledged_gaps說明": "已經講過的缺口日期，hook 自動維護，不必手填。缺口只會提醒一次——提醒的下一輪就代表你已經回應過了（不管回補、不補、還是沒理），那批日期就寫進這裡永久結案。想恢復提醒就把日期從這個清單刪掉。超出 lookback_days 的舊項目會自動裁掉，不會無限膨脹。",
+    "acknowledged_gaps": []
   },
 
   "content_guard": {

@@ -17,9 +17,15 @@
  *   不是「session 曾經跑過」——抄 doc-readability-gate 的教訓：用後者會讓
  *   跑過一次日報之後的每一句話都被檢查，連寫程式的對話都跳出來講日報。
  *
- * ★ 提醒頻率：每個日報週期只提醒一次（使用者明定）。
- *   狀態檔記下「上次提醒時 sent/ 的內容」，只要沒有新的寄送發生就不再問。
- *   所以一次執行或一次排程觸發之後最多問一次，不會每輪重複。
+ * ★ 提醒頻率：兩種提醒各有自己的節奏（使用者明定），不可共用一個狀態：
+ *   - 忘了接鏈：每個日報週期提醒一次。狀態記下上次提醒時的寄送快照，
+ *     有新的寄送才會再提醒——因為「這次寄完有沒有接鏈」每次都該問。
+ *   - 過去的缺口：**問過一次就永久不再問**。上一輪提醒過，下一輪就代表使用者
+ *     已經回應過了（不管他回補、不補、還是沒理），那批日期寫進專案設定檔的
+ *     schedule.acknowledged_gaps 永久結案。
+ *     「問完的下一則就是記錄點」是機械可偵測的時機，不必靠 Claude 記得去登記。
+ *     放設定檔而非內部狀態：使用者看得到，想恢復提醒就自己把日期刪掉。
+ *     舊版兩者共用一個快照，導致使用者說過不補的日子會在下次寄送後被重問。
  *
  * ★ 最高原則：FAIL-OPEN。任何讀檔失敗、解析例外、判斷不確定 → 一律放行。
  *   這 hook 影響 session 能不能結束，寧可漏擋，絕不卡死。
@@ -79,17 +85,29 @@ function main(raw) {
   const sentNow = sentSnapshot(key);
   if (sentNow === null) return allow();   // 讀不到 sent/ → 不確定 → 放行
 
-  // ── 每個日報週期只提醒一次 ──
-  // 狀態檔存上次提醒時的 sent 快照；相同 → 這個週期已經問過了 → 靜默放行。
-  const last = readState(key);
-  if (last !== null && last === sentNow.sig) return allow();
+  const st = readState(key);
+
+  // ── 結案：上一輪問過缺口，這一輪代表使用者已經回應過了 ──
+  // 「問完的下一則就是記錄點」——不管使用者回什麼（補、不補、沒理），
+  // 那批日期都算處理完，寫進設定檔的 acknowledged_gaps 永不再問。
+  // 這是機械可偵測的時機，不是靠 Claude 記得去登記（那會被漏掉）。
+  // 實際補寄的日子不需要留在清單裡：補了就有 sent 紀錄，本來就不算缺口。
+  if (st.pendingGaps && st.pendingGaps.length) {
+    // 把結案結果同步回記憶體中的 sched——下面 (B) 要用它扣掉已講過的日子，
+    // 讀舊的會讓剛結案的那批又被 warn 一次。
+    sched.acknowledged_gaps = ackGaps(cwd, st.pendingGaps, sched);
+    st.pendingGaps = [];
+    writeState(key, st);
+  }
 
   // ── (A) 本回合寄出成功，但沒排下一次 → block ──
+  // 接鏈提醒是「每個日報週期」的事，有新寄送就該重新提醒（與缺口的永久結案不同）。
   const sentThisTurn = sentDuringThisTurn(tp, sentNow.dates);
-  if (sentThisTurn) {
+  if (sentThisTurn && st.chainSig !== sentNow.sig) {
     const scheduled = scheduledCronThisTurn(tp);
     if (scheduled === false) {
-      writeState(key, sentNow.sig);       // 問過了，這個週期不再問
+      st.chainSig = sentNow.sig;          // 這個週期問過了
+      writeState(key, st);
       return block(
         '日報已寄出，但這一輪沒有排下一次的觸發時間——自續鏈斷在這裡。\n' +
         '鏈斷之後不會有任何東西提醒你（下次觸發本來就該由這個 cron 帶起來），' +
@@ -101,16 +119,22 @@ function main(raw) {
     }
   }
 
-  // ── (B) 過去的缺口 → warn ──
+  // ── (B) 過去的缺口 → warn（只講沒講過的日子）──
   const gaps = runGapCheck(cwd);
   if (gaps && gaps.length) {
-    writeState(key, sentNow.sig);
-    const shown = gaps.slice(0, 10);
-    const more = gaps.length > shown.length ? `（另有 ${gaps.length - shown.length} 天未列出）` : '';
+    const acked = new Set(ackedGaps(sched));
+    const fresh = gaps.filter((d) => !acked.has(d));
+    if (!fresh.length) return allow();    // 全都講過了 → 永久靜默
+
+    st.pendingGaps = fresh;               // 下一輪結案
+    writeState(key, st);
+    const shown = fresh.slice(0, 10);
+    const more = fresh.length > shown.length ? `（另有 ${fresh.length - shown.length} 天未列出）` : '';
     return warn(
-      `daily-report 排程有 ${gaps.length} 天該寄卻沒有寄出紀錄：${shown.join('、')}${more}\n` +
+      `daily-report 排程有 ${fresh.length} 天該寄卻沒有寄出紀錄：${shown.join('、')}${more}\n` +
       '可能的斷鏈原因：你當時喊停、內容閘擋下、排程到點時對話正在進行（cron 只在 idle 時觸發）、' +
-      '或 Claude Code 被關過。要補哪幾天跟我說；不補也可以，本 hook 這個週期不會再提。'
+      '或 Claude Code 被關過。要補哪幾天跟我說。\n' +
+      '這幾天之後不會再提（會記進設定檔的 schedule.acknowledged_gaps，想恢復提醒就把日期從那裡刪掉）。'
     );
   }
 
@@ -263,19 +287,61 @@ function runGapCheck(cwd) {
   return null;
 }
 
+// 狀態檔有兩個獨立維度，不可合成一個：
+//   chainSig    上次提醒「忘了接鏈」時的寄送快照 —— 有新寄送就重置（每個週期都該提醒）
+//   pendingGaps 上一輪提醒過、尚未結案的缺口日期 —— 下一輪寫進設定檔後清空
+// 舊版把兩者塞進同一個字串，導致「使用者說過不補的日子」會在下次寄送後被重問。
 function readState(key) {
-  if (!key) return null;
+  const empty = { chainSig: null, pendingGaps: [] };
+  if (!key) return empty;
   try {
-    return fs.readFileSync(path.join(STATE_DIR, `${key}.txt`), 'utf8').trim();
-  } catch (_) { return null; }
+    const raw = fs.readFileSync(path.join(STATE_DIR, `${key}.json`), 'utf8');
+    const o = JSON.parse(raw);
+    return {
+      chainSig: typeof o.chainSig === 'string' ? o.chainSig : null,
+      pendingGaps: Array.isArray(o.pendingGaps) ? o.pendingGaps.filter((x) => typeof x === 'string') : [],
+    };
+  } catch (_) { return empty; }
 }
 
-function writeState(key, sig) {
+function writeState(key, st) {
   if (!key) return;
   try {
     fs.mkdirSync(STATE_DIR, { recursive: true });
-    fs.writeFileSync(path.join(STATE_DIR, `${key}.txt`), String(sig), 'utf8');
+    fs.writeFileSync(path.join(STATE_DIR, `${key}.json`),
+      JSON.stringify({ chainSig: st.chainSig || null, pendingGaps: st.pendingGaps || [] }), 'utf8');
   } catch (_) { /* 寫不進去只會讓下輪再問一次，不影響正確性 */ }
+}
+
+// 已結案的缺口日期，存在專案設定檔的 schedule.acknowledged_gaps。
+// 刻意放設定檔而非內部狀態：使用者看得到、想恢復提醒就自己把日期刪掉。
+function ackedGaps(sched) {
+  const v = sched && sched.acknowledged_gaps;
+  return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+}
+
+// 回傳結案後的完整清單（呼叫端要拿它更新記憶體中的 sched）。
+// 寫檔失敗仍回傳合併結果：本輪據此靜默，下輪因設定檔沒變會再問一次——
+// 重問一次比靜默漏記安全。
+function ackGaps(cwd, dates, sched) {
+  const merged = new Set(ackedGaps(sched).concat(dates));
+
+  // 裁掉超出回溯期的舊項目——那些日子永遠不會再被查到，留著只會讓清單無限膨脹。
+  const days = Number(sched.lookback_days) > 0 ? Number(sched.lookback_days) : 30;
+  const floor = new Date();
+  floor.setDate(floor.getDate() - days - 1);
+  const floorStr = floor.toISOString().slice(0, 10);
+  const out = Array.from(merged).filter((d) => d >= floorStr).sort();
+
+  const p = path.join(cwd, '.claude', 'daily-report.json');
+  try {
+    const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
+    if (cfg && typeof cfg.schedule === 'object' && cfg.schedule) {
+      cfg.schedule.acknowledged_gaps = out;
+      fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+    }
+  } catch (_) { /* 寫不進去下輪會再問一次，不影響正確性 */ }
+  return out;
 }
 
 function safeStr(x) { return typeof x === 'string' ? x : ''; }

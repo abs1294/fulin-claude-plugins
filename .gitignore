@@ -20,3 +20,6 @@ node_modules/
 # Python 編譯快取（我的測試執行產生的，不進 git）
 __pycache__/
 *.pyc
+
+# 交付資料夾內的過程產物（截圖、驗證收據等），不進 git
+**/_work/
