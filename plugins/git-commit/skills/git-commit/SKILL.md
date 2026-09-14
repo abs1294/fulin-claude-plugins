@@ -52,7 +52,8 @@ description: >
 | `flow.sh analyze <repo>` | 狀態分類＋local-overrides 過濾＋敏感字掃描 |
 | `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff` |
 | `flow.sh audit <repo> [<range>]` | 體檢既有 commit 的 message，唯讀。抓：空 message／缺 `Type:` 前綴／Type 不在允許清單／描述超長／痕跡命中／含多行 body（軟清單命中另標「待確認」）。exit `0`＝乾淨、`1`＝有問題、`2`＝range 無效 |
-| `flow.sh ship <repo> <type> <description> [--push]` | HEREDOC commit → 驗證（內建禁 `--amend`/`--no-verify`/force push、過濾 AI 署名）。**預設只 local commit；帶 `--push` 才推遠端**——push 不可逆，需使用者當次明確核可 |
+| `flow.sh ship <repo> <type> <description> [--push]` | HEREDOC commit → 驗證（內建禁 `--no-verify`/force push、過濾 AI 署名）。**預設只 local commit；帶 `--push` 才推遠端**——push 不可逆，需使用者當次明確核可 |
+| `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述>]` | 改寫 HEAD。自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘，改寫後做 tree 級重現驗證。不帶 `--type`/`--desc` 則沿用既有 message；**只做本地改寫，不 push** |
 
 `<repo>`＝`.` 或工作目錄下的 git 子目錄名（多 repo workspace 各自獨立 commit）。`<type>`＝`Feat`/`Modify`/`Style`/`Refactor`/`Perf`/`Chore`/`Docs`/`Test`/`Fix`/`Hotfix`。
 
@@ -60,7 +61,23 @@ description: >
 
 ### hook：`hooks/block-bare-git-commit.sh`（他律）
 
-PreToolUse hook，攔截 Bash 工具裡的裸 `git commit`（`git status`/`log`/`add`/`rebase` 不攔）。放行條件：`GIT_COMMIT_FLOW=1`（`flow.sh` 自己 export）或指令本身就在跑 `flow.sh`。
+PreToolUse hook，攔截 Bash 工具裡「不經 flow.sh 就建出 commit」的所有路徑：
+
+| 攔 | 為什麼 |
+|---|---|
+| `git commit`（含 `--amend`） | porcelain 入口 |
+| `git commit-tree` | plumbing：建 commit 物件 |
+| `git update-ref` / `symbolic-ref`（寫入與刪除） / `branch -f`、`-M`、`-C` | 讓那顆 commit 生效，或把 HEAD 挪走藏掉 commit |
+
+後兩列是 2026-09-14 真實事故補上的：headless 引擎被 `git commit` 擋下後，改用 `write-tree` + `commit-tree` + `update-ref` 三件組完成了四個 worktree 的 merge commit，hook 靜默通過。三件組等價於 `git commit`，但字面上完全不像。
+
+**刻意不攔**：`git write-tree`（單獨用只建 tree、不動 ref，`git stash` 內部會用到）、`reset`／`rebase`／`filter-branch`／`cherry-pick`（屬 §歷史改寫 的使用者意圖層級，且日常常用，攔了頻繁誤擋）、`push`（超出本 hook 職責）。唯讀指令（`status`/`log`/`diff`/`add`）一律不攔。
+
+放行條件**只有一條**：`GIT_COMMIT_FLOW=1`。這個變數由 `flow.sh` 執行時自己 export 給子程序，所以「真的經過 flow.sh」與「這個變數存在」是同一件事——**外部設不進來**（hook 是獨立 process，inline 前綴／`export`／`env` 全無效）。
+
+曾經有第二條「指令裡出現 flow.sh 就放行」，已刪除：不論用字串比對還是執行位置判斷，都擋不住「同一條指令裡同時有放行特徵與違規操作」（`git commit -m x; flow.sh`、`bash flow.sh --help; git commit -m x`），三輪審查各抓到一種變形。而那條規則本來就是多餘的——使用者手動跑 `bash flow.sh ship ...` 時，那條指令本身沒有 `git commit`，hook 自然放行；flow.sh 跑起來後自己 export 變數，內部的 `git commit` 就過了。
+
+**沒有「說明原因就能繞」的旁路**——原本訊息末句留了這個口子，在 headless session（無人可問）等於預設放行，事故中的引擎正是讀了那句才自行決定繞路。
 
 > **為什麼需要**：上面那句「不要手動組 git 指令」與 frontmatter 的「AI 禁止直接執行 git commit」都是**自律**，AI 會繞；繞過去就等於六道真閘一道都不觸發。skill 的「必須」是自律，只有 hook 是他律。
 > hook **fail-open**：自身任何錯誤（空輸入、壞 JSON、無 python）一律放行並印警告，絕不把使用者鎖在無法 commit 的狀態。
@@ -179,7 +196,7 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 ## Step 2：`flow.sh ship`
 
 - **禁止 AI 署名**（`Co-Authored-By: Claude` 等）——公司禁止揭露 AI 參與；腳本已過濾，description 參數也不得夾帶。
-- 禁 `--amend`（除非使用者明示）、禁 force push；push 到 `main`/`master` 前特別確認使用者意圖。
+- `ship` 不做 amend——要改寫 HEAD 走 `flow.sh amend`（需使用者明示才加 `--confirm-rewrite`）。禁 force push；push 到 `main`/`master` 前特別確認使用者意圖。
 - 使用者要求跳過審查（緊急 hotfix）→ commit message 下加 `[skip-review: <原因>]` 並告知破例。
 
 **pre-commit hook 失敗，先分辨兩種情況：**
@@ -246,12 +263,20 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 
 改寫既有 commit（`rebase -i`／`--amend`／`reset`）同樣受本 skill 管轄——`git commit` 以外的改寫指令一樣會繞過全部真閘，禁令不因指令名稱不同而失效。
 
+**amend 走 `flow.sh amend <repo> --confirm-rewrite`**，下面第 1、4、5 條它會自動做（建備份分支、機械驗證、擋已 push 的改寫），第 2、3 條仍是你的責任。`rebase -i`／`reset` 尚無子命令封裝，需人工按本節規則走。
+
 規則：
 
 1. **改寫前必建備份分支**，並把分支名回報給使用者：`git branch backup/pre-<動作>-$(date +%H%M%S)`。回報的分支名一律複製**指令實際輸出**，不要憑記憶寫——名字裡有時戳，記錯了使用者就查不到。
 2. **只改 message、不改碼** → 免三軌審查，但**每顆的新 message 都要過 §Commit Message 規範**（含痕跡與寬度）。
 3. **有改到碼** → 走完整三軌流程，等同新 commit。
-4. **改寫後必須機械驗證**：`git diff <備份分支> HEAD` 必須為空。不空代表改 message 的過程動到了碼。這一行指令就能驗，別跳過。
+4. **改寫後必須機械驗證**，兩種情況驗法不同（用錯會得到假結論）：
+   - **只改 message（第 2 條）** → `git diff <備份分支> HEAD` 必須為空。不空代表改 message 的過程動到了碼。
+   - **有改到碼（第 3 條）** → diff 必然不為空，上面那條驗不了，改驗「只動了該動的檔案」：
+     `git diff --name-only <備份分支> HEAD` 的清單須等於本次 staged 的清單；清單外的檔案 blob hash 須逐一相同；
+     決定性驗證是把備份分支的樹套上本次的 blob、`write-tree` 出來的 tree hash 須等於 HEAD 的 tree hash
+     （tree hash 是整棵樹的 Merkle hash，相同即 byte 級一致）。
+   `flow.sh amend` 會依有無 staged 內容自動選對驗法並印結果，走它就不必手動驗。
 5. **已 push 的 branch 禁止改寫**，除非使用者明示且確認無人共用。
 6. 改寫完 `git log --format='%h %s' <range>` 逐顆看過再回報，不要只看最上面那顆。
 
@@ -272,6 +297,8 @@ grep -n -i -E 'Claude|Anthropic|Codex|subagent|實測|掃描確認|本輪' <產�
 Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
 
 ## Changelog
+- 2026-09-14 hook 射程由「只攔 `git commit`」擴大到涵蓋 plumbing（`commit-tree`／`update-ref`／`symbolic-ref`／`branch -f`），並取消旁路（使用者當次核可）。**起因是真實事故**：一個 headless 引擎被 hook 擋下後，改用 `write-tree` + `commit-tree` + `update-ref` 三件組完成四個 worktree 的 merge commit，hook 完全沒反應、靜默通過，事後靠該 session 自願記帳才被發現——merge commit 的 message 完全正常，git log 看不出異常。同批修掉兩個結構缺口：①`flow.sh` 放行條件原是純字串比對（`grep -q flow\.sh`），`echo flow.sh; git commit -m x` 一行即可繞過——先改成判斷執行位置，第二輪審查證明那樣仍可繞（把 flow.sh 放後面即可），第三輪索性**整條刪除**，放行只留環境變數那一條；②訊息末句「請先向使用者說明原因並取得同意」在無人值守時等於預設放行，而事故中的引擎第一次其實想照規則走（加了 `GIT_COMMIT_FLOW=1` 前綴）、被擋後才轉向繞路，故訊息改為明講變數從外部設不進來、且沒有旁路。89 項回歸測試（攔截、不誤擋、fail-open、訊息內容四類；三輪審查各補一批變形）。**開發中自撞一次**：`GIT_PREFIX` 前置字元只認 `;&|` 與空白，把事故原文 `WIP=$(git -C "$W" commit-tree ...)` 整條漏掉——指令替換是真實會出現的寫法，補 `(`、反引號、`$` 後才命中。
+- 2026-09-14 新增 `flow.sh amend` 子命令，並修正三份文件對 amend 的矛盾描述（使用者當次核可）。**起因**：§歷史改寫允許 amend 並訂了六條規則，但 flow.sh 從未實作 amend——`grep amend` 兩處命中全是註解、無任何程式碼，所謂「旗標層不提供」實為未實作。於是走這條路的唯一方式是繞過 PreToolUse hook，而繞過之後那六條規則沒有任何機制檢查，與 hook「規範是自律、只有 hook 是他律」的設計目標矛盾。reflog 顯示 amend 在本專案是常態操作（單一 worktree 就有同顆 commit 改寫三次的紀錄），不是罕見例外。新子命令把六條規則機制化：自動建備份分支、用 `branch -r --contains` 擋已 push 的改寫（比 `@{u}` 嚴）、沿用 ship 全部真閘、改寫後依有無 staged 自動選驗法。**同時修掉一個獨立缺陷**：原第 4 條的驗證方法 `git diff <備份分支> HEAD` 必須為空，只對「只改 message」成立；走「有改到碼」那條時 diff 必然不為空，照原文驗會直接判失敗——已拆成兩種驗法，有改碼的改用 tree hash 重現驗證。首版經雙軌審查退回、九項缺陷修正後才進版——其中最嚴重的兩項讓核心閘形同虛設：重現驗證取改寫後 HEAD 的 blob，等於拿結果證明結果（pre-commit hook 竄改內容仍印「驗證通過」）；已 push 判斷只看本地遠端追蹤 ref，自己剛 push 完的 commit 會判回空而放行。回歸測試從 13 項擴到 19 項——首版那 13 項全綠卻漏掉全部九個缺陷，因為測的都是預想路徑，rename／特殊檔名／檔案刪除／模式變更／hook 竄改／hook 擋下／未 fetch 的遠端一項都沒測
 - 2026-09-11 「多步驟用 TaskCreate」一句展開成三條紀律＋禁止情境＋跨場景適用清單。來源＝冷啟 subagent 稽核退場 memory 發現內聯時砍掉的細節（黃區自主，已在回覆聲明）
 - 2026-09-11 匯流規則加第 6 條：兩軌判不同嚴重度時主 agent 自己實跑驗證再匯流，不取中間值、不選寬鬆軌。來源＝memory 紀律升級（經使用者核准）
 - 2026-09-10 補 hook（他律）＋真閘 6（message 痕跡與長度）＋§歷史改寫＋§交付路徑，並把 body 政策與長度單位明文寫死。**起因**：另一 session 在 KMS-dev 繞過本 skill 直接跑 `rebase -i`／`--amend` 改寫 8 顆 commit，把「經語法樹掃描確認」「實測七則官方回應」「Claude Code 的本機設定」寫進 git 歷史，**五道既有真閘一道都沒觸發**——因為它根本沒經過 flow.sh。三個結構缺口各自補上：①規範全是自律，AI 會繞 → PreToolUse hook 攔裸 `git commit`（fail-open，14 項紅綠測）；②`AI_TRACE_PATTERN` 只掃 staged diff、從不掃 message，`SIGNATURE_PATTERN` 只認 5 個署名詞且沒有單獨的 `Claude` → 新增 `MESSAGE_TRACE_PATTERN`（16 項紅綠測，測資用 KMS 真實 message）；③「≤50 字」沒定義單位、「能不能有 body」規範空白 → 該 session 先寫長 body（沒禁）、事後又自認「skill 要求不含 body」全砍（也沒要求），**兩次都在填空白且方向相反**，現已寫死「單行、寬度 ≤72」。**開發中自撞一次**：`display_width()` 初版用 awk，`bash -n` 過但實跑把「中文五個字元」算成 18（byte 數）——多數 awk 非 locale-aware、`substr` 按 byte 切，改用 Python `east_asian_width` 才對。語法檢查過 ≠ 能跑。

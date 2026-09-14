@@ -15,7 +15,9 @@
 #   - 建置產物/快取/備份檔名（除非顯式 --allow-artifacts）
 #   - commit message 含 AI 痕跡/作業過程敘述（除非顯式 --allow-message-trace）
 #   - commit message 顯示寬度超標（不可豁免）
-# 其餘規範（local-overrides 過濾、禁 force/amend/no-verify）由 subcommand 封裝與旗標缺席保證。
+# 其餘規範（local-overrides 過濾、禁 force push/no-verify）由 subcommand 封裝與旗標缺席保證。
+# amend 有專屬子命令（flow.sh amend，見下），會自動建備份分支、擋已 push 的改寫、
+# 並在改寫後做 tree 級重現驗證；不經該子命令的裸 amend 由 PreToolUse hook 攔。
 #
 # 用法：
 #   flow.sh analyze <repo>
@@ -773,6 +775,326 @@ EOF
 }
 
 # ------------------------------------------------------------
+# amend — 改寫 HEAD（SKILL.md 歷史改寫章節的機制化實作）
+#
+# 為什麼需要這支：該章節允許 amend 並訂了六條規則（備份分支／三軌／未 push 才可改寫／
+# 改寫後機械驗證），但本腳本原先未實作 amend，唯一走法是繞過 PreToolUse hook 裸跑
+# git commit --amend——繞過之後那六條規則沒有任何機制檢查，與 hook「規範是自律、
+# 只有 hook 是他律」的設計目標矛盾。本子命令把那六條變成可執行的閘，並沿用 ship 的既有真閘。
+#
+# 刻意不提供：已 push 的 commit 改寫（需 force push）。那是要停下來問人的情境，
+# 不是給旗標就放行——force push 會改寫別人已經拉過的歷史。
+# ------------------------------------------------------------
+cmd_amend() {
+  local allow_sensitive=0
+  local allow_artifacts=0
+  local allow_ai_trace=0
+  local allow_message_trace=0
+  # 改寫歷史不可逆（舊 hash 之後只剩 reflog 可尋），故要求使用者當次明示。
+  # 與 --push 同一種設計：不提供「預設改寫」的路徑。
+  local confirm_rewrite=0
+  local new_type=""
+  local new_desc=""
+  local positional=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --allow-sensitive) allow_sensitive=1; shift ;;
+      --allow-artifacts) allow_artifacts=1; shift ;;
+      --allow-ai-trace) allow_ai_trace=1; shift ;;
+      --allow-message-trace) allow_message_trace=1; shift ;;
+      --confirm-rewrite) confirm_rewrite=1; shift ;;
+      --type) new_type="${2:-}"; shift 2 ;;
+      --desc) new_desc="${2:-}"; shift 2 ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+  set -- "${positional[@]:-}"
+
+  local repo="${1:-}"
+  if [ -z "$repo" ]; then
+    echo "Usage: flow.sh amend <repo> --confirm-rewrite [--type <Type> --desc <描述>] [--allow-*]" >&2
+    echo "  不帶 --type/--desc：沿用 HEAD 既有 message" >&2
+    exit 1
+  fi
+  assert_valid_repo "$repo"
+
+  if [ "$confirm_rewrite" -eq 0 ]; then
+    echo "ERROR: amend 會改寫既有 commit（舊 hash 之後只剩 reflog 可尋），屬不可逆操作。" >&2
+    echo "       需使用者當次明確核可後，加 --confirm-rewrite 重跑。" >&2
+    exit 1
+  fi
+
+  local repo_path
+  repo_path="$(resolve_repo_path "$repo")"
+  cd "$repo_path"
+
+  # === amend 閘 1：目標 commit 必須未 push ===
+  # 已 push 的 commit 改寫後只能 force push，會改寫別人拉過的歷史。
+  #
+  # 兩段判斷，缺一不可：
+  #   ① 本地遠端追蹤 ref（branch -r --contains）——快，但只反映「上次 fetch 當下」的遠端狀態。
+  #      自己剛 push 完、或別人推了而本地沒 fetch，這段都會回空（實測：push 過的 commit 判回空）。
+  #   ② ls-remote 實查遠端——要連網，但看的是遠端此刻的真實狀態。
+  # 只靠 ① 會放行已推出去的 commit，這是本閘最不能出的錯，故補 ②。
+  local remote_branches
+  remote_branches="$(git branch -r --contains HEAD 2>/dev/null || true)"
+  if [ -n "$remote_branches" ]; then
+    echo "ERROR: HEAD 已存在於遠端分支，禁止 amend（改寫後只能 force push，會改寫他人已拉取的歷史）。" >&2
+    echo "       HEAD 出現在：" >&2
+    printf '%s\n' "$remote_branches" | sed 's/^/         /' >&2
+    echo "       正解：改成新的一顆 commit（flow.sh ship）。" >&2
+    echo "       真要改寫已推出去的歷史：停下來問使用者，確認無人共用該分支後由人工處理。" >&2
+    exit 1
+  fi
+
+  # ② 本地 ref 說沒推過，再跟每個遠端實查一次——本地 ref 可能過期
+  local remotes
+  remotes="$(git remote 2>/dev/null || true)"
+  if [ -n "$remotes" ]; then
+    local head_sha r ls_out ls_rc
+    head_sha="$(git rev-parse HEAD)"
+    for r in $remotes; do
+      # ls_rc 要用 || 接住：本函式在 set -e 下執行，
+      # 直接寫 ls_out="$(git ls-remote ...)" 失敗時會整支中止，
+      # 下面的錯誤說明與 fail-closed 分支永遠執行不到。
+      ls_rc=0
+      ls_out="$(git ls-remote --heads --tags "$r" 2>/dev/null)" || ls_rc=$?
+      if [ "$ls_rc" -ne 0 ]; then
+        echo "ERROR: 無法查詢遠端 $r 的狀態（git ls-remote 失敗，exit $ls_rc），無法確認 HEAD 是否已 push。" >&2
+        echo "       本閘不在查不到時放行——改寫已推出去的 commit 需要 force push，代價太高。" >&2
+        echo "       確認網路/認證後重試；確定未推出去也可改走 flow.sh ship 建新 commit。" >&2
+        exit 1
+      fi
+      # 遠端 ref 的 tip 剛好等於 HEAD
+      if printf '%s' "$ls_out" | grep -q "^$head_sha[[:space:]]"; then
+        echo "ERROR: HEAD 在遠端 $r 實查中命中，禁止 amend（本地遠端追蹤 ref 未更新才沒擋在上一關）。" >&2
+        echo "       HEAD: $head_sha" >&2
+        printf '%s\n' "$ls_out" | grep "^$head_sha[[:space:]]" | sed 's/^/         /' >&2
+        echo "       正解：改成新的一顆 commit（flow.sh ship）。" >&2
+        exit 1
+      fi
+      # tip 不等於 HEAD，但 HEAD 可能已在遠端分支的歷史裡（別人又推了新 commit 上去）。
+      # 只比對 tip 會漏掉這種情況，而那顆 commit 其實早就在遠端、改寫它一樣要 force push。
+      # 逐個遠端 tip 往回找 HEAD 是否在其祖先鏈上。
+      # merge-base --is-ancestor 的 exit code 是三態，不能只分真假：
+      #   0   = 是祖先          → 擋
+      #   1   = 不是祖先        → 這個 tip 過關，看下一個
+      #   128 = 物件不在本地    → 查不動，不能當成「不是祖先」
+      # 遠端 tip 沒 fetch 下來時就是 128，而那正是「別人推了新 commit、我方 HEAD
+      # 已在遠端歷史裡」的典型情況——當成「不是」會放行掉真正該擋的改寫。
+      local tip mb_rc
+      while read -r tip _; do
+        [ -z "$tip" ] && continue
+        mb_rc=0
+        git merge-base --is-ancestor "$head_sha" "$tip" 2>/dev/null || mb_rc=$?
+        if [ "$mb_rc" -eq 0 ]; then
+          echo "ERROR: HEAD 已存在於遠端 $r 的歷史中（不是 tip，但在其祖先鏈上），禁止 amend。" >&2
+          echo "       HEAD: $head_sha" >&2
+          echo "       遠端上包含它的 commit: $tip" >&2
+          echo "       正解：改成新的一顆 commit（flow.sh ship）。" >&2
+          exit 1
+        fi
+        if [ "$mb_rc" -ne 1 ]; then
+          echo "ERROR: 無法判斷 HEAD 是否在遠端 $r 的歷史中（merge-base exit $mb_rc，" >&2
+          echo "       多半是遠端 commit $tip 尚未 fetch 到本地）。" >&2
+          echo "       本閘不在查不動時放行——那正是「別人推了新 commit、我方 HEAD 已在遠端歷史裡」的情況。" >&2
+          echo "       請先 git fetch $r 後重試；確定未推出去也可改走 flow.sh ship 建新 commit。" >&2
+          exit 1
+        fi
+      done <<EOF
+$ls_out
+EOF
+    done
+  fi
+
+  # root commit 沒有 parent，改寫後無法驗證基底未變
+  if ! git rev-parse HEAD^ >/dev/null 2>&1; then
+    echo "ERROR: HEAD 是 root commit，本子命令不支援（無 parent 可驗證基底未變）。" >&2
+    exit 1
+  fi
+
+  # === 決定最終 message：沿用既有，或以 --type/--desc 覆寫 ===
+  local final_msg
+  if [ -n "$new_type" ] || [ -n "$new_desc" ]; then
+    if [ -z "$new_type" ] || [ -z "$new_desc" ]; then
+      echo "ERROR: --type 與 --desc 必須成對提供（只給一個組不出完整 message）。" >&2
+      exit 1
+    fi
+    assert_valid_type "$new_type"
+    final_msg="$new_type: $new_desc"
+    # === 真閘 1 + 真閘 6：新 message 要過署名／單行／痕跡／寬度 ===
+    assert_no_signature "$final_msg"
+    assert_message_clean "$new_desc" "$allow_message_trace"
+  else
+    # 沿用既有 message：讀 %B 全文而非 %s。只取 subject 會把原 commit 的 body 與
+    # trailer（Refs:、Fixes: 等）靜默刪光——使用者以為只是重新 commit，卻掉了資訊。
+    final_msg="$(git log -1 --format=%B)"
+    local subject
+    subject="$(git log -1 --format=%s)"
+
+    # 署名要掃「整份 message」（body 裡也可能夾帶），但 assert_no_signature 同時做單行檢查，
+    # 對本來就合法的多行既有 message 會誤擋——故此處拆開：署名掃全文、單行檢查只對 subject。
+    if printf '%s' "$final_msg" | grep -E -i -q "$SIGNATURE_PATTERN"; then
+      echo "ERROR: HEAD 的 message 含 AI 署名，拒絕沿用（使用者全域規則：禁止任何 Claude 署名）。" >&2
+      printf '%s\n' "$final_msg" | grep -E -i "$SIGNATURE_PATTERN" | sed 's/^/         /' >&2
+      echo "       請用 --type <Type> --desc <描述> 指定乾淨的新 message。" >&2
+      exit 1
+    fi
+
+    # 必須是「Type: 描述」格式。缺冒號時 ${x#*: } 會原樣回傳整串，
+    # 不檢查就等於讓不合規的既有 message 原地漂白。
+    case "$subject" in
+      *": "*) ;;
+      *)
+        echo "ERROR: HEAD 的 message 不是「Type: 描述」格式，無法沿用：" >&2
+        echo "         $subject" >&2
+        echo "       請用 --type <Type> --desc <描述> 明確指定新 message。" >&2
+        exit 1
+        ;;
+    esac
+    local existing_type="${subject%%: *}"
+    local existing_desc="${subject#*: }"
+    assert_valid_type "$existing_type"
+    assert_message_clean "$existing_desc" "$allow_message_trace"
+  fi
+
+  # === amend 閘 2：自動建備份分支 ===
+  local backup_branch="backup/pre-amend-$(date +%Y%m%d-%H%M%S)"
+  git branch "$backup_branch"
+  echo "=== 備份分支已建立：$backup_branch ==="
+  echo "    改寫前的 HEAD：$(git rev-parse --short "$backup_branch")"
+  echo ""
+
+  local repo_slug="${repo//\//__}"
+  local hash_file="$TMP_DIR/staged-$repo_slug.sha"
+  local has_staged=0
+  git diff --staged --quiet || has_staged=1
+
+  if [ "$has_staged" -eq 1 ]; then
+    # === 真閘 2：TOCTOU — 比對當下 staged diff 與 prepare 時被審查的那份 ===
+    # 與 ship 不同：ship 在找不到 hash 時只印 WARNING 放行，amend 一律拒絕。
+    # 理由是風險不對稱——ship 寫壞了還留在 git 歷史上可回溯，amend 是就地改寫，
+    # 放行等於「直接呼叫 amend 即可跳過審查版本比對」，六道閘形同虛設。
+    if [ ! -f "$hash_file" ]; then
+      echo "ERROR: 找不到 prepare 產生的 diff hash（$hash_file），拒絕 amend。" >&2
+      echo "       有 staged 內容卻沒有審查基準，無法確認即將寫進去的就是被審查過的內容。" >&2
+      echo "       請先跑：flow.sh prepare $repo <files...>" >&2
+      git branch -D "$backup_branch" >/dev/null 2>&1 && echo "       （尚未改寫，已清掉剛建的備份分支 $backup_branch）" >&2
+      exit 1
+    fi
+    local expected current
+    expected="$(cat "$hash_file")"
+    current="$(git -c color.ui=false diff --staged | git hash-object --stdin)"
+    if [ "$expected" != "$current" ]; then
+      echo "ERROR: staged diff 與 prepare 時被審查的版本不符，已拒絕 amend。" >&2
+      echo "       審查版 hash：$expected" >&2
+      echo "       當前版 hash：$current" >&2
+      echo "       請重跑 prepare + 三軌審查，確保 amend 進去的就是被審查的內容。" >&2
+      # 此時還沒改寫任何東西，備份分支沒有保留價值，留著只會累積垃圾
+      git branch -D "$backup_branch" >/dev/null 2>&1 && echo "       （尚未改寫，已清掉剛建的備份分支 $backup_branch）" >&2
+      exit 1
+    fi
+
+    # === 真閘 3/4/5：敏感字、建置產物、AI 痕跡 ===
+    assert_no_sensitive "$allow_sensitive"
+    assert_no_artifacts "$allow_artifacts"
+    assert_no_ai_trace "$allow_ai_trace"
+  else
+    echo "=== 無 staged 內容：本次為「只改 message」的 amend ==="
+    echo ""
+  fi
+
+  # === 記錄改寫前狀態，供改寫後驗證 ===
+  # 關鍵：期望樹要在「改寫前」用 staged 的內容算出來，不能在改寫後從 HEAD 取。
+  # 從 HEAD 取等於拿結果去證明結果——pre-commit hook 若在 commit 當下改了檔案，
+  # 比對的兩邊都會是被改後的值，等式恆成立，驗證永遠通過（實測：hook 偷加一行仍印「驗證通過」）。
+  local before_tree before_parent expected_tree
+  before_tree="$(git rev-parse "HEAD^{tree}")"
+  before_parent="$(git rev-parse HEAD^)"
+  # 此刻的 index 就是「應該被寫進去的內容」，直接落成 tree 當期望值
+  expected_tree="$(git write-tree)"
+
+  echo "=== Amend ==="
+  # 失敗要自己接住：直接讓 set -e 中止的話，使用者看不到備份分支還在、也不知道現在是什麼狀態。
+  # exit code 要在這裡抓：寫在 if 主體內的 $? 是 if 判斷本身的結果（恆為 0），
+  # 而 local 宣告又會再覆寫一次 $?——兩者都會讓失敗回報成 exit 0。
+  local amend_rc=0
+  git commit --amend -m "$final_msg" || amend_rc=$?
+  if [ "$amend_rc" -ne 0 ]; then
+    echo "" >&2
+    echo "ERROR: git commit --amend 失敗（exit $amend_rc），歷史未被改寫。" >&2
+    echo "       常見原因：pre-commit hook 擋下、message 被 commit-msg hook 拒絕。" >&2
+    echo "       HEAD 仍是原本那顆：$(git log -1 --format='%h %s')" >&2
+    echo "       備份分支 $backup_branch 保留著（內容與 HEAD 相同，確認後可刪）：" >&2
+    echo "         git branch -D $backup_branch" >&2
+    exit "$amend_rc"
+  fi
+  echo ""
+
+  # === amend 閘 3：改寫後機械驗證 ===
+  # 期望樹（改寫前的 index）必須等於改寫後 HEAD 的樹。
+  # tree hash 是整棵樹的 Merkle hash，相同即每個檔案每個 byte 都一致——
+  # 這個比法天然涵蓋 rename、檔案刪除、模式變更（100644 vs 100755）與特殊檔名，
+  # 不必自己解析 --name-only 的輸出（那條路會被 rename 只列目的路徑、
+  # 中文檔名被印成八進位跳脫這兩件事各絆倒一次）。
+  echo "=== 改寫後驗證 ==="
+  local rc=0
+
+  # 共同檢查：parent 不得改變（amend 不該動基底）
+  local after_parent after_tree
+  after_parent="$(git rev-parse HEAD^)"
+  after_tree="$(git rev-parse "HEAD^{tree}")"
+  if [ "$before_parent" != "$after_parent" ]; then
+    echo "  [FAIL] parent 改變了：$before_parent -> $after_parent（amend 不該動基底）" >&2
+    rc=1
+  else
+    echo "  [OK] parent 未變（$(git rev-parse --short "$after_parent")）"
+  fi
+
+  if [ "$expected_tree" = "$after_tree" ]; then
+    if [ "$has_staged" -eq 0 ]; then
+      echo "  [OK] 樹與改寫前一致（只改 message，tree $after_tree）"
+    else
+      echo "  [OK] 寫進去的內容等於改寫前的 staged 內容（tree $after_tree）"
+      echo "       tree hash 為整棵樹的 Merkle hash，相同即每個檔案每個 byte 都一致"
+    fi
+  else
+    echo "  [FAIL] 實際寫進去的內容與改寫前的 staged 不符" >&2
+    echo "         預期樹（改寫前的 index）：$expected_tree" >&2
+    echo "         實際樹（改寫後的 HEAD）：$after_tree" >&2
+    echo "         最可能的原因是 pre-commit hook 在 commit 當下改了檔案。" >&2
+    echo "         差異：git diff $expected_tree $after_tree" >&2
+    rc=1
+  fi
+
+  if [ "$rc" -ne 0 ]; then
+    echo "" >&2
+    echo "ERROR: 改寫後驗證未通過。備份分支 $backup_branch 保留著，可用它還原：" >&2
+    echo "         git reset --hard $backup_branch" >&2
+    exit 1
+  fi
+
+
+  # 驗證通過才清 diff hash；staged diff 檔比照 ship 保留（未推不算完成）
+  rm -f "$hash_file"
+
+  echo ""
+  echo "=== Push: 略過（amend 只做本地改寫）==="
+  echo "  本次只改寫本地 commit，未推上遠端。"
+  echo "  要推請在使用者明確核可後跑："
+  echo "    flow.sh ship $repo <Type> \"<描述>\" --push"
+  echo "  ship 會偵測到同 message 的未推 commit，走 push-only 分支。"
+  echo ""
+  echo "=== Verify ==="
+  git -c color.ui=false status -sb | head -3
+  echo "--- last commit ---"
+  git -c color.ui=false log --oneline -1
+  echo ""
+  echo "備份分支 $backup_branch 保留著。確認無誤後可刪：git branch -D $backup_branch"
+}
+
+
+# ------------------------------------------------------------
 # Command: audit <repo> [<range>]
 #   體檢既有 commit 的 message：空 message / 缺 Type 前綴 / Type 不合法 /
 #   超長 / 痕跡命中 / 軟清單命中。唯讀，不改動任何東西。
@@ -900,6 +1222,7 @@ case "${1:-}" in
   analyze) shift; cmd_analyze "$@" ;;
   prepare) shift; cmd_prepare "$@" ;;
   ship)    shift; cmd_ship "$@" ;;
+  amend)   shift; cmd_amend "$@" ;;
   audit)   shift; cmd_audit "$@" ;;
   -h|--help|"")
     cat <<USAGE
@@ -916,6 +1239,10 @@ Commands:
                                     真閘(署名/單行/message痕跡+長度/diff-hash/敏感字/建置產物/AI痕跡)
                                     → git commit (HEREDOC) → 驗證
                                     預設只 local commit；--push 才推遠端（需使用者明確核可）
+  amend   <repo> --confirm-rewrite [--type <Type> --desc <描述>] [--allow-*]
+                                    改寫 HEAD。自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘
+                                    改寫後做 tree 級重現驗證（證明只動了 staged 的那幾個檔案）
+                                    不帶 --type/--desc 則沿用既有 message；只做本地改寫，不 push
 
 repo 參數：
   工作目錄底下的 git 子目錄名（多 repo workspace），或 "." 代表工作目錄本身就是 git repo。
@@ -929,9 +1256,12 @@ Examples:
   flow.sh prepare . src/foo.vue src/bar.js
   flow.sh ship    WEHQ.SupplierManager.Frontend Modify "修正 XXX"           # local commit
   flow.sh ship    WEHQ.SupplierManager.Frontend Modify "修正 XXX" --push    # 核可後才推
+  flow.sh amend   WEHQ.SupplierManager.Frontend --confirm-rewrite            # 改寫 HEAD，沿用 message
 
 Notes:
-  - 禁止 --no-verify、禁止 --amend、禁止 force push（旗標層不提供）
+  - 禁止 --no-verify、禁止 force push（旗標層不提供）
+  - amend 走 flow.sh amend <repo> --confirm-rewrite：自動建備份分支、擋已 push 的 commit、
+    沿用 ship 的全部真閘，改寫後做 tree 級重現驗證（證明只動了 staged 的那幾個檔案）
   - 預設 local commit only：未帶 --push 不會推遠端，且保留 diff hash（未 push 不算完成）
   - Commit message 禁止任何 AI 署名——ship 會機制級攔截（assert_no_signature），非僅提醒
   - 新增行的註解禁止引用外部文件出處（CLAUDE.md / skill / 設計文件 / §章節號）——
