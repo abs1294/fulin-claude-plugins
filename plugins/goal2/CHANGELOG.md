@@ -2,6 +2,12 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.3] - 2026-09-14
+### Added
+- **任務書 `## 脈絡與約束` 節**：引擎子程序有 CLAUDE.md／自動記憶／輸出風格／plugin／hook（實測 d15a 的 init 事件：output_style Fulin、45 個 skill、memory_paths、plugin-profile hook 都在），唯獨沒有主 session 的對話。SKILL 規定事實層同時寫這節（決策與理由、使用者更正、禁止動作、套用過的記憶／harness 判準、已知坑、相關檔絕對路徑）；進 anchor（`<!-- goal2:sec=context -->`），壓縮後 hook 注回；沒有這節 `goal.js`／`delaylocal.js` 回 `warnings`（不擋），輸出多 `has_context_section`。
+- **`cwd_inspection`**：準備時列出子程序在該 cwd 會載到的 CLAUDE.md（cwd 與每層祖先）、自動記憶目錄（存不存在、MEMORY.md 幾條）、project-scope plugin；「祖先有、cwd 沒有」→ `warnings`（傳的是子目錄）。實例：d15a 在 tests/e2e 起，記憶指到 tests-e2e 那份空的、專案層 plugin 沒載。SKILL 明寫 `--cwd` 必須是 CLAUDE.md／記憶所在的專案根。
+- anchor「工作目錄」節加一行：開工前先讀本專案 CLAUDE.md（含它指定的 harness 檔）與 MEMORY.md。
+
 ## [0.5.2] - 2026-09-13
 ### Changed
 - 兩件 HYPOTHESIS 實測後改寫：① `--max-budget-usd` 真觸發：result `subtype: error_max_budget_usd`、`is_error: true`、`terminal_reason: budget_exhausted`、`errors: ["Reached maximum budget ($N)"]`，引擎在回合邊界才對帳（上限 0.05 實花 0.28），goal2 記 `status: budget` 正確；② 主 Claude Code 退出：以 headless `claude -p` 當主程式背景起 runner 後結束，runner 與引擎當下一起消失、meta 停在 running——引擎不會在主程式關閉後存活，SKILL／README／references 已改成事實。

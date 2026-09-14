@@ -30,12 +30,12 @@ function fail(msg) {
 
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
-let buildGoalHead, dateToCron, ceilToMinute, loadConfig, prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, selfSufficiency, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT;
+let buildGoalHead, dateToCron, ceilToMinute, loadConfig, prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, selfSufficiency, inspectCwd, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
-  ({ prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, selfSufficiency, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT } = require(path.join(LIB, 'engine.js')));
+  ({ prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, selfSufficiency, inspectCwd, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
@@ -160,6 +160,7 @@ if (runDir) {
   // Claude Code 的 Bash 工具 cwd 會漂移（前一個指令 cd 過就留在那），同 session 多個 goal2 並發時尤其危險，
   // 所以 SKILL 規定一律帶 --cwd；這裡把來源記進 JSON 讓回報看得到。
   const cwd = path.resolve(cwdArg || process.env.CLAUDE_PROJECT_DIR || process.cwd());
+  const cwdInspection = inspectCwd(cwd);
   const cwdSource = cwdArg ? 'cli' : (process.env.CLAUDE_PROJECT_DIR ? 'env:CLAUDE_PROJECT_DIR' : 'process.cwd');
   const anchor = buildAnchor({ condition: goalCondition, conditionOverflow: overflow, task: userPrompt, workList, runDir: '<RUN_DIR>', cwd });
   let prepared;
@@ -205,6 +206,12 @@ if (runDir) {
     goal_prompt_length: finalPrompt.length,
     items_count: suff.items_count,
     has_items_section: suff.has_items,
+    has_context_section: suff.has_context,
+    warnings: [
+      ...(suff.has_context ? [] : ['任務書沒有「## 脈絡與約束」節：引擎看不到本對話，對話裡已決定的事（決策、使用者更正、禁止動作、套用過的記憶）它不會知道——建議補上再啟動']),
+      ...cwdInspection.warnings
+    ],
+    cwd_inspection: cwdInspection,
     grill: goalCfg.grill,
     anchor_path: path.join(rd, 'anchor.md'),
     progress_path: path.join(rd, 'progress.md'),

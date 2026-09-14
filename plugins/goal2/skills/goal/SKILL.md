@@ -54,7 +54,9 @@ description: 當使用者要「先定一條可測量完成條件、再讓 Claude
 
 ### 2. 事實層 → 決策層（grill）→ propose
 
-**2a. 事實層（一律做，不問使用者）**：引擎在另一個 headless session，看不到本對話。任務原文若含「你掌握的」「你的建議」「這 N 個」「上述」「剛才」這類對話指涉，或指向一份交接文件說「把裡面沒做完的做完」——先把「集合」落檔：讀該文件／回顧本對話，把要做的項目**逐條展開成任務書的 `## 項目清單` 節**（每項：編號、內容、驗收方式、來源檔:行），不確定算不算的項目也列進去、標「待決」。`goal.js` 對「含對話指涉又沒有 `## 項目清單`」的任務會直接拒絕（`任務不自足`）。這一步就是 grilling 的「facts are your job」——事實自己查，不拿去問使用者。2026-09-12 兩個 session 的四次呼叫全是「請把你掌握到的未完成項目做完」「我同意按照你的建議開始執行」「把這 6 個補完」，引擎收到的就是那十幾個字。
+**2a. 事實層（一律做，不問使用者）**：引擎在另一個 headless session，看不到本對話。任務原文若含「你掌握的」「你的建議」「這 N 個」「上述」「剛才」這類對話指涉，或指向一份交接文件說「把裡面沒做完的做完」——先把「集合」落檔：讀該文件／回顧本對話，把要做的項目**逐條展開成任務書的 `## 項目清單` 節**（每項：編號、內容、驗收方式、來源檔:行），不確定算不算的項目也列進去、標「待決」。`goal.js` 對「含對話指涉又沒有 `## 項目清單`」的任務會直接拒絕（`任務不自足`）。這一步就是 grilling 的「facts are your job」——事實自己查，不拿去問使用者。
+
+**同時寫 `## 脈絡與約束` 節**（引擎是另一個 session，它有 CLAUDE.md／記憶／輸出風格／plugin，但**沒有這段對話**）：把對話裡已經決定的事逐條寫進去——你和使用者做過的決策與理由、使用者的更正（「不要 X」「改成 Y」）、禁止動作、你在本對話套用過的記憶條目與 harness 判準、已知的坑與繞法、相關檔案的絕對路徑。沒有這節 `goal.js` 只警告（`warnings`），但**回報時要把警告講出來**；有這節它會進系統提示、壓縮後注回。2026-09-12 兩個 session 的四次呼叫全是「請把你掌握到的未完成項目做完」「我同意按照你的建議開始執行」「把這 6 個補完」，引擎收到的就是那十幾個字。
 
 **2b. 決策層（grill；設定檔 `goal.grill`，預設 true）**：把這個任務當**設計樹**——每個決策底下掛著它衍生的決策。每一輪把「前提已定、現在能問」的**全部**分岔一次問完（frontier），每題編號＋附你的建議答案；使用者答完，樹被重塑，再算下一個 frontier、再問一輪；**問到 frontier 空為止**——沒有任何決策是你默默假設的。不限輪數。事實類的問題不算 frontier：自己查（讀檔、派 sub-agent），只有決策才問使用者。使用者說「直接跑」「照建議」→ 立刻停止 grill、未答的題全照你的建議。下面是這類任務最常漏掉的分岔，當起手式而不是題庫（沒有分岔的不問，樹長出來的別漏）：
 1. 範圍邊界：清單裡哪些「待決」項算、哪些明確不算（附你的判斷）
@@ -80,9 +82,9 @@ description: 當使用者要「先定一條可測量完成條件、再讓 Claude
 # <skill_dir> = 本 SKILL.md 所在目錄；--cwd 一律明確帶「專案根目錄的絕對路徑」
 node "<skill_dir>/goal.js" --prompt-file <暫存檔> --goal-file <條件檔> --cwd "<專案根目錄>"
 ```
-**`--cwd` 必帶**：子程序在哪個目錄工作就是它。不帶會退回 Bash 工具當下的 cwd，而那個 cwd 會漂移（前一個指令 `cd` 過就留在那），同 session 多個 goal2 時尤其危險。輸出的 `cwd` / `cwd_source` 要一併回報。
+**`--cwd` 必帶，而且要是「CLAUDE.md／自動記憶所在的專案根」，不是任務碰到的子目錄**：子程序的 CLAUDE.md、自動記憶（`~/.claude/projects/<cwd 編碼>/memory/`）、project-scope plugin 都依 cwd 決定——傳 `tests/e2e` 會載到一份空記憶、少掉專案層 plugin（2026-09-12 run d15a 實例）。不帶會退回 Bash 工具當下的 cwd（會漂移）。輸出的 `cwd_inspection` 列出子程序會載到的 CLAUDE.md、記憶目錄（幾條）、project-scope plugin；`warnings` 非空（記憶或 plugin「祖先有、cwd 沒有」）→ 改傳祖先目錄重跑。回報時把 `cwd`、`cwd_inspection.memory`、`warnings` 講出來。
 
-輸出 JSON：`{ ok, mode:"prepared", plugin_version, plugin_root, items_count, has_items_section, grill, start_mode, run_dir, run_command, stop_command, status_command, cwd, cwd_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, goal_overflow, goal_prompt_length, anchor_path, progress_path, final_prompt, … }`。`ok:false` → 把 error 告訴使用者，停止。
+輸出 JSON：`{ ok, mode:"prepared", plugin_version, plugin_root, items_count, has_items_section, has_context_section, warnings, cwd_inspection, grill, start_mode, run_dir, run_command, stop_command, status_command, cwd, cwd_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, goal_overflow, goal_prompt_length, anchor_path, progress_path, final_prompt, … }`。`ok:false` → 把 error 告訴使用者，停止。
 
 **同一棵工作樹已有活著的 run 時不會擋**（使用者常在同一專案並行多個調整），但 JSON 會多 `active_runs_in_tree`（run id、pid、cwd）。回報「已啟動」時把它一併講出來（例：「注意：同一棵樹還有 2 個 run 在跑：…」），讓使用者知道有並行；不要自作主張停別人的 run。**並行時路徑不重疊不代表沒干擾**：共用的 DB、測試 DB／結果檔、dev server port、`git` 工作樹狀態都會互相污染。有並行時，任務書裡要寫明本 run 的範圍切分（只動哪些目錄／表／port）與「別的 run 可能同時在動什麼」，讓引擎遇到不是自己改的差異時不要去修它。
 

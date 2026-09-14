@@ -38,10 +38,10 @@
 | 步 | 誰 | 做什麼 | 你看到什麼 |
 |---|---|---|---|
 | 0 | Claude | `goal.js --show-config` 讀設定（`goal.grill`、`confirmTimeoutMinutes`、`engine.*`），回報 `plugin_version`；安裝版落後 repo 就先提醒升級 | 版本一行 |
-| 1 事實層 | Claude | 讀交接文件／回顧對話，把要做的項目**逐條展開**成任務書的 `## 項目清單`（編號、內容、驗收方式、來源檔:行）；不確定的標「待決」。事實自己查（讀檔、派 sub-agent），**不問你** | 沒有對話，只有 Claude 在讀檔 |
+| 1 事實層 | Claude | 讀交接文件／回顧對話，把要做的項目**逐條展開**成任務書的 `## 項目清單`（編號、內容、驗收方式、來源檔:行）；不確定的標「待決」。另寫 `## 脈絡與約束`：對話裡已決定的事（決策、你的更正、禁止動作、套用過的記憶）——引擎有 CLAUDE.md／記憶／輸出風格／plugin，唯獨沒有這段對話。事實自己查（讀檔、派 sub-agent），**不問你** | 沒有對話，只有 Claude 在讀檔 |
 | 2 grill | Claude↔你 | 把任務當設計樹：一輪把當下能問的全部分岔問完，每題 ❓ 編號＋➡️ 建議答案；你答完重算 frontier 再問一輪；**問到沒有任何決策是默默假設的**。你說「直接跑／照建議」→ 立刻停，未答照建議。`goal.grill: false` 也跳過 | 一到數輪問答 |
 | 3 propose | Claude | 寫**極端**完成條件：「`## 項目清單` 內未完成數 **= 0**（附算法）；例外清單內項目不計」＋例外條款（限真 blocker＋證據＋原因）＋禁止動作。印給你看 | 條件全文 |
-| 4 準備 | Claude | 任務書寫 `goal-input-<ts>-<rnd>.txt`、條件寫 `goal-cond-…txt`，跑 `goal.js --prompt-file … --goal-file … --cwd <專案根>`。工具檢查：`/goal` prompt ≤3900、cwd 存在、**任務自足**（含對話指涉又無清單 → 拒絕，Claude 回去補清單）、同棵樹活著的 run（只提醒） | 若被拒，你看到 Claude 自己補清單重跑 |
+| 4 準備 | Claude | 任務書寫 `goal-input-<ts>-<rnd>.txt`、條件寫 `goal-cond-…txt`，跑 `goal.js --prompt-file … --goal-file … --cwd <專案根>`。工具檢查：`/goal` prompt ≤3900、cwd 存在、**任務自足**（含對話指涉又無清單 → 拒絕，Claude 回去補清單）、`cwd_inspection`（子程序會載到哪些 CLAUDE.md／記憶／project-scope plugin；傳成子目錄會警告）、同棵樹活著的 run（只提醒） | 若被拒，你看到 Claude 自己補清單重跑 |
 | 5 啟動 | Claude | `confirmTimeoutMinutes` = 0（預設）→ 直接 Bash 背景跑 `run_command`；等 10–15 秒 `--status` 看到 `goal_set:true` 才說「已啟動」（拒收會在幾秒內死掉，先講「在跑」會讓你白等） | 「已啟動」＋條件＋run_dir＋停法 |
 | 6 引擎 | 子程序 | `claude -p "/goal <條件>；…"`，`--append-system-prompt-file anchor.md`（工作目錄、條件、項目清單、任務全文、工作清單、帳本規則，每回合重送、壓縮碰不到）、`--max-budget-usd`（預設 300）、runner 時限（預設 480 分）、`bypassPermissions`、擋停上限 0。工作清單：①拆里程碑進 `progress.md` ②執行 ③收尾寫簡短回報。每次它想停，`/goal` 檢查器對條件驗收，未達成推回去；壓縮後 hook 注回條件＋清單＋帳本 | 什麼都不用做 |
 | 7 中途 | 你 | 「做到哪」→ `--status`：`summary_zh` 一句人話＋帳本已完成／剩餘。「停」→ 只有一個 run 直接 `--stop`（核對 pid 身分再殺樹）；多個活著的就問你停哪個 | 進度或已停 |

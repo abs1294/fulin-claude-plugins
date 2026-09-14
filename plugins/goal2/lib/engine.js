@@ -63,21 +63,26 @@ function ledgerRules(runDir) {
  *   conditionOverflow 為 true 時，/goal 第一行只放指針句，這裡的「完成條件全文」就是檢查器要對的清單，
  *   並要求引擎第一則回覆先把它貼進對話。
  */
-/** 從任務原文抽出「## 項目清單」節（到下一個 ## 為止）；沒有就回 '' */
-function extractItems(task) {
-  const m = String(task || '').match(/^##\s*項目清單[^\n]*\n([\s\S]*?)(?=\n##\s|\s*$(?![\s\S]))/m);
+/** 從任務原文抽出某個「## 標題」節（到下一個 ## 為止）；沒有就回 '' */
+function extractSection(task, heading) {
+  const m = String(task || '').match(new RegExp(`^##\\s*${heading}[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|\\s*$(?![\\s\\S]))`, 'm'));
   return m ? m[1].trim() : '';
 }
+function extractItems(task) { return extractSection(task, '項目清單'); }
+/** 「## 脈絡與約束」：主 session 對話裡已決定的事（決策、使用者更正、禁止動作、套用過的記憶條目、已知坑）——引擎看不到那段對話 */
+function extractContext(task) { return extractSection(task, '脈絡與約束'); }
 /** 任務原文是否自足：對話指涉（引擎在另一個 session，看不到本對話）且沒有項目清單 → 不自足 */
 const CONVERSATIONAL_REF = /你掌握|你的建議|你建議|剛才|剛剛|上述|上面(提到|說)|前面(提到|說)|如上|這\s*\d+\s*(個|項|條)|那\s*\d+\s*(個|項|條)|按照你|照你說|之前討論|我們討論/;
 function selfSufficiency(task) {
   const refs = (String(task || '').match(CONVERSATIONAL_REF) || []);
   const items = extractItems(task);
-  return { conversational_refs: refs, has_items: !!items, items_count: items ? items.split('\n').filter((l) => /^\s*(\d+[.)、]|[-*])\s+/.test(l)).length : 0, self_sufficient: refs.length === 0 || !!items };
+  const context = extractContext(task);
+  return { conversational_refs: refs, has_items: !!items, items_count: items ? items.split('\n').filter((l) => /^\s*(\d+[.)、]|[-*])\s+/.test(l)).length : 0, has_context: !!context, self_sufficient: refs.length === 0 || !!items };
 }
 
 function buildAnchor({ condition, conditionOverflow = false, task, workList, runDir, cwd = '', extra = '' }) {
   const items = extractItems(task);
+  const context = extractContext(task);
   const condSection = conditionOverflow
     ? `## 完成條件全文（/goal 第一行因 4000 字元上限只放指針句；引擎據此逐項驗收）
 ${condition}
@@ -96,11 +101,12 @@ ${condition}
 ## 工作目錄
 ${cwd || '（未指定；以子程序啟動時的 cwd 為準）'}
 所有相對路徑以此為準；不要 cd 到別的專案。
+開工前先讀本專案的 CLAUDE.md（含它指定要先讀的 harness／制度檔）與自動記憶 MEMORY.md（若存在）——你是另一個 session，主 session 讀過的東西你沒讀過。
 
 <!-- goal2:sec=condition -->
 ${condSection}
 
-${items ? `<!-- goal2:sec=items -->\n## 項目清單（完成條件對著這份清單算；每一項都要處理到，例外照條件裡的例外條款）\n${items}\n\n` : ''}<!-- goal2:sec=task -->
+${context ? `<!-- goal2:sec=context -->\n## 脈絡與約束（主 session 對話裡已決定的事；你看不到那段對話，以此為準、不要重新推導或推翻）\n${context}\n\n` : ''}${items ? `<!-- goal2:sec=items -->\n## 項目清單（完成條件對著這份清單算；每一項都要處理到，例外照條件裡的例外條款）\n${items}\n\n` : ''}<!-- goal2:sec=task -->
 ## 任務全文
 ${task}
 
@@ -337,6 +343,38 @@ function goalVerdictFromTranscript(transcriptPath) {
     else out.verdict = 'unverified';
     out.last_reason = typeof last.reason === 'string' ? last.reason.slice(0, 1500) : null;
   }
+  return out;
+}
+
+/**
+ * 子程序在這個 cwd 起來會載到什麼（給準備階段回報、給 SKILL 判「傳的是不是專案根」）：
+ *   claude_md   cwd 與每一層祖先的 CLAUDE.md／CLAUDE.local.md／.claude/CLAUDE.md（Claude Code 會全部載）
+ *   memory      cwd 對應的自動記憶目錄（~/.claude/projects/<cwd 編碼>/memory/）存不存在、MEMORY.md 幾條；祖先目錄若有而 cwd 沒有 → 多半傳成子目錄了
+ *   plugins     installed_plugins.json 裡 scope=project 且 projectPath 等於 cwd 的 plugin；祖先有而 cwd 沒有 → 同上
+ *   warnings    上述兩種「祖先有、cwd 沒有」的警告
+ */
+function inspectCwd(cwd) {
+  const out = { cwd, claude_md: [], memory: null, ancestor_memory: [], plugins_project_scope: [], ancestor_plugins: [], warnings: [] };
+  try {
+    const chain = []; let d = path.resolve(cwd); for (;;) { chain.push(d); const p = path.dirname(d); if (p === d) break; d = p; }
+    for (const dir of chain) for (const f of ['CLAUDE.md', 'CLAUDE.local.md', path.join('.claude', 'CLAUDE.md')]) { const p = path.join(dir, f); if (fs.existsSync(p)) out.claude_md.push(p); }
+    const projects = path.join(os.homedir(), '.claude', 'projects');
+    const memInfo = (dir) => { const md = path.join(projects, dir.replace(/[^A-Za-z0-9]/g, '-'), 'memory', 'MEMORY.md'); if (!fs.existsSync(md)) return null; const lines = fs.readFileSync(md, 'utf8').split('\n').filter((l) => /^\s*- /.test(l)).length; return { path: md, entries: lines }; };
+    out.memory = memInfo(chain[0]);
+    for (const dir of chain.slice(1)) { const m = memInfo(dir); if (m) out.ancestor_memory.push({ dir, ...m }); }
+    if (!out.memory && out.ancestor_memory.length) out.warnings.push(`cwd 沒有自動記憶，但祖先目錄 ${out.ancestor_memory[0].dir} 有（${out.ancestor_memory[0].entries} 條）——你傳的可能是子目錄，子程序會載不到那份記憶`);
+    try {
+      const ip = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json'), 'utf8'));
+      const norm = (p) => path.resolve(String(p)).toLowerCase();
+      for (const [name, arr] of Object.entries(ip.plugins || {})) for (const e of (Array.isArray(arr) ? arr : [arr])) {
+        if (e.scope !== 'project' || !e.projectPath) continue;
+        const pp = norm(e.projectPath);
+        if (pp === norm(chain[0])) out.plugins_project_scope.push(`${name}@${e.version}`);
+        else if (chain.slice(1).some((a) => norm(a) === pp)) out.ancestor_plugins.push({ dir: e.projectPath, plugin: `${name}@${e.version}` });
+      }
+      if (out.plugins_project_scope.length === 0 && out.ancestor_plugins.length) out.warnings.push(`cwd 沒有 project-scope plugin，但祖先目錄有 ${out.ancestor_plugins.map((x) => x.plugin).join('、')}——子程序載不到它們`);
+    } catch (_) {}
+  } catch (_) {}
   return out;
 }
 
@@ -750,4 +788,4 @@ function detectWtf() {
   return best || { installed: false };
 }
 
-module.exports = { prepareRun, runEngine, stopRun, runStatus, listRuns, findActiveRunsIn, pruneRuns, summarizeStream, locateClaude, detectWtf, extractItems, selfSufficiency, readMeta, writeMeta, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, aliveState, procIdentity, findChildTranscript, goalVerdictFromTranscript, buildEngineArgs, describeStatus, FINISHED_STATUSES };
+module.exports = { prepareRun, runEngine, stopRun, runStatus, listRuns, findActiveRunsIn, pruneRuns, summarizeStream, locateClaude, detectWtf, extractItems, extractContext, extractSection, selfSufficiency, inspectCwd, readMeta, writeMeta, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, aliveState, procIdentity, findChildTranscript, goalVerdictFromTranscript, buildEngineArgs, describeStatus, FINISHED_STATUSES };

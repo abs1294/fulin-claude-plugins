@@ -58,6 +58,8 @@ try {
     return out.join('\n').trim();
   };
   const condition = hasMarkers ? sectionByMarker('condition') : sectionByHeading('## 完成條件');
+  const ctxRaw = hasMarkers ? sectionByMarker('context') : '';
+  const contextSec = ctxRaw.length > 8000 ? ctxRaw.slice(0, 8000) + '\n…（超過 8KB，其餘見系統提示錨定區）' : ctxRaw;
   const itemsRaw = hasMarkers ? sectionByMarker('items') : '';
   const items = itemsRaw.length > 8000 ? itemsRaw.slice(0, 8000) + '\n…（清單超過 8KB，其餘見系統提示錨定區）' : itemsRaw;
   // 任務書若外置（anchor 只放「先去讀某檔」），壓縮後最容易漏的就是那份檔的細節：把錨定區提到的檔案路徑列出來要求重讀
@@ -79,6 +81,7 @@ try {
     '===== 完成條件（逐項皆為真才算達成）=====',
     condition || '（見系統提示錨定區）',
     '',
+    ...(contextSec ? ['===== 脈絡與約束（主 session 已決定的事，以此為準、不要推翻）=====', contextSec, ''] : []),
     ...(items ? ['===== 項目清單（完成條件對著它算，每一項都要處理到）=====', items, ''] : []),
     ...(filePaths.length ? [`===== 任務書外置檔案（壓縮後細節最容易丟，繼續前先重讀）=====`, ...filePaths, ''] : []),
     '===== progress.md（進度帳本，繼續前先讀，做完里程碑要更新）=====',

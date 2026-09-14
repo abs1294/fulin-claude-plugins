@@ -109,7 +109,7 @@ node "<skill_dir>/delaylocal.js" [bufferSeconds] --prompt-file <步驟2的唯一
 # 條件先用 Write 寫進 delaylocal-cond-<時間戳>-<隨機>.txt 再以 --goal-file 傳（含引號／$／反引號／路徑時 --goal "<條件>" 會被 shell 改寫）；一句話純文字的條件才用 --goal "<條件>"
 # 文字模式（少數無法定義可測量條件時）：改帶 --plain、省略 --goal
 ```
-- **`--cwd` 必帶**（goal 模式）：引擎子程序的工作目錄；不帶會退回 Bash 工具當下的 cwd，那會漂移。同一棵工作樹已有活著的 run 不會擋，JSON 的 `active_runs_in_tree` 會列出來，排程回報時一併提醒。**並行時路徑不重疊不代表沒干擾**（共用 DB／測試結果／dev server port／git 工作樹），任務書要寫明本 run 的範圍切分與「別的 run 可能同時在動什麼」。`--stop` 殺不到引擎內用 `&`／nohup 起、已脫離父子鏈的背景服務，停完提醒使用者查 port。
+- **`--cwd` 必帶**（goal 模式），且要是 CLAUDE.md／自動記憶所在的專案根（不是子目錄）：輸出的 `cwd_inspection`／`warnings` 會告訴你子程序載得到哪些 CLAUDE.md、記憶、project-scope plugin；有警告就改傳祖先目錄。任務書同樣要有 `## 脈絡與約束` 節（對話裡已決定的事；沒有只警告）。不帶 `--cwd` 會退回 Bash 工具當下的 cwd，那會漂移。同一棵工作樹已有活著的 run 不會擋，JSON 的 `active_runs_in_tree` 會列出來，排程回報時一併提醒。**並行時路徑不重疊不代表沒干擾**（共用 DB／測試結果／dev server port／git 工作樹），任務書要寫明本 run 的範圍切分與「別的 run 可能同時在動什麼」。`--stop` 殺不到引擎內用 `&`／nohup 起、已脫離父子鏈的背景服務，停完提醒使用者查 port。
 - `bufferSeconds` 預設 900（15 分），可在設定檔 `~/.claude/goal2/config.json` 的 `delaylocal.bufferSeconds` 改預設；要臨時不同緩衝就帶數字（例 `1800`=30 分，CLI 優先於設定檔）。輸出的 `buffer_source` 說明用了哪個（cli / config / default）。
 - 準備成功後工具才刪 `--prompt-file`／`--goal-file`；失敗保留。未知旗標（例 `--cwdd`）直接報錯，不會靜默吃掉。
 - 工具輸出 JSON：`{ ok, plugin_version, plugin_root, sessionId, snapshotKey, resets_at_local, target_local, cron, cron_warning, fire_in_minutes, buffer_seconds, buffer_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, config_path, config_loaded, mode, run_dir, run_command, stop_command, engine, engine_prompt, final_prompt }`。goal 模式時 `run_dir` 已建好、`engine_prompt`（`/goal` 開頭）已落在裡面；plain 模式這三個為 null。

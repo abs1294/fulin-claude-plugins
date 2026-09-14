@@ -39,12 +39,12 @@ function fail(msg) {
 
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
-let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency;
+let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute, crossMonthWarning } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
-  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency } = require(path.join(LIB, 'engine.js')));
+  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
@@ -241,6 +241,7 @@ let runDirOut = null;
 let runCommandOut = null;
 let stopCommandOut = null;
 let activeRunsOut = [];
+let cwdInspectionOut = null;
 if (!plainMode) {
   // === goal 模式（預設）===
   // 第一行 = /goal <完成條件>，把「已發 LINE」納入條件（goal 達成後自動清除、不接後續，
@@ -268,6 +269,7 @@ if (!plainMode) {
    （notify-line.js 走 node https，自動拆多則、可帶中文/emoji。LINE 為選用：有設憑證就發出；未設則自動略過並回 exit 0、不算失敗——報告已寫入暫存檔即視為此步完成，別因為沒收到 LINE 就重試或卡住。）
    最後一則回覆貼上報告全文（主 session 會讀取它當最終回報素材），不要追加任何提問或 offer。`;
   const engineCwd = path.resolve(cwdArg || process.env.CLAUDE_PROJECT_DIR || process.cwd());
+  cwdInspectionOut = inspectCwd(engineCwd);
   const anchor = buildAnchor({
     condition: goalCondition, conditionOverflow: goalOverflow, task: userPrompt, workList, runDir: '<RUN_DIR>', cwd: engineCwd,
     extra: `報告格式（步驟 3 用，嚴格照填、不增不減）：
@@ -361,6 +363,12 @@ console.log(JSON.stringify({
   active_runs_in_tree: activeRunsOut,
   items_count: suff.items_count,
   has_items_section: suff.has_items,
+  has_context_section: suff.has_context,
+  warnings: plainMode ? [] : [
+    ...(suff.has_context ? [] : ['任務書沒有「## 脈絡與約束」節：引擎到點時看不到本對話，對話裡已決定的事它不會知道——建議補上再排程']),
+    ...((cwdInspectionOut && cwdInspectionOut.warnings) || [])
+  ],
+  cwd_inspection: cwdInspectionOut,
   grill: cfg.config.goal.grill,
   engine: cfg.config.engine,
   engine_prompt: enginePrompt,
