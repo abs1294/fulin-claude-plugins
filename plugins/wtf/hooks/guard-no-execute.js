@@ -103,6 +103,9 @@ if (toolName === 'Bash' || toolName === 'PowerShell') {
     /^\s*Start-Process\b/i,                    // PowerShell 開檔
     /^\s*(open|xdg-open)\s+/,                  // macOS / Linux 開檔
     /archify\.mjs\s+(doctor|guide|validate|deliver)\b/, // archify 產圖
+    // 量終端機寬度的標尺腳本。寬度閘擋下調用後會叫模型跑它，
+    // 不放行的話兩個閘會互鎖：寬度閘要它量寬度，本閘不准它跑量寬度的東西。
+    /\bruler\.js["']?(\s|$)/,
   ];
   if (ALLOWED.some((re) => re.test(cmd))) process.exit(0);
   block('Bash', cmd.slice(0, 120));
