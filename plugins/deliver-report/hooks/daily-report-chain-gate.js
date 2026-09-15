@@ -13,7 +13,7 @@
  *       ——補舊日報是使用者的選擇，不該卡住他結束對話。
  *   其他 / 任何不確定 / 失敗            → 放行
  *
- * 觸發條件：本回合（最後一個 promptId 的區段）真的跑過 daily-report 的腳本才啟動。
+ * 觸發條件：本回合（最後一則使用者輸入之後的區段）真的跑過 daily-report 的腳本才啟動。
  *   不是「session 曾經跑過」——抄 doc-readability-gate 的教訓：用後者會讓
  *   跑過一次日報之後的每一句話都被檢查，連寫程式的對話都跳出來講日報。
  *
@@ -227,9 +227,15 @@ function touchedDailyReportThisTurn(tp) {
   return false;
 }
 
-// 取本回合（最後一個 user promptId 之後）的所有 tool_use block。
-// 抄 doc-readability-gate 的做法：用 promptId 切回合，不用「最後 N 行」
-// （一個回合可能有數十次工具往返，行數不固定）。
+// 取本回合（最後一則使用者輸入之後）的所有 tool_use block。
+//
+// ★ 切回合用行位置，不能拿 promptId 去比對 assistant 行。實測本機 transcript
+//   （2026-09-15，Claude Code 2.x）：**assistant 行沒有 promptId 欄位**——
+//   65 個 tool_use 全部沒有，只有工具回傳所在的 user 行有。舊版用
+//   `o.promptId !== pid` 過濾，結果一個 tool_use 都抓不到，(A)(B) 兩條判定
+//   形同全滅；而語法檢查與靜態掃描全部會過——只有實跑抓得到。
+//
+// 起點判準見 isUserPromptLine()（三個條件缺一不可，各有實測重現的失效案例）。
 let _turnCache = undefined;
 function turnToolUses(tp) {
   if (_turnCache !== undefined) return _turnCache;
@@ -239,21 +245,23 @@ function turnToolUses(tp) {
   try { raw = fs.readFileSync(tp, 'utf8'); } catch (_) { return null; }
 
   const lines = raw.split('\n');
-  let pid = null;
+  let start = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i]) continue;
     let o;
     try { o = JSON.parse(lines[i]); } catch (_) { continue; }
-    if (o && o.type === 'user' && o.promptId) { pid = o.promptId; break; }
+    if (isUserPromptLine(o)) { start = i; break; }
   }
-  if (!pid) return null;
+  if (start < 0) return null;
 
   const out = [];
-  for (const l of lines) {
-    if (!l || l.indexOf(pid) === -1) continue;   // 字串快篩，避免每行 JSON.parse
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l) continue;
     let o;
     try { o = JSON.parse(l); } catch (_) { continue; }
-    if (o.promptId !== pid) continue;
+    if (!o || typeof o !== 'object') continue;   // 合法 JSON 的 null/字串/數字：防 TypeError
+    if (o.isSidechain === true) continue;        // subagent 的呼叫不算本回合
     const c = o.message && o.message.content;
     if (!Array.isArray(c)) continue;
     for (const b of c) if (b && b.type === 'tool_use') out.push(b);
@@ -342,6 +350,29 @@ function ackGaps(cwd, dates, sched) {
     }
   } catch (_) { /* 寫不進去下輪會再問一次，不影響正確性 */ }
   return out;
+}
+
+/**
+ * 這一行是不是「真正的使用者輸入」＝ 本回合的起點。
+ *
+ * 三個條件都不可少（2026-09-15 對抗審查後補強，三項皆已實測重現）：
+ *   1. type==='user' 且有 promptId
+ *   2. **沒有 toolUseResult 這個「欄位」**——用 `in` 判存在，不能用 `!o.toolUseResult`
+ *      判真假值：實測 `toolUseResult: null` 的工具回傳行會被假值判定誤當成使用者輸入，
+ *      於是起點落在工具回傳上，本回合前半段的 tool_use 全被漏掉。
+ *   3. **不是 sidechain**——subagent 的 user 行若當上起點，主線的 tool_use 會被切在
+ *      起點之前而漏掉。收集階段跳過 isSidechain 還不夠，起點搜尋也要排除。
+ *
+ * 另外對 o 做完整防護：transcript 裡若出現一行合法 JSON 的 `null`（或字串、陣列），
+ * `o.type` 會直接拋 TypeError。雖然外層 try/catch 會接住而 fail-open（exit 0），
+ * 但那代表**這支閘從該行起靜默停止檢查**——正是本 plugin 最想避免的失效形狀。
+ */
+function isUserPromptLine(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+  if (o.type !== 'user' || !o.promptId) return false;
+  if ('toolUseResult' in o) return false;
+  if (o.isSidechain === true) return false;
+  return true;
 }
 
 function safeStr(x) { return typeof x === 'string' ? x : ''; }

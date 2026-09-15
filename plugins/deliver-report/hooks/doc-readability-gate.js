@@ -23,7 +23,7 @@
  *              實測全組 19 條、28 個誘餌全部誤判，逐條加負向前瞻是打地鼠
  *              （對「本司」加了兩次排除仍漏「本司令」）。故**掃描但只提醒、不擋**
  *
- * 觸發條件：本回合（最後一個 promptId 的區段）有調用 deliver-report skill 才啟動。
+ * 觸發條件：本回合（最後一則使用者輸入之後的區段）有調用 deliver-report skill 才啟動。
  *   ——不是「session 動過 docx」。舊版用後者，導致改過文件之後每一句話都跑檢查、
  *   連跟文件無關的對話都被擋。交付檢查該綁「交付動作」，不是綁「檔案存在」。
  *
@@ -168,26 +168,34 @@ function calledSkillThisTurn(tp) {
   try { raw = fs.readFileSync(tp, 'utf8'); } catch (_) { return null; }
 
   const lines = raw.split('\n');
-  // 由後往前找最後一個 user 訊息的 promptId——那是本回合的起點。
-  // 用 promptId 而不是「最後 N 行」：一個回合可能有數十次工具往返，行數不固定。
-  let pid = null;
+  // 由後往前找最後一則「真正的使用者輸入」——那是本回合的起點，之後的行都算本回合。
+  //
+  // ★ 切回合用行位置，不能拿 promptId 去比對 assistant 行。實測本機 transcript
+  //   （2026-09-15，Claude Code 2.x）：**assistant 行沒有 promptId 欄位**——
+  //   65 個 tool_use 全部沒有，只有工具回傳所在的 user 行有。舊版用
+  //   `o.promptId !== pid` 過濾，結果一個 tool_use 都抓不到，本 hook 形同沒作用；
+  //   而語法檢查與靜態掃描全部會過——只有實跑抓得到。
+  //
+  // 起點判準見 isUserPromptLine()（三個條件缺一不可，各有實測重現的失效案例）。
+  let start = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
     const l = lines[i];
     if (!l) continue;
     let o;
     try { o = JSON.parse(l); } catch (_) { continue; }
-    if (o && o.type === 'user' && o.promptId) { pid = o.promptId; break; }
+    if (isUserPromptLine(o)) { start = i; break; }
   }
-  if (!pid) return null;
+  if (start < 0) return null;
 
-  for (const l of lines) {
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i];
     if (!l) continue;
     // 先用字串快篩，避免每行都 JSON.parse（transcript 可達數十 MB）
-    if (l.indexOf(pid) === -1) continue;
     if (!GATED_SKILLS.some((n) => l.indexOf(n) !== -1)) continue;
     let o;
     try { o = JSON.parse(l); } catch (_) { continue; }
-    if (o.promptId !== pid) continue;
+    if (!o || typeof o !== 'object') continue;   // 合法 JSON 的 null/字串/數字：防 TypeError
+    if (o.isSidechain === true) continue;   // subagent 的呼叫不算本回合
     const c = o.message && o.message.content;
     if (!Array.isArray(c)) continue;
     for (const b of c) {
@@ -417,3 +425,26 @@ function readDocXml(file) {
 function strip(x) { return x.replace(/<[^>]+>/g, ''); }
 
 // ---------- 擋次計數 ----------
+
+/**
+ * 這一行是不是「真正的使用者輸入」＝ 本回合的起點。
+ *
+ * 三個條件都不可少（2026-09-15 對抗審查後補強，三項皆已實測重現）：
+ *   1. type==='user' 且有 promptId
+ *   2. **沒有 toolUseResult 這個「欄位」**——用 `in` 判存在，不能用 `!o.toolUseResult`
+ *      判真假值：實測 `toolUseResult: null` 的工具回傳行會被假值判定誤當成使用者輸入，
+ *      於是起點落在工具回傳上，本回合前半段的 tool_use 全被漏掉。
+ *   3. **不是 sidechain**——subagent 的 user 行若當上起點，主線的 tool_use 會被切在
+ *      起點之前而漏掉。收集階段跳過 isSidechain 還不夠，起點搜尋也要排除。
+ *
+ * 另外對 o 做完整防護：transcript 裡若出現一行合法 JSON 的 `null`（或字串、陣列），
+ * `o.type` 會直接拋 TypeError。雖然外層 try/catch 會接住而 fail-open（exit 0），
+ * 但那代表**這支閘從該行起靜默停止檢查**——正是本 plugin 最想避免的失效形狀。
+ */
+function isUserPromptLine(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+  if (o.type !== 'user' || !o.promptId) return false;
+  if ('toolUseResult' in o) return false;
+  if (o.isSidechain === true) return false;
+  return true;
+}
