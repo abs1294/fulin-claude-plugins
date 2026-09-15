@@ -2,6 +2,41 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.14.0] - 2026-09-15
+### Added
+- **易讀性鐵則 14：稱呼對方一律用「您們」（單人「您」），不用公文式敬稱**。禁用貴司／貴公司／貴中心／貴單位／貴部門／貴部／貴院／貴局／貴處／貴校／貴廠／貴組／貴方／您司，自稱不用敝司／敝公司／敝中心／本司／本中心，改寫「我們」。需要指名單位時直接寫單位名稱（「資訊室」「桃園廠」），不加「貴」字。理由：這類敬稱是公文腔、讀起來有距離感，交付訊息與報告要像人講話。使用者原話：「我很不喜歡看到 貴中心，貴司 這種稱呼，就用您們就好了，比較親近」。
+- `references/banned-patterns.json` 新增 `formal_honorifics` 組（19 條，`applies_to: ["docx","daily"]`），**歸 ADVISORY：掃描並提醒，但不擋交付**。
+- 鐵則 8 必掃表新增第 9 項（公文式敬稱，標明「＝提醒，不擋」，要求逐一判斷是敬稱還是正常詞）。
+- `skills/deliver-report/SKILL.md`「術語密度」節新增稱呼條款；`fable-quote` plugin 同步加入同一條規範並修掉範例裡的「貴司」。
+
+### Changed
+- **`hooks/doc-readability-gate.js`：`scan()` 回傳由 `bad[]` 改為 `{bad, notes}`，新增 warn／block 分流**。判得準的硬缺陷進 `bad` → `block`（維持原行為）；判不準的進 `notes` → `warn`（`systemMessage`，不擋結束）。敬稱命中集中收集、去重後**併成一行**輸出（每條 pattern 各自成 group，逐條回報會吐十幾行幾乎相同的訊息）。
+- **`skills/daily-report/scripts/content_guard.py`：新增 `ADVISORY_KEYS` / `ADVISORY_GROUPS` 與 `split_hits()`**，敬稱命中不計入 `hits`、不影響 exit code，改以 `⚠ 提醒（不擋寄送）` 輸出；`--json` 模式新增 `advisory` 欄位與 `hits` 分離。
+  - **判定以 `banned-patterns.json` 的「鍵」（`formal_honorifics`）為準，不是 label 的中文字面值**。初版寫死 `ADVISORY_GROUPS = {"公文式敬稱"}`，只要有人把 label 改成「公文式敬稱（提醒）」就會**靜默退回硬閘**、毫無錯誤訊息（Node 端一開始就用 key 比對，Python 端本次比照）。實測：改 label 後 `ADVISORY_GROUPS` 自動跟著變、敬稱仍 exit 0。
+  - `suggest_aliases()` 跳過 advisory 組——否則標題「成本中心改版」的日報會被問「這個專案對外要怎麼稱呼？」，而那是誤判。
+- **`content_guard.py --selftest`：5 個情境（乾淨／敬稱只提醒／誤判詞不該擋／真禁字要擋／混合）＋ 3 項耦合檢查**（ADVISORY_GROUPS 由 JSON 鍵推導、suggest_aliases 跳過 advisory、且沒跳過頭讓真禁字標題漏報）。照 `report_gate.py --selftest` 的既有慣例。
+  - 存在理由：本輪的缺陷**全部不在正則本身，而在跨函式耦合**——label 字串耦合、`suggest_aliases` 掃到 advisory 組、常數定義順序覆蓋 loader 賦值。三者都通過語法檢查與單點實跑，只有整組情境一起跑才抓得到。改 `BANNED` 形狀後請重跑。
+  - **自測本身經反向驗證**：故意移除 `suggest_aliases` 的 advisory 跳過 → 紅 1 項；故意清空 `ADVISORY_KEYS`（等同改回硬閘）→ 紅 7 項；還原後恢復綠。不是裝飾性測試。
+- `skills/daily-report/scripts/send_common.py`：`assert_content_clean()` docstring 補敬稱例外（原寫「無豁免」）。`_run_gate` 只看 returncode、成功時轉印 stdout，**這條路徑天然相容**：提醒會顯示給使用者且不中止寄送，實跑驗證過。
+- `skills/daily-report/SKILL.md` 與 plugin `README.md` 補「公文式敬稱只提醒、不擋寄送」的例外說明（原本寫「不可豁免」「命中 exit 1」，對敬稱組已不成立）。
+- 全 repo 計數同步：「十三條鐵則」→「十四條」（7 處，含根 README.md）、鐵則 8 的「五項必掃」→「九項必掃」（第 6~8 項早於本次就已加入、標題未同步，本次擴大落差故一併修）。根 README.md 的 deliver-report 條目另修「三個 skill」→「四個 skill」（漏列 to-questionnaire，屬既有落差）。
+
+### Notes
+- **為什麼是提醒而不是硬閘（初版判斷錯誤，已推翻）**：初稿把這組寫成「固定字串、沒有語意歧義，搜到就是要改」並做成硬閘。審查時實跑，**全組 19 條、28 個誘餌測試全部誤判**——`貴司`→「貴司機」、`本中心`→「**成本中心**」（ERP／會計標準名詞）、`本司`→「本司法／本司令」、`貴方`→「貴方案／貴方向」。逐條加負向前瞻是打地鼠（對 `本司` 加了兩次排除仍漏「本司令」）；改用右界限定（後接標點或助詞）則漏抓 15/19，連「貴司查收」都放掉。**中文沒有詞邊界，這組詞無法用正則可靠判準**，故照鐵則 13 的同一判準處置：誤判會訓練使用者忽略警告，比漏抓更難補救。
+- **`該中心`／`該單位` 不列入**：它們是第三人稱指稱（「該單位已於上週回覆」講的是不在場的第三方），改成「您們」會變更語意。歸鐵則 14 的邊界條款靠自檢。
+- **判準的邊界**：這條管的是**面向對方的稱呼**。說明理由或引述第三方視角時出現的「你們」（例：「出事後歸因會是『你們沒講』」）不是稱呼，不在禁用清單也不在閘裡。
+- **這次的教訓**：把「我認為不會誤判」寫進 note 與鐵則正文當成事實，被實跑推翻兩次（第一次漏 `本司法`，補了前瞻後第二次仍漏 `成本中心`）。**判斷某組樣式能不能進硬閘，必須先跑誤判測試集**——正常中文的必放行案例，而且要對**整組**跑，不是只對被點名的那一條。
+- **已知落差（既有問題，不在本次修，記錄以免遺忘）**：
+  - `skills/daily-report/docs/daily-report-flow.html` 的「內容閘」節點仍標 `不可豁免`（3 處）。該標籤對 AI／憑證／個資組仍然成立，只有敬稱組是例外；那是 826 KB 的產生式 HTML，硬改風險高於收益。
+  - **`send_common._run_gate` 在 cp950 主控台會 `UnicodeEncodeError`**：`sys.stdout.write(r.stdout)` 轉印閘輸出時，`✓` 等字元在預設繁中 Windows 主控台編不出來。**對任何日報都會發生（包括完全乾淨、無敬稱的）**，且該函式與 HEAD 逐位元組相同——是既有缺陷、非本次引入，但會讓實際寄送在預設主控台掛掉，值得另案修（包一層 encoding-safe write，或設 `PYTHONIOENCODING`）。
+  - `fable-quote` bump 到 0.2.0 但該 plugin 沒有 CHANGELOG.md（本來就沒有），其異動只記在本檔。
+- 驗證方式（全部實跑，非讀碼）：
+  - Node 端三情境：敬稱→WARN、成本中心→WARN、乾淨→ALLOW
+  - Python 端四情境 exit code：敬稱 0、成本中心 0、乾淨 0、真禁字「Claude」**1**（硬閘仍有效）
+  - **整條寄送路徑** `send_common.assert_content_clean()`：前三者不中止且提醒正確轉印、真禁字中止 code=3
+  - label 改名情境：改成「公文式敬稱（提醒）」後仍正確歸 advisory
+  - `suggest_aliases` 誤判情境：標題「成本中心改版」＋真禁字 → `need_alias: []`、`passed: False`
+
 ## [0.13.0] - 2026-09-14
 ### Changed（test-report-docx）
 - **`test-report-docx` 測試結果版面改為「總覽表＋逐項展開」，廢除舊的「測試表一節、實測畫面一節」**。舊版面把情境與它的證據放在文件兩處，中間只靠圖說那句「對應第 N 項」牽線——單向、無約束，於是「情境 7 沒有任何圖」「圖 9 對不到任何情境」在版面上看不出來（表是滿的、圖也是滿的），只有讀者交叉比對才會發現。**分兩節是對不上的成因，不是表現**，加欄位或加掃描都只是讓錯誤比較容易被抓到，不是讓它不會發生。

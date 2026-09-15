@@ -73,7 +73,9 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/extract_sessions.py" -
 python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/content_guard.py" <報告.md> [--project <目錄>]
 ```
 
-**日報是對外文件，不得出現任何 AI / 工具鏈痕跡**（AI、Claude、plugin、prompt、agent、token、紅藍對抗、自動彙整…）。這道閘在寄送腳本裡也會再跑一次且**不可豁免**，所以與其被擋再改，不如寫完就先自檢。
+**日報是對外文件，不得出現任何 AI / 工具鏈痕跡**（AI、Claude、plugin、prompt、agent、token、紅藍對抗、自動彙整…）。這道閘在寄送腳本裡也會再跑一次且**不可豁免（公文式敬稱組除外，見下）**，所以與其被擋再改，不如寫完就先自檢。
+
+> **例外：公文式敬稱（易讀性鐵則 14）只提醒、不擋寄送**。「貴司／貴中心／本中心」這類敬稱命中時會印 `⚠ 提醒（不擋寄送）`，exit code 仍為 0——因為中文沒有詞邊界，「貴司機」「成本中心」「本司法」都會誤命中，擋下去會訓練使用者忽略警告。看到提醒請自己判斷：是敬稱就改「您們」，是正常詞就忽略。
 
 命中時照它印的改寫原則重寫——**站在收件人角度寫「做了什麼、產出是什麼」，不寫用什麼工具做的**：
 

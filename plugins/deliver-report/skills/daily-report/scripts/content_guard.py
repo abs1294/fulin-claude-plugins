@@ -93,6 +93,19 @@ BANNED = {
 # 為什麼要共用：兩支閘掃描對象不同（.md vs .docx）、語言不同（Python vs Node），
 # 但「什麼不該外洩」是同一件事；各留一份必然漂移。
 # 為什麼保留 fallback：寄送前的閘不該因為少一個檔就整個失效。
+# ---- 只提醒、不擋寄送的組 ----
+# 理由：中文沒有詞邊界，「貴司」命中「貴司機」、「本中心」命中「成本中心」
+# （ERP/會計標準名詞）、「本司」命中「本司法／本司令」。實測全組 19 條、
+# 28 個誘餌全部誤判，逐條加負向前瞻是打地鼠；誤判會訓練使用者忽略警告，
+# 比漏抓更難補救——故降為 advisory（照易讀性鐵則 13 的同一判準）。
+#
+# ★ 判定以 banned-patterns.json 的「鍵」為準（ADVISORY_KEYS），不是顯示用的
+#   label 中文字面值——否則有人改了 label，這裡會靜默退回硬閘且毫無錯誤訊息。
+#   ADVISORY_GROUPS 存的是實際的 group 名（label），由 _load_shared_banned()
+#   依 ADVISORY_KEYS 推導；讀不到共用檔時才用下面的內建預設值。
+ADVISORY_KEYS = {"formal_honorifics"}
+ADVISORY_GROUPS = {"公文式敬稱"}
+
 _SHARED_PATTERNS = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))),
@@ -108,6 +121,7 @@ def _load_shared_banned():
         return None
 
     out = {}
+    advisory_names = set()
     for key, g in j.items():
         if key.startswith("_") or not isinstance(g, dict):
             continue
@@ -117,7 +131,12 @@ def _load_shared_banned():
             for sub, pats in g["subgroups"].items():
                 out.setdefault(sub, []).extend(pats)
         elif g.get("patterns"):
-            out.setdefault(g.get("label", key), []).extend(g["patterns"])
+            name = g.get("label", key)
+            out.setdefault(name, []).extend(g["patterns"])
+            # 以 JSON 的「鍵」判定是否只提醒，不是以顯示用的 label。
+            # 否則有人改了 label 的中文字面值，這裡會靜默退回硬閘而毫無錯誤訊息。
+            if key in ADVISORY_KEYS:
+                advisory_names.add(name)
 
     # 逐條驗證可編譯——壞的略過，不讓一條爛 pattern 廢掉整份
     clean = {}
@@ -125,7 +144,9 @@ def _load_shared_banned():
         ok = [pt for pt in pats if _compilable(pt)]
         if ok:
             clean[k] = ok
-    return clean or None
+    if not clean:
+        return None
+    return clean, {n for n in advisory_names if n in clean}
 
 
 def _compilable(pattern):
@@ -138,7 +159,8 @@ def _compilable(pattern):
 
 _shared = _load_shared_banned()
 if _shared:
-    BANNED = _shared
+    BANNED, _shared_advisory = _shared
+    ADVISORY_GROUPS = _shared_advisory or ADVISORY_GROUPS
 
 
 # 這些是「看起來像但其實合法」的情況，預設放行（可被 config 的 allow 擴充）。
@@ -191,7 +213,11 @@ def suggest_aliases(text, cfg):
         title = s.lstrip("#").strip()
         if not title or title in aliases:
             continue
-        for patterns in BANNED.values():
+        # 只看「會擋寄送」的組。敬稱組屬 advisory，且本身就會誤判
+        # （標題「成本中心改版」不該被問「這個專案對外要怎麼稱呼」）。
+        for group, patterns in BANNED.items():
+            if group in ADVISORY_GROUPS:
+                continue
             if any(re.search(p, title, re.IGNORECASE) for p in patterns):
                 if title not in found:
                     found.append(title)
@@ -219,6 +245,13 @@ def scan(text, cfg=None):
                         continue
                     hits.append((lineno, group, word, line.strip()))
     return hits
+
+
+def split_hits(hits):
+    """把 scan() 的命中拆成「擋寄送」與「只提醒」兩堆（見 ADVISORY_GROUPS）。"""
+    blocking = [h for h in hits if h[1] not in ADVISORY_GROUPS]
+    advisory = [h for h in hits if h[1] in ADVISORY_GROUPS]
+    return blocking, advisory
 
 
 def main():
@@ -267,19 +300,36 @@ def main():
         text = fh.read()
 
     cfg = load_guard_config(args.project)
-    hits = scan(text, cfg)
+    all_hits = scan(text, cfg)
+    hits, advisory = split_hits(all_hits)
     need_alias = suggest_aliases(text, cfg) if hits else []
+
+    def _advisory_lines(stream):
+        """印出只提醒的命中（不影響 exit code）。"""
+        if not advisory:
+            return
+        words = []
+        for _, _, w, _ in advisory:
+            if w not in words:
+                words.append(w)
+        print(chr(10) + "⚠ 提醒（不擋寄送）：偵測到公文式敬稱 「{}」".format("」「".join(words)),
+              file=stream)
+        print("  建議改用「您們」（單人「您」），自稱用「我們」。", file=stream)
+        print("  若是「貴司機／成本中心／本司法」這類正常詞彙，請忽略本提醒。", file=stream)
 
     if args.json:
         print(json.dumps({"passed": not hits,
                           "hits": [{"line": l, "group": g, "word": w, "text": t}
                                    for l, g, w, t in hits],
+                          "advisory": [{"line": l, "group": g, "word": w, "text": t}
+                                       for l, g, w, t in advisory],
                           "need_alias": need_alias},
                          ensure_ascii=False, indent=2))
         sys.exit(1 if hits else 0)
 
     if not hits:
         print("✓ 內容檢查通過：未出現 AI / 工具鏈相關描述")
+        _advisory_lines(sys.stdout)
         sys.exit(0)
 
     print("✗ 日報含不得對外出現的用語，已拒絕寄送（{} 處）：".format(len(hits)), file=sys.stderr)
@@ -308,8 +358,70 @@ def main():
         print("    python content_guard.py --set-alias \"<原名>\" \"<對外別名>\""
               " [--project <專案目錄>]", file=sys.stderr)
         print("  登記後下次產日報直接用別名，使用者不必再被問一次。", file=sys.stderr)
+
+    _advisory_lines(sys.stderr)
     sys.exit(1)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 自測：python content_guard.py --selftest
+#   驗的是「閘擋該擋的、放行該放的」，不是「程式跑得動」。
+#
+#   為什麼需要這支：本組閘的缺陷從來不在正則本身，而在**跨函式耦合**——
+#   ADVISORY_GROUPS 與 JSON label 的字串耦合、suggest_aliases 掃到 advisory 組、
+#   常數定義順序覆蓋 loader 賦值。這三個都通過語法檢查與單點實跑，
+#   只有把「整組情境一起跑」才抓得到。改 BANNED 形狀後請重跑這支。
+# ══════════════════════════════════════════════════════════════════════
+
+NL = chr(10)   # 不寫字面跳脫序列：以工具產檔時會被寫成兩個字元
+
+_SELFTEST_CASES = [
+    # (名稱, 內文, 預期 blocking 命中, 預期 advisory 命中)
+    ("乾淨", "完成報表模組開發。" + NL + "交付給您們的檔案共五份。", False, False),
+    ("敬稱只提醒", "本次交付請貴司查收，敝司另附明細。", False, True),
+    ("誤判詞不該擋", "本日完成成本中心代碼調整，本司法解釋已釐清。", False, True),
+    ("真禁字要擋", "使用 Claude 協助完成開發。", True, False),
+    ("混合：擋且提醒", "使用 Claude 開發，請貴司查收。", True, True),
+]
+
+
+def _selftest():
+    failed = []
+
+    for name, body, want_block, want_adv in _SELFTEST_CASES:
+        blocking, advisory = split_hits(scan(body))
+        if bool(blocking) != want_block:
+            failed.append("{}：blocking 應為 {} 實為 {}（{}）".format(
+                name, want_block, bool(blocking),
+                "、".join(sorted({w for _, _, w, _ in blocking})) or "無"))
+        if bool(advisory) != want_adv:
+            failed.append("{}：advisory 應為 {} 實為 {}".format(
+                name, want_adv, bool(advisory)))
+
+    # advisory 組必須由 JSON 的「鍵」推導——寫死 label 字面值會在改名時靜默失效
+    if _shared and "公文式敬稱" not in ADVISORY_GROUPS:
+        failed.append("ADVISORY_GROUPS 未包含敬稱組（共用檔載入後）")
+
+    # suggest_aliases 不該對 advisory 組的命中要求別名
+    need = suggest_aliases("## 成本中心改版" + NL + NL + "使用 Claude 開發。", {})
+    if need:
+        failed.append("suggest_aliases 對 advisory 命中要了別名：{}".format(need))
+
+    # 真禁字在標題時仍要提報別名（確認上一條沒有改過頭）
+    need2 = suggest_aliases("## Claude 平台改版" + NL + NL + "內容。", {})
+    if not need2:
+        failed.append("suggest_aliases 對真禁字標題未提報別名（改過頭）")
+
+    if failed:
+        print("✗ 自測未通過（{} 項）：".format(len(failed)), file=sys.stderr)
+        for f in failed:
+            print("  - " + f, file=sys.stderr)
+        sys.exit(1)
+    print("✓ 自測通過：{} 個情境 + 3 項耦合檢查".format(len(_SELFTEST_CASES)))
+    sys.exit(0)
+
+
 if __name__ == "__main__":
+    if "--selftest" in sys.argv:
+        _selftest()
     main()

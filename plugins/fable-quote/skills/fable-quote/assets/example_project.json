@@ -91,7 +91,7 @@
     }
   ],
 
-  "project_definition": "本專案於貴司新建之前端環境（React.js + 手刻元件 + Tailwind CSS），擴充生產現場核心作業功能——Lot 進站（Check-in）、Lot 過站（Check-out）與案件狀態切換，含其操作進入點、動態確認視窗（Modal）、狀態檢核、通用 UI 元件與資料更新邏輯，並遵循「不硬性阻擋、點擊後檢核」之互動設計與 i18n 多語系規範。本案不變動任何舊系統原始碼。",
+  "project_definition": "本專案於您們既有之前端環境（React.js + 手刻元件 + Tailwind CSS），擴充生產現場核心作業功能——Lot 進站（Check-in）、Lot 過站（Check-out）與案件狀態切換，含其操作進入點、動態確認視窗（Modal）、狀態檢核、通用 UI 元件與資料更新邏輯，並遵循「不硬性阻擋、點擊後檢核」之互動設計與 i18n 多語系規範。本案不變動任何舊系統原始碼。",
 
   "payment_schedule": [
     "請款分二期，各為總預算之 50%：",

@@ -16,6 +16,7 @@ node_modules/
 # 編輯備份不進 git（含 .bak-xxx 變體，如 .bak-prunefix）
 *.bak
 *.bak-*
+*.bak[0-9]
 
 # Python 編譯快取（我的測試執行產生的，不進 git）
 __pycache__/

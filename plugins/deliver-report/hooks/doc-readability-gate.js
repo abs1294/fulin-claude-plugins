@@ -18,6 +18,10 @@
  *   鐵則 1 兩邊對照 / 2 資訊放一起 / 6 能自查卻丟給讀者 / 10 該腳本化
  *   鐵則 13 內部推導痕跡：同一個金額在「折後 320,000」要擋、在「總價 320,000」是
  *              必要欄位，正則分不出——誤判會訓練使用者忽略警告，比漏抓難補救
+ *   鐵則 14 公文式敬稱：中文沒有詞邊界，「貴司」命中「貴司機」、「本中心」命中
+ *              「成本中心」（ERP/會計標準名詞）、「本司」命中「本司法/本司令」。
+ *              實測全組 19 條、28 個誘餌全部誤判，逐條加負向前瞻是打地鼠
+ *              （對「本司」加了兩次排除仍漏「本司令」）。故**掃描但只提醒、不擋**
  *
  * 觸發條件：本回合（最後一個 promptId 的區段）有調用 deliver-report skill 才啟動。
  *   ——不是「session 動過 docx」。舊版用後者，導致改過文件之後每一句話都跑檢查、
@@ -47,6 +51,7 @@ function writeThenExit(obj) {
 }
 function block(reason) { writeThenExit({ decision: 'block', reason }); }
 function warn(msg) { writeThenExit({ systemMessage: msg }); }
+const NL = String.fromCharCode(10);   // 避免以工具寫檔時跳脫序列被寫成字面值
 
 function main(raw) {
   let payload = {};
@@ -61,14 +66,29 @@ function main(raw) {
   const docs = recentDocx(cwd);
   if (!docs.length) return allow();
 
-  let findings = [];
+  let findings = [];    // 擋下用
+  let advisories = [];  // 只提醒用
   for (const d of docs) {
     let r;
     try { r = scan(d); } catch (_) { continue; }   // 單檔失敗 → 略過該檔
-    if (r && r.length) findings.push({ file: path.basename(d), items: r });
+    if (!r) continue;
+    const name = path.basename(d);
+    if (r.bad && r.bad.length) findings.push({ file: name, items: r.bad });
+    if (r.notes && r.notes.length) advisories.push({ file: name, items: r.notes });
   }
 
-  if (!findings.length) return allow();
+  // 沒有硬缺陷時：有提醒就 warn（不擋），否則直接放行。
+  // 為什麼分流：誤判會訓練使用者忽略警告，比漏抓更難補救——所以判不準的只提醒。
+  if (!findings.length) {
+    if (!advisories.length) return allow();
+    const w = ['【交付前提醒】以下是判不準的項目，請自行確認（不影響結束）：', ''];
+    for (const a of advisories) {
+      w.push(`■ ${a.file}`);
+      for (const it of a.items) w.push(`   · ${it}`);
+      w.push('');
+    }
+    return warn(w.join(NL));
+  }
 
   const lines = [];
   lines.push('【交付前機械閘】文件易讀性檢查未通過，請修正後再結束：');
@@ -76,6 +96,13 @@ function main(raw) {
   for (const f of findings) {
     lines.push(`■ ${f.file}`);
     for (const it of f.items) lines.push(`   · ${it}`);
+    lines.push('');
+  }
+  if (advisories.length) {
+    lines.push('另有判不準的提醒（不擋，請自行確認）：');
+    for (const a of advisories) {
+      for (const it of a.items) lines.push(`   · ${a.file}：${it}`);
+    }
     lines.push('');
   }
   lines.push('依據：deliver-report plugin 的 references/document-readability.md');
@@ -108,7 +135,7 @@ function loadBanned() {
         // (?i) 前綴轉成 JS 的 i flag（JS 不支援行內 (?i)）
         let flags = 'g', body = src;
         if (body.startsWith('(?i)')) { body = body.slice(4); flags += 'i'; }
-        try { groups.push({ label: g.label || key, re: new RegExp(body, flags) }); }
+        try { groups.push({ key, label: g.label || key, re: new RegExp(body, flags) }); }
         catch (_) { /* 單一 pattern 壞掉 → 略過該條，不影響其餘 */ }
       }
     }
@@ -206,7 +233,8 @@ function scan(file) {
   const text = paras.map(strip);
   const full = text.join('\n');
 
-  const bad = [];
+  const bad = [];     // 擋下：判得準的硬缺陷
+  const notes = [];   // 只提醒：判不準、誤判成本高於漏抓的（見檔頭分類）
 
   // ---- 鐵則 5：異動紀錄用語（清單來自共用檔）----
   const hitBanned = BANNED.literals.filter(w => full.includes(w));
@@ -215,17 +243,28 @@ function scan(file) {
   // ---- 憑證與個資（共用檔的 credentials / pii）----
   // 交付文件同樣會夾帶：截圖說明、資料修正紀錄、參數對照表都是常見落點。
   // 命中一律遮蔽值本身再回報——訊息會出現在終端機，不該把憑證再印一次。
+  const honorifics = [];   // 敬稱命中集中收集，最後併成一行（每條 pattern 各自成 group）
   for (const g of BANNED.groups) {
     let m;
     g.re.lastIndex = 0;
     const hits = [];
+    const raw = [];
     while ((m = g.re.exec(full)) !== null) {
       const v = m[0];
+      if (!raw.includes(v)) raw.push(v);
       hits.push(v.length > 12 ? v.slice(0, 4) + '…' + v.slice(-2) : v.slice(0, 2) + '…');
       if (hits.length >= 3) break;
       if (m.index === g.re.lastIndex) g.re.lastIndex++;   // 零寬匹配防呆
     }
-    if (hits.length) bad.push(`${g.label}：疑似 ${hits.join('、')}（已遮蔽，請確認是否該出現在交付文件）`);
+    if (hits.length) {
+      // 敬稱不是機密，遮蔽了反而看不出要改哪個詞 → 這組原文照印並直接給改法。
+      if (g.key === 'formal_honorifics') {
+        // 只提醒不擋：詞邊界問題會誤判（貴司機／成本中心／本司法），見檔頭說明。
+        honorifics.push(...raw);
+      } else {
+        bad.push(`${g.label}：疑似 ${hits.join('、')}（已遮蔽，請確認是否該出現在交付文件）`);
+      }
+    }
   }
 
   // ---- 鐵則 3：小數點式編號 ----
@@ -284,7 +323,13 @@ function scan(file) {
     bad.push(`鐵則9 表格窄欄塞長字（會擠成直排）：${narrow.slice(0, 3).join('；')}`);
   }
 
-  return bad;
+  if (honorifics.length) {
+    const uniq = [...new Set(honorifics)];
+    notes.push(`鐵則14 公文式敬稱：${uniq.join('、')}` +
+               `（建議改「您們」，自稱用「我們」；若是「貴司機／成本中心／本司法」這類正常詞請忽略）`);
+  }
+
+  return { bad, notes };
 }
 
 // ---------- 樣式一致性 ----------

@@ -1,6 +1,6 @@
 # deliver-report
 
-把工作成果變成**對外產物**。三個 skill，共用同一套對外鐵則。
+把工作成果變成**對外產物**。四個 skill，共用同一套對外鐵則。
 
 | skill | 產出什麼 | 什麼時候用 |
 |-------|----------|-----------|
@@ -20,9 +20,9 @@
 
 ## 共用的東西
 
-- `references/document-readability.md`（**plugin 層級共用一份**）：交付文件易讀性十三條鐵則＋交付前必做的五項機械掃描。每一條都是使用者當面指出過 2~4 次的實案。
+- `references/document-readability.md`（**plugin 層級共用一份**）：交付文件易讀性十四條鐵則＋交付前必做的九項機械掃描。每一條都是使用者當面指出過 2~4 次的實案。
 - `hooks/doc-readability-gate.js`：Stop hook，把上述鐵則中「機器判得準」的幾條做成交付前機械閘。**deliver-report 與 test-report-docx 都會觸發**（純 prompt 規範擋不住——實證：該文件寫完「修完一類要全文重掃」之後，作者接著又在同一批文件犯了三次同類問題）。
-- `skills/daily-report/scripts/content_guard.py`：日報**寄送前**的硬閘（Python 掃 .md，命中 exit 1），另含憑證／個資 pattern。
+- `skills/daily-report/scripts/content_guard.py`：日報**寄送前**的硬閘（Python 掃 .md，命中 exit 1），另含憑證／個資 pattern。**公文式敬稱組例外**：只印提醒、exit 0 不擋（`ADVISORY_GROUPS`，理由見易讀性鐵則 14）。
 - `references/banned-patterns.json`（**兩道閘共用的單一事實來源**）：憑證／個資／AI 工具鏈字眼／異動紀錄用語的禁用樣式。兩支閘各自讀這一份，**改一次兩邊生效**。
   每組帶 `applies_to` 標明適用產物——`credentials`／`pii` 兩邊都套；`ai_toolchain`／`email`／`money` 只套日報；`revision_history` 只套文件。兩支閘的**實作**仍是兩份（語言與掃描對象不同：Node 掃 .docx、Python 掃待寄的 .md），但**規則**只有一份。
   兩邊都保留內建 fallback：共用檔讀不到或壞掉時照樣運作，不因少一個檔而整個失效。

@@ -113,7 +113,13 @@ def _run_gate(script_name, gate_args, fail_msg, fail_code):
 
 
 def assert_content_clean(report_path, project_dir=None):
-    """硬閘：日報不得含 AI/工具鏈用語與憑證/個資/金額。無豁免。"""
+    """硬閘：日報不得含 AI/工具鏈用語與憑證/個資/金額。無豁免（公文式敬稱組除外）。
+
+    例外：公文式敬稱（易讀性鐵則 14）只提醒不擋——content_guard.py 對該組
+    回 exit 0 並印提醒，本函式照 returncode 判定，所以提醒會透過下方的
+    stdout 轉印給使用者，寄送不中止。理由見 references/document-readability.md
+    鐵則 14（中文無詞邊界，貴司/貴司機、本中心/成本中心 無法用正則分辨）。
+    """
     a = [report_path]
     if project_dir:
         a += ["--project", project_dir]
