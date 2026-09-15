@@ -25,6 +25,21 @@ import subprocess
 import sys
 from datetime import datetime
 
+# Windows 預設繁中主控台是 cp950，編不出 ✓ ✗ ⚠ 這類字元。本檔會轉印各閘
+# 腳本的輸出（_run_gate），那些輸出含上述符號；輸出被導向（pipe/檔案）時
+# errors=strict，印出去會 UnicodeEncodeError 中斷——連完全乾淨、沒有任何
+# 命中的日報都會掛在「印字」而不是「檢查」。
+# 六支閘腳本各自已有同樣的轉 UTF-8 處理（content_guard.py 等），本檔原本漏了。
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+# 第二道保險：reconfigure 失敗或環境仍編不出時，降級為 ? 而不是中斷寄送。
+for _st in (sys.stdout, sys.stderr):
+    try:
+        _st.reconfigure(errors="replace")
+    except Exception:   # 舊版 Python 或被重導成非 TextIO → 放棄，不影響主流程
+        pass
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.join(os.path.expanduser("~"), ".claude", "daily-report")
 SENT_DIR = os.path.join(BASE_DIR, "sent")
