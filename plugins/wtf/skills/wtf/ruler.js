@@ -23,6 +23,15 @@ const COARSE_MAX = 220;
 const COARSE_STEP = 20;
 const FINE_STEP = 4;
 
+// 給模型看的警語。使用者實際遭遇（2026-09-15）：模型跑完標尺就直接問問題，
+// 但工具輸出使用者看不到，他螢幕上只有一行「Ran 1 shell command」，
+// 等於被問了一個沒有題目的問題。警語印在輸出的頭尾兩端，是離犯錯點最近的提醒；
+// 真正的他律兜底是 Stop hook（hooks/guard-ruler-pasted.js）。
+const BANNER =
+  '>>>>>> 注意：以下整段是給【使用者】看的，他看不到這個工具輸出 <<<<<<' +
+  String.fromCharCode(10) +
+  '>>>>>> 你必須把標尺每一行原樣貼進回覆正文（用 ``` 包起來）再發問 <<<<<<';
+
 function widthOf(s) {
   // 標尺只用 ASCII 數字 + 兩個 box-drawing 字元，後者在終端機是單格寬。
   // 這裡不需要 east_asian_width：'─' 與 '┤' 屬 Ambiguous，主流終端機當單格。
@@ -48,11 +57,15 @@ function emit(values, title, question) {
     }
     lines.push(l);
   }
+  console.log(BANNER);
+  console.log('');
   console.log(title);
   console.log('');
   console.log(lines.join('\n'));
   console.log('');
   console.log(question);
+  console.log('');
+  console.log(BANNER);
 }
 
 const argv = process.argv.slice(2);

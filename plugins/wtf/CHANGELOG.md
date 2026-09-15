@@ -2,6 +2,32 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## 0.17.0 — 2026-09-15
+
+**新增第三支 hook：標尺未貼閘（`hooks/guard-ruler-pasted.js`，Stop 時機）**。使用者回報：「wtf 套件下面，你跑的標尺沒顯示出來」。
+
+- **實際失效**：模型跑了 `node ruler.js`、拿到標尺，直接就問「哪一條斷開？」——但**工具輸出使用者看不到**，他螢幕上只有一行「Ran 1 shell command」。等於被問了一個沒有題目的問題。
+- **真因不是規則沒寫**：`guard-terminal-width.js` 的 stderr 早就白紙黑字寫著「把印出來的標尺**原樣貼進回覆正文**（工具輸出使用者看不到）」，SKILL.md 也寫了。**模型照樣漏掉**。這正是本 repo 的鐵律所指的情形——「一定要落地」的動作需機制閘，skill 的「必須」是自律、AI 會繞，只有 hook 是他律。前兩支閘管住了「寬度沒設不准畫」與「標尺要用腳本產」，唯獨「產完要貼出去」是純自律，於是漏了。
+- **判斷方式**：讀 transcript，只看**最後一個真實使用者回合**之後的訊息。① 有沒有用 `node` 執行過 ruler.js → 看 assistant 的 `tool_use.input.command`；② 標尺有沒有貼進正文 → 看 assistant 的 `text` 區塊（`thinking` 不算，使用者看不到）有沒有出現 3 行以上的標尺行。執行過但之後沒補貼 → exit 2 擋下回合。**「什麼算真實使用者回合」的判準在送審後整個換掉了**，見下方 S1。
+- **為什麼用 `┤` 當指紋**：它只出現在 ruler.js 產的標尺行尾（`<橫線>┤<數字>`），一般中文回覆不會用到這個 box-drawing 字元，誤判率最低。門檻設 3 行是防「只貼一行敷衍過關」（粗測 8 行、細測至少 5 行）。
+- **transcript 格式：一半實測成立、一半已被推翻**（照本 repo 紀律，被證據推翻的 HYPOTHESIS 要明講「已推翻」，不可靜默改口）：
+  - ✅ **成立**：assistant 的 `text` 區塊就是使用者螢幕上看到的內容，`tool_use` / `tool_result` 是另外的區塊型別，資料結構上本來就分開。
+  - ❌ **已推翻**：我原本寫「`type==="user"` 且 content 是字串＝真人回合」。**錯的**。掃本機 29 份 transcript 實測：字串型 user 訊息 681 則，真正出於人類的只有 381 則（56%）。其餘 300 則是 `isMeta` 103、teammate 82、`<task-notification>` 46、`<command-name>` 36、`<local-command-stdout>` 27、`<command-message>` 6。這些只要落在「跑 ruler」與「發問」之間就會把回合邊界推過 `tool_use`，於是閘**靜默失效**——合成 transcript 的測試全過，真實 session 卻永遠不觸發。`<local-command-stdout>` 尤其可能，因為 `/wtf` 本身就是 slash command。
+- **`ruler.js` 輸出頭尾各加一行警語橫幅**：離犯錯點最近的提醒（hook 是他律兜底，橫幅是當下提醒）。三次執行輸出 MD5 仍完全相同（`0fd15e27b0fe6d94af0ef3f05ce29bbd`），未破壞既有的逐字節無飄移保證。
+- **文件同步**（照「被點名一處＝掃全文」掃過全 plugin，共 3 處）：SKILL.md 問法一節補上機械閘說明與「原樣、不重畫、不截短」的要求；SKILL.md 自檢第 1 題補「跑完標尺我有沒有貼進正文」；`guard-terminal-width.js` 的 stderr 加一行指出此事已有 Stop hook 擋。
+- **驗證（修正前的第一版，數字保留供對照）**：紅綠測 8/8、fail-open 7 項、對本 session 真實 transcript exit 2、既有兩支 hook 回歸 8 項。⚠️ **這 8/8 是假的安心**——8 個 fixture 全是我依自己對 transcript 格式的假設造的，所以測不出 S1。最終以下方修正後的回歸數字為準。
+- **送審後依審查結果修掉 6 項缺陷，全部實跑驗證**（審查軌對 29 份真實 transcript 做量測，不是讀碼推論）：
+  - **S1（High，會讓閘完全失效）**：回合邊界改用 `isHumanTurn()`——排除 `isMeta`、`isSidechain`、`<task-notification>` / `<local-command-stdout>` / `<command-name>` / `<command-message>` / `<system-reminder>` 包裝訊息、以及 `Another Claude session sent a message` 開頭的 teammate 訊息。六種攻擊情境實測全部由 exit 0（漏放）轉為 exit 2（正確攔下）。
+  - **S2**：原本比對 `ruler.js` 字樣，`cat ruler.js`、`grep ruler.js` 都會誤判成「跑過標尺」——而用 `/wtf` 解釋 wtf plugin 自己時正好會做這種事，模型會被要求貼一份它根本沒產生的標尺。改為必須是 `node` 實際執行它（`RUN_RULER_RE`）。
+  - **S3**：`stop_hook_active` 原本在讀 transcript 前就無條件 exit 0，等於「擋一次就終身放行」——模型回一句「抱歉，哪條斷了？」仍然沒貼標尺也能過。改為先判斷完、確定該擋，才用這個旗標決定要不要**重複**擋；迴圈安全不變。
+  - **S4**：兩輪二分法常落在同一回合，原本的總量計數會讓第一輪的貼替第二輪的漏貼背書——而第二輪漏貼正是使用者看到的症狀。改為依時序計數：每次執行後重新計，看它「之後」有沒有補貼。
+  - **S5**：指紋由「含 `┤`」收緊為完整標尺行形狀（`RULER_LINE_RE`，行尾是 `┤` 接數字），排除一般表格誤判，也擋掉 codepage 把字元吃掉時的假通過。
+  - **S6**：`hooks.json` 的 Stop 條目補上 `"matcher": ""`，與本 repo 另外三個 plugin（cc-statusline／deliver-report／qa-webwright）的既有形狀一致。
+  - 修正後回歸：16 項紅綠測全過（含 S1 六種、S2 兩種、S4 兩種、S5、thinking-only 與四項基本綠燈）、fail-open 10 項全 exit 0、S3 迴圈安全 3 項、CRLF transcript 仍正確攔下、既有兩支 hook 5 項全過、ruler.js 三次輸出 MD5 不變。
+- ⚠️ **這一版的教訓**：第一版的 8/8 測試「全過」，但那 8 個 fixture 全是我自己憑對格式的假設造出來的——**驗證器與施作器共用同一個盲區**，結構上不可能發現邊界判準是錯的。真正抓到的是拿 29 份**真實** transcript 去量測。這正是 CLAUDE.md 那條「同一份判準同時用於施作與驗證」的坑。
+- ⚠️ **施作中自己踩了兩次 CLAUDE.md 記載的坑**，都靠實跑抓到：① 用工具寫檔時 `
+` 寫成了真換行，`BANNER` 字串被撐成三行而語法錯誤（改用 `String.fromCharCode(10)` 完全避開跳脫層）；② 測試 harness 把 git-bash 的 `/c/Users/...` 路徑直接餵給 Node，Node 解成 `C:cUsers...` 讀不到檔，於是 hook 一路 fail-open，**四個紅測全部假通過**。若只看第一次的測試結果就會宣稱「閘做好了」——實際上那時它什麼都沒擋。
+
 ## 0.16.0 — 2026-09-14
 
 **新增「先講得出關係，才准開始解釋」**（自檢第 17-1 題）。使用者問：「為什麼會發生語意錯誤，你這樣 wtf 解釋的時候不就會漏嗎」——會，而且這是本 skill 最危險的失效模式。
