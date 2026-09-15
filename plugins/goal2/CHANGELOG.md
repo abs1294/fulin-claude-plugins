@@ -2,6 +2,10 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.4] - 2026-09-14
+### Fixed
+- **continuations = 0 且無判定的真因（run 55a0／89c2／0296）**：Claude Code 在 Stop 時若 taskRegistry 還有背景任務（背景 shell／agent），會把 /goal 的 Stop hook 暫時移出 registry、記 `[goal] evaluation deferred — background work still running`，之後只有互動 session 會排 check-in／re-prompt，`isNonInteractiveSession`（`claude -p`）不會；-p 收尾預設只等背景任務 600 秒（`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`）就終止（89c2 stderr：`Background tasks still running after 600s; terminating`）→ 延後的判定永遠沒發生、session 以 success 結束、transcript 只有 sentinel。證據：2.1.269 的 `stop_hook_summary` 在成功 run 列出 6 個 hook（含 goal 的 prompt hook），89c2／0296 只有 5 個 command hook；三個 run 的最後一句都是「等測試完成通知」類。而且 -p 對背景 **Bash**（`local_bash`）根本不等：二進位 `Em(e)` 把它排除在等待集合外，回合一結束就退出並殺掉它們（實測 run 9af9：sleep 45 丟背景、17 秒後 session 結束、檔案沒建）；只有背景 agent 才有那 600 秒。修法：① **`hooks/bg-guard.js`（command 型 Stop hook，engine.js 以 `--settings` 只掛在該子程序）**：Stop 時掃該 session 的背景 Bash 輸出檔（`<tmpdir>/claude/<cwd 編碼>/<session>/tasks/*.output`，結束的檔尾有 `[exited with code N]`），還在跑就回 `decision: block` 把引擎推回去等（同 run 最多 30 次），沒有才放行——放行的那次 Stop 才真的跑 /goal 檢查。實測 run 93b0：同一個「背景 sleep 45 後立刻結束回合」任務，bg-guard block #1 → 引擎等 task-notification → 再結束回合 → `goal_status met:true`、`status: done`、`continuations: 1`。② 子程序環境 `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`（只對背景 agent 有用）。③ anchor「工作目錄」節加硬規則：有背景任務在跑不准結束回合、測試／建置一律前景跑。④ `goalVerdictFromTranscript` 讀最後一次 `stop_hook_summary`，有 sentinel、無判定、hook 清單裡沒有 goal 檢查器 → `goal_verdict: deferred`（status 仍 unverified，error 講明原因）。對真實 transcript 驗證：0296／89c2 → deferred，0c0a／5cd6 → met，55a0（2.1.268 無 summary）→ unverified。
+
 ## [0.5.3] - 2026-09-14
 ### Added
 - **任務書 `## 脈絡與約束` 節**：引擎子程序有 CLAUDE.md／自動記憶／輸出風格／plugin／hook（實測 d15a 的 init 事件：output_style Fulin、45 個 skill、memory_paths、plugin-profile hook 都在），唯獨沒有主 session 的對話。SKILL 規定事實層同時寫這節（決策與理由、使用者更正、禁止動作、套用過的記憶／harness 判準、已知坑、相關檔絕對路徑）；進 anchor（`<!-- goal2:sec=context -->`），壓縮後 hook 注回；沒有這節 `goal.js`／`delaylocal.js` 回 `warnings`（不擋），輸出多 `has_context_section`。

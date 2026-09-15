@@ -107,7 +107,7 @@ CronCreate({ cron: <JSON.confirm_timer_cron>, recurring: false, durable: false,
   |---|---|
   | `status` | `prepared` 還沒啟動／`running` 進行中／`done` 檢查器確認達成／`unverified` 正常結束但**沒有任何達成判定，不可當作達成**／`impossible` 檢查器判條件不可能達成而放行／`failed` 引擎拒收或異常結束／`stopped` 被終止／`timeout` 超過 `engine.maxMinutes`／`budget` 花費達 `engine.maxBudgetUsd` 引擎自停、未達成／`unknown` stream 被刪無從判定／`spawn_failed` 起不來（含找不到 claude） |
   | `alive` / `alive_state` | 子程序此刻在不在：`alive` 在且身分對得上／`dead` 不在／`stale` pid 在但已是別的程序（引擎早已不在）／`unknown` 探測不到 |
-  | `goal_verdict` | 結束後才有：`met`／`impossible`／`unverified`／`no_transcript`，來源是子程序 transcript 的檢查器紀錄，這才是「達成沒」的依據 |
+  | `goal_verdict` | 結束後才有：`met`／`impossible`／`unverified`／`deferred`／`no_transcript`，來源是子程序 transcript 的檢查器紀錄，這才是「達成沒」的依據。`deferred`＝引擎在背景任務還在跑時結束回合，Claude Code 把檢查延後、-p 不會再叫醒它，判定從未發生（run 55a0／89c2／0296 都是這樣）；status 仍是 `unverified` |
   | `num_turns` | 引擎總回合數（結束後才有）；進行中看 `assistant_messages`（目前幾則回覆） |
   | `continuations` | 引擎的檢查器擋停、要求繼續的次數；0 表示還沒被打回過 |
   | `compactions` / `anchor_injections` | 上下文壓縮次數／壓縮後錨定注回次數（兩者應相等） |
@@ -140,6 +140,7 @@ CronCreate({ cron: <JSON.confirm_timer_cron>, recurring: false, durable: false,
 - **為什麼預設直接啟動、不等確認**：條件已經印給使用者看了，等確認只是多一段空轉；有 `--stop` 可隨時終止，錯了就停再改，比每次都等更省。要保守就把 `goal.confirmTimeoutMinutes` 設成 ≥1。
 - **為什麼 timer 的 prompt 是文字指令**：它 fire 進來就是普通回合，你照指令起子程序即可；放 `/goal` 反而沒用。
 - **`stopHookBlockCap` 預設 0**：官方引擎預設連續 8 次擋停就放棄；無人值守要的是做到達成，所以關掉上限（CLI 程式碼 `cap ?? 8`，`cap > 0` 才生效，0 就是不設限）。真正的煞車是 `engine.maxBudgetUsd`／`engine.maxMinutes`。
+- **背景任務會讓驗收落空（0.5.4 起處理）**：Claude Code 在 Stop 時若還有背景 shell／agent，會把 /goal 檢查延後（goal 的 Stop hook 暫時移出 registry、log `[goal] evaluation deferred — background work still running`），互動 session 稍後 check-in，**non-interactive（-p）不會**；-p 收尾預設只等背景任務 600 秒就終止（stderr `Background tasks still running after 600s; terminating`）。三個真實 run（55a0／89c2／0296）都是引擎把測試丟背景、結束回合「等通知」而落空。而且 -p 對背景 Bash 根本不等（只等背景 agent），回合一結束就退出並殺掉它們。goal2 現在：`hooks/bg-guard.js` 以 Stop hook 掛在子程序上，還有背景 Bash 在跑就 block 把引擎推回去等（最多 30 次；run 目錄有 `bg-guard-log.txt`），沒有才放行讓 /goal 檢查真的跑（實測 run 93b0：block 一次後等到通知、`met`）；子程序帶 `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`（背景 agent 用）；anchor 明寫「有背景任務在跑不准結束回合、測試一律前景跑」；收尾偵測最後一次 Stop 的 hook 清單沒有 goal 檢查器 → `goal_verdict: deferred`。
 - **達成判定的來源（0.4.0 起）**：`claude -p` 的 stream-json 裡**沒有**檢查器的判定；它只寫在子程序自己的 transcript（`~/.claude/projects/<cwd 編碼>/<child_session_id>.jsonl`）的 `attachment.type === "goal_status"`：Goal set 當下一筆 `sentinel:true`，之後每次 Stop 檢查一筆 `met:true/false`，判「不可能」時 `failed:true`。engine.js 結束時去讀最後一筆決定 `goal_verdict`／`status`。舊版用「exit 0 且 subtype success」推定達成，會把「檢查器根本沒跑就 end_turn」的 run 記成 done（實例 55a0）。實測（2026-09-12）：條件寫「Z 槽下某檔存在」→ 檢查器擋 2 次、引擎跑去 `subst` 造出 Z 槽達成（所以 bypassPermissions 下它會為了達成改系統狀態，條件要寫清楚不准動什麼）；條件註明「不可能達成」→ 檢查器 `failed:true` 放行、0 次擋停。
 - **主 Claude Code 退出，引擎跟著死（2026-09-13 實測，代理實驗）**：用 headless `claude -p` 當主程式，讓它以 Bash `run_in_background` 起 runner 後立刻結束——主程式退出當下 runner（node）與引擎（claude.exe）一起消失，引擎只跑到 Goal set 後的第一個動作，目標檔沒建出來，meta 停在 `running`（要用 `--stop` 收狀態）。所以「無人值守」的前提是 **Claude Code 程式要一直開著**；互動視窗按 X 應同理（未另測）。能主動停它的只有 `--stop`、`maxMinutes`、`maxBudgetUsd`。
 - **成本**：每次 run 是一個獨立 session，任務再小也有固定開銷（實測極簡任務約 0.8 USD）；要省就設 `engine.model`。

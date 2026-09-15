@@ -102,6 +102,7 @@ ${condition}
 ${cwd || '（未指定；以子程序啟動時的 cwd 為準）'}
 所有相對路徑以此為準；不要 cd 到別的專案。
 開工前先讀本專案的 CLAUDE.md（含它指定要先讀的 harness／制度檔）與自動記憶 MEMORY.md（若存在）——你是另一個 session，主 session 讀過的東西你沒讀過。
+⚠️ **有背景任務在跑時不准結束回合**：Claude Code 在你結束回合時若還有背景 shell（Bash run_in_background）或背景 agent，會把完成條件的檢查「延後」，而 headless 模式不會再叫醒你——你的成果就永遠不會被驗收。跑測試、建置、長指令一律前景執行（用 timeout 調長，不用 run_in_background）；真的起了背景任務，結束回合前必須等它完成（收到 task-notification）或 TaskStop 它。
 
 <!-- goal2:sec=condition -->
 ${condSection}
@@ -324,24 +325,38 @@ function findChildTranscript(cwd, sessionId) {
  * @returns {{ verdict: 'met'|'impossible'|'unverified'|'no_transcript', checks: number, last_reason: string|null, transcript_path: string|null }}
  */
 function goalVerdictFromTranscript(transcriptPath) {
-  const out = { verdict: 'no_transcript', checks: 0, last_reason: null, transcript_path: transcriptPath || null };
+  const out = { verdict: 'no_transcript', checks: 0, last_reason: null, transcript_path: transcriptPath || null, deferred_at_end: false, last_stop_hook_count: null };
   if (!transcriptPath) return out;
   let lines; try { lines = fs.readFileSync(transcriptPath, 'utf8').split('\n'); } catch (_) { return out; }
   out.verdict = 'unverified';
-  let last = null;
+  let last = null, sentinelCondition = null, lastSummary = null;
   for (const l of lines) {
-    if (!l.includes('"goal_status"')) continue;
-    let o; try { o = JSON.parse(l); } catch (_) { continue; }
-    const a = o.attachment;
-    if (!a || a.type !== 'goal_status' || a.sentinel) continue;
-    out.checks++;
-    last = a;
+    if (l.includes('"goal_status"')) {
+      let o; try { o = JSON.parse(l); } catch (_) { continue; }
+      const a = o.attachment;
+      if (!a || a.type !== 'goal_status') continue;
+      if (a.sentinel) { if (typeof a.condition === 'string') sentinelCondition = a.condition; continue; }
+      out.checks++;
+      last = a;
+    } else if (l.includes('"stop_hook_summary"')) {
+      let o; try { o = JSON.parse(l); } catch (_) { continue; }
+      if (o.type === 'system' && o.subtype === 'stop_hook_summary') lastSummary = o;
+    }
   }
   if (last) {
     if (last.met === true) out.verdict = 'met';
     else if (last.failed === true) out.verdict = 'impossible';
     else out.verdict = 'unverified';
     out.last_reason = typeof last.reason === 'string' ? last.reason.slice(0, 1500) : null;
+  }
+  // 「延後」偵測：最後一次 Stop 的 hook 清單裡沒有 goal 的 prompt hook（Claude Code 在還有背景任務時會把它暫時移出 registry），
+  // 而 goal 有設（sentinel 在）且沒有任何判定 → 判定被延後、-p 收尾前沒再判過。2.1.269 起 transcript 才有 stop_hook_summary。
+  if (lastSummary && sentinelCondition && !last) {
+    const infos = Array.isArray(lastSummary.hookInfos) ? lastSummary.hookInfos : [];
+    out.last_stop_hook_count = infos.length;
+    const head = sentinelCondition.slice(0, 40);
+    const hasGoalHook = infos.some((h) => typeof h.command === 'string' && head && h.command.includes(head.slice(0, 20)));
+    if (!hasGoalHook) { out.deferred_at_end = true; out.verdict = 'deferred'; }
   }
   return out;
 }
@@ -379,7 +394,7 @@ function inspectCwd(cwd) {
 }
 
 /** 組 claude 的 argv（抽出來讓測試不用真的起子程序） */
-function buildEngineArgs(prompt, engine, { anchorPath = null, hookScript = null } = {}) {
+function buildEngineArgs(prompt, engine, { anchorPath = null, hookScript = null, bgGuardScript = null } = {}) {
   const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--permission-mode', engine.permissionMode];
   if (engine.model) args.push('--model', engine.model);
   if (Number.isInteger(engine.autocompact)) args.push('--autocompact', String(engine.autocompact));
@@ -388,10 +403,12 @@ function buildEngineArgs(prompt, engine, { anchorPath = null, hookScript = null 
   //  ① anchor.md 進系統提示（每回合重送，壓縮碰不到）
   if (anchorPath) args.push('--append-system-prompt-file', anchorPath);
   //  ③ 只對這個子程序掛 SessionStart(compact) hook，壓縮後把條件＋帳本注回（fail-open）
-  if (anchorPath && hookScript) {
-    const hookSettings = { hooks: { SessionStart: [{ matcher: 'compact', hooks: [{ type: 'command', command: `node "${hookScript}"`, timeout: 15 }] }] } };
-    args.push('--settings', JSON.stringify(hookSettings));
-  }
+  const hooks = {};
+  if (anchorPath && hookScript) hooks.SessionStart = [{ matcher: 'compact', hooks: [{ type: 'command', command: `node "${hookScript}"`, timeout: 15 }] }];
+  //  ④ bg-guard：Stop 時還有背景 Bash 在跑就 block 把引擎推回去等——否則 Claude Code 會把 /goal 檢查延後，而 -p 不等 local_bash、
+  //     回合一結束就退出殺掉它們，判定永遠不會發生（實測 run 9af9；真實 run 55a0／89c2／0296）
+  if (bgGuardScript) hooks.Stop = [{ hooks: [{ type: 'command', command: `node "${bgGuardScript}"`, timeout: 20 }] }];
+  if (Object.keys(hooks).length) args.push('--settings', JSON.stringify({ hooks }));
   //  ② 帳本規則在 anchor 內，由 Claude 執行
   return args;
 }
@@ -447,13 +464,19 @@ function runEngine(runDir, engine) {
   const anchorPath = path.join(runDir, 'anchor.md');
   const hasAnchor = fs.existsSync(anchorPath);
   const hookScript = path.join(__dirname, '..', 'hooks', 'compact-anchor.js');
-  const args = buildEngineArgs(prompt, engine, { anchorPath: hasAnchor ? anchorPath : null, hookScript: fs.existsSync(hookScript) ? hookScript : null });
+  const bgGuard = path.join(__dirname, '..', 'hooks', 'bg-guard.js');
+  const args = buildEngineArgs(prompt, engine, { anchorPath: hasAnchor ? anchorPath : null, hookScript: fs.existsSync(hookScript) ? hookScript : null, bgGuardScript: fs.existsSync(bgGuard) ? bgGuard : null });
 
   const env = { ...process.env };
   delete env.CLAUDECODE;                       // 避免子程序被當成巢狀 session
   env.MSYS_NO_PATHCONV = '1';                  // 保險：即使經 shell 也不轉 /goal
   env.CLAUDE_CODE_STOP_HOOK_BLOCK_CAP = String(engine.stopHookBlockCap);
   env.GOAL2_RUN_DIR = runDir;                  // compact-anchor hook 靠它找 run 目錄
+  // -p 收尾時若還有背景任務（背景 shell／agent），Claude Code 會把 /goal 檢查「延後」（把 goal 的 Stop hook 暫時移出 registry），
+  // 互動 session 會再 check-in，non-interactive 不會；接著 -p 只等背景任務 600 秒就終止 → 判定永遠沒發生（run 55a0／89c2／0296）。
+  // 這個等待只涵蓋背景 agent（二進位 Em(e) 明寫排除 local_bash）：背景 Bash 一律不等、回合一結束就退出並殺掉（實測 run 9af9）。
+  // 設 0 讓背景 agent 的情況能等到完成（task-notification 會讓引擎再開回合）；背景 Bash 靠 hooks/bg-guard.js（Stop hook）擋住不讓它結束回合。上限交給 engine.maxMinutes。
+  if (!('CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS' in env)) env.CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS = '0';
 
   const startedAt = new Date().toISOString();
   writeMeta(runDir, { ...meta, status: 'running', startedAt, permissionMode: engine.permissionMode, stopHookBlockCap: engine.stopHookBlockCap, model: engine.model || null, autocompact: engine.autocompact, maxBudgetUsd: engine.maxBudgetUsd ?? null, maxMinutes: engine.maxMinutes ?? null, anchorInSystemPrompt: hasAnchor, pluginVersion: pluginVersion(), runnerPid: process.pid });
@@ -524,6 +547,7 @@ function runEngine(runDir, engine) {
       else if (!ranOk) { status = 'failed'; error = `引擎異常結束（exit ${code}${signal ? ' / ' + signal : ''}，subtype ${s.result_subtype}）`; }
       else if (v.verdict === 'met') status = 'done';
       else if (v.verdict === 'impossible') { status = 'impossible'; error = '檢查器判定完成條件不可能達成而放行結束（條件寫錯或環境不允許）'; }
+      else if (v.verdict === 'deferred') { status = 'unverified'; error = `引擎在還有背景任務（背景 shell／agent）時結束回合，Claude Code 把 /goal 檢查延後、-p 模式不會再 check-in，收尾前判定從未發生（最後一次 Stop 的 hook 清單裡沒有 goal 檢查器；${/Background tasks still running/.test(stderr) ? 'stderr 亦有「Background tasks still running…terminating」' : 'stderr 無 600 秒終止訊息'}）。不可當作已達成；請看 result_text 與帳本自行核對`; }
       else { status = 'unverified'; error = v.verdict === 'no_transcript' ? '引擎正常結束但找不到子程序 transcript，無法確認是否達成' : '引擎正常結束但檢查器沒有留下任何達成判定（可能未經檢查就 end_turn），不可當作已達成'; }
       const achieved = status === 'done';
       const summary = {

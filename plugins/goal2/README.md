@@ -16,7 +16,7 @@
 | 觸發 | `/goal2:goal <任務>`、「幫我定完成條件再跑」、「用 goal 引擎做到完成」 | `/goal2:delaylocal <任務>`、「排程到 quota 之後」、「等 5h 額度回來再跑」 |
 | 引擎何時起 | 先把項目清單落檔（任務不自足會被拒）、grill 到沒有默默假設的決策（`goal.grill`），propose 印給你看完就直接起；想先確認可在設定檔開 timer | 5h quota 重置後 + 緩衝（預設 15 分）的 cron 到點時；確認逾時預設 10 分鐘 |
 | 中途終止／看進度 | 說「停」→ `goal.js --stop`（核對 pid 身分後殺整棵子程序樹；多個 run 時先問停哪個）；`--status` 看帳本；`--list` 看全機所有 run | `delaylocal.js --stop`／`--status` 同上（不需 session id） |
-| 達成怎麼判 | 讀子程序 transcript 的檢查器紀錄（`goal_verdict`：met／impossible／unverified／no_transcript）；`status: done` 只在 `met` 時 | 同左 |
+| 達成怎麼判 | 讀子程序 transcript 的檢查器紀錄（`goal_verdict`：met／impossible／unverified／deferred／no_transcript）；`status: done` 只在 `met` 時。`deferred`＝引擎在背景任務還在跑時結束回合，/goal 檢查被延後而 -p 不會再叫醒它（背景 Bash 甚至直接被殺）——現在 `hooks/bg-guard.js`（Stop hook）會把這種結束擋回去等到背景任務完成，實測 block 一次後 `met` | 同左 |
 | 煞車 | `engine.maxBudgetUsd`（預設 300 USD → `status: budget`）、`engine.maxMinutes`（預設 480）；能停它的只有這兩個與 `--stop`；**主 Claude Code 退出引擎就跟著死**（實測：headless 主程式退出當下 runner＋引擎一起消失，meta 停在 running）——「無人值守」指人不用守，Claude Code 程式要開著 | 同左 |
 | 並行 | 不擋；準備時列出同棵樹（含祖先／子孫目錄）活著的 run（`active_runs_in_tree`）提醒你。路徑不重疊仍會共用 DB／port／測試結果，任務書要寫範圍切分；`--stop` 殺不到 `&`／nohup 起的背景服務 | 同左 |
 | 引擎在哪跑 | 子程序 `claude -p "/goal …"`（headless session），log 在 `~/.claude/goal2/runs/<id>/` | 同左，由 cron 到點後的本 session 啟動 |
@@ -52,7 +52,7 @@
 
 **delaylocal 的差異**：步 0 多算本 session 的 5h quota 重置時間；步 2–3 同（fast-path「直接排別問」與 `--plain` 跳過 1–3）；步 3 條件尾巴多「已執行 notify-line.js」；步 4 的 `delaylocal.js` 除了建 run 目錄還算 cron，然後 `CronCreate` 兩個 job：10 分鐘確認 timer、quota 重置＋900 秒的任務 cron；步 5 改成 cron 到點 fire 進本 session → session 守衛 → 背景跑 `--run`；步 8 引擎收尾多寫報告檔＋發 LINE；步 9 同。prepared 的 run 以 `scheduledFor` 起算，等 cron 期間不會被 prune。
 
-**全程的他律**：`hooks/runs-guard.js`（PreToolUse）——任何裝了 goal2 的 session 對 `~/.claude/goal2/runs/` 的整批／萬用字元／迴圈式刪除、`--prune --keep-hours <2` 直接攔。
+**全程的他律**：`hooks/runs-guard.js`（PreToolUse）——任何裝了 goal2 的 session 對 `~/.claude/goal2/runs/` 的整批／萬用字元／迴圈式刪除、`--prune --keep-hours <2` 直接攔。`hooks/bg-guard.js`（Stop，只掛在引擎子程序）——引擎還有背景 Bash 在跑就不准結束回合，否則 /goal 檢查會被延後且 headless 不會再叫醒它。
 
 ## 運作原理
 
