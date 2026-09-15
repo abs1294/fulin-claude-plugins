@@ -240,7 +240,28 @@ MESSAGE_SOFT_PATTERN='本輪|上輪|本次迭代|第[0-9一二三四五六七八
 
 MESSAGE_MAX_WIDTH=72
 # 敏感字 pattern（與 analyze 共用同一份，單一事實來源）。
-SENSITIVE_PATTERN='password|secret|api_key|bearer|token=|ConnectionString|console\.log|Console\.WriteLine|System\.out\.print|debugger;|TODO: remove|FIXME|XXX|// DEBUG|// TEMP|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|sqlcmd .{0,120}-P |Pwd[[:space:]]*=|User ?Id[[:space:]]*=|Data Source[[:space:]]*=|Initial Catalog[[:space:]]*='
+#
+# 標記類關鍵字（TEMP/DEBUG/FIXME/XXX/TODO: remove/console.log）一律加後接限定——
+# 它們有明確邊界，不加就會吃到正常識別字：實測誤擋過 `// TEMPLATE 常數`、
+# `// DEBUGGER 說明`、`// FIXMEs 清單`、`const XXXL`、`// TODO: removeItem`、
+# `console.logger()` 六種寫法。
+# `// DEBUG` / `// TEMP` 的斜線與字之間用 [[:space:]]* 而非固定一個空白，
+# 因為 `//DEBUG`（無空白）同樣該攔。
+#
+# ★ 後接限定用「不是英數」而**不是 \b**（2026-09-16 對抗審查，兩軌各自實測重現）：
+#   POSIX ERE 的 \b 把底線算成 word char，於是 `// DEBUG_MODE`、`// TEMP_FILE`、
+#   `XXX_TOKEN`、`FIXME_LATER` 這些**本來就該擋**的寫法會一起被放掉。
+#   底線命名的標記是常態，這個漏報比誤報嚴重得多。
+#   （\b 另有跨平台風險：它是 GNU 擴充，非 POSIX 標準。）
+# ★ console.log 用「後面不是識別字字元」而**不是「後面必須是左括號」**：
+#   要求接 `(` 會讓 `console.log`（裸引用）、`const f = console.log;`（別名）、
+#   `console.log.apply(...)`、`console.log?.(x)`、tagged template 全部逃掉——
+#   其中別名與 tagged template 是真的會印出機敏值的寫法。
+#   用否定式一樣擋得住誤報的 `console.logger()` / `console.logging()`。
+#
+# password / secret 刻意「不」加任何限定：`passwordless`、`secretary` 這類確實會誤報，
+# 但這兩個字出現在 diff 裡本來就值得看一眼——誤報只花一次目視，漏報是外洩。
+SENSITIVE_PATTERN='password|secret|api_key|bearer|token=|ConnectionString|console\.log([^A-Za-z0-9_]|$)|Console\.WriteLine|System\.out\.print|debugger;|TODO:[[:space:]]*remove([^A-Za-z0-9]|$)|FIXME([^A-Za-z0-9]|$)|XXX([^A-Za-z0-9]|$)|//[[:space:]]*DEBUG([^A-Za-z0-9]|$)|//[[:space:]]*TEMP([^A-Za-z0-9]|$)|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|sqlcmd .{0,120}-P |Pwd[[:space:]]*=|User ?Id[[:space:]]*=|Data Source[[:space:]]*=|Initial Catalog[[:space:]]*='
 # AI 痕跡 pattern：註解引用「維護者手上沒有的文件」＝ 交付物洩漏 AI 參與（公司禁止揭露）。
 # 掃的是新增行，既有痕跡不重複告警；.md 不掃（文件引用文件很正常）。
 # 三段分別對應三種漏法（實戰：單一判準必漏——刪掉「CLAUDE.md §8.2」後，
