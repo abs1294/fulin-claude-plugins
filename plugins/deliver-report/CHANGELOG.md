@@ -138,7 +138,7 @@
 ### Notes
 - 兩邊都保留內建 fallback：共用檔讀不到或 JSON 壞掉時照樣運作。Node 端退回最小清單（該閘會影響 session 能否結束，必須 fail-open）；Python 端退回完整內建清單（寄信前的最後一道，不降級）。
 - **實跑驗證**（非僅語法檢查）：Node 端以含 api_key／身分證／googleusercontent.com 的 .docx 實測——三類全部命中且值已遮蔽；乾淨文件正確放行；共用檔改壞後不崩潰、正確 fail-open。Python 端實測——真實日報通過、只有共用檔才有的 `1//` token 被擋、AI 字眼回歸測試仍擋；共用檔壞掉與檔案不存在兩種情境都正確回退且不降級。
-- 施作過程踩到兩個「語法檢查與 grep 都會過」的坑，均由實跑抓出：① 以 heredoc 產生 Python 時 `` 被吃成 `b`，正則邊界消失；② 載入器用了 `io.open` 但該檔沒有 `import io`，`NameError` 被 bare except 吞掉，靜默回退 fallback（`_shared is None` 才發現）。前者改用檔案讀寫避開跳脫、後者改用內建 `open`。
+- 施作過程踩到兩個「語法檢查與 grep 都會過」的坑，均由實跑抓出：① 以 heredoc 產生 Python 時 `\b` 被吃成 `b`，正則邊界消失；② 載入器用了 `io.open` 但該檔沒有 `import io`，`NameError` 被 bare except 吞掉，靜默回退 fallback（`_shared is None` 才發現）。前者改用檔案讀寫避開跳脫、後者改用內建 `open`。
 
 ## [0.9.1] - 2026-08-30
 ### Fixed
