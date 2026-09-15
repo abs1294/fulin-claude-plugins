@@ -22,6 +22,13 @@
 
 - `references/document-readability.md`（**plugin 層級共用一份**）：交付文件易讀性十四條鐵則＋交付前必做的九項機械掃描。每一條都是使用者當面指出過 2~4 次的實案。
 - `hooks/doc-readability-gate.js`：Stop hook，把上述鐵則中「機器判得準」的幾條做成交付前機械閘。**deliver-report 與 test-report-docx 都會觸發**（純 prompt 規範擋不住——實證：該文件寫完「修完一類要全文重掃」之後，作者接著又在同一批文件犯了三次同類問題）。
+- `hooks/gmail-draft-link-gate.js`：Stop hook，**六項檢查、全部只提醒不硬擋**。守的是**寄出去就收不回來**的那一段——上面兩支閘掃的是檔案，**草稿本身原本沒有任何人掃**，而它才是真正到外人手上的東西。只讀 transcript 裡已發生的工具呼叫與回傳（**不碰 Gmail API、不需憑證**）：
+  - **網址被改寫**（建了含網址的草稿卻沒讀回檢查／讀回的顯示文字裡驗出 `google.com/url?q=`）。`href` 被改寫是正常的、不算壞——偵測前先剝掉標籤屬性，避免把已正確處理的 `htmlBody` 草稿誤判
+  - **掉出信串**（`update_draft` 後 threadId 變成自己的 id，送出去會變成新信，Gmail 介面看不出來）
+  - **佔位符外流**（`<收件人>`、`[站台網址]`、`___`）
+  - **Markdown 外流**（`**粗體**`／`## 標題`／`|表格|`，Gmail 純文字會原樣顯示）
+  - **機敏內容**（憑證／個資，共用 `banned-patterns.json`，命中值遮蔽）
+  - **公文式敬稱**（advisory，措辭是「請確認」且不遮蔽——依易讀性鐵則 14，這組天生會誤判）
 - `skills/daily-report/scripts/content_guard.py`：日報**寄送前**的硬閘（Python 掃 .md，命中 exit 1），另含憑證／個資 pattern。**公文式敬稱組例外**：只印提醒、exit 0 不擋（`ADVISORY_GROUPS`，理由見易讀性鐵則 14）。
 - `references/banned-patterns.json`（**兩道閘共用的單一事實來源**）：憑證／個資／AI 工具鏈字眼／異動紀錄用語的禁用樣式。兩支閘各自讀這一份，**改一次兩邊生效**。
   每組帶 `applies_to` 標明適用產物——`credentials`／`pii` 兩邊都套；`ai_toolchain`／`email`／`money` 只套日報；`revision_history` 只套文件。兩支閘的**實作**仍是兩份（語言與掃描對象不同：Node 掃 .docx、Python 掃待寄的 .md），但**規則**只有一份。

@@ -2,6 +2,38 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.17.0] - 2026-09-15
+
+### Added
+- **`gmail-draft-link-gate.js` 擴為六項檢查**——守的是「寄出去就收不回來」的草稿本身。既有兩支閘掃的是檔案（.docx／待寄的 .md），**草稿沒有任何人掃**，而它才是真正到外人手上的東西。新增四項，全部只提醒不硬擋：
+  - **掉出信串**：`update_draft` 後 threadId 變成草稿自己的 id ＝ 脫離原討論串，送出去會變成新信、Gmail 介面看不出來。實案重現（nuvoton：`1a0678c431c772e9` → `1a0a58271da7ab89`）。判準要求「前後都看得到且原本掛在別串」，避免把「新信本來就自成一串」誤報
+  - **佔位符外流**：`[https 站台網址]`、`<收件人>`、`___`。只抓含填空字眼或純中文的形狀，HTML 標籤與信箱 `<a@b.com>` 排除——合法中括號（`[附件一]`）不報
+  - **Markdown 外流**：`**粗體**`／`## 標題`／`|表格|`。實打驗證 Gmail 純文字原樣顯示成星號與井號。只抓成對／行首形狀，`3 * 4` 與 `#1` 不報
+  - **機敏內容**：憑證／個資走共用的 `references/banned-patterns.json`（改一次三邊生效），命中值遮蔽避免提醒本身二次外洩；**公文式敬稱另走 advisory**，措辭寫成「請確認」且**不遮蔽**（遮成「貴司***」使用者無法判斷是否誤判，而這組依易讀性鐵則 14 天生會誤判）
+  - 六項合成一則訊息輸出（分開 warn 只有第一則送得出去）；記帳鍵改為 draftId＋檢查類別，同一封的同一類只提醒一次
+  - 取 credentials／pii／formal_honorifics，**不取 email／money**——那是日報專屬的內部資訊防護，交付信裡出現金額與信箱是正常的，套上去會全是誤報
+
+### Fixed
+- **對抗審查抓到的三項偵測缺陷（皆已實測重現並修復）**：
+  - **剝 HTML 標籤取可見文字的方式不足**，四種正常 HTML 會被誤判成壞掉——屬性值含 `>`（`<a title="1 > 0" href="…url?q=…">`）、HTML 註解含 `>`、`<script>`／`<style>` 的不可見內容、未閉合標籤。改成先整段移除註解與 script/style，再用能吃掉引號內 `>` 的標籤正則，最後丟掉尾端殘缺標籤。8 例驗證（4 假陽性全消、2 真陽性仍中）
+  - **`detachedThreads` 以首筆為基準會漏報**：`[自成一串 → 掛入 T → 又自成一串]` 這種歷程會被「本來就是新信」跳過。改成以「最後一次之前、最近一次真的掛在別串」的觀測當基準。6 例驗證
+  - **佔位符與 Markdown 判準過寬且有漏報**：`[公司] 欄位已完成`、`<備註>`、網址裡的 `a___b`、`2 ** 3 ** 2`、`# 123 號訂單`、`|x|` 全會誤報；而 `<TODO>`／`<xxx>` 這些列在 HINT 裡的反而因「英文開頭視為 HTML 標籤」被漏掉。收窄 HINT（拿掉「公司/單位/名稱」等正常語句也會用的詞）、底線要求前後非英數、粗體排除純算式、標題要求 `#` 後非數字、表格要求兩個以上分隔欄。18 例驗證
+- **ReDoS：正常的信會讓 hook 超時被 harness 砍掉（阻擋級）**。共用樣式 `references/banned-patterns.json` 的 `[A-Za-z0-9_-]+\.apps\.googleusercontent\.com` 是災難性回溯形狀——無上界量詞掃過長連續字元後尾端失配，逐位重試。實測 160k 字元要 **23.6 秒**，而 `hooks.json` 給的 timeout 是 15 秒；端到端重現（一封內嵌 base64 簽名檔小圖的**正常信**，16 萬字元）修前 21.8 秒、修後 **109ms**。修法兩道且判準不同：①樣式加上界 `{1,64}`（三邊共用，`doc-readability-gate` 與 `content_guard.py` 一併受惠，偵測結果不變）②`scanBanned` 加 200KB 長度上限當兜底——施作與驗證用同一套判準時盲區同構，必須另加一條不同判準
+- **狀態記帳碰撞造成永久靜默**：拿不到 draftId 時舊版退成 `link:(未知 draftId)` 或 `turn:<行號>`，於是**第二封不同的壞草稿完全不再提醒**。改成拿不到穩定 draftId 就**不記帳**（`once()` 支援 null key）——寧可重複提醒，不可讓真問題無聲無息
+- **(A) 的讀回判定過寬，兩種漏報**：①用全域計數而非逐封比對，讀了 A 草稿會讓沒讀的 B 草稿一起被當成已檢查 ②`messageFormat: MINIMAL` 的回傳不含 body 欄位，卻被當成已檢查，導致 (A)(B) 同時失效。改為逐 draftId 比對，且只認「回傳真的帶 `htmlBody`/`plaintextBody`」的讀回（新增 `resultHasBody()`）
+- **內容類檢查曾被網址閘擋在門外**：`if (!risky.length) return allow()` 會讓「不含網址的草稿」完全跳過佔位符／Markdown／機敏內容三項。改為網址名單只決定 (A)(B) 兩項，其餘照掃
+
+## [0.16.0] - 2026-09-15
+
+### Added
+- **`gmail-draft-link-gate.js`：Gmail 草稿網址改寫的 Stop hook（提醒不硬擋）**。不碰 Gmail API、不需憑證——只讀 transcript 裡已發生的工具呼叫與回傳。兩種提醒：(A) 本回合建/改過含網址的草稿卻沒 `get_draft` 讀回檢查；(B) 讀回的**顯示文字**裡驗出 `google.com/url?q=`。關鍵判準是**先剝掉 HTML 標籤屬性再找特徵字**——`href` 被改寫是正常的，少了這步會把「已按規則處理好的 htmlBody 草稿」誤判成壞掉。同一封草稿只提醒一次（狀態以 draftId 為鍵），任何解析失敗/判不出一律 fail-open
+
+### Fixed
+- **三支 Stop hook 的回合切割全部失效（含既有兩支，靜默壞著）**：舊版用 `o.promptId !== pid` 過濾本回合的 tool_use。實測本機 transcript（Claude Code 2.x）**assistant 行根本沒有 promptId 欄位**——65 個 tool_use 全部沒有，只有工具回傳所在的 user 行有，於是過濾後一個 tool_use 都抓不到：`daily-report-chain-gate` 的 (A)(B) 兩條判定形同全滅、`doc-readability-gate` 的觸發條件永遠為 false。改用行位置切回合（起點＝最後一則 `type==='user'` 且有 promptId 且無 `toolUseResult` 的行），並排除 `isSidechain` 的 subagent 呼叫。**此錯通過 `node --check`、通過 grep 複查，只有實跑才抓得到**（見全域 CLAUDE.md 驗證層級紀律）
+
+### Added（skill 規範）
+- **Gmail 草稿的網址改寫坑（第三步之三新增一節）**：Gmail 建草稿時會把純文字 `body` 裡的網址自動改寫成自家轉址連結（`https://www.google.com/url?q=...&source=gmail&ust=...&sa=E`），對方照貼會貼到錯的位址——nginx 設定的轉址目標變成 Google、curl 指令打到 Google；多行設定另外還會被擠成同一行貼不了。實打 Gmail 建草稿驗證六種寫法：純文字下「網址直接寫 / 去掉 https:// / 包 [ ] 或 < > / 縮排四格 / 塞零寬空格」全部被改寫（零寬空格還被吃進網址裡），只有 `htmlBody` 能保住——顯示文字原封不動，只有 `href` 被改寫。故新增規則：信裡有要對方複製貼上的網址或指令時一律走 `htmlBody`、可貼內容包 `<pre>`、`body` 純文字版把可貼內容換成指路句、建完用 `get_draft` FULL_CONTENT 檢查顯示文字有沒有 `google.com/url?q=`。無法用 HTML 時才退成「指到報告第 N 節」並在信裡說明原因，禁止默默拿掉網址或代換成 `[站台網址]` 佔位符（2026-09-15 使用者當面退過）。同步把前面「預設只給純文字」那條的例外從一項擴為兩項，避免兩處規則打架
+
 ## [0.14.1] - 2026-09-15
 ### Fixed
 - **`send_common.py` 在 cp950 主控台印字會 `UnicodeEncodeError` 中斷寄送**。`_run_gate` 轉印各閘腳本的輸出時，`✓` `✗` `⚠` 等字元在繁中 Windows 的預設編碼下編不出來；**輸出被導向（pipe／檔案）時 `errors=strict`，直接拋例外**——連完全乾淨、零命中的日報都會掛在「印字」而不是「檢查」。
