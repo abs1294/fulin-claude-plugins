@@ -153,6 +153,7 @@ def md_to_html(md, meta=None):
     out = []
     in_list = False
     tbl_buf = []
+    pending_blank = False      # 原始碼遇過空行，待下一段內容出現時補段落間距的 <br>
 
     def esc_inline(s):
         """cell／內文共用的跳脫與行內語法（粗體、code）。"""
@@ -179,6 +180,14 @@ def md_to_html(md, meta=None):
         # 表格列先攔截：它的 | 不能被當成內文處理。
         if _is_table_row(raw):
             close_list()
+            # 表格也要消費 pending_blank（2026-09-16 第四輪審查 BLOCK）：
+            # 舊版在這裡直接 continue、永遠不看 pending_blank，於是
+            # 「內文 + 空行 + 表格」與「內文 + 表格」產出完全相同
+            # （實測兩者 == 為 True），表格緊貼前段；而表格後接內文卻有 <br>，
+            # 前後不對稱。daily-report 的典型版面（標題→內文→表格）必中。
+            if not tbl_buf and pending_blank and out and out[-1] != "<br>":
+                out.append("<br>")   # 只在表格第一列補，列與列之間不補
+            pending_blank = False
             tbl_buf.append(raw)
             continue
         close_table()
@@ -189,13 +198,31 @@ def md_to_html(md, meta=None):
         if not is_li:
             close_list()
         if not esc:
+            # 原始碼的空行＝段落分隔，記下來等下一段內容出現時補 <br>。
+            # 不能在這裡直接 append，否則結尾連續空行會拖出一串多餘的 <br>
+            # （2026-09-16 第三輪審查抓到：舊版直接 continue，段落間空行整個消失，
+            #  '段落一\n\n段落二' 產出 '段落一<br>\n段落二<br>' 兩段黏成連續行）。
+            pending_blank = True
             continue
+        # 標題與段落一律用 <br> 收尾，不用 <p>（2026-09-16 使用者裁定）：
+        # 草稿是要讓使用者在 Gmail 富文本編輯器裡微調後自己送出的，
+        # <p> 會讓他改一個字就整段跑版；<div dir="ltr"> ＋ <br> 才是 Gmail
+        # 編輯器自己產生的結構（實測送進去讀回來一個位元組都沒變）。
+        #
+        # 段落間距：<p> 本來自帶，改用 <br> 之後要自己補一個空行用的 <br>——
+        # 來源有二，(1) 原始碼真的有空行 (2) 標題前一律補（就算原始碼沒空行，
+        # 上一段的 </ul> 也會直接貼著下一個標題，日報的分節會糊在一起）。
+        # 開頭第一段不補（out 還是空的）。
+        want_blank = pending_blank or esc.startswith(("### ", "## ", "# "))
+        pending_blank = False
+        if want_blank and out and out[-1] != "<br>":
+            out.append("<br>")
         if esc.startswith("### "):
-            out.append("<p><b>" + esc[4:] + "</b></p>")
+            out.append("<b>" + esc[4:] + "</b><br>")
         elif esc.startswith("## "):
-            out.append("<p><b>" + esc[3:] + "</b></p>")
+            out.append("<b>" + esc[3:] + "</b><br>")
         elif esc.startswith("# "):
-            out.append("<p><b>" + esc[2:] + "</b></p>")
+            out.append("<b>" + esc[2:] + "</b><br>")
         elif esc in ("---", "***"):
             out.append("<hr>")
         elif is_li:
@@ -204,7 +231,7 @@ def md_to_html(md, meta=None):
                 in_list = True
             out.append("<li>" + esc[2:] + "</li>")
         else:
-            out.append("<p>" + esc + "</p>")
+            out.append(esc + "<br>")
     close_list()
     close_table()
     return "\n".join(out)

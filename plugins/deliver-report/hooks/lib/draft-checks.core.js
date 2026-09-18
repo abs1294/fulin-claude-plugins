@@ -1,70 +1,22 @@
-#!/usr/bin/env node
 /**
- * gmail-draft-link-gate — deliver-report plugin 的第三支 Stop hook
+ * draft-checks.core.js — Gmail 草稿檢查的判準模組
  *
- * 守的是**寄出去就收不回來**的那一段：Gmail 草稿的內容。
- * 既有兩支閘掃的是檔案（.docx / 待寄的 .md），**草稿本身沒有任何人掃**——
- * 而它才是真正會到外人手上的東西。本 hook 補這個缺口。
+ * **這裡不讀 stdin、不 process.exit、不決定輸出格式**，只提供判準函式。
+ * 目前的使用者：
+ *   - gmail-draft-posttool-gate.js  （PostToolUse，草稿工具回傳當下就掃）← require 本檔
+ *   - gmail-draft-link-gate.js      （Stop，回合結束時掃）← **尚未接上，仍自帶一份副本**
  *
- * 為什麼要 hook：這些規則都寫在 SKILL.md 第三步之三，但那是自律——AI 會跳過。
- *       而下面每一條的共同形狀是**我方看草稿預覽看不出來**，要等對方收到/貼上
- *       才會爆（見本 repo memory「skill MANDATORY 是自律、hook 才是他律」）。
+ * 抽出來的理由：2026-09-17 實案中 Stop hook 因回合切割（turnBlocks 只收
+ * 「最後一則使用者輸入之後」的 tool_use）而從未開火，使用者手上的草稿帶著
+ * 4 封 <p> 結構與 1 封掉串缺陷，檢查器本身完全正常卻一次都沒被呼叫。
  *
- * 本 hook 不碰 Gmail API、不需要憑證——它只讀 transcript 裡**已經發生過**的
- * 工具呼叫與回傳，所以沒設定憑證的人也能用。
+ * ⚠ **現況是兩份副本，不是單一來源。** Stop hook 刻意本次不動（保留回歸基準），
+ * 所以 disallowedTags 等判準在本檔與 gmail-draft-link-gate.js 各有一份。
+ * 兩份是否一致由 tests/disallowed-tags.test.js 的「漂移偵測」段機械比對
+ * （同一批輸入餵兩份、逐例比對輸出，不一致就 exit 1）。
+ * 把 Stop hook 改成 require 本檔之後，那段比對即可移除。
  *
- * ── 七項檢查（全部只提醒，不硬擋）────────────────────────────
- *
- * 【網址被改寫】2026-09-15 實打驗證
- *   Gmail 把純文字 body 裡的網址改寫成 https://www.google.com/url?q=<原網址>&source=gmail…
- *   對方照貼就貼到錯的位址——nginx 轉址目標變成 Google、curl 指令打到 Google。
- *   純文字下所有規避寫法（去掉 scheme、包 []、包 <>、縮排四格、零寬空格）全部失效，
- *   只有 htmlBody 能保住顯示文字。
- *   (A) 建了含網址的草稿但沒 get_draft 讀回 → 提醒去檢查
- *   (B) 讀回的**顯示文字**裡驗出 url?q=     → 提醒草稿已經壞了、要重建
- *   ★ 關鍵判準：`href="...url?q=..."` 是**正常的**，不算壞。Gmail 對 htmlBody
- *     只改寫 href，標籤之間的顯示文字原封不動——那正是對方複製到的東西。
- *     所以偵測前必須先剝掉標籤屬性，只看顯示文字；少了這步會把「已經正確
- *     處理好的 htmlBody 草稿」誤判成壞掉（假陽性）。
- *
- * 【掉出信串】(C) update_draft 之後 threadId 變成自己的 id
- *   實案（2026-09-15 nuvoton）：create_draft 回 threadId=1a0678c431c772e9（正確），
- *   update_draft 後變成 1a0a58271da7ab89（自己的 id）——草稿靜默脫離原討論串，
- *   送出去會變成一封新信、不接在對方那封底下。**Gmail 介面上看不出來**。
- *   判準是純機械的：同一個 draftId 的 threadId 前後不一致。
- *
- * 【佔位符外流】(D) body 裡留著 [xxx] / <xxx> / ___ 這類填空提示
- *   SKILL.md 三個鐵則之一：「永遠不留 <收件人> 這種佔位符」，第三步之三也明文
- *   禁止把網址代換成 [站台網址]（2026-09-15 使用者當面退過）。對方看不懂要填什麼。
- *
- * 【Markdown 外流】(E) body 裡有 **粗體** / ## 標題 / |表格|
- *   2026-09-15 實打驗證：Gmail 純文字**原樣顯示**成星號與井號，不會渲染。
- *
- * 【標籤白名單】(E2) htmlBody 用了 Gmail 編輯器以外的結構
- *   草稿要讓使用者在富文本編輯器裡微調，塞 <p class=…>／<span style=…> 進去，
- *   他改一個字就可能整段跑版。只准 <br> <hr> <b> <i> <u> <ul> <ol> <li> <a> <pre>
- *   <table> <tr> <td> <th>，換行用 <br>（禁 <p>），外層一個 <div dir="ltr">。
- *   另放行等價寫法 <strong> <em> <code> <thead> <tbody>（與 ALLOWED 一致）。
- *   屬性也走白名單（href dir title target rel alt lang name id role aria-*
- *   與表格屬性），其餘一律報出屬性名；style= 只有表格類標籤可帶
- *   （2026-09-14 使用者裁定，框線必須內嵌）。不再單挑「事件屬性」——那是開放集合，
- *   補不完（見 disallowedTags 上方的四輪演進註解）。
- *   實測這組送進去讀回來一個位元組都沒變。
- *
- * 【機敏內容】(F) 憑證／個資 命中 references/banned-patterns.json
- *   與 doc-readability-gate、content_guard 共用同一份樣式（改一次三邊生效）。
- *   草稿是對外的，這類東西外流比寫進內部文件嚴重。
- *
- * 【公文式敬稱】(F) 同上，但**只提醒不下判斷**
- *   ★ 依易讀性鐵則 14：中文沒有詞邊界，「貴司」命中「貴司機」、「本中心」命中
- *     「成本中心」，實測 28 個誘餌全部誤判。故此組**天生是 advisory**，
- *     訊息措辭必須寫成「請確認」而非「有錯」——誤判會訓練使用者忽略警告。
- *
- * ★ 提醒頻率：同一封草稿的同一類問題只提醒一次。狀態以 draftId+檢查類別 為鍵，
- *   避免使用者決定「這封就這樣、不改了」之後每講一句話都被唸。
- *
- * ★ 最高原則：FAIL-OPEN。任何讀檔失敗、解析例外、判斷不確定 → 一律放行。
- *   這 hook 影響 session 能不能結束，寧可漏擋，絕不卡死。
+ * 呼叫端要自備的：turn 形狀 { uses: [{id,name,input}], results: Map(id -> {content}) }
  */
 
 const fs = require('fs');
@@ -93,7 +45,7 @@ const ADVISORY_KEYS = ['formal_honorifics'];
 function loadBanned() {
   const out = { hard: [], advisory: [] };
   try {
-    const f = path.join(__dirname, '..', 'references', 'banned-patterns.json');
+    const f = path.join(__dirname, '..', '..', 'references', 'banned-patterns.json');
     const j = JSON.parse(fs.readFileSync(f, 'utf8'));
     for (const key of Object.keys(j)) {
       if (key.startsWith('_')) continue;
@@ -125,199 +77,6 @@ function loadBanned() {
 }
 const BANNED = loadBanned();
 
-let stdinData = '';
-process.stdin.on('data', (c) => (stdinData += c));
-process.stdin.on('end', () => {
-  try { main(stdinData); } catch (_) { allow(); }
-});
-
-function allow() { process.exit(0); }
-function warn(msg) {
-  let json;
-  try { json = JSON.stringify({ systemMessage: msg }); } catch (_) { return allow(); }
-  try { process.stdout.write(json, () => process.exit(0)); } catch (_) { allow(); }
-}
-
-// ---- 主判定 ----
-
-function main(raw) {
-  let input;
-  try { input = JSON.parse(raw); } catch (_) { return allow(); }
-
-  const turn = turnBlocks(input.transcript_path);
-  if (turn === null) return allow();
-
-  // 本回合有沒有建/改草稿？沒有就不關我的事。
-  const writes = turn.uses.filter((b) => isGmailTool(b.name, WRITE_TOOLS));
-  if (!writes.length) return allow();
-
-  // 這些草稿裡，哪些是「信裡真的有網址」的？沒網址的本來就不會被改寫。
-  // ⚠ 這個名單只用來決定「網址類」的兩項檢查(A)(B)——**不可以在這裡 return**，
-  //   否則佔位符／Markdown／機敏內容三項對「沒有網址的草稿」就完全不檢查了。
-  const risky = writes.filter((b) => hasUrl(draftText(b.input)));
-
-  const draftIds = new Set();
-  for (const b of risky) {
-    const id = resultDraftId(turn.results.get(b.id));
-    if (id) draftIds.add(id);
-  }
-
-  const st = readState();
-  const reads = turn.uses.filter((b) => isGmailTool(b.name, READ_TOOL));
-
-  // 一輪只出一次聲：把七項檢查的結果收在一起，最後合成一則訊息。
-  // 分開 warn 會只有第一則送得出去（writeThenExit 會 process.exit）。
-  const sections = [];
-  const claimed = [];       // 本次要記帳的 key（確定要出聲才寫入狀態）
-  const claimedLink = [];   // (B) 專用：只有拿得到 draftId 的才記帳
-
-  // key 為 null＝拿不到穩定識別，這次照樣出聲但**不記帳**（下次仍會提醒）。
-  // 這是刻意的取捨：重複提醒只是吵，記錯帳會讓真問題永久靜默。
-  function once(key, produce) {
-    if (key !== null && st.warned.indexOf(key) !== -1) return;
-    const text = produce();
-    if (!text) return;
-    if (key !== null) claimed.push(key);
-    sections.push(text);
-  }
-
-  // ── (B) 有讀回，而且顯示文字驗出被改寫 → 這封已經壞了 ──
-  const broken = [];
-  for (const b of reads) {
-    const res = turn.results.get(b.id);
-    if (!res) continue;
-    if (inspectDraftResult(res) !== true) continue;
-    const id = safeStr(b.input && b.input.draftId);
-    // ★ 取不到 draftId 就用「不記帳」的臨時標記：舊版一律退成 '(未知 draftId)'，
-    //   於是第二封不同的壞草稿會撞到同一個 key 而**永久靜默**（2026-09-15 對抗審查實測）。
-    //   寧可重複提醒，也不要讓真的壞掉的草稿無聲無息。
-    const key = id ? 'link:' + id : null;
-    const label = id || '(未知 draftId)';
-    if ((key === null || st.warned.indexOf(key) === -1) && broken.indexOf(label) === -1) {
-      broken.push(label);
-      if (key) claimedLink.push(key);
-    }
-  }
-  if (broken.length) {
-    for (const k of claimedLink) claimed.push(k);
-    sections.push(
-      `■ 網址被改寫，這封草稿已經壞了（${broken.length} 封）：${broken.join('、')}\n` +
-      '  讀回來的「顯示文字」裡出現 google.com/url?q= ——不是 href 被包（那是正常的），\n' +
-      '  是對方複製到的內容本身就是錯的位址，照貼會貼到 Google。\n' +
-      '  修法：改用 htmlBody、可貼內容包 <pre>，body 純文字版換成「完整內容見報告第 N 節」的\n' +
-      '  指路句；重建後再 get_draft 確認一次。（SKILL.md 第三步之三）'
-    );
-  }
-
-  // ── (A) 建了含網址的草稿，但沒有「有效地」讀回檢查 ──
-  // 只對「真的含網址」的草稿提醒——沒網址就不會被改寫，讀回也沒意義。
-  //
-  // ★ 兩個 2026-09-15 對抗審查實測抓到的漏報，都已修掉：
-  //   1. **逐封比對，不是全域計數**。舊版只看「本回合有沒有任何一次 get_draft」，
-  //      於是讀了 A 草稿就會讓「沒讀的 B 草稿」一起被當成已檢查。
-  //   2. **只認「讀得到內容」的讀回**。`messageFormat: MINIMAL` 的回傳不含
-  //      htmlBody/plaintextBody，(B) 判不出、(A) 又被抑制——兩項同時失效。
-  //      故這裡只把「回傳真的帶內容欄位」的 get_draft 算作有效檢查。
-  const verifiedIds = new Set();
-  for (const b of reads) {
-    if (!resultHasBody(turn.results.get(b.id))) continue;   // MINIMAL 之類的不算
-    const rid = safeStr(b.input && b.input.draftId);
-    if (rid) verifiedIds.add(rid);
-  }
-  const unverified = Array.from(draftIds).filter((id) => !verifiedIds.has(id));
-  if (risky.length && unverified.length) {
-    // 同理：拿不到 draftId 就不記帳（turn.pid 是行號，會重複）。
-    const key = 'noread:' + unverified.join(',');
-    once(key, () =>
-      '■ 建了含網址的草稿，但沒有讀回來檢查\n' +
-      '  Gmail 會把純文字 body 裡的網址改寫成自家轉址連結（google.com/url?q=...），\n' +
-      '  對方照貼就貼到錯的位址——而且看草稿預覽看不出來。\n' +
-      '  請跑一次 get_draft（messageFormat: FULL_CONTENT），檢查 htmlBody 裡\n' +
-      '  「標籤之間的顯示文字」有沒有 google.com/url?q=（href 裡有是正常的、不用管）。'
-    );
-  }
-
-  // ── (C) update_draft 之後掉出原信串 ──
-  for (const id of detachedThreads(turn)) {
-    once('thread:' + id, () =>
-      `■ 草稿掉出原信串了：${id}\n` +
-      '  update_draft 之後 threadId 變成草稿自己的 id，代表它已經不接在原討論串下——\n' +
-      '  送出去會變成一封新信，對方看不出是在回哪一封。Gmail 介面上看不出來。\n' +
-      '  修法：刪掉重建，用 create_draft 帶 replyToMessageId（原信的 message id，\n' +
-      '  不是 thread id），建完確認回傳的 threadId 仍是原信串。（SKILL.md 第三步之三 要點 1）'
-    );
-  }
-
-  // ── (D)(E)(F) 內容層檢查：逐封草稿掃 body / htmlBody ──
-  for (const b of writes) {
-    // ★ 只有拿得到穩定的 draftId 才記帳。舊版退成 `turn:<行號>`，
-    //   而行號極易在不同 session／不同草稿間重複，一旦記帳就**永久靜默**
-    //   （2026-09-15 對抗審查實測）。拿不到就每次都提醒——寧可吵，不可漏。
-    const id = resultDraftId(turn.results.get(b.id)) || safeStr(b.input && b.input.draftId);
-    const text = draftText(b.input);
-    if (!text.trim()) continue;
-
-    const ph = findPlaceholders(text);
-    if (ph.length) {
-      once(id ? 'ph:' + id : null, () =>
-        `■ 草稿裡還留著佔位符：${ph.slice(0, 5).join('、')}` +
-        (ph.length > 5 ? `（另有 ${ph.length - 5} 處）` : '') + '\n' +
-        '  對方看不懂那要填什麼。收件人沒指定就只寫「Hi,」，不要留 <收件人>；\n' +
-        '  網址不要代換成 [站台網址]——真的不能貼就指到報告第 N 節並說明原因。\n' +
-        '  （SKILL.md 鐵則 ①、第三步之三）'
-      );
-    }
-
-    const md = findMarkdown(text);
-    if (md.length) {
-      once(id ? 'md:' + id : null, () =>
-        `■ 草稿裡有 Markdown 語法：${md.join('、')}\n` +
-        '  實測 Gmail 純文字會原樣顯示成星號與井號，不會渲染成粗體或標題。\n' +
-        '  排版改用空行與「項目：值」一行一條。（SKILL.md 第三步之三 格式）'
-      );
-    }
-
-    const badTags = disallowedTags(safeStr(b.input && b.input.htmlBody));
-    if (badTags.length) {
-      once(id ? 'tag:' + id : null, () =>
-        '\u25a0 htmlBody 用了白名單以外的標籤或屬性：' + badTags.join('\u3001') + '\n' +
-        '  \u8349\u7a3f\u662f\u8981\u8b93\u4f7f\u7528\u8005\u5728 Gmail \u5bcc\u6587\u672c\u7de8\u8f2f\u5668\u88e1\u5fae\u8abf\u7684\u2014\u2014\u585e\u9032\u9019\u4e9b\u7d50\u69cb\uff0c\u4ed6\u6539\u4e00\u500b\u5b57\u5c31\u53ef\u80fd\u6574\u6bb5\u8dd1\u7248\u3002\n' +
-        '  \u53ea\u7528\uff1a<br> <b> <i> <u> <ul> <ol> <li> <a> <pre> <table> <tr> <td> <th>\n' +
-        '  \u63db\u884c\u4e00\u5f8b\u7528 <br>\uff08\u7a7a\u4e00\u884c\u5c31\u662f <br><br>\uff09\uff0c\u7981\u7528 <p>\uff1b\u5916\u5c64\u53ea\u5141\u8a31\u4e00\u500b <div dir="ltr">\u3002\n' +
-        '  \u5c6c\u6027\u53ea\u5141\u8a31\uff1ahref dir title target rel alt lang name id role aria-* \u8207\u8868\u683c\u7684 cellspacing/cellpadding/colspan/rowspan/align/valign/border/width/height/bgcolor/scope/headers\uff08style= \u50c5\u8868\u683c\u985e\u6a19\u7c64\u53ef\u5e36\uff1bclass=\u3001data-*\u3001on\u2026= \u4e00\u5f8b\u7981\u7528\uff09\n' +
-        '  \uff08SKILL.md \u7b2c\u4e09\u6b65\u4e4b\u4e09 \u683c\u5f0f\uff09'
-      );
-    }
-
-    const hits = scanBanned(text, BANNED.hard, true);      // 憑證／個資一律遮蔽
-    if (hits.length) {
-      once(id ? 'banned:' + id : null, () =>
-        `■ 草稿裡有機敏內容：${hits.join('；')}\n` +
-        '  草稿是要寄給外人的，這類東西外流收不回來。寄出前務必確認並移除。\n' +
-        '  （樣式來源：references/banned-patterns.json，與另外兩支閘共用）'
-      );
-    }
-
-    const adv = scanBanned(text, BANNED.advisory, false);   // 敬稱不遮蔽，見 scanBanned 註解
-    if (adv.length) {
-      once(id ? 'adv:' + id : null, () =>
-        `□ 請確認是否為公文式敬稱（可能誤判，只是提醒）：${adv.join('；')}\n` +
-        '  對方一律寫「您們」、自稱寫「我們」。但中文沒有詞邊界，「貴司」會命中\n' +
-        '  「貴司機」、「本中心」會命中「成本中心」——是誤判就忽略這行。\n' +
-        '  （易讀性鐵則 14：本組天生只提醒、不判定）'
-      );
-    }
-  }
-
-  if (!sections.length) return allow();
-
-  st.warned = st.warned.concat(claimed);
-  writeState(st);
-  return warn(
-    '【Gmail 草稿檢查】寄出去就收不回來，請先確認以下幾點（不影響結束）：\n\n' +
-    sections.join('\n\n')
-  );
-}
 
 // ---- 判定 helpers ----
 
@@ -389,6 +148,72 @@ function detachedThreads(turn) {
     if (!attached) continue;                             // 從頭到尾都沒掛過串 → 沒有串可掉
     if (attached.threadId === last.threadId) continue;   // 串沒變 → 正常
     out.push(id);
+  }
+  return out;
+}
+
+/**
+ * detachedReplyDrafts — 掉串偵測的**第二判準**（與 detachedThreads 盲區不同構）
+ *
+ * 為什麼要第二支：detachedThreads 要「同一 draftId 至少兩次觀測」才判得出來
+ * （hist.length < 2 直接放行）。但實案中最常見的形狀是**一次就錯**：
+ *   2026-09-17 nuvotonForum：create_draft 一次成形，回傳
+ *   {"id":"r748399319062911997","messageId":"1a0afc52a3cf3145",
+ *    "threadId":"1a0afc52a3cf3145"}  ← threadId 等於這封自己的 id，自成一串
+ *   而 subject 是「Re: …」、同串前幾封的 threadId 都是 1a0678c431c772e9。
+ *   detachedThreads 因為只有一次觀測而靜默放行，使用者差點把「看起來是回覆、
+ *   實際是新信」的草稿寄出去。
+ *
+ * 判準（三者同時成立才報，避免對「本來就是新信」誤判）：
+ *   1. 這次回傳的 threadId 等於這封草稿自己的 id（自成一串）
+ *      ——messageId 有回就用它比，沒回就用 id 比，兩者講的是同一件事
+ *   2. 這封草稿**自稱是回覆**：subject 以 Re:／RE:／回覆 開頭，
+ *      或 input 帶了 replyToMessageId／threadId
+ *   3. 沒有第 2 次觀測（有的話交給 detachedThreads，不重複報）
+ *
+ * 全域規則「驗證器不可與施作器同構」的落實：本函式與 detachedThreads
+ * 走的是完全不同的證據（單次回傳＋意圖訊號 vs 多次觀測的差異），
+ * 一方的盲區不會同時是另一方的盲區。
+ */
+function detachedReplyDrafts(turn) {
+  const obsCount = new Map();
+  const cand = [];
+
+  for (const b of turn.uses) {
+    if (!isGmailTool(b.name, WRITE_TOOLS)) continue;
+    const s = resultText(turn.results.get(b.id));
+    if (!s) continue;
+    let o;
+    try { o = JSON.parse(s); } catch (_) { continue; }
+    if (!o || typeof o.id !== 'string') continue;
+    if (typeof o.threadId !== 'string') continue;
+    // messageId 只有部分實作會回（官方 schema 只保證 id 與 threadId）。
+    // 缺席時退回用 id 比對：threadId === id 與 threadId === messageId 講的是
+    // 同一件事——這封草稿自成一串。2026-09-18 審查實測：原本硬性要求 messageId
+    // 存在，缺了就整支判準靜默回 []，而那正是本判準要抓的情境。
+    const selfId = typeof o.messageId === 'string' ? o.messageId : o.id;
+
+    obsCount.set(o.id, (obsCount.get(o.id) || 0) + 1);
+    if (o.threadId !== selfId) continue;                 // 有掛在串上 → 不是這條管的
+
+    const inp = (b.input && typeof b.input === 'object') ? b.input : {};
+    const subj = safeStr(inp.subject).trim();
+    const claimsReply =
+      /^(re\s*:|回覆|回复)/i.test(subj) ||
+      !!safeStr(inp.replyToMessageId) ||
+      !!safeStr(inp.threadId);
+    if (!claimsReply) continue;                          // 本來就是新信 → 正常
+
+    cand.push({ id: o.id, subject: subj });
+  }
+
+  const out = [];
+  const pushed = new Set();
+  for (const c of cand) {
+    if ((obsCount.get(c.id) || 0) >= 2) continue;        // 交給 detachedThreads，不重複
+    if (pushed.has(c.id)) continue;
+    pushed.add(c.id);
+    out.push(c);
   }
   return out;
 }
@@ -778,55 +603,6 @@ function resultText(res) {
   return '';
 }
 
-// ---- transcript 讀取 ----
-
-/**
- * 取本回合（最後一則使用者輸入之後）的 tool_use blocks 與對應的 tool_result。
- *
- * ★ 切回合用「行位置」，不能用 promptId 比對。實測本機 transcript（2026-09-15，
- *   Claude Code 2.x）：**assistant 行根本沒有 promptId 欄位**——65 個 tool_use
- *   全部沒有，只有 tool_result 所在的 user 行有。用 promptId 過濾會一個
- *   tool_use 都抓不到，而且語法檢查、靜態掃描全部會過——只有實跑才抓得到
- *   這種錯。
- *
- * 回合起點的判準見 isUserPromptLine()（三個條件缺一不可，各有實測重現的失效案例）。
- */
-function turnBlocks(tp) {
-  if (!tp) return null;
-  let raw;
-  try { raw = fs.readFileSync(tp, 'utf8'); } catch (_) { return null; }
-
-  const lines = raw.split('\n');
-
-  // 從尾往前找最後一則真正的使用者輸入。
-  let start = -1;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (!lines[i]) continue;
-    let o;
-    try { o = JSON.parse(lines[i]); } catch (_) { continue; }
-    if (isUserPromptLine(o)) { start = i; break; }
-  }
-  if (start < 0) return null;
-
-  const uses = [];
-  const results = new Map();
-  for (let i = start + 1; i < lines.length; i++) {
-    const l = lines[i];
-    if (!l) continue;
-    let o;
-    try { o = JSON.parse(l); } catch (_) { continue; }
-    if (!o || typeof o !== 'object') continue;   // 合法 JSON 的 null/字串/數字：防 TypeError
-    if (o.isSidechain === true) continue;        // subagent 的工具呼叫不算本回合
-    const c = o.message && o.message.content;
-    if (!Array.isArray(c)) continue;
-    for (const b of c) {
-      if (!b || typeof b !== 'object') continue;
-      if (b.type === 'tool_use') uses.push(b);
-      else if (b.type === 'tool_result' && b.tool_use_id) results.set(b.tool_use_id, b);
-    }
-  }
-  return { pid: String(start), uses, results };
-}
 
 // ---- 狀態（同一封草稿只提醒一次）----
 
@@ -837,7 +613,11 @@ function statePath() {
 function readState() {
   const empty = { warned: [] };
   try {
-    const o = JSON.parse(fs.readFileSync(statePath(), 'utf8'));
+    // 剝 BOM：JSON.parse 遇到 BOM 會拋，被下面 catch 吃掉後整份記帳靜默歸零
+    // ——去重失效、同一封草稿每次呼叫都重報。2026-09-18 實測：用 git-bash 的
+    // `echo > warned.json` 就會寫出 BOM，任何外部工具碰過這個檔都可能觸發。
+    const raw = fs.readFileSync(statePath(), 'utf8').replace(/^\uFEFF/, '');
+    const o = JSON.parse(raw);
     return { warned: Array.isArray(o.warned) ? o.warned.filter((x) => typeof x === 'string') : [] };
   } catch (_) { return empty; }
 }
@@ -875,3 +655,19 @@ function isUserPromptLine(o) {
 }
 
 function safeStr(x) { return typeof x === 'string' ? x : ''; }
+
+
+module.exports = {
+  // 常數
+  REWRITE_MARK, WRITE_TOOLS, READ_TOOL, BANNED, STATE_DIR,
+  // 工具名 / 取值
+  isGmailTool, draftText, hasUrl, safeStr,
+  // 七項判準
+  detachedThreads, detachedReplyDrafts,
+  findPlaceholders, disallowedTags, findMarkdown, scanBanned,
+  inspectDraftResult, resultHasBody, resultDraftId, resultText, visibleTextHasMark,
+  // 狀態
+  statePath, readState, writeState,
+  // transcript
+  isUserPromptLine,
+};

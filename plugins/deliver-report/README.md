@@ -22,13 +22,20 @@
 
 - `references/document-readability.md`（**plugin 層級共用一份**）：交付文件易讀性十四條鐵則＋交付前必做的九項機械掃描。每一條都是使用者當面指出過 2~4 次的實案。
 - `hooks/doc-readability-gate.js`：Stop hook，把上述鐵則中「機器判得準」的幾條做成交付前機械閘。**deliver-report 與 test-report-docx 都會觸發**（純 prompt 規範擋不住——實證：該文件寫完「修完一類要全文重掃」之後，作者接著又在同一批文件犯了三次同類問題）。
-- `hooks/gmail-draft-link-gate.js`：Stop hook，**六項檢查、全部只提醒不硬擋**。守的是**寄出去就收不回來**的那一段——上面兩支閘掃的是檔案，**草稿本身原本沒有任何人掃**，而它才是真正到外人手上的東西。只讀 transcript 裡已發生的工具呼叫與回傳（**不碰 Gmail API、不需憑證**）：
+- `hooks/gmail-draft-link-gate.js`：Stop hook，**七項檢查、全部只提醒不硬擋**。守的是**寄出去就收不回來**的那一段——上面那支閘掃的是檔案，**草稿本身原本沒有任何人掃**，而它才是真正到外人手上的東西。只讀 transcript 裡已發生的工具呼叫與回傳（**不碰 Gmail API、不需憑證**）。
+  ⚠ **這支在正常交付流程下幾乎不會開火**：它只掃「最後一則使用者輸入之後」的工具呼叫，而使用者通常會在建完草稿後再講一句話，草稿就全部落在掃描窗外。實際生效的是下一條的 PostToolUse，這支留作判準的回歸基準。七項檢查是：
   - **網址被改寫**（建了含網址的草稿卻沒讀回檢查／讀回的顯示文字裡驗出 `google.com/url?q=`）。`href` 被改寫是正常的、不算壞——偵測前先剝掉標籤屬性，避免把已正確處理的 `htmlBody` 草稿誤判
   - **掉出信串**（`update_draft` 後 threadId 變成自己的 id，送出去會變成新信，Gmail 介面看不出來）
   - **佔位符外流**（`<收件人>`、`[站台網址]`、`___`）
   - **Markdown 外流**（`**粗體**`／`## 標題`／`|表格|`，Gmail 純文字會原樣顯示）
+  - **標籤白名單**（`htmlBody` 只准 `<br>` `<hr>` `<b>` `<i>` `<u>` `<ul>` `<ol>` `<li>` `<a>` `<pre>` `<table>` `<tr>` `<td>` `<th>`，另放行等價寫法 `<strong>` `<em>` `<code>` `<thead>` `<tbody>`；屬性同樣走白名單（href dir title target rel alt lang name id role aria-* 與表格屬性），禁 `<p>`／`class=`／`style=`／`data-*`／`on…=`——草稿要讓使用者在富文本編輯器裡微調，塞這些結構進去改一個字就跑版。`style=` 只有表格類標籤可帶，框線必須內嵌）
   - **機敏內容**（憑證／個資，共用 `banned-patterns.json`，命中值遮蔽）
   - **公文式敬稱**（advisory，措辭是「請確認」且不遮蔽——依易讀性鐵則 14，這組天生會誤判）
+- `hooks/gmail-draft-posttool-gate.js`：**PostToolUse hook，這才是實際生效的那一道**。matcher `mcp__claude_ai_Gmail__(create_draft|update_draft|get_draft)`，在草稿工具**回傳當下**就跑上述七項檢查，完全不經過回合切割，所以不會被「使用者又講了一句話」沖掉。判準放在 `hooks/lib/draft-checks.core.js`。
+  ⚠ **Stop hook 目前尚未接上這個模組**（本次刻意不動它，保留回歸基準），所以同一個判準有兩份副本。兩份是否一致由 `tests/disallowed-tags.test.js` 的漂移偵測段機械比對——同一批 65 個案例餵兩份、逐例比對輸出，不一致就 `exit 1`（已用人工注入漂移實測有效）。
+  - 掉串偵測有**兩支不同證據的判準**：`detachedThreads()` 比對同一草稿多次觀測間 threadId 的變動；`detachedReplyDrafts()` 只看單次回傳——主旨是 `Re:`／`回覆` 或 input 帶 `replyToMessageId`，卻回傳的 `threadId` 等於這封草稿自己的 id，就是一次就掉串（`messageId` 有回就用它比，缺了退回用 `id`）。前者要兩次觀測才判得出來，後者補的正是這個盲區。
+  - 同一封草稿的同一項問題**只講一次**（狀態記在 `~/.claude/deliver-report/draft-link-gate/warned.json`），不對早已定案的舊草稿反覆出聲。
+  - PostToolUse 無法阻擋（工具已經跑完），一律 exit 0；解析失敗、判不出來一律放行。
 - `skills/daily-report/scripts/content_guard.py`：日報**寄送前**的硬閘（Python 掃 .md，命中 exit 1），另含憑證／個資 pattern。**公文式敬稱組例外**：只印提醒、exit 0 不擋（`ADVISORY_GROUPS`，理由見易讀性鐵則 14）。
 - `references/banned-patterns.json`（**兩道閘共用的單一事實來源**）：憑證／個資／AI 工具鏈字眼／異動紀錄用語的禁用樣式。兩支閘各自讀這一份，**改一次兩邊生效**。
   每組帶 `applies_to` 標明適用產物——`credentials`／`pii` 兩邊都套；`ai_toolchain`／`email`／`money` 只套日報；`revision_history` 只套文件。兩支閘的**實作**仍是兩份（語言與掃描對象不同：Node 掃 .docx、Python 掃待寄的 .md），但**規則**只有一份。

@@ -21,6 +21,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__claude_ai_Gmail__(create_draft|update_draft|get_draft)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gmail-draft-posttool-gate.js\"",
+            "timeout": 15
+          }
+        ]
+      }
     ]
   }
 }

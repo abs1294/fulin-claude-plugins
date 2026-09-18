@@ -2,6 +2,114 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.19.0] - 2026-09-17
+
+### Added
+- **新增第四支 hook `gmail-draft-posttool-gate.js`（PostToolUse）——草稿工具回傳當下就檢查，不再依賴回合切割。**
+  起因是實案：既有的 Stop hook `gmail-draft-link-gate.js` **判準完全正確，但從未開火**。它的 `turnBlocks()` 只收「最後一則使用者輸入之後」的 `tool_use`，而真實交付流程長這樣——
+  ```
+  行 1461-2057  AI 建草稿 / 改草稿 / 讀回草稿   ← 該檢查的全在這
+  行 2153       使用者又講了一句話              ← 掃描窗從這裡才開始
+  行 2158       AI 呼叫 list_drafts（非 write）
+  行 2166       Stop → writes 為空 → return allow()
+  ```
+  於是 `disallowedTags()` 一次都沒被呼叫。使用者收到的草稿帶著 **7 個 `<p>`**（原話：「這很明顯就是 `<p>` 元素啊，不說有說不准這種元素嗎，這種元素讓我根本改不了啊」），而且 `threadId === messageId` 已掉出原信串，寄出去會變成一封獨立新信。**四封草稿連續複製同一個錯誤，沒有任何一道閘出過聲。**
+  失效條件很寬：**只要使用者在建完草稿後又講了任何一句話**，該回合的草稿就全部落在掃描窗外。而真實流程幾乎必然如此（建草稿 → 使用者看一眼 → 說點什麼 → 再收尾），所以這支 Stop hook 在正常使用下**結構性地不會開火**。
+  新 hook 掛 `PostToolUse`，matcher `mcp__claude_ai_Gmail__(create_draft|update_draft|get_draft)`，在工具回傳當下就跑七項檢查。**不做「Stop 掃全檔」兜底**——使用者裁決：「乙沒攔到是你的問題，甲兜底會誤擾」（掃全檔會對早已定案的舊草稿反覆出聲）。
+- **`detachedReplyDrafts()` — 掉串偵測的第二判準，補 `detachedThreads()` 的單次觀測盲區。**
+  `detachedThreads()` 要「同一 draftId 至少兩次觀測」才判得出來（`hist.length < 2` 直接放行），但實案最常見的是**一次就錯**：`create_draft` 一次成形，回傳 `threadId === messageId`，主旨卻是「Re: …」。舊判準靜默放行。
+  新判準三條件同時成立才報（避免對「本來就是新信」誤判）：① 回傳的 `threadId` 等於這封草稿自己的 id（`messageId` 有回就用它比，官方 schema 只保證 `id`／`threadId`，缺 `messageId` 時退回用 `id`——2026-09-18 審查實測：原本硬性要求該欄位存在，缺了整支判準靜默回 `[]`）；② 草稿自稱是回覆（主旨 `Re:`／`RE:`／`回覆` 開頭，或 input 帶 `replyToMessageId`／`threadId`）；③ 沒有第二次觀測（有的話交給 `detachedThreads`，不重複報）。
+  兩支判準走**完全不同的證據**（單次回傳＋意圖訊號 vs 多次觀測的差異），一方的盲區不會同時是另一方的盲區——落實全域規則「驗證器不可與施作器同構」。
+- 單測 `hooks/tests/detached-reply.test.js`，12 例新判準 ＋ 2 例 `detachedThreads` 回歸，2026-09-17 實跑 **14 passed, 0 failed**。
+
+### Changed
+- **判準抽出為 `hooks/lib/draft-checks.core.js`，供新的 PostToolUse hook `require`。**
+  20 個判準函式（`disallowedTags`／`findPlaceholders`／`findMarkdown`／`scanBanned`／`inspectDraftResult`／`detachedThreads`／`detachedReplyDrafts`…）集中一處。
+  ⚠ **本版尚未達成「單一來源」**：Stop hook 本次刻意不動（保留回歸基準），仍自帶一份判準副本，所以同一個 `disallowedTags` 目前有兩份。
+  漂移風險改用機械閘守住而非靠自律——`tests/disallowed-tags.test.js` 新增**漂移偵測段**，拿全部 65 個案例同時餵兩份副本逐例比對輸出，任一邊改了判準沒同步就 `exit 1`。
+  實證有效：2026-09-18 故意把 core 白名單的 `u` 拿掉，測試立刻紅 `** DRIFT ** u  link-gate: [] / core: ["<u>"]`、exit 1；還原後 **80 passed, 0 failed**。
+  下一版把 Stop hook 改成 `require` 本檔後，該段比對即可移除。
+  `gmail-draft-link-gate.js`（Stop）**本次未修改**，仍自帶完整判準——刻意不動它，避免在同一次改動裡同時搬動兩支 hook 而失去回歸基準；實跑 `diff` 確認與改動前位元組相同。
+
+### Fixed
+- **`lib/` 的 `banned-patterns.json` 相對路徑修正**：判準搬進 `hooks/lib/` 後 `__dirname` 深了一層，`path.join(__dirname,'..','references',...)` 會指向不存在的位置。實跑 `require` 確認載入 **15 條 hard ＋ 19 條 advisory**，非退回內建最小清單。
+- **`PostToolUse` 的 `tool_response` 形狀轉接**（此坑靜態檢查完全驗不出）：`tool_response` 是**物件** `{type:'text', text:'…'}`，而共用的 `resultText()` 吃的是 transcript 的 `{content:…}` 形狀。少了轉接，六項內容檢查會全部拿到空字串而**靜默放行**——與本次修的 Stop hook 失效形狀一模一樣，且 `node --check` 與 grep 都不會報。`toResultShape()` 接三種形狀（物件／陣列／純字串），轉不出來回 `null` 當「判不出」放行。
+
+### Fixed（commit 前兩軌審查抓到，均已實跑驗證）
+- **`detachedReplyDrafts()` 硬性要求回傳帶 `messageId`，缺了整支判準靜默回 `[]`。**
+  `create_draft`／`update_draft` 的官方 schema 只保證回 `id` 與 `threadId`，`messageId` 只有部分實作才有。
+  這支判準是本版主打功能，卻在缺該欄位的實作上完全沉默——**實測確認**：`{id:'d2', threadId:'d2'}`（典型掉串）回 `[]`。
+  改為 `messageId` 缺席時退回用 `id` 比對（`threadId === id` 與 `threadId === messageId` 是同一件事）。
+  補 6 個測試案例涵蓋此情境，並**反向驗證測試有效**：還原成舊行為後兩例立刻紅、`exit 1`。測試數 14 → **20 passed, 0 failed**。
+- **工具回傳為錯誤時仍對 `tool_input` 跑檢查並出聲。**
+  實測 `{"isError":true,"content":"quota exceeded"}` 會報 `<p>`——草稿根本沒建成，卻叫使用者去修一封不存在的草稿。
+  新增 `isToolError()`，只認 MCP 的 `isError`／`is_error` 旗標（**不猜字串內容**：「error」「failed」可能正好出現在草稿正文裡）。重試成功時會重新觸發完整檢查，放行不會漏掉真缺陷。
+- **`readState()` 遇到 BOM 會讓整份記帳靜默歸零。**
+  `JSON.parse` 對 BOM 拋例外 → 被 catch 吃掉 → 回空清單 → 去重失效、同一封草稿每次呼叫都重報。
+  2026-09-18 實測：用 git-bash 的 `echo > warned.json` 就會寫出 BOM，任何外部工具碰過這個檔都可能觸發。已加 `.replace(/^\uFEFF/, '')`，實測帶 BOM 的 state 現在讀得回全部鍵。
+
+### Changed（審查後修正不實宣稱）
+- **原文寫「Stop 與 PostToolUse 兩支 hook 共用單一來源」，與實際碼不符。**
+  `gmail-draft-link-gate.js` 只 `require` `fs`／`os`／`path`，從未 `require` 本 lib——`disallowedTags` 等判準**各有一份副本**。
+  CHANGELOG／README／`draft-checks.core.js` 檔頭三處宣稱均已改為據實描述「現況是兩份副本」。
+- **漂移風險改用機械閘守住，而非靠自律。**
+  `tests/disallowed-tags.test.js` 新增**漂移偵測段**：拿全部 65 個案例同時餵兩份副本逐例比對輸出，任一邊改了判準沒同步就 `exit 1`。
+  **實證有效**：故意把 core 白名單的 `u` 拿掉，測試立刻紅 `** DRIFT ** u  link-gate: [] / core: ["<u>"]`、exit 1；還原後 **80 passed, 0 failed**。
+
+### 已知限制（本版未修）
+- **`noread:` 記帳鍵形狀兩支不一致**：`gmail-draft-link-gate.js:230` 用 `noread:<id1>,<id2>` 逗號串接，`gmail-draft-posttool-gate.js` 用 `noread:<id>` 單一 id。兩支共用同一個 `warned.json`，Stop 寫的串接鍵永遠不會被 PostToolUse 的銷帳邏輯清掉。
+  影響有限（Stop hook 在正常流程下本就不開火），修它要動本次刻意保留為回歸基準的 Stop hook，故留待下一版連同「Stop 改為 require core」一併處理，屆時鍵形狀自然統一。
+- **同一封草稿「報過 → 修好 → 又改回來」第三次不會再出聲**：`warned.json` 跨 session 持久，`once()` 的鍵只含 draftId 與問題類別，不含內容指紋。
+- **`hooks.json` 的 matcher 寫死 `mcp__claude_ai_Gmail__` 前綴**，但 core 的 `isGmailTool()` 刻意做成不認前綴以支援其他 Gmail MCP server；換 server 時這支 hook 不會觸發，兩邊寬嚴不一致。
+- **`readState`／`writeState` 是無鎖 read-modify-write**，多支 hook 併發時理論上會覆蓋彼此的鍵（實測 6 個並行程序未掉資料、JSON 未損毀；fail-open 下影響僅止於少提醒一次）。
+
+### 驗證（實跑，非靜態檢查）
+- 用轉錄檔第 2057 行那封**真實草稿的 payload** 餵新 hook，輸出同時命中兩項真缺陷：`■ 草稿掉出原信串了：r748399319062911997`、`■ htmlBody 用了白名單以外的標籤或屬性：<p>`
+- 去重：同一封再跑一次 → 完全靜默
+- 不誤擾：非 Gmail 工具（Bash）、`list_drafts`、正確格式草稿（`<br>` 分段＋掛原串）、本來就是新信（無 `Re:`）、`Re:` 且正確掛串 → 五種情境皆靜默
+- fail-open：壞 JSON、空 stdin、缺 `tool_response` → 一律 exit 0 不崩
+- 工具失敗時不誤擾：`{"isError":true,…}` → 靜默；同一份 `tool_input` 在成功回傳下仍正常出聲（確認不是整支被關掉）
+- 缺 `messageId` 的掉串抓得到：`{id:'d2', threadId:'d2'}` ＋ 主旨 `Re:` → 命中；有掛原串與本來就是新信兩種情境不誤報
+- BOM 防護：把帶 BOM 的 `warned.json` 餵給 `readState()` → 兩筆鍵完整讀回（未修前整份記帳歸零）
+- 回歸：`disallowed-tags.test.js` **80 passed, 0 failed**（含漂移偵測 65 例）、`detached-reply.test.js` **20 passed, 0 failed**、`md-to-html.test.py` **26 passed, 0 failed**；三支 hook 語法檢查通過
+- **反向驗證測試本身有效**（不只看綠燈）：故意還原 `messageId` 修正 → 新增的兩例立刻紅、exit 1；故意拿掉 core 白名單的 `u` → 漂移偵測立刻紅、exit 1。兩者還原後全綠
+- 交付格式：本次異動的六個檔案 CRLF 計數皆為 **0**、無字面 BOM
+
+## [0.18.0] - 2026-09-16
+
+### Changed
+- **`htmlBody` 改為標籤白名單，禁用 `<p>`**（使用者裁決）。只准 `<br>` `<b>` `<i>` `<u>` `<ul>` `<ol>` `<li>` `<a>` `<pre>` `<table>` `<tr>` `<td>` `<th>`，換行一律 `<br>`（空一行＝`<br><br>`），外層一個 `<div dir="ltr">`；禁 `class=`／`style=`／`<span>`／多層 `<div>`。
+  **主因不是版面，是「這封草稿還能不能改」**——草稿的用途是讓使用者在 Gmail 富文本編輯器裡微調後自己送出，塞 `<p class=…>`／`<span style=…>` 進去，他改一個字就可能整段跑版。實測 `<div dir="ltr">` ＋ `<br>` 正是 Gmail 編輯器自己產生的結構，送進去讀回來**一個位元組都沒變**（`<b>` `<i>` `<ul>` `<li>` `<table>` 同此）；而 `<p>` 之間留空行會讀回 `</p>\r\n\r\n<p>`，也就是收件者看到的雙倍行距。`<table>` 依使用者決定**保留為例外**（需要表格才用）。
+  SKILL.md 補白名單規則與一則完整寫法範例；hook 第七項檢查改為 `disallowedTags()`（抓白名單外的標籤與 `class=`／`style=`）。實際允許的一組是 `<br>` `<hr>` `<b>` `<i>` `<u>` `<strong>` `<em>` `<ul>` `<ol>` `<li>` `<a>` `<pre>` `<code>` `<table>` `<tr>` `<td>` `<th>` `<thead>` `<tbody>`（文件主推前一組常用的，`<strong>`／`<em>`／`<code>`／`<thead>`／`<tbody>` 是等價寫法，一併放行）。
+
+### Fixed
+- **`disallowedTags()` 改用單趟字元掃描，不用正則**（對抗審查實測後重寫，四項皆已重現）：
+  - **ReDoS**：舊版 `/<\s*\/?\s*([A-Za-z][A-Za-z0-9]*)\b/g` 兩個相鄰的 `\s*` 造成二次方回溯，`"<" + " ".repeat(160000) + "!"` 要跑 **22.9 秒**、超過 15 秒 timeout 被中止（靜默失效，與本檔先前那次 23 秒事故同型）。改單趟掃描後同一份輸入 **0ms**
+  - **五種假陽性**：信裡的純文字 `class=`／`style=`、屬性值裡的 `<p>`（`<a title="<p>">`）、HTML 註解裡的 `<p>`、屬性值裡的 `class=x style=y` ——舊版全部誤報。現在掃描時認得註解與引號，`class=`／`style=` 只在「真的位於標籤內且不在引號裡」才算
+  - **標籤名截斷漏報**：`<b-widget>` 被 `\b` 截成 `b` 而誤放行；現在完整讀完標籤名（含 `-` `:`）
+  - **`<div>` 判斷改用真正的巢狀深度**：舊版數匹配次數（`divSeen <= 2`），`<div><div>` 只有開標籤反而放行、完整平行 `<div>甲</div><div>乙</div>` 卻被擋。現在只有深度 > 1 才算違規
+  - 另補 `on…=` 事件屬性偵測、200KB 長度上限（與 `scanBanned` 同一道不同判準的兜底）
+  單測 `hooks/tests/disallowed-tags.test.js` 共 79 例（含上述全部案例）＋4 項效能量測，2026-09-16 實跑 `node` 結果 **79 passed, 0 failed**；最壞輸入（150 KB、50000 個未閉合 `</a`）16ms、500 KB base64 內嵌圖 3ms
+- **屬性改走白名單（`ATTR_OK`），不再試圖「認出事件屬性」**（四輪對抗審查才收斂，走過兩次錯路，完整記在這裡免得重蹈）：
+  - 第一輪：原本的 `/\son[a-z]+\s*=/i` 萬用式把 `one=1`／`once="y"`／`only="y"` 誤報成事件屬性（三者實測皆命中），正常信會被誤擋
+  - 第二輪：我改成窮舉實際 handler 清單（`onclick`／`onmouse*`／`onkey*`…），**實測發現這個修法更糟**——漏掉 53 個真 handler，`onauxclick`／`onbeforeunload`／`onplay`／`onreset`／`onfocusin`／`onselectstart` 一律回 `[]`。消掉假陽性換來更大的漏報
+  - 第三輪：改回萬用式＋`NOT_EVENT` 黑名單，又被抓到兩個問題——(a) **黑名單可以被用來遮蔽**：`attrs.match()` 只取第一個 `on…=` 命中，`once="1" onclick="alert(1)"` 的第一個是 `once`、被黑名單排掉就整條放棄，後面真的 `onclick` 再也不看（實測回 `[]`）；(b) 黑名單本身**漏 15/15 個**常見 on 開頭英文字（`onsite`／`onscreen`／`onboarding`／`ondemand`／`onetime`／`oneself`／`onstage`／`onshore`／`onyx`／`ontology`／`oncology`／`onion`／`onlook`／`onrush`／`onwards`）會誤報
+  - **第四輪定案：換判準**。前三輪一直在補集合，但根因是**兩邊都是開放集合**——事件屬性瀏覽器持續新增，on 開頭的英文字也列不完。真正有限的是「Gmail 草稿裡合法的屬性」，就那十來個，所以白名單它：`href` `dir` `title` `target` `rel` `alt` `lang` 與表格的 `cellspacing` `cellpadding` `colspan` `rowspan` `align` `valign` `border` `width` `height` `bgcolor`，其餘一律報出屬性名。
+    這一改同時解掉三件事：遮蔽路徑消失（每個屬性獨立判斷，沒有「第一個」可言）、黑名單漏字不再誤報、也不必再追瀏覽器新增的 handler。副作用是 `onsite=` 這類非標準屬性也會被報——**而那是對的**，它本來就不該出現在草稿裡，訊息說的是「不在允許清單內的屬性」而非「事件屬性」
+- **提醒訊息的 8 項上限改為分層，雜屬性不再擠掉重要違規**（第五輪審查兩軌獨立指出）：舊版所有違規平等競爭同一個上限，於是單一標籤掛 8 個雜屬性就把 `<p>`／`<script>`／`onclick=` 整個擠出訊息——實測 `<p a1..a7>` 還看得到 `<p>`，加到 `a8` 就只剩 8 個 `aN=`；塞滿雜屬性即可讓真正的違規靜默。改為四層（超出時附「另有 N 項未列出」而非靜默截斷）。分層結構是**兩輪自攻才收斂的**：先改兩層，發現 14 個 `on…=` 塞滿重要層依舊把 `<script>` 擠掉（實測回傳不含 `<script>`）→ 標籤拉出來自成一層；再發現 10 個雜排版標籤（h1~h6／img／font／center／marquee）同層競爭下一樣把 `<script>` 擠掉 → `<script>`／`<iframe>`／`<form>`／`<object>` 這類**會執行或會外連**的再拉出來放第零層。最終四層：**危險標籤**（上限 8）＞**其餘標籤**（上限 8）＞**`class=`／`style=`／`on…=`**（上限 10）＞**其餘屬性**（上限 6）
+- **「另有 N 項未列出」的 N 不再虛增**（第八輪審查 Important）：關閉標籤也走 `pushTag`，而超限項不在 `seen()` 裡，於是 `<zz8>` 與 `</zz8>` 各加一次——實測 9 危險＋9 普通標籤（真實違規 **18 項**）被宣稱成「列出 16 ＋另有 4」＝**20**，而自閉合版才是正確的 4。這個數字是講給使用者聽的**事實**，不能虛增，改成記名稱集合再取個數（修後實測 16＋2＝18，成對與自閉合皆為 4）
+- **`DANGER_TAGS` 補上表單控制項**：`textarea`／`select`／`option`／`optgroup`／`label`／`fieldset`／`map`／`area`。`input`／`button` 本來就在危險層，同一次貼上裡 `<select>` 卻被當成不同嚴重度——**那正是危險層要修掉的不一致**（這筆與下方「已知限制」的差別：此處是補齊已有分類的遗漏，那邊是拒絕再擴大集合）
+- **`aria-` 前綴收窄到與註解一致**：舊版 `name.indexOf('aria-') === 0` 就無條件 `continue`，連裸 `aria-` 與 `aria-onclick`／`aria-style`／`aria-class` 都放行（實測）。改為只認`/^aria-[a-z]+$/` 且排掉 `aria-on*`／`aria-style`／`aria-class`。瀏覽器不執行 `aria-*`、實害為零，但**判準不該寬於註解所宣稱的**
+  - **已知限制（刻意不再補）**：分層只降低、不消除「擠掉」——**每一層內部仍會互擠**。實測二例：`<template>`／`<canvas>`／`<noscript>` 等不在 `DANGER_TAGS` 的標籤，在十個以上雜排版標籤壓境下會被擠出訊息；同理，**第零層內部也會互擠**：8 個 `<audio>`／`<video>`／`<svg>`／`<applet>` 擺在前面時，`<script>` 會被擠成「另有 1 項未列出」（實測 7 個時還在、8 個起消失）。**不補的理由**：這已是第三次補同一個集合（事件屬性已補過三次），而該路徑要求草稿同時含 10 個以上雜標籤才觸發——真實場景（Outlook 貼上 4 項、Google Docs 貼上 7 項）離上限還很遠，且本 hook 是 advisory、只提醒使用者自己，不是資安邊界。繼續補反而推高誤報風險，而誤報會訓練使用者忽略警告（易讀性鐵則 14）。若日後要根治，方向是把上限從「項數」改成「字元數」，而不是再加一層或再補一份清單
+- **`ATTR_OK` 補上手寫草稿會用的合法屬性**（第五輪審查實測 24/24 全誤報）：加入 `name`（錨點）、`id`、`role`、`aria-*`、`scope`／`headers`／`abbr`／`summary`（無障礙表格）、`hreflang`／`download`／`type`／`value`／`start`／`nowrap`。理由與易讀性鐵則 14 同型——**誤報會訓練使用者忽略警告**，而這道閘真正要擋的是 `class=`／`style=`／事件屬性。`data-*` 維持報出（Gmail 草稿不該有）
+  - 提醒訊息同步補上屬性白名單那一行，並把標題從「以外的標籤」改為「以外的標籤或屬性」；渲染後的實際文字已實跑確認
+- **`md_to_html` 段落間的空行不再消失**（第三輪審查抓到，`<p>`→`<br>` 改動的回歸）：舊版遇空行直接 `continue`，於是 `段落一\n\n段落二` 產出 `段落一<br>\n段落二<br>`——兩段黏成連續行，而 `<p>` 本來自帶段落間距。改為記下 `pending_blank`、等下一段內容出現時才補 `<br>`（不在當下 append，否則結尾連續空行會拖出一串多餘的 `<br>`）
+- **表格前的空行也不再被吞**（第四輪審查兩軌獨立指向同一處，B 軌判 BLOCK）：`_is_table_row` 分支在 `pending_blank` 被查看之前就 `continue`，於是「內文＋空行＋表格」與「內文＋表格」**產出位元組完全相同**（實測兩者 `==` 為 `True`），表格緊貼前段；而表格後接內文卻有 `<br>`，前後不對稱。daily-report 的典型版面（標題→內文→表格）必中。改為表格的**第一列**也消費 `pending_blank`（列與列之間不補、表格在開頭不補前導 `<br>`，三個邊界皆已實測）
+- **新增 `hooks/tests/md-to-html.test.py`（26 例，逐字元完整比對）**：上面那個間距缺陷能溜過三輪審查中的兩輪，正是因為 `md_to_html` 當時**沒有任何測試覆蓋**——白名單那支測試只管「標籤合不合法」，管不到「版面對不對」。新測試涵蓋段落間距（含連續空行不疊、結尾空行不拖多餘標籤）、標題間距、表格前後間距、清單、行內語法與 HTML 跳脫、不可產生 `<p>`、產出標籤必須全在 hook 白名單內。失敗時 `exit 1`。2026-09-16 實跑 **26 passed, 0 failed**
+- **`attrs` 改為把引號內容替換成一個空白，不是整段丟掉**（第二輪審查實測，一個成因造成三個漏報）：原本 `else attrs += c` 直接跳過引號內容，於是 `<a href="x"onclick="…">` 的 `attrs` 變成 ` href=onclick=`，`onclick` 前面沒有空白、錨定的 `(^|\s)` 不命中而漏報；`class=`／`style=` 同一個洞（`href="x"class="y"` 實測回 `[]`）。瀏覽器接受這種不留空白的寫法，所以它是真的規避路徑。補一個空白同時修好三個檢查，另補前導空白讓第一個屬性也能被錨定
+- **單測失敗時會 exit 1**：原本只印 `N failed` 就結束，實測 `node … >/dev/null; echo $?` 得 **0**——接進 CI 或 hook 鏈會靜默通過。改為 `bad > 0 || ms > 3000` 時 `process.exit(1)`，並以注入一個必失敗斷言的探針實測確認退出碼由 0 變 1
+- 先前一版曾用 `htmlTagGaps()` 偵測「標籤間空行」——那是**在幫一個不該存在的寫法擦屁股**，等於默認 `<p>` 合法。已改為從源頭禁 `<p>`，該函式移除（未進版）。
+
 ## [0.17.0] - 2026-09-15
 
 ### Added
