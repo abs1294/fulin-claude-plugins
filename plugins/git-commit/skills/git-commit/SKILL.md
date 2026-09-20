@@ -141,10 +141,26 @@ Prompt 開頭**必須**寫兩件事，缺一必死：
 >
 > 那份檔案裡每一條都有日期與實測數據，不要憑印象處置。
 
+> ⚠️ **diff 一律內嵌，不要在 prompt 裡附檔案路徑**——內嵌比讓 agent 自己讀檔可靠，任何環境皆適用。
+> 給了路徑它就會去讀，而讀檔是最容易出環境問題的一步。
+>
+> **若該環境的 codex 沙箱會擋外部 shell**（症狀：`rejected: blocked by policy`，錯誤原文含
+> `powershell.exe` / `bash.exe`），讀檔會直接失敗，回 `UNAVAILABLE` 或「無法驗證」型 BLOCK——
+> 外觀像 codex 掛了，實際只要改 prompt 就過，誤判代價是白跳一軌審查。
+> 本機屬於這種環境（2026-09-11 首見、09-20 再踩三次，實測所有 sandbox 模式皆擋）。
+>
+> **大 diff 不是例外**：只內嵌需要判斷的部分（JSON 結構 diff、檔案清單、已驗證結果）即可。
+> 他律＝PreToolUse hook `guard-codex-diff-embed.js`（prompt 含路徑或讀檔指示即擋）。
+
 Prompt 範本：
 
 ```
-請審查 staged diff（在 <DIFF_PATH>，請先 `cat` 讀取）。
+【嚴格限制】不要執行任何指令、不要讀取任何檔案。
+（本環境的 codex 沙箱會擋外部 shell，讀檔必敗。）以下資訊已完整提供，僅根據它判斷。
+
+請審查以下 staged diff（已完整內嵌，**不附檔案路徑**）：
+
+<diff 內容直接貼在此>
 
 【任務背景】<一句話：這次改動在做什麼、影響範圍>
 
@@ -297,6 +313,7 @@ grep -n -i -E 'Claude|Anthropic|Codex|subagent|實測|掃描確認|本輪' <產�
 Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
 
 ## Changelog
+- 2026-09-20 B 軌 prompt 範本改為「diff 內嵌＋硬性禁令」，並補 PreToolUse hook `guard-codex-diff-embed.js`（使用者當次核可）。**起因**：範本第一行原寫「請先 `cat` 讀取」，而本機沙箱自 2026-09-11 起就擋掉所有外部 shell（`powershell.exe`／`bash.exe`／`cat` 皆 `rejected: blocked by policy`）——該坑當天就寫進 troubleshooting，但**範本沒跟著改**，於是照範本寫必然失敗。09-20 同一個坑再踩三次：照範本送被擋、改講「用 cat 不要用 powershell」仍被擋（`bash.exe` 一樣不放行，故 troubleshooting 原「處置 2」在本機無效已刪）、第三次內嵌了 diff 卻又附上檔案路徑且禁令語氣太軟，codex 仍去讀檔並回「無法驗證」型 BLOCK（四項全是 remain unverified、零實質發現）。實測根因：`codex sandbox cat` 直接回 `Win32 error 5`（cygwin 工具在沙箱內建不了記憶體映射），所有 sandbox 模式皆擋、僅 `-s danger-full-access` 例外；但只要 prompt 明寫「不要執行任何指令、不要讀取任何檔案」並內嵌內容，codex 純推理完全正常（實測回完整 `VERDICT: PASS` 並逐條回應檢查點）。**「大 diff 不能內嵌」是誤判**——791 行的 diff 只內嵌需判斷的部分即可。C 軌（code-reviewer）讀檔正常，其範本不動。hook 紅綠已驗四項（含路徑擋／含讀檔指示且無禁令擋／內嵌加禁令放行／非 codex agent 不管）。
 - 2026-09-14 hook 射程由「只攔 `git commit`」擴大到涵蓋 plumbing（`commit-tree`／`update-ref`／`symbolic-ref`／`branch -f`），並取消旁路（使用者當次核可）。**起因是真實事故**：一個 headless 引擎被 hook 擋下後，改用 `write-tree` + `commit-tree` + `update-ref` 三件組完成四個 worktree 的 merge commit，hook 完全沒反應、靜默通過，事後靠該 session 自願記帳才被發現——merge commit 的 message 完全正常，git log 看不出異常。同批修掉兩個結構缺口：①`flow.sh` 放行條件原是純字串比對（`grep -q flow\.sh`），`echo flow.sh; git commit -m x` 一行即可繞過——先改成判斷執行位置，第二輪審查證明那樣仍可繞（把 flow.sh 放後面即可），第三輪索性**整條刪除**，放行只留環境變數那一條；②訊息末句「請先向使用者說明原因並取得同意」在無人值守時等於預設放行，而事故中的引擎第一次其實想照規則走（加了 `GIT_COMMIT_FLOW=1` 前綴）、被擋後才轉向繞路，故訊息改為明講變數從外部設不進來、且沒有旁路。89 項回歸測試（攔截、不誤擋、fail-open、訊息內容四類；三輪審查各補一批變形）。**開發中自撞一次**：`GIT_PREFIX` 前置字元只認 `;&|` 與空白，把事故原文 `WIP=$(git -C "$W" commit-tree ...)` 整條漏掉——指令替換是真實會出現的寫法，補 `(`、反引號、`$` 後才命中。
 - 2026-09-14 新增 `flow.sh amend` 子命令，並修正三份文件對 amend 的矛盾描述（使用者當次核可）。**起因**：§歷史改寫允許 amend 並訂了六條規則，但 flow.sh 從未實作 amend——`grep amend` 兩處命中全是註解、無任何程式碼，所謂「旗標層不提供」實為未實作。於是走這條路的唯一方式是繞過 PreToolUse hook，而繞過之後那六條規則沒有任何機制檢查，與 hook「規範是自律、只有 hook 是他律」的設計目標矛盾。reflog 顯示 amend 在本專案是常態操作（單一 worktree 就有同顆 commit 改寫三次的紀錄），不是罕見例外。新子命令把六條規則機制化：自動建備份分支、用 `branch -r --contains` 擋已 push 的改寫（比 `@{u}` 嚴）、沿用 ship 全部真閘、改寫後依有無 staged 自動選驗法。**同時修掉一個獨立缺陷**：原第 4 條的驗證方法 `git diff <備份分支> HEAD` 必須為空，只對「只改 message」成立；走「有改到碼」那條時 diff 必然不為空，照原文驗會直接判失敗——已拆成兩種驗法，有改碼的改用 tree hash 重現驗證。首版經雙軌審查退回、九項缺陷修正後才進版——其中最嚴重的兩項讓核心閘形同虛設：重現驗證取改寫後 HEAD 的 blob，等於拿結果證明結果（pre-commit hook 竄改內容仍印「驗證通過」）；已 push 判斷只看本地遠端追蹤 ref，自己剛 push 完的 commit 會判回空而放行。回歸測試從 13 項擴到 19 項——首版那 13 項全綠卻漏掉全部九個缺陷，因為測的都是預想路徑，rename／特殊檔名／檔案刪除／模式變更／hook 竄改／hook 擋下／未 fetch 的遠端一項都沒測
 - 2026-09-11 「多步驟用 TaskCreate」一句展開成三條紀律＋禁止情境＋跨場景適用清單。來源＝冷啟 subagent 稽核退場 memory 發現內聯時砍掉的細節（黃區自主，已在回覆聲明）

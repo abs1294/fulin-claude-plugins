@@ -13,6 +13,25 @@
 >
 > 一句話總則：**「我等不下去」不是「它壞了」的證據。** 判不可用之前先跑最小題。
 
+
+## 快速參照（先掃這張表，再讀對應段落）
+
+| 症狀 | 一句話處置 | 細節 |
+|---|---|---|
+| `rejected: blocked by policy` | **diff 內嵌進 prompt ＋ 寫死「不要執行任何指令、不要讀取任何檔案」，且不附檔案路徑** | §讀 diff 被沙箱擋 |
+| `Agent type not found` | `subagent_type` 必須是 `codex:codex-rescue` 完整字串 | §派工方式 |
+| `Not inside a trusted directory` | prompt 開頭加「先 `cd` 到 `<repo>`」 | §派工方式 |
+| 400 `model is not supported` | 跑 `codex-model-sync.sh`，是 model 下架不是環境故障 | §降級前先排除 model 下架 |
+| 卡在 `Reading additional input from stdin` | `codex exec` 加 `< /dev/null` | §派工方式 |
+| 只收到 idle、沒有 VERDICT | **不是死了**，續等；判死要客觀證據 | §判活與降級 |
+| 回「無法驗證」型 BLOCK（全是 remain unverified） | 同第一列——它讀不到檔，不是發現缺陷 | §讀 diff 被沙箱擋 |
+| 想判定「codex 壞了」 | 「我等不下去」不是證據——先跑最小題 | §判活與降級 |
+
+⚠ **`blocked by policy` 是最常誤判的一條**：外觀像 codex 掛了，實際只要改 prompt 就過。
+**本機實測**（2026-09-20）：沙箱擋掉**所有**外部 shell（`powershell.exe`、`bash.exe`、`cat`），
+所以「改用 cat 不要用 PowerShell」這類處置**在此環境無效**——只有內嵌 diff ＋硬性禁令有用。
+其他環境若沙箱正常，讀檔本來就會成功、不會走到這條；但內嵌仍是較可靠的預設做法。
+
 ---
 
 ## 讀 diff 被沙箱擋：`rejected: blocked by policy`（2026-09-11）
@@ -26,10 +45,36 @@ exec_command failed: CreateProcess { message: "Rejected(\"`\"C:\\Windows\\System
 **這不是 codex 不可用**，也不該據此降級單軌。codex 本身活著、模型正常，被擋的只是
 它為了讀 diff 檔而起的 **PowerShell 子程序**——沙箱 policy 不放行 `powershell.exe -Command`。
 
-**處置（兩個都有效，擇一）**：
+**處置（唯一可行）**：**把 diff 直接內嵌進 prompt，並下硬性禁令。**
 
-1. **把 diff 直接內嵌進 prompt**（小 diff 首選）。實測 13 行的 diff 內嵌後重送，35 秒回 `VERDICT: PASS`。
-2. prompt 裡明講「用 `cat` 讀，不要用 PowerShell」。
+```
+【嚴格限制】不要執行任何指令、不要讀取任何檔案。
+（本環境的 codex 沙箱會擋外部 shell，讀檔必敗。）
+以下資訊已完整提供，僅根據它判斷。
+
+<diff 內容直接貼在此，不要附任何檔案路徑>
+```
+
+三個必守（2026-09-20 實測，三次失敗換來的）：
+
+1. **不要在 prompt 裡附檔案路徑**——給了它就會去讀。第三次失敗就是內嵌了 diff 卻又附上路徑。
+2. **禁令要硬**——只寫「不需要讀任何檔案」不夠，要寫「不要執行任何指令、不要讀取任何檔案」。
+3. **大 diff 不是例外**——791 行的 diff 一樣可行，只內嵌需要判斷的部分（JSON 結構 diff、
+   檔案清單、已驗證結果）即可。因為「太大」而改走別的處置，是 09-20 選錯處置的主因。
+
+> ~~處置 2：prompt 裡明講「用 `cat` 讀，不要用 PowerShell」~~ —— **在本機無效，已作廢**。
+> 2026-09-20 實測：改講用 cat 之後，codex 改起 `bash.exe`，一樣 `rejected: blocked by policy`。
+> 沙箱擋的是**所有**外部 shell，不是特定某一種。
+
+**沙箱層根因**（2026-09-20 實測）：`codex sandbox cat package.json` 直接回
+`cat.exe: *** fatal error - CreateFileMapping ... Win32 error 5`（存取被拒）——
+Git-Bash 的 cygwin 工具在 codex 沙箱內建不了共享記憶體映射。實測所有 sandbox 模式
+（預設／`-s read-only`／`--ignore-rules`／`-c approval_policy="never"`／
+`-c sandbox_permissions=["disk-full-read-access"]`）**全部擋**，僅 `-s danger-full-access` 例外。
+但**不需要動沙箱設定**——prompt 寫對就好：實測純推理任務（明令不執行指令）回完整 VERDICT 正常。
+
+**他律**：PreToolUse hook `guard-codex-diff-embed.js`——派 codex 系 agent 時，
+prompt 含 `.git-commit-tmp`／`staged-*.diff` 路徑、或含「先 cat 讀取」類指示而無硬性禁令，即擋。
 
 ⚠ 重送時把**上一次的錯誤原文**也貼進 prompt，並明寫「這次 diff 已內嵌、不需要讀任何檔案」——
 否則 agent 很可能再走一次同樣的讀檔路徑。實測這樣寫就一次過。

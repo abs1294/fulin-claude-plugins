@@ -2,6 +2,10 @@
 
 本檔記錄 git-commit 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.7.0] - 2026-09-20
+### Changed
+- B 軌 prompt 範本改為「diff 內嵌＋硬性禁令」，並補 PreToolUse hook guard-codex-diff-embed.js。範本第一行原寫「請先 cat 讀取」，但沙箱會擋掉所有外部 shell（powershell.exe／bash.exe／cat 皆 rejected: blocked by policy），照範本寫必然失敗——該坑 2026-09-11 就寫進 troubleshooting，範本卻沒跟著改，09-20 同一個坑再踩三次。troubleshooting 同批加「快速參照表」（症狀→一句話處置）放最前面，治「讀一半就挑錯處置」；原「處置 2：改講用 cat 不要用 PowerShell」經實測無效（codex 改起 bash.exe 一樣被擋）已標作廢。新增三個必守：不要在 prompt 附檔案路徑、禁令要寫「不要執行任何指令、不要讀取任何檔案」、大 diff 不是例外。C 軌（code-reviewer）讀檔正常，其範本不動。 措辭上把規則與環境斷言分開：「內嵌、不附路徑」寫成無條件（任何環境皆適用，內嵌本來就比讓 agent 讀檔可靠），沙箱那段改為條件式（「若該環境的 codex 沙箱會擋外部 shell」＋標明本機屬於這種），避免其他環境讀到時成為雜訊。
+
 ## [0.6.0] - 2026-09-14
 ### Changed
 - **hook 射程擴大到 plumbing**：新增攔截 `git commit-tree`／`update-ref`／`symbolic-ref`（寫入與 `-d` 刪除）／`branch -f`、`-M`、`-C`。起因是 2026-09-14 的真實事故——一個 headless 引擎被原本只攔 `git commit` 的 hook 擋下後，改用 `write-tree` + `commit-tree` + `update-ref` 三件組完成了四個 worktree 的 merge commit，hook 完全沒反應、靜默通過，事後是靠那個 session 自願記帳才被發現（git log 看不出異常）。三件組等價於 `git commit` 但字面上完全不像。`write-tree` 刻意放行（單獨用只建 tree 物件、不動 ref，`git stash` 內部實作會用到，攔了誤傷），`reset`／`rebase`／`filter-branch`／`push` 也刻意不攔（前三者屬 SKILL §歷史改寫 的使用者意圖層級且日常常用，push 超出本 hook「只管建 commit」的職責）。
