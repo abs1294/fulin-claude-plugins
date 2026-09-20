@@ -15,7 +15,7 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 >
 > **規則 4（發布前確認 README）**：若本次 status 含新增/刪除 `plugins/<name>/`，發布前先確認根 `README.md` 的 plugin 列表與「結構」樹已同步，未同步就提醒補上再一起 publish。
 >
-> 完整規範見 `../../CONVENTIONS.md`。
+> 完整規範見 `../../CLAUDE.md`。
 
 ## 執行步驟
 
@@ -51,28 +51,34 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
    > ① 是、② 否、③ 否 → **當輪直接跑 commit + push + finalize**，並在回覆中順帶一句告知已發布。
    > cron 保留作為「使用者真的離開了」的備援，兩路以 ③ 守衛互斥、不會重複推。
 
-   **commit message 必須註明本次改了哪一個/哪些 skill（規則 3 — 版本追蹤）**。格式 `<動作>: <skill 名> — <摘要>`，動作詞 Add/Update/Fix，不得加 AI 署名。範例：`Update: delaylocal skill — 修正 LINE 通知逾時重試`。完整格式與範例詳 `../../CONVENTIONS.md`。
+   **commit message 必須註明本次改了哪一個/哪些 skill（規則 3 — 版本追蹤）**。格式 `<Type>: <skill 名> — <摘要>`，不得加 AI 署名。**`<Type>` 用 flow.sh 的允許值**（`Feat` `Modify` `Style` `Refactor` `Perf` `Chore` `Docs` `Test` `Fix` `Hotfix`），因為步驟 4 是交給 flow.sh 執行、它會擋掉清單外的值。範例：`Modify: delaylocal skill — 修正 LINE 通知逾時重試`。⚠️ 舊版寫「動作詞 Add/Update/Fix」——`Add`／`Update` 不在 flow.sh 清單內，會 exit 1（2026-09-20 實測）；對照改用 Add→`Feat`、Update→`Modify`。
    - 因為有默許機制，建議 message 必須**夠完整可直接發布**（照規則 3 寫好），不能只丟半成品等使用者補。
 
-4. **確認後執行 git**（使用者明確確認、或步驟 3 的 5 分鐘喚醒觸發且通過守衛時；在 config.monorepo 目錄，順序：add → commit → push）：
+4. **確認後執行 git**（使用者明確確認、或步驟 3 的 5 分鐘喚醒觸發且通過守衛時；順序：analyze → prepare → ship）：
 
-   先 stage：
-   ```
-   git -C "<monorepo>" add -A
-   ```
-   再 commit。**不要**把訊息直接拼進命令列（`-m "<訊息>"`）——若訊息含 `"`、`` ` ``、`$`、`\` 等，會破壞 shell 引號甚至造成命令注入。改用 **stdin 傳遞**，內容原樣不展開。**此段必須在 Bash 執行**（用 Bash tool）；heredoc 是 Bash 語法，PowerShell/cmd 不支援：
+   ⚠️ **走 `git-commit` skill 的 `flow.sh`，不要裸下 `git commit`**（本 monorepo `CLAUDE.md` 第 2 條）。
+   裸 `git commit` 會被 PreToolUse hook `block-bare-git-commit.sh` 擋下——**那道閘攔全部 repo，不限供應商平台**，
+   而且沒有旁路（`GIT_COMMIT_FLOW=1` 從外部設不進來）。2026-09-20 實際撞過一次。
+
+   `flow.sh` 收「工作目錄底下的 git 子目錄名」或「`.`」，也收相對路徑——**沒有 repo 白名單**，
+   從供應商平台工作目錄指過來用 `../../fulin-claude-plugins` 即可（已實測可行）。
+
    ```bash
-   git -C "<monorepo>" commit -F - <<'COMMIT_MSG'
-   <確認後的訊息，可多行，原樣不展開>
-   COMMIT_MSG
+   FLOW="<供應商平台工作目錄>/.claude/skills/git-commit/flow.sh"
+   REPO="../../fulin-claude-plugins"   # 相對於該工作目錄
+
+   bash "$FLOW" analyze "$REPO"                       # 看狀態＋敏感掃描
+   bash "$FLOW" prepare "$REPO" <files...>            # 逐檔 stage（禁 add -A）
+   bash "$FLOW" ship    "$REPO" <Type> "<描述>"       # 只 local commit
+   bash "$FLOW" ship    "$REPO" <Type> "<描述>" --push # 使用者核可後才推
    ```
-   最後 push：
-   ```
-   git -C "<monorepo>" push
-   ```
-   - 這是獨立的自製 plugin monorepo（非供應商平台四個 repo），可直接在此執行 git。
-   - commit message 不得加任何 AI 署名（遵守全域規範）。
-   - **安全**：commit message 來自使用者輸入，務必走 `-F -` / heredoc（在 Bash），**禁止**字串拼接進 `-m`。
+
+   - **`<Type>` 用 flow.sh 的允許值**，不是本 skill 步驟 3 的 Add/Update/Fix：
+     `Feat` `Modify` `Style` `Refactor` `Perf` `Chore` `Docs` `Test` `Fix` `Hotfix`。
+     對照：Add→`Feat`、Update→`Modify`、Fix→`Fix`。**寫 `Update` 會被 flow.sh 擋下**（實測 exit 1）。
+   - flow.sh 自己會擋 AI 署名、多行 message、敏感字、message 痕跡與寬度超標，不必另外檢查。
+   - commit message 由 flow.sh 用 HEREDOC 傳遞，**不會**有字串拼接的注入問題。
+   - 找不到 flow.sh（例如這台機器沒裝供應商平台）→ 停下來問使用者，不要改用裸 git 繞過。
 
 5. **發布後清 dirty**（狀態機閉合，**務必執行**）：push 成功後跑：
    ```

@@ -2,6 +2,10 @@
 
 本檔記錄 plugin-manager 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.19.0] - 2026-09-20
+### Changed
+- publish 步驟 4 改走 git-commit skill 的 flow.sh，不再裸下 git commit。起因：裸 git commit 會被 PreToolUse hook block-bare-git-commit.sh 擋下——那道閘攔全部 repo 不限供應商平台，且沒有旁路，2026-09-20 實際撞過一次；而本 monorepo CLAUDE.md 第 2 條本來就要求「commit/push 一律走 git-commit skill」，舊寫法等於違反自己 repo 的規矩。實測 flow.sh 沒有 repo 白名單（resolve_repo_path 只組路徑不查清單），從供應商平台工作目錄用相對路徑 ../../fulin-claude-plugins 直接可用。同批修正型別慣例：步驟 3 原寫「動作詞 Add/Update/Fix」，但 Add/Update 不在 flow.sh 允許清單內會 exit 1，改為直接用 flow.sh 的十個值並附對照（Add→Feat、Update→Modify）。另修掉指向不存在檔案的連結：CONVENTIONS.md 在 monorepo 根不存在（實查），規範實際在 CLAUDE.md。
+
 ## [0.18.0] - 2026-09-10
 ### Added
 - setup-plugins 與 clone-env 補「裝完 cc-statusline 要帶使用者做寬度目視校正」：面板依 `COLUMNS` 繪製但實際可用寬度少幾格，**差幾格因機器而異**（終端程式、字型、視窗設定），畫太寬會讓每列被 TUI 折行並切掉最右端（session 名字所在處）。兩支 skill 都寫明判準（框線右上角 `┐` 是否出現、每列右端有無 TUI 折行記號 `…`、名字是否完整）與「此值無法由腳本或 AI 推導、只能使用者目視回報」
