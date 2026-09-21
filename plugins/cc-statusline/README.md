@@ -11,9 +11,9 @@
 
 ---
 
-## 資料從哪來：7 支 tracker hooks（裝 plugin 即自動註冊）
+## 資料從哪來：8 支 tracker hooks（裝 plugin 即自動註冊）
 
-status line 上的 agents / skills / 近期編輯 / 動作歷史 / 頂部摘要 / compact 次數，不是 statusline.js 自己變出來的——它們由 7 支 tracker hooks 在對應事件時寫入 temp 狀態檔，statusline.js 只負責讀：
+status line 上的 agents / MCP 呼叫 / skills / 近期編輯 / 動作歷史 / 頂部摘要 / compact 次數，不是 statusline.js 自己變出來的——它們由 8 支 tracker hooks 在對應事件時寫入 temp 狀態檔，statusline.js 只負責讀：
 
 | hook | 事件 | 餵哪一列 |
 |------|------|----------|
@@ -22,6 +22,7 @@ status line 上的 agents / skills / 近期編輯 / 動作歷史 / 頂部摘要 
 | `file-tracker.js` | PostToolUse (Write\|Edit) | edited（近期編輯檔案） |
 | `skill-tracker.js` | PostToolUse (Skill) | skills（觸發中的 skill） |
 | `subagent-tracker.js` | SubagentStart/Stop | agents（執行中的 subagent；名字前綴 `(f)/(o)/(s)/(h)` 標該 agent 用的模型＝fable/opus/sonnet/haiku——hook payload 沒有 model 欄位，statusline.js 渲染時 lazy 讀各 subagent transcript 前 256KB 抓 model id、快取於 `claude-agent-models-<sid>.json`；transcript 尚未寫入時暫無前綴、下次渲染補上） |
+| `mcp-tracker.js` | PostToolUse (`mcp__.*`) | mcps（**MCP 工具呼叫活動**：呼叫過哪些 MCP 工具＋次數＋失敗數＋多久前，顯示在 agents 區塊正下方。名字在 hook 端就縮成 `Server__tool`——砍掉 `mcp__` 前綴與 `claude.ai `／`plugin:x:` 前綴，故 `mcp__claude_ai_Gmail__create_draft` → `Gmail__create_draft`；以 `__` 雙底線為 server／tool 分界，且只在砍完 server 名仍非空時才砍，故真的叫 `plugin_foo`／`claude_ai` 的 server 不會被吃掉自己的名字。顯示位置為該欄**欄底固定保留**（比照 crons），不是接在 agents 後面的流動內容——否則 agents 一有內容就會把格數吃光、呼叫名稱一個都顯示不出來。與 `memory_mcp` 的**連線健康**是兩回事） |
 | `compact-monitor.js` | PreCompact | compact 計數 |
 | `cron-tracker.js` | PostToolUse (CronCreate|CronDelete|ScheduleWakeup) | crons（排程狀態，有排程時佔 agents/skills 欄底兩行、無排程不佔位；一次性排程逾時自動視為已觸發剔除，循環排程顯示至刪除） |
 
@@ -86,7 +87,7 @@ Claude Code **不支援由 plugin 自動設定主 status line**（plugin.json �
 
 背後改寫 `~/.claude/cc-statusline-rows.json`；**此檔不存在 = 全部顯示**。可開關的列：
 
-`summary`（頂部摘要）、`dir`、`repo`、`model`、`cost`、`usage`、`quota`、`agents`、`skills`、`crons`（排程狀態，有排程時佔 agents/skills 欄底兩行）、`memory_mcp`、`edited`、`history`，外加總開關 `enabled`。
+`summary`（頂部摘要）、`dir`、`repo`、`model`、`cost`、`usage`、`quota`、`agents`、`mcps`（MCP 工具呼叫活動，在 agents 正下方）、`skills`、`crons`（排程狀態，有排程時佔 agents/skills 欄底兩行）、`memory_mcp`（MCP server 連線健康，與 `mcps` 不同）、`edited`、`history`，外加總開關 `enabled`。
 
 也可手動編那個 JSON——只寫要關的 key 即可，例如 `{ "cost": false, "history": false }`。
 
@@ -111,6 +112,8 @@ Claude Code **不支援由 plugin 自動設定主 status line**（plugin.json �
 ## 選配：MCP 狀態即時刷新
 
 `memory_mcp` 那列會顯示 MCP server 的連線健康（✔ 連線 / ✘ 失敗 / △ 待授權）。這份資料由背景刷新腳本 `hooks/mcp-status-refresh.js`（跑 `claude mcp list` 寫快取）產生。
+
+> 注意：這是**伺服器接不接得上**。想看**實際呼叫了哪些 MCP 工具**是另一列 `mcps`（由 `mcp-tracker.js` 餵，顯示在 agents 區塊正下方），不需要這個刷新腳本也能運作。
 
 **限制**：`statusline.js` 目前**只在 `~/.claude/hooks/mcp-status-refresh.js` 這個固定位置**找刷新腳本（找不到就靜默跳過，其餘欄位完全不受影響）。因此若你要 MCP 那列會自動更新，需手動把本 plugin 的刷新腳本複製過去一次。
 

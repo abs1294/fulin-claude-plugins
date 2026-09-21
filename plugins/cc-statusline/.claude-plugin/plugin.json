@@ -1,7 +1,7 @@
 {
   "name": "cc-statusline",
-  "version": "1.5.0",
-  "description": "資訊密度高的 Claude Code status line：目錄/repo/model/成本/用量/quota/agents/skills/memory+MCP/近期編輯/歷史多欄顯示，含 East-Asian 寬字對齊、原子寫入的跨進程狀態快取，與可用 /cc-statusline-rows 調整的顯示配置（逐列開關＋因機器而異的面板寬度邊距 widthMargin）。",
+  "version": "1.6.0",
+  "description": "資訊密度高的 Claude Code status line：目錄/repo/model/成本/用量/quota/agents/MCP 呼叫/skills/memory+MCP 連線/近期編輯/歷史多欄顯示，含 East-Asian 寬字對齊、原子寫入的跨進程狀態快取，與可用 /cc-statusline-rows 調整的顯示配置（逐列開關＋因機器而異的面板寬度邊距 widthMargin）。",
   "author": {
     "name": "fulin"
   },

@@ -85,6 +85,15 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/skill-tracker.js\""
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/mcp-tracker.js\""
+          }
+        ]
       }
     ]
   }

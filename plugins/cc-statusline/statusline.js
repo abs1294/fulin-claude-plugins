@@ -12,7 +12,10 @@ process.stdin.on('end', () => {
     const i = JSON.parse(d);
 
     // Row visibility config (see /cc-statusline:rows). Missing file = everything on.
-    const rowDefaults = { summary:1, dir:1, repo:1, model:1, cost:1, usage:1, quota:1, agents:1, skills:1, crons:1, memory_mcp:1, edited:1, history:1 };
+    // NOTE: `memory_mcp` is the left-panel MCP *connection health* row (n/m active);
+    // `mcps` below is the middle-column MCP *tool-call activity* row. Different data,
+    // different place — keep both keys.
+    const rowDefaults = { summary:1, dir:1, repo:1, model:1, cost:1, usage:1, quota:1, agents:1, mcps:1, skills:1, crons:1, memory_mcp:1, edited:1, history:1 };
     let rowCfg = { ...rowDefaults };
     let cfgEnabled = true;
     // Per-machine width margin (see the WIDTH_MARGIN block further down). It lives
@@ -932,6 +935,47 @@ process.stdin.on('end', () => {
       });
     } catch (e) {}
 
+    // MCP tool calls this session — written by mcp-tracker.js on PostToolUse(mcp__.*).
+    // This is CALL ACTIVITY (which tool ran, how often, how long ago), distinct from
+    // the left panel's mcp row, which is SERVER HEALTH from `claude mcp list`.
+    // Like skills there is no running state (PostToolUse fires after the call).
+    //
+    // Names are already shortened by the hook to `Server__tool` (the mcp__ prefix and
+    // the claude.ai/plugin prefixes are stripped there, matching the short-name rule
+    // the health row uses). They stay long even so — measured on real samples:
+    // Gmail__create_draft 19, claude-in-chrome__computer 26,
+    // Adobe_for_creativity__adobe_mandatory_init 42 — so the 20-char cap used for
+    // agents/skills would eat the tool half of every name, which is the part being
+    // observed. Hence a wider cap, and ellipsis in the MIDDLE so both the server and
+    // the tool stay readable when it bites. Draw-time fit() still clips to the real
+    // column width; this cap only bounds what we hand it.
+    const MCP_NAME_CAP = 34;
+    let mcpItems = [];
+    // Distinct tools called BEFORE the display cap below, mirroring
+    // totalAgentGroups. The "…+N" marker counts against this, or the tools the
+    // cap discarded vanish silently: measured with 9 tools and 2 cells, the
+    // marker read "…+3" when 7 were hidden.
+    let totalMcpTools = 0;
+    try {
+      const calls = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-mcp-${sid}.json`), 'utf8'));
+      const sorted = Object.entries(calls)
+        .sort((a, b) => (b[1].last || 0) - (a[1].last || 0));
+      totalMcpTools = sorted.length;
+      const entries = sorted.slice(0, 5);
+      mcpItems = entries.map(([n, s]) => {
+        let short = n;
+        if (n.length > MCP_NAME_CAP) {
+          const head = Math.ceil((MCP_NAME_CAP - 1) / 2);
+          const tail = MCP_NAME_CAP - 1 - head;
+          short = `${n.slice(0, head)}…${n.slice(n.length - tail)}`;
+        }
+        const cnt = (s.count > 1) ? `${DIM}×${s.count}${R}` : '';
+        const err = (s.errors > 0) ? ` ${RED}✘${s.errors > 1 ? `×${s.errors}` : ''}${R}` : '';
+        const when = s.last ? ` ${DIM}${ago(s.last)}${R}` : '';
+        return `${CYAN}${short}${R}${cnt}${err}${when}`;
+      });
+    } catch (e) {}
+
     // Scheduled jobs — written by cron-tracker.js on PostToolUse(CronCreate|CronDelete|ScheduleWakeup).
     // One-shot jobs whose fire time passed (>90s grace) are treated as fired and hidden
     // (the hook can't observe the actual fire event; recurring jobs show until CronDelete).
@@ -1216,11 +1260,50 @@ process.stdin.on('end', () => {
     // labelling it beats an unexplained blank gap. Header alone does NOT keep the
     // frame alive — that is decided by hasMidContent below.
     const midRows = [];
-    const hasMidContent = showRow('agents') && agentItems.length > 0;
+    const hasAgentContent = showRow('agents') && agentItems.length > 0;
+    // MCP call activity sits DIRECTLY BELOW the agents block in this same column
+    // (user's placement), sharing the header + indented-rows shape used by agents,
+    // skills and crons.
+    //
+    // Unlike the agents header, the mcp header only appears when there is at least
+    // one call: agents earns a permanent header because its column is the one that
+    // would otherwise be an unexplained blank gap when idle, whereas an empty mcp
+    // header under it would just be dead weight in the same column.
+    const hasMcpContent = showRow('mcps') && mcpItems.length > 0;
+    const hasMidContent = hasAgentContent || hasMcpContent;
+    // midIsHeader[i] marks row i as a block LABEL rather than an item. The "…+N"
+    // marker counts hidden ITEMS (agents, mcp calls), so it must not count a
+    // dropped header — mixing the two units over-reports. Kept parallel to
+    // midRows so the draw path, which only knows row indices, can still tell
+    // them apart.
+    const midIsHeader = [];
+    const pushMid = (row, isHeader) => { midRows.push(row); midIsHeader.push(isHeader); };
     if (showRow('agents')) {
-      midRows.push(`${DIM}agents${R}`);
-      for (const it of agentItems) midRows.push(`  ${it}`);
+      pushMid(`${DIM}agents${R}`, true);
+      for (const it of agentItems) pushMid(`  ${it}`, false);
     }
+    // The mcp block is the FIXED BOTTOM of this column, not flowing content after
+    // agents — same treatment crons gets in the third column (r3fixed), and for
+    // the same reason.
+    //
+    // This column's height is set by the LEFT panel's row count, not by the
+    // terminal width, so it is commonly ~6 cells no matter how wide the terminal
+    // is. As flowing rows the agents block ate every cell and the mcp block was
+    // left with its header and the "…+N" marker — measured at COLUMNS=200 with 3
+    // agents and 5 calls: not one call name rendered, which is the whole point of
+    // the row. Reserving the bottom instead truncates agents (which already has a
+    // "…+N" affordance) rather than annihilating mcp.
+    //
+    // Capped so the block can never crowd agents out entirely on a short column;
+    // the display cap of 5 items is enforced upstream where mcpItems is built.
+    const MCP_FIXED_MAX = 4; // header + up to 3 calls
+    const midFixed = [];
+    if (hasMcpContent) {
+      midFixed.push(`${DIM}mcp${R}`);
+      for (const it of mcpItems) { if (midFixed.length < MCP_FIXED_MAX) midFixed.push(`  ${it}`); }
+    }
+    // Header at index 0, calls after it — mirrors midIsHeader for the fixed block.
+    const midFixedIsHeader = midFixed.map((_, k) => k === 0);
     // THIRD column — skills only now that agents own the middle column. Same
     // header + indented-item shape as before.
     const r3rows = [];
@@ -1637,10 +1720,96 @@ process.stdin.on('end', () => {
     // measured against totalAgentGroups, the pre-cap truth.
     if (showMsgs) {
       const cellCount = ri;
+      // The mcp block owns the last |midFixed| cells (see midFixed above); the
+      // agents rows flow into whatever is left above it.
+      //
+      // It may take at most half the column, so neither block can annihilate the
+      // other: reserving all four cells of a six-cell column left agents as a
+      // bare header over "…+N", which is the same failure this reservation
+      // exists to prevent, just pointed the other way. Below three cells there is
+      // no room to split, so the bottom block stands down entirely and agents —
+      // which has the "…+N" affordance — keeps the column.
+      const fixedBudget = cellCount >= 3 ? Math.floor(cellCount / 2) : 0;
+      const fixedCount = Math.min(midFixed.length, fixedBudget);
+      const fixedStart = cellCount - fixedCount;
+
+      // Calls the bottom block could not fit are hidden in neither rightMsgs nor
+      // any drawn cell, so they must be counted explicitly — and, crucially, they
+      // can exist even when the agents rows all fit. Deciding the marker purely
+      // from "agents overflowed" dropped those calls with no marker at all: a
+      // 4-cell column showed 2 of 5 calls and said nothing about the other 3.
+      let mcpShown = 0;
+      for (let k = 0; k < fixedCount; k++) if (midFixedIsHeader[k] === false) mcpShown++;
+      // Against totalMcpTools, not mcpItems.length: the display cap upstream
+      // already dropped tools that never reached midFixed, and counting only
+      // what survived it under-reports (9 tools, 2 shown read "…+3", not "+7").
+      //
+      // Gated on hasMcpContent for the same reason preCapHidden is gated on
+      // hasAgentContent: totalMcpTools is computed from the state file with no
+      // showRow() guard, so with the mcps row switched OFF the whole tally would
+      // be reported as hidden — measured "…+9" with both agents fully displayed
+      // and spare cells to boot, i.e. a fabricated count for a row the user had
+      // turned off.
+      const hiddenMcp = hasMcpContent ? Math.max(0, totalMcpTools - mcpShown) : 0;
+
+      // Reserve a flow cell for the marker only when something is actually
+      // hidden; otherwise the flow area keeps every cell it has.
+      const flowAll = cellCount - fixedCount;
+      const needMarker = rightMsgs.length > flowAll || hiddenMcp > 0;
+      const flowCells = flowAll;
+      // markerIdx lands on the last flow cell, which is only the cell before
+      // fixedStart because the fixed block is pinned to the BOTTOM — i.e.
+      // flowAll and fixedStart are necessarily equal here. If the fixed block
+      // ever stops being bottom-pinned, these two part ways and the marker would
+      // silently land inside it; keep them in step or index off fixedStart.
+      //
+      // Pull it up against the agents rows when they end early: with the agents
+      // list short (or empty — the header still shows, by design) the last flow
+      // cell sits after a run of blanks, so the marker floated below a gap and
+      // read as the agents block's overflow when the hidden items were mcp
+      // calls. Sitting directly under the last agents row (or its header) keeps
+      // it attached to what it is counting.
+      const markerIdx = needMarker
+        ? Math.min(flowCells - 1, rightMsgs.length)
+        : -1;
+
       const midTextFor = (n) => {
-        if (rightMsgs.length > cellCount && n === cellCount - 1) {
-          const shownItems = Math.max(0, (cellCount - 1) - 1); // minus the header row
-          return `${DIM}…+${Math.max(0, totalAgentGroups - shownItems)}${R}`;
+        if (n >= fixedStart && fixedCount) return midFixed[n - fixedStart] || '';
+        if (n === markerIdx && markerIdx >= 0) {
+          // N counts hidden ITEMS (agent groups + mcp calls), never rows.
+          //
+          // Two earlier forms were wrong. The original measured
+          // totalAgentGroups minus one header row, assuming this column held
+          // exactly one header and one list; once the mcp block joined the agents
+          // block (two headers, two lists) it under-reported, rendering "…+0"
+          // while rows were being dropped. Counting cut ROWS instead fixed that
+          // but mixed units: a cut row may be a block LABEL, which is not an item,
+          // so the total over-reported by one per hidden header.
+          //
+          // Counting the items among the cut rows is unit-correct and independent
+          // of how many blocks the column holds, so it stays right if another
+          // block is ever added.
+          //
+          // The marker occupies this cell, so the row that would have been drawn
+          // here is displaced and counts as hidden too — hence the scan starts at
+          // cellCount - 1 rather than cellCount.
+          let hiddenItems = hiddenMcp;
+          // `=== false` rather than `!`: an out-of-range index yields undefined,
+          // which `!` would count as an item and inflate N by one. Cheap immunity
+          // against a negative or overshooting index from the draw loop.
+          for (let k = markerIdx; k < rightMsgs.length; k++) {
+            if (midIsHeader[k] === false) hiddenItems++;
+          }
+          // agentItems was already capped at AGENT_BUILD_CAP, so groups dropped
+          // there never reached rightMsgs and are invisible to the scan above.
+          // Only count them when the agents block is actually being rendered —
+          // with the row switched off its groups were never candidates for this
+          // column at all, and adding them would inflate a marker that is then
+          // reporting mcp rows only.
+          const preCapHidden = hasAgentContent
+            ? Math.max(0, totalAgentGroups - agentItems.length)
+            : 0;
+          return `${DIM}…+${Math.max(0, hiddenItems + preCapHidden)}${R}`;
         }
         return rightMsgs[n] || '';
       };

@@ -2,6 +2,33 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.6.0] - 2026-09-21
+### Added
+- **新增 `mcps` 列：觀察 MCP 工具的呼叫活動**，顯示在 middle 欄 agents 區塊的**正下方**（與 skills／crons 同樣的「header ＋ 縮排項目」形狀）。每筆顯示 `Server__tool` ＋ 呼叫次數 ＋ 失敗數 ＋ 多久前，依最近呼叫排序取前 5 筆；本 session 沒有任何 MCP 呼叫時整區不顯示（不佔位、不留空 header）
+- mcp 區塊採**欄底固定保留**（比照 crons 在第三欄的 `r3fixed` 做法），不是接在 agents 後面的流動內容。原因實測而來：middle 欄的**高度由左欄列數決定、與終端寬度無關**，實務上常只有 6 格，所以當 mcp 是流動內容時 agents 會吃光所有格，mcp 只剩 header ＋ `…+N`——COLUMNS=200、3 個 agent、5 筆呼叫的實測結果是**一個呼叫名稱都沒顯示出來**，整個功能等於看不到。改為保留欄底後 agents 先被截（它本來就有 `…+N` 機制）
+- 保留格數上限為**欄高的一半**，兩個區塊都不會被對方吃光：先前試過固定保留 4 格，在 6 格欄裡反而把 agents 壓成只剩 header ＋ `…+N`，是同一個病換個方向犯。欄高不足 3 格時 mcp 區塊整個讓位
+- 新增 `hooks/mcp-tracker.js`（第 8 支 tracker），掛 PostToolUse 的 `mcp__.*` matcher，以 `lib-state.js` 的鎖定 CAS 合併寫入 `claude-mcp-<sid>.json`，與 skill-tracker 同一套併發保護。MCP 工具無 Start/Stop 事件，PostToolUse 在呼叫後才觸發，故只記「呼叫過」沒有執行中狀態
+- 顯示名在 **hook 端**就縮短成 `Server__tool`：砍掉 `mcp__` 前綴，再砍健康列也會砍的 `claude.ai `／`plugin:x:` 前綴（此處為底線變體），使兩處對同一 server 的稱呼一致。實測七個真實樣本：`mcp__claude_ai_Gmail__create_draft` → `Gmail__create_draft`、`mcp__claude-in-chrome__computer` → `claude-in-chrome__computer`、`mcp__claude_ai_Adobe_for_creativity__adobe_mandatory_init` → `Adobe_for_creativity__adobe_mandatory_init`
+- 前綴比對以 **`__` 雙底線**為 server／tool 分界，且只在「砍掉前綴後 server 名仍非空」時才砍。開發中一度寫成字元類 `^plugin[:_][^:_]+[:_]` 與 `^claude[._]ai[._ ]`，把**單底線也當分隔符**，於是真的叫 `plugin_foo` 的 server 被吃掉自己的名字（`mcp__plugin_foo__bar` → `_bar`）、叫 `claude_ai` 的變成 `_ping`。已以 13 個樣本（7 真實 ＋ 6 對抗：`plugin_foo`／`claude_ai`／`plugin_x_y`／`claude_airtable`／`claude_aide`／`claude_ai_internal`）實跑驗證全部正確
+- 名稱上限取 34 而非 agents/skills 用的 20，且省略號放在**名字中間**：實測縮短後仍有 19～42 字元，用 20 會把每個名字的 tool 半段整個吃掉——而 tool 半段正是要觀察的東西；中間省略讓 server 與 tool 兩端都留得住
+- 失敗呼叫另計並標紅 `✘`（如 `Gmail__trash_message ✘ 2m ago`）。**失敗判定是 best-effort**：已驗證的是 transcript 的 `tool_result` 帶 `is_error`，但 hook 端 PostToolUse 對「失敗的 MCP 呼叫」的實際 payload 形狀**未經實測驗證**，故程式探測數種已知形狀（`is_error`／`isError`／`status`）後預設當成功。漏判只會少算紅字，不會讓該列壞掉
+
+### Fixed
+- **middle 欄溢位標記 `…+N` 改為計算真正被隱藏的「項目數」**。原式是「`totalAgentGroups` 減一個 header 列」，隱含假設該欄只有一個 header ＋ 一份清單；加入 mcp 區塊後該欄有兩個 header ＋ 兩份清單，算式低報——實測在 5 筆 MCP、只顯示得下 3 筆時顯示 `…+0`（明明少了 2 筆）。改版過程中一度改成「數被截掉的列數」，但那會**混用單位**：被截的列可能是區塊標題（`agents`／`mcp` 那行），標題不是項目，每有一個被截的標題就多報 1。最終作法是為 midRows 併行維護 `midIsHeader[]` 標記哪列是標題，只數被截列中的**非標題列**，再加上 agents 在 `AGENT_BUILD_CAP`(40) 前就被丟掉、根本沒進 midRows 的組數（且僅在 agents 列實際顯示時才加——關掉 agents 時那些組本來就不是這一欄的候選，加了會灌水）。與該欄有幾個區塊無關，日後再加區塊也不會再錯
+- 上述修正的驗證方式：`…+N` 的真值**隨該欄可用格數變動**（格數由左欄列數決定，不由終端寬度決定），所以不綁單一數字，改以「畫面上實際看得見幾項」反推真值逐組比對——開發過程中以 50 個 agent 分組（超過 cap 40）＋ 5 筆 MCP 的情境確認過混用單位會多報 1，最終版的完整驗證見下方回歸驗證條目
+- **`…+N` 不再只由「agents 溢位」決定**：改成欄底保留後，出現過「agents 全部放得下、但 mcp 有 3 筆放不下卻完全沒有標記」的靜默丟失（4 格欄顯示 2 筆、另 3 筆無聲消失）。現在只要 agents 溢位**或** mcp 有未顯示筆數就會出標記，且 N 同時涵蓋兩者
+- 回歸驗證（最終版，全部在**隔離 HOME** 下執行，不碰使用者的 `~/.claude/cc-statusline-rows.json`）：
+  1. **計數正確性**：720 組（agents 0～45 × MCP 0～9 × 兩列開關 × 寬度 100/115/130/150/200），每組從畫面實際可見的項目反推真值，比對 marker 數字 —— 380 組有欄渲染者 **0 問題**（無靜默丟失／無憑空多報／無數字錯誤），340 組為窄終端三欄收合（既有行為）
+  2. **既有行為未破壞**：以 `git show HEAD:` 取改動前版本，8 種資料組合（含 agents 超 cap 的 45、skills 0～4、crons 0～2）× 6 種寬度 = 48 組，在 `mcps` 關閉時**逐位元組比對全等（48/48）**——這同時反證關閉時不再洩漏計數
+  3. **差異歸因**：`mcps` 開啟時有 17 組與 HEAD 不同，逐組以機械判準檢查（skills 可見值、crons 可見值、左欄 quota／tokens／memory／cost 可見值是否改變、agents 消失是否有 marker 交代）—— **判定為回歸者 0**，差異全數來自 mcp 區塊本身、agents 讓位截斷與 marker
+- **`…+N` 補上 `mcpItems` 顯示上限丟掉的工具數**：`mcps` 只取最近 5 個工具，但被 `slice` 丟掉的工具原本不計入標記——實測 9 個工具、可顯示 2 筆時標記寫 `…+3`（真值 7），少報 4。改為記下 slice 前的 `totalMcpTools`（對應 agents 既有的 `totalAgentGroups`）再計算，修正後同情境顯示 `…+7`；另測 9 工具 ＋ 8 agents、該欄可顯示 1 個 agent 與 2 筆 MCP 時顯示 `…+14`（7 個未顯示 agent ＋ 7 個未顯示 MCP），皆與真值相符
+- 標記的標題判定由 `!midIsHeader[k]` 改為 `midIsHeader[k] === false`：越界索引取值為 `undefined`，用 `!` 會把它當成項目多算 1。改後不必再依賴「draw 迴圈不會給出越界索引」這個未驗證前提
+- **關掉 `mcps` 列時 `…+N` 不再憑空多報**：`totalMcpTools` 與 `totalAgentGroups` 一樣是無條件從狀態檔算出（不受 `showRow` 保護），而 `hiddenMcp` 原本無條件使用它，於是使用者把該列關掉後、marker 仍把狀態檔裡每個工具算成隱藏。實測 `{"mcps": false}` ＋ 9 個工具 ＋ 2 個 agent：兩個 agent 全部顯示完、畫面還有空格，marker 卻印 `…+9`（真值 0）。改為以 `hasMcpContent` 閘住。此為修 slice 缺口時引入的新缺陷，且與稍早 `preCapHidden` 未閘 agents 開關是**同型錯**——已按同一判準掃過全檔，確認只有這兩個變數符合「從狀態檔算出、無 showRow 保護、被 marker 使用」，兩者現均已閘住
+- **`…+N` 改為緊貼 agents 區塊下方**，不再浮在空白之後：agents 為空時該欄仍會顯示 `agents` 標題（既有設計），標記若落在流動區最後一格就會隔著一片空白出現，看起來像在交代 agents 的溢位，實際數的是 MCP 呼叫。改為取 `min(flowCells - 1, rightMsgs.length)`，貼在最後一列 agents（或其標題）正下方
+
+### Changed
+- `/cc-statusline-rows` skill 補上 `mcps` 的說明，並**把 `mcps` 與 `memory_mcp` 的語意分清楚**：前者是「呼叫了什麼」（本次新增），後者是「伺服器接不接得上」（既有）。該 skill 原本把 `memory_mcp` 描述成「MCP」，使用者說「MCP」時會對到錯的 key，現已在意圖對照表分列兩條
+
 ## [1.5.0] - 2026-09-10
 ### Added
 - **面板寬度邊距改為可設定的個別設定，不再是寫死常數**：正確的邊距值取決於終端程式、字型與 TUI 自身的渲染邊距，**因機器而異**，腳本量不出來（1.4.0 的預設 4 只在單一台 Windows Terminal 上測得）。新增 `~/.claude/cc-statusline-rows.json` 的 `widthMargin` 鍵（與既有列開關同檔），值須為有限的非負數，小數無條件捨去；負數、字串（含 `"6"` 這類數字字串）、布林、`null`、物件陣列、`NaN` 與 `Infinity` 一律忽略並回到預設（判準是 `Number.isFinite`，故不轉型字串、也排除無限大）。無上界檢查：值過大時面板收斂到最小版面而非報錯

@@ -19,9 +19,10 @@ description: 開關 cc-statusline status line 上各列（欄位）的顯示、�
 | `usage` | token 用量 / context 佔用 |
 | `quota` | 5h quota 額度與重置倒數 |
 | `agents` | 執行中的 subagent / task |
+| `mcps` | **MCP 工具「呼叫活動」**：本 session 呼叫過哪些 MCP 工具（`Server__tool` 形式，如 `Gmail__create_draft`）＋次數＋失敗數＋多久前，顯示在 agents 區塊正下方（同一欄），最多 5 筆。無呼叫時整區不顯示 |
 | `skills` | 可用 / 觸發中的 skill |
 | `crons` | 排程狀態（CronCreate / ScheduleWakeup），有排程時佔 agents/skills 欄底部兩行（下一發時刻＋標籤），無排程不顯示不佔位 |
-| `memory_mcp` | memory 與 MCP server 狀態 |
+| `memory_mcp` | memory 與 **MCP server 連線健康度**（`mcp 7 active`，來自 `claude mcp list`）——注意這是「伺服器接得上嗎」，不是「呼叫了什麼」；後者是 `mcps` |
 | `edited` | 近期編輯過的檔案 |
 | `history` | 指令 / 動作歷史 |
 
@@ -68,13 +69,13 @@ statusline 依環境變數 `COLUMNS` 繪製面板，但**實際可用寬度通�
 只留 dir / repo / model（其餘全關）時，把其他所有列明確設 false 比較清楚：
 
 ```json
-{ "summary": false, "cost": false, "usage": false, "quota": false, "agents": false, "skills": false, "memory_mcp": false, "edited": false, "history": false }
+{ "summary": false, "cost": false, "usage": false, "quota": false, "agents": false, "mcps": false, "skills": false, "memory_mcp": false, "edited": false, "history": false }
 ```
 
 ## 操作流程
 
 1. **讀現況**：讀 `~/.claude/cc-statusline-rows.json`。讀不到（檔不存在）就當作 `{}`（= 全開）。
-2. **對照使用者意圖**：把上表的中文/口語對到正確的 key。若使用者講「成本」→ `cost`、「額度/quota」→ `quota`、「MCP」或「記憶」→ `memory_mcp`、「編輯過的檔」→ `edited`、「排程/cron/鬧鐘」→ `crons`，以此類推。含糊時（例如只說「關掉最下面那列」）先用上表向使用者確認是哪個 key，不要猜。
+2. **對照使用者意圖**：把上表的中文/口語對到正確的 key。若使用者講「成本」→ `cost`、「額度/quota」→ `quota`、「記憶」→ `memory_mcp`、「MCP 呼叫 / 用了哪些 MCP / MCP 調用狀況」→ `mcps`、「MCP 連線 / MCP 接上了沒」→ `memory_mcp`、「編輯過的檔」→ `edited`、「排程/cron/鬧鐘」→ `crons`，以此類推。含糊時（例如只說「關掉最下面那列」）先用上表向使用者確認是哪個 key，不要猜。
 3. **合併**：在既有物件上「只改要動的 key」，保留其他既有設定，不要整檔覆寫成只剩這次的 key。
 4. **寫回**：把合併後的物件寫回 `~/.claude/cc-statusline-rows.json`（格式化 JSON）。
 5. **回報**：告訴使用者最終哪些列開、哪些關，並提醒下一次 status line 刷新（預設約 30s，或送出下一則訊息時）即生效。
