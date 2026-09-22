@@ -1,0 +1,17 @@
+{
+  "name": "cbm-guard",
+  "version": "0.1.0",
+  "description": "codebase-memory-mcp 查詢的機械閘：它的數字很容易看起來很成功——精確、可複製、有來源，唯獨是錯的。本 plugin 在查詢當下攔截五類已知會誤導的用法（EXISTS 綁定變數位置錯導致結果恆為全部或零且不報錯、計數沒跑對照組、節點數被當成實體數、孤兒查詢高估、Route 節點在 attribute routing 框架下建不出來），並泛化框架反射入口（MediatR Handle / EF Core Configure / Spring @Component / Angular ngOnInit 等）避免它們被誤判成死碼。另含索引新鮮度檢查——cbm 的查詢結果不帶新鮮度標記，對過期索引查會拿到已刪除的檔案且看起來完全正常。專案相依部分走 cbm-guard.config.json，零設定亦可用（五類通用判準全開）。",
+  "author": {
+    "name": "fulin"
+  },
+  "keywords": [
+    "codebase-memory-mcp",
+    "cypher",
+    "graph",
+    "dead-code",
+    "static-analysis",
+    "guard",
+    "hook"
+  ]
+}

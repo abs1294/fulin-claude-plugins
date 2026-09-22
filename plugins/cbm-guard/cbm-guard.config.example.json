@@ -1,0 +1,57 @@
+{
+  "_README": "把這份複製到「專案根目錄」並改名 cbm-guard.config.json，填上你的專案事實。全部欄位都是選填——不放這個檔也能用，五類通用判準（A/C/D/E/G）照常生效。填得越多，提醒越貼近你的專案。",
+
+  "_docRef": "本專案自己的 cbm 操作正本路徑。填了之後每則提醒結尾都會指過去。",
+  "docRef": "tests/Project_Detail/codebase-memory-mcp-usage.md",
+
+  "_reflectionEntryPoints": "【啟用 B 類 deny】你的專案有哪些「框架會呼叫、但靜態查不到 caller」的入口。不填＝不啟用死碼攔截（適合沒有框架反射的專案）。pattern 寫方法名或形狀，why 寫誰呼叫它。",
+  "reflectionEntryPoints": [
+    { "pattern": "Controller action", "why": "由 ASP.NET 路由呼叫" },
+    { "pattern": "Handler.Handle()", "why": "由 MediatR 反射分派" },
+    { "pattern": "EntityConfig.Configure()", "why": "由 EF Core 掃描" },
+    { "pattern": "介面宣告的方法", "why": "呼叫記在實作上，兩者 qualified_name 不同" },
+    { "pattern": "DI 建構子", "why": "由容器呼叫" }
+  ],
+
+  "_deadCodeLabels": "B 類只在這些 label 上啟用，避免誤擋。例：後端 :Method 有 MediatR 問題、前端 :Function 沒有。不填＝所有 label 都擋。",
+  "deadCodeLabels": ["Method"],
+
+  "_deadCodeStat": "你的專案實測數字，會原樣印在提醒裡。沒有就不填。",
+  "deadCodeStat": "1,888 / 2,748 = 68.7%，抽樣後沒有一筆能安心刪",
+
+  "_deadCodeAlternative": "那要怎麼抓真死碼？填你專案可行的方法。",
+  "deadCodeAlternative": "`dotnet build --no-incremental` 看編譯器的未使用成員警告（本專案兩個後端實測 0 警告）",
+
+  "_runtimeDispatch": "【啟用 F 類提醒】描述你的專案哪裡有執行期分派，會讓 trace_path 出向斷鏈。不填＝不啟用。",
+  "runtimeDispatch": "Controller 用 `_mediator.Send(query)` 把請求丟給 MediatR，Handler 由它在執行期依型別分派。要追 Controller → Handler 只能靠型別名人工對應（XxxQuery → XxxQueryHandler），grep 即可。",
+
+  "_orphanStat": "D 類的專案實測數字。",
+  "orphanStat": "正確寫法算出 131，逐一 grep 驗證後真孤兒只有 7 個（其餘 124 筆是假陽性）",
+
+  "_annotatedOrphansNote": "如果你的專案已經有一批孤兒檔帶標註，寫在這裡，避免別人重複報告已處理的事。",
+  "annotatedOrphansNote": "本專案已有一批孤兒檔帶「尚未啟用」標註（commit 63e705f／d1ca4ce，兩站共 35 檔）——**下結論前先開檔看前 10 行**，那是刻意保留不是沒人管。",
+
+  "_routeStat": "E 類的專案實測數字。",
+  "routeStat": "內站原始碼實有 228 個 [Route(...)]，cbm 只認出 1 個；後端 Route 節點 0 個、前端 270 個",
+
+  "_routeAlternative": "那要怎麼做跨站路由對應？",
+  "routeAlternative": "tests/e2e/tools/route_match_check.py（前端 Route 由 cbm 抽 ＋ 後端用正則掃 [Route]/[Http*]，實測命中 99.3%）",
+
+  "_dedupStat": "G 類的專案實測數字。",
+  "dedupStat": "fileApi.js 的 importer 23 條邊 → 14 個不同檔案；前端 Route 270 顆節點 → 150 個不同端點",
+
+  "_freshness": "索引新鮮度檢查用（scripts/cbm_index_freshness.py 讀這一段）。",
+  "freshness": {
+    "_repos": "要檢查的 repo 目錄名（相對於專案根）。",
+    "repos": [
+      "WEHQ.SupplierManager.Service",
+      "WEHQ.SupplierManager.Frontend",
+      "WEHQ.Supplier.Service",
+      "winbond-vendor-platform"
+    ],
+    "_projectPrefix": "cbm project 名稱的前綴。用 list_projects 看實際值，別手打。",
+    "projectPrefix": "C-Users-User-Claude-Winbond-Supplier_Code-",
+    "_binary": "cbm 執行檔路徑。不填會找 ~/.local/bin/codebase-memory-mcp(.exe)。",
+    "binary": ""
+  }
+}

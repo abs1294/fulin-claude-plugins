@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__codebase-memory-mcp__query_graph|mcp__codebase-memory-mcp__trace_path",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-cbm-query.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

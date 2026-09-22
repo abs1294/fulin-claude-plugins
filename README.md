@@ -78,6 +78,7 @@ monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建�
 | **msproject-wbs** | 產生 MS Project 可直接匯入的 WBS 時程 XML（MSPDI）：模組/工項兩層、工期、資源指派、依賴鏈自動展開甘特圖。把 MSPDI 的七個雷（**元素順序靜默丟棄**、缺全域欄位打不開、日期塌陷、工期 0、BOM…）編碼進生成腳本＋順序自檢，一次到位。說「排 WBS / 產 MS Project 時程」即觸發 | Node.js（驗證用 PowerShell） |
 | **fable-quote** | 產生「寓意科技」格式的正式軟體開發報價單 .docx：套已脫敏的公司標準模板（版式/乙方資料/通用條款內建），只填客戶資料與專案 JSON，明細列動態展開、含稅總計自動算。說「做報價單 / 寓意報價 / 幫客戶出報價」即觸發 | Python 3 + python-docx |
 | **harness** | AI 工作流制度層引擎：`/harness:init` 把通用紀律骨架（模型調度/停損熔斷/派工模板/知識協議）實例化到任何專案的 `.claude/harness/`——盤點→決策→骨架填空→機械驗收。**引擎在 plugin、實例在專案**（plugin 更新不覆蓋實例）；既有治理層（AGENTS.md 等）自動讓位；規則從各專案自己的事故長出來，不預載別專案的條款。含 SessionStart 條件式入口提醒 hook（僅對已 init 的專案輸出） | Node.js（僅 hook 用） |
+| **cbm-guard** | codebase-memory-mcp（程式碼知識圖譜）查詢的機械閘：**它的數字很容易看起來很成功**——精確、可複製、有來源，唯獨是錯的。在查詢當下攔截五類會誤導的用法（EXISTS 綁定變數位置錯→結果恆為全部或零**且不報錯**、計數沒跑對照組、節點數被當成實體數、孤兒查詢高估數倍、Route 節點在 attribute routing 框架下建不出來），並把「框架反射入口被誤判成死碼」泛化成設定（MediatR／EF Core／Spring／Angular 皆同型）。另含**索引新鮮度檢查**——cbm 的查詢結果不帶新鮮度標記，對過期索引查會拿到已刪除的檔案且看起來完全正常。**零設定即可用**，專案事實（實測數字／替代工具／已標註的孤兒檔）走 `cbm-guard.config.json` | Node.js（hook）＋ Python 3（新鮮度檢查）；需 codebase-memory-mcp |
 
 ---
 
@@ -102,7 +103,8 @@ plugins/
 ├─ deliver-report/                   對外產物三件套（交付訊息／測試報告 DOCX／工作日報）
 ├─ msproject-wbs/                    MS Project WBS 時程 XML 產生器（MSPDI 七雷編碼＋順序自檢）
 ├─ fable-quote/                      寓意科技報價單產生器（模板套版、含稅自動算）
-└─ harness/                          工作流制度層引擎（/harness:init 骨架實例化＋條件式入口提醒 hook）
+├─ harness/                          工作流制度層引擎（/harness:init 骨架實例化＋條件式入口提醒 hook）
+└─ cbm-guard/                        codebase-memory-mcp 查詢機械閘（七類判準＋索引新鮮度；專案相依走 config，零設定亦可用）
 ```
 
 ## 開發模式（C 折衷）
