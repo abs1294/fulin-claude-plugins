@@ -10,6 +10,7 @@
 #   - AI 署名（Co-Authored-By / Generated with Claude / 🤖 / noreply@anthropic …）
 #   - 多行 commit message（署名常見夾帶載體）
 #   - staged diff 與 prepare 被審查版本不符（TOCTOU，防審查後掉包）
+#   - staged diff 沒有審查紀錄（兩軌結果或使用者豁免，見 review-record；不可豁免）
 #   - 敏感字（除非顯式 --allow-sensitive）
 #   - 真實憑證特徵字串（不可豁免）
 #   - 建置產物/快取/備份檔名（除非顯式 --allow-artifacts）
@@ -22,6 +23,8 @@
 # 用法：
 #   flow.sh analyze <repo>
 #   flow.sh prepare <repo> <files...>
+#   flow.sh review-record <repo> --codex "<回覆>" --reviewer "<回覆>"   # 兩軌結果
+#   flow.sh review-record <repo> --exempt "<理由>"                        # 使用者明示豁免
 #   flow.sh ship <repo> <type> <description>            # 只 local commit（預設）
 #   flow.sh ship <repo> <type> <description> --push     # 經使用者核可後才推遠端
 # ============================================================
@@ -482,6 +485,248 @@ assert_no_ai_trace() {
 }
 
 # ------------------------------------------------------------
+# 審查紀錄（真閘 7）
+#
+# 兩軌審查原本全靠自律：ship 只檢查 message 與 diff 本身，不知道這份 diff 有沒有被審過。
+# 實際事故（2026-09-23）：skill 入口被別的 hook 擋下後，AI 改用 Bash 直接跑
+# analyze → prepare → ship，連發 8 顆 commit（7 顆已推上遠端），兩軌一次都沒跑，
+# 所有機械閘照樣放行——那些閘管的是「有沒有經過 flow.sh」，不是「有沒有審過」。
+#
+# 做法：兩軌結果由 review-record 記下並綁定當下 staged diff 的 hash，
+# ship／有改到碼的 amend 在 commit 前比對，找不到紀錄或 diff 已變即拒絕。
+# 紀錄內容由呼叫者自陳：擋的是「忘了審」，擋不住蓄意謊報，
+# 但謊報會在 review-log.tsv 留下一行可稽核的紀錄。
+# ------------------------------------------------------------
+
+REVIEW_LOG="$TMP_DIR/review-log.tsv"
+
+review_record_file() { echo "$TMP_DIR/review-$1.rec"; }
+
+# slug 由路徑把斜線換成 __ 而來，grp/sub 與 grp__sub 會撞成同一個；
+# 紀錄另存 repo 自己的 git 目錄當身分（worktree 之間也各不相同），比對時一併檢查。
+repo_identity() { git rev-parse --absolute-git-dir; }
+
+# 記下 ship／amend 親手建出的那顆 commit，push-only 補推時只認它。
+shipped_marker_file() { echo "$TMP_DIR/shipped-$1"; }
+mark_shipped() {
+  local sha id
+  sha="$(git rev-parse HEAD)"
+  id="$(repo_identity)"
+  printf 'commit=%s\nrepo_id=%s\n' "$sha" "$id" > "$(shipped_marker_file "$1")"
+}
+# 讀標記的第 N 行值；檔案不存在回空字串（不能讓 sed 報錯，pipefail 下會中止腳本）。
+read_marker_line() {
+  local file="$1" n="$2" line=""
+  [ -f "$file" ] && line="$(sed -n "${n}p" "$file" | tr -d '\r')"
+  printf '%s' "${line#*=}"
+}
+
+# 取第一個非空行並去頭尾空白；agent 回覆常帶前導空行或 CR。
+# awk 刻意讀完全部輸入、不提早 exit：提早結束會讓上游收到 SIGPIPE，
+# 在 pipefail 下整條管線回非 0，set -e 會讓腳本無聲中止（回覆越長越容易撞上）。
+first_nonblank_line() {
+  printf '%s\n' "$1" | tr -d '\r' | awk 'NF && !done { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print; done = 1 }'
+}
+
+# 判一軌的結果：PASS／SKIPPED 印正規化狀態並回 0；其餘印原因回 1。
+classify_verdict() {
+  local label="$1" text="$2" head
+  head="$(first_nonblank_line "$text")"
+  if [[ "$head" =~ ^VERDICT:[[:space:]]*PASS([[:space:]]|$) ]]; then
+    echo "PASS"; return 0
+  fi
+  if [[ "$head" =~ ^VERDICT:[[:space:]]*BLOCK([[:space:]]|$) ]]; then
+    echo "ERROR: $label 回 BLOCK，不能記成通過。改碼後重跑 prepare 並重送兩軌；" >&2
+    echo "       使用者明示要強制 commit 時，改用 --exempt \"<使用者的原話>\"。" >&2
+    return 1
+  fi
+  if [[ "$head" =~ ^skipped:[[:space:]]*[^[:space:]] ]]; then
+    echo "SKIPPED"; return 0
+  fi
+  echo "ERROR: $label 的第一行必須是「VERDICT: PASS」（貼 agent 回覆原文）或「skipped: <原因>」（該軌確定不可用）。" >&2
+  echo "       收到的第一行：${head:-（空白）}" >&2
+  return 1
+}
+
+print_review_howto() {
+  local repo="$1"
+  echo "       commit 前必須跑完 Codex 與 code-reviewer 兩軌，並把兩軌回覆記下來：" >&2
+  echo "         flow.sh review-record $repo --codex \"<Codex 回覆原文>\" --reviewer \"<code-reviewer 回覆原文>\"" >&2
+  echo "       某一軌確定不可用：該軌填 \"skipped: <原因>\"（兩軌都 skipped 不收，要停下來問使用者）。" >&2
+  echo "       使用者明示豁免（Style/Docs 豁免、POC、plugin 發布、緊急修正經同意跳過審查）：" >&2
+  echo "         flow.sh review-record $repo --exempt \"<理由>\"" >&2
+  echo "       這道閘沒有旗標可以繞過；紀錄只對當下這份 staged diff 有效，重跑 prepare 就要重記。" >&2
+}
+
+# 回 0＝有對得上當下 staged diff 的審查紀錄；回 1＝沒有（已印原因）。
+# 不直接 exit：amend 被擋時還要清掉剛建的備份分支，收尾交給呼叫端。
+check_review_recorded() {
+  local repo="$1" slug="$2" action="$3" rec current recorded
+  rec="$(review_record_file "$slug")"
+  current="$(git -c color.ui=false diff --staged | git hash-object --stdin)"
+  if [ ! -f "$rec" ]; then
+    echo "ERROR: 這份 staged diff 沒有審查紀錄，已拒絕 $action。" >&2
+    print_review_howto "$repo"
+    return 1
+  fi
+  local recorded_repo current_repo
+  recorded_repo="$(read_marker_line "$rec" 3)"
+  current_repo="$(repo_identity)"
+  if [ "$recorded_repo" != "$current_repo" ]; then
+    echo "ERROR: 審查紀錄屬於另一個 repo（路徑轉成檔名後撞名），不能拿來用，已拒絕 $action。" >&2
+    echo "       紀錄的 repo：${recorded_repo:-（無）}" >&2
+    echo "       目前的 repo：$current_repo" >&2
+    print_review_howto "$repo"
+    return 1
+  fi
+  recorded="$(read_marker_line "$rec" 1)"
+  if [ "$recorded" != "$current" ]; then
+    echo "ERROR: 審查紀錄對應的不是目前這份 staged diff（記錄後內容又變了），已拒絕 $action。" >&2
+    echo "       紀錄的 hash：$recorded" >&2
+    echo "       當前的 hash：$current" >&2
+    print_review_howto "$repo"
+    return 1
+  fi
+  echo "[git-commit] 審查紀錄吻合：$(sed -n 2p "$rec" | tr -d '\r')"
+  return 0
+}
+
+# ------------------------------------------------------------
+# Command: review-record <repo> (--codex <回覆> --reviewer <回覆> | --exempt <理由>)
+#   把兩軌結果（或使用者豁免）綁定到當下 staged diff，供 ship／amend 比對
+# ------------------------------------------------------------
+
+cmd_review_record() {
+  local codex="" reviewer="" exempt="" qa=""
+  local has_codex=0 has_reviewer=0 has_exempt=0
+  local positional=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --codex|--reviewer|--exempt|--qa)
+        if [ $# -lt 2 ]; then
+          echo "ERROR: $1 後面缺內容。" >&2
+          exit 1
+        fi
+        case "$1" in
+          --codex) codex="$2"; has_codex=1 ;;
+          --reviewer) reviewer="$2"; has_reviewer=1 ;;
+          --exempt) exempt="$2"; has_exempt=1 ;;
+          # QA 表態由專案自己決定要不要強制（例如專案 hook 看到行為類檔就要求帶），
+          # 這裡只負責把它跟審查結果一起留下來。
+          --qa) qa="$(printf '%s' "$2" | tr '\r\n\t' '   ' | sed 's/^ *//; s/ *$//')" ;;
+        esac
+        shift 2
+        ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+
+  local usage='Usage: flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>" [--qa "<QA 狀態>"]
+       flow.sh review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"]'
+  if [ "${#positional[@]}" -ne 1 ]; then
+    echo "$usage" >&2
+    exit 1
+  fi
+  local repo="${positional[0]}"
+  assert_valid_repo "$repo"
+
+  local mode codex_status="-" reviewer_status="-" reason="-"
+  if [ "$has_exempt" -eq 1 ]; then
+    if [ "$has_codex" -eq 1 ] || [ "$has_reviewer" -eq 1 ]; then
+      echo "ERROR: --exempt 與 --codex／--reviewer 只能擇一。" >&2
+      exit 1
+    fi
+    reason="$(printf '%s' "$exempt" | tr '\r\n\t' '   ' | sed 's/^ *//; s/ *$//')"
+    if [ -z "$reason" ]; then
+      echo "ERROR: --exempt 必須寫明理由（例如使用者的原話、Style/Docs 豁免依據）。" >&2
+      exit 1
+    fi
+    mode="exempt"
+  else
+    if [ "$has_codex" -eq 0 ] || [ "$has_reviewer" -eq 0 ]; then
+      echo "ERROR: 兩軌結果都要給：--codex 與 --reviewer 缺一不可（不可用的那軌填 \"skipped: <原因>\"）。" >&2
+      echo "$usage" >&2
+      exit 1
+    fi
+    codex_status="$(classify_verdict "Codex" "$codex")" || exit 1
+    reviewer_status="$(classify_verdict "code-reviewer" "$reviewer")" || exit 1
+    if [ "$codex_status" = "SKIPPED" ] && [ "$reviewer_status" = "SKIPPED" ]; then
+      echo "ERROR: 兩軌都不可用，不能自動 commit。停下來請使用者人工確認；" >&2
+      echo "       使用者核可後改用 --exempt \"<使用者的原話>\"。" >&2
+      exit 1
+    fi
+    mode="review"
+  fi
+
+  local repo_path
+  repo_path="$(resolve_repo_path "$repo")"
+  cd "$repo_path"
+
+  if git diff --staged --quiet; then
+    echo "ERROR: 沒有 staged 內容，沒有東西可以記錄。先跑 prepare。" >&2
+    exit 1
+  fi
+
+  # 紀錄必須對應「prepare 產出、送去審查的那份 diff」，否則等於替沒看過的內容背書。
+  local repo_slug="${repo//\//__}"
+  local hash_file="$TMP_DIR/staged-$repo_slug.sha"
+  if [ ! -f "$hash_file" ]; then
+    echo "ERROR: 找不到 prepare 產生的 diff hash（$hash_file）。先跑 prepare，拿它產出的 diff 送審。" >&2
+    exit 1
+  fi
+  local prepared current
+  prepared="$(tr -d '\r' < "$hash_file")"
+  current="$(git -c color.ui=false diff --staged | git hash-object --stdin)"
+  if [ "$prepared" != "$current" ]; then
+    echo "ERROR: 目前的 staged diff 與 prepare 時送審的版本不符，不能記錄。" >&2
+    echo "       送審版 hash：$prepared" >&2
+    echo "       當前版 hash：$current" >&2
+    echo "       請重跑 prepare 並重送兩軌。" >&2
+    exit 1
+  fi
+
+  local now summary
+  now="$(date '+%Y-%m-%d %H:%M:%S')"
+  if [ "$mode" = "exempt" ]; then
+    summary="豁免（$reason）"
+  else
+    summary="Codex $codex_status／code-reviewer $reviewer_status"
+  fi
+
+  # 第 1 行固定是 hash、第 2 行是摘要、第 3 行是 repo 身分——check_review_recorded 只讀這三行，
+  # 回覆原文放在後面，內容再怎麼寫都不會被誤讀成 hash。
+  local rec
+  rec="$(review_record_file "$repo_slug")"
+  {
+    echo "diff_hash=$current"
+    echo "$summary"
+    echo "repo_id=$(repo_identity)"
+    echo "recorded_at=$now"
+    echo "repo=$repo"
+    echo "qa=${qa:--}"
+    if [ "$mode" = "exempt" ]; then
+      echo "exempt_reason=$reason"
+    else
+      echo "--- codex ---"
+      printf '%s\n' "$codex"
+      echo "--- code-reviewer ---"
+      printf '%s\n' "$reviewer"
+    fi
+  } > "$rec"
+
+  # 稽核用流水帳，commit 後不清：事後查「哪些 commit 是豁免放行的」只能靠它。
+  [ -f "$REVIEW_LOG" ] || printf 'recorded_at\trepo\tdiff_hash\tmode\tcodex\treviewer\texempt_reason\tqa\n' > "$REVIEW_LOG"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$repo" "$current" "$mode" "$codex_status" "$reviewer_status" "$reason" "${qa:--}" >> "$REVIEW_LOG"
+
+  echo "=== 審查紀錄已寫入 ==="
+  echo "  repo：$repo"
+  echo "  diff hash：$current"
+  echo "  結果：$summary"
+  echo "  QA：${qa:-（未表態）}"
+  echo "  下一步：flow.sh ship $repo <Type> \"<描述>\""
+}
+
+# ------------------------------------------------------------
 # Command: analyze <repo>
 #   輸出 git 狀態 / local-overrides 過濾 / 敏感字掃描
 #   供 AI 一次拿完分析結果
@@ -640,6 +885,9 @@ cmd_prepare() {
   local hash_file="$TMP_DIR/staged-$repo_slug.sha"
   git -c color.ui=false diff --staged | git hash-object --stdin > "$hash_file"
   echo "Staged diff hash saved: $hash_file ($(cat "$hash_file"))"
+
+  # 重新 prepare 代表要重新送審，上一輪的審查紀錄一律作廢。
+  rm -f "$(review_record_file "$repo_slug")"
 }
 
 # ------------------------------------------------------------
@@ -702,10 +950,25 @@ cmd_ship() {
     local head_subject
     head_subject="$(git log -1 --format=%s)"
     if [ "$head_subject" = "$type: $desc" ] && [ -n "$(git log @{u}..HEAD --oneline 2>/dev/null || echo pending)" ]; then
+      # subject 相同不代表內容相同：reset --soft 換掉內容、沿用同一句 message 重新 commit，
+      # 就能讓一顆沒審過的 commit 走這條捷徑推出去。所以只認 ship／amend 當初記下的那顆 sha。
+      local marker head_sha shipped_commit shipped_repo
+      marker="$(shipped_marker_file "${repo//\//__}")"
+      head_sha="$(git rev-parse HEAD)"
+      shipped_commit="$(read_marker_line "$marker" 1)"
+      shipped_repo="$(read_marker_line "$marker" 2)"
+      if [ "$shipped_commit" != "$head_sha" ] || [ "$shipped_repo" != "$(repo_identity)" ]; then
+        echo "ERROR: HEAD 的 message 相同，但不是 flow.sh ship／amend 建出的那顆 commit，拒絕直接推。" >&2
+        echo "       HEAD：$head_sha" >&2
+        echo "       最後一次 ship 建出的：${shipped_commit:-（無紀錄）}" >&2
+        echo "       內容可能在 commit 後被換過（例如 reset --soft 後沿用同一句 message 重新 commit）。" >&2
+        echo "       要推的內容請重新走 prepare → 兩軌 → review-record → ship。" >&2
+        exit 1
+      fi
       echo "=== Push-only：偵測到同 message 的未推 commit，跳過 commit 直接推 ==="
       local push_only_rc=0
       if git push; then
-        rm -f "$TMP_DIR/staged-${repo//\//__}.sha" "$TMP_DIR/staged-${repo//\//__}.diff"
+        rm -f "$TMP_DIR/staged-${repo//\//__}.sha" "$TMP_DIR/staged-${repo//\//__}.diff" "$marker"
       else
         push_only_rc=$?
         echo "ERROR: push 失敗（exit $push_only_rc）。處置同主流程：pull --rebase 後重推，禁止 force。" >&2
@@ -737,6 +1000,9 @@ cmd_ship() {
     echo "WARNING: 找不到 prepare 產生的 diff hash（$hash_file），跳過 TOCTOU 校驗。建議先跑 prepare。" >&2
   fi
 
+  # === 真閘 7：審查紀錄 — 這份 staged diff 要先有兩軌結果或使用者豁免 ===
+  check_review_recorded "$repo" "$repo_slug" "commit" || exit 1
+
   # === 真閘 3：敏感字掃描（命中即 exit 1，除非 --allow-sensitive）===
   assert_no_sensitive "$allow_sensitive"
 
@@ -752,6 +1018,9 @@ cmd_ship() {
 $type: $desc
 EOF
 )"
+  # 紀錄只對這一顆 commit 有效，用完即清；改記下建出的 commit，供之後補推比對。
+  rm -f "$(review_record_file "$repo_slug")"
+  mark_shipped "$repo_slug"
   echo ""
 
   if [ "$do_push" -eq 0 ]; then
@@ -775,7 +1044,7 @@ EOF
   if git push; then
     echo ""
     # commit+push 都成功才清本次 diff hash，避免下次沿用舊 hash 誤判。
-    rm -f "$hash_file" "$TMP_DIR/staged-$repo_slug.diff"
+    rm -f "$hash_file" "$TMP_DIR/staged-$repo_slug.diff" "$(shipped_marker_file "$repo_slug")"
   else
     push_rc=$?
     echo "" >&2
@@ -1016,6 +1285,12 @@ EOF
       exit 1
     fi
 
+    # === 真閘 7：審查紀錄 — 有改到碼的 amend 等同新 commit，同樣要兩軌結果或使用者豁免 ===
+    if ! check_review_recorded "$repo" "$repo_slug" "amend"; then
+      git branch -D "$backup_branch" >/dev/null 2>&1 && echo "       （尚未改寫，已清掉剛建的備份分支 $backup_branch）" >&2
+      exit 1
+    fi
+
     # === 真閘 3/4/5：敏感字、建置產物、AI 痕跡 ===
     assert_no_sensitive "$allow_sensitive"
     assert_no_artifacts "$allow_artifacts"
@@ -1049,6 +1324,17 @@ EOF
     echo "       備份分支 $backup_branch 保留著（內容與 HEAD 相同，確認後可刪）：" >&2
     echo "         git branch -D $backup_branch" >&2
     exit "$amend_rc"
+  fi
+  rm -f "$(review_record_file "$repo_slug")"
+  # 只改 message 的 amend 不經紀錄閘：若原 HEAD 本來就不是 ship 建的（例如裸 merge 出來的），
+  # 承接標記等於替沒審過的內容背書，之後就能走補推捷徑推出去。
+  # 比 commit 之外也要比 repo 身分：slug 撞名的另一個 clone 可能有同一顆 HEAD，不能借它的標記。
+  local marker_file
+  marker_file="$(shipped_marker_file "$repo_slug")"
+  if [ "$has_staged" -eq 1 ] || { [ "$(read_marker_line "$marker_file" 1)" = "$(git rev-parse "$backup_branch")" ] && [ "$(read_marker_line "$marker_file" 2)" = "$(repo_identity)" ]; }; then
+    mark_shipped "$repo_slug"
+  else
+    rm -f "$(shipped_marker_file "$repo_slug")"
   fi
   echo ""
 
@@ -1244,6 +1530,7 @@ case "${1:-}" in
   prepare) shift; cmd_prepare "$@" ;;
   ship)    shift; cmd_ship "$@" ;;
   amend)   shift; cmd_amend "$@" ;;
+  review-record) shift; cmd_review_record "$@" ;;
   audit)   shift; cmd_audit "$@" ;;
   -h|--help|"")
     cat <<USAGE
@@ -1252,6 +1539,10 @@ Usage: flow.sh <command> [args]
 Commands:
   analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描（僅提示）
   prepare <repo> <files...>         git add + 輸出 staged diff + 記錄 diff hash 到 .claude/.git-commit-tmp/
+  review-record <repo> --codex "<回覆>" --reviewer "<回覆>" [--qa "<QA 狀態>"]
+  review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"]
+                                    把兩軌結果（或使用者豁免）綁定到當下 staged diff；ship／amend 沒有它就拒絕
+                                    回覆第一行須為 VERDICT: PASS，不可用的那軌填 "skipped: <原因>"（兩軌都 skipped 不收）
   audit   <repo> [<range>]          體檢既有 commit 的 message，唯讀。抓：空 message／缺 Type: 前綴／
                                     Type 不在允許清單／描述超長／痕跡命中／含多行 body
                                     不帶 range 時：有 upstream 掃未推的，否則掃最近 20 顆
@@ -1291,6 +1582,8 @@ Notes:
   - staged diff 命中敏感字時 ship 會擋下，除非顯式 --allow-sensitive
   - staged 含建置產物/快取/備份（__pycache__、*.pyc、node_modules、*.bak、*.log…）時 ship 會擋下，除非 --allow-artifacts
   - ship 會比對 prepare 記錄的 diff hash，內容被改動過即拒絕（防審查後掉包）
+  - ship／有改到碼的 amend 必須先有 review-record 紀錄且 hash 吻合，否則拒絕（無旗標可繞）；
+    豁免同樣走 review-record --exempt，並寫進 .claude/.git-commit-tmp/review-log.tsv 供稽核
   - commit message 描述須為「一般正常人會寫的文字」：寫改了什麼，不寫「用什麼方法確認它是對的」。
     含 Claude/Codex/agent、實測/掃描確認/驗證：、P0/本輪/第N輪 等痕跡即擋（不可豁免）
   - commit message 痕跡誤判（命中的是業務詞彙如簽核審查、代理商 agent）用 --allow-message-trace 放行

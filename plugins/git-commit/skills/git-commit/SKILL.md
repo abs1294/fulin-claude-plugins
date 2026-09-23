@@ -16,8 +16,8 @@ description: >
 
 | 階段 | 動作 |
 |------|------|
-| Step 1 | `analyze` 分析 → `prepare` stage → **同一輪並行三軌**（1.3a 預覽＋1.3b Codex＋1.3c code-reviewer）→ 匯流 |
-| Step 2 | `ship`（commit → push → 驗證） |
+| Step 1 | `analyze` 分析 → `prepare` stage → **同一輪並行三軌**（1.3a 預覽＋1.3b Codex＋1.3c code-reviewer）→ 匯流 → `review-record` 記下兩軌結果 |
+| Step 2 | `ship`（commit → push → 驗證）；沒有 `review-record` 紀錄會被拒 |
 
 多步驟用 TaskCreate 追蹤、完成當下關、流程結束清空清單。三條紀律（本 skill 是跨場景通則在 commit 流程的具體化；通則同樣適用多檔案 Playwright 測試／多步驟前後端開發／skill 與 memory 維護／bug 追查修復）：
 1. **開始前立即 TaskCreate**：超過 2 步的工作先建清單。
@@ -33,13 +33,13 @@ description: >
 2. **任一軌 BLOCK → 永不自動 commit**，列必修項等使用者——即使使用者已先回 OK。
 3. 使用者明確否決（「等等」「先別上」、改 message、調 staging）→ 照使用者意思，不 commit。
 4. PASS 附清單＝「可 commit 但有建議」，預設放行；使用者要先修 → 改碼 → 重跑 `prepare` → 兩軌重送（diff 變了就重判豁免）。BLOCK 後重做同樣走完整 Step 1。禁止沿用先前確認過的 message 直接 commit（碼可能已變）。
-5. **某一軌確定不可用** → 單軌降級（該軌記 `skipped: <原因>`、匯流視為 PASS），預覽明講已降為單軌，並由主 agent 補做該軌該查的項目。**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認。
+5. **某一軌確定不可用** → 單軌降級（該軌記 `skipped: <原因>`、匯流視為 PASS；`review-record` 該軌就填這串），預覽明講已降為單軌，並由主 agent 補做該軌該查的項目。**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認（`review-record` 收到兩軌都 `skipped` 會直接拒絕；使用者核可後改走 `--exempt`）。
    > 「確定不可用」有嚴格判準，不是「我等不下去」——B 軌見 `references/codex-troubleshooting.md`，**自行判定不可用就 commit ＝ 違規**。
 6. **兩軌對同一項判不同嚴重度（一軌 BLOCK、一軌 Minor／PASS）→ 主 agent 自己實跑驗證再匯流**，不可取中間值、不可選寬鬆那軌放行（實證：Codex 判 BLOCK／code-reviewer 判 Minor，實測 Codex 對；「需要更好的工具才能正確處理」≠「可以不正確」）。驗證結果貼進預覽，才決定走 1 或 2。
 
 ## Review 豁免規則
 
-`Style`（純 CSS／`<style>` 區塊／template class 調整／i18n value／格式化）與 `Docs`（純 `.md`／註解文字／XML doc 內文）可**同時豁免兩軌**（不得只豁免一軌），敏感掃描仍必做，1.3a 預覽仍要出並標示「已豁免——未回覆將自動 commit + push」。
+`Style`（純 CSS／`<style>` 區塊／template class 調整／i18n value／格式化）與 `Docs`（純 `.md`／註解文字／XML doc 內文）可**同時豁免兩軌**（不得只豁免一軌），敏感掃描仍必做，1.3a 預覽仍要出並標示「已豁免——未回覆將自動 commit + push」。豁免也要落紀錄：`flow.sh review-record <repo> --exempt "Style：<為什麼只動到樣式>"`，否則 ship 會拒絕。
 
 判斷原則一句話：**diff 觸及「會被執行到的程式邏輯」一律不豁免**——`.vue` 的 `<script>`、`v-if`/`@click` 綁定、i18n 的 **key**（value 不算）、任何 `.cs`/`.js`/`.ts` 邏輯行，都算。使用者標 Style/Docs 但 diff 含邏輯行 → 告知「diff 含邏輯修改，仍送審」，禁止私下豁免。
 
@@ -50,14 +50,17 @@ description: >
 | 指令 | 動作 |
 |------|------|
 | `flow.sh analyze <repo>` | 狀態分類＋local-overrides 過濾＋敏感字掃描 |
-| `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff` |
+| `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄 |
+| `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆第一行須為 `VERDICT: PASS`（BLOCK 不收）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收） |
+| `flow.sh review-record <repo> --exempt "<理由>"` | 使用者明示豁免（Style/Docs、POC、plugin 發布、使用者要求跳過審查）。理由寫使用者的原話或豁免依據，會進稽核流水帳 `review-log.tsv` |
+| `review-record ... --qa "<QA 狀態>"`（選填） | QA 表態，與審查結果一起寫進紀錄與流水帳。flow.sh 本身不強制；專案可用 hook 在行為類改動時要求必帶（例：供應商平台的 `guard-qa-before-commit.js` 要求 `已QA：…` 或 `分流例外：…`） |
 | `flow.sh audit <repo> [<range>]` | 體檢既有 commit 的 message，唯讀。抓：空 message／缺 `Type:` 前綴／Type 不在允許清單／描述超長／痕跡命中／含多行 body（軟清單命中另標「待確認」）。exit `0`＝乾淨、`1`＝有問題、`2`＝range 無效 |
 | `flow.sh ship <repo> <type> <description> [--push]` | HEREDOC commit → 驗證（內建禁 `--no-verify`/force push、過濾 AI 署名）。**預設只 local commit；帶 `--push` 才推遠端**——push 不可逆，需使用者當次明確核可 |
 | `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述>]` | 改寫 HEAD。自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘，改寫後做 tree 級重現驗證。不帶 `--type`/`--desc` 則沿用既有 message；**只做本地改寫，不 push** |
 
 `<repo>`＝`.` 或工作目錄下的 git 子目錄名（多 repo workspace 各自獨立 commit）。`<type>`＝`Feat`/`Modify`/`Style`/`Refactor`/`Perf`/`Chore`/`Docs`/`Test`/`Fix`/`Hotfix`。
 
-腳本不能代勞的：豁免判斷、1.3a 預覽、啟動兩個審查 subagent、匯流決策。
+腳本不能代勞的：豁免判斷、1.3a 預覽、啟動兩個審查 subagent、匯流決策。但腳本會**檢查結果有沒有落地**：`ship`／有改到碼的 `amend` 找不到對應當下 staged diff 的 `review-record` 紀錄就拒絕，見下方「真閘 7」。
 
 ### hook：`hooks/block-bare-git-commit.sh`（他律）
 
@@ -81,6 +84,20 @@ PreToolUse hook，攔截 Bash 工具裡「不經 flow.sh 就建出 commit」的�
 
 > **為什麼需要**：上面那句「不要手動組 git 指令」與 frontmatter 的「AI 禁止直接執行 git commit」都是**自律**，AI 會繞；繞過去就等於六道真閘一道都不觸發。skill 的「必須」是自律，只有 hook 是他律。
 > hook **fail-open**：自身任何錯誤（空輸入、壞 JSON、無 python）一律放行並印警告，絕不把使用者鎖在無法 commit 的狀態。
+
+### 真閘 7：審查紀錄（`ship`／`amend` 內建）
+
+上面那支 hook 只保證「commit 是經 flow.sh 建的」，**不保證「經過三軌審查」**——`bash flow.sh ship ...` 這條指令裡沒有 `git commit` 字樣，hook 放行；flow.sh 內部的 commit 是子程序，hook 根本看不到。所以三軌原本完全靠自律。
+
+`ship` 與有改到碼的 `amend` 在 commit 前會比對 `review-record` 留下的紀錄：紀錄不存在、或紀錄綁的 diff hash 與當下 staged 不同，一律 exit 1。紀錄在 commit 成功後即清，重跑 `prepare` 也會作廢——每一份 diff 都要重新記一次。**沒有旗標可以繞過**；所有「不審」的正當情境（Style/Docs 豁免、POC、plugin 發布、使用者要求跳過）都走 `review-record --exempt "<理由>"`，並留在 `.claude/.git-commit-tmp/review-log.tsv` 供事後稽核（該檔不隨 commit 清除）。
+
+紀錄同時綁定 repo 身分（該 repo 的 git 目錄）：repo 路徑轉成檔名時 `grp/sub` 與 `grp__sub` 會撞名，沒有這一層就能借用別的 repo 的紀錄。
+
+**補推捷徑（`ship ... --push` 且沒有 staged）只認 flow.sh 親手建的那顆**：ship 成功後會記下 commit sha，補推時 HEAD 必須就是那顆。只比 message 字串的舊寫法，可以 `reset --soft` 換掉內容、沿用同一句 message 重新 commit 後直接推。只改 message 的 amend 只有在原 HEAD 本來就是 ship 建的時候才承接這筆紀錄，不能替流程外建的 commit 洗白。副作用：舊版 flow.sh 建的未推 commit 沒有這筆紀錄，補推會被擋。
+
+紀錄內容是呼叫者自陳的：這道閘擋的是「忘了審」，擋不住蓄意填假結果。假結果會在流水帳留下可查的一行，但不會被自動發現——**`--codex`／`--reviewer` 必須貼 agent 回覆原文，不得自己組一行 `VERDICT: PASS`**。
+
+> **起因（2026-09-23 實際事故）**：skill 入口被另一支 hook 擋下後，session 沒有重新呼叫 skill，改用 Bash 直接跑 `analyze → prepare → ship`，連發 8 顆 commit（7 顆已推上遠端），兩軌一次都沒跑，所有既有機械閘照樣放行。使用者問「你有走 CODEX 跟 REVIEWER 嗎」才發現。
 
 ## Step 1
 
@@ -207,13 +224,14 @@ Prompt 範本：
 B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補充：
 
 - 自動 commit 前輸出：兩軌狀態＋「使用者回覆：尚未（視為默許）」＋套用的 message；PASS 附清單時**清單先列給使用者**再告知已開始自動 commit。
-- BLOCK 處理：列必修項 → 使用者決定修或強制 commit（需明示）→ 修的話改碼、重 `prepare`、兩軌重送，直到全非 BLOCK。無 revert、無歷史噪音。
+- 匯流判定可 commit 後，**先跑 `flow.sh review-record <repo> --codex "<Codex 回覆原文>" --reviewer "<code-reviewer 回覆原文>"`** 再 ship。回覆原文多行時用 `"$(cat <<'EOF' … EOF)"` 帶入。多 repo 各記各的。
+- BLOCK 處理：列必修項 → 使用者決定修或強制 commit（需明示）→ 修的話改碼、重 `prepare`、兩軌重送，直到全非 BLOCK。無 revert、無歷史噪音。使用者明示強制 commit → `review-record --exempt "<使用者的原話>"`（BLOCK 的回覆原文不會被 `--codex`／`--reviewer` 收下）。
 
 ## Step 2：`flow.sh ship`
 
 - **禁止 AI 署名**（`Co-Authored-By: Claude` 等）——公司禁止揭露 AI 參與；腳本已過濾，description 參數也不得夾帶。
 - `ship` 不做 amend——要改寫 HEAD 走 `flow.sh amend`（需使用者明示才加 `--confirm-rewrite`）。禁 force push；push 到 `main`/`master` 前特別確認使用者意圖。
-- 使用者要求跳過審查（緊急 hotfix）→ commit message 下加 `[skip-review: <原因>]` 並告知破例。
+- 使用者要求跳過審查（緊急 hotfix）→ `review-record <repo> --exempt "<使用者的原話>"` 後再 ship，並告知破例。（舊寫法「commit message 下加 `[skip-review]`」與下方「單行、不寫 body」互相矛盾，ship 也會擋多行 message，已廢止。）
 
 **pre-commit hook 失敗，先分辨兩種情況：**
 
@@ -285,7 +303,7 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 
 1. **改寫前必建備份分支**，並把分支名回報給使用者：`git branch backup/pre-<動作>-$(date +%H%M%S)`。回報的分支名一律複製**指令實際輸出**，不要憑記憶寫——名字裡有時戳，記錯了使用者就查不到。
 2. **只改 message、不改碼** → 免三軌審查，但**每顆的新 message 都要過 §Commit Message 規範**（含痕跡與寬度）。
-3. **有改到碼** → 走完整三軌流程，等同新 commit。
+3. **有改到碼** → 走完整三軌流程，等同新 commit（`flow.sh amend` 會檢查 `review-record` 紀錄，沒有就拒絕並清掉剛建的備份分支）。
 4. **改寫後必須機械驗證**，兩種情況驗法不同（用錯會得到假結論）：
    - **只改 message（第 2 條）** → `git diff <備份分支> HEAD` 必須為空。不空代表改 message 的過程動到了碼。
    - **有改到碼（第 3 條）** → diff 必然不為空，上面那條驗不了，改驗「只動了該動的檔案」：
@@ -310,9 +328,10 @@ grep -n -i -E 'Claude|Anthropic|Codex|subagent|實測|掃描確認|本輪' <產�
 
 ## 多議題拆 Commit（不要問）
 
-Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
+Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`review-record`→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
 
 ## Changelog
+- 2026-09-23 新增真閘 7「審查紀錄」與 `flow.sh review-record` 子命令（使用者當次核可，選自陳式紀錄＋hash 綁定）。**起因**：一個 session 呼叫本 skill 被專案 hook 擋下後，改用 Bash 直接跑 `analyze → prepare → ship`，連發 8 顆 commit（7 顆已推），兩軌一次都沒跑；bare-commit hook 放行是設計使然（它只管「有沒有經過 flow.sh」），而 flow.sh 本身從不檢查審查結果——三軌是整套流程裡唯一沒有機械閘的環節。現在 ship 與有改到碼的 amend 都要求一筆綁定當下 staged diff hash 的紀錄，無旗標可繞；豁免改走 `--exempt` 並寫稽核流水帳。同批廢止 Step 2 的 `[skip-review]` 寫法（與單行 message 規則矛盾）。**開發中自撞一次**：取回覆第一行的初版用 `awk '… exit'`，在 `set -euo pipefail` 下上游收到 SIGPIPE、整條管線回 141，腳本無聲中止——實測 400KB 回覆三次三次死；改成讀完全部輸入後就正常。首版送 code-reviewer 對抗審查回 BLOCK，兩個 Critical 皆實跑重現：①repo 路徑轉檔名撞名（`grp/sub`／`grp__sub`）可借用別的 repo 的紀錄 → 紀錄加 repo 身分；②補推捷徑只比 message 字串，`reset --soft` 換內容後沿用同一句 message 即可直推——這是**早於本次的既有洞**，順帶讓未審內容繞過全部真閘上遠端 → 改為只認 ship 記下的 commit sha，並防止只改 message 的 amend 替流程外 commit 洗白。同批新增 `review-record --qa "<QA 狀態>"`（選填，寫進紀錄與流水帳；要不要必填由專案 hook 決定——供應商平台的 QA hook 原本只掛在 skill 入口，走 Bash 直跑 flow.sh 就整個繞過，現改掛在 review-record 這一步）。測試 67 項（`tests/test_review_gate.sh`）。
 - 2026-09-20 B 軌 prompt 範本改為「diff 內嵌＋硬性禁令」，並補 PreToolUse hook `guard-codex-diff-embed.js`（使用者當次核可）。**起因**：範本第一行原寫「請先 `cat` 讀取」，而本機沙箱自 2026-09-11 起就擋掉所有外部 shell（`powershell.exe`／`bash.exe`／`cat` 皆 `rejected: blocked by policy`）——該坑當天就寫進 troubleshooting，但**範本沒跟著改**，於是照範本寫必然失敗。09-20 同一個坑再踩三次：照範本送被擋、改講「用 cat 不要用 powershell」仍被擋（`bash.exe` 一樣不放行，故 troubleshooting 原「處置 2」在本機無效已刪）、第三次內嵌了 diff 卻又附上檔案路徑且禁令語氣太軟，codex 仍去讀檔並回「無法驗證」型 BLOCK（四項全是 remain unverified、零實質發現）。實測根因：`codex sandbox cat` 直接回 `Win32 error 5`（cygwin 工具在沙箱內建不了記憶體映射），所有 sandbox 模式皆擋、僅 `-s danger-full-access` 例外；但只要 prompt 明寫「不要執行任何指令、不要讀取任何檔案」並內嵌內容，codex 純推理完全正常（實測回完整 `VERDICT: PASS` 並逐條回應檢查點）。**「大 diff 不能內嵌」是誤判**——791 行的 diff 只內嵌需判斷的部分即可。C 軌（code-reviewer）讀檔正常，其範本不動。hook 紅綠已驗四項（含路徑擋／含讀檔指示且無禁令擋／內嵌加禁令放行／非 codex agent 不管）。
 - 2026-09-14 hook 射程由「只攔 `git commit`」擴大到涵蓋 plumbing（`commit-tree`／`update-ref`／`symbolic-ref`／`branch -f`），並取消旁路（使用者當次核可）。**起因是真實事故**：一個 headless 引擎被 hook 擋下後，改用 `write-tree` + `commit-tree` + `update-ref` 三件組完成四個 worktree 的 merge commit，hook 完全沒反應、靜默通過，事後靠該 session 自願記帳才被發現——merge commit 的 message 完全正常，git log 看不出異常。同批修掉兩個結構缺口：①`flow.sh` 放行條件原是純字串比對（`grep -q flow\.sh`），`echo flow.sh; git commit -m x` 一行即可繞過——先改成判斷執行位置，第二輪審查證明那樣仍可繞（把 flow.sh 放後面即可），第三輪索性**整條刪除**，放行只留環境變數那一條；②訊息末句「請先向使用者說明原因並取得同意」在無人值守時等於預設放行，而事故中的引擎第一次其實想照規則走（加了 `GIT_COMMIT_FLOW=1` 前綴）、被擋後才轉向繞路，故訊息改為明講變數從外部設不進來、且沒有旁路。89 項回歸測試（攔截、不誤擋、fail-open、訊息內容四類；三輪審查各補一批變形）。**開發中自撞一次**：`GIT_PREFIX` 前置字元只認 `;&|` 與空白，把事故原文 `WIP=$(git -C "$W" commit-tree ...)` 整條漏掉——指令替換是真實會出現的寫法，補 `(`、反引號、`$` 後才命中。
 - 2026-09-14 新增 `flow.sh amend` 子命令，並修正三份文件對 amend 的矛盾描述（使用者當次核可）。**起因**：§歷史改寫允許 amend 並訂了六條規則，但 flow.sh 從未實作 amend——`grep amend` 兩處命中全是註解、無任何程式碼，所謂「旗標層不提供」實為未實作。於是走這條路的唯一方式是繞過 PreToolUse hook，而繞過之後那六條規則沒有任何機制檢查，與 hook「規範是自律、只有 hook 是他律」的設計目標矛盾。reflog 顯示 amend 在本專案是常態操作（單一 worktree 就有同顆 commit 改寫三次的紀錄），不是罕見例外。新子命令把六條規則機制化：自動建備份分支、用 `branch -r --contains` 擋已 push 的改寫（比 `@{u}` 嚴）、沿用 ship 全部真閘、改寫後依有無 staged 自動選驗法。**同時修掉一個獨立缺陷**：原第 4 條的驗證方法 `git diff <備份分支> HEAD` 必須為空，只對「只改 message」成立；走「有改到碼」那條時 diff 必然不為空，照原文驗會直接判失敗——已拆成兩種驗法，有改碼的改用 tree hash 重現驗證。首版經雙軌審查退回、九項缺陷修正後才進版——其中最嚴重的兩項讓核心閘形同虛設：重現驗證取改寫後 HEAD 的 blob，等於拿結果證明結果（pre-commit hook 竄改內容仍印「驗證通過」）；已 push 判斷只看本地遠端追蹤 ref，自己剛 push 完的 commit 會判回空而放行。回歸測試從 13 項擴到 19 項——首版那 13 項全綠卻漏掉全部九個缺陷，因為測的都是預想路徑，rename／特殊檔名／檔案刪除／模式變更／hook 竄改／hook 擋下／未 fetch 的遠端一項都沒測

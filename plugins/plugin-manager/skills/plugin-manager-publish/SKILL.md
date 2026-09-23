@@ -54,7 +54,7 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
    **commit message 必須註明本次改了哪一個/哪些 skill（規則 3 — 版本追蹤）**。格式 `<Type>: <skill 名> — <摘要>`，不得加 AI 署名。**`<Type>` 用 flow.sh 的允許值**（`Feat` `Modify` `Style` `Refactor` `Perf` `Chore` `Docs` `Test` `Fix` `Hotfix`），因為步驟 4 是交給 flow.sh 執行、它會擋掉清單外的值。範例：`Modify: delaylocal skill — 修正 LINE 通知逾時重試`。⚠️ 舊版寫「動作詞 Add/Update/Fix」——`Add`／`Update` 不在 flow.sh 清單內，會 exit 1（2026-09-20 實測）；對照改用 Add→`Feat`、Update→`Modify`。
    - 因為有默許機制，建議 message 必須**夠完整可直接發布**（照規則 3 寫好），不能只丟半成品等使用者補。
 
-4. **確認後執行 git**（使用者明確確認、或步驟 3 的 5 分鐘喚醒觸發且通過守衛時；順序：analyze → prepare → ship）：
+4. **確認後執行 git**（使用者明確確認、或步驟 3 的 5 分鐘喚醒觸發且通過守衛時；順序：analyze → prepare → review-record → ship）：
 
    ⚠️ **走 `git-commit` skill 的 `flow.sh`，不要裸下 `git commit`**（本 monorepo `CLAUDE.md` 第 2 條）。
    裸 `git commit` 會被 PreToolUse hook `block-bare-git-commit.sh` 擋下——**那道閘攔全部 repo，不限供應商平台**，
@@ -69,6 +69,7 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 
    bash "$FLOW" analyze "$REPO"                       # 看狀態＋敏感掃描
    bash "$FLOW" prepare "$REPO" <files...>            # 逐檔 stage（禁 add -A）
+   bash "$FLOW" review-record "$REPO" --exempt "plugin 發布：使用者已看過 status 與 message（<明確確認／5 分鐘默許>）"
    bash "$FLOW" ship    "$REPO" <Type> "<描述>"       # 只 local commit
    bash "$FLOW" ship    "$REPO" <Type> "<描述>" --push # 使用者核可後才推
    ```
@@ -76,6 +77,13 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
    - **`<Type>` 用 flow.sh 的允許值**，不是本 skill 步驟 3 的 Add/Update/Fix：
      `Feat` `Modify` `Style` `Refactor` `Perf` `Chore` `Docs` `Test` `Fix` `Hotfix`。
      對照：Add→`Feat`、Update→`Modify`、Fix→`Fix`。**寫 `Update` 會被 flow.sh 擋下**（實測 exit 1）。
+   - **`review-record --exempt` 不可省**：flow.sh 的 ship 沒有審查紀錄一律拒絕（git-commit 真閘 7，無旗標可繞）。
+     本 skill 的把關是「使用者看過 status＋message」而非 Codex／code-reviewer 兩軌，所以記成豁免；
+     理由要寫明是明確確認還是 5 分鐘默許，這行會進 `.claude/.git-commit-tmp/review-log.tsv` 供事後稽核。
+     重跑 prepare 會作廢紀錄，要重記一次。
+   - **在有 QA hook 的專案目錄下發布，要多帶 `--qa`**：例如供應商平台的 `guard-qa-before-commit.js` 看到
+     `review-record` 的 repo 參數是變數（`"$REPO"`，無從判斷內容）或 staged 含 `.js` 等行為類檔時會擋，要求表態。
+     有跑 plugin 自己的測試就寫 `--qa "已QA：<測試路徑與結果>"`；純文件類改動寫 `--qa "分流例外：<理由>"`。
    - flow.sh 自己會擋 AI 署名、多行 message、敏感字、message 痕跡與寬度超標，不必另外檢查。
    - commit message 由 flow.sh 用 HEREDOC 傳遞，**不會**有字串拼接的注入問題。
    - 找不到 flow.sh（例如這台機器沒裝供應商平台）→ 停下來問使用者，不要改用裸 git 繞過。
