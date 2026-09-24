@@ -1,0 +1,176 @@
+{
+  "hook": "check-codex-cwd.js",
+  "cases": [
+    {
+      "label": "沒有 cd 指示 → 擋",
+      "setup": { "git": true },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "請審查這份 diff。"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cd 到不存在的路徑 → 擋",
+      "setup": { "git": true },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "執行任何 codex 指令前先 cd 到 {PROJECT_DIR}/nope-does-not-exist 目錄，再開始審查。"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cd 到存在但不是 git repo 的目錄 → 擋",
+      "setup": {
+        "files": { "plainsub/placeholder.txt": "x" }
+      },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "執行任何 codex 指令前先 cd 到 {PROJECT_DIR}/plainsub 目錄。"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cd 到真的 git repo → 放行",
+      "setup": { "git": true },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "執行任何 codex 指令前先 cd 到 {PROJECT_DIR} 目錄，codex exec 一律加 < /dev/null。"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "路徑後緊接全形括號（SKILL 1.3b 範本寫法）→ 放行",
+      "setup": { "git": true },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "執行任何 codex 指令前，先 cd 到 {PROJECT_DIR}（codex exec 一律加 < /dev/null）。"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "路徑用「」包住 → 放行",
+      "setup": { "git": true },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "先 cd 到「{PROJECT_DIR}」再執行 codex。"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "含空白的路徑用雙引號包住 → 放行（取引號內整段）",
+      "setup": {
+        "files": { "repo with space/.git/HEAD": "ref: refs/heads/main\n" }
+      },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "先 cd 到 \"{PROJECT_DIR}/repo with space\"（codex exec 一律加 < /dev/null）。"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "含空白的路徑沒加引號、空白前那段不是 repo → 擋（訊息提示加引號）",
+      "setup": {
+        "files": { "repo with space/.git/HEAD": "ref: refs/heads/main\n" }
+      },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "先 cd 到 {PROJECT_DIR}/repo with space 再執行 codex。"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cd 目標是 repo 內的檔案 → 擋（檔案 cd 不進去）",
+      "setup": {
+        "git": true,
+        "files": { "README.md": "x" }
+      },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "先 cd 到 {PROJECT_DIR}/README.md 再執行 codex。"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "不存在的路徑後緊接全形括號 → 仍擋（截斷後照樣驗存在與否）",
+      "setup": { "git": true },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "先 cd 到 {PROJECT_DIR}/nope-missing（codex exec 一律加 < /dev/null）。"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cd 到 repo 底下的子目錄（非 repo 根本身）→ 放行（往上找得到 .git）",
+      "setup": {
+        "git": true,
+        "files": { "sub/keep.txt": "x" }
+      },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "先 cd 到 {PROJECT_DIR}/sub 再執行 codex。"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "repo 底下 22 層深的子目錄 → 放行（往上找 .git 不設層數上限）",
+      "setup": {
+        "git": true,
+        "files": { "d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/keep.txt": "x" }
+      },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "先 cd 到 {PROJECT_DIR}/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d 再執行 codex。"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "非 codex 的 agent，即使沒有 cd 也不管 → 放行",
+      "setup": { "git": true },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "code-reviewer",
+          "prompt": "請審查這份 diff。"
+        }
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}

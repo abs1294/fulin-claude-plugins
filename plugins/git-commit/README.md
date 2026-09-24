@@ -76,4 +76,4 @@
 - 單一 git repo，或工作目錄底下多個 git 子目錄的 multi-repo workspace（各自獨立 commit）。
 - 需要 Codex 與 code-reviewer 雙軌把關、又不想每次純樣式/文件變更都被審查拖慢。
 
-> 前置：`flow.sh` 走 bash，需可執行 shell；Codex 軌透過 `codex:codex-rescue` subagent，C 軌透過 `code-reviewer` subagent。
+> 前置：`flow.sh` 走 bash，需可執行 shell；Codex 軌透過 `codex:codex-rescue` subagent，C 軌透過 `code-reviewer` subagent——本 plugin 自帶通用版 `agents/code-reviewer.md`（設計品質 11 條＋通用工程守則＋資安基線，Critical 只留給資安洞／必錯邏輯／破壞架構邊界）；C 軌先叫 `code-reviewer`（專案自訂），not found 再叫 `git-commit:code-reviewer`（本 plugin 通用版）——plugin 的 agent 只能用帶前綴的名字叫到，裸名只解析到專案層。

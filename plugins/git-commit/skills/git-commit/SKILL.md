@@ -167,11 +167,13 @@ Prompt 開頭**必須**寫兩件事，缺一必死：
 > 本機屬於這種環境（2026-09-11 首見、09-20 再踩三次，實測所有 sandbox 模式皆擋）。
 >
 > **大 diff 不是例外**：只內嵌需要判斷的部分（JSON 結構 diff、檔案清單、已驗證結果）即可。
-> 他律＝PreToolUse hook `guard-codex-diff-embed.js`（prompt 含路徑或讀檔指示即擋）。
+> 他律＝本 plugin 自帶的 PreToolUse hook `hooks/guard-codex-diff-embed.js`（prompt 含路徑或讀檔指示即擋；隨 git-commit 一起安裝，見 `hooks/hooks.json`）。同批還有 `hooks/check-codex-cwd.js` 擋 prompt 沒指定 cd 目標或目標不是 git repo 的派工。
 
-Prompt 範本：
+Prompt 範本（開頭的 cd 指示與 codex exec 用法照 145–147 兩件事實際寫出，不能只在散文段提過）：
 
 ```
+執行任何 codex 指令前，先 cd 到 <repo 的絕對路徑>（`codex exec` 一律加 `< /dev/null`）。
+
 【嚴格限制】不要執行任何指令、不要讀取任何檔案。
 （本環境的 codex 沙箱會擋外部 shell，讀檔必敗。）以下資訊已完整提供，僅根據它判斷。
 
@@ -197,7 +199,7 @@ Prompt 範本：
 
 #### 1.3c code-reviewer（C 軌）
 
-`subagent_type: code-reviewer`、`run_in_background: true`，同輪觸發。Prompt 範本（VERDICT 格式與 B 軌對齊，利匯流判讀）：
+`subagent_type` **先用 `code-reviewer`**（專案自訂的審查者，帶該專案規範）；Agent 工具回 `Agent type 'code-reviewer' not found` 時，**同輪改用 `git-commit:code-reviewer`**（本 plugin 自帶的通用版）重發，不算失敗、不降級單軌。**名稱解析規則（實測）**：plugin 自帶的 agent 只能用帶前綴的 `git-commit:code-reviewer` 叫到，裸名 `code-reviewer` 只會解析到專案層／使用者層的同名 agent——**即使全環境只有 plugin 這一支，裸名也回 not found**。所以兩段式缺一不可：只寫裸名，沒有自訂審查者的專案就沒有 C 軌；只寫前綴，有自訂審查者的專案會被通用版蓋掉。`run_in_background: true`，同輪觸發。Prompt 範本（VERDICT 格式與 B 軌對齊，利匯流判讀）：
 
 ```
 請審查 staged diff（在 <DIFF_PATH>，請先 `cat` 讀取）。

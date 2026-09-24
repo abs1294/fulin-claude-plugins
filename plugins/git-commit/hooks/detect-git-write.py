@@ -105,7 +105,172 @@ def strip_noise(tok):
 
 def is_git(tok):
     t = strip_noise(tok)
-    return t == 'git' or t.endswith('/git') or t.endswith('\\git')
+    # Windows 的檔案系統不分大小寫、可執行檔帶 .exe：`git.exe commit`、`Git commit`、
+    # `& "C:\Program Files\Git\cmd\git.exe" commit` 都會真的執行 git。只認 `git` 會讓這些全數放行。
+    base = re.split(r'[\\/]', t)[-1].lower()
+    return base in ('git', 'git.exe')
+
+
+# ── Windows 的殼包裝 ──
+# 本機同時有 Bash 與 PowerShell 兩種工具，cmd／powershell／pwsh 也都能從任一邊叫起來。
+# 它們跟 bash -c 一樣會把字串當指令執行，但語法不同，不能套 SHELL_WRAPPERS 的解析：
+#   cmd /c <指令>           ：/c（或 /k）之後整串都是指令，前面可以有 /s /q 之類的旗標
+#   powershell -c <指令>    ：-c／-Command 的任何縮寫；-EncodedCommand 是 base64(UTF-16LE)；
+#                             powershell.exe 不帶旗標時第一個位置參數也是指令（pwsh 則是腳本檔，不算）
+#   Invoke-Expression／iex  ：等同 eval
+#   Start-Process／saps／start：-FilePath 與 -ArgumentList 拼起來才是真正執行的東西
+WIN_CMD = {'cmd'}
+WIN_PS = {'powershell', 'pwsh'}
+WIN_IEX = {'invoke-expression', 'iex'}
+WIN_START = {'start-process', 'saps', 'start'}
+WIN_WRAPPERS = WIN_CMD | WIN_PS | WIN_IEX | WIN_START
+# powershell 會吃掉下一個 token 當值的選項（其餘選項只跳 1 個）
+PS_OPTS_WITH_VALUE = {'-executionpolicy', '-ep', '-ex', '-windowstyle', '-w', '-configurationname',
+                      '-outputformat', '-of', '-o', '-inputformat', '-if', '-i', '-version', '-v',
+                      '-psconsolefile', '-workingdirectory', '-wd', '-settingsfile', '-custompipename'}
+# 上面那組的全名：PowerShell 參數可縮寫（-Exec、-ExecutionP 都是 -ExecutionPolicy），
+# 只比對集合裡的寫法會讓縮寫的值被當成指令起點，後面的 -Command 就漏掉了。
+PS_VALUE_LONG = ('executionpolicy', 'windowstyle', 'configurationname', 'outputformat', 'inputformat',
+                 'version', 'psconsolefile', 'workingdirectory', 'settingsfile', 'custompipename')
+# Start-Process 的參數：名稱 → (是否帶值, 別名, 是否為通用參數)。
+# 取自 PowerShell 5.1 的 (Get-Command Start-Process).Parameters；environment 是 PowerShell 7.4 起才有的參數。
+# 漏收的參數會讓它的值被當成指令內容，夾在 git 與子指令之間就認不出（-ErrorAction Stop 曾因此放行）。
+START_PARAMS = {
+    'argumentlist': (True, ('args',), False),
+    'credential': (True, ('runas',), False),
+    'filepath': (True, ('pspath',), False),
+    'loaduserprofile': (False, ('lup',), False),
+    'nonewwindow': (False, ('nnw',), False),
+    'passthru': (False, (), False),
+    'redirectstandarderror': (True, ('rse',), False),
+    'redirectstandardinput': (True, ('rsi',), False),
+    'redirectstandardoutput': (True, ('rso',), False),
+    'usenewenvironment': (False, (), False),
+    'verb': (True, (), False),
+    'wait': (False, (), False),
+    'windowstyle': (True, (), False),
+    'workingdirectory': (True, (), False),
+    'environment': (True, (), False),
+    'debug': (False, ('db',), True),
+    'erroraction': (True, ('ea',), True),
+    'errorvariable': (True, ('ev',), True),
+    'informationaction': (True, ('infa',), True),
+    'informationvariable': (True, ('iv',), True),
+    'outbuffer': (True, ('ob',), True),
+    'outvariable': (True, ('ov',), True),
+    'pipelinevariable': (True, ('pv',), True),
+    'verbose': (False, ('vb',), True),
+    'warningaction': (True, ('wa',), True),
+    'warningvariable': (True, ('wv',), True),
+}
+
+
+def _is_prefix_of(opt, word, minlen=1):
+    # PowerShell 參數可縮寫：-c、-com、-Command 都是 -Command。
+    o = opt.lower().lstrip('-/')
+    return len(o) >= minlen and word.startswith(o)
+
+
+def _ps_takes_value(tok):
+    low = tok.lower()
+    if low in PS_OPTS_WITH_VALUE:
+        return True
+    o = low.lstrip('-/')
+    return len(o) >= 2 and any(w.startswith(o) for w in PS_VALUE_LONG)
+
+
+def _resolve_start_param(o):
+    # 照 PowerShell 解析參數名的規則（逐一對過 ResolveParameter 的結果）：
+    #   名稱或別名完全相符 → 就是它；否則以前綴比對名稱與別名；
+    #   前綴同時對到 cmdlet 自己的參數與通用參數時，自己的參數優先（-v 是 -Verb 不是 -Verbose）；
+    #   剩下超過一個不同參數＝歧義，PowerShell 直接報錯、整條指令不執行。
+    for name, (_, aliases, _) in START_PARAMS.items():
+        if o == name or o in aliases:
+            return name
+    hits = [(name, common) for name, (_, aliases, common) in START_PARAMS.items()
+            if name.startswith(o) or any(a.startswith(o) for a in aliases)]
+    own = [n for n, common in hits if not common]
+    pool = own if own else [n for n, _ in hits]
+    if not pool:
+        return None
+    return pool[0] if len(pool) == 1 else 'ambiguous'
+
+
+def _start_param(tok):
+    # 回傳 None（不是參數，當值保留）、'value'（參數且吃掉下一個 token）、'name'（其餘參數，只丟名稱）、
+    # 'ambiguous'（縮寫對到多個參數，PowerShell 會拒絕執行）。
+    # 引號內以 - 開頭的整段（'-C C:/repo commit'）或陣列（-C,C:/repo,commit）不是參數名，是要執行的內容。
+    if not re.fullmatch(r'-[A-Za-z]+', tok):
+        return None
+    name = _resolve_start_param(tok[1:].lower())
+    if name in (None, 'ambiguous'):
+        return name
+    return 'value' if START_PARAMS[name][0] else 'name'
+
+
+def _win_head(tok):
+    h = re.split(r'[\\/]', tok)[-1].lower()
+    return h[:-4] if h.endswith('.exe') else h
+
+
+def _scan_windows_wrapper(head, body, depth, varmap):
+    # head 已正規化（小寫、去 .exe）。回傳命中描述或 None。
+    if not body:
+        return None
+    if head in WIN_CMD:
+        for i, t in enumerate(body):
+            if t.lower() in ('/c', '/k'):
+                return scan(_unquote(' '.join(body[i + 1:])), depth + 1, dict(varmap))
+        return None                      # 沒有 /c／/k：互動殼，不執行字串
+    if head in WIN_IEX:
+        b = body[1:] if body[0].startswith('-') and _is_prefix_of(body[0], 'command') else body
+        return scan(_unquote(' '.join(b)), depth + 1, dict(varmap))
+    if head in WIN_PS:
+        n = 0
+        while n < len(body):
+            t = body[n]
+            low = t.lower()
+            if t.startswith('-') or (t.startswith('/') and len(t) > 1):
+                if _is_prefix_of(t, 'command'):
+                    return scan(_unquote(' '.join(body[n + 1:])), depth + 1, dict(varmap))
+                if low.lstrip('-/') == 'ec' or _is_prefix_of(t, 'encodedcommand'):
+                    if n + 1 >= len(body):
+                        return None
+                    try:
+                        import base64
+                        decoded = base64.b64decode(body[n + 1]).decode('utf-16-le')
+                    except Exception:
+                        return None
+                    return scan(decoded, depth + 1, dict(varmap))
+                if _is_prefix_of(t, 'file', 2) or low in ('-f', '/f'):
+                    return None          # 執行腳本檔，不是指令字串
+                n += 2 if _ps_takes_value(t) else 1
+                continue
+            # 第一個位置參數：powershell.exe 當指令，pwsh 當腳本檔
+            if head == 'powershell':
+                return scan(_unquote(' '.join(body[n:])), depth + 1, dict(varmap))
+            return None
+        return None
+    if head in WIN_START:
+        parts = []
+        n = 0
+        while n < len(body):
+            t = body[n]
+            kind = _start_param(t)
+            if kind == 'ambiguous':
+                return None              # 參數名有歧義，PowerShell 拒絕執行，不會寫入任何東西
+            if kind:
+                # -FilePath／-ArgumentList 的值就是要執行的東西，留下；其餘帶值參數連值一起丟
+                keep = t[1:].lower() and _resolve_start_param(t[1:].lower()) in ('filepath', 'argumentlist')
+                n += 1 if keep else (2 if kind == 'value' else 1)
+                continue
+            if t != '':                  # cmd 的 start "" <指令>：空標題
+                parts.append(t.replace(',', ' '))
+            n += 1
+        if not parts:
+            return None
+        return scan(_unquote(' '.join(parts)), depth + 1, dict(varmap))
+    return None
 
 
 def _strip_comments(text):
@@ -433,6 +598,12 @@ def scan_tokens(tokens, depth=0, varmap=None):
         #     不是指令。整串都掃會誤擋 `bash -c 'echo "$1"' _ 'git commit'`）
         #   B 後面整串就是指令（timeout 10 git commit、xargs -0 git commit、env FOO=1 git commit）
         head = rest_seg[0].split('/')[-1].split('\\')[-1]
+        whead = _win_head(rest_seg[0])
+        if whead in WIN_WRAPPERS:
+            hit = _scan_windows_wrapper(whead, rest_seg[1:], depth, varmap)
+            if hit:
+                return hit
+            continue
         if head in SHELL_WRAPPERS:
             body = rest_seg[1:]
             # command -v/-V 只查指令在哪、不執行它 → 唯讀，放行。

@@ -1,0 +1,71 @@
+{
+  "hook": "guard-codex-diff-embed.js",
+  "cases": [
+    {
+      "label": "prompt 帶 diff 檔路徑 → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "請審查 diff，在 .claude/.git-commit-tmp/staged-foo.diff，請自行讀取"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "叫它 cat 讀檔（無硬性禁令）→ 擋",
+      "payload": {
+        "tool_name": "Task",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "請先 `cat` 讀取 diff 內容後再審查"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "叫它用 Get-Content 讀檔（無硬性禁令）→ 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "先用 Get-Content 讀取這份 diff 再開始審查"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "diff 內嵌且有禁讀檔聲明 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "【嚴格限制】不要執行任何指令、不要讀取任何檔案。以下已完整提供 diff：\n+console.log('x')\n請審查。"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "派非 codex 的 agent，即使含路徑也不管 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "code-reviewer",
+          "prompt": "請審查 diff，在 .claude/.git-commit-tmp/staged-foo.diff，請先 cat 讀取"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "codex 系但 prompt 完全沒提讀檔或路徑 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "codex:codex-rescue",
+          "prompt": "請幫忙看一下這段邏輯有沒有問題：if (x > 0) return true;"
+        }
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}
