@@ -1,0 +1,115 @@
+{
+  "hook": "check-review-discipline.js",
+  "cases": [
+    {
+      "label": "backend-engineer：齊全（親自執行＋驗收條件＋回報格式＋開工前必讀）→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "backend-engineer：缺【開工前必讀】→ 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "prompt": "【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "frontend-engineer：齊全 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "frontend-engineer",
+          "prompt": "【開工前必讀】\n- C:/proj/frontend/CLAUDE.md\n【目標】新增畫面\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- lint 0 error\n【回報格式】\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "frontend-engineer：缺回報鏈鐵則（沒寫親自執行/不得轉派）→ 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "frontend-engineer",
+          "prompt": "【開工前必讀】\n- C:/proj/frontend/CLAUDE.md\n【目標】新增畫面\n【驗收條件】\n- lint 0 error\n【回報格式】\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：齊全（含範圍展開＋測試資料來源）→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "prompt": "【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\na 走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：缺【測試資料來源】→ 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "prompt": "【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "code-reviewer：齊全（含產出路徑＋驗證方式）→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "code-reviewer",
+          "prompt": "【目標】驗證產出\n本任務由你親自執行，不得再轉派給其他 agent。\n【產出路徑】\n- C:/proj/src/x.js\n【驗證方式】\n- 重新 Read 產出檔\n【驗收條件】\n1. 條件一\n【回報格式】\n- 每條一行"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "code-reviewer：缺【產出路徑】與【驗證方式】→ 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "code-reviewer",
+          "prompt": "【目標】驗證產出\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n1. 條件一\n【回報格式】\n- 每條一行"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "非專案 agent（general-purpose）：即使 prompt 什麼都沒帶 → 放行（不受本閘管轄）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "general-purpose",
+          "prompt": "隨便查一下這個檔案"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "plugin 前綴會被剝除後比對（plugin:backend-engineer 缺開工前必讀）→ 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "myplugin:backend-engineer",
+          "prompt": "【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    }
+  ]
+}

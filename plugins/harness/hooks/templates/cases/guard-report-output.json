@@ -1,0 +1,95 @@
+{
+  "hook": "guard-report-output.js",
+  "cases": [
+    {
+      "label": "Write 直接在交付根層放檔案 → 擋下",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": "reports/summary.docx" }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Write 過程檔（.png）落在交付資料夾第一層、不在 _work/ → 擋下",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": "reports/topic_20260101/screenshot.png" }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Bash 用 > 重導向把過程檔寫到交付資料夾第一層 → 擋下",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": { "command": "pytest --junitxml=reports/topic_20260101/result.xml" }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Write 最終交付檔到交付資料夾第一層（非過程格式）→ 放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": "reports/topic_20260101/final-report.docx" }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Write 過程檔到 _work/ 子資料夾 → 放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": "reports/topic_20260101/_work/raw.log" }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Bash 純讀取（cat 交付資料夾內容）→ 放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": { "command": "cat reports/topic_20260101/final-report.docx" }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "PowerShell 用 Out-File 把過程檔寫到交付資料夾第一層 → 擋下",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": { "command": "Get-Content x.txt | Out-File reports/topic_20260101/dump.log" }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 把最終檔搬進 _work/ 底下的子路徑 → 放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": { "command": "Copy-Item screenshot.png reports/topic_20260101/_work/screenshot.png" }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "命令字串提到交付根關鍵字但不是寫入動詞（純 grep）→ 放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": { "command": "grep -n TODO reports/topic_20260101/final-report.docx" }
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}

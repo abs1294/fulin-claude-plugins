@@ -1,0 +1,127 @@
+{
+  "hook": "guard-qa-before-commit.js",
+  "cases": [
+    {
+      "label": "staged 行為類檔、沒表態 QA",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n"
+        },
+        "stage": [
+          "src/add.js"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "帶 --qa-verified",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n"
+        },
+        "stage": [
+          "src/add.js"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit",
+          "args": "--qa-verified"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "帶 --no-qa（分流例外）",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n"
+        },
+        "stage": [
+          "src/add.js"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit",
+          "args": "--no-qa 純文案"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "只 staged 文件",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n"
+        },
+        "stage": [
+          "README.md"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "只 staged 測試檔",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n"
+        },
+        "stage": [
+          "tests/add.test.js"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "別的 skill 不管",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n"
+        },
+        "stage": [
+          "src/add.js"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "simplify"
+        }
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}

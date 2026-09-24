@@ -1,0 +1,11 @@
+{
+  "name": "harness-hooks",
+  "private": true,
+  "description": "規則引擎（guard-risky-command／guard-test-preconditions）用的 shell 語法解析器。由 /harness:init 在 .claude/hooks 安裝；沒裝時兩支引擎退回正則判法。",
+  "dependencies": {
+    "node-gyp-build": "4.8.4",
+    "tree-sitter": "0.25.1",
+    "tree-sitter-bash": "0.25.1",
+    "tree-sitter-powershell": "0.26.4"
+  }
+}

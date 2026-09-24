@@ -1,0 +1,381 @@
+{
+  "hook": "guard-sediment-sweep.js",
+  "variants": {
+    "stop": {
+      "replace": [
+        [
+          "const TRIGGER_MODE = 'skill';",
+          "const TRIGGER_MODE = 'stop';"
+        ]
+      ]
+    }
+  },
+  "cases": [
+    {
+      "label": "skill 模式：沒帶四題",
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "skill 模式：只答三題",
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit",
+          "args": "--sediment 詞=無 鏈=無 QA=無"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "skill 模式：四題全答無",
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit",
+          "args": "--sediment 詞=無 鏈=無 QA=無 代號=無"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "skill 模式：別的 skill 不管",
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "simplify"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "stop 模式：本回合改檔沒表態",
+      "variant": "stop",
+      "setup": {
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "x",
+                  "name": "Edit",
+                  "input": {
+                    "file_path": "src/add.js"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "x",
+                  "content": "ok"
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "好了"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "stop 模式：本回合改檔有表態",
+      "variant": "stop",
+      "setup": {
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "x",
+                  "name": "Edit",
+                  "input": {
+                    "file_path": "src/add.js"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "x",
+                  "content": "ok"
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "好了\n--sediment 詞=無 鏈=無 QA=無 代號=無"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "stop 模式：只讀檔沒改",
+      "variant": "stop",
+      "setup": {
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "看"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "x",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "src/add.js"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "x",
+                  "content": "ok"
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "看完"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "stop 模式：上一回合改、本回合沒改",
+      "variant": "stop",
+      "setup": {
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "x",
+                  "name": "Edit",
+                  "input": {
+                    "file_path": "src/add.js"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "x",
+                  "content": "ok"
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "--sediment 詞=無 鏈=無 QA=無 代號=無"
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "解釋"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "它會相加"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "stop 模式：擋過一次仍缺（防無限迴圈）",
+      "variant": "stop",
+      "setup": {
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "x",
+                  "name": "Edit",
+                  "input": {
+                    "file_path": "src/add.js"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "x",
+                  "content": "ok"
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "好"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": true
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}

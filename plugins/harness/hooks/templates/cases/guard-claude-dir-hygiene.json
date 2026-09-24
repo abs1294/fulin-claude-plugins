@@ -1,0 +1,83 @@
+{
+  "hook": "guard-claude-dir-hygiene.js",
+  "cases": [
+    {
+      "label": "白名單目錄內新建 hook → 放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": ".claude/hooks/new-hook.js" }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": ".claude/ 根下新建隨手報告檔 → 擋下",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": ".claude/report.md" }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "非白名單子目錄新建一次性設計文件 → 擋下",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": ".claude/design-notes/feature-x-plan.md" }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "覆寫已存在的檔（Write 到既有檔）→ 放行",
+      "setup": {
+        "files": {
+          ".claude/legacy-notes/old.md": "既有內容\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": ".claude/legacy-notes/old.md" }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": ".claude/ 以外的一般專案檔 → 放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": "src/feature.js" }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Edit 既有檔（非 Write 工具）→ 不受本閘管轄",
+      "setup": {
+        "files": {
+          ".claude/notes/old.md": "既有內容\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": { "file_path": ".claude/notes/old.md" }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": ".claude/ 根層新建允許清單內的檔（settings.local.json）→ 放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": ".claude/settings.local.json" }
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}

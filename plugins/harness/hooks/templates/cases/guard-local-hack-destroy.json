@@ -1,0 +1,549 @@
+{
+  "hook": "guard-local-hack-destroy.js",
+  "cases": [
+    {
+      "label": "清單內檔 dirty＋git reset --hard",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "sh 包裝：bash -c \"git checkout -- .\"",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c \"git checkout -- .\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 工具的 git checkout -- .",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "git checkout -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "heredoc 同一行後面接的 reset --hard 不能被當成文件內容剝掉",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat > note.md <<EOF && git reset --hard\n筆記內容\nEOF"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "git -C 帶引號路徑＋stash（全域選項要剝掉再判動詞）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git -C \".\" stash"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "被 .gitignore 排除的覆寫檔＋git clean -fdx",
+      "setup": {
+        "files": {
+          ".gitignore": "mock.local\n",
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: mock.local\n      reason: 本機 mock 開關\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "mock.local": "mock=on\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git clean -fdx"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "兩個區塊落在同一個 git repo：對 api 子目錄 reset --hard 仍會蓋掉 web 的覆寫",
+      "setup": {
+        "files": {
+          "api/a.txt": "x\n",
+          "web/env.txt": "u=1\n",
+          ".claude/local-overrides.yml": "api:\n  repo: api\n  files:\n    - path: a.txt\n      reason: r\nweb:\n  repo: web\n  files:\n    - path: env.txt\n      reason: 本機 API 位址\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "web/env.txt": "u=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git -C api reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔是乾淨的＋git reset --hard",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          "other.txt": "o\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "other.txt": "changed\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git reset --hard"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單外的檔 dirty＋reset --hard",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          "other.txt": "o\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "other.txt": "changed\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git reset --hard HEAD"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "git reset --soft 不動工作區",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git reset --soft HEAD~1"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "git restore --staged 只動 index",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git restore --staged conf.txt"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "沒有清單檔",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git reset --hard"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "字串裡提到危險指令但不是在執行（echo 引述）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo 'git reset --hard 會抹掉覆寫' >> notes.md"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "xargs 接的是 grep，引號裡的 git 只是搜尋字串",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . -name '*.md' | xargs grep -l \"git checkout -- .\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "heredoc 主體裡寫危險指令當文件內容",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat > note.md <<'EOF'\n千萬別跑 git reset --hard\nEOF"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "唯讀 git 指令（status／diff）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git status && git diff -- conf.txt"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "一般 git switch 會帶著未提交改動切過去，不丟",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git switch -c feature-x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "被排除的覆寫檔＋git clean -fd（不帶 -x 不碰被排除的檔）",
+      "setup": {
+        "files": {
+          ".gitignore": "mock.local\n",
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: mock.local\n      reason: 本機 mock 開關\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "mock.local": "mock=on\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git clean -fd"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "指令裡夾帶舊式放行記號也照擋（本閘沒有自我授權的旁路）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git reset --hard # local-overrides-ack"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Git Bash 的 cmd //c 包裝 git checkout -- . → 擋",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd //c \"git checkout -- .\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cmd /c 包裝 git checkout -- . → 擋",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd /c \"git checkout -- .\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cmd 的其他旗標在 //c 前面，照樣是在跑 git → 擋",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd //d //c \"git reset --hard\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell -exec bypass -c 包裝 git checkout -- . → 擋",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -exec bypass -c \"git checkout -- .\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "bash -o pipefail -c 包裝 git checkout -- . → 擋",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -o pipefail -c 'git checkout -- .'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "腳本名之後的 -c 是腳本參數，引號裡的 git 不會執行 → 放行",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash /dev/null -c \"git reset --hard\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "bash --rcfile 帶路徑值再接 -c 包裝 git reset --hard → 擋",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash --rcfile /dev/null -c \"git reset --hard\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "旗標的值是含空白的引號字串，後面的 -Command 包裝 git reset --hard → 擋",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -WorkingDirectory \"C:/my repo\" -Command \"git reset --hard\""
+        }
+      },
+      "expect": "BLOCK"
+    }
+  ]
+}

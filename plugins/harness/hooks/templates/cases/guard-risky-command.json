@@ -1,0 +1,3714 @@
+{
+  "hook": "guard-risky-command.js",
+  "variants": {
+    "demo": {
+      "replace": [
+        [
+          "const RULES = [];",
+          "const RULES = [\n  {\n    \"id\": \"db-privileged-login\",\n    \"when\": \"\\\\b(psql|mysql|sqlcmd|mongosh)\\\\b[^\\\\n]*(-U\\\\s*|-u\\\\s*|--user(name)?[=\\\\s]+)(postgres|root|sa|admin)\\\\b\",\n    \"reason\": \"高權帳號連錯密碼會觸發登入鎖定。\",\n    \"fix\": \"改用測試帳號 app_test。\"\n  },\n  {\n    \"id\": \"deploy\",\n    \"when\": \"(^|[\\\\s/\\\\\\\\\\\"'])deploy\\\\.(sh|ps1)\\\\b|\\\\b(kubectl\\\\s+apply|terraform\\\\s+apply|helm\\\\s+(upgrade|install))\\\\b\",\n    \"unless\": \"--dry-run\\\\b\",\n    \"reason\": \"部署不可逆。\",\n    \"fix\": \"先 --dry-run；真的要部署請使用者親自執行。\"\n  },\n  {\n    \"id\": \"ssh-prod\",\n    \"when\": \"\\\\b(ssh|scp|rsync)\\\\b[^\\\\n]*\\\\b[\\\\w.-]*(prod|prd)[\\\\w.-]*\",\n    \"reason\": \"正式主機在熔斷清單上。\",\n    \"fix\": \"請使用者親自操作。\"\n  },\n  {\n    \"id\": \"destructive-sql\",\n    \"when\": \"^(?=[^\\\\n]*\\\\b(psql|mysql|sqlcmd|sqlite3|mongosh|invoke-sqlcmd)\\\\b)(?=[^\\\\n]*(\\\\bDROP\\\\s+(TABLE|DATABASE|SCHEMA)\\\\b|\\\\bTRUNCATE\\\\b|\\\\bDELETE\\\\s+FROM\\\\s+[^\\\\s;\\\"']+(?![^;\\\\n]*\\\\bWHERE\\\\b)))\",\n    \"reason\": \"整批毀掉資料。\",\n    \"fix\": \"帶 WHERE 只刪自己造的列。\"\n  },\n  {\n    \"id\": \"start-needs-env\",\n    \"when\": \"\\\\b(npm|pnpm|yarn)\\\\s+(run\\\\s+)?(start|dev)\\\\b|\\\\bnode\\\\b[^\\\\n]*\\\\bserver\\\\.js\\\\b\",\n    \"requireEnv\": {\n      \"APP_ENV\": \"^(local|development)$\"\n    },\n    \"reason\": \"沒帶 APP_ENV 會靜默跑正式設定。\",\n    \"fix\": \"APP_ENV=local npm start\"\n  },\n  {\n    \"id\": \"git-push\",\n    \"when\": \"\\\\bgit\\\\b[^\\\\n]*\\\\bpush\\\\b\",\n    \"reason\": \"推送會改到共用分支。\",\n    \"fix\": \"走專案的提交流程。\"\n  },\n  {\n    \"id\": \"quoted-token\",\n    \"when\": \"PROD_ADMIN_TOKEN\",\n    \"matchQuoted\": true,\n    \"reason\": \"正式環境管理權杖不得出現在指令裡。\",\n    \"fix\": \"改用測試權杖。\"\n  }\n];"
+        ]
+      ]
+    }
+  },
+  "cases": [
+    {
+      "label": "預設空規則表：毀滅性 SQL 也放行（空表＝全放行）",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "psql -U postgres -c \"DROP TABLE users\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "db：用 postgres 高權帳號連線",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "psql -h db.local -U postgres -d app -c \"select 1\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "db：用測試帳號連線",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "psql -h db.local -U app_test -d app -c \"select 1\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "deploy：直接跑部署腳本",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "./deploy.sh production"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "deploy：包在 bash -c 裡",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c './scripts/deploy.sh'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "deploy：帶 --dry-run（unless 放行）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "./deploy.sh --dry-run"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "deploy：grep 腳本名（提到但沒執行）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -rn deploy.sh docs/"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "deploy：grep 之後真的執行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -q ready status.txt && ./deploy.sh"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：連正式主機",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh admin@web-prod-01 'systemctl restart app'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：連 staging 主機",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh dev@web-staging-01 uptime"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "sql：DROP TABLE",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sqlite3 app.db \"DROP TABLE users\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "sql：DELETE 沒帶 WHERE",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "psql -c \"DELETE FROM sessions\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "sql：DELETE 帶 WHERE",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "psql -c \"DELETE FROM sessions WHERE expired = true\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "sql：echo 印出 TRUNCATE（提到但沒執行）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"TRUNCATE\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "sql：echo 經管線餵給 psql",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"TRUNCATE TABLE users\" | psql app"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "sql：heredoc 寫文件提到 TRUNCATE",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat > notes.md <<'EOF'\n記得別對 psql 下 TRUNCATE TABLE users\nEOF"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "sql：heredoc 餵給 psql",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "psql app <<'EOF'\nTRUNCATE TABLE users;\nEOF"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env：起服務沒帶 APP_ENV",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env：inline 帶錯值",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=production npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env：inline 帶對值",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env：export 後再起",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=development && npm run dev"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env：程序環境變數已對",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "development"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm run dev"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env：grep README 裡的 npm start",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -n \"npm start\" README.md"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "PowerShell：Invoke-Sqlcmd TRUNCATE",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Invoke-Sqlcmd -ServerInstance db.local -Query \"TRUNCATE TABLE users\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell：Write-Output 印 DROP TABLE",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Write-Output \"DROP TABLE users\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "PowerShell：$env: 設定後起服務",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$env:APP_ENV = 'local'; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "PowerShell：沒設 $env: 就起服務",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell：powershell -Command 包部署腳本",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "powershell -NoProfile -Command \"& ./deploy.ps1\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cmd /c 包 echo TRUNCATE（拆開內層後只是印字）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd /c \"echo TRUNCATE TABLE users\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "引號：git push 直接執行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git push origin main"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引號：提示字串裡提到 git push（傳給一般 CLI）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "agent-cli -p \"請執行 git push --dry-run 看看結果\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "引號：commit 描述提到 deploy.sh",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash flow.sh ship . Fix \"修正 deploy.sh 的路徑\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "引號：commit 訊息提到 ssh 正式主機",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m \"fix: 不再 ssh 到 web-prod-01\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "引號：bash 直接跑部署腳本（不帶 -c，腳本名未加引號）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash ./deploy.sh production"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引號：一般程式的引數提到 git push",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node scripts/notes.js \"git push 之前先跑測試\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "引號：node -e 字串裡執行 git push",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node -e \"require('child_process').execSync('git push')\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引號：python -c 字串裡跑部署腳本",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "python -c \"import os; os.system('./deploy.sh')\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引號：eval 字串",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "eval \"git push origin main\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引號：echo 字串經管線餵給 bash",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"git push origin main\" | bash"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引號：PowerShell 呼叫運算子＋加引號的腳本路徑",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& \"./deploy.ps1\" -Stage prod"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "matchQuoted：權杖包在引號裡照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -H \"Authorization: Bearer PROD_ADMIN_TOKEN\" https://api.example.com"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "matchQuoted：沒有權杖放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -H \"Authorization: Bearer test-token\" https://api.example.com"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file：node --env-file= 載入正確環境",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file=.env.local server.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file：node --env-file 空格寫法載入正式環境",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.prod": "APP_ENV=production\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file .env.prod server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env-file：沒帶環境檔也沒設變數",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env-file：PowerShell 帶 --env-file",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "node --env-file=.env.local server.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file＋cd：cd api 後讀 api/.env.local（正確）",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          "api/.env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && node --env-file=.env.local server.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file＋cd：cd api 後讀 api/.env.local（正式；根目錄同名檔正確也不得誤用）",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          "api/.env.local": "APP_ENV=production\n",
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && node --env-file=.env.local server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "逐條判斷：別條指令的 --dry-run 不能替正式部署背書 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "kubectl apply -f prod.yaml; kubectl apply --dry-run=client -f dev.yaml"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "逐條判斷：後面的賦值不能替前面的啟動背書 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=production npm start; APP_ENV=local true"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "逐條判斷：前一條的 X=v 前綴只作用在那一條 → 後面的啟動照擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local true; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "逐條判斷：前面 export 持續生效 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local && npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "逐條判斷：本條的 X=v 蓋過前面的 export → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; APP_ENV=production npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "逐條判斷：前面 source 的環境檔（檔內 export）持續生效 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "export APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source .env.local && npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "逐條判斷：前一條的 --env-file 只作用在那一條 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file=.env.local -e 1; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "逐條判斷：包裝內的指令同樣逐條 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c \"APP_ENV=production npm start; APP_ENV=local true\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引數裡的 X=v 字串不是環境設定 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=production node server.js 'APP_ENV=local'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env X=v 前綴算本條設定 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "env APP_ENV=local npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "管線裡別的指令的 --dry-run 不能替部署背書 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "kubectl apply -f prod.yaml | node helper.js --dry-run"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "部署本身帶 --dry-run、接管線給別的指令 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "kubectl apply --dry-run=client -f prod.yaml | tee out.txt"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "命令替換裡的指令照樣判（echo 包著也一樣）→ 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"$(git push origin main)\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "反引號命令替換 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo `kubectl apply -f prod.yaml`"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "命令替換裡只是印字 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"today is $(date +%F)\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "前一條引數裡的 'export X=v' 字串不是設定 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node -e 'void 0' 'export APP_ENV=local'; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "管線左邊的 X=v 前綴不會傳給右邊 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local true | npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "管線裡被判的那個指令自帶前綴 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "true | APP_ENV=local npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "單引號裡的 $(…) 是字面文字 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo '$(git push origin main)'"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "跳脫過的 \\$(…) 是字面文字 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"\\$(git push origin main)\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "同一管線兩個指令都命中：各自驗，第一個錯就擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=production npm start | APP_ENV=local npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "--env-file 不覆蓋已 export 的變數（Node 規則）→ 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=production; node --env-file=.env.local server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "--env-file 不覆蓋繼承來的環境變數 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "production"
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file=.env.local server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "變數未存在時 --env-file 生效 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file=.env.local server.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "命令替換裡的單引號 SQL 照樣判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"$(psql -c 'DROP TABLE users')\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "一行 export 多個變數都認得 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export A=1 APP_ENV=local; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "環境檔裡的註解行不是設定 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.app": "APP_ENV=production\n# APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source .env.app && npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "管線另一邊的 --env-file 不給這邊 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node server.js | node --env-file=.env.local helper.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "反斜線續行接回同一條指令 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "kubectl \\\n  apply -f prod.yaml"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "反斜線續行、同條帶 --dry-run → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "kubectl apply \\\n  --dry-run=client -f prod.yaml"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "unset 之後就是未設定 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; unset APP_ENV; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "unset 之後不退回繼承的環境變數 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "unset APP_ENV; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell Remove-Item Env: 之後就是未設定 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "Remove-Item Env:APP_ENV; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "unset 別的變數不影響 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; unset APP_ENV_OLD; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "殼包裝外層的前綴帶進內層 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local bash -c 'npm start'"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "殼包裝外層錯值照擋 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=production bash -c 'npm start'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引號內含空白的環境檔路徑讀得到 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          "config files/.env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file=\"./config files/.env.local\" server.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "source 的環境檔沒寫 export：只是 shell 變數，子程序看不到 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source .env.local && npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "set -a 開著 source：全部匯出 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -a; source .env.local; set +a; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "先設 shell 變數再 export 名字 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local; export APP_ENV; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "只設 shell 變數沒 export → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "已匯出的變數改值會帶給子程序 → 擋（改成錯值）",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=production; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "declare -x 等同 export → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "declare -x APP_ENV=local; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "export -n 取消匯出 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export -n APP_ENV; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env -u 移除變數 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "env -u APP_ENV npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env -i 清空環境 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "env -i npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "子殼（bash -c）裡的 export 不回到外層 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c 'export APP_ENV=local'; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "同一個 bash -c 裡先 export 再啟動 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c 'export APP_ENV=local; npm start'"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "管線裡的 export 不回到外層 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local | cat; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "大括號群組裡的 export 留在外層 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "{ export APP_ENV=local; npm start; }"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "子殼裡的 export 蓋過外層包裝帶進來的前綴 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local bash -c 'export APP_ENV=production; npm start'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "子殼裡的 export 蓋過外層錯值 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=production bash -c 'export APP_ENV=local; npm start'"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "bash 的 set X=v 是設位置參數，不是環境變數 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set APP_ENV=local; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cmd /c 裡的 set X=v 才是環境變數 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd /c \"set APP_ENV=local && npm start\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "加引號的 heredoc 主體是字面文字，$(…) 不執行 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat <<'EOF' > notes.md\n$(git push origin main)\nEOF"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "未加引號的 heredoc 主體裡的 $(…) 會執行 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat <<EOF > notes.md\n$(git push origin main)\nEOF"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "timeout 包起來的部署照樣判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "timeout 60 kubectl apply -f prod.yaml"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "--env-file 寫在腳本之後是傳給腳本的引數，Node 不載入 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node server.js --env-file=.env.local"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "--env-file 寫在腳本之前（中間夾 -r 帶值選項）→ 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node -r ./pre.js --env-file=.env.local server.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "包裝字串後面帶引數（bash -c … _）照樣拆開判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c 'kubectl apply -f prod.yaml' _"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "timeout 後面接 env X=v 才是設定 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=production; timeout 10 env APP_ENV=local npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "timeout 後面直接寫 X=v 是指令名不是設定 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "timeout 10 APP_ENV=local npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "包裝後接重導向（> log 2>&1）照樣拆開判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c 'kubectl apply -f prod.yaml' > deploy.log 2>&1"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "xargs 會執行後面接的指令 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ls manifests | xargs -n1 kubectl apply -f"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find -exec 會執行後面接的指令 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find manifests -name '*.yaml' -exec kubectl apply -f {} \\;"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "只是提到 xargs（man／grep）不拆 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -rn \"xargs kubectl apply\" docs/"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "find -exec 裡再包 sh -c（字面 \\; 結尾）照樣拆開判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . -name '*.yaml' -exec sh -c 'kubectl apply -f prod.yaml' \\;"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "多個 -exec 各自判，後一個的 --dry-run 不替前一個背書 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . -exec kubectl apply -f prod.yaml \\; -exec echo --dry-run \\;"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "包裝後接加引號的重導向路徑照樣拆開判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c 'kubectl apply -f prod.yaml' > \"deploy log.txt\" 2>&1"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "繼承了空字串的變數，--env-file 不覆蓋（Node 規則）→ 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": ""
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file=.env.local server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "變數不存在時 --env-file 才補 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          ".env.local": "APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file=.env.local server.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "sudo -u 帶值選項略過，照樣認出後面的 psql 毀滅性語句 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sudo -u postgres psql -c 'DROP TABLE users'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "sudo 旗標（-E -H）略過照樣判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sudo -E -H kubectl apply -f prod.yaml"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "外層沒匯出的 shell 變數傳不進子殼 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local; bash -c 'export APP_ENV; npm start'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "外層先 export 再進子殼 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; bash -c 'npm start'"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "sudo -u 不是清掉變數（那是 env -u）→ 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sudo -u APP_ENV env APP_ENV=local npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "bash -c 後接未加引號的單字照樣判（綁行首的規則也命中）→ 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c ./deploy.sh"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cmd /c 後面整串都是指令（不是只取一個詞）→ 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd /c kubectl apply -f prod.yaml"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "powershell -Command 後面整串都是指令 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -Command kubectl apply -f prod.yaml"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "sudo 選項值加引號含空白，照樣認出後面的 psql 毀滅性語句 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sudo -p \"Password: \" psql -c 'DROP TABLE users'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env --chdir 帶引號含空白路徑，照樣認出後面的指令 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "env --chdir=\"/path with spaces\" psql -c 'DROP TABLE users'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env bash -c 裡的 unset 是在子殼裡 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; env bash -c 'unset APP_ENV; npm start'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "命令替換裡的 export 不回到外層 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"$(export APP_ENV=local)\"; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env -u 拿掉變數再叫新殼，新殼裡沒有 APP_ENV → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; env -u APP_ENV bash -c 'node server.js'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "值來自命令替換，執行前無從得知 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=$(cat env.txt); export APP_ENV; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 直接以相對路徑叫部署腳本（語法樹解析不了，退回正則照擋）→ 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "./deploy.ps1 -Force"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 反斜線相對路徑叫部署腳本 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": ".\\deploy.ps1"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 的 --dry-run=client 是預演 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "kubectl apply --dry-run=client -f prod.yaml"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "PowerShell 反引號續行接部署腳本 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Write-Host hi; ./deploy.ps1 `\n  -Force"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以 Set-Item Env: 把正確的繼承值改掉 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Set-Item Env:APP_ENV production; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以 SetEnvironmentVariable 改掉 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "[Environment]::SetEnvironmentVariable('APP_ENV','production'); node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以 ${env:X} 寫法改掉 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "${env:APP_ENV} = 'production'; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 大小寫不同的名字也是同一個環境變數 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$env:app_env = 'production'; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以反斜線寫法 Env:\\X 刪掉 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Remove-Item Env:\\APP_ENV; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以別名 ri 刪掉 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "ri env:APP_ENV; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以 Clear-Item 清掉 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Clear-Item Env:APP_ENV; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以 += 接字串 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$env:APP_ENV += 'x'; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 在區塊裡改掉 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& { $env:APP_ENV = 'production' }; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 在 if 裡設值（不一定執行）→ 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "if ($false) { $env:APP_ENV = 'local' }; node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 最外層以字面值設定 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$env:APP_ENV = 'local'; Write-Host start; node server.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "PowerShell 只讀取環境變數不算改它 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "if ($env:APP_ENV -eq 'local') { node server.js }"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "函式本體裡的推送，定義後接著呼叫 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "f() { git push; }; f"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "function 關鍵字定義的部署函式 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "function deploy { kubectl apply -f prod.yaml; }\ndeploy"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "重導向目標的命令替換裡的部署會真的執行 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "printf ok > \"$(kubectl apply -f prod.yaml >&2; printf out.log)\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "行程替換接在重導向上，裡面的推送會執行 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat < <(git push)"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "here-string 餵給 psql 的 SQL → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "psql -h localhost <<< \"TRUNCATE orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "here-string 餵給 bash 的腳本 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash <<< 'git push'"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "printf 印給 sh 的腳本（含跳脫換行）→ 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "printf 'echo hi\\ngit push\\n' | sh"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "heredoc 經管線餵給 bash 的腳本 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat <<EOF | bash\ngit push\nEOF"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "heredoc 寫進檔案只是資料 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat <<EOF > notes.md\nremember to git push later\nEOF"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "前綴先進 env 的環境，再被 -u 拿掉 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local env -u APP_ENV node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "a || b && c 的 c 執行時 b 不一定跑過 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "true || export APP_ENV=local && node server.js"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "條件成立時才改值，把正確的值改壞 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; [ -f .prod ] && export APP_ENV=production; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "迴圈裡的 unset → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; for i in 1; do unset APP_ENV; done; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "&& 串起來一定都會執行的 export → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local && export PORT=3000 && npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "set -a 不會被新的 bash 程序繼承 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -a; bash -c 'APP_ENV=local; node server.js'"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "sudo 在指令前的賦值是那個指令的環境 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; sudo APP_ENV=production npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "! unset 照樣拿掉變數 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; ! unset APP_ENV; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "command export 照樣匯出 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "command export APP_ENV=local; npm start"
+        }
+      },
+      "expect": "ALLOW",
+      "parser": "only"
+    },
+    {
+      "label": "declare +x 取消匯出 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; declare +x APP_ENV; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "函式本體裡改值、呼叫發生在後面 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "f() { export APP_ENV=production; }; export APP_ENV=local; f; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "echo 給 bash 的腳本自帶前綴改壞值 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; echo 'APP_ENV=production npm start' | bash"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "xargs 叫的指令自己用 env 帶對值 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=production; echo x | xargs env APP_ENV=local npm start"
+        }
+      },
+      "expect": "ALLOW",
+      "parser": "only"
+    },
+    {
+      "label": "PowerShell 字串經管線餵給 psql → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "'TRUNCATE orders' | psql -h localhost"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 字串經管線餵給 bash 當腳本 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {}
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "\"git push\" | bash"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以 New-Item 在 Env: 建變數 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "New-Item -Path Env: -Name APP_ENV -Value production -Force; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以 Env:/X 寫法刪掉 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Remove-Item Env:/APP_ENV; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以管線把 Env: 項目交給 Remove-Item → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "gci Env:APP_ENV | Remove-Item; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 的 $Env: 前綴大小寫不影響 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$Env:APP_ENV = 'local'; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "printf 照格式代入引數後餵給 bash 的推送 → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "printf 'git %s\\n' push | bash"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "迴圈體後段改值，下一輪的起服務拿到的是改過的值 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; for i in 1 2; do npm start; export APP_ENV=production; done"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "迴圈體裡沒有改值 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; for i in 1 2; do npm start; done"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "eval 字面字串裡改壞值 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; eval \"export APP_ENV=production\"; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "eval 字面字串裡設對值 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "eval \"export APP_ENV=local\"; npm start"
+        }
+      },
+      "expect": "ALLOW",
+      "parser": "only"
+    },
+    {
+      "label": "source 行程替換：內容看不到，值無法確認 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; source <(echo export APP_ENV=production); npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "read 把檔案內容讀進變數 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; read APP_ENV < prod.txt; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "printf -v 寫進變數 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; printf -v APP_ENV production; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "for 的迴圈變數就是它 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; for APP_ENV in production; do :; done; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "declare -n 參照改寫 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; declare -n r=APP_ENV; r=production; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "條件式 source，兩種情況值都正確 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        },
+        "files": {
+          ".env": "export APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "[ -f .env ] && source .env; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "條件式 source 會把正確值改壞 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        },
+        "files": {
+          ".env": "export APP_ENV=production\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "[ -f .env ] && source .env; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "${X:-預設} 在沒有值時取預設 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=${APP_ENV:-local}; npm start"
+        }
+      },
+      "expect": "ALLOW",
+      "parser": "only"
+    },
+    {
+      "label": "${X:-預設} 已有錯誤值時沿用它 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "production"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=${APP_ENV:-local}; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "trap 觸發時執行的推送 → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "trap 'git push' EXIT; true"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "su -c 叫起的推送 → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "su -c 'git push' deploy"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "script -c 叫起的推送 → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "script -qc 'git push' /dev/null"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "watch 反覆執行的部署 → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "watch 'kubectl apply -f prod.yaml'"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "變數名加雙引號的 unset 照樣拿掉 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; unset \"APP_ENV\"; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "整段加引號的 export 照樣改值 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; export \"APP_ENV=production\"; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "整段加引號的 export 設對值 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export \"APP_ENV=local\"; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "source 的檔案裡用 if 改值 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          "f1.env": "if true; then export APP_ENV=production; fi\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; source f1.env; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "source 的檔案裡再 source 另一個檔 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          "f3.env": "source f3b.env\n",
+          "f3b.env": "export APP_ENV=production\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; source f3.env; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "source 的檔案只有一定會執行的設定 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          "f4.env": "export APP_ENV=local\nPORT=3000\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source f4.env; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "指令名是變數，引數是那個環境變數 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; c=unset; $c APP_ENV; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "eval 展開內容看不到，值無法確認 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": "local"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "eval \"$(fnm env)\"; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "eval 展開之後，在起服務那條前面直接帶值 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "eval \"$(fnm env)\"; APP_ENV=local npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "前綴在外層展開：沿用還沒匯出的錯值帶進新程序 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=production; APP_ENV=${APP_ENV:-local} bash -c 'npm start'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "前綴在外層展開：帶進新程序的是正確值 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local; APP_ENV=$APP_ENV bash -c \"npm start\""
+        }
+      },
+      "expect": "ALLOW",
+      "parser": "only"
+    },
+    {
+      "label": "eval 內層自己設對值再起服務 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "eval 'export APP_ENV=local; npm start'"
+        }
+      },
+      "expect": "ALLOW",
+      "parser": "only"
+    },
+    {
+      "label": "看不到內容的寫入之後，前綴展開同名變數仍是未知 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; read -r APP_ENV <<< production; APP_ENV=\"$APP_ENV\" npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "看不到內容的寫入之後，${X:-預設} 前綴仍是未知 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; eval \"$(echo export APP_ENV=production)\"; APP_ENV=${APP_ENV:-local} npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "父指令的字面前綴蓋掉未知 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "read -r APP_ENV <<< production; APP_ENV=local bash -c 'npm start'"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "父指令的字面前綴是錯值 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "read -r APP_ENV <<< local; APP_ENV=production bash -c 'npm start'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "read 的變數名是展開，寫到哪個看不出來 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; n=APP_ENV; read \"$n\" < prod.txt; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "read 寫進別的變數不影響 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; read -r ans < /dev/null; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "單引號裡的 $X 是字面字串，不是展開 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; APP_ENV='$APP_ENV' npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env 帶的值照當下的值展開（正確值）→ 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; env APP_ENV=\"$APP_ENV\" npm start"
+        }
+      },
+      "expect": "ALLOW",
+      "parser": "only"
+    },
+    {
+      "label": "env 帶的值照當下的值展開（前面讀進錯值）→ 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; read -r APP_ENV <<< production; env APP_ENV=\"$APP_ENV\" npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "值來自別的變數，看不出值 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "OTHER=production; export APP_ENV=$OTHER; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Git Bash 的 cmd //c 會執行內層的推送 → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd //c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Git Bash 的 cmd //C 大寫旗標 → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd //C \"kubectl apply -f prod.yaml\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cmd //c 內層把值改壞 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; cmd //c \"set APP_ENV=production&& npm start\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cmd //c 內層設對值 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd //c \"set APP_ENV=local&& npm start\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "cmd //c 內層只印字 → 放行",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd //c \"echo hi\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "source 檔裡先有看不到的寫入、後面字面設定蓋掉 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          "seq2.env": "eval \"$(echo x=1)\"\nexport APP_ENV=local\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source seq2.env; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "source 檔裡字面設定之後又有看不到的寫入 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        },
+        "files": {
+          "seq3.env": "export APP_ENV=local\neval \"$(echo export APP_ENV=production)\"\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source seq3.env; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "PowerShell iex 讀檔內容執行，值看不出來 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$env:APP_ENV = \"local\"; iex (Get-Content set.ps1 -Raw); npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell [scriptblock]::Create 執行檔內容 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$env:APP_ENV = \"local\"; & ([scriptblock]::Create((gc set.ps1 -Raw))); npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell iex 字面字串 → 放行",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$env:APP_ENV = \"local\"; iex 'Write-Host hi'; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "連續前綴由左到右生效：第二個 $X 拿到前一個的錯值 → 擋",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; APP_ENV=production APP_ENV=\"$APP_ENV\" node server.js"
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "demo"
+    },
+    {
+      "label": "連續前綴由左到右生效：第二個 $X 拿到前一個的正確值 → 放行",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "APP_ENV=local APP_ENV=\"${APP_ENV}\" node server.js"
+        }
+      },
+      "expect": "ALLOW",
+      "variant": "demo",
+      "parser": "only"
+    },
+    {
+      "label": "PowerShell -exec bypass 在 -c 前面，內層照拆 → 擋",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -exec bypass -c \"git push\""
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "demo"
+    },
+    {
+      "label": "PowerShell -Command 縮寫成 -Com → 擋",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -NoProfile -Com \"git push\""
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "demo"
+    },
+    {
+      "label": "PowerShell 雙斜線 //Command → 擋",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell //Command \"git push\""
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "demo"
+    },
+    {
+      "label": "powershell.exe 不帶旗標時第一個位置引數就是指令 → 擋",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -NoProfile -ExecutionPolicy Bypass \"git push\""
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "demo"
+    },
+    {
+      "label": "PowerShell -EncodedCommand 解碼後是推送 → 擋",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -NoProfile -enc ZwBpAHQAIABwAHUAcwBoAA=="
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "demo"
+    },
+    {
+      "label": "PowerShell -exec bypass -c 內層只印字 → 放行",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -NoProfile -exec bypass -c \"Write-Output hi\""
+        }
+      },
+      "expect": "ALLOW",
+      "variant": "demo"
+    },
+    {
+      "label": "bash -C 是 noclobber 不是 -c → 放行",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -C script.sh"
+        }
+      },
+      "expect": "ALLOW",
+      "variant": "demo"
+    },
+    {
+      "label": "陣列下標賦值讓變數變成陣列、不再匯出 → 擋",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; APP_ENV[0]=production; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "demo",
+      "parser": "only"
+    },
+    {
+      "label": "+= 接在後面變成錯值 → 擋",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=local; APP_ENV+=x; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "demo",
+      "parser": "only"
+    },
+    {
+      "label": "+= 接成正確值 → 放行",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=lo; APP_ENV+=cal; npm start"
+        }
+      },
+      "expect": "ALLOW",
+      "variant": "demo",
+      "parser": "only"
+    },
+    {
+      "label": "$'…' 的跳脫解碼後是正確值 → 放行",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=$'loc\\x61l'; npm start"
+        }
+      },
+      "expect": "ALLOW",
+      "variant": "demo",
+      "parser": "only"
+    },
+    {
+      "label": "別的變數沒被碰過，照繼承值展開預設值 → 放行",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export APP_ENV=${HARNESS_PROBE_UNSET_VAR:-local}; npm start"
+        }
+      },
+      "expect": "ALLOW",
+      "variant": "demo",
+      "parser": "only"
+    },
+    {
+      "label": "別的變數在前面被設成錯值 → 擋",
+      "setup": {
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "OTHER=production; export APP_ENV=${OTHER:-local}; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "demo"
+    },
+    {
+      "label": "bash -O（shopt 選項）後面接一個值，再接 -c → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -O extglob -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "腳本名之後的 -check 是腳本自己的參數 → 放行",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash release.sh -check \"git push docs\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "powershell -File 之後的 -c 是腳本自己的參數 → 放行",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -File x.ps1 -c \"git push\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "pwsh 的位置引數是腳本，後面的 -c 是腳本參數 → 放行",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh script.ps1 -c \"git push\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "別的變數在同一條指令的前綴被設成錯值 → 擋",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "APP_ENV": null,
+          "NODE_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "NODE_ENV=production APP_ENV=${NODE_ENV:-local} node server.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell -o（OutputFormat 縮寫）吃掉一個值，再接 -c → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -o Text -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell -wi（WindowStyle 縮寫）吃掉一個值，再接 -c → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -wi Hidden -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "pwsh 的 -i 不吃值，後面的 -c 照樣認 → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -i -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "pwsh 的 -i 不吃值，後面的腳本名與腳本參數不是殼旗標 → 放行",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -i ./safe.ps1 -c \"git push\""
+        }
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}

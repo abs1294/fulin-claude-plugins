@@ -1,0 +1,1725 @@
+{
+  "hook": "guard-test-preconditions.js",
+  "variants": {
+    "demo": {
+      "replace": [
+        [
+          "const CHECKS = [];",
+          "const CHECKS = [\n  {\n    \"id\": \"mail-sink\",\n    \"kind\": \"file\",\n    \"path\": \"config/mail.test.json\",\n    \"mustMatch\": \"\\\"host\\\"\\\\s*:\\\\s*\\\"(localhost|127\\\\.0\\\\.0\\\\.1)\\\"\",\n    \"mustNotMatch\": \"\\\"cc\\\"\\\\s*:\\\\s*\\\\[\\\\s*\\\"\",\n    \"reason\": \"測試會寄信；SMTP 不是本機收信器就會寄給真人。\",\n    \"fix\": \"把 SMTP 指回 localhost、清空 cc。\"\n  },\n  {\n    \"id\": \"api-base\",\n    \"kind\": \"env\",\n    \"env\": \"TEST_API_BASE\",\n    \"matches\": \"^https?://localhost:\\\\d+\",\n    \"reason\": \"測試要打自己起的那套服務。\",\n    \"fix\": \"source 這套服務自己的環境檔再跑。\"\n  },\n  {\n    \"id\": \"api-db\",\n    \"kind\": \"env\",\n    \"env\": \"DATABASE_URL\",\n    \"when\": \"(^|[\\\\s/\\\\\\\\])api\\\\b|\\\\bnode\\\\b[^\\\\n]*\\\\s--test\\\\b\",\n    \"matches\": \"^postgres(ql)?://(localhost|127\\\\.0\\\\.0\\\\.1)\",\n    \"reason\": \"api 的測試會寫資料庫，必須指向本機測試庫。\",\n    \"fix\": \"用 api 自己的 .env.test 再跑。\"\n  }\n];"
+        ]
+      ]
+    },
+    "scoped": {
+      "replace": [
+        [
+          "const CHECKS = [];",
+          "const CHECKS = [\n  {\n    \"id\": \"api-db\",\n    \"kind\": \"env\",\n    \"env\": \"DATABASE_URL\",\n    \"when\": \"\\\\bapi\\\\b\",\n    \"matches\": \"^postgres(ql)?://(localhost|127\\\\.0\\\\.0\\\\.1)\",\n    \"reason\": \"api 的測試會寫資料庫。\",\n    \"fix\": \"帶 api 的 .env.test 再跑。\"\n  }\n];"
+        ]
+      ]
+    },
+    "envonly": {
+      "replace": [
+        [
+          "const CHECKS = [];",
+          "const CHECKS = [\n{\n  \"id\": \"api-base\",\n  \"kind\": \"env\",\n  \"env\": \"TEST_API_BASE\",\n  \"matches\": \"^https?://localhost:\\\\d+\",\n  \"reason\": \"測試要打自己起的那套服務。\",\n  \"fix\": \"TEST_API_BASE=http://localhost:3000 npm test\"\n}\n];"
+        ]
+      ]
+    },
+    "within": {
+      "replace": [
+        [
+          "const CHECKS = [];",
+          "const CHECKS = [\n{\n  \"id\": \"mail-sink-block\",\n  \"kind\": \"file\",\n  \"path\": \"config/app.ini\",\n  \"within\": \"^\\\\[test\\\\][^\\\\[]*\",\n  \"mustMatch\": \"^mail_sink\\\\s*=\\\\s*on\",\n  \"reason\": \"測試區塊沒收斂寄信會寄給真人。\",\n  \"fix\": \"在 config/app.ini 的 [test] 區塊加 mail_sink = on\"\n}\n];"
+        ]
+      ]
+    }
+  },
+  "cases": [
+    {
+      "label": "預設空檢查表：跑測試放行",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"smtp.example.com\", \"port\": 587, \"cc\": [\"team@example.com\"] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "不是測試指令（cat 設定檔），即使條件不符也放行",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"smtp.example.com\", \"port\": 587, \"cc\": [\"team@example.com\"] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat config/mail.test.json"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "不是測試指令（grep 提到 pytest）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"smtp.example.com\", \"port\": 587, \"cc\": [\"team@example.com\"] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -rn \"pytest\" docs/ pytest.ini"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "不是測試指令（heredoc 寫文件提到 npm test）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"smtp.example.com\", \"port\": 587, \"cc\": [\"team@example.com\"] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat > progress.md <<'EOF'\nnpm test\nEOF"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "只列清單不執行（--collect-only）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"smtp.example.com\", \"port\": 587, \"cc\": [\"team@example.com\"] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pytest --collect-only -q"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "測試指令＋條件全符合",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "SMTP 指向外部主機",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"smtp.example.com\", \"port\": 587, \"cc\": [\"team@example.com\"] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "寄信設定檔不存在（無法確認）",
+      "variant": "demo",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "python -m pytest -q"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "環境變數未設",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "go test ./..."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "環境變數 inline 設定",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_API_BASE=http://localhost:4000 npx vitest run"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "環境變數來自 source 的環境檔",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          ".env.test": "export TEST_API_BASE=http://localhost:3000\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source ./.env.test && go test ./..."
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "source 了別套環境檔（指向 staging）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          ".env.other": "export TEST_API_BASE=https://staging.example.com\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source ./.env.other && npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "bash -c 包測試指令＋條件不符",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"smtp.example.com\", \"port\": 587, \"cc\": [\"team@example.com\"] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c 'cd app && npm test'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell：$env: 設定後跑測試",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$env:TEST_API_BASE = 'http://localhost:3000'; npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "PowerShell：環境變數指向 staging",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": "https://staging.example.com"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "npx playwright test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell：Get-Content 讀設定檔（不是測試）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"smtp.example.com\", \"port\": 587, \"cc\": [\"team@example.com\"] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-Content config/mail.test.json"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "範圍：web 跑 vitest 不要求 DATABASE_URL",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000",
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd web && npx vitest run"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "範圍：api 跑測試沒帶 DATABASE_URL",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000",
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "範圍：api 跑測試 inline 帶本機 DATABASE_URL",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000",
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && DATABASE_URL=postgres://localhost/app_test npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file：node --env-file= 載入正確環境",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          ".env.test": "TEST_API_BASE=http://localhost:3000\nDATABASE_URL=postgres://localhost/app_test\n"
+        },
+        "env": {
+          "TEST_API_BASE": null,
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file=.env.test --test \"test/*.test.js\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file：--env-file 空格寫法、檔內指向 staging",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          ".env.test": "TEST_API_BASE=https://staging.example.com\nDATABASE_URL=postgres://localhost/app_test\n"
+        },
+        "env": {
+          "TEST_API_BASE": null,
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file .env.test --test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env-file：環境檔缺 DATABASE_URL",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          ".env.test": "TEST_API_BASE=http://localhost:3000\n"
+        },
+        "env": {
+          "TEST_API_BASE": null,
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --env-file=.env.test --test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env-file：PowerShell 帶 --env-file",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          ".env.test": "TEST_API_BASE=http://localhost:3000\nDATABASE_URL=postgres://localhost/app_test\n"
+        },
+        "env": {
+          "TEST_API_BASE": null,
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "node --env-file=.env.test --test \"test/*.test.js\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "cd＋env-file：cd api 後 --env-file 讀 api/.env.test（正確）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          "api/.env.test": "TEST_API_BASE=http://localhost:3000\nDATABASE_URL=postgres://localhost/app_test\n"
+        },
+        "env": {
+          "TEST_API_BASE": null,
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && node --env-file=.env.test --test \"test/*.test.js\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "cd＋env-file：api/.env.test 指向 staging（根目錄同名檔正確也不得誤用）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          "api/.env.test": "TEST_API_BASE=https://staging.example.com\nDATABASE_URL=postgres://localhost/app_test\n",
+          ".env.test": "TEST_API_BASE=http://localhost:3000\nDATABASE_URL=postgres://localhost/app_test\n"
+        },
+        "env": {
+          "TEST_API_BASE": null,
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && node --env-file=.env.test --test \"test/*.test.js\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cd＋env-file：PowerShell Set-Location api 後 --env-file",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          "api/.env.test": "TEST_API_BASE=http://localhost:3000\nDATABASE_URL=postgres://localhost/app_test\n"
+        },
+        "env": {
+          "TEST_API_BASE": null,
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Set-Location api; node --env-file=.env.test --test \"test/*.test.js\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "cd＋source：cd sub 後 source ./x.env",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          "sub/x.env": "export TEST_API_BASE=http://localhost:3000\nexport DATABASE_URL=postgres://localhost/app_test\n"
+        },
+        "env": {
+          "TEST_API_BASE": null,
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd sub && source ./x.env && npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "cd 疊加：cd api && cd .. 回到根，讀根目錄的檔",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          ".env.test": "TEST_API_BASE=http://localhost:3000\nDATABASE_URL=postgres://localhost/app_test\n",
+          "api/.env.test": "TEST_API_BASE=https://staging.example.com\nDATABASE_URL=postgres://localhost/app_test\n"
+        },
+        "env": {
+          "TEST_API_BASE": null,
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && cd .. && node --env-file=.env.test --test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "cd - 判讀不了：退回專案根解析",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"localhost\", \"port\": 1025, \"cc\": [] }\n",
+          ".env.test": "TEST_API_BASE=http://localhost:3000\nDATABASE_URL=postgres://localhost/app_test\n"
+        },
+        "env": {
+          "TEST_API_BASE": null,
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd - && node --env-file=.env.test --test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "when：web 跑 vitest 不套用 api 的檢查",
+      "variant": "scoped",
+      "setup": {
+        "env": {
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd web && npx vitest run"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "when：api 跑測試沒環境",
+      "variant": "scoped",
+      "setup": {
+        "env": {
+          "DATABASE_URL": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "逐條判斷：後面的賦值不能替前面的測試背書 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_API_BASE=https://prod.example.com npm test; TEST_API_BASE=http://localhost:3000 true"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "逐條判斷：本條 X=v 指向 localhost → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_API_BASE=http://localhost:3000 npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "逐條判斷：前面 export 持續生效 → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export TEST_API_BASE=http://localhost:3000 && npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "逐條判斷：同一串兩次測試，第二次環境錯 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_API_BASE=http://localhost:3000 npm test; TEST_API_BASE=https://prod.example.com npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "within：指定區塊存在且符合 → 放行",
+      "variant": "within",
+      "setup": {
+        "files": {
+          "config/app.ini": "[prod]\nmail_sink = off\n[test]\nmail_sink = on\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "within：指定區塊存在但不符（別的區塊有也不算）→ 擋",
+      "variant": "within",
+      "setup": {
+        "files": {
+          "config/app.ini": "[prod]\nmail_sink = on\n[test]\nmail_sink = off\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "within：找不到指定區塊 → 擋（不退回整份檔）",
+      "variant": "within",
+      "setup": {
+        "files": {
+          "config/app.ini": "[prod]\nmail_sink = on\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引數裡的 X=v 字串不是環境設定 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_API_BASE=https://prod.example.com npm test -- -t 'TEST_API_BASE=http://localhost:3000'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "命令替換裡跑測試也要檢查 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"$(TEST_API_BASE=https://prod.example.com npm test)\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "前一條引數裡的 'export X=v' 字串不是設定 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node -e 'void 0' 'export TEST_API_BASE=http://localhost:3000'; npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "單引號裡的 $(npm test) 是字面文字，不算跑測試 → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo 'run $(npm test) later'"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "--env-file 不覆蓋已 export 的變數 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        },
+        "files": {
+          ".env.test": "TEST_API_BASE=http://localhost:3000\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export TEST_API_BASE=https://prod.example.com; node --env-file=.env.test --test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "一行 export 多個變數都認得 → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export CI=1 TEST_API_BASE=http://localhost:3000; npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "反斜線續行的測試指令照樣檢查 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_API_BASE=https://prod.example.com npm \\\n  test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "環境檔裡的註解行不是設定 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        },
+        "files": {
+          ".env.test": "TEST_API_BASE=https://prod.example.com\n# TEST_API_BASE=http://localhost:3000\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source .env.test && npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "unset 之後就是未設定 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export TEST_API_BASE=http://localhost:3000; unset TEST_API_BASE; npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "殼包裝外層的前綴帶進內層 → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_API_BASE=http://localhost:3000 bash -c 'npm test'"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "引號內含空白的 source 路徑讀得到 → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        },
+        "files": {
+          "env files/.env.test": "export TEST_API_BASE=http://localhost:3000\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source 'env files/.env.test' && npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "source 的環境檔沒寫 export：子程序看不到 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        },
+        "files": {
+          ".env.test": "TEST_API_BASE=http://localhost:3000\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "source .env.test && npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "set -a 開著 source → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        },
+        "files": {
+          ".env.test": "TEST_API_BASE=http://localhost:3000\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "set -a && source .env.test && set +a && npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "管線裡的 export 不回到外層 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export TEST_API_BASE=http://localhost:3000 | cat; npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "直接用路徑叫測試執行器（.venv/bin/pytest）也是在跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": ".venv/bin/pytest -q"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "直接用路徑叫測試執行器（./node_modules/.bin/vitest）→ 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "./node_modules/.bin/vitest run"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "timeout 包起來的測試照樣檢查 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "timeout 600 npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "if／for 裡的測試照樣檢查 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "for i in 1 2; do npm test; done"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "未加引號的 heredoc 主體裡的 $(npm test) 會執行 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat <<EOF > out.txt\n$(npm test)\nEOF"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "加引號的 heredoc 主體是字面文字 → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat <<'EOF' > notes.md\n$(npm test)\nEOF"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "bash <<EOF 的主體就是指令 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash <<EOF\nnpm test\nEOF"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "子殼裡的 export 蓋過外層包裝帶進來的前綴 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_API_BASE=http://localhost:3000 bash -c 'export TEST_API_BASE=https://prod.example.com; npm test'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引號裡的 --help 是測試名稱，照樣在跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npx vitest -t \"handles --help correctly\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "引號外的 --help 才是不跑測試 → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npx vitest --help"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "包裝字串後面帶引數（bash -c … _）照樣拆開判 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c 'npm test' _"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "--env-file 寫在腳本之後，Node 不載入 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        },
+        "files": {
+          ".env.test": "TEST_API_BASE=http://localhost:3000\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node --test --env-file=.env.test; node tests/run.js --env-file=.env.test --test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "包裝後接重導向（> log 2>&1）照樣拆開判 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c 'npm test' > test.log 2>&1"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find -exec 跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . -name 'test_*.py' -exec pytest {} \\;"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "xargs 跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git diff --name-only | xargs -n1 pytest"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find 只列檔、xargs 只 echo → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . -name 'test_*.py' | xargs echo pytest"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "find -exec 裡再包 sh -c 跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . -name 'test_*.py' -exec sh -c 'pytest tests/' \\;"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "包裝後接加引號的引數照樣拆開判 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c 'npm test' \"runner\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "sudo -u 帶值選項略過，照樣認出在跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sudo -u tester pytest"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "外層沒匯出的 shell 變數傳不進子殼 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_API_BASE=http://localhost:3000; bash -c 'export TEST_API_BASE; npm test'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "bash -c 後接未加引號的單字就是內層指令 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c pytest _"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cmd /c 後面整串都是指令 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd /c npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "sudo 選項值加引號含空白，照樣認出在跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sudo -p \"Password: \" pytest tests/"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "命令替換裡的 export 不回到外層 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"$(export TEST_API_BASE=http://localhost:3000)\"; npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "npm 在 test 前帶 --prefix 選項也是跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm --prefix api test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "pnpm -C 目錄選項後跑 test → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pnpm -C api test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "yarn workspace 指定子專案跑 test → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "yarn workspace api test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "npm 帶選項跑的是 lint 不是測試 → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm --prefix api run lint"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Windows 虛擬環境的 pytest.exe → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": ".venv/Scripts/pytest.exe tests/"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "npm --prefix 帶好環境變數 → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_API_BASE=http://localhost:3000 npm --prefix api test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "PowerShell 的 npm test -- --watch 是在跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "npm test -- --watch"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 以相對路徑叫 pytest.exe → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": ".\\.venv\\Scripts\\pytest.exe tests/"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 先設 $env: 再 npm test -- --watch → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$env:TEST_API_BASE = \"http://localhost:3000\"; npm test -- --watch"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "PowerShell 以 Set-Item Env: 改掉測試環境值 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Set-Item Env:TEST_API_BASE http://prod.example.com; npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell 在 ForEach-Object 區塊裡設值 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "1 | ForEach-Object { $env:TEST_API_BASE = 'http://localhost:3000' }; npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "函式本體裡的測試，定義後接著呼叫 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "t() { npm test; }; t"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "條件成立時才把測試位址改壞 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export TEST_API_BASE=http://localhost:3000; [ -f x ] && export TEST_API_BASE=https://prod.example.com; npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "here-string 餵給 bash 的測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash <<< 'npm test'"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "條件式 source 環境檔，兩種情況值都正確 → 放行",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000"
+        },
+        "files": {
+          ".env": "export TEST_API_BASE=http://localhost:3000\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "[ -f .env ] && source .env; npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "迴圈體後段把測試位址改壞 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export TEST_API_BASE=http://localhost:3000; for i in 1 2; do npm test; export TEST_API_BASE=https://prod.example.com; done"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "變數名加引號的 unset 拿掉測試位址 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export TEST_API_BASE=http://localhost:3000; unset \"TEST_API_BASE\"; npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "看不到內容的寫入之後，前綴展開同名變數仍是未知 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export TEST_API_BASE=http://localhost:3000; eval \"$(echo export TEST_API_BASE=https://prod.example.com)\"; TEST_API_BASE=$TEST_API_BASE npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env 帶的值照當下的值展開（前面讀進空值）→ 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "read -r TEST_API_BASE <<< ''; env TEST_API_BASE=\"$TEST_API_BASE\" npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Git Bash 的 cmd //c 跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd //c \"npm test\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "bash -O extglob -c 跑測試 → 擋",
+      "variant": "envonly",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -O extglob -c 'npm test'"
+        }
+      },
+      "expect": "BLOCK"
+    }
+  ]
+}

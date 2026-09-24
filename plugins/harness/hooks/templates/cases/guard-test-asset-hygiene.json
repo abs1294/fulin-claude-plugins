@@ -1,0 +1,133 @@
+{
+  "hook": "guard-test-asset-hygiene.js",
+  "variants": {
+    "demo": {
+      "replace": [
+        [
+          "const CHECKERS = [];",
+          "const CHECKERS = [\n  {\n    \"name\": \"hardcoded-data\",\n    \"cmd\": \"node -e \\\"process.exit(require('fs').readFileSync(process.argv[1],'utf8').includes('HARDCODED')?1:0)\\\" {file}\",\n    \"fix\": \"改走產品入口造資料，不要寫死。\"\n  }\n];"
+        ]
+      ]
+    }
+  },
+  "cases": [
+    {
+      "label": "測試檔含違規（Write）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "tests/login.test.js": "const id = 'HARDCODED';\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "tests/login.test.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "測試檔含違規（Edit，pytest 命名）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "app/test_orders.py": "ID = 'HARDCODED'\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "app/test_orders.py"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "測試檔乾淨",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "tests/login.test.js": "const id = makeUser();\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "tests/login.test.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "非測試檔（即使含同字樣）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "src/app.js": "const id = 'HARDCODED';\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "src/app.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "稽核工具自己的目錄（本來就有樣本）",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "tests/tools/samples.test.js": "'HARDCODED'\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "tests/tools/samples.test.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "別的工具（Read）不管",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "tests/login.test.js": "'HARDCODED'\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "tests/login.test.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "CHECKERS 為空（預設）：測試檔含違規也放行",
+      "setup": {
+        "files": {
+          "tests/login.test.js": "'HARDCODED'\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "tests/login.test.js"
+        }
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}

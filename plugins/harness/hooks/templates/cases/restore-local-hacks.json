@@ -1,0 +1,85 @@
+{
+  "hook": "restore-local-hacks.js",
+  "_note": "本檔是救回腳本、不是 hook；執行器不帶參數跑它＝檢查模式。檢查模式「有可救項目」時 exit 2，執行器記為 BLOCK——這裡的 BLOCK 意思是「偵測到該救的東西」。--restore 實際套回的行為需另外實跑驗證（執行器不帶命令列參數）。",
+  "cases": [
+    {
+      "label": "檢查模式：追蹤中的覆寫不見了、有 .patch → exit 2",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "BLOCK"
+    },
+    {
+      "label": "檢查模式：被排除的覆寫檔不見了、有 .full → exit 2",
+      "setup": {
+        "files": {
+          ".gitignore": "mock.local\n",
+          "conf.txt": "a=1\n",
+          ".claude/hack-backups/app__mock.local.full": "mock=on\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: mock.local\n      reason: 本機 mock 開關\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "BLOCK"
+    },
+    {
+      "label": "檢查模式：repo 值是子目錄（套用在該子目錄底下的相對路徑）→ exit 2",
+      "setup": {
+        "files": {
+          "svc/conf.txt": "a=1\n",
+          ".claude/hack-backups/svc__conf.txt.patch": "diff\n",
+          ".claude/local-overrides.yml": "svc:\n  repo: svc\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "BLOCK"
+    },
+    {
+      "label": "檢查模式：全部仍有改動 → exit 0、印狀態",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {},
+      "expect": "NOTE"
+    },
+    {
+      "label": "檢查模式：不見了但沒有備份 → 無可救、exit 0",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "NOTE"
+    },
+    {
+      "label": "沒有清單檔 → exit 1、印原因",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 1
+    }
+  ]
+}

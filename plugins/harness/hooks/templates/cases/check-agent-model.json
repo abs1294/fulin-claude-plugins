@@ -1,0 +1,92 @@
+{
+  "hook": "check-agent-model.js",
+  "cases": [
+    {
+      "label": "專案 agent 沒帶 model",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "x",
+          "description": "x",
+          "subagent_type": "qa-engineer"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "專案 agent 帶 model",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "x",
+          "description": "x",
+          "subagent_type": "qa-engineer",
+          "model": "sonnet"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "內建 agent 沒帶 model 不管",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "x",
+          "description": "x",
+          "subagent_type": "general-purpose"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "擅自帶 fable",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "x",
+          "description": "x",
+          "subagent_type": "code-reviewer",
+          "model": "fable"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "plugin 前綴名也要擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "x",
+          "description": "x",
+          "subagent_type": "git-commit:code-reviewer"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "plugin 前綴名帶 model 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "x",
+          "description": "x",
+          "subagent_type": "git-commit:code-reviewer",
+          "model": "sonnet"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "舊工具名 Task 也要擋",
+      "payload": {
+        "tool_name": "Task",
+        "tool_input": {
+          "subagent_type": "code-reviewer",
+          "prompt": "x",
+          "description": "x"
+        }
+      },
+      "expect": "BLOCK"
+    }
+  ]
+}

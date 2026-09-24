@@ -1,0 +1,83 @@
+{
+  "hook": "check-ask-discipline.js",
+  "cases": [
+    {
+      "label": "選項沒附建議",
+      "payload": {
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "q?",
+              "header": "h",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A",
+                  "description": "a"
+                },
+                {
+                  "label": "B",
+                  "description": "b"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "英文 Recommended",
+      "payload": {
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "q?",
+              "header": "h",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A (Recommended)",
+                  "description": "a"
+                },
+                {
+                  "label": "B",
+                  "description": "b"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "中文推薦",
+      "payload": {
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "q?",
+              "header": "h",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "A（推薦）",
+                  "description": "a"
+                },
+                {
+                  "label": "B",
+                  "description": "b"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}

@@ -14,10 +14,35 @@
 
 補充規則：
 
-- 派工時**一律顯式帶 `model` 參數**，不帶就繼承主對話、浪費高階額度。
-- **Fable 禁下放**：除非使用者明確要求，subagent 不得帶 `model:"fable"`；主對話為 Fable session 時，派工照上表選 `sonnet`/`opus`/`haiku`。
-- agent type 選擇：{{填：本專案有專屬 agents 就列對照表（哪個 agent 做什麼、預設 model）；沒有就寫「唯讀探索用 `Explore`，一般任務用 `general-purpose`，規劃用 `Plan`」；既有治理層有定義唯讀角色時註明由哪個內建 type 對應承擔、同樣禁改檔}}。
-- **Quota 節流**：平行派工可以，禁無界灑艦隊——每波併發 ≤6（重型讀碼／審查 ≤4）；任一 agent 撞 quota 終止 → 停派下一波、保留已完成、回報使用者，禁自動重試。
+- 派工時**一律顯式帶 `model` 參數**，不帶就繼承主對話、浪費高階額度。{{若有裝 check-agent-model hook 加：此規則已由 PreToolUse hook `.claude/hooks/check-agent-model.js` 程式強制（專案 agent 缺 model 直接 deny）——被攔到就照 deny 訊息補參數重發，**不得改派其他 agent type 繞過**。}}
+- **Fable 禁下放**：除非使用者明確要求，subagent 不得帶 `model:"fable"`；主對話為 Fable session 時，派工照上表選 `sonnet`/`opus`/`haiku`，不得讓 subagent 繼承 Fable。
+- **Quota 節流**：平行派工可以，禁無界灑艦隊——分波派發每波併發 ≤6（重型讀碼／審查 ≤4）；任一 agent 撞 quota／API 終止 → 熔斷（停派下一波、保留已完成、回報使用者，禁自動重試）；大艦隊（>15 agents 或估算 >1M tokens）先報預算徵同意。
+
+### 本專案 agent 對照表
+
+`/harness:init` 會在 `.claude/agents/` 建一套**通用同名 agent**（骨架出自 harness plugin，已依本專案技術棧填空）。名字刻意與常見 pipeline 慣例同名，讓 04 模板、03 條款、hook 名單可以直接引用：
+
+| agent | 做什麼 | 預設 model | 交給誰 |
+|-------|--------|-----------|--------|
+{{依 Phase 3 Q1 裁切後的 pipeline 逐列填；被裁掉的 agent 不列。預設全套如下，不適用的整列刪：
+| `backend-architect` | 設計 API／資料模型／契約＋測試情境表；等簽收才交棒 | `opus`（或主對話同級） | backend-engineer、frontend-engineer（API Contract） |
+| `backend-engineer` | 依設計文件實作後端 | `sonnet` | qa-engineer（行為類）→ code-reviewer |
+| `frontend-engineer` | 依 API Contract 實作前端 | `sonnet` | qa-engineer（行為類）→ code-reviewer |
+| `qa-engineer` | 設計測試計畫＋親自實測＋codify 進測試目錄 | `sonnet`（命中進階判準任兩項→`opus`） | code-reviewer |
+| `code-reviewer` | 靜態審查（規範／資安／設計品質），不做瀏覽器操作 | `sonnet` | 主對話（完成報告） |
+}}
+
+{{若目標專案已有自己的 agents（Phase 1 盤點到）：改列該專案既有 agent 名稱與職責，不另建同名 agent；hook 名單改填既有名稱。}}
+
+內建 type 仍可用：唯讀探索用 `Explore`，一般任務用 `general-purpose`，規劃用 `Plan`。{{既有治理層有定義唯讀角色時註明由哪個內建 type 對應承擔、同樣禁改檔}}
+
+### MCP 使用紀律
+
+{{若 Phase 1 判定為「瀏覽器可驅動前端」保留本段，否則改寫為本專案的實跑方式或整段刪：}}
+
+- **瀏覽器功能測試一律派 QA agent 執行**，由它用瀏覽器 MCP 跑＋直接 codify 成可重跑測試，指揮官只收結論。**指揮官不親跑瀏覽器 MCP**（大量頁面快照會燒掉主對話 context）。
+- **實作 agent 不負責測試**：其瀏覽器驗證產出留在它自己的 context 不落地，QA 還要重跑一次才能 codify → 白花 token。派工 prompt 禁止叫實作者「開畫面自我確認」。
+- **子 agent 能不能用某個 MCP，實測比推論準**：`permissions.allow` 沒列 ≠ 一定被擋、列了 ≠ 一定能用（還受全域權限模式影響）。不確定時先派一個探針 agent 試呼叫一次，被 deny 就回報主對話補 allow-list，不要空轉重試。
 
 ## 2. 指揮官不下場（量化觸發線）
 

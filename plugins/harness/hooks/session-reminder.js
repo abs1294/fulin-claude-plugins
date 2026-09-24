@@ -17,6 +17,16 @@ try {
   } else {
     // 未 init：保持沉默，不佔 context。要建實例時使用者會叫 /harness:init。
   }
+  // 規則引擎的語法解析器裝在 .claude/hooks/node_modules（不進版控）：剛 clone 的成員沒裝時，
+  // 兩支規則引擎會靜默退回正則判法，所以這裡點名。
+  const hooksDir = path.join(projectDir, '.claude', 'hooks');
+  if (fs.existsSync(path.join(hooksDir, 'shell-model.js')) && fs.existsSync(path.join(hooksDir, 'package.json')) &&
+      !fs.existsSync(path.join(hooksDir, 'node_modules', 'tree-sitter-bash'))) {
+    console.log(
+      '[harness] 規則引擎的語法解析器沒裝：請使用者在 .claude/hooks 跑 `npm ci`。' +
+      '沒裝時 guard-risky-command／guard-test-preconditions 退回正則判法，準確度較低。'
+    );
+  }
 } catch (e) {
   // 提醒 hook 失敗不得阻斷 session
 }

@@ -1,0 +1,70 @@
+{
+  "hook": "check-local-hacks-alive.js",
+  "cases": [
+    {
+      "label": "清單內檔乾淨且有備份 → 列 [可救] 與救回指令",
+      "setup": {
+        "files": { "conf.txt": "a=1\n", ".claude/hack-backups/app__conf.txt.patch": "diff\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n" },
+        "commit": true
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "startup" },
+      "expect": "NOTE"
+    },
+    {
+      "label": "清單內檔乾淨且沒有備份 → 列 [無備份]",
+      "setup": {
+        "files": { "conf.txt": "a=1\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n" },
+        "commit": true
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "startup" },
+      "expect": "NOTE"
+    },
+    {
+      "label": "被排除的覆寫檔不見了、有 .full 備份",
+      "setup": {
+        "files": { ".gitignore": "mock.local\n", "conf.txt": "a=1\n", ".claude/hack-backups/app__mock.local.full": "mock=on\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: mock.local\n      reason: 本機 mock 開關\n" },
+        "commit": true
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "startup" },
+      "expect": "NOTE"
+    },
+    {
+      "label": "全部 dirty → 無輸出",
+      "setup": {
+        "files": { "conf.txt": "a=1\n", "b.txt": "b\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n    - path: b.txt\n      reason: 測試用 token\n" },
+        "commit": true,
+        "files_after_commit": { "conf.txt": "a=LOCAL\n", "b.txt": "token\n" }
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "startup" },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "沒有清單檔 → 無輸出",
+      "setup": {
+        "files": { "conf.txt": "a=1\n" },
+        "commit": true
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "startup" },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "被排除的覆寫檔還在 → 算活著",
+      "setup": {
+        "files": { ".gitignore": "mock.local\n", "conf.txt": "a=1\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: mock.local\n      reason: 本機 mock 開關\n" },
+        "commit": true,
+        "files_after_commit": { "mock.local": "mock=on\n" }
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "startup" },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "區塊認不出 repo 目錄 → 不判、不假警報",
+      "setup": {
+        "files": { "conf.txt": "a=1\n", ".claude/local-overrides.yml": "some-other-repo:\n  repo: some-other-repo\n  files:\n    - path: conf.txt\n      reason: r\n" },
+        "commit": true
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "startup" },
+      "expect": "ALLOW"
+    }
+  ]
+}

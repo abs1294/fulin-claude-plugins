@@ -1,0 +1,50 @@
+# harness 骨架污染詞表（黑名單；一行一個 regex 片段，比對時不分大小寫；# 開頭為註解）
+#
+# 這是什麼：骨架來源專案的技術棧與業務指紋。骨架或實例裡出現這些詞＝來源專案的事實漏進了通用骨架。
+# 誰在用：
+#   - /harness:init Phase 5 靜態驗收：對實例目錄逐詞 grep（命中逐筆判斷，changelog 出處標註除外）
+#   - hooks/wordlist-sweep.js：改到骨架檔要 commit 時，列出 staged 骨架檔的已知詞命中
+#   - 引擎維護：發布前對 references/ 與 hooks/templates/ 全掃
+# 限制（改之前先讀 adaptation-guide.md §4）：
+#   - 只擋「已知」的詞。新回收一批條款時，新的來源專案詞不會自動進來——那是 §4.2「詞表維護觸發」要管的事。
+#   - 目標專案自己的技術棧可能正好含表中某詞（例：目標也用同一種資料庫）。實例驗收時命中要逐筆判斷
+#     「這是目標專案查證過的事實，還是從骨架漏進來的來源專案事實」，不要一律刪。
+#
+# ── 來源專案：業務與組織 ──
+winbond
+supplier
+WEHQ
+P360
+HMS2
+SAP
+LDAP
+BPM
+APIM
+SQL MI
+# ── 來源專案：技術棧 ──
+dotnet
+MediatR
+Dapper
+Pinia
+CQRS
+DDD
+snakeize
+vee
+# ── 來源專案：本機環境與專屬腳本 ──
+5181
+5182
+8080
+8081
+rule-scan
+# local-overrides：不列入。.claude/local-overrides.yml 是 git-commit plugin 的跨專案慣例（flow.sh 在任何專案自動建立），範本必須用同一個檔名才對得上
+SendEmailService
+partner_identity
+hardcode_check
+drift_check
+gen_catalog
+i18n_locator_check
+# CATALOG.md 只擋獨立的檔名（來源專案的測試索引）；前面接 - 或英數字的（hook-catalog.md 是本 plugin 自己的形狀目錄）不算
+(^|[^-a-z0-9])CATALOG\.md
+COVERAGE\.md
+grilling
+smoke-test

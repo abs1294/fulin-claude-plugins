@@ -1,0 +1,78 @@
+{
+  "hook": "health-check-reminder.js",
+  "cases": [
+    {
+      "label": "距上次健檢 40 天（超過門檻）→ 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-08-01 健檢執行：10 項中 9 OK\n"
+        },
+        "env": { "HARNESS_TODAY": "2026-09-10" }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "距上次健檢 5 天（未超過門檻）→ 靜默",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-05 健檢執行：10 項中 9 OK\n"
+        },
+        "env": { "HARNESS_TODAY": "2026-09-10" }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "只有「修改健檢制度」條目、無執行語意詞 → 不算做過一輪，落回無基準靜默",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-08 健檢清單加三項\n"
+        },
+        "env": { "HARNESS_TODAY": "2026-09-10" }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "健檢紀錄檔不存在 → 靜默放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "檔案存在但沒有任何日期式 changelog 條目 → 靜默放行",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n沒有 changelog 區塊\n"
+        },
+        "env": { "HARNESS_TODAY": "2026-09-10" }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "剛好等於門檻天數（30 天整）→ 不觸發（> 判準，不含等於）",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-08-11 健檢執行：10 項中 9 OK\n"
+        },
+        "env": { "HARNESS_TODAY": "2026-09-10" }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}

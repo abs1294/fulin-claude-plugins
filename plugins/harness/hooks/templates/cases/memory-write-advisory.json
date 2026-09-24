@@ -1,0 +1,113 @@
+{
+  "hook": "memory-write-advisory.js",
+  "cases": [
+    {
+      "label": "寫一般檔（非 memory 目錄）→ 無輸出",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "src/add.js"
+        },
+        "tool_response": {
+          "type": "create"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "寫索引檔本身（MEMORY.md）→ 印字元數比例提示",
+      "setup": {
+        "files": {
+          ".claude/projects/demo-project/memory/MEMORY.md": "# Project Memory\n\n- 一些條目\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": ".claude/projects/demo-project/memory/MEMORY.md"
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "新建一支 memory 條目檔、同前綴已有 3 支 → 提示可掛總則檔",
+      "setup": {
+        "files": {
+          ".claude/projects/demo-project/memory/MEMORY.md": "# Project Memory\n",
+          ".claude/projects/demo-project/memory/reference_foo_a.md": "a\n",
+          ".claude/projects/demo-project/memory/reference_foo_b.md": "b\n",
+          ".claude/projects/demo-project/memory/reference_foo_c.md": "c\n",
+          ".claude/projects/demo-project/memory/reference_foo_consolidated.md": "总则\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": ".claude/projects/demo-project/memory/reference_foo_d.md"
+        },
+        "tool_response": {
+          "type": "create"
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "新建 memory 條目檔、同前綴無既有檔 → 無輸出（索引檔也不存在）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": ".claude/projects/demo-project/memory/reference_new_topic.md"
+        },
+        "tool_response": {
+          "type": "create"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Edit 既有 memory 條目檔（非新建）→ 不觸發新檔提示",
+      "setup": {
+        "files": {
+          ".claude/projects/demo-project/memory/reference_foo_a.md": "舊內容\n",
+          ".claude/projects/demo-project/memory/reference_foo_b.md": "b\n",
+          ".claude/projects/demo-project/memory/reference_foo_c.md": "c\n",
+          ".claude/projects/demo-project/memory/reference_foo_d.md": "d\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": ".claude/projects/demo-project/memory/reference_foo_a.md"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "別的工具（Read）不在 matcher 範圍內，payload 誤傳也不處理",
+      "setup": {
+        "files": {
+          ".claude/projects/demo-project/memory/MEMORY.md": "# Project Memory\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": ".claude/projects/demo-project/memory/MEMORY.md"
+        }
+      },
+      "expect": "ALLOW"
+    }
+  ]
+}

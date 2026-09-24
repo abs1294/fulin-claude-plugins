@@ -1,0 +1,93 @@
+{
+  "hook": "backup-local-hacks.js",
+  "cases": [
+    {
+      "label": "清單內檔 dirty：產生 .patch 並讀回一致（VERBOSE 才印；印出＝寫入且讀回相同）",
+      "setup": {
+        "files": { "conf.txt": "a=1\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n" },
+        "commit": true,
+        "files_after_commit": { "conf.txt": "a=LOCAL\n" },
+        "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
+      },
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "npm test" } },
+      "expect": "NOTE"
+    },
+    {
+      "label": "被 .gitignore 排除的覆寫檔：存整份內容（.full）",
+      "setup": {
+        "files": { ".gitignore": "mock.local\n", "conf.txt": "a=1\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: mock.local\n      reason: 本機 mock 開關\n" },
+        "commit": true,
+        "files_after_commit": { "mock.local": "mock=on\n" },
+        "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
+      },
+      "payload": { "tool_name": "PowerShell", "tool_input": { "command": "git status" } },
+      "expect": "NOTE"
+    },
+    {
+      "label": "編輯工具（Write）前也備份",
+      "setup": {
+        "files": { "conf.txt": "a=1\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n" },
+        "commit": true,
+        "files_after_commit": { "conf.txt": "a=LOCAL\n" },
+        "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
+      },
+      "payload": { "tool_name": "Write", "tool_input": { "file_path": "x.txt", "content": "y" } },
+      "expect": "NOTE"
+    },
+    {
+      "label": "被誤 stage 的覆寫也存得到（用 diff HEAD 而非 diff）",
+      "setup": {
+        "files": { "conf.txt": "a=1\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n" },
+        "commit": true,
+        "files_after_commit": { "conf.txt": "a=LOCAL\n" },
+        "stage": ["conf.txt"],
+        "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
+      },
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "ls" } },
+      "expect": "NOTE"
+    },
+    {
+      "label": "清單內檔乾淨：沒東西可存，也不碰既有備份",
+      "setup": {
+        "files": { "conf.txt": "a=1\n", ".claude/hack-backups/app__conf.txt.patch": "old\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n" },
+        "commit": true,
+        "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
+      },
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git reset --hard" } },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "沒有清單檔",
+      "setup": {
+        "files": { "conf.txt": "a=1\n" },
+        "commit": true,
+        "files_after_commit": { "conf.txt": "a=LOCAL\n" },
+        "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
+      },
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "ls" } },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "節流時間內不重跑",
+      "setup": {
+        "files": { "conf.txt": "a=1\n", ".claude/hack-backups/.last-run": "99999999999999", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n" },
+        "commit": true,
+        "files_after_commit": { "conf.txt": "a=LOCAL\n" },
+        "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
+      },
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "ls" } },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "不相干的工具（Read）不觸發",
+      "setup": {
+        "files": { "conf.txt": "a=1\n", ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n" },
+        "commit": true,
+        "files_after_commit": { "conf.txt": "a=LOCAL\n" },
+        "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
+      },
+      "payload": { "tool_name": "Read", "tool_input": { "file_path": "conf.txt" } },
+      "expect": "ALLOW"
+    }
+  ]
+}
