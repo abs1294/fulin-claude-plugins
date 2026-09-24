@@ -64,9 +64,8 @@ exec_command failed: CreateProcess { message: "Rejected(\"`\"C:\\Windows\\System
 3. **大 diff 不是例外**——791 行的 diff 一樣可行，只內嵌需要判斷的部分（JSON 結構 diff、
    檔案清單、已驗證結果）即可。因為「太大」而改走別的處置，是 09-20 選錯處置的主因。
 
-> ~~處置 2：prompt 裡明講「用 `cat` 讀，不要用 PowerShell」~~ —— **在本機無效，已作廢**。
-> 2026-09-20 實測：改講用 cat 之後，codex 改起 `bash.exe`，一樣 `rejected: blocked by policy`。
-> 沙箱擋的是**所有**外部 shell，不是特定某一種。
+> **只講「用 `cat` 讀、不要用 PowerShell」在本機無效**：2026-09-20 實測改講用 cat 之後，
+> codex 改起 `bash.exe`，一樣 `rejected: blocked by policy`——沙箱擋的是**所有**外部 shell，不是特定某一種。
 
 **沙箱層根因**（2026-09-20 實測）：`codex sandbox cat package.json` 直接回
 `cat.exe: *** fatal error - CreateFileMapping ... Win32 error 5`（存取被拒）——
@@ -90,7 +89,7 @@ prompt 含 `.git-commit-tmp`／`staged-*.diff` 路徑、或含「先 cat 讀取�
 
 > ⚠️ subagent_type 必為 **`codex:codex-rescue`**（踩過多次：`codex:rescue` 是 slash command、`codex-rescue` 缺 namespace、`codex` 只是 namespace——回 `Agent type not found` 就是踩這坑）。
 
-`run_in_background: true`，與 1.3a/1.3c 同輪。diff 已在 `.claude/.git-commit-tmp/staged-<repo>.diff`。
+`run_in_background: true`，與 1.3a/1.3c 同輪。
 
 > ⚠️ **派工前先確認 cwd 在 git repo 內**（本 workspace 必然觸發）：codex 拒絕在非 git 目錄啟動，
 > 直接回 `Not inside a trusted directory and --skip-git-repo-check was not specified.` 然後退出。
@@ -134,23 +133,4 @@ prompt 含 `.git-commit-tmp`／`staged-*.diff` 路徑、或含「先 cat 讀取�
 
 **真的不可用時的降級**：先排除命名坑（見上方 ⚠️）；取得上述客觀證據後 → 單軌降級（B 軌記 `skipped: codex-unavailable`、匯流視為 PASS），預覽明講「本環境不可用，已降為單軌」，並補做 B 軌該查的項目（注入風險、跨檔一致性、邊界守門）；**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認。不當 PASS 的原則不變。另需分辨**工具層逾時**——agent 回報「任務仍在背景跑但我不被允許輪詢」而非 Codex 算得慢 → 直接重送一次，不計入等待時間（2026-08-16 實證：首次工具層 2 分鐘卡住無 VERDICT，重送後 37 秒回覆）。
 
-Prompt 範本：
-
-```
-請審查 staged diff（在 <DIFF_PATH>，請先 `cat` 讀取）。
-
-【任務背景】<一句話：這次改動在做什麼、影響範圍>
-
-【判準】
-- BLOCK：會壞功能、資安洞、邏輯錯、敏感資訊外洩（.env / credentials / hardcoded JWT / 連線字串）、
-         改名遺漏跨檔、不該 commit 的檔案。
-- PASS：其餘一切。有疑問寧可 BLOCK。
-
-【重點檢查】明顯 bug／邊界（rollback、exception、null）／安全性／不該 commit 的檔案或 debug 痕跡／改名跨檔殘留
-
-【回覆格式，嚴格遵守】
-第 1 行：`VERDICT: PASS` 或 `VERDICT: BLOCK`
-第 2 行起每行 `- <file>:<line> <短描述>`：BLOCK 列所有必修項；PASS 列所有觀察點
-（edge case／跨檔殘留／缺測試或 i18n／future risk——觀察到幾項列幾項，不自我省略；真沒有才只回第 1 行）
-一句話講清楚即可，不寫「應該怎麼改」；不要分析段、標題、總結。
-```
+Prompt 範本以 SKILL.md 1.3b 為準。

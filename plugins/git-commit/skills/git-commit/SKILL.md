@@ -19,11 +19,7 @@ description: >
 | Step 1 | `analyze` 分析 → `prepare` stage → **同一輪並行三軌**（1.3a 預覽＋1.3b Codex＋1.3c code-reviewer）→ 匯流 → `review-record` 記下兩軌結果 |
 | Step 2 | `ship`（commit → push → 驗證）；沒有 `review-record` 紀錄會被拒 |
 
-多步驟用 TaskCreate 追蹤、完成當下關、流程結束清空清單。三條紀律（本 skill 是跨場景通則在 commit 流程的具體化；通則同樣適用多檔案 Playwright 測試／多步驟前後端開發／skill 與 memory 維護／bug 追查修復）：
-1. **開始前立即 TaskCreate**：超過 2 步的工作先建清單。
-2. **步驟開始與完成當下更新**：開始前 `in_progress`，完成**同一輪訊息內** `completed`，不拖到下一步。常見漏關：預覽類 task 送出後就該關、agent 審查類收到完成通知當下就關、批次指令（`flow.sh ship` 做 commit+push+verify）同一輪一起關多個 task。
-3. **流程結束清空整個 task list**：最終一步完成的同一輪訊息內，`TaskList` 檢查全部 `completed`（補漏 `in_progress` 殘留）→ 全部 `TaskUpdate status=deleted` → 摘要中主動告訴使用者「task 清單已清空」。
-禁止情境：流程明顯結束但 task list 還留 completed 條目；使用者已確認 OK 還留任務不處理；下次流程觸發時才發現上次 task 還在（2026-04-20 實證：預覽送出後漏關 task #8、結束後 9 個 completed 沒清，使用者提醒「任務結束了還沒有關閉」）。
+步驟多時可用 TaskCreate 追蹤；流程結束前確認清單沒有殘留未關項目。
 
 ## 核心原則（默許機制）
 
@@ -80,9 +76,7 @@ PreToolUse hook，攔截 Bash 工具裡「不經 flow.sh 就建出 commit」的�
 
 放行條件**只有一條**：`GIT_COMMIT_FLOW=1`。這個變數由 `flow.sh` 執行時自己 export 給子程序，所以「真的經過 flow.sh」與「這個變數存在」是同一件事——**外部設不進來**（hook 是獨立 process，inline 前綴／`export`／`env` 全無效）。
 
-曾經有第二條「指令裡出現 flow.sh 就放行」，已刪除：不論用字串比對還是執行位置判斷，都擋不住「同一條指令裡同時有放行特徵與違規操作」（`git commit -m x; flow.sh`、`bash flow.sh --help; git commit -m x`），三輪審查各抓到一種變形。而那條規則本來就是多餘的——使用者手動跑 `bash flow.sh ship ...` 時，那條指令本身沒有 `git commit`，hook 自然放行；flow.sh 跑起來後自己 export 變數，內部的 `git commit` 就過了。
-
-**沒有「說明原因就能繞」的旁路**——原本訊息末句留了這個口子，在 headless session（無人可問）等於預設放行，事故中的引擎正是讀了那句才自行決定繞路。
+**沒有「說明原因就能繞」的旁路**。
 
 > **為什麼需要**：上面那句「不要手動組 git 指令」與 frontmatter 的「AI 禁止直接執行 git commit」都是**自律**，AI 會繞；繞過去就等於六道真閘一道都不觸發。skill 的「必須」是自律，只有 hook 是他律。
 > hook **fail-open**：自身任何錯誤（空輸入、壞 JSON、無 python）一律放行並印警告，絕不把使用者鎖在無法 commit 的狀態。
@@ -98,8 +92,6 @@ PreToolUse hook，攔截 Bash 工具裡「不經 flow.sh 就建出 commit」的�
 **補推捷徑（`ship ... --push` 且沒有 staged）只認 flow.sh 親手建的那顆**：ship 成功後會記下 commit sha，補推時 HEAD 必須就是那顆。只比 message 字串的舊寫法，可以 `reset --soft` 換掉內容、沿用同一句 message 重新 commit 後直接推。只改 message 的 amend 只有在原 HEAD 本來就是 ship 建的時候才承接這筆紀錄，不能替流程外建的 commit 洗白。副作用：舊版 flow.sh 建的未推 commit 沒有這筆紀錄，補推會被擋。
 
 紀錄內容是呼叫者自陳的：這道閘擋的是「忘了審」，擋不住蓄意填假結果。假結果會在流水帳留下可查的一行，但不會被自動發現——**`--codex`／`--reviewer` 必須貼 agent 回覆原文，不得自己組一行 `VERDICT: PASS`**。
-
-> **起因（2026-09-23 實際事故）**：skill 入口被另一支 hook 擋下後，session 沒有重新呼叫 skill，改用 Bash 直接跑 `analyze → prepare → ship`，連發 8 顆 commit（7 顆已推上遠端），兩軌一次都沒跑，所有既有機械閘照樣放行。使用者問「你有走 CODEX 跟 REVIEWER 嗎」才發現。
 
 ## Step 1
 
@@ -243,7 +235,7 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 
 - **禁止 AI 署名**（`Co-Authored-By: Claude` 等）——公司禁止揭露 AI 參與；腳本已過濾，description 參數也不得夾帶。
 - `ship` 不做 amend——要改寫 HEAD 走 `flow.sh amend`（需使用者明示才加 `--confirm-rewrite`）。禁 force push；push 到 `main`/`master` 前特別確認使用者意圖。
-- 使用者要求跳過審查（緊急 hotfix）→ `review-record <repo> --exempt "<使用者的原話>"` 後再 ship，並告知破例。（舊寫法「commit message 下加 `[skip-review]`」與下方「單行、不寫 body」互相矛盾，ship 也會擋多行 message，已廢止。）
+- 使用者要求跳過審查（緊急 hotfix）→ `review-record <repo> --exempt "<使用者的原話>"` 後再 ship，並告知破例。
 
 **pre-commit hook 失敗，先分辨兩種情況：**
 
@@ -353,23 +345,4 @@ grep -n -i -E 'Claude|Anthropic|Codex|subagent|實測|掃描確認|本輪' <產�
 
 Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`review-record`→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
 
-## Changelog
-- 2026-09-23 新增真閘 7「審查紀錄」與 `flow.sh review-record` 子命令（使用者當次核可，選自陳式紀錄＋hash 綁定）。**起因**：一個 session 呼叫本 skill 被專案 hook 擋下後，改用 Bash 直接跑 `analyze → prepare → ship`，連發 8 顆 commit（7 顆已推），兩軌一次都沒跑；bare-commit hook 放行是設計使然（它只管「有沒有經過 flow.sh」），而 flow.sh 本身從不檢查審查結果——三軌是整套流程裡唯一沒有機械閘的環節。現在 ship 與有改到碼的 amend 都要求一筆綁定當下 staged diff hash 的紀錄，無旗標可繞；豁免改走 `--exempt` 並寫稽核流水帳。同批廢止 Step 2 的 `[skip-review]` 寫法（與單行 message 規則矛盾）。**開發中自撞一次**：取回覆第一行的初版用 `awk '… exit'`，在 `set -euo pipefail` 下上游收到 SIGPIPE、整條管線回 141，腳本無聲中止——實測 400KB 回覆三次三次死；改成讀完全部輸入後就正常。首版送 code-reviewer 對抗審查回 BLOCK，兩個 Critical 皆實跑重現：①repo 路徑轉檔名撞名（`grp/sub`／`grp__sub`）可借用別的 repo 的紀錄 → 紀錄加 repo 身分；②補推捷徑只比 message 字串，`reset --soft` 換內容後沿用同一句 message 即可直推——這是**早於本次的既有洞**，順帶讓未審內容繞過全部真閘上遠端 → 改為只認 ship 記下的 commit sha，並防止只改 message 的 amend 替流程外 commit 洗白。同批新增 `review-record --qa "<QA 狀態>"`（選填，寫進紀錄與流水帳；要不要必填由專案 hook 決定——供應商平台的 QA hook 原本只掛在 skill 入口，走 Bash 直跑 flow.sh 就整個繞過，現改掛在 review-record 這一步）。測試 67 項（`tests/test_review_gate.sh`）。
-- 2026-09-20 B 軌 prompt 範本改為「diff 內嵌＋硬性禁令」，並補 PreToolUse hook `guard-codex-diff-embed.js`（使用者當次核可）。**起因**：範本第一行原寫「請先 `cat` 讀取」，而本機沙箱自 2026-09-11 起就擋掉所有外部 shell（`powershell.exe`／`bash.exe`／`cat` 皆 `rejected: blocked by policy`）——該坑當天就寫進 troubleshooting，但**範本沒跟著改**，於是照範本寫必然失敗。09-20 同一個坑再踩三次：照範本送被擋、改講「用 cat 不要用 powershell」仍被擋（`bash.exe` 一樣不放行，故 troubleshooting 原「處置 2」在本機無效已刪）、第三次內嵌了 diff 卻又附上檔案路徑且禁令語氣太軟，codex 仍去讀檔並回「無法驗證」型 BLOCK（四項全是 remain unverified、零實質發現）。實測根因：`codex sandbox cat` 直接回 `Win32 error 5`（cygwin 工具在沙箱內建不了記憶體映射），所有 sandbox 模式皆擋、僅 `-s danger-full-access` 例外；但只要 prompt 明寫「不要執行任何指令、不要讀取任何檔案」並內嵌內容，codex 純推理完全正常（實測回完整 `VERDICT: PASS` 並逐條回應檢查點）。**「大 diff 不能內嵌」是誤判**——791 行的 diff 只內嵌需判斷的部分即可。C 軌（code-reviewer）讀檔正常，其範本不動。hook 紅綠已驗四項（含路徑擋／含讀檔指示且無禁令擋／內嵌加禁令放行／非 codex agent 不管）。
-- 2026-09-14 hook 射程由「只攔 `git commit`」擴大到涵蓋 plumbing（`commit-tree`／`update-ref`／`symbolic-ref`／`branch -f`），並取消旁路（使用者當次核可）。**起因是真實事故**：一個 headless 引擎被 hook 擋下後，改用 `write-tree` + `commit-tree` + `update-ref` 三件組完成四個 worktree 的 merge commit，hook 完全沒反應、靜默通過，事後靠該 session 自願記帳才被發現——merge commit 的 message 完全正常，git log 看不出異常。同批修掉兩個結構缺口：①`flow.sh` 放行條件原是純字串比對（`grep -q flow\.sh`），`echo flow.sh; git commit -m x` 一行即可繞過——先改成判斷執行位置，第二輪審查證明那樣仍可繞（把 flow.sh 放後面即可），第三輪索性**整條刪除**，放行只留環境變數那一條；②訊息末句「請先向使用者說明原因並取得同意」在無人值守時等於預設放行，而事故中的引擎第一次其實想照規則走（加了 `GIT_COMMIT_FLOW=1` 前綴）、被擋後才轉向繞路，故訊息改為明講變數從外部設不進來、且沒有旁路。89 項回歸測試（攔截、不誤擋、fail-open、訊息內容四類；三輪審查各補一批變形）。**開發中自撞一次**：`GIT_PREFIX` 前置字元只認 `;&|` 與空白，把事故原文 `WIP=$(git -C "$W" commit-tree ...)` 整條漏掉——指令替換是真實會出現的寫法，補 `(`、反引號、`$` 後才命中。
-- 2026-09-14 新增 `flow.sh amend` 子命令，並修正三份文件對 amend 的矛盾描述（使用者當次核可）。**起因**：§歷史改寫允許 amend 並訂了六條規則，但 flow.sh 從未實作 amend——`grep amend` 兩處命中全是註解、無任何程式碼，所謂「旗標層不提供」實為未實作。於是走這條路的唯一方式是繞過 PreToolUse hook，而繞過之後那六條規則沒有任何機制檢查，與 hook「規範是自律、只有 hook 是他律」的設計目標矛盾。reflog 顯示 amend 在本專案是常態操作（單一 worktree 就有同顆 commit 改寫三次的紀錄），不是罕見例外。新子命令把六條規則機制化：自動建備份分支、用 `branch -r --contains` 擋已 push 的改寫（比 `@{u}` 嚴）、沿用 ship 全部真閘、改寫後依有無 staged 自動選驗法。**同時修掉一個獨立缺陷**：原第 4 條的驗證方法 `git diff <備份分支> HEAD` 必須為空，只對「只改 message」成立；走「有改到碼」那條時 diff 必然不為空，照原文驗會直接判失敗——已拆成兩種驗法，有改碼的改用 tree hash 重現驗證。首版經雙軌審查退回、九項缺陷修正後才進版——其中最嚴重的兩項讓核心閘形同虛設：重現驗證取改寫後 HEAD 的 blob，等於拿結果證明結果（pre-commit hook 竄改內容仍印「驗證通過」）；已 push 判斷只看本地遠端追蹤 ref，自己剛 push 完的 commit 會判回空而放行。回歸測試從 13 項擴到 19 項——首版那 13 項全綠卻漏掉全部九個缺陷，因為測的都是預想路徑，rename／特殊檔名／檔案刪除／模式變更／hook 竄改／hook 擋下／未 fetch 的遠端一項都沒測
-- 2026-09-11 「多步驟用 TaskCreate」一句展開成三條紀律＋禁止情境＋跨場景適用清單。來源＝冷啟 subagent 稽核退場 memory 發現內聯時砍掉的細節（黃區自主，已在回覆聲明）
-- 2026-09-11 匯流規則加第 6 條：兩軌判不同嚴重度時主 agent 自己實跑驗證再匯流，不取中間值、不選寬鬆軌。來源＝memory 紀律升級（經使用者核准）
-- 2026-09-10 補 hook（他律）＋真閘 6（message 痕跡與長度）＋§歷史改寫＋§交付路徑，並把 body 政策與長度單位明文寫死。**起因**：另一 session 在 KMS-dev 繞過本 skill 直接跑 `rebase -i`／`--amend` 改寫 8 顆 commit，把「經語法樹掃描確認」「實測七則官方回應」「Claude Code 的本機設定」寫進 git 歷史，**五道既有真閘一道都沒觸發**——因為它根本沒經過 flow.sh。三個結構缺口各自補上：①規範全是自律，AI 會繞 → PreToolUse hook 攔裸 `git commit`（fail-open，14 項紅綠測）；②`AI_TRACE_PATTERN` 只掃 staged diff、從不掃 message，`SIGNATURE_PATTERN` 只認 5 個署名詞且沒有單獨的 `Claude` → 新增 `MESSAGE_TRACE_PATTERN`（16 項紅綠測，測資用 KMS 真實 message）；③「≤50 字」沒定義單位、「能不能有 body」規範空白 → 該 session 先寫長 body（沒禁）、事後又自認「skill 要求不含 body」全砍（也沒要求），**兩次都在填空白且方向相反**，現已寫死「單行、寬度 ≤72」。**開發中自撞一次**：`display_width()` 初版用 awk，`bash -n` 過但實跑把「中文五個字元」算成 18（byte 數）——多數 awk 非 locale-aware、`substr` 按 byte 切，改用 Python `east_asian_width` 才對。語法檢查過 ≠ 能跑。
-- 2026-09-05 補第三輪最後一個觀察項：探測失敗時原始輸出被刪、只留 `✗`，事後無法回溯真因。已改為把失敗原文存到 `$TMPDIR/codex-model-probe-fail/<slug>.log` 並在輸出標明路徑（每次執行先清上一輪，避免陳舊資訊誤導）。**這正是本輪吃過的虧**：腳本一度報「最強可用是 gpt-5.4-mini」卻看不到 astra 失敗的原文，只能手動重跑才發現真因是 slug 尾端帶 `\r`。實測：插一個 priority 0 的假 model 觸發失敗分支，確認原文留存 940 bytes 且具診斷價值、腳本仍正確選出 gpt-6-astra。
-- 2026-09-05 同兩支腳本再送 Codex 覆審兩輪（第二輪 BLOCK、第三輪 PASS）：第二輪抓到**我上一輪加 trap 時引進的新缺陷**——`trap cleanup INT TERM` 只刪暫存檔卻不結束腳本，控制流帶著「檔案已消失」的狀態跑到 `grep`，把探測中的模型誤判為不可用、進而把次強模型寫回 config。已獨立重現（`grep: ... No such file` 接 `✗`）後修正：訊號處理與正常結束分離，訊號版清完立刻退出；兩處 grep 補 `2>/dev/null`。第三輪 PASS 並提兩個觀察項，一併修掉：INT/TERM 共用 exit 130 不精確，改為依慣例回 128+訊號值（INT=130／TERM=143／HUP=129）並補攔 SIGHUP。**教訓：修一個小瑕疵（暫存檔殘留）可以引進更嚴重的缺陷（寫錯設定），修完必須重送審查而非只跑正常路徑。**
-- 2026-09-05 `codex-model-sync.sh` 經 Codex 審查回 BLOCK 後修三項（使用者要求拿自己寫的腳本送審）：①**寫回 config 後未檢查 python 回傳碼、也未回讀驗證**——實測 python 拋 FileNotFoundError 時腳本仍印「已更新」並 exit 0，正是本檔一再防的「跑得動但結論錯誤」，已補 rc 檢查＋回讀比對（紅測：修前 exit 0 謊報成功、修後 exit 1 並明講未變更）；②缺 `trap`，暫存檔在 Ctrl+C／kill 時殘留（check.sh 本來就有，兩支不對稱）；③備份 `config.toml.bak.*` 無限累積，改為只留最近 5 份。Codex 另指 `current` 變數未防 `\r`，實測 `tr -d [:space:]` 已涵蓋 `\r`，**該項不成立故未改**——審查意見仍須逐條驗證再採納。
-- 2026-09-05 降級段落前置「先排除 model 下架」（使用者當次核准）：`gpt-5.4` 8/31 退役而 config 未更新，導致兩個 codex agent 各撞一次 400、並補做完整單軌降級——實際只需改一行設定。新增 `.claude/skills/git-commit/codex-model-sync.sh` （讀帳號專屬 models_cache.json 取 priority 最小者、實測後寫回 config，三條路徑均已實跑驗證）。官方文件（learn.chatgpt.com/docs/models）明說未指定 model 時用「recommended」且依帳戶層級而定，**不保證最強**，故不採「不設 model 讓 CLI 自選」。判活紀律與等待門檻一字未改。
-- 2026-08-31 新增真閘 5「AI 痕跡」（使用者當次指示，`--allow-ai-trace` 可豁免）：掃 staged diff **新增行**是否引用外部文件出處（`CLAUDE.md`／skill／設計文件／`docs/*.md`／裸 `§` 章節號），`.md` 除外；prepare 顯示、ship 攔截。起因是一次清出 53 處同型痕跡散在 4 個 repo，根因為「註解撰寫規範」曾有「✅ 指向規範文件」的鼓勵條文（已刪並改立 N9）。**判準含裸 `§` 是必要的**——實證刪掉「CLAUDE.md §8.2」後，同段落下一行的 `§8.4` 不含任何關鍵字，關鍵字與「見/依+章節」兩種判準都抓不到，第三種純掃 `§` 才撈出 13 處。已實跑紅綠測（含 `.md` 排除、裸 `§` 命中、刪除行不誤判、`--allow-ai-trace` 放行）。
-- 2026-08-31 B 軌判活補 CPU 判準＋stdin 根治條款（使用者當次指示）：原規則只看「StartTime 晚於送審」，擋得住殭屍污染卻擋不住「啟動了但沒在算」——實證 PID 存活 16.5 分鐘 CPU 僅 0.03 秒（比同機殭屍的 68 秒還低）卻被判成正在算，白等 16 分鐘。修正為 StartTime 與 CPU 累積**兩個條件並用**。根因是 `codex exec` 未重導 stdin 導致 CLI 卡在 `Reading additional input from stdin...`，已列為必死坑，一律帶 `< /dev/null`。
-- 2026-08-28 10 分鐘通知點加入 codex 活性同步檢查（使用者當次指示）：活著→續等；死了→重送同一審查（重起一次、計時重算），重起仍死才降級。判活必看程序 StartTime 是否晚於送審時刻——同日兩個實證：殭屍 PID（8/27 殘留）污染「正在算」判讀白等；codex exec 跑完即退，「查無程序」時 agent 其實已寫完 VERDICT，先要狀態再判死。
-- 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
-- 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
-- 2026-08-23 B 軌等待紀律重寫（使用者當次指示「Codex 要等啊，你是不是太急」）：明訂 idle≠死亡、判不可用須有客觀證據（程序數 0＋最小題失敗，或 agent 回 UNAVAILABLE）、逾 5 分鐘是問使用者而非自行降級；補審查任務的耗時分級實測（雜務數秒 vs 完整審查 7 分鐘以上）與 `--json` 逐步加壓的診斷法。起因：同一輪三次把自設 timeout 當成 Codex 失效，並據錯誤診斷（「讀檔就卡」）自行降級 commit。事後背景任務補證：同一審查任務 subagent 數分鐘回 PASS、前景 `codex exec` 給 20 分鐘仍 timeout 零輸出，兩路徑結果相反，故前景失敗不可作為 subagent 不可用的依據。
-- 2026-08-16 審查軌逾時門檻明定為 5 分鐘（使用者當次指示：「我願意等他到 5 分鐘」）：5 分鐘內續等不打擾，逾時才問；並補「工具層逾時 vs Codex 算得慢」的分辨與重送處置。
-- 2026-07-31 713 行壓縮至本版（Claude 5 世代 context engineering 調整，經使用者核准）：砍 9-task 編排時序細則（追蹤紀律歸 memory `feedback_task_tracking_discipline`）、三處重複豁免說明合一、20 列匯流矩陣壓成四條核心原則、排版細則壓行。三軌架構、默許機制、豁免判準、flow.sh 介面、事故收據條款（git add -A／codex 命名坑／hook 故障處置／AI 署名禁令）全數保留。
+變更紀錄見 plugin 根目錄 CHANGELOG.md（`../../CHANGELOG.md`；本輪已將 SKILL.md 專屬的未重複條目併入該檔）
