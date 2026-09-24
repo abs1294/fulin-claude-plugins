@@ -67,7 +67,7 @@ monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建�
 
 | plugin | 用途 | 前置依賴 |
 |--------|------|----------|
-| **git-commit** | 並行審查模式的 Git Commit 流程（使用者確認 message + Codex + code-reviewer 三軌）→ commit → push | Codex CLI（缺則該軌略過） |
+| **git-commit** | 並行審查模式的 Git Commit 流程（使用者確認 message + Codex + code-reviewer 三軌）→ commit → push；自帶通用版 `code-reviewer` agent（C 軌，專案有同名 agent 時專案層優先） | Codex CLI（缺則該軌略過） |
 | **qa-webwright** | webwright 驅動的 QA 測試框架：QA Agent 設計測試計畫，主 Agent code-as-action 執行 + 截圖自我驗證 | webwright plugin + `playwright install firefox`，詳 `plugins/qa-webwright/README.md` |
 | **goal2** | goal 引擎啟動器＋quota 排程，兩個 skill：**goal**（推導可測量完成條件→確認或逾時自動採納→以 claude -p 子程序跑官方 /goal 引擎做到完成，長任務壓縮不忘目標、可終止）；**delaylocal**（排到 5h quota 重置後無人值守執行，完成發 LINE）。plugin 名取 goal2 以避開內建 /goal | Node.js；LINE 憑證放本機（不進 git），詳 `plugins/goal2/README.md` |
 | **supplier-agents** | Winbond 供應商平台 DDD 開發 agent 組（backend-architect/engineer、frontend-engineer、code-reviewer、qa-engineer，共 5 個 agent） | 無（裝了 plugin 即自動載入其 agents） |
@@ -77,7 +77,7 @@ monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建�
 | **deliver-report** | 把工作成果變成**對外產物**，四個 skill：**deliver-report** 寫交付訊息／逐題回覆信（動筆前先定四件事——檔案是主體還是佐證、有沒有對方的問題要回、單一收件人還是多類分眾、內文密度，形狀自然長出來；含三種形狀與四個範例）；**test-report-docx** 產測試報告 DOCX 給 PM／客戶簽核轉發（九條鐵則＋段落構件庫）；**daily-report** 掃當日 session 按專案分組摘要、人工核可後經 Gmail 寄出；**to-questionnaire** 把自己答不了的決策變成給第三方逐題填的問卷。四者共通：**嚴禁 AI／內部流程／異動紀錄字眼**、預設讀者不懂技術。含易讀性十四條鐵則＋Stop hook 機械閘，日報另有寄送前 content_guard 硬閘 | Python 3（日報／報告）；Gmail 憑證放家目錄不進 git，詳 `plugins/deliver-report/README.md` |
 | **msproject-wbs** | 產生 MS Project 可直接匯入的 WBS 時程 XML（MSPDI）：模組/工項兩層、工期、資源指派、依賴鏈自動展開甘特圖。把 MSPDI 的七個雷（**元素順序靜默丟棄**、缺全域欄位打不開、日期塌陷、工期 0、BOM…）編碼進生成腳本＋順序自檢，一次到位。說「排 WBS / 產 MS Project 時程」即觸發 | Node.js（驗證用 PowerShell） |
 | **fable-quote** | 產生「寓意科技」格式的正式軟體開發報價單 .docx：套已脫敏的公司標準模板（版式/乙方資料/通用條款內建），只填客戶資料與專案 JSON，明細列動態展開、含稅總計自動算。說「做報價單 / 寓意報價 / 幫客戶出報價」即觸發 | Python 3 + python-docx |
-| **harness** | AI 工作流制度層引擎：`/harness:init` 把通用紀律骨架（模型調度/停損熔斷/派工模板/知識協議）實例化到任何專案的 `.claude/harness/`——盤點→決策→骨架填空→機械驗收。**引擎在 plugin、實例在專案**（plugin 更新不覆蓋實例）；既有治理層（AGENTS.md 等）自動讓位；規則從各專案自己的事故長出來，不預載別專案的條款。含 SessionStart 條件式入口提醒 hook（僅對已 init 的專案輸出） | Node.js（僅 hook 用） |
+| **harness** | 開發流程制度安裝器：`/harness:init` 在任何軟體開發專案裝上一套工作紀律——前置檢查（git／既有 harness／Codex／Playwright MCP）→盤點（十一項，含前端三分類、外部副作用與執行期風險掃描）→攤開核對→一次一題訪談（Q1~Q7）→**五層生成**（制度文件 6 份＋可執行 hook（依盤點從 15 支範本推導）＋通用 agent 5 支＋知識容器 3 份＋settings）→靜態驗收＋**冷啟探針**（新 session 實測 hook 真的會擋）。**開發流程骨幹全帶、事故型條款不帶**；引擎在 plugin、實例在專案（plugin 更新不覆蓋實例）；既有治理層與既有 agents 自動讓位。產出是骨架＋長出資產的路徑，收尾回報會明列「你還沒有的」 | Node.js（hook 用）；Codex CLI（commit 第二審查軌） |
 | **cbm-guard** | codebase-memory-mcp（程式碼知識圖譜）查詢的機械閘：**它的數字很容易看起來很成功**——精確、可複製、有來源，唯獨是錯的。在查詢當下攔截五類會誤導的用法（EXISTS 綁定變數位置錯→結果恆為全部或零**且不報錯**、計數沒跑對照組、節點數被當成實體數、孤兒查詢高估數倍、Route 節點在 attribute routing 框架下建不出來），並把「框架反射入口被誤判成死碼」泛化成設定（MediatR／EF Core／Spring／Angular 皆同型）。另含**索引新鮮度檢查**——cbm 的查詢結果不帶新鮮度標記，對過期索引查會拿到已刪除的檔案且看起來完全正常。**零設定即可用**，專案事實（實測數字／替代工具／已標註的孤兒檔）走 `cbm-guard.config.json` | Node.js（hook）＋ Python 3（新鮮度檢查）；需 codebase-memory-mcp |
 
 ---
@@ -93,7 +93,7 @@ plugins/
 │   ├─ scripts/     init · adopt · adopt-agents · bump-version · upgrade-check · publish-status · publish-finalize · register-external · export-env · restore-env
 │   ├─ docs/        使用教學.html
 │   └─ CONVENTIONS.md
-├─ git-commit/                       並行審查 Git Commit 流程
+├─ git-commit/                       並行審查 Git Commit 流程（含通用版 code-reviewer agent）
 ├─ qa-webwright/                     QA 測試框架 plugin
 ├─ goal2/                            /goal 引擎啟動器＋quota 排程（goal · delaylocal 兩 skill；共用 lib/ 與 references/；LINE 憑證以 .gitignore 排除）
 ├─ supplier-agents/                  供應商平台 DDD 開發 agent 組（5 個 agent）
@@ -103,7 +103,7 @@ plugins/
 ├─ deliver-report/                   對外產物三件套（交付訊息／測試報告 DOCX／工作日報）
 ├─ msproject-wbs/                    MS Project WBS 時程 XML 產生器（MSPDI 七雷編碼＋順序自檢）
 ├─ fable-quote/                      寓意科技報價單產生器（模板套版、含稅自動算）
-├─ harness/                          工作流制度層引擎（/harness:init 骨架實例化＋條件式入口提醒 hook）
+├─ harness/                          開發流程制度安裝器（/harness:init 五層生成＋冷啟探針；hook 範本、agent 與知識容器骨架、條件式入口提醒）
 └─ cbm-guard/                        codebase-memory-mcp 查詢機械閘（七類判準＋索引新鮮度；專案相依走 config，零設定亦可用）
 ```
 

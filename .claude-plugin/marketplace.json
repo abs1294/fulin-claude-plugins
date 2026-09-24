@@ -23,7 +23,7 @@
     {
       "name": "git-commit",
       "source": "./plugins/git-commit",
-      "description": "並行審查的 Git Commit 流程：stage → 使用者確認＋Codex＋code-reviewer 三軌 → commit → push；禁止裸 git 指令。"
+      "description": "並行審查的 Git Commit 流程：stage → 使用者確認＋Codex＋code-reviewer 三軌 → commit → push；禁止裸 git 指令。自帶通用版 code-reviewer agent。"
     },
     {
       "name": "supplier-agents",
@@ -63,7 +63,7 @@
     {
       "name": "harness",
       "source": "./plugins/harness",
-      "description": "AI 工作流制度層引擎：/harness:init 把紀律骨架實例化到專案 .claude/harness/；引擎在 plugin、實例在專案，含 SessionStart 入口提醒 hook。"
+      "description": "開發流程制度安裝器：/harness:init 盤點專案後一次一題訪談，生成制度文件＋可執行 hook＋通用 agent 組＋知識容器＋settings，並用冷啟探針實測 hook 真的會擋；引擎在 plugin、實例在專案。"
     },
     {
       "name": "wtf",

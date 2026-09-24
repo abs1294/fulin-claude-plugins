@@ -42,7 +42,7 @@ All notable changes to this plugin will be documented in this file.
 - **新原則：開發流程骨幹全帶、事故型條款歸未來的 /harness:review**。判準：純行為紀律照搬、可參數化的挖空填入、綁死特定工作法的（本機 hack 管理、多 worktree、特定鏡像架構、環境檔歸屬）不帶（`references/adaptation-guide.md` §1 重寫）。
 - **SKILL.md 改寫成 Phase 0~5**：
   - Phase 0 前置檢查四項：是否 git repo／是否已裝 harness（已裝就停，建議 review 不覆蓋）／`codex --version`（沒裝就產出安裝指引並停下，不降級成單軌——少了 Codex，commit 審查只剩同源模型審自己）／Playwright MCP 是否在 `permissions.allow`。
-  - Phase 1 盤點九項，新增**前端三分類判準**（瀏覽器可驅動→裝 qa-webwright／非瀏覽器前端→不裝、QA 改寫／無前端→觸發 Q3）與**危險動作候選推導**（寄信、外部 API、毀滅性 SQL、部署、金流計費、實機硬體、資料管線七類，各附 grep 關鍵字）；既有治理層白名單放寬到 CONTRIBUTING.md、docs/。
+  - Phase 1 盤點十一項，新增**前端三分類判準**（瀏覽器可驅動→裝 qa-webwright／非瀏覽器前端→不裝、QA 改寫／無前端→觸發 Q3）與**危險動作候選推導**（寄信、外部 API、毀滅性 SQL、部署、金流計費、實機硬體、資料管線七類，各附 grep 關鍵字）；既有治理層白名單放寬到 CONTRIBUTING.md、docs/。
   - Phase 2 攤開核對：盤點表與自動推導預設一次攤給使用者糾正事實。
   - Phase 3 訪談 7 題、**一次一題**（Q1 pipeline 刪改／Q2 危險動作熔斷／Q3 怎樣算做完（僅無前端）／Q4 單人或團隊／Q5 哪些規矩要程式擋／Q6 豁免測試（僅無測試基礎）／Q7 必讀文件）；Q1 附預設 pipeline 原文、配套三條（無條件對齊回合、QA 先於 review、分流例外）與**自動裁切規則六列**。
   - Phase 4 生成五層：文件層 6 份、可執行層 hook、agent 層 5 份、知識容器層 3 份、settings 層，逐項列落點與來源。
