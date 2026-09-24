@@ -79,6 +79,11 @@ hooks/
     guard-claude-dir-hygiene.js           .claude/ 底下只准在機制目錄新建檔
     health-check-reminder.js              距上次制度健檢超過門檻天數 → 開 session 提醒
     memory-write-advisory.js              寫 memory 後提醒索引大小與總則檔合併
+    compact-snapshot.js＋compact-handoff.js
+                                          壓縮前存快照（背景 agent、讀過的規範、改過的檔、使用者原話），並開隔離的 claude -p
+                                          子 session 寫交接信（未完成完整保留）；找不到 claude 或失敗時只留快照、不擋壓縮
+    compact-reinject.js                   壓縮後（SessionStart compact）注入交接信與接續指示，整段不超過平台 10,000 字元上限
+    compact-summary-log.js                壓縮後記下摘要漏掉的項目與交接信統計（評估用流水帳）
     ── B 盤點觸發（規則由 init 依盤點結果填）──
     guard-risky-command.js                熔斷清單上的指令（高權帳號連 DB、部署、正式主機、毀滅性 SQL、起服務缺環境）→ 擋
     guard-test-preconditions.js           跑測試前驗前置條件（寄信收斂、測試環境對齊）→ 不符就擋

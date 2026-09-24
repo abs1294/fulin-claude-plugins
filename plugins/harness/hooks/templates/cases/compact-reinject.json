@@ -1,0 +1,70 @@
+{
+  "hook": "compact-reinject.js",
+  "cases": [
+    {
+      "label": "壓縮後有交接信 → 注入交接信與接續指示",
+      "setup": {
+        "files": {
+          "s1/compact-snapshots/latest.txt": "20260101T000000",
+          "s1/compact-snapshots/20260101T000000.json": "{\"stamp\":\"20260101T000000\",\"running\":[],\"docs\":[],\"edits\":[],\"skills\":[],\"prompts\":[]}",
+          "s1/compact-snapshots/20260101T000000.handoff.md": "## 未完成（完整保留）\n1. 登入頁錯誤訊息改中文：做到一半，下一步改 src/login.js\n"
+        },
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "compact", "session_id": "s1" },
+      "expect": "NOTE"
+    },
+    {
+      "label": "壓縮後沒有交接信、只有快照 → 退回快照清單",
+      "setup": {
+        "files": {
+          "s1/compact-snapshots/latest.txt": "20260101T000000",
+          "s1/compact-snapshots/20260101T000000.json": "{\"stamp\":\"20260101T000000\",\"running\":[{\"id\":\"a1\",\"desc\":\"審查登入頁\"}],\"docs\":[],\"edits\":[\"/proj/src/login.js\"],\"skills\":[],\"prompts\":[\"把登入頁的錯誤訊息改成中文\"]}"
+        },
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "compact", "session_id": "s1" },
+      "expect": "NOTE"
+    },
+    {
+      "label": "壓縮後連快照都沒有 → 仍提醒先重讀規範再繼續",
+      "setup": {
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "compact", "session_id": "s1" },
+      "expect": "NOTE"
+    },
+    {
+      "label": "一般開 session（不是壓縮）→ 不輸出",
+      "setup": {
+        "files": {
+          "s1/compact-snapshots/latest.txt": "20260101T000000",
+          "s1/compact-snapshots/20260101T000000.json": "{\"stamp\":\"20260101T000000\"}",
+          "s1/compact-snapshots/20260101T000000.handoff.md": "## 未完成（完整保留）\n1. x\n"
+        },
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "startup", "session_id": "s1" },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "交接信子 session → 直接退出（防遞迴）",
+      "setup": {
+        "env": { "COMPACT_HANDOFF_CHILD": "1" },
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "compact", "session_id": "s1" },
+      "expect": "ALLOW"
+    }
+  ]
+}

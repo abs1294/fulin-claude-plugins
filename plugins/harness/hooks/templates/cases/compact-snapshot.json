@@ -1,0 +1,48 @@
+{
+  "hook": "compact-snapshot.js",
+  "cases": [
+    {
+      "label": "關閉交接信時只存快照 → 不擋壓縮、不輸出",
+      "setup": {
+        "env": { "COMPACT_HANDOFF_OFF": "1" },
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "把登入頁的錯誤訊息改成中文" } },
+          { "type": "assistant", "message": { "role": "assistant", "content": [
+            { "type": "tool_use", "id": "t1", "name": "Read", "input": { "file_path": "/proj/.claude/harness/README.md" } },
+            { "type": "tool_use", "id": "t2", "name": "Edit", "input": { "file_path": "/proj/src/login.js" } }
+          ] } }
+        ]
+      },
+      "payload": { "hook_event_name": "PreCompact", "session_id": "s1", "trigger": "manual", "custom_instructions": null },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "找不到 claude CLI（交接信寫不出來）→ fail-open，不擋壓縮",
+      "setup": {
+        "env": { "PATH": "", "HOME": "/nonexistent-home", "USERPROFILE": "/nonexistent-home" },
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "繼續做" } }
+        ]
+      },
+      "payload": { "hook_event_name": "PreCompact", "session_id": "s1", "trigger": "auto", "custom_instructions": null },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "交接信子 session 自己觸發壓縮 → 直接退出（防遞迴）",
+      "setup": {
+        "env": { "COMPACT_HANDOFF_CHILD": "1" },
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "PreCompact", "session_id": "s1", "trigger": "auto" },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "payload 缺 transcript_path → 靜默放行",
+      "setup": {},
+      "payload": { "hook_event_name": "PreCompact", "session_id": "s1", "trigger": "auto" },
+      "expect": "ALLOW"
+    }
+  ]
+}

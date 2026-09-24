@@ -74,9 +74,10 @@ function parserStatus() {
 }
 const PARSER = parserStatus();
 
+const MODULES = ['probe-hooks.js', 'shell-model.js', 'compact-handoff.js'];
 function listHooks() {
-  // shell-model.js 是兩支規則引擎共用的模組，不是 hook
-  return fs.readdirSync(HERE).filter((f) => f.endsWith('.js') && f !== 'probe-hooks.js' && f !== 'shell-model.js');
+  // shell-model.js 是兩支規則引擎共用的模組、compact-handoff.js 是 compact-snapshot.js 呼叫的模組，都不是 hook
+  return fs.readdirSync(HERE).filter((f) => f.endsWith('.js') && !MODULES.includes(f));
 }
 function casesFor(hook) {
   const p = path.join(CASES_DIR, hook.replace(/\.js$/, '.json'));
@@ -112,6 +113,8 @@ function mkProject(setup, hookFile, variant) {
   fs.writeFileSync(path.join(hdir, hookFile), src);
   // 規則引擎共用的語法模組一起帶過去（沒有就算了：其他 hook 用不到）
   if (fs.existsSync(path.join(HERE, 'shell-model.js'))) fs.copyFileSync(path.join(HERE, 'shell-model.js'), path.join(hdir, 'shell-model.js'));
+  // 壓縮交接的快照 hook 會 require 同目錄的交接信模組
+  if (fs.existsSync(path.join(HERE, 'compact-handoff.js'))) fs.copyFileSync(path.join(HERE, 'compact-handoff.js'), path.join(hdir, 'compact-handoff.js'));
   for (const [rel, content] of Object.entries(setup.files || {})) {
     const p = path.join(dir, rel);
     fs.mkdirSync(path.dirname(p), { recursive: true });

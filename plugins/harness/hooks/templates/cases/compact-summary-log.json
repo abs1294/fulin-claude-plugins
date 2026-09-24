@@ -1,0 +1,40 @@
+{
+  "hook": "compact-summary-log.js",
+  "cases": [
+    {
+      "label": "壓縮完成、有快照 → 只記流水帳，不輸出",
+      "setup": {
+        "files": {
+          "s1/compact-snapshots/latest.txt": "20260101T000000",
+          "s1/compact-snapshots/20260101T000000.json": "{\"stamp\":\"20260101T000000\",\"running\":[],\"docs\":[],\"edits\":[\"/proj/src/login.js\"],\"skills\":[]}"
+        },
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "PostCompact", "session_id": "s1", "trigger": "auto", "compact_summary": "摘要：正在改 login.js" },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "沒有快照（PreCompact 沒跑成）→ 仍存摘要，不輸出",
+      "setup": {
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "PostCompact", "session_id": "s1", "trigger": "manual", "compact_summary": "摘要" },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "交接信子 session → 直接退出（防遞迴）",
+      "setup": {
+        "env": { "COMPACT_HANDOFF_CHILD": "1" },
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "PostCompact", "session_id": "s1", "trigger": "auto", "compact_summary": "摘要" },
+      "expect": "ALLOW"
+    }
+  ]
+}
