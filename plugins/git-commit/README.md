@@ -42,7 +42,8 @@
 | 指令 | 動作 | 對應步驟 |
 |------|------|---------|
 | `flow.sh analyze <repo>` | git 狀態分類 + local-overrides 過濾 + 敏感字掃描 | 1.2 分析 |
-| `flow.sh prepare <repo> <files...>` | `git add`（只加列出的檔，不 `git add .`）→ 產出 staged diff 供兩軌讀取 | 1.2 Stage |
+| `flow.sh prepare <repo> <files...>` | `git add`（只加列出的檔，不 `git add .`）→ 產出 staged diff 供兩軌讀取。index 已有不在清單內的 staged 項目（多半是別的 session stage 的）就拒絕；merge 進行中不檢查（合併進來的檔本來就屬於這顆 commit） | 1.2 Stage |
+| `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾、自己切 hunk stage 時用） | 1.2 Stage／Merge 收尾 |
 | `flow.sh ship <repo> <type> "<desc>"` | HEREDOC `git commit` → `git push` → 驗證 | 2.1 + 2.2 + 2.3 |
 
 ## 重點規則
@@ -69,6 +70,17 @@
 為避免瑣碎變更浪費審查資源，**`Style`（純 UI/CSS/formatting）與 `Docs`（純 `.md`／註解）自動豁免 B、C 兩軌**（仍須 1.3a 預覽 + 敏感字掃描）。
 
 **反豁免（治本把關）**：只要 diff 觸及「會被執行到的程式邏輯」一律不豁免——例如 `Style` 卻動了 `.vue` 的 `<script>` / `v-if` / `@click`、或改了 i18n 的 **key**（非 value）。AI 偵測到就強制送兩軌，並告知使用者。
+
+## 回歸測試
+
+改 `flow.sh` 或 `hooks/` 之後跑這兩套，全綠才算數（語法檢查過不算）。兩套都在暫時目錄建臨時 git repo 實跑，不動你的 repo。
+
+| 測試檔 | 涵蓋 | 用法 |
+|------|------|------|
+| `skills/git-commit/tests/test_review_gate.sh` | 審查紀錄閘（真閘 7）：無紀錄／紀錄後 staged 變動／BLOCK 不收／豁免／補推捷徑只認 ship 建的 commit／QA 表態 | `bash skills/git-commit/tests/test_review_gate.sh <flow.sh 的路徑>` |
+| `skills/git-commit/tests/test_merge_support.sh` | 裸 commit 偵測器語料（含 `git merge --continue` 的攔／放行）、git 行為依據、hook 端到端、merge 收尾（`prepare --staged`、未解衝突檢查）、外來 staged 閘（含 rename 併筆、repo 設定藏起 submodule 更新、無 HEAD 的 repo）、絕對路徑錯誤訊息、`--help` | `bash skills/git-commit/tests/test_merge_support.sh <flow.sh 的路徑>` |
+
+參數是 `flow.sh` 的路徑；`test_merge_support.sh` 另外從 `flow.sh` 的位置往上找 `hooks/`，所以要測改過的版本時，把整個 plugin 目錄（`hooks/` 與 `skills/`）一起複製。
 
 ## 適用情境
 

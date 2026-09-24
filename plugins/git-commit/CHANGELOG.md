@@ -2,6 +2,13 @@
 
 本檔記錄 git-commit 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.8.3] - 2026-09-24
+### Added
+- **外來 staged 閘的 submodule 情境補齊**（`tests/test_merge_support.sh` F9c～F9f，共 81 項）：原本 F9 只測「新增 gitlink＋同時設兩種 ignore」，補上「既有 submodule 指標更新」且兩種 ignore 設定（`diff.ignoreSubmodules`、`submodule.<name>.ignore`）各自單獨設的情境。`submodule.<name>.ignore` 只對 `.gitmodules` 登記過的 submodule 生效——未登記時舊的 `git diff` 版本照樣能列出、測試驗不出退化，故測試先登記再測。反向驗證：換回 `git diff` 版 F9～F9f 六項全 FAIL。
+
+### Fixed（文件）
+- **README 補「回歸測試」一節**：兩套測試（`test_review_gate.sh`、`test_merge_support.sh`）的涵蓋範圍與用法，原本 README 與 SKILL.md 都沒提到測試。flow.sh 指令表補外來 staged 閘說明與 `prepare --staged` 一列。
+
 ## [0.8.2] - 2026-09-24
 ### Added
 - **prepare 外來 staged 閘**：逐檔模式下，index 若已有「不在這次檔案清單內」的 staged 項目就拒絕（exit 1）並列出檔名，且不做任何 `git add`。起因：index 是所有 session 共用的，另一 session 送審期間 stage 的 5 個 harness 檔被逐檔 prepare 照單全收、差點一起 commit。比對用 git 自己的 pathspec（`git diff-index --cached --name-only <base> -- <files>`），目錄與萬用字元一體適用；清單取自 plumbing 的 `diff-index`（並明寫 `--no-renames --ignore-submodules=none`）而非 `git diff`——後者的輸出受 repo 設定左右：`diff.renames` 會把「別人 staged 刪除 old」與「清單內已 staged 的同內容 mine」併成一筆 mine、`diff.ignoreSubmodules`／`submodule.<name>.ignore` 會把 staged 的 submodule 指標更新整個藏起來，兩者都讓外來項目漏判（Codex 審查第二、三輪各抓到一種，皆實測重現）；還沒有任何 commit 的 repo 沒有 HEAD，改比空 tree；`--staged` 模式與 merge 進行中（合併進來的檔本來就屬於這顆 commit）不檢查。只擋得住「別人已 stage」這一種；別人在同一檔裡未 stage 的改動腳本分不出是誰寫的，仍靠 Stage 紀律。檢查與 `git add` 之間不是原子操作，那段空窗內別人新 stage 的檔擋不到；prepare 之後的變動則由 ship 的 diff hash 比對擋下。兩份清單先存變數再比對——寫在 `<(...)` 裡的 git 失敗不會觸發 `set -e`，清單變空會讓閘直接放行。

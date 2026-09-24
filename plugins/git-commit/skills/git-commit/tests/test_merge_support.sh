@@ -166,6 +166,25 @@ printf '%s' "$LAST_OUT" | grep -q '^  sublink$' && ok "F9b 列出 sublink" || ba
 git -C "$F" reset -q
 git -C "$F" config --unset diff.ignoreSubmodules; git -C "$F" config --unset submodule.sublink.ignore
 git -C "$F" config --unset diff.renames
+# 既有 submodule 的指標更新（HEAD 已有 gitlink，staged 換成另一個 commit），兩種 ignore 設定各自單獨測
+C1="$(git -C "$F" rev-parse HEAD)"
+git -C "$F" update-index --add --cacheinfo "160000,$C1,sublink2"
+# submodule.<name>.ignore 只對 .gitmodules 登記過的 submodule 生效，要登記才測得到
+git -C "$F" config -f "$F/.gitmodules" submodule.sublink2.path sublink2
+git -C "$F" config -f "$F/.gitmodules" submodule.sublink2.url ./sublink2
+git -C "$F" add .gitmodules
+GIT_COMMIT_FLOW=1 git -C "$F" commit -q -m "Chore: add gitlink"
+C2="$(git -C "$F" rev-parse HEAD)"
+git -C "$F" update-index --cacheinfo "160000,$C2,sublink2"
+git -C "$F" config diff.ignoreSubmodules all
+expect "F9c 既有 submodule 指標更新＋只設 diff.ignoreSubmodules 也擋" 1 flow prepare fg mine.txt
+printf '%s' "$LAST_OUT" | grep -q '^  sublink2$' && ok "F9d 列出 sublink2" || bad "F9d 列出 sublink2" "$LAST_OUT"
+git -C "$F" config --unset diff.ignoreSubmodules
+git -C "$F" config submodule.sublink2.ignore all
+expect "F9e 既有 submodule 指標更新＋只設 submodule.<name>.ignore 也擋" 1 flow prepare fg mine.txt
+printf '%s' "$LAST_OUT" | grep -q '^  sublink2$' && ok "F9f 列出 sublink2" || bad "F9f 列出 sublink2" "$LAST_OUT"
+git -C "$F" config --unset submodule.sublink2.ignore
+git -C "$F" reset -q
 # 還沒有任何 commit（沒有 HEAD）：比空 tree
 E="$CLAUDE_PROJECT_DIR/empty"
 rm -rf "$E"; mkdir -p "$E"; git -C "$E" init -q -b main; git -C "$E" config core.autocrlf false
