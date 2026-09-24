@@ -2,6 +2,18 @@
 
 本檔記錄 git-commit 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.8.1] - 2026-09-24
+### Fixed
+- **merge 收尾無路可走（文件層）**：flow.sh 沒有 merge 子命令，SKILL.md、`--help`、hook 攔截訊息也都沒寫 MERGE_HEAD 存在時怎麼辦，AI 看完 usage 判定無路、改下 `git commit` 就撞 hook。實測 `ship` 在 MERGE_HEAD 存在時本來就會建出雙 parent 的 merge commit（衝突 merge 與 `--no-ff --no-commit` 兩種皆驗），缺的是說明：SKILL.md 新增「Merge 收尾」一節，`--help` 與攔截訊息都補上 prepare → review-record → ship 的收尾步驟。merge commit 的 Type 一律 `Chore`（不新增 `Merge` Type，使用者決定）。
+- **`git merge --continue` 是現成旁路**：它收尾衝突 merge 時內部就是 `git commit`，但偵測器只擋 `git commit`、放行它。`detect-git-write.py` 補上 `merge --continue`（含 `-C`、`bash -c`、`-c alias.x='merge --continue'` 變形）；`git merge` 本身（含無衝突時自動 commit）維持放行（使用者決定）。判準是「merge 後的參數恰為 `--continue` 一個」而非「含 `--continue`」：git 只在它單獨出現時才收尾，帶任何其他參數都回 `fatal: --continue expects no arguments`（rc=129，實測），所以 `-m --continue`、`-qm --continue`、`-- --continue` 這類 `--continue` 只是值或目標的寫法不會誤擋，也不必逐一列舉帶值選項。
+- **repo 參數給絕對路徑時錯誤訊息誤導**：`/c/...`、`C:\...` 會被接成 `<工作目錄>//c/...` 再報「路徑不存在」。行為不變（依設計只收子目錄名或 `.`），錯誤訊息改為明講不收絕對路徑、要先 cd 過去用 `.`。
+
+### Added
+- `flow.sh prepare <repo> --staged`：不 `git add`，直接拿當下 index 送審，給 merge 收尾用（git 已把合併進來的檔案 stage 好，逐檔重列容易漏）。帶了 `--staged` 又給檔名、或 index 為空，一律拒絕。
+- `prepare` 在 MERGE_HEAD 存在時先查未解衝突（`git diff --diff-filter=U`），有就拒絕並列出檔名，免得送審一輪後 commit 才失敗；沒有則提示「ship 會建出 merge commit、diff 是相對第一個 parent」。
+
+驗證：暫存 repo 實跑衝突 merge（未解／部分解／`--staged` 帶檔名／空 index／解完 `--staged` → ship 得雙 parent commit 且 MERGE_HEAD 清除）與絕對路徑兩種寫法；偵測器 16 條語料（5 條 `merge --continue` 變形皆攔、`merge`／`merge --abort`／`merge-base`／`pull`／`log --grep=--continue` 放行、既有 commit／commit-tree／update-ref／branch -f 照攔）；hook 以 JSON payload 端到端 exit 2 且訊息含 merge 收尾段；`tests/test_review_gate.sh` 新舊版皆 PASS 69 / FAIL 0。
+
 ## [0.8.0] - 2026-09-23
 ### Added
 - **審查紀錄閘（真閘 7，commit `d94ba12`）**：`flow.sh review-record` 記下兩軌審查結果（或使用者明示豁免）並綁定當下 staged diff 的 hash，`ship`／有改到碼的 `amend` 在 commit 前比對，找不到紀錄或 diff 已變即拒絕。原因：兩軌審查原本全靠自律，其餘機械閘只管「有沒有經過 flow.sh」，不管「有沒有審過」。

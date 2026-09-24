@@ -13,6 +13,8 @@
 #   ① porcelain：git commit（含 --amend）
 #   ② plumbing：git commit-tree（建 commit 物件）
 #   ③ ref 改寫：git update-ref / symbolic-ref / branch -f（讓 commit 生效，或藏掉 commit）
+#   ④ git merge --continue（2026-09-24）：收尾衝突 merge 時內部就是 git commit，
+#      只擋 git commit 不擋它等於留一條旁路。git merge 本身維持放行（使用者決定）。
 #
 #   ②③ 是 2026-09-14 真實被踩到的路徑：一個 headless 引擎被 ① 擋下後，改用
 #   `write-tree` + `commit-tree` + `update-ref` 完成了四個 worktree 的 merge commit，
@@ -107,6 +109,11 @@ if [ -n "$hit" ]; then
   flow.sh ship    <repo> <Type> "<描述>"        # 加 --push 才推遠端
   flow.sh amend   <repo> --confirm-rewrite      # 改寫 HEAD（需使用者明示核可）
 
+merge 停在衝突／--no-commit 要收尾（flow.sh 沒有 merge 子命令，用 ship）：
+  flow.sh prepare <repo> <解完的檔案...>       # 或 --staged 沿用已 stage 的內容
+  flow.sh review-record <repo> ...
+  flow.sh ship    <repo> Chore "合併 <分支>"   # MERGE_HEAD 存在時建出的就是 merge commit
+
 ⚠️ 不要試圖自己設 GIT_COMMIT_FLOW=1 繞過。
    那個變數由 flow.sh 自己 export 給它的子程序，你從外部設不進來——
    inline 前綴（GIT_COMMIT_FLOW=1 git commit）、export、env 全部無效，
@@ -114,7 +121,7 @@ if [ -n "$hit" ]; then
    唯一入口是呼叫 flow.sh。
 
 ⚠️ 也不要改用 plumbing 繞路。
-   commit-tree / update-ref / symbolic-ref / branch -f 都已在射程內——
+   commit-tree / update-ref / symbolic-ref / branch -f / merge --continue 都已在射程內——
    它們合起來等價於 git commit，本 hook 一併攔截。
 
 做不到就停下來，把情況回報給使用者，由使用者決定怎麼處理。

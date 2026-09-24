@@ -79,6 +79,15 @@ def judge(sub, args):
         if len([a for a in args if not a.startswith('-')]) >= 2:
             return 'git symbolic-ref (write)'
         return None
+    # merge --continue 收尾衝突 merge 時內部就是跑 git commit，與被擋的 git commit 等價；
+    # 不攔就是一條現成旁路。merge 本身（含自動 commit）刻意不攔（2026-09-24 使用者決定）。
+    # 判準用「args 恰為 ['--continue']」而非「args 含 --continue」：git 只在 --continue 單獨出現時
+    # 才收尾，帶任何其他參數都回 fatal: --continue expects no arguments（rc=129，MERGE_HEAD 不動，
+    # 2026-09-24 實測）。「含」的判法會把當成值的 --continue 誤擋（-m / -qm / -- 之後…），逐一列舉補不完。
+    if sub == 'merge':
+        if args == ['--continue']:
+            return 'git merge --continue'
+        return None
     if sub == 'branch':
         for a in args:
             if a in ('--force', '--move', '--copy'):

@@ -71,6 +71,12 @@ assert_valid_repo() {
   repo_path="$(resolve_repo_path "$repo")"
   if [ ! -d "$repo_path" ]; then
     echo "ERROR: repo 路徑不存在：$repo_path" >&2
+    case "$repo" in
+      /*|[A-Za-z]:*)
+        echo "       repo 參數不收絕對路徑，只收「工作目錄（$WORKSPACE_DIR）底下的子目錄名」或 '.'。" >&2
+        echo "       要操作別處的 repo：先 cd 到該 repo 再用 '.'。" >&2
+        ;;
+    esac
     exit 1
   fi
   if ! git -C "$repo_path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -839,20 +845,52 @@ cmd_analyze() {
 
 cmd_prepare() {
   local repo="${1:-}"
-  [ -z "$repo" ] && { echo "Usage: flow.sh prepare <repo> <files...>" >&2; exit 1; }
+  [ -z "$repo" ] && { echo "Usage: flow.sh prepare <repo> <files...> | --staged" >&2; exit 1; }
   assert_valid_repo "$repo"
   shift
+  # --staged：不 git add，直接拿當下 index 送審。給 merge 收尾用——
+  # git 已把合併進來的檔案 stage 好，逐檔重列既囉嗦又容易漏。
+  local use_staged=0
+  if [ "${1:-}" = "--staged" ]; then
+    use_staged=1
+    shift
+    [ $# -gt 0 ] && { echo "ERROR: --staged 不可再帶檔名（要加檔案就不帶 --staged 逐檔列）" >&2; exit 1; }
+  fi
   local files=("$@")
-  [ ${#files[@]} -eq 0 ] && { echo "ERROR: No files specified" >&2; exit 1; }
+  if [ $use_staged -eq 0 ] && [ ${#files[@]} -eq 0 ]; then
+    echo "ERROR: No files specified（merge 收尾要沿用 git 已 stage 的內容，改用 --staged）" >&2
+    exit 1
+  fi
 
   local repo_path
   repo_path="$(resolve_repo_path "$repo")"
   cd "$repo_path"
 
   echo "=== Stage files ==="
-  git add "${files[@]}"
+  if [ $use_staged -eq 0 ]; then
+    git add "${files[@]}"
+  fi
   git -c color.ui=false status -s
   echo ""
+
+  if [ $use_staged -eq 1 ] && git diff --staged --quiet; then
+    echo "ERROR: --staged 但 index 是空的，沒有東西可送審" >&2
+    exit 1
+  fi
+
+  # merge 進行中：衝突沒解完 commit 必失敗，在送審前就擋，免得白審一輪。
+  if [ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
+    local unmerged
+    unmerged="$(git diff --name-only --diff-filter=U)"
+    if [ -n "$unmerged" ]; then
+      echo "ERROR: merge 進行中，仍有未解衝突的檔案（解完並列進 prepare 再來）：" >&2
+      printf '%s\n' "$unmerged" | sed 's/^/  /' >&2
+      exit 1
+    fi
+    echo "--- merge 進行中（MERGE_HEAD 存在）---"
+    echo "ship 會建出雙 parent 的 merge commit；Type 用 Chore。下方 diff 是相對第一個 parent（目前分支）。"
+    echo ""
+  fi
 
   echo "=== Staged diff stat ==="
   git -c color.ui=false diff --staged --stat
@@ -1539,6 +1577,7 @@ Usage: flow.sh <command> [args]
 Commands:
   analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描（僅提示）
   prepare <repo> <files...>         git add + 輸出 staged diff + 記錄 diff hash 到 .claude/.git-commit-tmp/
+  prepare <repo> --staged           不 git add，直接拿當下 index 送審（merge 收尾用）
   review-record <repo> --codex "<回覆>" --reviewer "<回覆>" [--qa "<QA 狀態>"]
   review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"]
                                     把兩軌結果（或使用者豁免）綁定到當下 staged diff；ship／amend 沒有它就拒絕
@@ -1558,6 +1597,11 @@ Commands:
 
 repo 參數：
   工作目錄底下的 git 子目錄名（多 repo workspace），或 "." 代表工作目錄本身就是 git repo。
+  不收絕對路徑：要操作別處的 repo 先 cd 過去再用 "."。
+
+Merge 收尾（沒有 merge 子命令，MERGE_HEAD 存在時 ship 就會建出 merge commit）：
+  解完衝突 → prepare <repo> <檔案...>（或 --staged）→ review-record → ship <repo> Chore "合併 <分支>"
+  不要下 git commit / git merge --continue（hook 會擋）
 
 Valid types:
   ${VALID_TYPES[*]}

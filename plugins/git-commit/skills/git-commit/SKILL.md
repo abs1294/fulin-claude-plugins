@@ -51,6 +51,7 @@ description: >
 |------|------|
 | `flow.sh analyze <repo>` | 狀態分類＋local-overrides 過濾＋敏感字掃描 |
 | `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄 |
+| `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾用：git 已把合併進來的檔案 stage 好）。index 空的拒絕 |
 | `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆第一行須為 `VERDICT: PASS`（BLOCK 不收）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收） |
 | `flow.sh review-record <repo> --exempt "<理由>"` | 使用者明示豁免（Style/Docs、POC、plugin 發布、使用者要求跳過審查）。理由寫使用者的原話或豁免依據，會進稽核流水帳 `review-log.tsv` |
 | `review-record ... --qa "<QA 狀態>"`（選填） | QA 表態，與審查結果一起寫進紀錄與流水帳。flow.sh 本身不強制；專案可用 hook 在行為類改動時要求必帶（例：供應商平台的 `guard-qa-before-commit.js` 要求 `已QA：…` 或 `分流例外：…`） |
@@ -58,7 +59,7 @@ description: >
 | `flow.sh ship <repo> <type> <description> [--push]` | HEREDOC commit → 驗證（內建禁 `--no-verify`/force push、過濾 AI 署名）。**預設只 local commit；帶 `--push` 才推遠端**——push 不可逆，需使用者當次明確核可 |
 | `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述>]` | 改寫 HEAD。自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘，改寫後做 tree 級重現驗證。不帶 `--type`/`--desc` 則沿用既有 message；**只做本地改寫，不 push** |
 
-`<repo>`＝`.` 或工作目錄下的 git 子目錄名（多 repo workspace 各自獨立 commit）。`<type>`＝`Feat`/`Modify`/`Style`/`Refactor`/`Perf`/`Chore`/`Docs`/`Test`/`Fix`/`Hotfix`。
+`<repo>`＝`.` 或工作目錄下的 git 子目錄名（多 repo workspace 各自獨立 commit）。**不收絕對路徑**——要操作別處的 repo 先 `cd` 過去再用 `.`。`<type>`＝`Feat`/`Modify`/`Style`/`Refactor`/`Perf`/`Chore`/`Docs`/`Test`/`Fix`/`Hotfix`。
 
 腳本不能代勞的：豁免判斷、1.3a 預覽、啟動兩個審查 subagent、匯流決策。但腳本會**檢查結果有沒有落地**：`ship`／有改到碼的 `amend` 找不到對應當下 staged diff 的 `review-record` 紀錄就拒絕，見下方「真閘 7」。
 
@@ -71,10 +72,11 @@ PreToolUse hook，攔截 Bash 工具裡「不經 flow.sh 就建出 commit」的�
 | `git commit`（含 `--amend`） | porcelain 入口 |
 | `git commit-tree` | plumbing：建 commit 物件 |
 | `git update-ref` / `symbolic-ref`（寫入與刪除） / `branch -f`、`-M`、`-C` | 讓那顆 commit 生效，或把 HEAD 挪走藏掉 commit |
+| `git merge --continue` | 收尾衝突 merge 時內部就是 `git commit`，不攔就是旁路（2026-09-24 補） |
 
 後兩列是 2026-09-14 真實事故補上的：headless 引擎被 `git commit` 擋下後，改用 `write-tree` + `commit-tree` + `update-ref` 三件組完成了四個 worktree 的 merge commit，hook 靜默通過。三件組等價於 `git commit`，但字面上完全不像。
 
-**刻意不攔**：`git write-tree`（單獨用只建 tree、不動 ref，`git stash` 內部會用到）、`reset`／`rebase`／`filter-branch`／`cherry-pick`（屬 §歷史改寫 的使用者意圖層級，且日常常用，攔了頻繁誤擋）、`push`（超出本 hook 職責）。唯讀指令（`status`/`log`/`diff`/`add`）一律不攔。
+**刻意不攔**：`git merge` 本身（含無衝突時自動建的 merge commit；2026-09-24 使用者決定維持放行）、`git write-tree`（單獨用只建 tree、不動 ref，`git stash` 內部會用到）、`reset`／`rebase`／`filter-branch`／`cherry-pick`（屬 §歷史改寫 的使用者意圖層級，且日常常用，攔了頻繁誤擋）、`push`（超出本 hook 職責）。唯讀指令（`status`/`log`/`diff`/`add`）一律不攔。
 
 放行條件**只有一條**：`GIT_COMMIT_FLOW=1`。這個變數由 `flow.sh` 執行時自己 export 給子程序，所以「真的經過 flow.sh」與「這個變數存在」是同一件事——**外部設不進來**（hook 是獨立 process，inline 前綴／`export`／`env` 全無效）。
 
@@ -239,6 +241,17 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 
 - **(a) hook 正常執行但檢查不過**（eslint/測試失敗）→ 依提示修正 → 重跑 `prepare` → 兩軌重審 → 再 `ship`。
 - **(b) hook 本身故障**（`Exec format error`、segfault、CRLF/缺 shebang、無法 spawn）→ 這不是程式碼問題，修碼會卡死。處置：①手動補跑 hook 本該做的檢查（prettier/eslint/test）確認乾淨；②明告使用者是 hook 環境故障＋已補跑哪些檢查；③**經使用者同意**才可手動 `git commit --no-verify`（本 skill 唯一允許情境，脫離 flow.sh），message 加 `[skip-verify: hook 環境故障，已手動補跑 <檢查項>]`；④建議根治（修 shebang/LF 或 `core.autocrlf=input`），不根治每次都炸。
+
+## Merge 收尾（flow.sh 沒有 merge 子命令，用 ship）
+
+`git merge` 停在衝突或 `--no-commit` 時（MERGE_HEAD 存在），**不要下 `git commit` 或 `git merge --continue`**（hook 會擋），照一般流程走 flow.sh——`ship` 在 MERGE_HEAD 存在時建出的就是雙 parent 的 merge commit（2026-09-24 實測）：
+
+1. 解衝突 → `flow.sh prepare <repo> <解完的檔案...>`（逐檔列，會 `git add` 標為已解）；或已全部 stage 好就 `flow.sh prepare <repo> --staged`
+2. 照 Step 1 送審 → `review-record`
+3. `flow.sh ship <repo> Chore "合併 <分支> 進 <目標分支>"`（無 `Merge` Type，merge 一律用 `Chore`）
+
+prepare 發現還有未解衝突（`git diff --diff-filter=U` 有東西）會直接拒絕，並列出檔案。staged diff 是相對第一個 parent（目前分支），審查看到的是「合併進來的全部變更＋衝突解法」。
+要放棄 merge：`git merge --abort` 不在攔截範圍，照 §歷史改寫 先問使用者。
 
 ## Commit Message 規範
 
