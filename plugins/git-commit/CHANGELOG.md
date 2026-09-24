@@ -2,6 +2,16 @@
 
 本檔記錄 git-commit 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.8.2] - 2026-09-24
+### Added
+- **prepare 外來 staged 閘**：逐檔模式下，index 若已有「不在這次檔案清單內」的 staged 項目就拒絕（exit 1）並列出檔名，且不做任何 `git add`。起因：index 是所有 session 共用的，另一 session 送審期間 stage 的 5 個 harness 檔被逐檔 prepare 照單全收、差點一起 commit。比對用 git 自己的 pathspec（`git diff-index --cached --name-only <base> -- <files>`），目錄與萬用字元一體適用；清單取自 plumbing 的 `diff-index`（並明寫 `--no-renames --ignore-submodules=none`）而非 `git diff`——後者的輸出受 repo 設定左右：`diff.renames` 會把「別人 staged 刪除 old」與「清單內已 staged 的同內容 mine」併成一筆 mine、`diff.ignoreSubmodules`／`submodule.<name>.ignore` 會把 staged 的 submodule 指標更新整個藏起來，兩者都讓外來項目漏判（Codex 審查第二、三輪各抓到一種，皆實測重現）；還沒有任何 commit 的 repo 沒有 HEAD，改比空 tree；`--staged` 模式與 merge 進行中（合併進來的檔本來就屬於這顆 commit）不檢查。只擋得住「別人已 stage」這一種；別人在同一檔裡未 stage 的改動腳本分不出是誰寫的，仍靠 Stage 紀律。檢查與 `git add` 之間不是原子操作，那段空窗內別人新 stage 的檔擋不到；prepare 之後的變動則由 ship 的 diff hash 比對擋下。兩份清單先存變數再比對——寫在 `<(...)` 裡的 git 失敗不會觸發 `set -e`，清單變空會讓閘直接放行。
+- **`tests/test_merge_support.sh`**（77 項）：0.8.1 的回歸測試，原本只在暫存 repo 手動跑過、沒有進版控。涵蓋偵測器 27 條語料（攔／放行／既有射程不變）、判準依據（git 對 `--continue` 帶其他參數回 rc=129 且 MERGE_HEAD 不動、單獨 `--continue` 產生雙 parent commit——git 若改變這個行為，這兩項會先紅）、hook 端到端（exit 2／0 與攔截訊息）、`prepare` 的 merge 情境（未解衝突／部分解／`--staged` 帶檔名／空 index／解完送審 → ship 得 merge commit）、外來 staged 閘（擋下且不動 index／清單涵蓋放行／目錄 pathspec／`--staged` 與 merge 中不檢查／中文含空白檔名原樣列出／rename 偵測併筆也擋／repo 設定藏起 submodule 更新也擋／沒有 HEAD 的 repo）。偵測器測試同時驗 exit code 與 stderr，偵測器丟例外不會被當成「放行」而假綠、絕對路徑錯誤訊息、`--help`。用法：`bash tests/test_merge_support.sh <flow.sh 路徑>`。
+  反向驗證（證明測試抓得到退化）：換成 0.8.0 版 FAIL 28、換成「參數含 `--continue` 即攔」的偵測器恰好 FAIL 那 7 條值／目標寫法＋hook 放行項、拿掉 prepare 未解衝突檢查恰好 FAIL P1/P2 四項、拿掉外來 staged 閘恰好 FAIL F1～F1d 四項、改回 `git diff`（上一版）恰好 FAIL F9 兩項、拿掉無 HEAD 處理恰好 FAIL F10 三項。F8 在 `git diff` 版上是靠 `--no-renames` 才過；改用 `diff-index` 後 rename 偵測預設就關，`--no-renames` 只是明寫的防呆，拿掉它 F8 仍過（實測 77/77）——F8 現在守的是「行為」，不是這個旗標。
+
+### Fixed（文件）
+- **B 軌呼叫層兩個坑寫進 troubleshooting 與 1.3b**：①prompt 裡的類旗標字樣（`-m`）被 codex companion 當成 `--model`，回 400 `The '--continue' model is not supported`——外觀像 model 下架，實為 argv 解析；②agent 自帶 `--resume-last`，本帳號不支援（exit 1）。1.3b 新增第 3、4 條規定並寫進 prompt 範本本體（帶 `--fresh`、內容以 stdin／暫存檔傳入、失敗逐字貼原文）。
+- **Stage 紀律補「多 session 共用同一個 repo」**：add 前先看工作區有沒有別人未 stage 的改動混在同一檔；別人 staged 的項目以 blob 記下、移出、commit 後原樣放回；index.lock 不刪。腳本無法判斷改動是誰寫的，這段只能是流程紀律。
+
 ## [0.8.1] - 2026-09-24
 ### Fixed
 - **merge 收尾無路可走（文件層）**：flow.sh 沒有 merge 子命令，SKILL.md、`--help`、hook 攔截訊息也都沒寫 MERGE_HEAD 存在時怎麼辦，AI 看完 usage 判定無路、改下 `git commit` 就撞 hook。實測 `ship` 在 MERGE_HEAD 存在時本來就會建出雙 parent 的 merge commit（衝突 merge 與 `--no-ff --no-commit` 兩種皆驗），缺的是說明：SKILL.md 新增「Merge 收尾」一節，`--help` 與攔截訊息都補上 prepare → review-record → ship 的收尾步驟。merge commit 的 Type 一律 `Chore`（不新增 `Merge` Type，使用者決定）。
@@ -12,7 +22,7 @@
 - `flow.sh prepare <repo> --staged`：不 `git add`，直接拿當下 index 送審，給 merge 收尾用（git 已把合併進來的檔案 stage 好，逐檔重列容易漏）。帶了 `--staged` 又給檔名、或 index 為空，一律拒絕。
 - `prepare` 在 MERGE_HEAD 存在時先查未解衝突（`git diff --diff-filter=U`），有就拒絕並列出檔名，免得送審一輪後 commit 才失敗；沒有則提示「ship 會建出 merge commit、diff 是相對第一個 parent」。
 
-驗證：暫存 repo 實跑衝突 merge（未解／部分解／`--staged` 帶檔名／空 index／解完 `--staged` → ship 得雙 parent commit 且 MERGE_HEAD 清除）與絕對路徑兩種寫法；偵測器 16 條語料（5 條 `merge --continue` 變形皆攔、`merge`／`merge --abort`／`merge-base`／`pull`／`log --grep=--continue` 放行、既有 commit／commit-tree／update-ref／branch -f 照攔）；hook 以 JSON payload 端到端 exit 2 且訊息含 merge 收尾段；`tests/test_review_gate.sh` 新舊版皆 PASS 69 / FAIL 0。
+驗證：暫存 repo 實跑衝突 merge（未解／部分解／`--staged` 帶檔名／空 index／解完 `--staged` → ship 得雙 parent commit 且 MERGE_HEAD 清除）與絕對路徑兩種寫法；偵測器 27 條語料（9 條真正收尾的 `merge --continue` 寫法皆攔、`--continue` 只是值或目標的 7 條與 `merge`／`merge --abort`／`merge-base`／`pull`／`log --grep=--continue` 放行、既有 commit／commit-tree／update-ref／branch -f 照攔；Codex 四輪審查，前三輪 BLOCK 皆為「`--continue` 被當成值卻誤擋」，第四輪改用「參數恰為 `--continue`」判準後 PASS）；hook 以 JSON payload 端到端 exit 2 且訊息含 merge 收尾段；`tests/test_review_gate.sh` 新舊版皆 PASS 69 / FAIL 0。
 
 ## [0.8.0] - 2026-09-23
 ### Added

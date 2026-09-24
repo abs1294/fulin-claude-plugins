@@ -50,7 +50,7 @@ description: >
 | 指令 | 動作 |
 |------|------|
 | `flow.sh analyze <repo>` | 狀態分類＋local-overrides 過濾＋敏感字掃描 |
-| `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄 |
+| `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查） |
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾用：git 已把合併進來的檔案 stage 好）。index 空的拒絕 |
 | `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆第一行須為 `VERDICT: PASS`（BLOCK 不收）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收） |
 | `flow.sh review-record <repo> --exempt "<理由>"` | 使用者明示豁免（Style/Docs、POC、plugin 發布、使用者要求跳過審查）。理由寫使用者的原話或豁免依據，會進稽核流水帳 `review-log.tsv` |
@@ -111,6 +111,8 @@ PreToolUse hook，攔截 Bash 工具裡「不經 flow.sh 就建出 commit」的�
 
 **Stage 紀律**：**禁止 `git add -A` / `git add .`**——會把 local-overrides 的本機 hack 整檔混進 staged。一律逐檔 `prepare`；覆寫清單內「混有真改動」的檔案（如 Program.cs 的 DI 註冊）用 `git diff` 切 hunk、`git apply --cached` 精準 stage，commit 前 grep `LocalDevToken|MockSap|MockBPM|mysecret` 確認 staged diff 0 命中。禁 `git update-index --skip-worktree`。
 
+**多 session 共用同一個 repo 時**（index、工作區、`.claude/.git-commit-tmp/` 都是共用的）：`prepare` 逐檔 `git add` 前先 `git diff <檔案>` 看工作區有沒有**別人還沒 stage 的改動**混在同一檔——有就不能整檔 add，改用 `git apply --cached` 或 `git hash-object -w` + `git update-index --cacheinfo` 只 stage 自己的部分（腳本分不出一行改動是誰寫的，這一步只能靠人看）。`prepare` 逐檔模式遇到「index 已有不在清單內的 staged 項目」會直接拒絕並列出檔名（外來 staged 閘）——那些是自己的（切 hunk stage 的）就改用 `--staged`；不是自己的就先問使用者，確認後記下那些項目的 mode 與 blob、移出 index，commit 後用同一批 blob 原樣放回並逐項比對 hash。`--staged` 模式不做這道檢查，用之前自己看過 status。碰到 `.git/index.lock` 已存在不要刪，等它消失再重試（2026-09-24 實證：另一 session 送審期間 stage 了 5 個檔，並把歷史段寫進同一份 CHANGELOG，一句 `git add` 就把對方半成品掃進 staged）。
+
 ### 1.3 並行三軌（同一輪訊息啟動）
 
 #### 1.3a 預覽（A 軌）
@@ -150,6 +152,10 @@ Prompt 開頭**必須**寫兩件事，缺一必死：
 
 並要求失敗時回 `VERDICT: UNAVAILABLE` 附錯誤原文，不得靜默退出。
 
+另兩條呼叫層規定（2026-09-24 實證，違反時 codex 根本沒跑、不是審查結論，詳見 troubleshooting）：
+3. 「帶 `--fresh`，禁止 `--resume-last`／`--resume`」——本帳號不支援接續舊 thread，exit 1
+4. 「審查內容以 stdin 傳入（`codex exec ... < 內容檔`），禁止拆成命令列參數」——內容裡的 `-m` 之類會被 companion 當成 `--model`，回 400 `The '<旗標字樣>' model is not supported`；審查內容本身有旗標範例時，短旗標改用文字描述。以內容檔當 stdin 時就**不再加** `< /dev/null`（兩者都是指定 stdin，只能擇一；內容檔有結尾，不會卡在等 stdin），第 2 條的 `< /dev/null` 指的是「不從 stdin 傳內容」的呼叫
+
 **等待紀律**：逾 10 分鐘告知使用者一次（不必問、不停下），之後安靜續等，至多 1 小時。完整審查本來就要 7 分鐘以上，慢的是思考不是工具。
 
 > 🔧 **B 軌出任何狀況，先讀 `references/codex-troubleshooting.md` 再動作。**
@@ -175,6 +181,8 @@ Prompt 範本（開頭的 cd 指示與 codex exec 用法照 145–147 兩件事�
 
 ```
 執行任何 codex 指令前，先 cd 到 <repo 的絕對路徑>（`codex exec` 一律加 `< /dev/null`）。
+呼叫 codex 一律帶 `--fresh`，禁止 `--resume-last`／`--resume`；以下審查內容寫成檔案後以 stdin 傳入（`codex exec ... < 內容檔`，此時不再另加 `< /dev/null`），禁止拆成命令列參數。
+失敗時回 `VERDICT: UNAVAILABLE`，逐字貼錯誤原文（含 exit code 與 stderr），不要轉述。
 
 【嚴格限制】不要執行任何指令、不要讀取任何檔案。
 （本環境的 codex 沙箱會擋外部 shell，讀檔必敗。）以下資訊已完整提供，僅根據它判斷。

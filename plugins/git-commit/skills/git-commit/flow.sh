@@ -866,6 +866,33 @@ cmd_prepare() {
   repo_path="$(resolve_repo_path "$repo")"
   cd "$repo_path"
 
+  # 外來 staged 閘：index 裡已有「不在這次檔案清單內」的 staged 項目就拒絕。
+  # index 是所有 session 共用的——別的 session 送審期間 stage 的檔，逐檔 prepare 會照單全收，
+  # 最後 ship 一起 commit（2026-09-24 實證：另一 session 已 stage 的 5 個檔就是這樣混進來）。
+  # 判斷用 pathspec（git 自己的比對），目錄、萬用字元與檔名一體適用。
+  # merge 進行中不檢查：git 已把合併進來的檔案 stage 好，那些本來就屬於這顆 commit。
+  if [ $use_staged -eq 0 ] && [ ! -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
+    # 兩份清單先存變數：寫在 <(...) 裡的 git 失敗不會傳出來（set -e 看不到），
+    # 清單變空就等於閘直接放行。一般命令替換失敗時 set -e 會直接中止。
+    # 用 plumbing 的 diff-index 而非 git diff：git diff 的輸出受 repo 設定左右
+    # （diff.renames 把「刪清單外 old + 加同內容 mine」併成一筆 mine；diff.ignoreSubmodules／
+    # submodule.<name>.ignore 把 staged 的 submodule 指標更新整個藏起來），任何一種都讓外來項目漏判。
+    # 再明寫 --no-renames --ignore-submodules=none，不依賴預設值。還沒有任何 commit 時沒有 HEAD，改比空 tree。
+    local base all_staged listed_staged foreign
+    base=HEAD
+    git rev-parse -q --verify HEAD >/dev/null || base="$(git hash-object -t tree /dev/null)"
+    all_staged="$(git -c core.quotePath=false diff-index --cached --no-renames --ignore-submodules=none --name-only "$base")"
+    listed_staged="$(git -c core.quotePath=false diff-index --cached --no-renames --ignore-submodules=none --name-only "$base" -- "${files[@]}")"
+    foreign="$(comm -23 <(printf '%s\n' "$all_staged" | sort) <(printf '%s\n' "$listed_staged" | sort) | sed '/^$/d')"
+    if [ -n "$foreign" ]; then
+      echo "ERROR: index 裡已有不在這次檔案清單內的 staged 項目（可能是別的 session stage 的）：" >&2
+      printf '%s\n' "$foreign" | sed 's/^/  /' >&2
+      echo "       是你自己的（例如用 git apply --cached 切 hunk stage 的）→ 改用 prepare <repo> --staged" >&2
+      echo "       不是你的 → 先跟使用者確認，別直接 unstage 別人的東西" >&2
+      exit 1
+    fi
+  fi
+
   echo "=== Stage files ==="
   if [ $use_staged -eq 0 ]; then
     git add "${files[@]}"
@@ -1577,6 +1604,7 @@ Usage: flow.sh <command> [args]
 Commands:
   analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描（僅提示）
   prepare <repo> <files...>         git add + 輸出 staged diff + 記錄 diff hash 到 .claude/.git-commit-tmp/
+                                    index 已有清單外的 staged 項目（多半是別的 session 的）即拒絕
   prepare <repo> --staged           不 git add，直接拿當下 index 送審（merge 收尾用）
   review-record <repo> --codex "<回覆>" --reviewer "<回覆>" [--qa "<QA 狀態>"]
   review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"]

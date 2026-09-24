@@ -21,7 +21,9 @@
 | `rejected: blocked by policy` | **diff 內嵌進 prompt ＋ 寫死「不要執行任何指令、不要讀取任何檔案」，且不附檔案路徑** | §讀 diff 被沙箱擋 |
 | `Agent type not found` | `subagent_type` 必須是 `codex:codex-rescue` 完整字串 | §派工方式 |
 | `Not inside a trusted directory` | prompt 開頭加「先 `cd` 到 `<repo>`」 | §派工方式 |
-| 400 `model is not supported` | 跑 `codex-model-sync.sh`，是 model 下架不是環境故障 | §降級前先排除 model 下架 |
+| 400 `model is not supported` | 跑 `codex-model-sync.sh`，是 model 下架不是環境故障（**model 名若是旗標字樣，是下一列**） | §降級前先排除 model 下架 |
+| 400 `The '--continue' model is not supported`（model 名是 prompt 裡的某個旗標字樣） | prompt 內的 `-m` 之類被 companion 當成 `--model`；prompt 要求「以 stdin／暫存檔傳入、不拆成命令列參數」，範例指令的短旗標改用文字描述 | §派工方式 |
+| `--resume-last is not supported`（exit 1） | agent 自帶 `--resume-last` 接續舊 thread，本帳號不支援；prompt 明寫「帶 `--fresh`，禁止 `--resume-last`／`--resume`」 | §派工方式 |
 | 卡在 `Reading additional input from stdin` | `codex exec` 加 `< /dev/null` | §派工方式 |
 | 只收到 idle、沒有 VERDICT | **不是死了**，續等；判死要客觀證據 | §判活與降級 |
 | 回「無法驗證」型 BLOCK（全是 remain unverified） | 同第一列——它讀不到檔，不是發現缺陷 | §讀 diff 被沙箱擋 |
@@ -103,6 +105,17 @@ prompt 含 `.git-commit-tmp`／`staged-*.diff` 路徑、或含「先 cat 讀取�
 > 輸出檔卡在 `Reading additional input from stdin...` 不再增長，程序存活但 CPU 幾乎不動。
 > 現象與「算很久」肉眼無法分辨——實證卡死 16.5 分鐘、CPU 僅 0.03 秒才被 CPU 判準揪出。
 > 補上重導後同一份審查立刻正常跑完（EXIT_CODE=0）。**這是必死坑，不是偶發。**
+
+> ⚠️ **呼叫層的兩個坑：都不是審查結論，是 codex 根本沒跑起來**（2026-09-24 實證，同一次 commit 的第三輪審查連踩兩次）。
+> - **prompt 裡的類旗標字樣被當參數**：審查的是 git 旗標偵測器，prompt 範例寫了 `git merge -m --continue topic`，
+>   回 `400 The '--continue' model is not supported when using Codex with a ChatGPT account.`。
+>   codex companion（`codex-companion.mjs` 的 `aliasMap: { m: "model" }`）把 `-m` 解析成 `--model`，後一個 token 就成了 model 名。
+>   同一時段 config 的 `gpt-6-astra` 前兩輪都正常回 VERDICT——**錯誤訊息裡的 model 名若是某個旗標字樣，是 argv 解析，不是 model 下架，別跑 model-sync**。
+>   （「prompt 被拆成 argv」這段是推論：agent 實際下的指令列看不到；改寫 prompt 後即不再發生。）
+> - **`--resume-last` 本帳號不支援**：agent 自行帶上接續舊 thread 的旗標，回 `--resume-last is not supported with this Codex account type`（exit 1）。
+> - **處置**（照做後同一份審查兩輪皆正常回 VERDICT）：prompt 開頭明寫三句——「帶 `--fresh`，禁止 `--resume-last`／`--resume`」
+>   「審查內容寫成檔案後以 stdin 傳給 codex（`codex exec ... < 內容檔`，此時不再另加 `< /dev/null`），禁止拆成命令列參數」「失敗時逐字貼錯誤原文（含 exit code 與 stderr），不要轉述」；
+>   審查內容本身若含 git／CLI 旗標範例，短旗標改用文字描述（例「訊息選項（短旗標 m）」）。
 
 **Codex 要時間，別把「我等不下去」當成「它壞了」**（2026-08-23 實證，同輪犯三次）：
 
