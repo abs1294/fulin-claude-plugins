@@ -345,4 +345,4 @@ grep -n -i -E 'Claude|Anthropic|Codex|subagent|實測|掃描確認|本輪' <產�
 
 Dirty 檔案涵蓋多個不相關議題 → **直接拆多個 commit，自己決定怎麼拆與 message 用詞**（使用者明示過偏好拆、不要問）。一個議題＝一個 commit；同議題跨多檔放同 commit；同檔跨多議題可合併、message 概括。逐個走完整流程（`analyze`→`prepare`→三軌→`review-record`→`ship`），完成一個再 `analyze` 下一個。可以問的例外：檔案歸屬判不明、跨 repo 邊界（內外站誰先誰後）、涉破壞性操作。
 
-變更紀錄見 plugin 根目錄 CHANGELOG.md（`../../CHANGELOG.md`；本輪已將 SKILL.md 專屬的未重複條目併入該檔）
+變更紀錄見 plugin 根目錄 `../../CHANGELOG.md`。
