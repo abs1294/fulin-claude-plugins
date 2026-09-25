@@ -61,7 +61,8 @@ try {
     if (o.type !== 'user' && o.type !== 'assistant') continue;
     const t = Date.parse(o.timestamp);
     if (isNaN(t)) continue;
-    if (t > last) last = t;
+    // 系統注入的 user 紀錄（isMeta）不算活動：萬一 resume 日後改成以這種形式寫入，活動時間會被刷成現在、提醒永遠不出現
+    if (t > last && !(o.type === 'user' && o.isMeta)) last = t;
     if (o.type === 'user' && !o.isMeta && !o.isCompactSummary && o.message) {
       const s = userText(o.message.content).trim();
       if (s && !s.startsWith('<') && !s.includes('[SYSTEM NOTIFICATION') && !s.startsWith('Base directory for this skill')
