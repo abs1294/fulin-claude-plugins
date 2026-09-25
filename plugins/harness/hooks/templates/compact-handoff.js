@@ -16,8 +16,13 @@
  *
  * 關鍵值：骨架只收助理的文字，工具回傳的測試數字、錯誤原文、commit、編號另由程式抽成清單交給模型，
  * 信寫完再用字串比對驗「自稱抄入的值是否原樣出現」（判準與寫信的模型不同源，才抓得到改寫）。
+ * 非原樣分兩類：keysMangled＝去掉空白、標點、符號後找得到（改寫過），keysMissing＝完全找不到（自稱抄了其實沒寫進信）。
+ * ⚠ effort low 下模型在信末「已處理：」「關鍵值：」兩行的自我回報不可靠（來源實例一次自稱抄 16 筆、12 筆不在信裡），
+ *   流水帳的 asksOpen／keysClaimed／keysMissing 只能當參考。keysMangled 列出的每一筆都經程式比對信文確認是改寫，
+ *   但只檢查模型自稱抄入的那幾筆：沒被自稱的值不在比對範圍內，空陣列不代表信裡沒有改寫過的值。
  *
- * 成本：每次壓縮 35～140 秒、約 0.1～0.3 美元，與對話骨架長度成正比。
+ * 成本：每次壓縮開一個子 session，耗時與費用隨對話骨架長度增加。effort low 實測長對話 59～69 秒、短對話十幾秒；
+ *   預設 effort 時為 35～245 秒、約 0.1～0.3 美元（effort low 的費用未重新統計）。
  *
  * 已知未解：
  * - 手動 /compact 帶說明時，PreCompact 輸入的 custom_instructions 實際值未實測（不帶說明與自動壓縮皆為 null）。
@@ -32,6 +37,9 @@ const { spawnSync } = require('child_process');
 
 // ── init 填空區 ──────────────────────────────────────────────────────────────
 const MODEL = 'sonnet';        // 寫交接信的模型
+// 思考強度：預設 effort 下思考 token 佔輸出八成且每次差很多，同一份輸入 183～245 秒、常撞逾時；
+// low 實測 59～69 秒、思考 0，九節與關鍵值照樣產出（來源實例三輪評估，low 那輪零逾時、評審分數未變差）
+const EFFORT = 'low';
 // 交接信的語言與字形要求（寫進第 10 條原則）
 const LANGUAGE_RULE = '繁體中文，字形一律用繁體，不得混入簡體字';
 const HANDOFF_CHARS = 6000;    // 交接信長度上限（字元）；注入端整段上限見 compact-reinject.js 的 HANDOFF_MAX
@@ -290,7 +298,7 @@ function generateHandoff(transcriptPath, focus) {
   const cwd = path.join(os.tmpdir(), 'compact-handoff-cwd');
   fs.mkdirSync(cwd, { recursive: true });
   const r = spawnSync(findClaude(), [
-    '-p', '--model', MODEL, '--tools', '', '--setting-sources', 'local',
+    '-p', '--model', MODEL, '--effort', EFFORT, '--tools', '', '--setting-sources', 'local',
     '--strict-mcp-config', '--disable-slash-commands', '--no-session-persistence',
     '--system-prompt', SYSTEM, '--output-format', 'json',
   ], { input: prompt, cwd, encoding: 'utf8', timeout: CHILD_TIMEOUT, maxBuffer: 16 * 1024 * 1024,
@@ -316,11 +324,20 @@ function generateHandoff(transcriptPath, focus) {
     const kt = keys.length ? takeMark(body, '關鍵值') : { body, nums: new Set(), found: false };
     body = kt.body;
     const claimed = [...kt.nums].filter(n => n >= 1 && n <= keys.length);
-    const mangled = claimed.filter(n => !body.includes(keys[n - 1].value));
+    const notVerbatim = claimed.filter(n => !body.includes(keys[n - 1].value));
+    // 去掉標點空白後還找得到＝改寫過（逗號換頓號、縮短）；找不到＝自稱抄了其實沒寫進信。
+    // effort low 下後者很常見（00eecc25 自稱 16 筆、12 筆根本不在信裡），兩者要分開看
+    // 只去掉空白、標點、符號，各種文字的字母與數字都保留：只留英數與漢字時，希臘字母、全形數字、假名會被整段刪掉，
+    // 「Error: α」與「Error: β」就被當成同一個值，沒寫進信的值會被誤判成改寫
+    const loose = s => s.replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase();
+    const bodyLoose = loose(body);
+    const mangled = notVerbatim.filter(n => bodyLoose.includes(loose(keys[n - 1].value)));
+    const missing = notVerbatim.filter(n => !bodyLoose.includes(loose(keys[n - 1].value)));
     return { ok: true, ms, digestChars: digest.length, cost: j.total_cost_usd, handoff: body,
              asks: asks.length, asksOpen, markFound: took.found,
              keys: keys.length, keysClaimed: kt.found ? claimed.length : null,
-             keysMangled: kt.found ? mangled.map(n => keys[n - 1].value) : null };
+             keysMangled: kt.found ? mangled.map(n => keys[n - 1].value) : null,
+             keysMissing: kt.found ? missing.map(n => keys[n - 1].value) : null };
   } catch (e) {
     return { ok: false, ms, digestChars: digest.length, error: 'parse ' + e.message };
   }
