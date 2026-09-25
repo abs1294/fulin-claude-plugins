@@ -1,0 +1,47 @@
+{
+  "hook": "resume-stale-reminder.js",
+  "cases": [
+    {
+      "label": "隔很久才 resume（最後活動在數年前）→ 提醒狀態可能過期",
+      "setup": {
+        "transcript": [
+          { "type": "user", "timestamp": "2020-01-01T00:00:00.000Z", "message": { "role": "user", "content": "服務起好了，接著跑測試" } },
+          { "type": "assistant", "timestamp": "2020-01-01T00:01:00.000Z", "message": { "role": "assistant", "content": [{ "type": "text", "text": "測試 965 passed" }] } }
+        ]
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "resume", "session_id": "s1" },
+      "expect": "NOTE"
+    },
+    {
+      "label": "不是 resume（一般開 session）→ 不輸出",
+      "setup": {
+        "transcript": [
+          { "type": "user", "timestamp": "2020-01-01T00:00:00.000Z", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "startup", "session_id": "s1" },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "transcript 沒有任何帶時間的對話紀錄 → 無從判斷，不輸出",
+      "setup": {
+        "transcript": [
+          { "type": "summary", "summary": "x" }
+        ]
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "resume", "session_id": "s1" },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "交接信子 session → 直接退出（防遞迴）",
+      "setup": {
+        "env": { "COMPACT_HANDOFF_CHILD": "1" },
+        "transcript": [
+          { "type": "user", "timestamp": "2020-01-01T00:00:00.000Z", "message": { "role": "user", "content": "x" } }
+        ]
+      },
+      "payload": { "hook_event_name": "SessionStart", "source": "resume", "session_id": "s1" },
+      "expect": "ALLOW"
+    }
+  ]
+}

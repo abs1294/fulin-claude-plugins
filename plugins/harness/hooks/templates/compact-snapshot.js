@@ -146,7 +146,8 @@ try {
       const h = require('./compact-handoff.js').generateHandoff(input.transcript_path, input.custom_instructions || '');
       if (h.ok) fs.writeFileSync(path.join(dir, stamp + '.handoff.md'), h.handoff);
       handoff = { ok: h.ok, ms: h.ms, cost: h.cost || null, digestChars: h.digestChars, chars: h.ok ? h.handoff.length : 0,
-        asks: h.asks, asksOpen: h.asksOpen, markFound: h.markFound, error: h.error || null };
+        asks: h.asks, asksOpen: h.asksOpen, markFound: h.markFound,
+        keys: h.keys, keysClaimed: h.keysClaimed, keysMangled: h.keysMangled, error: h.error || null };
     } catch (e) { handoff = { ok: false, error: e.message }; }
   }
   const record = { stamp, trigger: input.trigger || null, cwd: input.cwd || null,

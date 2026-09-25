@@ -177,7 +177,7 @@ Phase 0 前置檢查 ─→ Phase 1 盤點（唯讀） ─→ Phase 2 攤開核�
 
 ### Q5 的 hook 清單怎麼來：照形狀目錄推導，不是從菜單挑
 
-正本＝`references/hook-catalog.md`（來源專案 23 支 hook＋3 個 plugin 自帶閘，逐支拆成「通用形狀＋觸發條件＋專案參數」，分 A 必裝／B 盤點觸發／C 工作法觸發／D 由 plugin 提供／E 長出來才裝五類）。**沒有數量上限**——裝幾支由這個專案的事實決定。
+正本＝`references/hook-catalog.md`（來源專案 24 支 hook＋3 個 plugin 自帶閘，逐支拆成「通用形狀＋觸發條件＋專案參數」，分 A 必裝／B 盤點觸發／C 工作法觸發／D 由 plugin 提供／E 長出來才裝五類）。**沒有數量上限**——裝幾支由這個專案的事實決定。
 
 推導（事實判定，不問使用者）：
 
@@ -261,7 +261,7 @@ Q5 攤給使用者的格式（每支一列）：
 |------|------|------|
 | 每支已裝 hook 檔頭的「接線」註解 | Q4 決定：`<落點>/.claude/settings.local.json`（單人）或 `.claude/settings.json`（團隊） | `hooks` 區接上每支 hook（PreToolUse matcher 照檔頭）；Phase 0-4 缺的 `mcp__playwright__*` 補進 `permissions.allow`（僅瀏覽器可驅動時）。**既有 settings 檔先建 `.bak` 再以 JSON 合併寫回，不整檔覆蓋**；寫完 `node -e "JSON.parse(...)"` 驗格式 |
 
-壓縮交接四支（形狀目錄第 26 列）掛三個事件：PreCompact 的 timeout 必須大於 `compact-handoff.js` 的 `CHILD_TIMEOUT`（範本為 240 秒對 180 秒），否則交接信寫到一半被中止；SessionStart 的 matcher 必須是 `compact`，只在壓縮後注入。
+壓縮交接五支（形狀目錄第 26 列）掛四個事件：PreCompact 的 timeout 必須大於 `compact-handoff.js` 的 `CHILD_TIMEOUT`（範本為 240 秒對 220 秒，差距留給快照寫檔），否則交接信寫到一半被中止，兩者要一起調；`compact-reinject.js` 掛 SessionStart matcher `compact`，只在壓縮後注入；`resume-stale-reminder.js` 掛 SessionStart matcher `resume`，只在 resume 時判斷要不要提醒。
 
 SessionStart 提醒由本 plugin 的條件式 hook 提供（偵測到 `.claude/harness/README.md` 才輸出），啟用本 plugin 的專案不必在 settings 重複加；未啟用本 plugin 的專案才在 settings 補一條 inline 提醒。
 

@@ -38,11 +38,25 @@ try {
     for (const f of snap.docs || []) if (!summary.includes(path.basename(f))) missing.docs.push(path.basename(f));
     for (const f of snap.edits || []) if (!summary.includes(path.basename(f))) missing.edits.push(path.basename(f));
   }
+  // 同一份快照對交接信再比一次：上面量的是內建摘要漏了什麼，這裡量交接信有沒有補上
+  let missingInHandoff = null;
+  if (snap) {
+    let letter = null;
+    try { letter = fs.readFileSync(path.join(dir, snap.stamp + '.handoff.md'), 'utf8'); } catch {}
+    if (letter) {
+      missingInHandoff = { agents: [], docs: [], edits: [], skills: [] };
+      for (const s of snap.skills || []) if (!letter.includes(s)) missingInHandoff.skills.push(s);
+      for (const a of snap.running || []) if (!letter.includes(a.id) && !letter.includes(a.desc)) missingInHandoff.agents.push(a.desc);
+      for (const f of snap.docs || []) if (!letter.includes(path.basename(f))) missingInHandoff.docs.push(path.basename(f));
+      for (const f of snap.edits || []) if (!letter.includes(path.basename(f))) missingInHandoff.edits.push(path.basename(f));
+    }
+  }
   const row = {
     at: new Date().toISOString(), session: input.session_id, trigger: input.trigger || null,
     snapshot: stamp, summaryChars: summary.length,
     counts: snap ? { agents: (snap.running || []).length, docs: (snap.docs || []).length, edits: (snap.edits || []).length, skills: (snap.skills || []).length } : null,
     missing,
+    missingInHandoff,
     handoff: snap ? snap.handoff || null : null,
     // 壓縮後第一個回合是否直接接續、不需使用者重講背景；無法在此自動判定，評估時人工補記
     resumedWithoutReexplain: null,

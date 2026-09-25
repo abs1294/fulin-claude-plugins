@@ -2,6 +2,28 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.3.1] - 2026-09-25
+
+### Changed（壓縮交接跟上來源實例）
+- **交接信改九節**（`compact-handoff.js`）：未完成、目標版本（中途改目標時 v1／v2 各引原話並註明作廢步驟）、硬約束（使用者原話）、關鍵值（原樣）、走過的死路、HYPOTHESIS／已推翻、已完成、偏好、建議 skill；禁推論句（「使用者傾向…」）、禁簡體字形（語言規則收進填空區 `LANGUAGE_RULE`）。
+- **關鍵值清單**：對話骨架只收助理的文字，工具回傳的測試數字、錯誤行、exit code、commit、PR／票號到不了交接信。改由程式從工具回傳抽原值交給模型，信寫完用字串比對驗「自稱抄入的是否原樣出現」，結果記 `keysClaimed`／`keysMangled`；讀檔類工具（Read、Grep、`cat`／`sed -n` 讀檔）的回傳不抽，避免把程式字面或舊交接信的數字當成這輪結果。
+- **子 session 逾時 180→220 秒**：來源實例 180 秒時 4 次重寫逾時 2 次；PreCompact 接線 timeout 240 秒，差距留給快照寫檔，兩者在填空區註明要一起調。
+- **注入超長時先截「已完成」節**（`compact-reinject.js`）：原本從信尾截，排在後面的節會先被砍；改為先壓「已完成」節內文，仍不夠才整段截斷。
+- **流水帳加 `missingInHandoff`**（`compact-summary-log.js`）：同一份快照對交接信再比一次，量交接信有沒有補上內建摘要漏掉的項目。
+
+### Added
+- `hooks/templates/resume-stale-reminder.js`（SessionStart matcher `resume`，併入形狀目錄第 26 列）：距上次活動超過 `STALE_HOURS`（預設 4）才 resume 時，提醒服務狀態、背景 agent、DB 與 git、測試數字都可能已過期，附最近一封交接信路徑與使用者最後一則指示原文。壓縮有交接信補位，resume 沒有——context 原封不動回來，模型會把暫停當下的說法當成現況。
+
+### Fixed（審查抓到，來源實例同步修正）
+- **多行讀檔指令誤判**：判斷「這個 shell 指令只是讀檔」的樣式允許換行，`cat notes.md` 換行接 `pytest` 會被整段當成讀檔，後段真的測試結果抽不進關鍵值；換行改為等同接下一道指令。
+- **resume 提醒把最新指示換成舊句**：原本排除「最近 60 秒內」的紀錄，以免 resume 自己寫入的紀錄被當成活動；但 resume 當下寫入的只有 queue-operation 與 hook 輸出的 attachment（來源實例以 `-p --resume` 實測），本來就被「只看 user／assistant」擋掉，這層排除唯一的效果是：暫停前 60 秒內才講的話被略過，提醒誤報過期，「最後一則指示」還顯示更早的舊句。已移除。HYPOTHESIS：互動模式 resume 是否會在 hook 之前先寫 user／assistant 紀錄未實測；若會，最壞結果是該次不出提醒。
+
+### 驗證
+- 範本以來源實例為邏輯正本產生，程式化逐行比對：差異只剩填空區常數、通用 `DOC_RE`／`NOISE_RE`、`COMPACT_HANDOFF_OFF` 分支。
+- probe：語法樹路徑 482/482；正則路徑 439 通過、43 略過（含 resume-stale-reminder 新增 4 條）。
+- 新增行為整合測試 16/16（關鍵值抽取與讀檔排除、多行指令、先截已完成節、missingInHandoff、resume 5 小時提醒、1 小時與 30 秒前才活動時靜默）；以 0.3.0 範本為對照組 11 條失敗、以修正前的本版為對照組 2 條失敗（多行指令、30 秒前才活動），證明測試抓得到差異。0.3.0 的整合測試 17/17 無退步；真呼叫 `claude -p` 一次，交接信九節齊全、統計行已移除。
+- 未實測：真呼叫時「關鍵值：」統計行的移除與 `keysMangled` 比對（測試對話沒有工具回傳可抽）。
+
 ## [0.3.0] - 2026-09-23
 
 ### Fixed（冷啟實測抓到）

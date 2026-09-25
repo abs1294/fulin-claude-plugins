@@ -18,8 +18,32 @@ const path = require('path');
 
 // ── init 填空區 ──────────────────────────────────────────────────────────────
 const MAX = 3500;           // 沒有交接信、退回快照清單時的輸出上限
-const HANDOFF_MAX = 9800;   // 整段輸出的上限；平台硬上限 10,000 字元，留一點餘裕
+// 整段輸出的上限。平台上限 10,000 字元（實測：9,990 全文送達、10,010 只剩 2KB 預覽，
+// 計的是字元數不是 bytes），留一點餘裕
+const HANDOFF_MAX = 9800;
 // ─────────────────────────────────────────────────────────────────────────────
+
+// 切點往前退到不會落在 surrogate pair 中間，否則輸出半個字元；下限 0（slice 收到負數會從尾端倒數）
+function safeCut(str, cut) {
+  cut = Math.max(0, cut);
+  if (cut > 0 && /[\uD800-\uDBFF]/.test(str[cut - 1])) cut--;
+  return cut;
+}
+
+// 把「## 已完成」節的內文截到剛好塞得進預算；沒有這一節或截光也不夠時，交給後面的整段截斷
+function shrinkDone(text, budget) {
+  const over = text.length - budget;
+  if (over <= 0) return text;
+  const h = text.match(/^## 已完成[^\n]*\n/m);
+  if (!h) return text;
+  const start = h.index + h[0].length;
+  const next = text.slice(start).search(/^## /m);
+  const end = next < 0 ? text.length : start + next;
+  const note = '…（已完成節已截短，全文見下方路徑）\n\n';
+  const keep = (end - start) - over - note.length - 1;   // -1：截點後補的換行
+  if (keep <= 0) return text.slice(0, start) + note + text.slice(end);
+  return text.slice(0, safeCut(text, start + keep)) + '\n' + note + text.slice(end);
+}
 if (process.env.COMPACT_HANDOFF_CHILD) process.exit(0);
 let input = null;
 try { input = JSON.parse(fs.readFileSync(0, 'utf8')); } catch { process.exit(0); }
@@ -46,18 +70,12 @@ try {
       `交接信全文：${path.join(dir, snap.stamp + '.handoff.md')}`,
       '⚠ 交接信與壓縮摘要都是二手紀錄：「已完成／已驗證／不存在」這類主張，據以行動前先對回原始證據。',
     ].join('\n') + '\n';
-    // 平台對 hook 純文字 stdout 的上限是整段 10,000 字元，超過就只剩 2,000 字預覽，
-    // 所以預算要扣掉前後固定文字，不能只量交接信本身
+    // 上限算的是整段 stdout，預算要扣掉前後固定文字，不能只量交接信本身
     const mark = '\n…（已截斷，全文見下方路徑）';
-    // 預算下限 0：slice 收到負數會從尾端倒數，反而整封照貼
     const budget = Math.max(0, HANDOFF_MAX - head.length - tail.length);
-    let body = handoff;
-    if (body.length > budget) {
-      let cut = Math.max(0, budget - mark.length);
-      // 切點不可落在 surrogate pair 中間，否則輸出半個字元
-      if (cut > 0 && /[\uD800-\uDBFF]/.test(body[cut - 1])) cut--;
-      body = body.slice(0, cut) + mark;
-    }
+    // 超長時先截「已完成」節：它排在硬約束、關鍵值之後，從信尾砍會先砍掉這些不能丟的節
+    let body = shrinkDone(handoff, budget);
+    if (body.length > budget) body = body.slice(0, safeCut(body, budget - mark.length)) + mark;
     process.stdout.write(head + body + tail);
     process.exit(0);
   }
@@ -91,13 +109,9 @@ try {
   }
   L.push('', '⚠ 壓縮摘要是二手紀錄：其中「已完成／已驗證／不存在」這類主張，據以行動前先對回原始證據（檔案、指令輸出、DB），不要當成已確認的事實。');
   let out = L.join('\n');
-  // 截斷提示與結尾換行都算在 MAX 裡；切點不可落在 surrogate pair 中間
+  // 截斷提示與結尾換行都算在 MAX 裡
   const cutMark = '\n…（已截斷，完整內容見快照檔）';
-  if (out.length + 1 > MAX) {
-    let cut = Math.max(0, MAX - 1 - cutMark.length);
-    if (cut > 0 && /[\uD800-\uDBFF]/.test(out[cut - 1])) cut--;
-    out = out.slice(0, cut) + cutMark;
-  }
+  if (out.length + 1 > MAX) out = out.slice(0, safeCut(out, MAX - 1 - cutMark.length)) + cutMark;
   process.stdout.write(out + '\n');
 } catch (e) {
   try { process.stdout.write(`[compact-reinject] 讀取壓縮前快照失敗：${e.message}。若有進行中任務，先重讀其規範文件再繼續。\n`); } catch {}

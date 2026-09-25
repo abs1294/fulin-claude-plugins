@@ -1,7 +1,7 @@
 # hook 形狀目錄（init 可執行層的正本）
 
 > init 的可執行層**不是從固定菜單挑**，而是對本目錄逐列判「觸發條件成不成立」：成立就裝，並把該列的
-> 專案參數填進範本的「init 填空區」。來源＝來源專案實際在跑的 23 支 hook＋3 個 plugin 自帶的閘，
+> 專案參數填進範本的「init 填空區」。來源＝來源專案實際在跑的 24 支 hook＋3 個 plugin 自帶的閘，
 > 逐支拆成「通用形狀＋觸發條件＋專案參數」。範本檔名與來源 hook 同名的，是同一支的去專案化版本。
 >
 > 為什麼要這份目錄：來源專案的 hook 絕大多數綁著專案事實（某支寄信服務的檔名、某台 DB 的帳號、
@@ -48,7 +48,7 @@
 | 23 | （qa-webwright）landing／early-nudge／project-knowledge | 用了瀏覽器卻沒落地可重跑測試；先讀 QA 知識檔 | Stop／PostToolUse／PreToolUse | D | 前端為瀏覽器可驅動 | 無 | qa-webwright plugin 自帶 |
 | 24 | （cbm-guard）guard-cbm-query | 程式碼圖譜查詢的錯誤寫法攔截 | PreToolUse cbm 工具 | D | 專案有用 codebase-memory-mcp | 無 | cbm-guard plugin 自帶 |
 | 25 | guard-test-asset-hygiene | 寫測試檔後自動跑測試資產稽核（硬編資料、覆蓋登記、顯示文字定位、skip 濫用），只擋新增 | PostToolUse `Write\|Edit\|MultiEdit` | E | 專案已有對應的稽核工具 | 測試目錄、每個稽核工具的指令 | `guard-test-asset-hygiene.js`（範本已備，init 只在有稽核工具時裝） |
-| 26 | compact-snapshot／compact-reinject／compact-summary-log | 壓縮前存快照並由隔離的子 session 寫交接信，壓縮後把交接信注入回 context——摘要常漏的背景 agent、只讀過的規範、未兌現的承諾與待決事項接得回來 | PreCompact（timeout 240）／SessionStart `compact`／PostCompact | A | 無。交接信要能執行 claude CLI（`~/.local/bin` 或 PATH），找不到時只留快照、不擋壓縮；每次壓縮約 0.1～0.3 美元、35～140 秒，Q5 攤清單時要講出這個成本 | 規範文件樣式 `DOC_RE`、交接信模型／語言／長度、注入上限 | `compact-snapshot.js`＋`compact-handoff.js`（被 require 的模組，不接線）＋`compact-reinject.js`＋`compact-summary-log.js`，四支一起裝 |
+| 26 | compact-snapshot／compact-reinject／compact-summary-log／resume-stale-reminder | 壓縮前存快照並由隔離的子 session 寫交接信（九節：未完成、目標版本、硬約束、關鍵值、走過的死路…），壓縮後把交接信注入回 context——摘要常漏的背景 agent、只讀過的規範、未兌現的承諾、工具回傳的測試數字與錯誤原文接得回來；隔數小時才 resume 時提醒狀態可能已過期 | PreCompact（timeout 240）／SessionStart `compact`／PostCompact／SessionStart `resume` | A | 無。交接信要能執行 claude CLI（`~/.local/bin` 或 PATH），找不到時只留快照、不擋壓縮；每次壓縮約 0.1～0.3 美元、35～140 秒，Q5 攤清單時要講出這個成本 | 規範文件樣式 `DOC_RE`、交接信模型／語言／長度、子 session 逾時（要小於 PreCompact 的 timeout）、注入上限、resume 提醒門檻時數 | `compact-snapshot.js`＋`compact-handoff.js`（被 require 的模組，不接線）＋`compact-reinject.js`＋`compact-summary-log.js`＋`resume-stale-reminder.js`，五支一起裝 |
 
 ## init 的推導步驟（Phase 4 可執行層照這個做）
 
