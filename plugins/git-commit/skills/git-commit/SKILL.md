@@ -144,9 +144,10 @@ Prompt 開頭**必須**寫兩件事，缺一必死：
 
 並要求失敗時回 `VERDICT: UNAVAILABLE` 附錯誤原文，不得靜默退出。
 
-另兩條呼叫層規定（2026-09-24 實證，違反時 codex 根本沒跑、不是審查結論，詳見 troubleshooting）：
-3. 「帶 `--fresh`，禁止 `--resume-last`／`--resume`」——本帳號不支援接續舊 thread，exit 1
+另三條呼叫層規定（2026-09-24／25 實證，違反時 codex 根本沒跑、不是審查結論，詳見 troubleshooting）：
+3. 「開全新對話，禁止接續舊 thread」——**兩條路寫法不同，不可混用**：走 companion（`node <codex plugin>/scripts/codex-companion.mjs task`）才帶 `--fresh`，並禁止 `--resume-last`／`--resume`（本帳號不支援，exit 1）；直接用 `codex exec` 時**不加 `--fresh`**——exec 沒有這個旗標，會回 `error: unexpected argument '--fresh' found`（exit 2），完全沒跑。exec 本來每次就是新 session，接續要另下 `codex exec resume`，一樣禁用
 4. 「審查內容以 stdin 傳入（`codex exec ... < 內容檔`），禁止拆成命令列參數」——內容裡的 `-m` 之類會被 companion 當成 `--model`，回 400 `The '<旗標字樣>' model is not supported`；審查內容本身有旗標範例時，短旗標改用文字描述。以內容檔當 stdin 時就**不再加** `< /dev/null`（兩者都是指定 stdin，只能擇一；內容檔有結尾，不會卡在等 stdin），第 2 條的 `< /dev/null` 指的是「不從 stdin 傳內容」的呼叫
+5. 「判定這一軌有跑，看輸出裡有沒有 `VERDICT:` 行，不看 exit code」——`codex exec ... | tail` 這類管線的 exit code 是最後一個指令的：codex 報錯 exit 2，管線末端照樣回 0，外觀像跑完了（2026-09-25 實測）。要看 codex 本身的結果用 `${PIPESTATUS[0]}`；輸出沒有 `VERDICT:` 行就是**沒有可採用的結論**（可能沒跑、中途失敗或輸出被截斷，三者都不能當審查完成），要回 `VERDICT: UNAVAILABLE` 附原文，絕不可當成 PASS 或當成「沒意見」
 
 **等待紀律**：逾 10 分鐘告知使用者一次（不必問、不停下），之後安靜續等，至多 1 小時。完整審查本來就要 7 分鐘以上，慢的是思考不是工具。
 
@@ -173,7 +174,8 @@ Prompt 範本（開頭的 cd 指示與 codex exec 用法照 145–147 兩件事�
 
 ```
 執行任何 codex 指令前，先 cd 到 <repo 的絕對路徑>（`codex exec` 一律加 `< /dev/null`）。
-呼叫 codex 一律帶 `--fresh`，禁止 `--resume-last`／`--resume`；以下審查內容寫成檔案後以 stdin 傳入（`codex exec ... < 內容檔`，此時不再另加 `< /dev/null`），禁止拆成命令列參數。
+呼叫 codex 一律開全新對話：走 companion 用 `task --fresh`（禁止 `--resume-last`／`--resume`）；直接用 `codex exec` 則**不加 `--fresh`**（exec 沒有這個旗標，加了 exit 2、完全沒跑），也不用 `codex exec resume`。以下審查內容寫成檔案後以 stdin 傳入（`codex exec ... < 內容檔`，此時不再另加 `< /dev/null`），禁止拆成命令列參數。
+判定跑完與否看輸出有沒有 `VERDICT:` 行，不看 exit code（管線末端的 exit 0 蓋得掉 codex 的 exit 2）；沒有就回 `VERDICT: UNAVAILABLE`。
 失敗時回 `VERDICT: UNAVAILABLE`，逐字貼錯誤原文（含 exit code 與 stderr），不要轉述。
 
 【嚴格限制】不要執行任何指令、不要讀取任何檔案。

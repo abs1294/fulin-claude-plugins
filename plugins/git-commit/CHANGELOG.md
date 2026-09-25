@@ -27,6 +27,11 @@
 - 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
 - 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
 
+## [0.8.4] - 2026-09-25
+### Fixed（文件）
+- **`--fresh` 寫法錯誤會讓 B 軌白跳、外觀像審查完成**（使用者回報、本機實測）：0.8.2 在 1.3b 與 troubleshooting 寫「呼叫 codex 一律帶 `--fresh`」，沒區分兩條路。`--fresh` 只是 companion `codex-companion.mjs task` 的旗標，`codex exec` 沒有——`codex exec --fresh ...` 回 `error: unexpected argument '--fresh' found`（exit 2），完全沒跑；接在管線裡（`... 2>&1 | tail -3`）末端 exit 為 0、`${PIPESTATUS[0]}` 才是 2。範本又把「帶 `--fresh`」與「`codex exec ... < 內容檔`」寫在同一句，照寫就中。改為：走 companion 用 `task --fresh`；直接用 `codex exec` 不加（exec 本來每次就是新 session，接續要另下 `codex exec resume`，禁用）。SKILL.md 1.3b 第 3 條、prompt 範本、troubleshooting 快速參照與處置段同步改寫。
+- **1.3b 新增第 5 條：判定該軌有跑看輸出裡的 `VERDICT:` 行，不看 exit code**。沒有 VERDICT 行就回 `VERDICT: UNAVAILABLE` 附原文，不可當成 PASS。troubleshooting 快速參照補兩列（`unexpected argument '--fresh'`、exit 0 但沒有 VERDICT）。
+
 ## [0.8.3] - 2026-09-24
 ### Added
 - **外來 staged 閘的 submodule 情境補齊**（`tests/test_merge_support.sh` F9c～F9f，共 81 項）：原本 F9 只測「新增 gitlink＋同時設兩種 ignore」，補上「既有 submodule 指標更新」且兩種 ignore 設定（`diff.ignoreSubmodules`、`submodule.<name>.ignore`）各自單獨設的情境。`submodule.<name>.ignore` 只對 `.gitmodules` 登記過的 submodule 生效——未登記時舊的 `git diff` 版本照樣能列出、測試驗不出退化，故測試先登記再測。反向驗證：換回 `git diff` 版 F9～F9f 六項全 FAIL。

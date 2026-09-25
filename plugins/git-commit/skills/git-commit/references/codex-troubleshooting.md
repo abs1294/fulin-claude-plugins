@@ -23,7 +23,9 @@
 | `Not inside a trusted directory` | prompt 開頭加「先 `cd` 到 `<repo>`」 | §派工方式 |
 | 400 `model is not supported` | 跑 `codex-model-sync.sh`，是 model 下架不是環境故障（**model 名若是旗標字樣，是下一列**） | §降級前先排除 model 下架 |
 | 400 `The '--continue' model is not supported`（model 名是 prompt 裡的某個旗標字樣） | prompt 內的 `-m` 之類被 companion 當成 `--model`；prompt 要求「以 stdin／暫存檔傳入、不拆成命令列參數」，範例指令的短旗標改用文字描述 | §派工方式 |
-| `--resume-last is not supported`（exit 1） | agent 自帶 `--resume-last` 接續舊 thread，本帳號不支援；prompt 明寫「帶 `--fresh`，禁止 `--resume-last`／`--resume`」 | §派工方式 |
+| `--resume-last is not supported`（exit 1） | agent 自帶 `--resume-last` 接續舊 thread，本帳號不支援；走 companion 時明寫「`task --fresh`，禁止 `--resume-last`／`--resume`」 | §派工方式 |
+| `error: unexpected argument '--fresh' found`（exit 2） | `--fresh` 是 companion `task` 的旗標，**`codex exec` 沒有**；直接用 exec 就不加（exec 本來每次就是新 session） | §派工方式 |
+| exit 0 但輸出沒有 `VERDICT:` 行 | **不是審查完成**：多半是管線（`codex exec ... \| tail`）把 codex 的非 0 exit 蓋成 0。看 `${PIPESTATUS[0]}` 與原始輸出；沒有 VERDICT 就是沒有可採用的結論（沒跑、中途失敗或輸出被截斷），回 UNAVAILABLE | §派工方式 |
 | 卡在 `Reading additional input from stdin` | `codex exec` 加 `< /dev/null` | §派工方式 |
 | 只收到 idle、沒有 VERDICT | **不是死了**，續等；判死要客觀證據 | §判活與降級 |
 | 回「無法驗證」型 BLOCK（全是 remain unverified） | 同第一列——它讀不到檔，不是發現缺陷 | §讀 diff 被沙箱擋 |
@@ -112,7 +114,11 @@ prompt 含 `.git-commit-tmp`／`staged-*.diff` 路徑、或含「先 cat 讀取�
 >   同一時段 config 的 `gpt-6-astra` 前兩輪都正常回 VERDICT——**錯誤訊息裡的 model 名若是某個旗標字樣，是 argv 解析，不是 model 下架，別跑 model-sync**。
 >   （「prompt 被拆成 argv」這段是推論：agent 實際下的指令列看不到；改寫 prompt 後即不再發生。）
 > - **`--resume-last` 本帳號不支援**：agent 自行帶上接續舊 thread 的旗標，回 `--resume-last is not supported with this Codex account type`（exit 1）。
-> - **處置**（照做後同一份審查兩輪皆正常回 VERDICT）：prompt 開頭明寫三句——「帶 `--fresh`，禁止 `--resume-last`／`--resume`」
+> - **`--fresh` 只有 companion 認得**（2026-09-25 實測，使用者回報）：`--fresh` 是 `codex-companion.mjs task` 的旗標（`booleanOptions` 內），`codex exec` 沒有——
+>   `codex exec --fresh ...` 回 `error: unexpected argument '--fresh' found`（exit 2），完全沒跑。更危險的是接在管線裡：`codex exec --fresh ... 2>&1 | tail -3`
+>   末端 exit 為 **0**、`${PIPESTATUS[0]}` 才是 2——外觀像審查跑完，實際整軌白跳。早期文件寫「一律帶 `--fresh`」沒分兩條路，照 exec 寫法就中。
+>   **判定有結論的唯一依據是輸出裡的 `VERDICT:` 行**，不是 exit code；沒有這行不論原因（沒跑、中途失敗、輸出被截斷）都不能當審查完成。
+> - **處置**（照做後同一份審查兩輪皆正常回 VERDICT）：prompt 開頭明寫三句——「開全新對話：走 companion 用 `task --fresh`、禁止 `--resume-last`／`--resume`；直接用 `codex exec` 則不加 `--fresh`」
 >   「審查內容寫成檔案後以 stdin 傳給 codex（`codex exec ... < 內容檔`，此時不再另加 `< /dev/null`），禁止拆成命令列參數」「失敗時逐字貼錯誤原文（含 exit code 與 stderr），不要轉述」；
 >   審查內容本身若含 git／CLI 旗標範例，短旗標改用文字描述（例「訊息選項（短旗標 m）」）。
 
