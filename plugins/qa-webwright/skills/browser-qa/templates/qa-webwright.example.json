@@ -1,0 +1,124 @@
+{
+  "_doc": "qa-webwright 專案參數檔（放 tests/e2e/qa-webwright.json）。所有 tests/e2e/tools/ 下的工具一律讀這份，不寫死專案值。以底線開頭的 key 是註解、工具忽略。缺的 key 走內建預設。欄位說明見 plugin README「專案參數檔」節。",
+  "schema_version": 1,
+  "test_data_prefix": "E2E-",
+  "intentional_prefixes": ["NONEXISTENT", "PLACEHOLDER", "MISSING", "NOT_FOUND", "INVALID", "FAKE", "DUMMY", "BAD"],
+  "fake_identity_prefixes": ["QA", "E2E", "ZZ", "MOCK", "DUMMY", "FAKE", "TEST"],
+  "fake_email_domains": ["example.com", "example.org", "example.net", "test", "invalid", "localhost"],
+  "_biz_tables": "業務主體表：測試直接 INSERT/UPDATE 這些＝繞過產品入口（hardcode_check E 類，阻擋）；也是 H 類「借一筆現成的」的判定範圍",
+  "biz_tables": ["orders", "order_items", "invoices"],
+  "_skeleton_tables": "骨架／字典表：直接寫入風險較低（E' 類，參考）",
+  "skeleton_tables": ["users", "roles", "permissions"],
+  "_ports": "port 歸屬閘：設了 QA_EXPECT_WORKTREE 才檢查。port 可寫死或用 url_env 從環境變數的網址解析",
+  "ports": [
+    {"label": "前端", "port": 5173},
+    {"label": "後端", "url_env": "QA_API_URL"}
+  ],
+  "residue": {
+    "_doc": "殘留清掃登錄表：只收查得到測試確實會寫入的表。children 先刪（fk 指向本表 pk）",
+    "targets": [
+      {"table": "orders", "marker_column": "title", "pk_column": "id", "created_column": "created_at",
+       "children": [{"table": "order_items", "fk_column": "order_id"}]}
+    ]
+  },
+  "db": {
+    "_doc": "可插拔 DB 連線：\"sqlite:<相對 tests/e2e 路徑>\" 或 \"<module>:<factory>\"（factory() 回傳帶 query/execute 的物件）；null＝未設定",
+    "connector": null
+  },
+  "coverage": {
+    "file": "COVERAGE.md",
+    "header": ["使用情境（白話）", "測試函式", "覆蓋"],
+    "placeholder": "待補",
+    "locked_section": "🔒 鎖定",
+    "xfail_section": "xfail"
+  },
+  "catalog": {"file": "CATALOG.md"},
+  "_external_system_keywords": "E 類整檔豁免的第三條：【測試資料來源】理由段必須落在其中一類（產品端根本沒有入口的外部系統邊界）。依專案實際外部系統改寫",
+  "external_system_keywords": {
+    "workflow_callback": ["簽核系統", "送審鏈", "approval workflow", "workflow callback", "callback_"],
+    "upstream_push": ["webhook", "上游推送", "upstream push"],
+    "external_master_data": ["外部主檔", "external master data", "mock master"],
+    "directory_service": ["ldap", "目錄服務", "directory service"]
+  },
+  "data_source_tags": ["【測試資料來源】", "[test-data-source]"],
+  "_skip_classify": "skip 四分類的專案擴充關鍵字（regex 片段，與內建中英文預設合併）",
+  "skip_classify": {"A": [], "B": ["\\bsandbox (?:is )?down\\b"], "C": [], "D": [], "D_exclude": []},
+  "skip_gate": true,
+  "_env_requirements": "fixture → 必要環境變數：本輪收集到的測試用到這些 fixture（item.fixturenames，含遞移依賴）才檢查。只放該環境件獨有的 fixture，別放 page/base_url",
+  "env_requirements": [
+    {"fixtures": ["admin_page"], "env": ["QA_ADMIN_URL"], "desc": "後台畫面（admin_page fixture）"}
+  ],
+  "i18n": {
+    "enabled": true,
+    "hook_gate": false,
+    "script_class": "一-鿿",
+    "locale_switch_hints": ["switch_locale", "en-US", "en_US", "setLocale", "locale\\s*="]
+  },
+  "hardcode": {
+    "id_name_suffixes": ["_ID", "_IDS", "HEADER_ID", "_PK"],
+    "dict_hints": ["CATEGORY", "TYPE", "ROLE", "STATUS", "KIND", "LEVEL", "LOCALE", "LANG", "TIMEOUT", "PORT", "RETRY", "PAGE", "LIMIT"],
+    "extra_blocking": [],
+    "account_context": ["alias", "owner", "employee", "account", "username", "user_id", "login", "assignee", "created_by", "帳號", "員工", "負責人", "承辦"],
+    "identity_lookup_patterns": ["identity\\.", "current_\\w+\\(", "resolve_\\w+\\(", "lookup_\\w+\\("],
+    "self_seed_patterns": ["_chain\\b", "\\bensure_\\w+\\(", "\\bcreate_\\w+\\(", "\\bseed_\\w+\\(", "\\b_seed\\w*\\(", "factory"],
+    "shared_helper_dirs": ["helpers"]
+  },
+  "_hook": "hook.enabled=false 一鍵關掉本 plugin 所有 hook 閘（寫入衛生閘＋下列六支 PreToolUse 閘）",
+  "hook": {"enabled": true},
+  "_gates": "以下六段是 PreToolUse 機械閘的規則（hooks/guard-*.js 讀這份）。某段不存在、或 enabled=false → 該閘完全靜默。放行語法總表見 plugin README「PreToolUse 閘」節",
+  "dispatch_gate": {
+    "_doc": "派 qa-engineer 的派工單表態閘（guard-qa-dispatch.js）。checks 預設八項：triage 增量分流／target_env 目標環境／data_source 測試資料來源 a,b,c（b 只限外部系統邊界，理由點名類別並附產品端 檔名:行號 證據）／out_of_scope 範圍外發現必報／no_relay 親自執行不得轉派／alignment 開工前對齊／scope_expansion 範圍展開四格／field_verification 欄位級驗證對 DB 實值。required_reading 列的路徑必須出現在派工單（預設只要求專案裡真的存在的檔）。範本見 browser-qa SKILL.md「派工範本」",
+    "enabled": true,
+    "agent_regex": "qa-engineer$",
+    "checks": ["triage", "target_env", "data_source", "out_of_scope", "no_relay", "alignment", "scope_expansion", "field_verification"],
+    "required_reading": ["tests/Project_Detail/PROJECT.md"],
+    "required_reading_existing_only": true,
+    "custom_checks": []
+  },
+  "commit_gate": {
+    "_doc": "行為類改動 commit 前的 QA 表態閘（guard-qa-before-commit.js）。預設關閉（沒設 enabled 或 false＝靜默）；本範例開啟。放行：該次 commit 的訊息或 --qa 帶「已QA：…」或「分流例外：…」；require_sediment=true 時另要「新 QA 坑：…／無」。extra_commands 可列專案的 commit 流程指令（regex，repo_group＝repo 參數的擷取群組）",
+    "enabled": true,
+    "behavior_globs": ["**/*.{js,jsx,ts,tsx,mjs,cjs,vue,svelte,py,rb,php,java,kt,go,rs,cs,swift,c,cc,cpp,h,hpp,sh,ps1,sql}"],
+    "exclude_globs": ["tests/**", "**/*.{md,txt,json,yml,yaml,xml}"],
+    "repos": ["."],
+    "skill_name_regex": "(?:^|:)git-commit$",
+    "require_sediment": false,
+    "extra_commands": [],
+    "_extra_commands_example": [
+      {"name": "review-record", "regex": "flow\\.sh[\"']?\\s+review-record\\s+(\"[^\"]*\"|'[^']*'|[^\\s;&|]+)", "repo_group": 1}
+    ]
+  },
+  "pretest": {
+    "_doc": "跑測試前的環境對齊＋副作用防護閘（guard-pretest-env.js）。指令真的在跑 pytest／qa-flow.sh run（或 test_command_regex）時檢查。alignment、side_effect_guards 都空＝靜默；範例規則放在 _alignment_example／_side_effect_guards_example（底線開頭＝註解，不生效），依專案改寫後搬進正式欄位",
+    "test_command_regex": [],
+    "alignment": [],
+    "side_effect_guards": [],
+    "_alignment_example": [
+      {"env": "APP_TENANT_ID", "equals_file": "backend/config/app.local.json", "regex": "\"TenantId\"\\s*:\\s*\"([^\"]+)\"", "message": "測試身分必須等於後端寫死的租戶，否則種資料與查資料落在不同租戶"},
+      {"env": "QA_BASE_URL", "required": true},
+      {"env": "QA_I18N_DIR", "must_be_under": "QA_FRONTEND_ROOT"},
+      {"env": "APP_TENANT_ID", "port_env": "QA_API_URL", "port": 8080, "equals_process_file": "appsettings.Local.json", "regex": "\"TenantId\"\\s*:\\s*\"([^\"]+)\"", "message": "比對的是該 port 上正在跑的後端實際讀的設定檔（從它的工作目錄／執行檔目錄往上找），不是原始碼那份"},
+      {"env": "QA_I18N_DIR", "port_env": "QA_WEB_URL", "port": 5173, "under_process_root": "package.json", "message": "譯文目錄必須屬於正在跑的那套前端"}
+    ],
+    "_side_effect_guards_example": [
+      {"name": "mail-recipients", "file": "src/Notify/MailService.cs", "block_regex": "if \\(!env\\.IsProduction\\(\\)\\)[\\s\\S]*?\\n\\s*\\}", "require_regex": ["MailTo\\s*=\\s*new\\[\\]\\s*\\{\\s*\"qa@example\\.com\"\\s*\\}", "MailCc\\s*=\\s*Array\\.Empty"], "forbid_regex": ["\\.Concat\\("], "message": "非正式環境的收件人必須收斂到測試信箱；改完記得重啟跑中的後端"}
+    ]
+  },
+  "command_guards": [
+    {"name": "db-superuser", "enabled": true, "when_regex": "\\b(sqlcmd|psql|mysql|mongosh)\\b", "deny_regex": ["(^|\\s)-U\\s*(sa|root|postgres)\\b", "(^|\\s)-u\\s*root\\b", "(user\\s*id|uid|user)\\s*=\\s*(sa|root|postgres)\\b"], "message": "測試 DB 一律用專案指定的測試帳號（見專案 QA 知識層）；禁止高權限帳號、禁止憑印象試密碼——連續登入失敗會觸發鎖定"},
+    {"name": "service-env", "enabled": false, "when_regex": "\\bdotnet\\s+(run\\b|\\S+\\.dll\\b)", "deny_regex": ["--no-launch-profile\\b", "--launch-profile\\s*(=|\\s)\\s*(\"\"|''|(?=--)|$)"], "require_env": ["ASPNETCORE_ENVIRONMENT"], "message": "ASPNETCORE_ENVIRONMENT=<本機環境名> dotnet run --project <API 專案>（不設會靜默跑成正式環境設定；確認後把 enabled 改 true）"}
+  ],
+  "report_hygiene": {
+    "_doc": "交付資料夾紀律（guard-report-output.js）：roots 根層只准開交付資料夾；交付資料夾內過程格式檔（process_ext_regex）必須在 work_dir 底下。qa-flow.sh run 的 junit（tests/e2e/reports/）是回歸資產，不受本閘管",
+    "roots": ["tests/reports"],
+    "process_ext_regex": "\\.(xml|png|jpe?g|gif|bmp|webp|log|webm|mp4|har|trace|zip|tmp|bak|dump)$",
+    "work_dir": "_work"
+  },
+  "browser_guard": {
+    "_doc": "瀏覽器導向守門（guard-browser-nav.js）：deny_hosts_regex 禁止導向正式站；rate_limits 對符合的 host 在 window_s 秒內最多 max 次導向。localhost 永遠放行。依專案把正式站網域填進 deny_hosts_regex",
+    "deny_hosts_regex": "(^|\\.)prod\\.example\\.com$",
+    "rate_limits": [
+      {"host_regex": ".*", "max": 30, "window_s": 10}
+    ]
+  }
+}

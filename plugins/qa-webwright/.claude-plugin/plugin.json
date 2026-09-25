@@ -1,7 +1,7 @@
 {
   "name": "qa-webwright",
-  "version": "0.8.2",
-  "description": "瀏覽器功能測試方法論 plugin：qa-engineer agent 一手包——設計測試計畫（覆蓋矩陣 / 必測 checklist / 測試資料與日期四點驗證）、自行用 Playwright MCP 執行（預擬 codify 草稿 → 首跑收失敗清單 → 只對失敗 CP 定向探索補值）、以結構化證據（API 業務碼 / DOM 讀回 / readback）自我驗證；主 Agent 只派工收結論、不親跑 MCP。qa-flow.sh 把落地動作（建骨架 / 出 junitxml 報告 / 防假綠燈 / 回填 catalog 情境索引）鎖進腳本、落點鎖 session 目錄。內建 Stop hook 強制：觸發 QA 後用了瀏覽器工具卻沒落地產物會被擋下。webwright 為選用的外部站備用探索器。",
+  "version": "0.9.0",
+  "description": "瀏覽器功能測試方法論 plugin：qa-engineer agent 一手包——設計測試計畫（覆蓋矩陣 / 必測 checklist / 測試資料與日期四點驗證）、自行用 Playwright MCP 執行（預擬 codify 草稿 → 首跑收失敗清單 → 只對失敗 CP 定向探索補值）、以結構化證據（API 業務碼 / DOM 讀回 / readback）自我驗證；主 Agent 只派工收結論、不親跑 MCP。qa-flow.sh 把落地動作（建骨架 / 出 junitxml 報告 / 防假綠燈 / 登記情境）鎖進腳本、落點鎖 session 目錄。三層登記（<模組>/COVERAGE.md 情境正本＋.runs/results.sqlite 執行事實＋生成 CATALOG.md），drift 0/0/0 才算 codify 完成；測試資產工具（硬編／漂移／skip 四分類／定位器／殘留清掃／環境閘）讀專案參數檔 tests/e2e/qa-webwright.json、共用 baseline 只擋新增。hook（皆 fail-open）：Stop qa-landing-gate（落地強制）；PostToolUse qa-early-nudge（首次用瀏覽器未 scaffold 提醒）、guard-test-asset-hygiene（寫測試碼當下跑衛生閘）；PreToolUse project-knowledge-gate（先讀專案 QA 知識）與六支流程紀律閘——guard-qa-dispatch（派工單表態）、guard-qa-before-commit（commit 前 QA 表態）、guard-pretest-env（測試前環境對齊＋副作用防線）、guard-command-rules（參數化指令守門）、guard-report-output（交付資料夾紀律）、guard-browser-nav（正式站禁止＋限速）；衛生閘與六支閘只在專案有 tests/e2e/qa-webwright.json 且該段有設定時啟動。支援 Windows Git Bash 與 macOS bash 3.2／python3。webwright 為選用的外部站備用探索器。",
   "author": {
     "name": "fulin"
   },

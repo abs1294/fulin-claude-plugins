@@ -4,15 +4,16 @@ description: >
   瀏覽器功能測試方法論。當要對某功能 / 頁面 / 流程做功能測試時觸發——含「開發完成需驗證新互動 / 新畫面 / 新流程」，
   也含使用者說「執行 / 跑 / 做 一些測試案例」、「幫我測這個功能」、「跑 e2e / 端對端測試」、「回歸測試」、
   「測試落地 / 沉澱測試 / 存測試案例」等意圖（這些都指「設計並執行功能測試、沉澱成可重跑 runner」，不是單純跑一支既有腳本）。
-  兩階段皆由 QA agent（qa-engineer）一手包：設計測試計畫（含 critical points）→ 預擬 codify 草稿
-  （grep 原始碼填真實值）→ 首跑收失敗清單 → 只對失敗 CP 定向探索補值，以結構化證據
-  （API 碼 / DOM 讀回 / 來源 readback）自我驗證並輸出測試報告；主 Agent 只派工收結論、不親跑 MCP。
 ---
 
 # Browser QA Skill
 
+兩階段皆由 QA agent（qa-engineer）一手包：設計測試計畫（含 critical points）→ 預擬 codify 草稿
+（grep 原始碼填真實值）→ 首跑收失敗清單 → 只對失敗 CP 定向探索補值，以結構化證據
+（API 碼 / DOM 讀回 / 來源 readback）自我驗證並輸出測試報告；主 Agent 只派工收結論、不親跑 MCP。
+
 > **機械保證的邊界（先讀）**：本 skill 分兩層——
-> **產物層**（每個功能在 `tests/e2e/` 留下可重跑的 `test_*.py` + junitxml 報告 + 回填的 catalog）由 `qa-flow.sh` + Stop hook **機械強制**，AI 繞不過。
+> **產物層**（每個功能在 `tests/e2e/` 留下可重跑的 `test_*.py` + junitxml 報告 + 情境登記〔三層：`<模組>/COVERAGE.md`；舊版：catalog〕）由 `qa-flow.sh` 強制。Stop hook 與 `project-knowledge-gate` 只在 qa-webwright plugin 已啟用的專案生效；只以 symlink 取用本 skill 時這兩道閘不存在，完成判準改由下方執行清單的 #5、#8 自行對照。
 > **設計品質層**（覆蓋矩陣是否窮盡、證據是否夠強、是否真走兩階段 qa-engineer 設計）**無法機械強制**（品質是 AI-complete）——下面的方法論是**強烈建議的流程**，靠引導不靠閘門。
 > 所以：產物一定會有，但「測得好不好」需人把關。別把「hook 全綠」當成「測試設計到位」。
 
@@ -41,6 +42,63 @@ description: >
 > **allow-list 前提**：qa-engineer 是 sub-agent、無法互動回應 permission prompt——要用的
 > `mcp__playwright__browser_*` 工具必須已在專案 `settings.json` / `settings.local.json` 的
 > `permissions.allow`，否則會被 deny（跨專案使用本 plugin 時先確認這件事）。
+
+## 派工範本（主 Agent 派 qa-engineer 用）
+
+派 `qa-engineer` 時，派工單（Agent/Task 的 prompt）**照下方範本逐格填寫**。專案 `tests/e2e/qa-webwright.json` 有 `dispatch_gate` 段時，
+`hooks/guard-qa-dispatch.js` 會在派工當下檢查這幾格（缺一即 deny，一次列完所有缺項）；沒有該段時不檢查，但照填一樣是好派工單。
+每一格為什麼要寫：派工單上沒寫的那一格，QA 就不會測、不會問——範圍完整性是指揮官的責任。
+
+| 格 | 閘怎麼驗（只驗有沒有表態，不判內容對錯） |
+|---|---|
+| 首行回報指示＋「本任務由你親自執行，不得再轉派」 | 出現「親自執行／不得再轉派」字樣（回報鏈固定一跳） |
+| 【開工前必讀】 | `dispatch_gate.required_reading` 列的路徑都出現在派工單（斜線方向、大小寫不拘；預設只要求專案裡真的存在的檔） |
+| 【增量分流】 | 該格第一行明選 `reuse`（附要改的既有 test 檔路徑）或 `新TC`（附一句為何既有案例接不住）——見 Phase 1「增量分流」 |
+| 【目標環境】 | 該格不是空白、不是範本佔位（本機預設填一行 localhost 即可） |
+| 【測試資料來源】 | 第一行開頭寫「選 a」「選 b」或「選 c」（固定格式，其他寫法不算表態）；理由與證據只讀「作答段」（第一行起到空行，或到 a./b./c.／（／⛔ 開頭的說明行為止）；選 b、c 必附理由。a＝走真實業務流程長出來（常態，不論成本）、b＝封閉例外（只限產品外部系統產生、產品端沒有入口的前置；理由要點名是哪一類外部系統邊界，並附產品端證據的「檔名:行號」）、c＝依賴既有資料（僅限字典／設定類） |
+| 【範圍外發現】 | 要求 QA 把範圍外看到的異常列在報告「範圍外發現」節回報 |
+| 【開工前對齊】 | 該格寫了對齊結論或「無分岔＋理由」（不是空白、不是範本佔位） |
+| 【範圍展開】 | 四格都寫到：正向／反向（終止分支）／狀態序列／共用元件；任一格填「無」附理由 |
+| 【欄位級驗證】 | 寫出要拿什麼實值比對（DB 讀回／三方對照）；「畫面有顯示」「回 200」不算 |
+
+範本（`<…>` 換成實際內容；刪掉角括號）：
+
+<!-- qa-dispatch-template:begin -->
+```text
+完成後把測試報告（含「範圍外發現」節）回報給主對話。本任務由你親自執行，不得再轉派給其他 agent。
+【任務】<要測的功能／變更範圍；使用者原話照貼>
+【開工前必讀】<照 tests/e2e/qa-webwright.json 的 dispatch_gate.required_reading 逐條列路徑；專案有 tests/Project_Detail/PROJECT.md 就列上>
+【增量分流】<reuse 或 新TC 擇一寫在最前面>：<reuse 寫要改的既有 test 檔路徑；新TC 寫一句為何既有案例接不住>
+【目標環境】<前端網址；後端 API／登入身分來源與預設不同時一併寫>
+【測試資料來源】<a、b、c 三選一，寫成「選 X」；a＝走真實業務流程長出來（常態，不論成本）；b＝封閉例外，只限產品外部系統產生、產品端沒有入口的前置（外部簽核回呼／上游推送／外部主檔 mock／目錄服務），理由寫出是哪一類，並附產品端守門或寫入點的「檔名:行號」當證據；c＝依賴既有字典／設定類，附理由；理由與證據寫在同一段，空行之後的內容不算>
+【開工前對齊】<對齊結論一句話；或「無分岔：<一句理由>」>
+【範圍展開】<1 正向：…；2 反向（退件／拒絕／取消／軟刪／逾時／重送／權限不足，逐條列適用與否，不適用說為什麼）：…；3 狀態序列（做A→做B→撤銷A→存檔→重開）：…；4 共用元件（本次觸及的共用元件與其他使用點是否連帶回歸）：…>
+【欄位級驗證】<涉及 N 個欄位；逐欄比對畫面顯示值 ↔ API 回傳 ↔ DB 實值；寫入型逐欄讀回 DB（bool/int 用非預設值、集合驗筆數＋順序）；不驗的欄位逐個列理由>
+【範圍外發現】範圍外看到的異常一律列在報告「範圍外發現」節回報，不自行擴大修改、也不當作沒看到。
+【執行方式】本任務由你親自執行，不得再轉派。照 browser-qa SKILL.md「執行清單（完成判準）」核對 8 項；每次呼叫 qa-flow.sh 都帶 CLAUDE_PROJECT_DIR=<Primary working directory>。完成後回報主對話。
+```
+<!-- qa-dispatch-template:end -->
+
+填好的樣子（此例可一次過閘；`hooks/test-gate.mjs` 會拿這段實跑驗證）：
+
+<!-- qa-dispatch-example:begin -->
+```text
+完成後把測試報告（含「範圍外發現」節）回報給主對話。本任務由你親自執行，不得再轉派給其他 agent。
+【任務】測 https://shop.example.test 的購物車：加入商品、移除商品、購物車徽章數量、結帳前明細
+【開工前必讀】tests/Project_Detail/PROJECT.md
+【增量分流】新TC：tests/e2e 還沒有購物車的既有案例（CATALOG 查無），既有案例接不住
+【目標環境】https://shop.example.test（公開測試站；帳號用站方公開的測試帳號）
+【測試資料來源】選 a，理由：購物車內容由 UI 加入商品自然產生，走真實流程即可
+【開工前對齊】無分岔：需求就是驗購物車既有的四個操作，沒有「做成什麼樣」的解讀分岔
+【範圍展開】1 正向：加入商品→徽章數量＋1→明細列出該商品；2 反向：移除最後一件後徽章消失、明細顯示空狀態；結帳途中取消回到購物車；權限不足不適用（公開站只有一種角色）；3 狀態序列：加入 A→加入 B→移除 A→重新整理→確認只剩 B 且數量正確；4 共用元件：購物車徽章也出現在頁首，頁首數字一併驗
+【欄位級驗證】明細 4 個欄位（品名／單價／數量／小計）逐欄比對畫面顯示值與購物車資料的實值；公開站查不到 DB，實值以站方回傳的購物車資料為準
+【範圍外發現】範圍外看到的異常一律列在報告「範圍外發現」節回報，不自行擴大修改、也不當作沒看到。
+【執行方式】本任務由你親自執行，不得再轉派。照 browser-qa SKILL.md「執行清單（完成判準）」核對 8 項；每次呼叫 qa-flow.sh 都帶 CLAUDE_PROJECT_DIR=/path/to/project。完成後回報主對話。
+```
+<!-- qa-dispatch-example:end -->
+
+被閘擋下時：照 deny 訊息把**所有**列出的缺項一次補齊，重發**同一個** agent；不要改派其他 agent type 繞過。
+專案要加檢查（如【開工前對齊】【範圍展開】或自訂 regex）改 `dispatch_gate.checks`／`custom_checks`，範本也要同步加格（加閘沒同步範本＝照範本寫仍被擋）。
 
 本 skill 分層維護：
 - **方法論** `methodology/` — 怎麼做測試，穩定、不綁技術棧。
@@ -101,14 +159,9 @@ description: >
 
 QA Agent（qa-engineer，接續 Phase 1 由自己執行）嚴格按測試計畫執行，不得自行增減步驟。流程是「**預擬 codify 草稿 → 首跑收失敗清單 → 只對失敗 CP 定向探索補值**」（draft-first：探索是補洞手段，不是起手式）。
 
-### 強制步驟追蹤（MANDATORY）
+### 執行清單（完成判準）
 
-**開始執行前，必須先用 `TaskCreate` 建立以下任務清單。** 不可跳過——這是防「跳掉沉澱 / 沒出報告 / 沒回填 catalog」的機械閘（歷史踩雷：純 prompt 規範被略過，測完只印對話、沒落地任何檔）。
-
-> **鐵則：「把 CP 沉澱成可重跑 pytest runner」是本 skill 的核心目的，永遠必做——禁止問使用者「要不要沉澱 / 要不要出 runner」。**
-> 這不是選項。整個 Phase 2 **唯一**可以問使用者的是：greenfield 空目錄時「同不同意在這台電腦裝 pytest-playwright 環境」（因為動到使用者機器裝套件）——
-> 那是問「裝環境」，不是問「要不要沉澱」。載體用什麼（pytest / 既有 JS）依 bootstrap 訊號決定，也不是問「要不要做」。
-> **別把「裝環境要問」擴大解讀成「整個沉澱流程都可以先問使用者要不要做」。**
+沉澱成可重跑的 runner 是本 skill 的目的，不要問要不要做；唯一要問的是 greenfield 時同不同意在這台電腦裝 pytest-playwright。
 
 ### 髒資料紀律（造資料的測試必守）
 
@@ -124,31 +177,27 @@ QA Agent（qa-engineer，接續 Phase 1 由自己執行）嚴格按測試計畫�
 ① **前提資料自己生，走產品入口**（不寫死既有 Id／代碼；直接 INSERT 造出的形狀產品永遠不會產生）
 ② **期望值查來源推導，且不得抄被測程式那句查詢**（同源＝後端錯時測試一起錯）
 ③ **定位錨語系無關**（產品既有錨 → i18n key 取譯文 → 測試端 setAttribute；⛔ 不得在產品碼埋測試專用屬性）
-④ **沒資料不准 skip 要自己生**（A 資料缺→自造／B 環境→具名 skipif／C 結構變→改 fail）
+④ **沒資料不准 skip 要自己生**（A 資料缺→自造／B 環境→具名 skipif／C 結構變→改 fail／D 共用狀態被佔或前置沒做成功→改 fail；執行期 A/D 類 skip 由 conftest 掛點判整輪失敗）
 ⑤ **驗環境看 `response.url`，不信環境變數**（打錯後端＝前四條做得再好也整輪作廢）
 
 **五條的完整判準、理由與實測代價見 `methodology/critical-points.md`「五條硬規則」節——寫 CP 與草稿前讀那一節。**
 ⚠ ③ 特別注意：`assert xxx.get_by_text("送出").count() > 0` **是定位器不是斷言**，切語系一樣失效，別以為有 `assert` 就豁免。
-⚠ ⑤ 是 2026-09-09 補入的：先前它只存在於某個專案的本地文件，導致同一套紀律兩處分歧、照 skill 這份做的人會漏掉它。
 
-初始 8 個任務：
+8 項完成判準（可用任務清單工具追蹤進度，非強制；任一 CP self-verify 失敗〔#7〕時回到 #5／#6／#7 重跑）：
 
 ```
-#1 Phase2-0 qa-flow.sh bootstrap（盤點資產 + 鎖落點 + 確保 catalog）    [in_progress]
-#2 Phase2-0b 僅 greenfield 空目錄：問使用者「是否同意裝 pytest 環境」（不問要不要沉澱）[pending]
-#3 Phase2-1 列 critical points 清單                                    [pending]
-#4 Phase2-2 預擬 codify 草稿：每 CP 先落 pytest assert（grep 原始碼填真實值，拿不到標 TODO-EXPLORE）[pending]
-#5 Phase2-3 qa-flow.sh run（防假綠燈 grep + pytest --junitxml；首跑收失敗清單，修完重跑）[pending]
-#6 Phase2-4 定向探索補值：僅對失敗 / TODO-EXPLORE 的 CP 做 MCP 探索修草稿（≤5 CP 一批，修完回 #5）[pending]
-#7 Phase2-5 self-verify（逐 CP 對結構化證據 + FAIL 前排除紀律）          [pending]
-#8 Phase2-6 輸出報告 + qa-flow.sh catalog 回填每個情境覆蓋狀態          [pending]
+#1 Phase2-0 qa-flow.sh bootstrap（盤點資產 + 鎖落點 + 回報登記模式 MODE）
+#2 Phase2-0b 僅 greenfield 空目錄：問使用者「是否同意裝 pytest 環境」（不問要不要沉澱）
+#3 Phase2-1 列 critical points 清單
+#4 Phase2-2 預擬 codify 草稿：每 CP 先落 pytest assert（grep 原始碼填真實值，拿不到標 TODO-EXPLORE）
+#5 Phase2-3 qa-flow.sh run（防假綠燈 grep + pytest --junitxml；首跑收失敗清單，修完重跑）
+#6 Phase2-4 定向探索補值：僅對失敗 / TODO-EXPLORE 的 CP 做 MCP 探索修草稿（≤5 CP 一批，修完回 #5）
+#7 Phase2-5 self-verify（逐 CP 對結構化證據 + FAIL 前排除紀律）
+#8 Phase2-6 輸出報告 + qa-flow.sh catalog 登記每個情境（三層：<模組>/COVERAGE.md → 重生 CATALOG）＋ qa-flow.sh audit 確認 drift 0/0/0
 ```
 
-**執行規則（比照 git-commit skill）：**
-- 每個步驟**開始前**用 `TaskUpdate` 標 `in_progress`，**完成的當下那一輪**就標 `completed`，不累積補。
-- 任一 CP self-verify 失敗（#7）→ 修測試（需要真實值就走 #6 探索）→ 把 #5 / #6 / #7 reset 回 `pending` 重跑，**不新增 task**。
-- 全部 `completed` 後於同一輪清空清單（逐一 `TaskUpdate status=deleted`）。
-- **#5、#8 是硬性落地閘**：沒跑 `qa-flow.sh run` 出報告、沒跑 `qa-flow.sh catalog` 回填，**不得宣稱測試完成**。
+- **#5、#8 是硬性落地閘**：沒跑 `qa-flow.sh run` 出報告、沒跑 `qa-flow.sh catalog` 登記，**不得宣稱測試完成**。
+  三層模式下 **codify 完成判準＝drift 0/0/0**（孤兒／幽靈／佔位皆 0；每次 pytest 結束總結區會印 `COVERAGE drift clean` 或 `⚠️ COVERAGE DRIFT`）。
 - **假綠燈紀律（draft-first 的代價）**：#4 預擬的 assert 是推測——**禁止為了轉綠而弱化斷言、寫恆真條件、或把 FAIL 的 CP 改成 skip**；失敗 CP 唯一的修法是 #6 探索取真實值。「修到綠就交」不是完成，self-verify（#7）照樣逐 CP 對證據。
 
 ### ⚡ qa-flow.sh 腳本（必用）
@@ -162,10 +211,13 @@ QA Agent（qa-engineer，接續 Phase 1 由自己執行）嚴格按測試計畫�
 
 | 指令 | 動作 | 對應步驟 |
 |------|------|---------|
-| `qa-flow.sh bootstrap` | 盤點既有測試資產（pytest/JS/空）、確保 catalog.md、發安裝/runner 決策訊號（不擅自安裝）| Phase2-0 |
-| `qa-flow.sh scaffold <feature> <pytest\|playwright-js>` | 建 `tests/e2e/` 骨架 + conftest；安裝指令只印出讓使用者跑 | Phase2-0b（使用者同意後）|
-| `qa-flow.sh run <feature> <test-file> [date]` | grep 驗證 test 函式存在（防假綠燈）→ `pytest --junitxml` 出報告（date 省略=今天；自動偵測 pytest 執行方式）| Phase2-3（首跑收失敗清單＋每輪修完重跑）|
-| `qa-flow.sh catalog <情境> <函式> <狀態> <模組>` | 機械回填 tests/e2e/catalog.md 總表（以函式為主鍵 update/append）| Phase2-6 |
+| `qa-flow.sh bootstrap` | 盤點既有測試資產（pytest/JS/空）、偵測登記模式 `MODE`（three-layer／legacy-catalog／three-layer-no-config／none）、發安裝/runner 決策訊號（不擅自安裝）、順手 audit | Phase2-0 |
+| `qa-flow.sh scaffold <feature> <pytest\|playwright-js>` | pytest：三層骨架（複製工具進 `tests/e2e/tools/`＋參數檔 `qa-webwright.json`＋conftest 掛點＋`<feature>/COVERAGE.md`）；安裝指令只印出讓使用者跑 | Phase2-0b（使用者同意後）|
+| `qa-flow.sh run <feature> <test-file> [date]` | grep 驗證 test 函式存在（防假綠燈）→ `pytest --junitxml` 出報告（sqlite 自動記錄；三層模式跑完重生 CATALOG）| Phase2-3（首跑收失敗清單＋每輪修完重跑）|
+| `qa-flow.sh catalog <情境> <函式> <狀態> <模組>` | 三層：寫進 `<模組>/COVERAGE.md`（函式可寫 `test_x.py::test_y`，以函式為主鍵 update/append）再重生 CATALOG；舊版：回填單一 catalog.md。寫入一律同目錄 tmp＋原子 rename | Phase2-6 |
+| `qa-flow.sh audit [--fix]` | 三層：drift_check（孤兒/幽靈/佔位，有漂移 exit 3）；`--fix` 把孤兒補成「待補」佔位列，補完仍有漂移（佔位待寫情境、幽靈）照樣 exit 3，exit 0 才是 drift 0/0/0；舊版：catalog 孤兒列。非本 plugin 格式的 catalog 一律跳過 | Phase2-6 收尾 |
+| `qa-flow.sh tools-sync [--force]` | 以 plugin 新版更新已複製的工具；專案端改過的只警告不覆蓋；參數檔永不覆寫 | plugin 升級後 |
+| `qa-flow.sh migrate [--dry-run]` | 舊版 4 欄 catalog → 三層（列數對帳、舊檔改名保留） | 舊專案一次性 |
 
 **bootstrap 決策訊號怎麼接：**
 - `ASSET: pytest-existing` → 直接復用既有、對齊風格，進 Phase2-1。
@@ -180,7 +232,7 @@ QA Agent（qa-engineer，接續 Phase 1 由自己執行）嚴格按測試計畫�
    獨立驗證（讀取型一個即可；寫入/送出型需業務碼＋readback；守門/卡控型斷言狀態或錯誤碼——證據強度依 CP 類型，
    見 `methodology/critical-points.md` 證據規範）——不依賴「我記得剛剛點了什麼」。
 
-2. **預擬 codify 草稿（draft-first，不先開瀏覽器）**：直接把每個 critical point 落成 `tests/e2e/test_<feature>.py` 裡
+2. **預擬 codify 草稿（draft-first，不先開瀏覽器）**：直接把每個 critical point 落成 `tests/e2e/<feature>/test_<feature>.py`（三層；舊版專案為 `tests/e2e/test_<feature>.py`）裡
    **（至少）一行 `assert`**（雙向／多面卡控可對多行）——斷言打在結構化證據上（業務碼 `code=="0000"` 非只看 HTTP 200、
    DOM/a11y 讀回 unique token、DB/重查 readback）。寫入型操作必「寫 unique token → 讀回那一筆比對」，不可只驗送出成功。
    selector / 端點 / 欄位名 / 業務碼**先 grep 原始碼取真實值**——多數路徑落差是「程式碼真實值 ≠ 記憶」的問題，
@@ -206,10 +258,13 @@ QA Agent（qa-engineer，接續 Phase 1 由自己執行）嚴格按測試計畫�
    **判 FAIL 前先走 `methodology/test-plan-design.md` §7 的「FAIL 前排除紀律」**（服務存活 / 操作沒生效五排除 /
    業務語意三問），別把環境塌 / 探索沒對準 / by-design 卡控誤判成功能 FAIL。
 
-6. **輸出測試報告（格式見下）＋ 回填 catalog**：`qa-flow.sh run` 的防假綠燈 grep 已確認 test 函式存在
+6. **輸出測試報告（格式見下）＋ 登記情境**：`qa-flow.sh run` 的防假綠燈 grep 已確認 test 函式存在
    （Write / replace 在並行取消時可能假成功，造成「假登記、假綠燈」——腳本已把關）。
-   接著對**每個情境**跑 `qa-flow.sh catalog <白話情境> <測試函式> <完整/部分/未覆蓋> <模組>` 回填 `tests/e2e/catalog.md` 總表
-   （必做，見 `methodology/test-plan-design.md` §0.5）——讓 codify 閉環不止於 runner、累積成可查的跨功能應測情境索引。
+   接著對**每個情境**跑 `qa-flow.sh catalog <白話情境> <test_x.py::測試函式> <完整/部分/未覆蓋> <模組資料夾>`
+   登記到 `tests/e2e/<模組>/COVERAGE.md`（三層；舊版專案回填 `tests/e2e/catalog.md`），最後 `qa-flow.sh audit` 確認 drift 0/0/0
+   （必做，見 `methodology/test-plan-design.md` §0.5、`methodology/test-asset-hygiene.md` §1）——讓 codify 閉環不止於 runner、累積成可查的跨功能應測情境索引。
+   寫測試碼當下若被 `guard-test-asset-hygiene` hook 擋（exit 2），照訊息修掉新增的硬編／漂移／A/D skip 再繼續；
+   合法例外用 `# SCAN-REVIEWED: safe — <理由>` 等註記宣告（總表見 plugin README「跳脫機制總表」），**不要**用 `--write-baseline` 把新增蓋章成存量。
 
 ### 測試哲學（通用，少數鐵則）
 
@@ -241,6 +296,9 @@ QA Agent（qa-engineer，接續 Phase 1 由自己執行）嚴格按測試計畫�
 BUG-{編號}｜嚴重度：Critical/Major/Minor｜對應 TC-{編號}
 重現步驟 / 預期 / 實際 / 證據（assert 失敗訊息 / 實際 API 碼 / readback 值）
 
+### 範圍外發現（派工範圍以外看到的異常；沒有就寫「無」）
+現象 / 重現步驟 / 證據——只回報，不擴大修改
+
 ### 結論
 通過 / 需修正後重測（列出 BUG 編號）
 ```
@@ -251,9 +309,15 @@ BUG-{編號}｜嚴重度：Critical/Major/Minor｜對應 TC-{編號}
 
 ## 文件地圖
 
-- `qa-flow.sh` — 流程輔助腳本（bootstrap / scaffold / run / catalog）；把落地動作鎖進腳本，落點鎖 `CLAUDE_PROJECT_DIR`
-- `methodology/test-plan-design.md` — 覆蓋矩陣、可追溯、必測 checklist、TC 格式、測試資料原則
-- `methodology/critical-points.md` — TC 預期 → critical point → assert 的對映與證據規範
-- `knowledge/pitfalls.md` — 踩過的雷與領域知識（後端驗證、日期時區、壞值、Windows 啟動、元件 portal、state 同步、外部站 TLS/HTTP2 指紋封鎖、長流程 context 經濟；G 段 webwright 操作雷僅在啟用 webwright 備用探索時適用）；**持續 append**（新增分類時同步更新此枚舉）
+- `qa-flow.sh` — 流程輔助腳本（bootstrap / scaffold / run / catalog / audit / tools-sync / migrate）；把落地動作鎖進腳本，落點鎖 `CLAUDE_PROJECT_DIR`
+- `tools/` — 測試資產工具（scaffold 複製進專案 `tests/e2e/tools/`）：`qa_config.py`、`baseline.py`、`qa_pytest_plugin.py`、`runs_db.py`、`coverage_md.py`、`gen_catalog.py`、`drift_check.py`、`make_skeleton.py`、`fill_orphans.py`、`coverage_register.py`、`migrate_catalog.py`、`skip_audit.py`、`hardcode_check.py`、`i18n_locator_check.py`、`env_gates.py`、`sweep_residue.py`、`run_by_folder.py`
+- `lib/install_tools.py` — 工具複製與版本比對（scaffold / tools-sync 用）
+- `templates/qa-webwright.example.json` — 專案參數檔範例（欄位說明見 plugin README「專案參數檔」）
+- `templates/conftest_snippet.py` — conftest 掛點片段（sqlite 執行紀錄、A/D skip 閘、drift 摘要、環境閘）
+- `methodology/test-plan-design.md` — 覆蓋矩陣、可追溯、必測 checklist、TC 格式、測試資料原則、探索七類、失敗注入、前後端 A/B 對照、範圍展開四格與欄位級驗證
+- `methodology/critical-points.md` — TC 預期 → critical point → assert 的對映與證據規範、五條硬規則、斷言隔離度
+- `methodology/test-discipline.md` — 核心鐵則（選單導航不直打 URL、mock 在就不准拿外部系統當 skip 藉口、測試庫可破壞）、不打斷、整輪才出報告、直打界線、副作用邊界、判斷與交付的證據要求（掩蓋手段、每批三重重驗、red→green、ablation、掃描器盲區）
+- `methodology/test-asset-hygiene.md` — 三層登記與 drift、skip 四分類紀律、xfail 鎖定與反向紀律、故意保留紅燈、缺陷現場當定位錨、直寫 DB 例外判準框架（四條判準、宣稱例外的四步證據、不算例外的理由）、G 類五種 safe 性質與 `G-REVIEWED`
+- `knowledge/pitfalls.md` — 踩過的雷與領域知識（A 後端驗證、B 日期時區、C 壞值、D/D2 Windows 啟動與 pytest、E 元件互動、F state 同步、G webwright 操作雷〔僅啟用 webwright 時適用〕、H 外部站 TLS/HTTP2 指紋封鎖、I 長流程 context 經濟、J 定位比對強度與多語系、K 等待時序與 API 攔截、L 斷言盲區、M 種子資料與共用狀態、N 環境多實例與 runner 執行）；**持續 append**（新增分類時同步更新此枚舉）
 - 沉澱 runner 的官方文件（pytest-playwright / Playwright Test）— 瀏覽器啟動、locator、斷言、fixture
 - （選用，僅外部站備用探索）webwright skill 的 `reference/` — 瀏覽器啟動、aria snapshot、log 格式

@@ -56,6 +56,14 @@ function main(raw) {
   const cwd = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
   const sid = (input.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
 
+  // 參數檔 hook.enabled=false＝本 plugin 的閘全部關閉（與六支 PreToolUse 閘、寫入衛生閘同一個總開關）；
+  // 參數檔不存在或讀不到 → 照常（本閘不依賴參數檔）
+  // 參數檔與 PROJECT.md 同以 cwd 為根判定：cwd 不是專案根時兩者都找不到，本閘整支不啟動，不會出現「開關關不掉」
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(cwd, 'tests', 'e2e', 'qa-webwright.json'), 'utf8').replace(/^﻿/, ''));
+    if (cfg && typeof cfg.hook === 'object' && cfg.hook && cfg.hook.enabled === false) return allow();
+  } catch (_) {}
+
   let marker;
   try {
     marker = path.join(os.tmpdir(), `qa-pk-gate-${sid}`);

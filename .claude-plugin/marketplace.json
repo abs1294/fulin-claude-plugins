@@ -13,7 +13,7 @@
     {
       "name": "qa-webwright",
       "source": "./plugins/qa-webwright",
-      "description": "瀏覽器功能 QA 方法論：測試計畫→探索→沉澱成可重跑 pytest；qa-flow.sh 與 Stop hook 強制測試落地。"
+      "description": "瀏覽器功能 QA 方法論：測試計畫→探索→沉澱成可重跑 pytest；qa-flow.sh 與 Stop hook 強制測試落地；三層登記（COVERAGE／sqlite／CATALOG）＋寫測試當下的資產衛生閘。"
     },
     {
       "name": "goal2",

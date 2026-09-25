@@ -78,11 +78,11 @@ function main(raw) {
   // ★★ 落點基準必須與寫入端 skills/browser-qa/qa-flow.sh 的 WORKSPACE_DIR 同源（改一處要改兩處）★★
   //   qa-flow.sh 把產物寫進 WORKSPACE_DIR/tests/e2e/；此處 hook 在 cwd/tests/e2e/ 找產物判是否落地。
   //   兩端指向不同目錄 → 誤擋（產物在 A、hook 看 B）或漏擋。
-  //   優先序刻意以 harness 傳入的 input.cwd 為首選：它是 session 真實 cwd，AI 自己 export
-  //   CLAUDE_PROJECT_DIR 蓋不掉（見本 repo memory「CLAUDE_PROJECT_DIR 不一定內建、會被 AI export
-  //   覆蓋鑽子目錄」）；CLAUDE_PROJECT_DIR / cwd() 僅當 input.cwd 缺席時的備援。
-  //   正常情況（未亂 export、session 未 cd 離開起始目錄）下三者一致，與 qa-flow.sh 同源。
-  //   若調整此解析順序，務必同步檢視 qa-flow.sh :~31，勿讓兩端在正常情況下發散。
+  //   優先序與 qa-flow.sh 的 WORKSPACE_DIR="${CLAUDE_PROJECT_DIR:-$PWD}" 相同：CLAUDE_PROJECT_DIR 優先，
+  //   沒設才用 harness 傳入的 input.cwd，再退回 process.cwd()。hook 程序的 CLAUDE_PROJECT_DIR 由 Claude Code
+  //   設定，AI 在 Bash 裡 export 影響不到 hook（但會影響它自己跑的 qa-flow.sh——兩端就會指向不同目錄）。
+  //   正常情況（未亂 export、session 未 cd 離開起始目錄）下三者一致，兩端同源。
+  //   若調整此解析順序，務必同步檢視 qa-flow.sh 設定 WORKSPACE_DIR 的那一行，勿讓兩端在正常情況下發散。
   const cwd = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
   const tp = input.transcript_path;
   const sid = (input.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
@@ -127,7 +127,7 @@ function main(raw) {
   if (!triggeredQa) {
     // (B) 沒觸發 qa-webwright → 只警告（計入共用計數）
     return warn(
-      '偵測到這輪用了瀏覽器工具但 tests/e2e/ 下沒有落地產物（test_*.py 或 *.spec.js/ts / reports/*.xml / catalog.md）。' +
+      '偵測到這輪用了瀏覽器工具但 tests/e2e/ 下沒有落地產物（test_*.py 或 *.spec.js/ts / reports/*.xml / 情境登記：<模組>/COVERAGE.md 或 catalog.md）。' +
         '若這是功能測試，建議走 qa-webwright 的 qa-flow.sh 把結果沉澱成可重跑 pytest；若只是瀏覽網頁可忽略。' +
         designNudge
     );
@@ -136,13 +136,13 @@ function main(raw) {
   // (A) 觸發 qa-webwright + 用瀏覽器 + 無落地 → 硬擋（計入共用計數）
   return block(
     '你觸發了 qa-webwright 做瀏覽器測試，但沒有把結果落地成可重跑產物——' +
-      'tests/e2e/ 下缺 test_*.py（或 *.spec.js/ts）/ reports/*.xml / catalog.md 其中之一。\n' +
+      'tests/e2e/ 下缺 test_*.py（或 *.spec.js/ts）/ reports/*.xml / 情境登記（<模組>/COVERAGE.md 或 catalog.md）其中之一。\n' +
       '請照 SKILL.md 的落地流程走完（產物層為機械必做，設計層品質為建議；瀏覽器測試應由 qa-engineer agent 執行）：\n' +
-      '  1) TaskCreate 建清單 2) qa-flow.sh bootstrap 3) 列 CP\n' +
-      '  4) 預擬 codify 草稿：每 CP 落成 tests/e2e/test_<feature>.py 的 assert（grep 原始碼填真實值）\n' +
+      '  1) 對照 SKILL.md 執行清單（完成判準）2) qa-flow.sh bootstrap 3) 列 CP\n' +
+      '  4) 預擬 codify 草稿：每 CP 落成 tests/e2e/<feature>/test_<feature>.py 的 assert（grep 原始碼填真實值）\n' +
       '  5) qa-flow.sh run <feature> <test-file>（出 junitxml，首跑收失敗清單）\n' +
       '  6) 只對失敗 CP 定向探索補值後重跑 7) self-verify\n' +
-      '  8) qa-flow.sh catalog 回填每個情境到 tests/e2e/catalog.md\n' +
+      '  8) qa-flow.sh catalog 登記每個情境（三層：<模組>/COVERAGE.md；舊版：tests/e2e/catalog.md）\n' +
       '不要用通用 Playwright MCP 手動測完就口頭回報——那不是可重跑產物。' +
       '（若使用者明確說「這次不要落地」，回覆說明後再結束即可，本 hook 最多擋 2 次。）' +
       designNudge
@@ -314,7 +314,42 @@ function hasLandingArtifacts(cwd) {
   //   • pytest：test_*.py（對齊 qa-flow.sh run 的 def test_ 落地驗證）；
   //   • playwright-js：*.spec.js / *.spec.ts（對齊 qa-flow.sh scaffold 的 <feature>.spec.js 落點）。
   // 報告仍統一為 reports/*.xml —— pytest 出 junitxml、playwright 用 --reporter=junit 也是 .xml，共用即可。
-  if (!files.some((f) => /^test_.*\.py$/.test(f) || /\.spec\.(js|ts)$/.test(f))) return false;
+  // 三層模式的測試放在 tests/e2e/<模組>/ 子目錄（0.9.0 起 scaffold 預設），第一層子目錄也要看。
+  // 名字符合之外還必須真的是檔案（名叫 test_x.py 的資料夾不算測試）
+  const isTestName = (f) => /^test_.*\.py$/.test(f) || /\.spec\.(js|ts)$/.test(f);
+  // stat／readdir 失敗＝「看不到裡面有沒有測試」，不是「確定沒有」：記下來，沒找到測試時回 null（放行）
+  let subUnknown = false;
+  const isTestIn = (dir) => (f) => {
+    if (!isTestName(f)) return false;
+    try {
+      return fs.statSync(path.join(dir, f)).isFile();
+    } catch (_) {
+      subUnknown = true; // 測試檔名稱符合但 stat 失敗（斷掉的連結、權限）→ 不確定，不當成「沒有測試」
+      return false;
+    }
+  };
+  const subDirs = [];
+  let hasTest = files.some(isTestIn(e2e));
+  for (const f of files) {
+    if (f.startsWith('.') || f.startsWith('__') || f === 'tools' || f === 'reports') continue;
+    let st;
+    try {
+      st = fs.statSync(path.join(e2e, f));
+    } catch (_) {
+      subUnknown = true;
+      continue;
+    }
+    if (!st.isDirectory()) continue;
+    subDirs.push(f);
+    if (!hasTest) {
+      try {
+        hasTest = fs.readdirSync(path.join(e2e, f)).some(isTestIn(path.join(e2e, f)));
+      } catch (_) {
+        subUnknown = true;
+      }
+    }
+  }
+  if (!hasTest) return subUnknown ? null : false;
 
   const reportsDir = path.join(e2e, 'reports');
   const repState = fileState(reportsDir);
@@ -328,21 +363,65 @@ function hasLandingArtifacts(cwd) {
   }
   if (!hasReport) return false;
 
-  const catalog = path.join(e2e, 'catalog.md');
-  const catState = fileState(catalog);
-  if (catState === 'unknown') return null;
-  if (catState === 'no') return false;
-  let catalogText;
-  try {
-    catalogText = fs.readFileSync(catalog, 'utf8');
-  } catch (_) {
-    return null;
+  // 登記：兩種模式任一有資料列即算。
+  //   • legacy：tests/e2e/catalog.md（大小寫不拘——CATALOG.md 在大小寫敏感的檔案系統上是另一個名字）
+  //   • 三層：tests/e2e/COVERAGE.md 或 tests/e2e/<模組>/COVERAGE.md 的表格資料列
+  //   生成的 CATALOG.md（三層索引）本身不算登記——它的索引表永遠有列，會讓「沒登記」也放行。
+  const candidates = [];
+  for (const f of files) {
+    if (f.toLowerCase() === 'catalog.md' || f === 'COVERAGE.md') candidates.push(path.join(e2e, f));
   }
-  // 有資料列 = 有回填（骨架只有表頭 + 分隔線）
-  const hasDataRow = catalogText
-    .split('\n')
-    .some((ln) => /^\|/.test(ln) && !/白話業務情境/.test(ln) && !/^\|[\s-]+\|/.test(ln));
-  return hasDataRow ? true : false;
+  for (const d of subDirs) candidates.push(path.join(e2e, d, 'COVERAGE.md'));
+  let sawUnknown = false;
+  for (const c of candidates) {
+    const st = fileState(c);
+    if (st === 'unknown') {
+      sawUnknown = true;
+      continue;
+    }
+    if (st !== 'yes') continue;
+    let text;
+    try {
+      text = fs.readFileSync(c, 'utf8');
+    } catch (_) {
+      sawUnknown = true;
+      continue;
+    }
+    if (/tools\/gen_catalog\.py` 生成/.test(text)) continue;
+    if (hasTableDataRow(text, placeholderOf(e2e))) return true;
+  }
+  // 有子目錄 stat／readdir 失敗：它的 COVERAGE.md 可能有登記只是讀不到 → 不確定（放行），不當成「沒登記」
+  return sawUnknown || subUnknown ? null : false;
+}
+
+// 參數檔 coverage.placeholder（預設「待補」）：情境欄還是佔位字的列＝沒登記。讀不到參數檔就用預設。
+function placeholderOf(e2e) {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(e2e, 'qa-webwright.json'), 'utf8').replace(/^﻿/, ''));
+    const ph = cfg && cfg.coverage && cfg.coverage.placeholder;
+    if (typeof ph === 'string' && ph.trim()) return ph.trim();
+  } catch (_) {
+    /* 沒有參數檔或壞掉 → 預設 */
+  }
+  return '待補';
+}
+
+// 表格資料列＝以 | 開頭、不是分隔線、也不是表頭（表頭＝下一行是分隔線的那行）；
+// 第一格（情境）是空的、是佔位字、或是 <…> 範本佔位的列不算——骨架生成的「待補」列不等於登記了情境。
+function hasTableDataRow(text, placeholder) {
+  const lines = text.split(/\r?\n/);
+  const isSep = (ln) => /^\|[\s:|-]+\|?\s*$/.test(ln.trim()) && /-/.test(ln);
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i].trim();
+    if (!/^\|/.test(ln) || isSep(ln)) continue;
+    if (i + 1 < lines.length && isSep(lines[i + 1].trim())) continue;
+    if (/白話業務情境/.test(ln)) continue;
+    const first = ln.replace(/^\|/, '').split('|')[0].replace(/[*_`]/g, '').trim();
+    // 佔位字與情境欄用同一套正規化比對（TODO_CASE 這類含底線的佔位字也認得）
+    if (!first || first === String(placeholder).replace(/[*_`]/g, '').trim() || /^<[^>]*>$/.test(first)) continue;
+    return true;
+  }
+  return false;
 }
 
 // 計數檔路徑（BLOCK 與 WARN 共用同一個；per session）。
