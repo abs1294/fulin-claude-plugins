@@ -50,8 +50,11 @@ process.stdin.on('end', () => {
     const input = i.tool_input || {};
 
     if (tool === 'CronCreate') {
-      const idm = respText.match(/task ([a-z0-9-]{6,})/i) || respText.match(/job ([a-z0-9-]{6,})/i);
-      const id = idm ? idm[1] : `cron-${Date.now()}`;
+      // tool_response 是結構化物件 {id, humanSchedule, recurring, durable}，不含
+      // 「task <id>」字樣；只靠 regex 會落到 cron-<ts> 假 id，CronDelete 永遠對不上。
+      const resp = i.tool_response;
+      const idm = respText.match(/"id":"([a-z0-9-]{6,})"/i) || respText.match(/task ([a-z0-9-]{6,})/i) || respText.match(/job ([a-z0-9-]{6,})/i);
+      const id = (resp && typeof resp === 'object' && typeof resp.id === 'string' && resp.id) || (idm ? idm[1] : `cron-${Date.now()}`);
       const recurring = input.recurring !== false;
       jobs[id] = {
         type: 'cron',

@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.6.1] - 2026-09-25
+### Fixed
+- cron-tracker 改從 tool_response.id 取 job id：原本只用 regex 找「task <id>」，但 hook 收到的是結構化物件，抓不到而落到 cron-<時間戳> 假 id，CronDelete 永遠對不上，statusline 持續顯示已刪除的排程
+
 ## [1.6.0] - 2026-09-21
 ### Added
 - **新增 `mcps` 列：觀察 MCP 工具的呼叫活動**，顯示在 middle 欄 agents 區塊的**正下方**（與 skills／crons 同樣的「header ＋ 縮排項目」形狀）。每筆顯示 `Server__tool` ＋ 呼叫次數 ＋ 失敗數 ＋ 多久前，依最近呼叫排序取前 5 筆；本 session 沒有任何 MCP 呼叫時整區不顯示（不佔位、不留空 header）
