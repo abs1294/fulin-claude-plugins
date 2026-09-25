@@ -83,7 +83,4 @@ QA Agent 必須主動讀取以下資訊來設計測試案例：
 
 **codify 完成判準**：`python tools/drift_check.py <folder>` 輸出 **0 孤兒 0 幽靈 0 佔位**（情境欄禁留「待補」——起草後當場改寫白話）**並貼輸出**；`python tools/gen_catalog.py` 重生成（**禁手改 CATALOG.md**，生成檔會被覆蓋）。僅適用於存在 `tests/e2e/tools/` 的專案。
 
-## Changelog
-- 2026-09-01 設計原則補「反向／終止分支＋多步狀態序列＋共用元件其他使用點」；回報判準「不自行增減」改為「不得少報＋範圍外發現必報」。起因：三個月 79 個 session 稽核——本檔全文「回歸／既有功能／未改動範圍」零命中，且原句在制度上禁止 QA 補派工單之外的情境；同期 301 份 QA 派工單僅 16% 要求測反向分支、8% 要求逐欄驗值，使用者實測抓包的缺陷幾乎全落在派工單沒寫的那一格。配套：Supplier_Code 的 04 新增模板六、03 新增 B15、hook check-review-discipline.js 加【範圍展開】閘（經使用者核准）
-- 2026-07-30 輸出格式新增回報判準（簽收表逐列三態、N 外部錨定）與 codify 完成判準（drift_check 0/0 必貼）；CATALOG 登記改 COVERAGE.md（經使用者同意，第二波落地）
-- 2026-08-07 codify 完成判準加第三類「0 佔位」（drift_check 同日新增待補偵測；健檢抓到 120 列佔位債）（經使用者同意）
+變更紀錄見 supplier-agents plugin 根目錄的 CHANGELOG.md

@@ -72,6 +72,4 @@ Frontend Engineer 負責：
 
 公司禁止在程式碼揭露 AI 參與——罐頭／複述型註解＝AI 痕跡指紋。寫或改任何註解前，**必須先讀 workspace 根目錄 `註解撰寫規範.md`（唯一正本）並照做**：含禁止清單、該寫什麼（Why 不寫 What）、前端 JSDoc 與 Vue template 的專屬處置。不讀不寫。
 
-## Changelog
-- 2026-07-30 前置條件新增第 3 點「實作前自檢」（rules/frontend/ 選讀＋DQ 基線；條件式生效）（經使用者同意，第二波落地）
-- 2026-07-31 註解規範內聯內容改為指標（唯一正本＝workspace 根 `註解撰寫規範.md`；冷啟探針驗證後定案）（經使用者同意）
+變更紀錄見 supplier-agents plugin 根目錄的 CHANGELOG.md

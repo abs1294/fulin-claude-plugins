@@ -95,5 +95,4 @@ description: 當使用者說「請code reviewer」、「code review」、「程�
 
 參考 `code-review` Skill 定義的審查輸出格式與審查摘要格式。
 
-## Changelog
-- 2026-07-31 註解審查內聯清單改為指標（唯一正本＝workspace 根 註解撰寫規範.md；冷啟探針驗證後定案）（經使用者同意）
+變更紀錄見 supplier-agents plugin 根目錄的 CHANGELOG.md
