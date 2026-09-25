@@ -17,6 +17,7 @@
 - 派工時**一律顯式帶 `model` 參數**，不帶就繼承主對話、浪費高階額度。{{若有裝 check-agent-model hook 加：此規則已由 PreToolUse hook `.claude/hooks/check-agent-model.js` 程式強制（專案 agent 缺 model 直接 deny）——被攔到就照 deny 訊息補參數重發，**不得改派其他 agent type 繞過**。}}
 - **Fable 禁下放**：除非使用者明確要求，subagent 不得帶 `model:"fable"`；主對話為 Fable session 時，派工照上表選 `sonnet`/`opus`/`haiku`，不得讓 subagent 繼承 Fable。
 - **Quota 節流**：平行派工可以，禁無界灑艦隊——分波派發每波併發 ≤6（重型讀碼／審查 ≤4）；任一 agent 撞 quota／API 終止 → 熔斷（停派下一波、保留已完成、回報使用者，禁自動重試）；大艦隊（>15 agents 或估算 >1M tokens）先報預算徵同意。
+- **主對話的成本主要在長 session 的超長 context**，不在派工分層：每則回覆都重讀整段 context，context 越長、每輪越貴。任務告一段落就開新 session 或 `/compact`，比調整派工模型省得多。{{若有裝壓縮交接 hook（形狀目錄第 26 列），保留下面從「壓縮前後由 hook 補位」到本條結尾的整段；Q5 取消了這組 hook，就把那整段刪掉，只留前面的成本原則：}}壓縮前後由 hook 補位：`compact-snapshot.js`（PreCompact）存快照，並呼叫 `compact-handoff.js` 開一個隔離的 `claude -p` 子 session 依對話寫**交接信**——已完成只留結果、未完成完整保留、沒驗證的標 HYPOTHESIS，另有目標版本、硬約束（只收使用者親口說的，CLAUDE.md／memory 條文不列）、關鍵值（程式從工具回傳抽出的原值，信寫完以字串比對驗是否原樣抄入）、走過的死路；`compact-reinject.js`（SessionStart matcher=compact）注入交接信並附程式算出的背景任務清單，交接信沒產生時退回快照清單；`compact-summary-log.js`（PostCompact）記下摘要與交接信各漏了什麼；`resume-stale-reminder.js`（SessionStart matcher=resume）在隔數小時才 resume 時提醒狀態可能已過期。壓縮後看到 `[compact-reinject]`，**第一個回覆先交代交接信「未完成」第 1 項的結果**，交代前不做清單以外的事；交接信與摘要裡「已完成／已驗證」類主張，行動前先對回原始證據。hook 輸出注入 context 有 10,000 字元上限（官方文件未載，超過只注入前 2,000 字預覽），交接信的長度設定要留在這個預算內。
 
 ### 本專案 agent 對照表
 

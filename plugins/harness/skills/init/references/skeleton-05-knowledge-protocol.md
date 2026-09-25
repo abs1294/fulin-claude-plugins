@@ -87,6 +87,15 @@ metadata:
 {{若有既有治理層加：□ {{治理層入口檔}}是否改版？（其載入規則／門檻流程變動時，04 的必讀清單規則與流程編排節要重對齊）}}
 ```
 
+環境層（這幾項失效時不會擋下任何動作，只在 transcript 留一則 hook error 通知或退回較陽春的做法，工作照常進行，很容易被忽略，所以要主動查）：
+
+```
+□ hook 接線對得上嗎？讀 {{settings 檔路徑}} 的 `hooks` 區，每條 `command` 指向的 `.js` 檔都要真的存在——`.claude/hooks/` 改過檔名或搬過目錄時 settings 不會跟著改，node 找不到檔案會以非 0 結束，Claude Code 把它當成非阻擋錯誤繼續往下做，那支 hook 從此等於沒裝；每支 hook 檔頭「接線」註解的事件與 matcher 也要和 settings 一致
+□ hook 的執行環境：在專案根目錄跑 `node --version` 要成功（hook 全靠 node 執行）
+{{若有裝壓縮交接 hook（形狀目錄第 26 列）加：□ 交接信真的有寫出來嗎？看最近幾次壓縮的流水帳（`~/.claude/projects/<本專案>/<session>/compact-snapshots/compact-log.jsonl` 每行的 `handoff.ok`）：連續 false 就看同一行的 `handoff.error`——找不到 claude（在專案根目錄跑 `claude --version` 確認）、逾時（`CHILD_TIMEOUT` 太小或對話太長），或 `disabled`（有人設了 `COMPACT_HANDOFF_OFF=1`）。交接信寫不出來時壓縮照常進行，壓縮後注入的會是標明「交接信未產生」的快照清單，一次看到容易當成偶發，要看流水帳才知道是不是每次都失敗}}
+{{若有裝壓縮交接 hook（形狀目錄第 26 列）加：□ 壓縮交接的逾時設定還對得上嗎？settings 裡 PreCompact 那條的 `timeout`（單位秒）換算成毫秒後要大於 `compact-handoff.js` 的 `CHILD_TIMEOUT`（單位毫秒），否則交接信寫到一半整支 hook 被中止；`compact-reinject.js` 的 SessionStart matcher 要是 `compact`、`resume-stale-reminder.js` 的要是 `resume`}}
+```
+
 健檢輸出一頁報告，異常項附建議修法；修法本身依 §1 分級執行。
 
 ## 6. 升格協議（規則從事故長出來）
