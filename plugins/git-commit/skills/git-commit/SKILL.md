@@ -29,8 +29,13 @@ description: >
 2. **任一軌 BLOCK → 永不自動 commit**，列必修項等使用者——即使使用者已先回 OK。
 3. 使用者明確否決（「等等」「先別上」、改 message、調 staging）→ 照使用者意思，不 commit。
 4. PASS 附清單＝「可 commit 但有建議」，預設放行；使用者要先修 → 改碼 → 重跑 `prepare` → 兩軌重送（diff 變了就重判豁免）。BLOCK 後重做同樣走完整 Step 1。禁止沿用先前確認過的 message 直接 commit（碼可能已變）。
-5. **某一軌確定不可用** → 單軌降級（該軌記 `skipped: <原因>`、匯流視為 PASS；`review-record` 該軌就填這串），預覽明講已降為單軌，並由主 agent 補做該軌該查的項目。**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認（`review-record` 收到兩軌都 `skipped` 會直接拒絕；使用者核可後改走 `--exempt`）。
+5. **某一軌確定不可用**（額度用完不算，見本條下方）→ 單軌降級（該軌記 `skipped: <原因>`、匯流視為 PASS；`review-record` 該軌就填這串），預覽明講已降為單軌，並由主 agent 補做該軌該查的項目。**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認（`review-record` 收到兩軌都 `skipped` 會直接拒絕；使用者核可後改走 `--exempt`）。
    > 「確定不可用」有嚴格判準，不是「我等不下去」——B 軌見 `references/codex-troubleshooting.md`，**自行判定不可用就 commit ＝ 違規**。
+   > **額度／用量上限不算不可用**（錯誤原文如 `You've hit your usage limit ... try again at 8:24 PM`）：這是暫時狀態，**不得記 `skipped`、不得單軌降級**——`review-record` 會機械擋下理由含 usage limit／rate limit／quota／credits／try again at／額度／用量上限／配額的 skipped。處置：
+   > 1. 從錯誤原文取重置時間（`try again at <時間>`）；讀不到就停下問使用者，不要自己猜一個時間了事。
+   > 2. **當輪就排好喚醒**，時間設在重置後約 5 分鐘：Claude Code 內用 CronCreate（`recurring: false`、釘死分／時／日／月，只活在本 session）；session 可能先關掉就改用 goal2 plugin 的 `delaylocal` 排到本機。只寫「稍後再審」不排喚醒＝空頭承諾。
+   > 3. 預覽明講「Codex 額度用完，已排 HH:MM 重跑」，commit 維持不做（這一軌沒結論，不是 PASS）。
+   > 4. 喚醒後依序：最小題確認額度恢復 → 確認 index 沒被別人改動（外來 staged 閘會擋）→ staged 沒變就沿用 prepare 的 diff hash 直接重送 B 軌；staged 變了就從 prepare 重來。仍是額度錯誤就依新的重置時間再排一次。
 6. **兩軌對同一項判不同嚴重度（一軌 BLOCK、一軌 Minor／PASS）→ 主 agent 自己實跑驗證再匯流**，不可取中間值、不可選寬鬆那軌放行（實證：Codex 判 BLOCK／code-reviewer 判 Minor，實測 Codex 對；「需要更好的工具才能正確處理」≠「可以不正確」）。驗證結果貼進預覽，才決定走 1 或 2。
 
 ## Review 豁免規則
@@ -48,7 +53,7 @@ description: >
 | `flow.sh analyze <repo>` | 狀態分類＋local-overrides 過濾＋敏感字掃描 |
 | `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查） |
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾用：git 已把合併進來的檔案 stage 好）。index 空的拒絕 |
-| `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆第一行須為 `VERDICT: PASS`（BLOCK 不收）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收） |
+| `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆第一行須為 `VERDICT: PASS`（BLOCK 不收）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；理由含額度字樣不收——額度用完要排重跑，見核心原則 5） |
 | `flow.sh review-record <repo> --exempt "<理由>"` | 使用者明示豁免（Style/Docs、POC、plugin 發布、使用者要求跳過審查）。理由寫使用者的原話或豁免依據，會進稽核流水帳 `review-log.tsv` |
 | `review-record ... --qa "<QA 狀態>"`（選填） | QA 表態，與審查結果一起寫進紀錄與流水帳。flow.sh 本身不強制；專案可用 hook 在行為類改動時要求必帶（例：供應商平台的 `guard-qa-before-commit.js` 要求 `已QA：…` 或 `分流例外：…`） |
 | `flow.sh audit <repo> [<range>]` | 體檢既有 commit 的 message，唯讀。抓：空 message／缺 `Type:` 前綴／Type 不在允許清單／描述超長／痕跡命中／含多行 body（軟清單命中另標「待確認」）。exit `0`＝乾淨、`1`＝有問題、`2`＝range 無效 |

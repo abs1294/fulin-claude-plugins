@@ -24,7 +24,7 @@
 
 - **git CLI** — 整套流程的本體。
 - **bash**（Windows 用 Git Bash，裝 Git for Windows 即附帶）— `flow.sh` 是 bash 腳本，主流程靠它落地。
-- **（選用）codex plugin**（`codex@openai-codex`）— 僅 Codex 審查軌需要；未裝（或 Codex 確定不可用）時降為單軌：B 軌在 `review-record` 填 `skipped: <原因>`，只剩 C 軌（`code-reviewer` subagent）把關；兩軌都不可用則不會自動 commit，要使用者人工確認。
+- **（選用）codex plugin**（`codex@openai-codex`）— 僅 Codex 審查軌需要；未裝（或 Codex 確定不可用）時降為單軌（**額度／用量上限不算不可用**：要排額度恢復後重跑，`review-record` 會拒收理由含額度字樣的 skipped）：B 軌在 `review-record` 填 `skipped: <原因>`，只剩 C 軌（`code-reviewer` subagent）把關；兩軌都不可用則不會自動 commit，要使用者人工確認。
 
 ## 核心流程
 
@@ -46,7 +46,7 @@
 | `flow.sh analyze <repo>` | git 狀態分類 + local-overrides 過濾 + 敏感字掃描 | 1.2 分析 |
 | `flow.sh prepare <repo> <files...>` | `git add`（只加列出的檔，不 `git add .`）→ 產出 staged diff 供兩軌讀取。index 已有不在清單內的 staged 項目（多半是別的 session stage 的）就拒絕；merge 進行中不檢查（合併進來的檔本來就屬於這顆 commit） | 1.2 Stage |
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾、自己切 hunk stage 時用） | 1.2 Stage／Merge 收尾 |
-| `flow.sh review-record <repo> --codex "<回覆>" --reviewer "<回覆>"` | 把兩軌回覆原文綁定到當下 staged diff；回覆第一行須為 `VERDICT: PASS`，不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收）。豁免改用 `--exempt "<理由>"`，可加 `--qa "<QA 狀態>"` | 1.4 匯流後 |
+| `flow.sh review-record <repo> --codex "<回覆>" --reviewer "<回覆>"` | 把兩軌回覆原文綁定到當下 staged diff；回覆第一行須為 `VERDICT: PASS`，不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；理由含 usage limit／quota／額度等字樣也不收——額度用完要排重跑）。豁免改用 `--exempt "<理由>"`，可加 `--qa "<QA 狀態>"` | 1.4 匯流後 |
 | `flow.sh ship <repo> <type> "<desc>" [--push]` | 真閘（AI 署名／單行／message 痕跡與寬度／diff hash／敏感字／建置產物／AI 痕跡）→ HEREDOC `git commit` → 驗證。**預設只本機 commit，`--push` 才推遠端**（需使用者當次核可）；沒有 `review-record` 紀錄就拒絕 | Step 2 |
 | `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述>]` | 改寫 HEAD：自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘、改寫後做 tree 級驗證；只本機改寫不 push | 歷史改寫 |
 | `flow.sh audit <repo> [<range>]` | 唯讀體檢既有 commit 的 message（空 message／缺 Type／超長／痕跡／多行 body）；交付 patch 或推上游前跑一次 | 交付前 |

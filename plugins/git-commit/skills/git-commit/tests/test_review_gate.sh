@@ -70,6 +70,21 @@ expect "T06 兩軌都 skipped 不收" 1 flow review-record r1 --codex "skipped: 
 expect "T07 一軌 skipped 一軌 PASS 可收" 0 flow review-record r1 --codex "skipped: codex 400 model not supported" --reviewer "$PASS_REPLY"
 expect "T08 亂寫的結論不收" 1 flow review-record r1 --codex "看起來沒問題" --reviewer "$PASS_REPLY"
 expect "T09 skipped 沒寫原因不收" 1 flow review-record r1 --codex "skipped:" --reviewer "$PASS_REPLY"
+# 額度／用量上限不算「確定不可用」：記 skipped 等於靜默跳過一軌，要排重跑（核心原則 5）
+rm -f "$(rec_of r1)"
+QUOTA_EN="skipped: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro) or try again at 8:24 PM."
+expect "T40 skipped 理由是 usage limit 不收" 1 flow review-record r1 --codex "$QUOTA_EN" --reviewer "$PASS_REPLY"
+printf '%s' "$LAST_OUT" | grep -q '重跑' && ok "T40b 錯誤訊息指示排重跑" || bad "T40b 錯誤訊息指示排重跑" "$LAST_OUT"
+[ ! -f "$(rec_of r1)" ] && ok "T40c 被拒時不寫紀錄" || bad "T40c 被拒時不寫紀錄"
+expect "T40d 中文「額度」也不收" 1 flow review-record r1 --codex "skipped: codex 額度用完" --reviewer "$PASS_REPLY"
+expect "T40e 大小寫不同也不收" 1 flow review-record r1 --codex "skipped: USAGE LIMIT reached" --reviewer "$PASS_REPLY"
+expect "T40f 額度字樣在第二行也不收" 1 flow review-record r1 --codex $'skipped: codex 失敗\n[codex] Codex error: You\'ve hit your usage limit.' --reviewer "$PASS_REPLY"
+expect "T40g code-reviewer 那軌的額度理由也不收" 1 flow review-record r1 --codex "$PASS_REPLY" --reviewer "skipped: rate limit exceeded"
+# 長回覆（3MB）：用 printf | grep -q 比對時，grep 命中即提早結束、上游吃 SIGPIPE，pipefail 下會被判成「未命中」而放行
+LONG_QUOTA="skipped: You've hit your usage limit.
+$(head -c 3145728 /dev/zero | tr '\0' 'x')"
+expect "T40i 3MB 長回覆裡的額度字樣也不收" 1 flow review-record r1 --codex "$LONG_QUOTA" --reviewer "$PASS_REPLY"
+expect "T40h 非額度的 skipped 照收" 0 flow review-record r1 --codex "skipped: agent 不存在" --reviewer "$PASS_REPLY"
 expect "T10 只給一軌不收" 1 flow review-record r1 --codex "$PASS_REPLY"
 expect "T11 exempt 空理由不收" 1 flow review-record r1 --exempt "   "
 expect "T12 exempt 與 codex 並用不收" 1 flow review-record r1 --exempt "POC" --codex "$PASS_REPLY"

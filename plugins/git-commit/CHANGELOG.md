@@ -27,6 +27,14 @@
 - 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
 - 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
 
+## [0.8.5] - 2026-09-25
+### Added
+- **Codex 額度用完不可再被當成「不可用」而靜默跳過**（使用者要求）：原本核心原則 5 只寫「某一軌確定不可用 → 單軌降級（記 skipped）」，額度用完時照字面就能記 `skipped` 然後 commit，B 軌等於靜默消失。
+  - **機械閘**：`flow.sh review-record` 收到理由（整段回覆，不只第一行、不分大小寫）含 usage limit／rate limit／quota／credits／try again at／額度／用量上限／配額的 `skipped` 一律拒收（exit 1、不寫紀錄），錯誤訊息指示排重跑。兩軌都適用。
+  - **流程**：SKILL.md 核心原則 5 新增處置——取錯誤原文的重置時間 → 當輪排重置後約 5 分鐘的一次性喚醒（CronCreate，session 可能關閉則用 goal2 `delaylocal`）→ 預覽明講「已排 HH:MM 重跑」→ 喚醒後最小題確認、檢查 index、沿用或重跑 prepare 後重送 B 軌。troubleshooting 快速參照與降級段同步。
+  - 比對用 bash 內建 `[[ =~ ]]`＋`nocasematch`，不接 `printf | grep -q`：實測 3MB 回覆在 pipefail 下 grep 提早結束、上游 SIGPIPE，條件被判成假而放行。`shopt -p` 在選項關閉時回 1，已吞掉其 exit code（現有呼叫點在 `|| exit 1` 左側、errexit 暫停，不吞也不會中止；防呆不依賴呼叫點）。
+  - 測試 `test_review_gate.sh` 新增 T40～T40i（英文／中文／大小寫／額度字樣在第二行／code-reviewer 那軌／被拒不寫紀錄／3MB 長回覆／非額度 skipped 照收），共 78 項。反向驗證：拿掉這道閘恰好 FAIL T40～T40g 七項；改回 `printf | grep -q` 恰好 FAIL T40i（3MB 回覆被收成 Codex SKIPPED）。
+
 ## [0.8.4] - 2026-09-25
 ### Fixed（文件）
 - **`--fresh` 寫法錯誤會讓 B 軌白跳、外觀像審查完成**（使用者回報、本機實測）：0.8.2 在 1.3b 與 troubleshooting 寫「呼叫 codex 一律帶 `--fresh`」，沒區分兩條路。`--fresh` 只是 companion `codex-companion.mjs task` 的旗標，`codex exec` 沒有——`codex exec --fresh ...` 回 `error: unexpected argument '--fresh' found`（exit 2），完全沒跑；接在管線裡（`... 2>&1 | tail -3`）末端 exit 為 0、`${PIPESTATUS[0]}` 才是 2。範本又把「帶 `--fresh`」與「`codex exec ... < 內容檔`」寫在同一句，照寫就中。改為：走 companion 用 `task --fresh`；直接用 `codex exec` 不加（exec 本來每次就是新 session，接續要另下 `codex exec resume`，禁用）。SKILL.md 1.3b 第 3 條、prompt 範本、troubleshooting 快速參照與處置段同步改寫。

@@ -547,6 +547,25 @@ classify_verdict() {
     return 1
   fi
   if [[ "$head" =~ ^skipped:[[:space:]]*[^[:space:]] ]]; then
+    # 額度／用量上限是暫時狀態，不是「確定不可用」：記 skipped 等於把這一軌靜默跳過。
+    # 要排額度恢復後重跑（SKILL.md 核心原則 5），這裡機械擋下。
+    # 用 bash 內建比對、不接 printf | grep -q：回覆很長時 grep 命中就提早結束，上游 printf 吃 SIGPIPE，
+    # pipefail 下整條管線回非 0，條件被判成假而放行（3MB 文字實測誤判；短文字正常；本檔 first_nonblank_line 同型的坑）。
+    local quota_re='usage limit|rate limit|quota|credits|try again at|額度|用量上限|配額'
+    local restore_nocase quota_hit=0
+    # shopt -p 在該選項關閉時回 1。目前呼叫點是 `x="$(classify_verdict ...)" || exit 1`，errexit 在 || 左側被暫停，
+    # 所以現況不會中止；但若改成在 set -e 生效處直接呼叫，函式會無聲中止——防呆吞掉 exit code，不要依賴呼叫點。
+    restore_nocase="$(shopt -p nocasematch || true)"
+    shopt -s nocasematch
+    [[ "$text" =~ $quota_re ]] && quota_hit=1
+    eval "$restore_nocase"
+    if [ "$quota_hit" -eq 1 ]; then
+      echo "ERROR: $label 的 skipped 理由是額度／用量上限——這是暫時狀態，不算「確定不可用」，不能靜默跳過這一軌。" >&2
+      echo "       從錯誤原文取重置時間（例：try again at 8:24 PM），排一個重置後的一次性喚醒重跑這一軌，" >&2
+      echo "       並在預覽明講「Codex 額度用完，已排 HH:MM 重跑」；staged 沒變的話 prepare 的 diff hash 仍有效。" >&2
+      echo "       詳見 SKILL.md 核心原則 5。" >&2
+      return 1
+    fi
     echo "SKIPPED"; return 0
   fi
   echo "ERROR: $label 的第一行必須是「VERDICT: PASS」（貼 agent 回覆原文）或「skipped: <原因>」（該軌確定不可用）。" >&2
@@ -559,6 +578,7 @@ print_review_howto() {
   echo "       commit 前必須跑完 Codex 與 code-reviewer 兩軌，並把兩軌回覆記下來：" >&2
   echo "         flow.sh review-record $repo --codex \"<Codex 回覆原文>\" --reviewer \"<code-reviewer 回覆原文>\"" >&2
   echo "       某一軌確定不可用：該軌填 \"skipped: <原因>\"（兩軌都 skipped 不收，要停下來問使用者）。" >&2
+  echo "       額度／用量上限不算不可用：不能記 skipped，要排額度恢復後重跑這一軌（SKILL.md 核心原則 5）。" >&2
   echo "       使用者明示豁免（Style/Docs 豁免、POC、plugin 發布、緊急修正經同意跳過審查）：" >&2
   echo "         flow.sh review-record $repo --exempt \"<理由>\"" >&2
   echo "       這道閘沒有旗標可以繞過；紀錄只對當下這份 staged diff 有效，重跑 prepare 就要重記。" >&2
@@ -1610,6 +1630,7 @@ Commands:
   review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"]
                                     把兩軌結果（或使用者豁免）綁定到當下 staged diff；ship／amend 沒有它就拒絕
                                     回覆第一行須為 VERDICT: PASS，不可用的那軌填 "skipped: <原因>"（兩軌都 skipped 不收）
+                                    額度／用量上限不算不可用：skipped 理由含 usage limit、quota、額度等字樣一律拒收（要排重跑）
   audit   <repo> [<range>]          體檢既有 commit 的 message，唯讀。抓：空 message／缺 Type: 前綴／
                                     Type 不在允許清單／描述超長／痕跡命中／含多行 body
                                     不帶 range 時：有 upstream 掃未推的，否則掃最近 20 顆

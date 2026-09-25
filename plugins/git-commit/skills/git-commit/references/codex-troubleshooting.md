@@ -25,6 +25,7 @@
 | 400 `The '--continue' model is not supported`（model 名是 prompt 裡的某個旗標字樣） | prompt 內的 `-m` 之類被 companion 當成 `--model`；prompt 要求「以 stdin／暫存檔傳入、不拆成命令列參數」，範例指令的短旗標改用文字描述 | §派工方式 |
 | `--resume-last is not supported`（exit 1） | agent 自帶 `--resume-last` 接續舊 thread，本帳號不支援；走 companion 時明寫「`task --fresh`，禁止 `--resume-last`／`--resume`」 | §派工方式 |
 | `error: unexpected argument '--fresh' found`（exit 2） | `--fresh` 是 companion `task` 的旗標，**`codex exec` 沒有**；直接用 exec 就不加（exec 本來每次就是新 session） | §派工方式 |
+| `You've hit your usage limit ... try again at <時間>` | **不是不可用，不得 skipped／降級**（`review-record` 會擋）：取重置時間、當輪排重置後約 5 分鐘的一次性喚醒重跑 B 軌，預覽明講已排幾點 | SKILL.md 核心原則 5 |
 | exit 0 但輸出沒有 `VERDICT:` 行 | **不是審查完成**：多半是管線（`codex exec ... \| tail`）把 codex 的非 0 exit 蓋成 0。看 `${PIPESTATUS[0]}` 與原始輸出；沒有 VERDICT 就是沒有可採用的結論（沒跑、中途失敗或輸出被截斷），回 UNAVAILABLE | §派工方式 |
 | 卡在 `Reading additional input from stdin` | `codex exec` 加 `< /dev/null` | §派工方式 |
 | 只收到 idle、沒有 VERDICT | **不是死了**，續等；判死要客觀證據 | §判活與降級 |
@@ -136,6 +137,8 @@ prompt 含 `.git-commit-tmp`／`staged-*.diff` 路徑、或含「先 cat 讀取�
 - 逾 600 秒會被工具層轉背景續跑，**那是繼續執行、不是失敗**，等通知即可。
 
 **降級前先排除 model 下架**：Codex 可用模型會隨帳戶方案／服務端調整而變動（2026-09-05 實證：`gpt-5.4` 於 8/31 退役、config 仍寫該值 → 兩個 agent 皆回 400 `not supported`，實為設定過期而非環境故障，卻走完整套降級流程）。錯誤訊息含 `model is not supported` 或 `Model metadata for X not found` 時，先在任一 repo 內跑 `bash .claude/skills/git-commit/codex-model-sync.sh`——它讀 `~/.codex/models_cache.json`（CLI 維護的**帳號專屬**可用清單，非全球目錄）取 priority 最小者、實測送得出請求才寫回 config；exit 0＝已對齊，exit 1＝需人工處理。對齊後重送 B 軌即可，**不必降級**。官方文件明列 `gpt-5.4`／`gpt-5.4-mini` 為 deprecated，此類退役會再發生。
+
+**額度用完不是不可用**（2026-09-24 實證：同一天兩度撞上 ChatGPT 帳號的 Codex 用量上限，第一次 18:32 回 `try again at 8:24 PM`，重置後兩輪審查又用完、回 `try again at Sep 25th, 2026 1:27 AM`）：額度錯誤有明確的恢復時間，不符合下面「真的不可用」的判準。處置照 SKILL.md 核心原則 5——取重置時間、當輪排一次性喚醒、預覽明講幾點重跑；`review-record` 對理由含額度字樣的 `skipped` 一律拒收，所以「記 skipped 先 commit」這條路機械上走不通。注意 companion 在額度用完時也可能先報成別的錯（本機曾誤報「CLI 未安裝」），判定前先跑最小題看原文。
 
 **真的不可用時的降級**：先排除命名坑（見上方 ⚠️）；取得上述客觀證據後 → 單軌降級（B 軌記 `skipped: codex-unavailable`、匯流視為 PASS），預覽明講「本環境不可用，已降為單軌」，並補做 B 軌該查的項目（注入風險、跨檔一致性、邊界守門）；**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認。不當 PASS 的原則不變。另需分辨**工具層逾時**——agent 回報「任務仍在背景跑但我不被允許輪詢」而非 Codex 算得慢 → 直接重送一次，不計入等待時間（2026-08-16 實證：首次工具層 2 分鐘卡住無 VERDICT，重送後 37 秒回覆）。
 
