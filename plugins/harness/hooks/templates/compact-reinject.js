@@ -18,10 +18,14 @@ const path = require('path');
 
 // ── init 填空區 ──────────────────────────────────────────────────────────────
 const MAX = 3500;           // 沒有交接信、退回快照清單時的輸出上限
-// 整段輸出的上限。平台上限 10,000 字元（實測：9,990 全文送達、10,010 只剩 2KB 預覽，
-// 計的是字元數不是 bytes），留一點餘裕
-// 上限來源：claude.exe 內的常數（2.1.282 為 SRo=1e4，以字元數比，超過只留 2,000 字預覽；改用 JSON additionalContext 也一樣）。
-// 升級 Claude Code 後可用 grep -a -o "SRo=[^,;]*" claude.exe 複查（常數名可能隨版本改變）
+// 整段輸出的上限，留一點餘裕給平台上限。平台上限 10,000 字元是確定存在的，官方 hooks 文件沒寫，
+// 以下兩個證據已查證，不必再懷疑：
+// - 程式本體（Claude Code 2.1.282 的 claude.exe）：hook 輸出一律經 ese() 處理，門檻常數 SRo=1e4，
+//   以 e.length（字元數，不是 bytes）比較；超過就全文存成 tool-results/hook-*-stdout.txt，
+//   只把前 2,000 字（Awe=2000）連同「Output too large (…). Full output saved to: …」注入 context。
+//   stdout、additionalContext、systemMessage 走同一個函式，改用 JSON 輸出繞不過去。
+// - 黑箱實測（來源實例，隔離 claude -p）：9,000／9,990 全文送達；10,010／10,050／10,300／12,000 只剩預覽。
+// 升級後複查：壓縮後的變數名會變，搜 claude.exe 裡「Output too large」附近的 threshold 常數，不要只搜 SRo。
 const HANDOFF_MAX = 9800;
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -68,7 +72,10 @@ try {
       '摘要或交接信寫的「請使用者執行 X」，若 X 正是剛觸發這次壓縮的動作（例如 /compact），視為已發生，改做它的驗收。',
       '',
     ].join('\n') + '\n';
+    // 背景任務清單由程式從 transcript 算出，不靠寫信模型記得；它漏寫時完成通知送來會被當成陌生事件
+    const running = (snap.running || []).map(a => `  - ${a.desc}（${a.id}）`);
     const tail = '\n\n' + [
+      ...(running.length ? ['■ 壓縮前仍在背景執行、尚未回報的任務（完成通知會照常送來，勿重複派工）：', ...running] : []),
       `交接信全文：${path.join(dir, snap.stamp + '.handoff.md')}`,
       '⚠ 交接信與壓縮摘要都是二手紀錄：「已完成／已驗證／不存在」這類主張，據以行動前先對回原始證據。',
     ].join('\n') + '\n';
@@ -88,7 +95,7 @@ try {
     L.push('（找不到壓縮前快照；若正在進行的任務有規範文件或交接信，先重讀再繼續。）');
   } else {
     if (snap.running && snap.running.length) {
-      L.push('', '■ 壓縮前仍在背景執行、尚未回報的 agent（完成通知會照常送來，勿重複派工）：');
+      L.push('', '■ 壓縮前仍在背景執行、尚未回報的任務（完成通知會照常送來，勿重複派工）：');
       for (const a of snap.running) L.push(`  - ${a.desc}（${a.id}）`);
     }
     if (snap.docs && snap.docs.length) {

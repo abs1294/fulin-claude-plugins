@@ -3,7 +3,7 @@
  * PreCompact hook — 壓縮前把「摘要最容易漏掉、而且壓縮後不會自動回來」的狀態存成快照。
  *
  * 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
- * 本檔與 compact-handoff.js、compact-reinject.js、compact-summary-log.js 是一組，四支一起裝。
+ * 本檔與 compact-handoff.js（模組）、compact-reinject.js、compact-summary-log.js、resume-stale-reminder.js 是一組，一起裝。
  * 接線（目標專案 .claude/settings.json；timeout 要大於 compact-handoff.js 的 CHILD_TIMEOUT）：
  *   "PreCompact": [{ "matcher": "", "hooks": [{ "type": "command",
  *     "command": "node \"<專案絕對路徑>/.claude/hooks/compact-snapshot.js\"", "timeout": 240 }] }]
@@ -53,16 +53,14 @@ function userText(content) {
   return content.filter(c => c && c.type === 'text').map(c => c.text).join('\n');
 }
 
-function isRealUserPrompt(t) {
-  if (!t || !t.trim()) return false;
-  const s = t.trimStart();
-  return !(s.startsWith('<') || s.startsWith('Another Claude session') || s.includes('<task-notification>')
-    || s.includes('[SYSTEM NOTIFICATION') || s.startsWith('Base directory for this skill'));
-}
+// compact-handoff.js 壞掉時快照仍要寫得出來（它正是交接信失敗時的退路），退回只擋系統標籤的最小判準
+let isRealUserPrompt = t => !!t && !!t.trim() && !t.trim().startsWith('<');
+try { isRealUserPrompt = require('./compact-handoff.js').isHumanPrompt; } catch {}
 
 function scan(transcriptPath) {
-  const launched = new Map();   // agentId -> description
-  const toolUseDesc = new Map(); // tool_use id -> description（Agent）
+  const launched = new Map();   // agentId 或背景指令 ID -> description
+  const toolUseDesc = new Map(); // tool_use id -> description（Agent 與背景 Bash／PowerShell）
+  const resulted = new Set();    // 已有 tool_result 的 tool_use id
   const finished = new Set();
   const reads = [], edits = [], prompts = [], skills = [];
   const lines = fs.readFileSync(transcriptPath, 'utf8').split('\n');
@@ -71,6 +69,12 @@ function scan(transcriptPath) {
     // 完成通知可能落在 user 訊息、queue-operation 或 attachment(queued_command) 任一種紀錄，一律從原始行抓
     if (line.includes('task-notification')) {
       for (const mm of line.matchAll(/<task-id>([a-z0-9]+)<\/task-id>/g)) finished.add(mm[1]);
+    }
+    // 同一行可能併了好幾則 teammate 訊息，只有自己那一則是 idle 的才算完成，只回報進度的還在忙
+    if (line.includes('idle_notification')) {
+      for (const mm of line.matchAll(/<teammate-message teammate_id=\\"([\w.-]+)\\"[^>]*>([\s\S]*?)<\/teammate-message>/g)) {
+        if (mm[2].includes('idle_notification')) finished.add(mm[1]);
+      }
     }
     let o; try { o = JSON.parse(line); } catch { continue; }
     // 使用者在助理工作中途送出的訊息記成 attachment(queued_command)，沒有 message 欄位
@@ -86,6 +90,11 @@ function scan(transcriptPath) {
       for (const c of content) {
         if (!c || c.type !== 'tool_use' || !c.input) continue;
         if (c.name === 'Agent') toolUseDesc.set(c.id, c.input.description || c.input.subagent_type || '(agent)');
+        // 背景指令（例如 Codex 審查）也會在壓縮後才回報完成，只認 Agent 時快照會寫成沒有東西在跑
+        if ((c.name === 'Bash' || c.name === 'PowerShell') && c.input.run_in_background)
+          toolUseDesc.set(c.id, c.input.description || String(c.input.command || '').slice(0, 80));
+        // idle 過的具名 agent 被 SendMessage 叫醒後又在做事，要等下一次 idle 才算完成
+        if (c.name === 'SendMessage' && launched.has(c.input.to)) finished.delete(c.input.to);
         if (c.name === 'Skill' && c.input.skill) skills.push(c.input.skill);
         const fp = c.input.file_path || c.input.notebook_path;
         if (!fp || NOISE_RE.test(fp)) continue;
@@ -97,9 +106,16 @@ function scan(transcriptPath) {
       if (Array.isArray(content)) {
         for (const c of content) {
           if (c && c.type === 'tool_result' && toolUseDesc.has(c.tool_use_id)) {
+            resulted.add(c.tool_use_id);
             const txt = typeof c.content === 'string' ? c.content : JSON.stringify(c.content || '');
             const id = (txt.match(/agentId: ([a-z0-9]+)/) || [])[1];
             if (id && /launched successfully|working in the background/i.test(txt)) launched.set(id, toolUseDesc.get(c.tool_use_id));
+            const bg = (txt.match(/running in background with ID: ([a-z0-9]+)/i) || [])[1];
+            if (bg) launched.set(bg, toolUseDesc.get(c.tool_use_id));
+            // 具名 agent 回的是「Spawned successfully. agent_id: 名稱@session-…」，完成時不發 task-notification，
+            // 改以 idle_notification 判完成；同名重派時先清掉舊的完成標記
+            const named = (txt.match(/agent_id: ([\w.-]+)@/) || [])[1];
+            if (named && /Spawned successfully/i.test(txt)) { launched.set(named, toolUseDesc.get(c.tool_use_id)); finished.delete(named); }
           }
         }
       }
@@ -114,6 +130,10 @@ function scan(transcriptPath) {
   }
   const uniqLast = (arr, n) => [...new Set(arr.slice().reverse())].slice(0, n);
   const running = [...launched].filter(([id]) => !finished.has(id)).map(([id, d]) => ({ id, desc: d }));
+  // 派出後還沒寫回 tool_result 就被壓縮打斷（來源實例曾在派出 reviewer 後 0.1 秒就被快照），連 ID 都還沒有
+  for (const [tid, d] of toolUseDesc) if (!resulted.has(tid)) running.push({ id: tid, desc: d + '（剛派出，尚未回傳 ID）' });
+  // 和其他清單一樣設上限（保留最新的），清單長到會擠掉交接信的注入額度
+  running.splice(0, Math.max(0, running.length - 10));
   return {
     running,
     docs: uniqLast(reads, 12),

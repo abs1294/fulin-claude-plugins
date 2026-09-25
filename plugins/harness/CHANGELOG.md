@@ -6,12 +6,18 @@ All notable changes to this plugin will be documented in this file.
 
 ### Changed（壓縮交接跟上來源實例）
 - **交接信改九節**（`compact-handoff.js`）：未完成、目標版本（中途改目標時 v1／v2 各引原話並註明作廢步驟）、硬約束（使用者原話）、關鍵值（原樣）、走過的死路、HYPOTHESIS／已推翻、已完成、偏好、建議 skill；禁推論句（「使用者傾向…」）、禁簡體字形（語言規則收進填空區 `LANGUAGE_RULE`）。
-- **關鍵值清單**：對話骨架只收助理的文字，工具回傳的測試數字、錯誤行、exit code、commit、PR／票號到不了交接信。改由程式從工具回傳抽原值交給模型，信寫完用字串比對驗「自稱抄入的是否原樣出現」，非原樣再分兩類：`keysMangled`（去掉空白、標點、符號後找得到＝改寫過）、`keysMissing`（完全找不到＝自稱抄了其實沒寫進信）；寬鬆比對保留各種文字的字母與數字（來源實例原本只留英數與漢字，希臘字母、全形數字會被刪光而誤判成改寫，範本已修正）；讀檔類工具（Read、Grep、`cat`／`sed -n` 讀檔）的回傳不抽，避免把程式字面或舊交接信的數字當成這輪結果。
-- **子 session 改 `--effort low`、逾時 180→220 秒**：預設 effort 下思考 token 佔輸出八成且每次差很多，同一份輸入 183～245 秒、常撞逾時；low 實測長對話 59～69 秒、思考 0，來源實例三輪評估中 low 那輪 4 封全數產生、零逾時，評審分數未變差（收進填空區 `EFFORT`）。逾時上限同步放寬到 220 秒，PreCompact 接線 timeout 240 秒，差距留給快照寫檔，兩者在填空區註明要一起調。
+- **關鍵值清單**：對話骨架只收助理的文字，工具回傳的測試數字、錯誤行、exit code、commit、PR／票號到不了交接信。改由程式從工具回傳抽原值交給模型，信寫完用字串比對驗「自稱抄入的是否原樣出現」，非原樣再分兩類：`keysMangled`（去掉空白、標點、符號後找得到＝改寫過）、`keysMissing`（完全找不到＝自稱抄了其實沒寫進信）；寬鬆比對保留各種文字的字母與數字（原本只留英數與漢字，希臘字母、全形數字會被刪光而誤判成改寫；審查抓到，來源實例同步修正）；讀檔類工具（Read、Grep、`cat`／`sed -n` 讀檔）的回傳不抽，避免把程式字面或舊交接信的數字當成這輪結果。
+- **子 session 改 `--effort low`、逾時 180→220 秒**：預設 effort 下思考 token 佔輸出八成且每次差很多，同一份輸入 183～245 秒、常撞逾時；low 實測長對話 59～71 秒、思考 0，來源實例三輪評估中 low 那輪 4 封全數產生、零逾時，評審分數未變差（收進填空區 `EFFORT`）。逾時上限同步放寬到 220 秒，PreCompact 接線 timeout 240 秒，差距留給快照寫檔，兩者在填空區註明要一起調。
 - **⚠ 自我回報的統計只能參考**：effort low 下模型在信末「已處理：」「關鍵值：」兩行的自我回報不可靠（來源實例一次自稱抄 16 筆、12 筆不在信裡），流水帳的 `asksOpen`／`keysClaimed`／`keysMissing` 只能當參考。`keysMangled` 列出的每一筆都經程式比對信文確認是改寫，但只檢查模型自稱抄入的那幾筆，空陣列不代表信裡沒有改寫過的值。
 - **注入上限的出處**：平台對 hook 純文字輸出的 10,000 字元上限來自 claude.exe 內的常數（2.1.282 為 `SRo=1e4`，以字元數比，超過只留 2,000 字預覽，改用 JSON `additionalContext` 也一樣）；`compact-reinject.js` 註明升級後可用 `grep -a -o "SRo=[^,;]*" claude.exe` 複查。
 - **注入超長時先截「已完成」節**（`compact-reinject.js`）：原本從信尾截，排在後面的節會先被砍；改為先壓「已完成」節內文，仍不夠才整段截斷。
 - **流水帳加 `missingInHandoff`**（`compact-summary-log.js`）：同一份快照對交接信再比一次，量交接信有沒有補上內建摘要漏掉的項目。
+- **快照認得三種背景任務**（`compact-snapshot.js`）：原本只認 Agent。現在另認 `run_in_background` 的 Bash／PowerShell（以 task-notification 判完成）、具名 agent 的「Spawned successfully. agent_id: 名稱@…」（逐則 teammate-message 看 idle_notification 判完成，被 SendMessage 叫醒就改回執行中），以及剛派出、還沒有 tool_result 就被壓縮打斷的呼叫；清單上限 10 筆。走交接信路徑時，`compact-reinject.js` 把這份由程式算出的清單附在信後，不靠寫信模型記得。
+- **關鍵值防污染**：讀這組 hook 自己的快照、流水帳、交接信、摘要與 Claude Code transcript 目錄的工具輸出不抽（那是別的 session 的數字）；值前面緊接引號的不抽（被印出來的字串）；測試數字所在行夾中文的不抽（人寫的敘述）；抄進信時不得替數值推測用途。另補：裸 `Error: ENOENT` 這類無前綴錯誤行會抽、msbuild 行尾的 `[*.csproj]` 剝掉、HTTP 只收 `status`／`statusCode` 的 3 位數，後面不得再接數字（否則 `"status":2000` 會被截成 200 抽入，審查抓到、來源實例同步修正；`"code":"0000"` 是業務回傳碼，不抽）。
+- **短值比對只放寬空白與大小寫**：去標點後不到 12 字元的值（`Exit code 2`、`HTTP/1.1 404`）在整封信裡容易碰巧拼出同一串，不走寬鬆比對，避免把缺漏誤判成改寫。
+- **真人輸入判定共用一份**：抽成 `compact-handoff.js` 匯出的 `isHumanPrompt`，快照與 resume 提醒共用（各寫一份時曾三處不一致）。載入 `compact-handoff.js` 失敗時：快照退回最小判準照樣寫出（它正是交接信失敗時的退路）、resume 提醒直接不出聲。
+- **交接信上限 6000→7500 字**：來源實例實際信長 4.5k～7.1k，注入預算約 9,370 字；「硬約束」標題下加一行「只列使用者親口說的，CLAUDE.md、memory 條文不列」（只寫在原則第 7 條時沒生效，樣本數 1）。
+- **時區收進填空區**：關鍵值標注的時間與 resume 提醒的最後活動時間，原本寫死台北 +8 與「台北時間」字樣，改為 `TZ_OFFSET_HOURS`／`TZ_LABEL`（兩支各一份，預設不變）。
 
 ### Added
 - `hooks/templates/resume-stale-reminder.js`（SessionStart matcher `resume`，併入形狀目錄第 26 列）：距上次活動超過 `STALE_HOURS`（預設 4）才 resume 時，提醒服務狀態、背景 agent、DB 與 git、測試數字都可能已過期，附最近一封交接信路徑與使用者最後一則指示原文。壓縮有交接信補位，resume 沒有——context 原封不動回來，模型會把暫停當下的說法當成現況。
@@ -22,9 +28,9 @@ All notable changes to this plugin will be documented in this file.
 - **resume 提醒的活動時間不算系統注入紀錄**：「最後一則指示」排除了 isMeta 的 user 紀錄，「最後活動時間」卻沒排除，兩邊不對稱；拿掉 60 秒排除之後，萬一 resume 日後改成寫 isMeta 的 user 紀錄，活動時間會被刷成現在，提醒永久靜默。活動時間改為同樣排除 isMeta。
 
 ### 驗證
-- 範本以來源實例為邏輯正本產生，程式化逐行比對：刻意保留的差異為填空區常數、通用 `DOC_RE`／`NOISE_RE`、`COMPACT_HANDOFF_OFF` 分支；另有兩處範本多修的：讀檔判斷容許結尾換行、寬鬆比對保留各種文字的字母與數字（見上方「關鍵值清單」條）。
+- 範本以來源實例最終定版（`compact-handoff.js` c75a7d71c4bc、`compact-snapshot.js` 77696660b078、`compact-reinject.js` 549347c290cc、`compact-summary-log.js` d03464ae3d22、`resume-stale-reminder.js` 6124eacbbd22）為邏輯正本、由腳本重新產生，程式化逐行比對：非註解差異只剩填空區常數（含時區）、通用 `DOC_RE`／`NOISE_RE`、`COMPACT_HANDOFF_OFF` 分支。
 - probe：語法樹路徑 482/482；正則路徑 439 通過、43 略過（含 resume-stale-reminder 新增 4 條）。
-- 新增行為整合測試 17/17（關鍵值抽取與讀檔排除、多行指令、先截已完成節、missingInHandoff、resume 5 小時提醒、1 小時與 30 秒前才活動時靜默、isMeta 紀錄不算活動）；以 0.3.0 範本為對照組 12 條失敗，以各項修正前的本版為對照組時，對應的斷言各自失敗（多行指令、30 秒前才活動、isMeta），證明測試抓得到差異。0.3.0 的整合測試 17/17 無退步；真呼叫 `claude -p` 兩次：加 effort low 前一次（預設 effort，41.5 秒、0.038 美元），九節齊全；加 effort low 後一次（含工具回傳，14.5 秒、0.020 美元），九節齊全、3 筆關鍵值原樣抄入、`keysMangled`／`keysMissing` 皆空，「已處理：」「關鍵值：」統計行已移除。
+- 新增行為整合測試 17/17（關鍵值抽取與讀檔排除、多行指令、先截已完成節、missingInHandoff、resume 5 小時提醒、1 小時與 30 秒前才活動時靜默、isMeta 紀錄不算活動）；以 0.3.0 範本為對照組 12 條失敗，以各項修正前的本版為對照組時，對應的斷言各自失敗（多行指令、30 秒前才活動、isMeta），證明測試抓得到差異。定版新增行為的整合測試 17/17（三種背景任務與完成判定、交接信路徑附背景清單、防污染四條、裸 Error、msbuild 剝除、HTTP 只收 status 且不截四位數、短值比對、`compact-handoff.js` 壞掉時快照照寫與 resume 靜默）；以前一版範本為對照組 12 條失敗。具名 agent 的 teammate-message 格式另以其他 session 的真實 transcript 核對。0.3.0 的整合測試 17/17 無退步；真呼叫 `claude -p` 兩次：加 effort low 前一次（預設 effort，41.5 秒、0.038 美元），九節齊全；加 effort low 後一次（含工具回傳，14.5 秒、0.020 美元），九節齊全、3 筆關鍵值原樣抄入、`keysMangled`／`keysMissing` 皆空，「已處理：」「關鍵值：」統計行已移除。
 - `keysMangled`／`keysMissing` 的分類：真呼叫那次 3 筆都原樣抄入，分類沒被觸發；改把範本實際的分類程式抽出來對假資料實跑——原樣、只改標點（判改寫）、希臘字母或全形數字不同（判缺漏）各自歸位。未實測：模型真的改寫或漏抄時的分類。
 
 ## [0.3.0] - 2026-09-23

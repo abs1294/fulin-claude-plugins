@@ -3,7 +3,8 @@
  * SessionStart hook（matcher=resume）— 隔了很久才 --resume 回來時，提醒對話裡的狀態可能已過期。
  *
  * 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
- * 與壓縮交接四支一組（讀同一個 compact-snapshots/ 找最近的交接信）；接線（目標專案 .claude/settings.json）：
+ * 與壓縮交接一組（require compact-handoff.js 的真人輸入判定、讀同一個 compact-snapshots/ 找最近的交接信）；
+ * 接線（目標專案 .claude/settings.json）：
  *   "SessionStart": [{ "matcher": "resume", "hooks": [{ "type": "command",
  *     "command": "node \"<專案絕對路徑>/.claude/hooks/resume-stale-reminder.js\"", "timeout": 15 }] }]
  *
@@ -21,8 +22,15 @@
 const fs = require('fs');
 const path = require('path');
 
+// compact-handoff.js 載入失敗就不提醒，守住 exit 0；判準不準的提醒比沒有提醒更容易誤導
+let isHumanPrompt;
+try { ({ isHumanPrompt } = require('./compact-handoff.js')); } catch { process.exit(0); }
+
 // ── init 填空區 ──────────────────────────────────────────────────────────────
 const STALE_HOURS = 4;                // 距上次活動超過幾小時才提醒
+// 顯示最後活動時間用的時區（小時偏移與顯示名稱），與 compact-handoff.js 的同名設定一致
+const TZ_OFFSET_HOURS = 8;
+const TZ_LABEL = '台北時間';
 // ─────────────────────────────────────────────────────────────────────────────
 const TAIL_BYTES = 4 * 1024 * 1024;   // transcript 動輒十幾 MB，只讀尾端
 
@@ -34,13 +42,15 @@ function readTail(file) {
     const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, size - len);
     const s = buf.toString('utf8');
-    // 從中間切進來的第一行不完整，丟掉
-    return size > len ? s.slice(s.indexOf('\n') + 1) : s;
+    if (size <= len) return s;
+    // 從中間切進來的第一行不完整，丟掉；整段 4MB 都沒有換行（單行超長）就沒有完整紀錄可讀
+    const nl = s.indexOf('\n');
+    return nl < 0 ? '' : s.slice(nl + 1);
   } finally { fs.closeSync(fd); }
 }
 
-function taipei(ms) {
-  return new Date(ms + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
+function localTime(ms) {
+  return new Date(ms + TZ_OFFSET_HOURS * 3600000).toISOString().slice(0, 16).replace('T', ' ');
 }
 
 function userText(content) {
@@ -65,8 +75,7 @@ try {
     if (t > last && !(o.type === 'user' && o.isMeta)) last = t;
     if (o.type === 'user' && !o.isMeta && !o.isCompactSummary && o.message) {
       const s = userText(o.message.content).trim();
-      if (s && !s.startsWith('<') && !s.includes('[SYSTEM NOTIFICATION') && !s.startsWith('Base directory for this skill')
-        && !s.startsWith('Another Claude session')) lastPrompt = s;
+      if (isHumanPrompt(s)) lastPrompt = s;
     }
   }
   if (!last) process.exit(0);
@@ -74,7 +83,7 @@ try {
   if (hours < STALE_HOURS) process.exit(0);
 
   const L = [
-    `[resume-stale] 距上次活動 ${hours.toFixed(1)} 小時（最後活動 ${taipei(last)} 台北時間）。對話裡的狀態是暫停當下的說法，下列各項據以行動前先重驗：`,
+    `[resume-stale] 距上次活動 ${hours.toFixed(1)} 小時（最後活動 ${localTime(last)} ${TZ_LABEL}）。對話裡的狀態是暫停當下的說法，下列各項據以行動前先重驗：`,
     '- 服務與程序是否還在跑、port 是否被別的程序佔走',
     '- 暫停前派出的背景 agent：完成通知不一定會再送來，以它的產物（檔案、報告）為準，勿直接重派',
     '- DB 種子與測試資料、git 分支與工作區：其他 session 可能動過',
