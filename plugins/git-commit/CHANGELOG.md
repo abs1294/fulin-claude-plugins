@@ -27,6 +27,11 @@
 - 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
 - 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
 
+## [0.8.6] - 2026-09-25
+### Fixed（文件）
+- **額度用完時的排程備案寫錯了**：0.8.5 寫「session 可能關閉就改用 goal2 `delaylocal` 排到本機」。實查 `delaylocal` 排的是當前 session 的 Claude 5h quota 重置時間（讀 `CLAUDE_CODE_SESSION_ID`），不是 Codex 的重置時間，而且它自己最後也是呼叫 CronCreate——CronCreate 用不了的地方它也用不了，根本不是備案。已刪除。
+- **補「載不到 CronCreate」的處置**：冷啟實測（假 codex 固定回 `try again at 4:29 PM`，不告知測試目的的 subagent 照 SKILL.md 走 commit）判斷全對——沒記 skipped、沒 commit、算出 16:34——但 subagent 裡 `ToolSearch("select:CronCreate")` 回 `No matching deferred tools found`，喚醒排不上。SKILL.md 核心原則 5 改為：載不到就不得寫「已排」、不改用別的工具硬排，把重置時間、應重跑時間與 staged diff hash 回報呼叫端，由有排程工具的一方排；預覽寫「應於 HH:MM 重跑，喚醒未排上」。CronCreate 只活在本 session、Claude Code 關掉就不觸發，要在預覽講明。troubleshooting 同步並記下這次實測。
+
 ## [0.8.5] - 2026-09-25
 ### Added
 - **Codex 額度用完不可再被當成「不可用」而靜默跳過**（使用者要求）：原本核心原則 5 只寫「某一軌確定不可用 → 單軌降級（記 skipped）」，額度用完時照字面就能記 `skipped` 然後 commit，B 軌等於靜默消失。

@@ -1,6 +1,6 @@
 {
   "name": "git-commit",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "並行審查模式的 Git Commit 流程：Stage → 並行三軌（使用者確認 message + Codex 審查 + code-reviewer 審查）→ Commit → Push。自帶通用版 code-reviewer agent（C 軌；專案有自己的同名 agent 時專案層優先）。AI 禁止直接執行 git 指令，一律走本 skill 完整流程——並由 PreToolUse hook 機制級攔截裸 git commit（他律，非自律）。flow.sh 六道真閘：AI 署名／單行／message 痕跡與長度／diff hash TOCTOU／敏感字／建置產物。",
   "author": {
     "name": "fulin"

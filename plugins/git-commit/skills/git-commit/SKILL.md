@@ -33,8 +33,9 @@ description: >
    > 「確定不可用」有嚴格判準，不是「我等不下去」——B 軌見 `references/codex-troubleshooting.md`，**自行判定不可用就 commit ＝ 違規**。
    > **額度／用量上限不算不可用**（錯誤原文如 `You've hit your usage limit ... try again at 8:24 PM`）：這是暫時狀態，**不得記 `skipped`、不得單軌降級**——`review-record` 會機械擋下理由含 usage limit／rate limit／quota／credits／try again at／額度／用量上限／配額的 skipped。處置：
    > 1. 從錯誤原文取重置時間（`try again at <時間>`）；讀不到就停下問使用者，不要自己猜一個時間了事。
-   > 2. **當輪就排好喚醒**，時間設在重置後約 5 分鐘：Claude Code 內用 CronCreate（`recurring: false`、釘死分／時／日／月，只活在本 session）；session 可能先關掉就改用 goal2 plugin 的 `delaylocal` 排到本機。只寫「稍後再審」不排喚醒＝空頭承諾。
-   > 3. 預覽明講「Codex 額度用完，已排 HH:MM 重跑」，commit 維持不做（這一軌沒結論，不是 PASS）。
+   > 2. **當輪就排好喚醒**，時間設在重置後約 5 分鐘：用 CronCreate（先 `ToolSearch("select:CronCreate")` 載入；`recurring: false`、釘死分／時／日／月）。它只活在本 session，Claude Code 關掉就不會觸發——要在預覽講明這一點。只寫「稍後再審」不排喚醒＝空頭承諾。
+   >    **載不到 CronCreate**（general-purpose subagent 實測載不到；headless 等其他環境未驗證，只要載不到就照此處理）→ **不得寫「已排」**，也不要改用別的工具硬排：把「Codex 額度用完、重置時間 <時間>、應於 HH:MM 重跑 B 軌、staged diff hash <hash>」原樣回報給呼叫端（主 agent 或使用者），由有排程工具的一方排。goal2 的 `delaylocal` **不是替代品**——它排的是 Claude 本身 5h quota 的重置時間（不是 Codex 的），而且自己最後也是呼叫 CronCreate。
+   > 3. 預覽明講「Codex 額度用完，已排 HH:MM 重跑」（沒排上就寫「應於 HH:MM 重跑，喚醒未排上，需 <誰> 排或手動重跑」），commit 維持不做（這一軌沒結論，不是 PASS）。
    > 4. 喚醒後依序：最小題確認額度恢復 → 確認 index 沒被別人改動（外來 staged 閘會擋）→ staged 沒變就沿用 prepare 的 diff hash 直接重送 B 軌；staged 變了就從 prepare 重來。仍是額度錯誤就依新的重置時間再排一次。
 6. **兩軌對同一項判不同嚴重度（一軌 BLOCK、一軌 Minor／PASS）→ 主 agent 自己實跑驗證再匯流**，不可取中間值、不可選寬鬆那軌放行（實證：Codex 判 BLOCK／code-reviewer 判 Minor，實測 Codex 對；「需要更好的工具才能正確處理」≠「可以不正確」）。驗證結果貼進預覽，才決定走 1 或 2。
 
