@@ -6,7 +6,7 @@
 // flagged it: the session figure read 57% high on Opus 5.5 with no marker.
 //
 // Now: ids normalise to an exact key ('opus-5-5') and only an exact hit counts.
-// A miss still gets an interim price from the newest model of the same family (so
+// A miss still gets an interim price from the closest-version model of the same family (so
 // the row does not go blank), is reported as approximate so the display can mark
 // it '~', and asks scripts/price-refresh.js to look the real price up and backfill
 // ~/.claude/usage-data/cc-statusline-prices.json. Backfilled prices only FILL keys
@@ -22,8 +22,25 @@ const crypto = require('crypto');
 const PRICE_CACHE = path.join(os.homedir(), '.claude', 'usage-data', 'cc-statusline-prices.json');
 // A key that is still missing after a lookup is not looked up again for this long.
 const RETRY_MS = 6 * 3600 * 1000;
+// Held by the ONE price-refresh run allowed at a time. Deliberately not
+// PRICE_CACHE + '.lock': that name belongs to hooks/lib-state's casMerge, which
+// guards each short write and reclaims any lock older than 10s -- it would treat
+// a run's lock (held for the whole fetch) as orphaned and delete it.
+const RUN_LOCK = PRICE_CACHE + '.run.lock';
 // A price-refresh lock older than this belongs to a run that died.
 const LOCK_STALE_MS = 5 * 60 * 1000;
+
+// Single-runner lock shared by price-refresh.js and all-usage-refresh.js, built
+// on hooks/lib-state's lock primitives: the lock holds the owner's pid, and is
+// taken over only when that pid is gone or the lock is older than staleMs --
+// and then only by the single holder of the '<lock>.reclaim' token, so a live
+// run's lock is never deleted by a racing one. Callers re-check ownsRunLock()
+// before the expensive work as a last guard.
+const lockLib = require('../hooks/lib-state');
+const acquireRunLock = (lockPath, staleMs) => lockLib.acquireLock(lockPath, staleMs);
+const ownsRunLock = (lockPath) => lockLib.ownsLock(lockPath);
+// Remove the lock only if it is still ours.
+const releaseRunLock = (lockPath) => lockLib.releaseLock(lockPath);
 
 // USD per million tokens. Source:
 // https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-09-25)
@@ -100,25 +117,45 @@ const loadTable = () => {
   return { table, sig, cache };
 };
 
-// 'opus-4-8' -> [4, 8]; compares versions numerically, not by string length.
-const verOf = (k) => k.split('-').slice(1).map(Number);
-const newer = (a, b) => {
-  const x = verOf(a), y = verOf(b);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (x[i] || 0) - (y[i] || 0);
-    if (d) return d > 0;
-  }
-  return false;
+// 'opus-4-8' -> 4_008_000, 'opus-4' -> 4_000_000, 'opus-4-10' -> 4_010_000: one
+// thousand-wide slot per level, so a two-digit minor cannot carry into the major
+// (as a decimal, 4-10 read 5.0 and tied with 5). null when the part after the
+// family is not purely numeric or has more than three levels.
+const verNum = (k) => {
+  const p = k.split('-').slice(1);
+  if (!p.length || p.length > 3 || p.some((x) => !/^\d{1,3}$/.test(x))) return null;
+  return p.reduce((v, x, i) => v + Number(x) * Math.pow(1000, 2 - i), 0);
 };
 
-// { key, pr, exact }. exact=false means pr is a stand-in -- the newest model of
-// the same family ('opus-6' -> the newest 'opus-*') -- or null when the family is
-// unknown. own() keeps ids like 'claude-constructor' off Object.prototype.
+// The table key of the same family whose version is CLOSEST to key's; ties go to
+// the newer one. Newest-in-family was used before, and it priced retired models
+// at today's rates -- 'opus-3' came out at Opus 5.5's $4 against a real $15. A
+// key with no numeric version falls back to the newest of its family.
+const standIn = (byFam, key) => {
+  const fam = key.split('-')[0];
+  if (!byFam[fam]) return null;
+  const v = verNum(key);
+  let best = null, bestD = Infinity, bestV = -Infinity;
+  for (const k of byFam[fam]) {
+    const kv = verNum(k);
+    if (kv === null) continue;
+    const d = v === null ? -kv : Math.abs(kv - v);   // no version: smallest -kv = newest
+    if (d < bestD || (d === bestD && kv > bestV)) { best = k; bestD = d; bestV = kv; }
+  }
+  // A family known only through keys without a numeric version (possible for a
+  // backfilled one) still gets a stand-in rather than being priced at 0.
+  return best || byFam[fam][0];
+};
+
+// { key, pr, exact }. exact=false means pr is a stand-in -- the same-family model
+// with the closest version ('opus-6' -> 'opus-5-5', 'opus-3' -> 'opus-4') -- or
+// null when the family is unknown. own() keeps ids like 'claude-constructor' off
+// Object.prototype.
 const makeResolver = (table) => {
-  const newest = Object.create(null);           // no prototype: 'constructor' is just a family name
+  const byFam = Object.create(null);            // no prototype: 'constructor' is just a family name
   for (const k of Object.keys(table)) {
     const fam = k.split('-')[0];
-    if (!newest[fam] || newer(k, newest[fam])) newest[fam] = k;
+    (byFam[fam] || (byFam[fam] = [])).push(k);
   }
   const memo = new Map();
   return (model) => {
@@ -128,8 +165,8 @@ const makeResolver = (table) => {
     if (!key) r = { key: '', pr: null, exact: true };          // not a model: ignore, never look up
     else if (own(table, key)) r = { key, pr: table[key], exact: true };
     else {
-      const fam = key.split('-')[0];
-      r = { key, pr: own(newest, fam) ? table[newest[fam]] : null, exact: false };
+      const near = standIn(byFam, key);
+      r = { key, pr: near ? table[near] : null, exact: false };
     }
     memo.set(model, r);
     return r;
@@ -160,7 +197,7 @@ const requestLookup = (keys, cache) => {
     const script = path.join(__dirname, 'price-refresh.js');
     if (!fs.existsSync(script)) return false;
     // A refresh already in flight: don't pile up one node process per render.
-    try { if (now - fs.statSync(PRICE_CACHE + '.lock').mtimeMs < LOCK_STALE_MS) return false; } catch (e) {}
+    try { if (now - fs.statSync(RUN_LOCK).mtimeMs < LOCK_STALE_MS) return false; } catch (e) {}
     const { spawn } = require('child_process');
     const p = spawn(process.execPath, [script, ...due], { detached: true, stdio: 'ignore', windowsHide: true });
     // spawn reports failure (e.g. ENOENT) as an async 'error' event; unhandled, it
@@ -171,4 +208,4 @@ const requestLookup = (keys, cache) => {
   } catch (e) { return false; }
 };
 
-module.exports = { PRICE_CACHE, RETRY_MS, LOCK_STALE_MS, BUILTIN, normKey, validPrice, readCache, loadTable, makeResolver, usageCost, usageTok, requestLookup, num };
+module.exports = { PRICE_CACHE, RUN_LOCK, RETRY_MS, LOCK_STALE_MS, acquireRunLock, ownsRunLock, releaseRunLock, BUILTIN, normKey, validPrice, readCache, loadTable, makeResolver, usageCost, usageTok, requestLookup, num };

@@ -1,11 +1,10 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const atomicWrite = (f, data) => {
-  const tmp = `${f}.${process.pid}.${Date.now()}.tmp`;
-  try { fs.writeFileSync(tmp, data); fs.renameSync(tmp, f); }
-  catch (e) { try { fs.unlinkSync(tmp); } catch (_) {} }
-};
+// Locked read -> reorder -> write (lib-state). The file holds an ARRAY, which
+// lib-state's casMerge would reset to {}, so the lock is used directly. Parallel
+// Edit/Write hooks racing unlocked would drop each other's file from the list.
+const { atomicWrite, withFileLock } = require('./lib-state');
 let d = '';
 process.stdin.on('data', c => d += c);
 process.stdin.on('end', () => {
@@ -15,10 +14,13 @@ process.stdin.on('end', () => {
     if (!fp) return;
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
     const file = path.join(os.tmpdir(), `claude-files-${sid}.json`);
-    let files = [];
-    try { files = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
     const name = path.basename(fp);
-    files = [name, ...files.filter(f => f !== name)].slice(0, 8);
-    atomicWrite(file, JSON.stringify(files));
+    withFileLock(file, () => {
+      let files = [];
+      try { files = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
+      if (!Array.isArray(files)) files = [];
+      files = [name, ...files.filter(f => f !== name)].slice(0, 8);
+      atomicWrite(file, JSON.stringify(files));
+    });
   } catch (e) {}
 });

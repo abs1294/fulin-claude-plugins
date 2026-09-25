@@ -36,18 +36,13 @@ try {
 } catch (e) {}
 
 // Single-runner lock: a scan is expensive and several sessions may spawn at once.
-try {
-  const st = fs.statSync(LOCK);
-  if (Date.now() - st.mtimeMs < LOCK_STALE_MS) process.exit(0);
-  fs.unlinkSync(LOCK);           // stale: previous run died
-} catch (e) { /* absent: proceed */ }
-try {
-  fs.mkdirSync(path.dirname(CACHE), { recursive: true });
-  fs.writeFileSync(LOCK, String(process.pid), { flag: 'wx' });
-} catch (e) { process.exit(0); }  // lost the race
-
-const cleanup = () => { try { fs.unlinkSync(LOCK); } catch (e) {} };
-process.on('exit', cleanup);
+// Shared with price-refresh.js (lib-price.acquireRunLock): a stale lock is taken
+// over by atomic rename, not stat -> unlink -> create, which let a late run
+// delete the lock an earlier run had just made and both scan at once.
+if (!priceLib.acquireRunLock(LOCK, LOCK_STALE_MS)) process.exit(0);
+process.on('exit', () => priceLib.releaseRunLock(LOCK));
+// Lost the lock in a takeover race after all: the other holder scans.
+if (!priceLib.ownsRunLock(LOCK)) process.exit(0);
 process.on('SIGINT', () => process.exit(1));
 process.on('SIGTERM', () => process.exit(1));
 

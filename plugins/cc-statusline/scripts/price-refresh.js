@@ -20,10 +20,11 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const { PRICE_CACHE, LOCK_STALE_MS, normKey, validPrice, readCache } = require('./lib-price');
+const { PRICE_CACHE, RUN_LOCK, RETRY_MS, LOCK_STALE_MS, acquireRunLock, ownsRunLock, releaseRunLock, normKey, validPrice, readCache } = require('./lib-price');
+const { casMerge } = require('../hooks/lib-state');
 
 const PAGE_URL = 'https://platform.claude.com/docs/en/about-claude/pricing.md';
-const LOCK = PRICE_CACHE + '.lock';
+const LOCK = RUN_LOCK;
 const MIN_ROWS = 5;
 
 const fetchText = (url, hops = 0) => new Promise((resolve, reject) => {
@@ -89,52 +90,76 @@ const parseTable = (md) => {
   return out;
 };
 
-const atomicWrite = (f, data) => {
-  const tmp = `${f}.${process.pid}.${Date.now()}.tmp`;
-  try { fs.writeFileSync(tmp, data); fs.renameSync(tmp, f); }
-  catch (e) { try { fs.unlinkSync(tmp); } catch (_) {} }
+
+// Whole-run ceiling. The request's own timeout is an IDLE timeout: a server that
+// trickles bytes never trips it, and the run would hold the lock until it goes
+// stale. Past this, the run records the failure and exits.
+const TOTAL_MS = 45000;
+
+const acquireLock = () => acquireRunLock(LOCK, LOCK_STALE_MS);
+// Still holding the lock? The takeover can, in a three-way race inside one
+// moment, leave two runs each believing they hold it; re-checking just before the
+// fetch lets the one whose lock file is gone step aside.
+const ownsLock = () => ownsRunLock(LOCK);
+
+// Merge into what is on disk NOW, under hooks/lib-state's casMerge (its own short
+// write lock around read -> merge -> write -> verify), so even two overlapping
+// runs cannot drop each other's prices, checked stamps or missing keys.
+const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const writeMerged = (ours) => {
+  const plain = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : {});
+  casMerge(PRICE_CACHE, (cur) => {
+    cur.prices = { ...plain(cur.prices), ...(ours.prices || {}) };
+    cur.checked = { ...plain(cur.checked), ...(ours.checked || {}) };
+    cur.at = Math.max(Number(cur.at) || 0, ours.at || 0);
+    cur.source = PAGE_URL;
+    if (ours.lastError !== undefined) cur.lastError = ours.lastError;
+    // missing: union of every run's list, minus anything now priced and anything
+    // whose last check is past RETRY_MS (it will be looked up again anyway), so
+    // the list does not only ever grow.
+    const now = Date.now();
+    const miss = new Set([...(Array.isArray(cur.missing) ? cur.missing : []), ...(ours.missing || [])]);
+    cur.missing = [...miss].filter((k) => !own(cur.prices, k)
+      && own(cur.checked, k) && now - Number(cur.checked[k]) < RETRY_MS);
+  }, (after) => {
+    const p = plain(after.prices), c = plain(after.checked);
+    return Object.keys(ours.prices || {}).every((k) => own(p, k))
+      && Object.keys(ours.checked || {}).every((k) => own(c, k));
+  });
 };
 
 if (require.main === module) (async () => {
   // argv carries keys already normalised by lib-price ('opus-5-5'); normKey would
   // reject them for lacking the 'claude-' prefix and the throttle stamp would be lost.
   const wanted = process.argv.slice(2).filter((k) => /^[a-z0-9-]+$/.test(k));
-  try {
-    const st = fs.statSync(LOCK);
-    if (Date.now() - st.mtimeMs < LOCK_STALE_MS) return;
-    fs.unlinkSync(LOCK);
-  } catch (e) {}
-  try {
-    fs.mkdirSync(path.dirname(PRICE_CACHE), { recursive: true });
-    fs.writeFileSync(LOCK, String(process.pid), { flag: 'wx' });
-  } catch (e) { return; }
-  // Only remove the lock if it is still ours: another run may have judged it
-  // stale and replaced it.
-  process.on('exit', () => {
-    try { if (fs.readFileSync(LOCK, 'utf8') === String(process.pid)) fs.unlinkSync(LOCK); } catch (e) {}
-  });
+  if (!acquireLock()) return;
+  process.on('exit', () => releaseRunLock(LOCK));
 
-  const cache = readCache();
-  const next = { prices: cache.prices || {}, checked: cache.checked || {}, at: cache.at || 0, source: PAGE_URL };
   // Stamp first: if the fetch hangs or this process dies, renders still see the
   // keys as recently checked instead of spawning a new refresh every 30s.
+  const checked = {};
   const now = Date.now();
-  for (const k of wanted) next.checked[k] = now;
-  atomicWrite(PRICE_CACHE, JSON.stringify(next));
+  for (const k of wanted) checked[k] = now;
+  writeMerged({ checked });
+  if (!ownsLock()) return;   // lost it in a takeover race: the other holder fetches
 
-  let error = null;
+  let prices = {}, at = 0, error = null;
   try {
-    const parsed = parseTable(await fetchText(PAGE_URL));
-    if (Object.keys(parsed).length >= MIN_ROWS) {
-      next.prices = { ...next.prices, ...parsed };
-      next.at = Date.now();
-    } else {
-      error = 'parsed only ' + Object.keys(parsed).length + ' rows';
-    }
+    let timer;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('deadline ' + TOTAL_MS / 1000 + 's')), TOTAL_MS);
+    });
+    try {
+      const parsed = parseTable(await Promise.race([fetchText(PAGE_URL), deadline]));
+      if (Object.keys(parsed).length >= MIN_ROWS) { prices = parsed; at = Date.now(); }
+      else error = 'parsed only ' + Object.keys(parsed).length + ' rows';
+    } finally { clearTimeout(timer); }
   } catch (e) { error = String(e && e.message || e); }
-  next.missing = wanted.filter((k) => !Object.prototype.hasOwnProperty.call(next.prices, k));
-  next.lastError = error;
-  atomicWrite(PRICE_CACHE, JSON.stringify(next));
+  const known = { ...(readCache().prices || {}), ...prices };
+  const missing = wanted.filter((k) => !Object.prototype.hasOwnProperty.call(known, k));
+  writeMerged({ prices, checked, at, missing, lastError: error });
+  // A stalled socket abandoned at the deadline would keep the process alive.
+  process.exit(0);
 })();
 
-module.exports = { parseTable, fetchText };
+module.exports = { parseTable, fetchText, acquireLock, ownsLock, writeMerged };

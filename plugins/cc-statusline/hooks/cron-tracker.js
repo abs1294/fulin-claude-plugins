@@ -11,11 +11,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const atomicWrite = (f, data) => {
-  const tmp = `${f}.${process.pid}.${Date.now()}.tmp`;
-  try { fs.writeFileSync(tmp, data); fs.renameSync(tmp, f); }
-  catch (e) { try { fs.unlinkSync(tmp); } catch (_) {} }
-};
+// Locked read -> update -> write (lib-state): the hook can fire twice for one
+// tool call (duplicate registration was measured) and unlocked writers race.
+const { atomicWrite, withFileLock } = require('./lib-state');
 
 // 一次性 cron（M H DoM Mon *，四欄皆數字）→ 下一次觸發 epoch ms；解析不了回 null。
 function nextFire(cron) {
@@ -44,45 +42,47 @@ process.stdin.on('end', () => {
     const tool = i.tool_name || '';
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
     const file = path.join(os.tmpdir(), `claude-crons-${sid}.json`);
-    let jobs = {};
-    try { jobs = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
-    const respText = (() => { try { return JSON.stringify(i.tool_response || ''); } catch (e) { return ''; } })();
-    const input = i.tool_input || {};
+    if (!['CronCreate', 'CronDelete', 'ScheduleWakeup'].includes(tool)) return;
+    withFileLock(file, () => {
+      let jobs = {};
+      try { jobs = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
+      if (!jobs || typeof jobs !== 'object' || Array.isArray(jobs)) jobs = {};
+      const respText = (() => { try { return JSON.stringify(i.tool_response || ''); } catch (e) { return ''; } })();
+      const input = i.tool_input || {};
 
-    if (tool === 'CronCreate') {
-      // tool_response 是結構化物件 {id, humanSchedule, recurring, durable}，不含
-      // 「task <id>」字樣；只靠 regex 會落到 cron-<ts> 假 id，CronDelete 永遠對不上。
-      const resp = i.tool_response;
-      const idm = respText.match(/"id":"([a-z0-9-]{6,})"/i) || respText.match(/task ([a-z0-9-]{6,})/i) || respText.match(/job ([a-z0-9-]{6,})/i);
-      const id = (resp && typeof resp === 'object' && typeof resp.id === 'string' && resp.id) || (idm ? idm[1] : `cron-${Date.now()}`);
-      const recurring = input.recurring !== false;
-      jobs[id] = {
-        type: 'cron',
-        recurring,
-        cron: String(input.cron || ''),
-        at: recurring ? null : nextFire(input.cron),
-        label: shortLabel(input.prompt),
-        created: Date.now(),
-      };
-    } else if (tool === 'CronDelete') {
-      const id = String(input.id || '');
-      if (id && jobs[id]) delete jobs[id];
-    } else if (tool === 'ScheduleWakeup') {
-      if (input.stop === true) {
-        delete jobs.wakeup;
-      } else if (typeof input.delaySeconds === 'number') {
-        // 同 session 只會有一個待命 wakeup，後設覆蓋前設
-        jobs.wakeup = {
-          type: 'wakeup',
-          recurring: false,
-          at: Date.now() + Math.max(60, Math.min(3600, input.delaySeconds)) * 1000,
-          label: shortLabel(input.reason),
+      if (tool === 'CronCreate') {
+        // tool_response 是結構化物件 {id, humanSchedule, recurring, durable}，不含
+        // 「task <id>」字樣；只靠 regex 會落到 cron-<ts> 假 id，CronDelete 永遠對不上。
+        const resp = i.tool_response;
+        const idm = respText.match(/"id":"([a-z0-9-]{6,})"/i) || respText.match(/task ([a-z0-9-]{6,})/i) || respText.match(/job ([a-z0-9-]{6,})/i);
+        const id = (resp && typeof resp === 'object' && typeof resp.id === 'string' && resp.id) || (idm ? idm[1] : `cron-${Date.now()}`);
+        const recurring = input.recurring !== false;
+        jobs[id] = {
+          type: 'cron',
+          recurring,
+          cron: String(input.cron || ''),
+          at: recurring ? null : nextFire(input.cron),
+          label: shortLabel(input.prompt),
           created: Date.now(),
         };
+      } else if (tool === 'CronDelete') {
+        const id = String(input.id || '');
+        if (id && Object.prototype.hasOwnProperty.call(jobs, id)) delete jobs[id];
+      } else if (tool === 'ScheduleWakeup') {
+        if (input.stop === true) {
+          delete jobs.wakeup;
+        } else if (typeof input.delaySeconds === 'number') {
+          // 同 session 只會有一個待命 wakeup，後設覆蓋前設
+          jobs.wakeup = {
+            type: 'wakeup',
+            recurring: false,
+            at: Date.now() + Math.max(60, Math.min(3600, input.delaySeconds)) * 1000,
+            label: shortLabel(input.reason),
+            created: Date.now(),
+          };
+        }
       }
-    } else {
-      return;
-    }
-    atomicWrite(file, JSON.stringify(jobs));
+      atomicWrite(file, JSON.stringify(jobs));
+    });
   } catch (e) {}
 });

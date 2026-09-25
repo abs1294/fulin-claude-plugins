@@ -55,7 +55,7 @@ process.stdin.on('end', () => {
       catch (e) { try { fs.unlinkSync(tmp); } catch (_) {} }
     };
 
-    // Exclusive inter-process lock via atomic lockfile creation.
+    // Exclusive inter-process lock: hooks/lib-state (shared with the trackers).
     //
     // casMerge's read -> write -> verify cannot be made correct on its own: two
     // renders can BOTH pass verify (A writes, A verifies OK, B then writes from a
@@ -63,66 +63,46 @@ process.stdin.on('end', () => {
     // Measured 18.8% entry loss across 12 rounds of 8-way concurrency. Retrying
     // harder cannot fix it; the read-modify-write needs to be genuinely atomic.
     //
-    // wx create is atomic on both NTFS and POSIX: exactly one process wins.
-    // The lock is advisory and best-effort -- on timeout we run unlocked rather
-    // than skip the update, since a stale statusline number beats a lost one.
-    const withFileLock = (file, fn, timeoutMs = 2000) => {
-      const lockPath = file + '.lock';
-      const deadline = Date.now() + timeoutMs;
-      let fd = null;
-      while (Date.now() < deadline) {
-        try { fd = fs.openSync(lockPath, 'wx'); break; } catch (e) {
-          // Windows raises EPERM/EBUSY (not just EEXIST) when another process
-          // holds or is deleting the lockfile. Treating those as fatal made us bail
-          // out after ~39ms and run on the unlocked path -- measured as the sole
-          // cause of residual loss at 16-way concurrency. Only give up on errors
-          // that retrying cannot fix (e.g. ENOENT/EACCES on the directory).
-          if (e.code !== 'EEXIST' && e.code !== 'EPERM' && e.code !== 'EBUSY') break;
-          // Reclaim a lock orphaned by a crashed render (older than 10s).
-          try {
-            const age = Date.now() - fs.statSync(lockPath).mtimeMs;
-            // unlink can fail if another process reclaims it first; fall through to
-            // the spin below rather than continue-ing, so this cannot busy-loop.
-            if (age > 10000) { fs.unlinkSync(lockPath); }
-          } catch (_) {}
-          // Busy-wait briefly: contention windows here are ~1ms.
-          const spin = Date.now() + 2;
-          while (Date.now() < spin) { /* spin */ }
-        }
-      }
-      try { return fn(); }
-      finally {
-        if (fd !== null) {
-          try { fs.closeSync(fd); } catch (_) {}
-          try { fs.unlinkSync(lockPath); } catch (_) {}
-        }
-      }
-    };
+    // This used to be a private copy of the lock that, on timeout, ran the update
+    // unlocked and reclaimed orphans with stat -> unlink (able to delete a lock
+    // another render had just taken). lib-state fixes both; when it cannot get
+    // the lock it skips the update, so here the merge is still computed in memory
+    // for THIS render's display -- only the write-back is dropped. If lib-state
+    // is missing (statusline.js copied on its own) the section runs unguarded.
+    let withFileLock = (file, fn) => fn();
+    try { withFileLock = require('./hooks/lib-state').withFileLock; } catch (e) {}
 
-    // CAS-style merge: read → mutate → atomic write → re-read → verify. If
-    // another writer raced past us between our write and the verify read,
-    // our change is gone and we retry with fresh state. Bounded to 5 tries
-    // to stay cheap under pathological contention; each round is ≈ 1ms.
-    // Returns the final state observed after verification.
-    const casMerge = (file, mutate, verify, maxRetries = 10) => withFileLock(file, () => {
-      let finalState = {};
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // CAS-style merge: read → mutate → atomic write → re-read → verify, inside the
+    // lock. Returns the state after the write, or -- when the lock could not be
+    // had -- the in-memory merge of the current file, unwritten.
+    const casMerge = (file, mutate, verify, maxRetries = 10) => {
+      const readObj = () => {
         let cur = {};
         try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
         // Guard against a non-plain-object payload (array, string, number, null).
         // Properties assigned onto an array are dropped by JSON.stringify, so a
         // corrupted file of the form [1,2,3] would swallow every write silently:
         // mutate() succeeds, the file never changes, no error surfaces.
-        if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) cur = {};
-        mutate(cur);
-        atomicWrite(file, JSON.stringify(cur));
-        let after = {};
-        try { after = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
-        finalState = after;
-        if (verify(after)) return finalState;
-      }
-      return finalState;
-    });
+        return (cur === null || typeof cur !== 'object' || Array.isArray(cur)) ? {} : cur;
+      };
+      const locked = withFileLock(file, () => {
+        let finalState = {};
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          const cur = readObj();
+          mutate(cur);
+          atomicWrite(file, JSON.stringify(cur));
+          let after = {};
+          try { after = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
+          finalState = after;
+          if (verify(after)) return finalState;
+        }
+        return finalState;
+      });
+      if (locked !== undefined) return locked;
+      const mem = readObj();
+      mutate(mem);
+      return mem;
+    };
 
     // Unicode East Asian Width: returns 2 for fullwidth/wide chars, 1 otherwise.
     // Based on UAX #11 (Unicode Standard Annex) + common emoji.
@@ -246,7 +226,7 @@ process.stdin.on('end', () => {
     // subagent -- measured 23.9% of real spend on this machine.
     //
     // Model ids match the table EXACTLY. A model the table does not know (a new
-    // version) is priced at the newest model of its family for now, counted as approximate so
+    // version) is priced at the closest-version model of its family for now, counted as approximate so
     // the figure shows '~', and handed to price-refresh.js to backfill the real
     // price. An id with no sibling at all contributes 0 and counts as unpriced.
     // Guarded: statusline.js copied somewhere without scripts/ must still render.

@@ -5,11 +5,9 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const atomicWrite = (f, data) => {
-  const tmp = `${f}.${process.pid}.${Date.now()}.tmp`;
-  try { fs.writeFileSync(tmp, data); fs.renameSync(tmp, f); }
-  catch (e) { try { fs.unlinkSync(tmp); } catch (_) {} }
-};
+// Locked read -> increment -> write of the message counter (lib-state): two
+// prompts' hooks racing unlocked would both read N and both write N+1.
+const { atomicWrite, withFileLock } = require('./lib-state');
 let d = '';
 process.stdin.on('data', c => d += c);
 process.stdin.on('end', () => {
@@ -47,10 +45,14 @@ process.stdin.on('end', () => {
       }
     } catch (e) {}
 
-    let count = 0;
-    try { count = parseInt(fs.readFileSync(countFile, 'utf8').trim(), 10) || 0; } catch (e) {}
-    count++;
-    atomicWrite(countFile, String(count));
+    const count = withFileLock(countFile, () => {
+      let n = 0;
+      try { n = parseInt(fs.readFileSync(countFile, 'utf8').trim(), 10) || 0; } catch (e) {}
+      n++;
+      atomicWrite(countFile, String(n));
+      return n;
+    });
+    if (count === undefined) return;   // lock not had: skip this tick rather than guess
 
     // Every 10 messages, ask Claude to update summary
     if (count % 10 === 0) {

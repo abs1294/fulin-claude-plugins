@@ -2,26 +2,26 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const atomicWrite = (f, data) => {
-  const tmp = `${f}.${process.pid}.${Date.now()}.tmp`;
-  try { fs.writeFileSync(tmp, data); fs.renameSync(tmp, f); }
-  catch (e) { try { fs.unlinkSync(tmp); } catch (_) {} }
-};
-// CAS merge: Stop fires multiple times per turn and two hooks can race.
-// Retry until our appended entry is visible at the tail of a fresh read.
-const casMerge = (file, mutate, verify, maxRetries = 10) => {
+const { atomicWrite, withFileLock } = require('./lib-state');
+// CAS merge: Stop fires multiple times per turn and two hooks can race. The
+// read -> dedup check -> append -> write now runs under lib-state's file lock
+// (this local copy used to have none, so two hooks could both pass the dedup
+// gate and one append overwrote the other). The file holds an ARRAY, which
+// lib-state's own casMerge would reset to {}, hence the local loop.
+const casMerge = (file, mutate, verify, maxRetries = 10) => withFileLock(file, () => {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     let cur = [];
     try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
+    if (!Array.isArray(cur)) cur = [];
     const next = mutate(cur);
     if (next === null) return false; // dedup rejected — no write needed
     atomicWrite(file, JSON.stringify(next));
     let after = [];
     try { after = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
-    if (verify(after)) return true;
+    if (Array.isArray(after) && verify(after)) return true;
   }
   return false;
-};
+}) === true;
 let d = '';
 process.stdin.on('data', c => d += c);
 process.stdin.on('end', () => {
