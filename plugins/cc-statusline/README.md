@@ -30,6 +30,23 @@ status line 上的 agents / MCP 呼叫 / skills / 近期編輯 / 動作歷史 / 
 
 > ⚠️ **重複註冊警告**：若你以前曾手動把這些 tracker 複製到 `~/.claude/hooks/` 並註冊在自己的 `settings.json`，啟用本 plugin 後同一事件會**跑兩份**（history 列會出現重複條目）。請二選一：移除 settings.json 裡的手動註冊，或不啟用本 plugin 的 hook（開發機直接把 settings.json 指向 repo 內路徑時，就不要同時啟用本 plugin）。
 
+## cost 列怎麼算：官方牌價換算，新模型自動回填單價
+
+`cost $X (all $Y) · N min` 各段：
+
+- **`$X`**：本 session（主對話＋所有 subagent）照 API 牌價換算的等值金額。從 transcript 每一輪的 token 用量逐筆計價（依 message.id 去重），不是讀 Claude Code 給的 `total_cost_usd`（那個不含 subagent）。
+- **`(all $Y)`**：本機 `~/.claude/projects` 底下所有 session 的同一種換算加總。全量掃描很重，由背景的 `scripts/all-usage-refresh.js` 算好寫進快取，最多每 6 小時重掃一次。
+- **`N min`**：本 session 開著的時間（Claude Code 給的 `total_duration_ms`，含閒置）。
+
+單價表在 `scripts/lib-price.js`，分五種計價：輸入、輸出、5 分鐘快取寫入、1 小時快取寫入、快取讀取。模型 id 先正規化（`claude-opus-5-5`、`claude-haiku-4-5-20251001` → `opus-5-5`、`haiku-4-5`），**只認完全相同的 key**。
+
+遇到表裡沒有的模型（通常是新版上線）時：
+1. 暫時用同系列最新版的單價頂著算（例如沒見過的 `opus-6` 先用表裡最新的 Opus），金額前面加 **`~`**，表示這是暫估。
+2. 背景起 `scripts/price-refresh.js` 抓官方單價頁（`platform.claude.com/docs/en/about-claude/pricing.md`），依表頭欄名解析後寫進 `~/.claude/usage-data/cc-statusline-prices.json`。回填只補內建表**沒有**的模型，不會覆蓋內建單價；表頭缺欄或解析不到 5 列就整批不寫。
+3. 單價表一變，已快取的金額（本 session 累計、`(all)` 快取）自動作廢重算，`~` 消失。
+
+官方頁也查不到的模型，6 小時內不會再重查，金額維持 `~`。完全找不到同系列的模型不計價（算 0），也會標 `~`。
+
 ## ⚠️ 安裝需手動一步（plugin 無法自動接上 status line）
 
 Claude Code **不支援由 plugin 自動設定主 status line**（plugin.json 沒有這個欄位，此為官方限制）。所以裝完 plugin 後，還需要在 `settings.json` 加一段 `statusLine` 指到本 plugin 帶的腳本——但**這步不必自己動手：直接跟 Claude 說「幫我設定 statusline」即可**，它會觸發 `/cc-statusline-setup` 替你寫入（先問你要寫哪個 scope、同意才寫）。想手動加的話照下方步驟。

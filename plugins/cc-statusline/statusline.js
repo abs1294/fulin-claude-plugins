@@ -239,50 +239,24 @@ process.stdin.on('end', () => {
     // into concatenation). Clamp once, here, so nothing downstream has to re-check.
     const num = (x) => (Number.isFinite(x) ? Math.max(0, x) : 0);
 
-    // ── API list-price table, USD per million tokens ──
-    // Source: https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-08-23)
-    // cw = 5-minute cache write (1.25x input), cr = cache hit (0.1x input).
+    // ── API list-price table: scripts/lib-price.js ──
     //
     // Cost is derived HERE from transcript usage rather than read from the payload's
     // total_cost_usd, because that field covers only the main session and omits every
-    // subagent -- measured 23.9% of real spend on this machine. An unknown model
-    // contributes 0 rather than a guessed rate, and its tokens are counted separately
-    // so the display can flag that the figure is incomplete.
-    const PRICE = {
-      'fable-5':    { in: 10,   out: 50, cw: 12.50, cr: 1.0  },
-      'mythos-5':   { in: 10,   out: 50, cw: 12.50, cr: 1.0  },
-      'opus-5':     { in: 5,    out: 25, cw: 6.25,  cr: 0.5  },
-      'opus-4-8':   { in: 5,    out: 25, cw: 6.25,  cr: 0.5  },
-      'opus-4-7':   { in: 5,    out: 25, cw: 6.25,  cr: 0.5  },
-      'opus-4-6':   { in: 5,    out: 25, cw: 6.25,  cr: 0.5  },
-      'opus-4-5':   { in: 5,    out: 25, cw: 6.25,  cr: 0.5  },
-      'opus-4-1':   { in: 15,   out: 75, cw: 18.75, cr: 1.5  },
-      'opus-4':     { in: 15,   out: 75, cw: 18.75, cr: 1.5  },
-      'sonnet-5':   { in: 2,    out: 10, cw: 2.50,  cr: 0.2  },
-      'sonnet-4-6': { in: 3,    out: 15, cw: 3.75,  cr: 0.3  },
-      'sonnet-4-5': { in: 3,    out: 15, cw: 3.75,  cr: 0.3  },
-      'sonnet-4':   { in: 3,    out: 15, cw: 3.75,  cr: 0.3  },
-      'haiku-4-5':  { in: 1,    out: 5,  cw: 1.25,  cr: 0.1  },
-      'haiku-3-5':  { in: 0.80, out: 4,  cw: 1.00,  cr: 0.08 },
-      '3-5-haiku':  { in: 0.80, out: 4,  cw: 1.00,  cr: 0.08 },
-    };
-    // Longest key first so 'opus-4-8' cannot be shadowed by an 'opus-4' substring.
-    const PRICE_ORDER = Object.keys(PRICE).sort((a, b) => b.length - a.length);
-    // Ids arrive as 'claude-opus-4-8' or 'claude-3-5-haiku-20241022', and some carry
-    // dots ('opus-4.8'), so dots normalise to dashes before the substring match.
-    const priceOf = (m) => {
-      const k = String(m || '').toLowerCase().split('.').join('-');
-      for (const name of PRICE_ORDER) if (k.includes(name)) return PRICE[name];
-      return null;
-    };
-    const usageCost = (u, model) => {
-      const pr = priceOf(model);
-      if (!pr) return null;
-      return (num(u.input_tokens) * pr.in
-            + num(u.output_tokens) * pr.out
-            + num(u.cache_creation_input_tokens) * pr.cw
-            + num(u.cache_read_input_tokens) * pr.cr) / 1e6;
-    };
+    // subagent -- measured 23.9% of real spend on this machine.
+    //
+    // Model ids match the table EXACTLY. A model the table does not know (a new
+    // version) is priced at the newest model of its family for now, counted as approximate so
+    // the figure shows '~', and handed to price-refresh.js to backfill the real
+    // price. An id with no sibling at all contributes 0 and counts as unpriced.
+    // Guarded: statusline.js copied somewhere without scripts/ must still render.
+    // Without the library the session figure falls back to the payload's own
+    // total_cost_usd (main session only) and (all) cannot be refreshed.
+    let priceLib = null;
+    try { priceLib = require('./scripts/lib-price'); } catch (e) {}
+    const { table: priceTable, sig: priceSig, cache: priceCache } = priceLib ? priceLib.loadTable() : { table: {}, sig: '', cache: {} };
+    const resolvePrice = priceLib ? priceLib.makeResolver(priceTable) : null;
+    const missingPriceKeys = new Set();
 
     const curCost = num(i.cost?.total_cost_usd);
     const curDur = num(i.cost?.total_duration_ms);
@@ -344,23 +318,28 @@ process.stdin.on('end', () => {
       } catch (e) { /* no subagents dir: main transcript only */ }
       return out;
     };
-    // Returns { tok, cost, unpricedTok }, or null when no transcript could be read.
-    // Each file keeps its own byte offset so renders stay incremental.
+    // Returns { tok, cost, unpricedTok, approxTok }, or null when no transcript could
+    // be read. Each file keeps its own byte offset so renders stay incremental.
+    // The state records the price-table signature it was computed under; when the
+    // table changes (a backfilled price) the sums are stale and everything rescans.
     const readTranscriptUsage = () => {
+      if (!priceLib) return null;
       const targets = transcriptTargets();
       if (!targets.length) return null;
 
-      let prev = { files: {}, ids: [] };
+      let prev = { files: {}, ids: [], missing: [] };
       try {
         const raw = JSON.parse(fs.readFileSync(tokStatePath, 'utf8'));
-        if (raw && typeof raw === 'object' && raw.files && typeof raw.files === 'object') {
-          prev = { files: raw.files, ids: Array.isArray(raw.ids) ? raw.ids : [] };
+        if (raw && typeof raw === 'object' && raw.files && typeof raw.files === 'object' && raw.sig === priceSig) {
+          prev = { files: raw.files, ids: Array.isArray(raw.ids) ? raw.ids : [], missing: Array.isArray(raw.missing) ? raw.missing : [] };
         }
       } catch (e) {}
+      // Keys seen in bytes consumed by earlier renders still need their lookup.
+      for (const k of prev.missing) missingPriceKeys.add(k);
 
       const seen = new Set(prev.ids);
       const files = {};
-      let tok = 0, cost = 0, unpricedTok = 0;
+      let tok = 0, cost = 0, unpricedTok = 0, approxTok = 0;
       let readAny = false;
 
       for (const tp of targets) {
@@ -375,14 +354,15 @@ process.stdin.on('end', () => {
         let fTok = p0 ? num(p0.tok) : 0;
         let fCost = p0 ? num(p0.cost) : 0;
         let fUnp = p0 ? num(p0.unpricedTok) : 0;
+        let fApx = p0 ? num(p0.approxTok) : 0;
         // Offset past EOF means truncation or a rotated path: rescan from scratch
         // rather than trusting sums that describe different bytes.
-        if (off > st.size) { off = 0; fTok = 0; fCost = 0; fUnp = 0; }
+        if (off > st.size) { off = 0; fTok = 0; fCost = 0; fUnp = 0; fApx = 0; }
 
         readAny = true;
         if (off === st.size) {
-          files[tp] = { off, tok: fTok, cost: fCost, unpricedTok: fUnp };
-          tok += fTok; cost += fCost; unpricedTok += fUnp;
+          files[tp] = { off, tok: fTok, cost: fCost, unpricedTok: fUnp, approxTok: fApx };
+          tok += fTok; cost += fCost; unpricedTok += fUnp; approxTok += fApx;
           continue;
         }
 
@@ -423,11 +403,12 @@ process.stdin.on('end', () => {
                 // the parent transcript. keep-first, per the note above.
                 const id = j.message.id;
                 if (id) { if (seen.has(id)) continue; seen.add(id); }
-                const t = num(u.input_tokens) + num(u.output_tokens)
-                        + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens);
+                const t = priceLib.usageTok(u);
                 fTok += t;
-                const c = usageCost(u, j.message.model);
-                if (c === null) fUnp += t; else fCost += c;
+                const r = resolvePrice(j.message.model);
+                if (!r.exact) missingPriceKeys.add(r.key);
+                if (!r.pr) fUnp += t;
+                else { fCost += priceLib.usageCost(u, r.pr); if (!r.exact) fApx += t; }
               } catch (e) { /* half-written or non-JSON line: skip */ }
             }
           }
@@ -436,16 +417,16 @@ process.stdin.on('end', () => {
         } finally {
           if (fd !== null) { try { fs.closeSync(fd); } catch (_) {} }
         }
-        files[tp] = { off: consumed, tok: fTok, cost: fCost, unpricedTok: fUnp };
-        tok += fTok; cost += fCost; unpricedTok += fUnp;
+        files[tp] = { off: consumed, tok: fTok, cost: fCost, unpricedTok: fUnp, approxTok: fApx };
+        tok += fTok; cost += fCost; unpricedTok += fUnp; approxTok += fApx;
       }
 
       if (!readAny) return null;
       // Cap the id list: only ids that could still reappear matter, and an unbounded
       // array would grow the state file forever on long sessions.
       const ids = [...seen].slice(-4000);
-      try { atomicWrite(tokStatePath, JSON.stringify({ files, ids })); } catch (e) {}
-      return { tok, cost, unpricedTok };
+      try { atomicWrite(tokStatePath, JSON.stringify({ files, ids, sig: priceSig, missing: [...missingPriceKeys] })); } catch (e) {}
+      return { tok, cost, unpricedTok, approxTok };
     };
     let sessionUsage = null;
     try { sessionUsage = readTranscriptUsage(); } catch (e) { sessionUsage = null; }
@@ -463,7 +444,7 @@ process.stdin.on('end', () => {
     const cumPath = path.join(os.homedir(), '.claude', 'usage-data', 'cc-statusline-cumulative.json');
     try { fs.mkdirSync(path.dirname(cumPath), { recursive: true }); } catch (e) {}
     // cost is NOT stored here any more. It is computed from transcript usage on
-    // every render (see PRICE / readTranscriptUsage), which is idempotent and needs
+    // every render (see lib-price / readTranscriptUsage), which is idempotent and needs
     // none of the epoch/reset machinery below -- that existed only because the
     // payload's total_cost_usd could reset mid-session.
     const CUM_KEYS = ['dur', 'add', 'rm', 'tok'];
@@ -702,7 +683,9 @@ process.stdin.on('end', () => {
     // Transcript-derived; falls back to the payload figure (main session only) when
     // no transcript could be read.
     const sessionCost = sessionUsage === null ? curCost : sessionUsage.cost;
-    const cost = '$' + sessionCost.toFixed(2);
+    // '~' = part of the figure is priced at a stand-in rate or not priced at all.
+    const sessionInexact = sessionUsage !== null && (sessionUsage.unpricedTok > 0 || sessionUsage.approxTok > 0);
+    const cost = (sessionInexact ? '~' : '') + '$' + sessionCost.toFixed(2);
     const dur = fmtDur(Math.round((cum.dur.settled + cum.dur.peak) / 60000));
     const ctx = Math.round(i.context_window?.used_percentage ?? 0);
     // If a rate-limit window's reset has already passed in real time, payload's
@@ -1055,6 +1038,7 @@ process.stdin.on('end', () => {
         // Passing the session cwd caused the list to flicker based on project-scoped .mcp.json
         // (e.g. phantom 'discord'/'line' entries appearing when spawned from plugin folders).
         const p = spawn(process.execPath, [refresher], { detached: true, stdio: 'ignore', windowsHide: true });
+        p.on('error', () => {});   // async spawn failure must not kill the render
         p.unref();
       }
     } catch(e) {}
@@ -1080,13 +1064,16 @@ process.stdin.on('end', () => {
     try {
       const c = JSON.parse(fs.readFileSync(allCachePath, 'utf8'));
       if (c && typeof c.cost === 'number' && typeof c.tok === 'number') {
-        allCost = c.cost; allTok = c.tok; allUnpriced = num(c.unpricedTok);
+        allCost = c.cost; allTok = c.tok; allUnpriced = num(c.unpricedTok) + num(c.approxTok);
         // The scan takes seconds on a multi-GB history; anything within a few hours
         // is close enough for an at-a-glance figure, older is flagged rather than
-        // silently presented as current.
-        allStale = !c.at || (Date.now() - c.at) > 6 * 3600 * 1000;
+        // silently presented as current. A scan priced under another table is
+        // stale too, so a backfilled price reaches (all) without waiting 6h.
+        allStale = !c.at || (Date.now() - c.at) > 6 * 3600 * 1000 || c.sig !== priceSig;
+        if (Array.isArray(c.missing)) for (const k of c.missing) missingPriceKeys.add(k);
       }
     } catch (e) { /* no cache yet: the row degrades to session-only */ }
+    if (priceLib) priceLib.requestLookup([...missingPriceKeys], priceCache);
     // Spawn the refresher when the cache is missing or stale. It self-skips if
     // another one is already running or the cache is fresh.
     try {
@@ -1094,10 +1081,11 @@ process.stdin.on('end', () => {
       if ((allCost === null || allStale) && fs.existsSync(refresher)) {
         const { spawn } = require('child_process');
         const p2 = spawn(process.execPath, [refresher], { detached: true, stdio: 'ignore', windowsHide: true });
+        p2.on('error', () => {});  // async spawn failure must not kill the render
         p2.unref();
       }
     } catch (e) {}
-    // '~' marks a figure that excludes tokens from models with no price in PRICE.
+    // '~' marks a figure with tokens priced at a stand-in rate or not priced at all.
     const allCostStr = allCost === null ? '--' : (allUnpriced > 0 ? '~' : '') + '$' + allCost.toFixed(2);
 
     // Split rows: [leftCol, rightCol] — each cell gated by /cc-statusline:rows config.

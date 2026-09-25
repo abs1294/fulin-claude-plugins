@@ -2,6 +2,12 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.6.2] - 2026-09-25
+### Fixed
+- cost 計價改為模型 id 精確比對：原本用子字串比對，新模型（Opus 5.5、Fable 5.1）被安靜地套上舊版單價，Opus 5.5 多算約 57%；表裡沒有的模型改以同系列單價暫估並標「~」，背景抓官方單價頁回填後自動重算。另補 1 小時快取寫入的獨立計價
+- 回填只補內建表沒有的模型、不覆蓋內建單價；官方頁依表頭欄名解析，缺欄或不足 5 列就整批不寫
+- 背景程序（全量用量重掃、單價回填）啟動失敗時，statusline 不再整條崩潰（原本 spawn 的非同步 error 事件沒接住，實測 exit 1）
+
 ## [1.6.1] - 2026-09-25
 ### Fixed
 - cron-tracker 改從 tool_response.id 取 job id：原本只用 regex 找「task <id>」，但 hook 收到的是結構化物件，抓不到而落到 cron-<時間戳> 假 id，CronDelete 永遠對不上，statusline 持續顯示已刪除的排程
