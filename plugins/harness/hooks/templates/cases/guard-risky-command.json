@@ -3709,6 +3709,174 @@
         }
       },
       "expect": "ALLOW"
+    },
+    {
+      "label": "pwsh -wo（WorkingDirectory 最短縮寫）吃掉一個值，再接 -c → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -wo C:/work -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "pwsh -work（WorkingDirectory 中間長度縮寫）吃掉一個值，再接 -c → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -work C:/work -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "powershell.exe 的 -wo 同樣吃掉一個值，再接 -c → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -wo C:/work -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "pwsh -of（OutputFormat 別名）吃掉一個值，再接 -c → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -of Text -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "pwsh -if（InputFormat 別名）吃掉一個值，再接 -c → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -if Text -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "pwsh -to（Token 縮寫）吃掉一個值，再接 -c → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -to abc -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "pwsh -utc（UTCTimestamp 縮寫）吃掉一個值，再接 -c → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -utc 2020-01-01T00:00:00Z -c \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "pwsh -cwa（CommandWithArgs）帶的是指令 → 擋",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -cwa \"git push\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "pwsh -in 是 -Interactive、不吃值，後面的腳本名與腳本參數不是殼旗標 → 放行",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -in ./safe.ps1 -c \"git push\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "pwsh -wo 吃掉目錄後接的是腳本名，後面的 -c 是腳本參數 → 放行",
+      "variant": "demo",
+      "setup": {},
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -wo C:/work ./safe.ps1 -c \"git push\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Start-Process -work（WorkingDirectory 縮寫）吃掉的是目錄名 echo，真正執行的是 git → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Start-Process -work echo git push"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "Start-Process -win（WindowStyle 縮寫）吃掉一個值，FilePath 是 git → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Start-Process -win Hidden git push"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "Start-Process -cred（Credential 縮寫）吃掉一個值，FilePath 是 git → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Start-Process -cred $c git push"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "字串經管線餵給帶 -com 的 pwsh：歸類成輸入而非腳本，但 -Command 的腳本讀得到 $input，規則照樣看 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "'git push' | pwsh -com '$input | Invoke-Expression'"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
     }
   ]
 }

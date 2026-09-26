@@ -24,3 +24,6 @@ __pycache__/
 
 # 交付資料夾內的過程產物（截圖、驗證收據等），不進 git
 **/_work/
+
+# harness 範本的本機整合測試，只留在本機重跑用、不進 git
+plugins/harness/hooks/templates/integration-tests/

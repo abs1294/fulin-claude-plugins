@@ -378,7 +378,7 @@ function wrapperInner(rest, verb) {
   //   bash 系：-c，可與其他短旗標合寫（-lc、-ec），大小寫有別（-C 是別的旗標）
   //   cmd：/c、/k；Git Bash（MSYS）上要寫成 //c（單斜線會被轉成路徑、內層不執行），兩種都認
   //   PowerShell：-Command 的任何前綴縮寫（-c、-Com、-comm），前面可以是 - 、-- 或 //，不分大小寫；
-  //   -EncodedCommand（-e、-ec、-enc…）解碼後就是指令；powershell.exe 不帶旗標時第一個位置引數就是指令
+  //   -CommandWithArgs（-cwa）同樣帶指令；-EncodedCommand（-e、-ec、-enc…，-encodeda 起是 -EncodedArguments）解碼後就是指令；powershell.exe 不帶旗標時第一個位置引數就是指令
   const v = String(verb || '').toLowerCase().replace(/\.exe$/, '');
   // 與語法樹路徑同一套判準：從殼名後面開始，只在連續的旗標區裡找；碰到腳本名（或 pwsh 的位置引數、-File）就停——
   // 腳本名之後的 `-c` 是腳本自己的參數（`bash release.sh -check …`、`powershell -File x.ps1 -c …`）
@@ -401,15 +401,15 @@ function wrapperInner(rest, verb) {
   } else if (v === 'powershell' || v === 'pwsh') {
     for (let k = 0; k < words.length; k++) {
       const w = words[k].w;
-      if (/^(?:-{1,2}|\/{1,2})c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?$/i.test(w)) { i = words[k].end; break; }
-      if (/^(?:-{1,2}|\/{1,2})e(?:c|n[a-z]*)?$/i.test(w)) {
+      if (/^(?:-{1,2}|\/{1,2})(?:c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?|cwa|commandwithargs)$/i.test(w)) { i = words[k].end; break; }
+      if (/^(?:-{1,2}|\/{1,2})e(?:c|n(?:c(?:o(?:d(?:e(?:d(?:c\w*)?)?)?)?)?)?)?$/i.test(w)) {
         try { return words[k + 1] ? Buffer.from(words[k + 1].w, 'base64').toString('utf16le') : null; } catch (e) { return null; }
       }
       if (/^(?:-{1,2}|\/{1,2})(?:f|fi|fil|file)$/i.test(w)) return null;          // 腳本檔內容看不到
-      // 會吃值的旗標認完整的前綴縮寫（-wi、-inp、-ou…）；下一個詞不是旗標才當成它的值；
-      // pwsh 的 -i 是 -Interactive，不吃值（powershell.exe 的 -i 才是 InputFormat）
-      if (/^(?:-{1,2}|\/{1,2})(?:ex\w*|ep|w(?:i(?:n\w*)?)?|v(?:e\w*)?|i(?:n(?:p\w*)?)?|o(?:u(?:t\w*)?)?|psc\w*|conf\w*|cus\w*|sett\w*|wd|workingd\w*)$/i.test(w) &&
-          !(v === 'pwsh' && /^(?:-{1,2}|\/{1,2})i$/i.test(w))) {
+      // 會吃值的旗標認完整的前綴縮寫（-wi、-inp、-ou、-wo…）；下一個詞不是旗標才當成它的值；
+      // pwsh 的 -i、-in 是 -Interactive，不吃值（powershell.exe 的 -i 才是 InputFormat）
+      if (/^(?:-{1,2}|\/{1,2})(?:ex\w*|ep|w(?:i(?:n\w*)?)?|v(?:e\w*)?|i(?:n(?:p\w*)?)?|o(?:u(?:t\w*)?)?|psc\w*|conf\w*|cus\w*|sett\w*|wd|wo(?:r(?:k(?:i(?:n(?:g(?:d\w*)?)?)?)?)?)?|if|of|to(?:k(?:e(?:n)?)?)?|utc\w*|ea|encodeda\w*)$/i.test(w) &&
+          !(v === 'pwsh' && /^(?:-{1,2}|\/{1,2})in?$/i.test(w))) {
         if (words[k + 1] && !/^[-\/]/.test(words[k + 1].w)) k++;
         continue;
       }

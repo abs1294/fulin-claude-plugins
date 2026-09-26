@@ -578,7 +578,7 @@ function walkPs(m, node, scope, cond) {
       const ex = m.execs.slice(before).find((x) => x.nodeKey === nodeKey(m, el));
       if (ex && pending !== null) {
         if (readsScriptFromStdin(ex)) nested(m, 'bash', pending, ex, 'exec');
-        else if ((ex.verb === 'powershell' || ex.verb === 'pwsh') && !ex.argv.slice(1).some((a) => /^-(?:c|command|f|file|encodedcommand|e|ec)$/i.test(a))) nested(m, 'powershell', pending, ex, 'exec');
+        else if ((ex.verb === 'powershell' || ex.verb === 'pwsh') && !ex.argv.slice(1).some((a) => PS_CMD.test(a) || PS_ENC.test(a) || PS_FILE.test(a))) nested(m, 'powershell', pending, ex, 'exec');
         else ex.heredoc = (ex.heredoc ? ex.heredoc + ' ' : '') + pending.replace(/[;&|'"#\r\n]+/g, ' ').trim();
       }
       pending = null;
@@ -631,7 +631,8 @@ function walkPs(m, node, scope, cond) {
         const a = argv[k].toLowerCase();
         if (/^-(?:f|fi|fil|file|filep|filepa|filepat|filepath|pspath|path)$/.test(a)) { file = argv[++k]; continue; }
         if (/^-(?:a|ar|arg|args|argu|argum|argume|argumen|argument|argumentl|argumentli|argumentlis|argumentlist)$/.test(a)) { args.push(argv[++k]); continue; }
-        if (/^-(?:wo|workingdirectory|wi|windowstyle|verb|v|credential|redirectstandard\w+|rs[eio]|environment|ea|erroraction|ev|errorvariable|wa|warningaction|wv|warningvariable|ov|outvariable|ob|outbuffer|pv|pipelinevariable|infa|informationaction|iv|informationvariable)$/.test(a)) { k++; continue; }
+        // 其餘會吃值的參數，照 PowerShell 參數繫結認任何不含糊的前綴（-work、-win、-cred…）
+        if (/^-(?:wo\w*|wi\w*|c|cr\w*|v|ve|ver|verb|e|en\w*|redirectstandard\w+|rs[eio]|ea|errora\w*|ev|errorv\w*|wa|warninga\w*|wv|warningv\w*|ov|outv\w*|ob|outb\w*|pv|pi\w*|infa|informationa\w*|iv|informationv\w*)$/.test(a)) { k++; continue; }
         if (a.startsWith('-')) continue;
         if (file === null) file = argv[k]; else args.push(argv[k]);
       }
@@ -1038,15 +1039,16 @@ function expandEscapes(text) {
 // 殼包裝：這個殼要執行的內層腳本（依殼的種類認它自己的旗標；找第一個像旗標的會被 PowerShell 的 -exec 先命中）
 //   bash 系：-c，可與其他短旗標合寫（-lc、-ec），大小寫有別（-C 是 noclobber）
 //   cmd：/c、/k；Git Bash（MSYS）上要寫成 //c——單斜線會被當成路徑轉掉、內層不執行，兩種都認
-//   PowerShell：-Command 的任何前綴縮寫（-c、-Com、-comm），前面可以是 -、-- 或 //，不分大小寫；
-//     -EncodedCommand（-e、-ec、-enc…）base64 解碼後就是指令；powershell.exe 不帶旗標時第一個位置引數就是指令
+//   PowerShell：-Command 的任何前綴縮寫（-c、-Com、-comm）與 -CommandWithArgs（-cwa），前面可以是 -、-- 或 //，不分大小寫；
+//     -EncodedCommand（-e、-ec、-enc…，-encodeda 起是 -EncodedArguments）base64 解碼後就是指令；powershell.exe 不帶旗標時第一個位置引數就是指令
 //     （pwsh 的位置引數是腳本檔）；-File 的腳本檔內容看不到
-const PS_CMD = /^(?:-{1,2}|\/{1,2})c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?$/i;
-const PS_ENC = /^(?:-{1,2}|\/{1,2})e(?:c|n[a-z]*)?$/i;
+const PS_CMD = /^(?:-{1,2}|\/{1,2})(?:c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?|cwa|commandwithargs)$/i;
+const PS_ENC = /^(?:-{1,2}|\/{1,2})e(?:c|n(?:c(?:o(?:d(?:e(?:d(?:c\w*)?)?)?)?)?)?)?$/i;
 const PS_FILE = /^(?:-{1,2}|\/{1,2})(?:f|fi|fil|file)$/i;
 // 會吃值的旗標，每個都認完整的前綴縮寫：ExecutionPolicy（-ex…、-ep）、WindowStyle（-w、-wi、-win…）、Version（-v、-ve…）、
-// InputFormat（-i、-in、-inp…）、OutputFormat（-o、-ou、-out…）、PSConsoleFile、ConfigurationName、CustomPipeName、SettingsFile、WorkingDirectory
-const PS_VALUED = /^(?:-{1,2}|\/{1,2})(?:ex\w*|ep|w(?:i(?:n\w*)?)?|v(?:e\w*)?|i(?:n(?:p\w*)?)?|o(?:u(?:t\w*)?)?|psc\w*|conf\w*|cus\w*|sett\w*|wd|workingd\w*)$/i;
+// InputFormat（-i、-in、-inp…、-if）、OutputFormat（-o、-ou、-out…、-of）、PSConsoleFile、ConfigurationName、CustomPipeName、SettingsFile、
+// WorkingDirectory（-wo、-work…、-wd）、Token（-to）、UTCTimestamp（-utc）、EncodedArguments（-ea、-encodeda…）
+const PS_VALUED = /^(?:-{1,2}|\/{1,2})(?:ex\w*|ep|w(?:i(?:n\w*)?)?|v(?:e\w*)?|i(?:n(?:p\w*)?)?|o(?:u(?:t\w*)?)?|psc\w*|conf\w*|cus\w*|sett\w*|wd|wo(?:r(?:k(?:i(?:n(?:g(?:d\w*)?)?)?)?)?)?|if|of|to(?:k(?:e(?:n)?)?)?|utc\w*|ea|encodeda\w*)$/i;
 function shellInner(verb, argv) {
   if (BASH_SHELLS.has(verb)) {
     for (let k = 1; k < argv.length; k++) {
@@ -1071,8 +1073,8 @@ function shellInner(verb, argv) {
         return text ? { lang: 'powershell', text } : null;
       }
       if (PS_FILE.test(a)) return null;
-      // 下一個詞不是旗標才當成它的值；pwsh 的 -i 是 -Interactive，不吃值（powershell.exe 的 -i 才是 InputFormat）
-      if (PS_VALUED.test(a) && !(verb === 'pwsh' && /^(?:-{1,2}|\/{1,2})i$/i.test(a))) {
+      // 下一個詞不是旗標才當成它的值；pwsh 的 -i、-in 是 -Interactive，不吃值（powershell.exe 的 -i 才是 InputFormat）
+      if (PS_VALUED.test(a) && !(verb === 'pwsh' && /^(?:-{1,2}|\/{1,2})in?$/i.test(a))) {
         if (argv[k + 1] !== undefined && !/^[-\/]/.test(argv[k + 1])) k++;
         continue;
       }

@@ -1720,6 +1720,45 @@
         }
       },
       "expect": "BLOCK"
+    },
+    {
+      "label": "pwsh -wo（WorkingDirectory 縮寫）吃掉一個值，-c 包測試指令＋條件不符 → 擋",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"smtp.example.com\", \"port\": 587, \"cc\": [\"team@example.com\"] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -wo app -c \"npm test\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Start-Process -work（WorkingDirectory 縮寫）吃掉一個值，FilePath 是測試指令＋條件不符 → 擋",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "config/mail.test.json": "{ \"host\": \"smtp.example.com\", \"port\": 587, \"cc\": [\"team@example.com\"] }\n"
+        },
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Start-Process -work app npm test"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
     }
   ]
 }

@@ -2,6 +2,14 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.3.2] - 2026-09-26
+
+### Fixed
+- **殼包裝判定補齊 PowerShell 旗標縮寫**（`shell-model.js`，以及 `guard-risky-command.js`、`guard-test-preconditions.js` 的正則路徑）：pwsh／powershell 認任何合法前綴縮寫的啟動旗標，原本只收一部分，`pwsh -wo C:/x -c "git push"` 這類寫法的內層指令整個看不到。補上會吃值的 `-wo`～`-workin`（WorkingDirectory）、`-of`、`-if`、`-to`（Token）、`-utc`（UTCTimestamp）、`-ea`／`-encodeda…`（EncodedArguments），以及會帶指令的 `-cwa`／`-commandwithargs`；`-encodeda` 起不再誤認成 `-EncodedCommand`；pwsh 的 `-in` 與 `-i` 一樣是 Interactive、不吃值。判準以 pwsh 7.6.6 與 Windows PowerShell 5.1 實跑、pwsh 原始碼 `CommandLineParameterParser.cs` 為準。
+- **Start-Process 參數照 PowerShell 參數繫結認縮寫**：原本只認 `-wo`、`-wi` 與完整名稱，`-work`、`-win`、`-cred`、`-en`、`-errora…` 等會吃值的縮寫被當成不吃值，後面的值被誤認成要執行的程式（`Start-Process -work app npm test` 原本不會觸發測試前置條件檢查）。
+- 管線把字串餵給 powershell 時，判斷「有沒有指定 -Command／-File」改用同一組旗標判準（原本只認幾種完整寫法）。
+- cases 新增兩向案例 16 條：`guard-risky-command` 14 條、`guard-test-preconditions` 2 條。
+
 ## [0.3.1] - 2026-09-25
 
 ### Changed（壓縮交接跟上來源實例）
