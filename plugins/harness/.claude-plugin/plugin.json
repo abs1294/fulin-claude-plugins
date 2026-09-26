@@ -1,6 +1,6 @@
 {
   "name": "harness",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "開發流程制度安裝器：/harness:init 在任何軟體開發專案裝上一套工作紀律——前置檢查→盤點→攤開核對→一次一題訪談→五層生成（制度文件＋可執行 hook＋五支通用 agent＋三份知識容器＋settings）→靜態驗收＋冷啟探針實測 hook 真的會擋。開發流程骨幹全帶（40 條判斷矩陣、agent pipeline 依盤點自動裁切），事故型條款不帶；引擎在 plugin、實例在專案（plugin 更新不覆蓋實例）。產出是骨架＋長出資產的路徑，不是成熟的 harness。",
   "author": {
     "name": "fulin"
