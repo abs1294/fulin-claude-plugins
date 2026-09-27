@@ -1,0 +1,267 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "圖三：背景自動做的事與定期檢查",
+    "subtitle": "結構範例（只抄結構）：這些不會擋你，只在特定時機自動提醒或存檔；虛線＝讀，粗線＝寫",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "cfg",
+      "label": "設定"
+    },
+    {
+      "id": "ev",
+      "label": "什麼時候"
+    },
+    {
+      "id": "hk",
+      "label": "背景自動做的事"
+    },
+    {
+      "id": "data",
+      "label": "存放的資料"
+    },
+    {
+      "id": "mt",
+      "label": "每 30 天的檢查"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "c_local",
+      "lane": "cfg",
+      "col": 0,
+      "type": "cloud",
+      "label": ".claude/settings.local.json",
+      "sublabel": "把自動檢查接上 Claude",
+      "width": 208
+    },
+    {
+      "id": "e_open",
+      "lane": "ev",
+      "col": 0,
+      "type": "frontend",
+      "label": "開始對話",
+      "sublabel": "新開一段"
+    },
+    {
+      "id": "e_resume",
+      "lane": "ev",
+      "col": 1,
+      "type": "frontend",
+      "label": "接續之前的對話",
+      "sublabel": "隔一段時間回來",
+      "width": 122
+    },
+    {
+      "id": "e_pre",
+      "lane": "ev",
+      "col": 2,
+      "type": "frontend",
+      "label": "對話太長、壓縮前",
+      "sublabel": "Claude 準備精簡",
+      "width": 136
+    },
+    {
+      "id": "e_post",
+      "lane": "ev",
+      "col": 4,
+      "type": "frontend",
+      "label": "壓縮之後",
+      "sublabel": "精簡後繼續"
+    },
+    {
+      "id": "h_health",
+      "lane": "hk",
+      "col": 0,
+      "type": "messagebus",
+      "label": "health-check-reminder",
+      "sublabel": "超過 30 天提醒做檢查",
+      "width": 167
+    },
+    {
+      "id": "h_resume",
+      "lane": "hk",
+      "col": 1,
+      "type": "messagebus",
+      "label": "resume-stale-reminder",
+      "sublabel": "隔太久時提醒內容可能過時",
+      "width": 167
+    },
+    {
+      "id": "h_snap",
+      "lane": "hk",
+      "col": 2,
+      "type": "messagebus",
+      "label": "compact-snapshot",
+      "sublabel": "壓縮前把重點存下來",
+      "width": 133
+    },
+    {
+      "id": "h_handoff",
+      "lane": "hk",
+      "col": 3,
+      "type": "messagebus",
+      "label": "compact-handoff",
+      "sublabel": "另開一個 Claude 寫交接信",
+      "width": 149
+    },
+    {
+      "id": "h_sum",
+      "lane": "hk",
+      "col": 4,
+      "type": "messagebus",
+      "label": "compact-summary-log",
+      "sublabel": "記下這次精簡了什麼",
+      "width": 154
+    },
+    {
+      "id": "h_reinject",
+      "lane": "hk",
+      "col": 5,
+      "type": "messagebus",
+      "label": "compact-reinject",
+      "sublabel": "把交接信放回對話",
+      "width": 133
+    },
+    {
+      "id": "x_05",
+      "lane": "data",
+      "col": 0,
+      "type": "database",
+      "label": "05-knowledge-protocol.md",
+      "sublabel": "上次檢查的日期",
+      "width": 188
+    },
+    {
+      "id": "x_snap",
+      "lane": "data",
+      "col": 3,
+      "type": "database",
+      "label": "存下的重點與交接信（專案外）",
+      "sublabel": "每段對話各一份",
+      "width": 220
+    },
+    {
+      "id": "m_check",
+      "lane": "mt",
+      "col": 3,
+      "type": "backend",
+      "label": "照規則做定期檢查",
+      "sublabel": "Claude 執行",
+      "width": 136
+    },
+    {
+      "id": "m_probe",
+      "lane": "mt",
+      "col": 4,
+      "type": "cloud",
+      "label": "probe-hooks",
+      "sublabel": "逐一試擋每個自動檢查",
+      "width": 129
+    },
+    {
+      "id": "m_cases",
+      "lane": "mt",
+      "col": 5,
+      "type": "cloud",
+      "label": "hooks/cases/（N 份）",
+      "sublabel": "每個檢查該擋與該放的例子",
+      "width": 168
+    }
+  ],
+  "edges": [
+    {
+      "from": "c_local",
+      "to": "e_open",
+      "label": "開始時讀取",
+      "variant": "dashed"
+    },
+    {
+      "from": "e_open",
+      "to": "h_health",
+      "label": "觸發"
+    },
+    {
+      "from": "e_resume",
+      "to": "h_resume",
+      "label": "觸發"
+    },
+    {
+      "from": "e_pre",
+      "to": "h_snap",
+      "label": "觸發"
+    },
+    {
+      "from": "h_snap",
+      "to": "h_handoff",
+      "label": "呼叫"
+    },
+    {
+      "from": "e_post",
+      "to": "h_sum",
+      "label": "觸發"
+    },
+    {
+      "from": "x_05",
+      "to": "h_health",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "h_handoff",
+      "to": "x_snap",
+      "label": "寫",
+      "variant": "emphasis"
+    },
+    {
+      "from": "x_snap",
+      "to": "h_sum",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "x_snap",
+      "to": "h_resume",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "x_05",
+      "to": "m_check",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "m_check",
+      "to": "m_probe",
+      "label": "執行"
+    },
+    {
+      "from": "m_cases",
+      "to": "m_probe",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "e_post",
+      "to": "h_reinject",
+      "label": "觸發"
+    },
+    {
+      "from": "h_snap",
+      "to": "x_snap",
+      "label": "寫",
+      "variant": "emphasis"
+    },
+    {
+      "from": "x_snap",
+      "to": "h_reinject",
+      "label": "讀",
+      "variant": "dashed"
+    }
+  ]
+}

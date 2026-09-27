@@ -1,0 +1,268 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "圖一：你提出需求之後，會怎麼跑",
+    "subtitle": "結構範例（只抄結構）：由左往右是做事的順序；紅框裡的是自動檢查，Claude 或分工角色做錯時會被當場擋下",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "gtop",
+      "label": "自動檢查：擋下 Claude",
+      "variant": "exception"
+    },
+    {
+      "id": "main",
+      "label": "Claude（正在跟你對話的這個）與你"
+    },
+    {
+      "id": "agent",
+      "label": "分工角色（agent）"
+    },
+    {
+      "id": "gbot",
+      "label": "自動檢查：擋下分工角色",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "p1",
+      "label": "確認需求",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "p2",
+      "label": "交代工作＋設計＋寫程式",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "p3",
+      "label": "測試＋審查＋結束",
+      "fromCol": 4,
+      "toCol": 5
+    }
+  ],
+  "mainPath": [
+    "req",
+    "align",
+    "dispatch",
+    "design",
+    "qa",
+    "review",
+    "done"
+  ],
+  "nodes": [
+    {
+      "id": "req",
+      "lane": "main",
+      "col": 0,
+      "type": "frontend",
+      "label": "你提出需求",
+      "sublabel": "開始一段新對話",
+      "width": 94
+    },
+    {
+      "id": "align",
+      "lane": "main",
+      "col": 1,
+      "type": "backend",
+      "label": "先確認需求",
+      "sublabel": "有兩種理解就先問你",
+      "width": 119
+    },
+    {
+      "id": "dispatch",
+      "lane": "main",
+      "col": 2,
+      "type": "backend",
+      "label": "把工作交給分工角色",
+      "sublabel": "指定用哪個模型",
+      "width": 150
+    },
+    {
+      "id": "signoff",
+      "lane": "main",
+      "col": 3,
+      "type": "frontend",
+      "label": "你同意設計",
+      "sublabel": "同意後才開始寫",
+      "width": 98
+    },
+    {
+      "id": "done",
+      "lane": "main",
+      "col": 5,
+      "type": "backend",
+      "label": "結束時回報",
+      "sublabel": "附實際跑過的結果",
+      "width": 108
+    },
+    {
+      "id": "design",
+      "lane": "agent",
+      "col": 2,
+      "type": "backend",
+      "label": "backend-engineer",
+      "sublabel": "先寫設計，你同意後才寫程式",
+      "width": 161
+    },
+    {
+      "id": "qa",
+      "lane": "agent",
+      "col": 4,
+      "type": "backend",
+      "label": "qa-engineer",
+      "sublabel": "實際測試＋補自動測試",
+      "width": 129
+    },
+    {
+      "id": "review",
+      "lane": "agent",
+      "col": 5,
+      "type": "backend",
+      "label": "code-reviewer",
+      "sublabel": "檢查程式有沒有問題",
+      "width": 119
+    },
+    {
+      "id": "g_ask",
+      "lane": "gtop",
+      "col": 1,
+      "type": "security",
+      "label": "check-ask-discipline",
+      "sublabel": "問你問題卻沒附建議答案",
+      "width": 160
+    },
+    {
+      "id": "g_model",
+      "lane": "gtop",
+      "col": 2,
+      "type": "security",
+      "label": "check-agent-model",
+      "sublabel": "交代工作沒指定模型",
+      "width": 140
+    },
+    {
+      "id": "g_review",
+      "lane": "gtop",
+      "col": 3,
+      "type": "security",
+      "label": "check-review-discipline",
+      "sublabel": "交代工作沒寫驗收標準與回報方式",
+      "width": 182
+    },
+    {
+      "id": "g_sediment",
+      "lane": "gtop",
+      "col": 5,
+      "type": "security",
+      "label": "guard-sediment-sweep",
+      "sublabel": "沒交代這次學到什麼就不准結束",
+      "width": 171
+    },
+    {
+      "id": "g_hygiene",
+      "lane": "gbot",
+      "col": 2,
+      "type": "security",
+      "label": "guard-claude-dir-hygiene",
+      "sublabel": "把暫存檔放進 .claude 資料夾",
+      "width": 188
+    },
+    {
+      "id": "g_output",
+      "lane": "gbot",
+      "col": 4,
+      "type": "security",
+      "label": "guard-report-output",
+      "sublabel": "報告沒放進 reports 資料夾",
+      "width": 154
+    }
+  ],
+  "edges": [
+    {
+      "from": "req",
+      "to": "align"
+    },
+    {
+      "from": "align",
+      "to": "dispatch"
+    },
+    {
+      "from": "dispatch",
+      "to": "design"
+    },
+    {
+      "from": "qa",
+      "to": "review"
+    },
+    {
+      "from": "review",
+      "to": "done"
+    },
+    {
+      "from": "align",
+      "to": "g_ask",
+      "label": "擋",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "from": "dispatch",
+      "to": "g_model",
+      "label": "擋",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "from": "dispatch",
+      "to": "g_review",
+      "label": "擋",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "from": "done",
+      "to": "g_sediment",
+      "label": "擋",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "from": "qa",
+      "to": "g_output",
+      "label": "擋",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "from": "design",
+      "to": "signoff",
+      "label": "設計給你看"
+    },
+    {
+      "from": "signoff",
+      "to": "design",
+      "label": "同意後寫程式",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "from": "design",
+      "to": "qa"
+    },
+    {
+      "from": "design",
+      "to": "g_hygiene",
+      "label": "擋",
+      "variant": "security",
+      "role": "error"
+    }
+  ]
+}

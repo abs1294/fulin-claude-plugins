@@ -2,6 +2,30 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.4.0] - 2026-09-27
+
+### Added
+- **Phase 6 流程圖**（`skills/init/SKILL.md`）：收尾前用 archify 畫三張圖、組成同一頁 `.claude/harness/flow.html`，開在瀏覽器：①需求進來之後怎麼跑（主流程＋每一步被哪支自動檢查擋）②文件在哪一步被讀、被寫（規則文件的讀；知識筆記 CONTEXT.md、FLOWS.md、`tests/Project_Detail/` 的讀與寫分開畫）③背景自動執行與維護工具（開 session、resume、壓縮前後觸發哪支、讀寫什麼；健檢跑 probe-hooks）。三條硬規則：要畫的清單是 init 實際新增／修改／刪除的檔案（不寫死）、每個檔案都要是節點（卡片不算）、每個節點都要有標了關係的線。archify 以 `doctor` 的 exit code 判斷能不能用，沒裝先問、不自己裝，不裝就退回 Markdown 流程表。原因：使用者實測裝完後只拿到檔案清單，看不出每個東西在流程哪一步起作用。
+- **流程圖完整性檢查** `skills/init/scripts/check-flow-diagram.js`：`snapshot` 在 Phase 0 動任何檔案前對目標目錄拍快照（每個檔的內容雜湊，存系統暫存目錄）；`check` 拿現況對比快照，列出 init 之後新增、修改、刪除的每個檔案，逐項確認是某張圖的節點 label（寫在卡片、線或 sublabel 不算），並檢查每個節點至少有一條線。排除 `.git/`、備份、流程圖本身、測試快取；`node_modules` 收成一項。用來補「模型畫圖、模型自己檢查」看不出漏畫的盲點。
+  - 開發過程，使用者連續指出三次，每次都是判準錯：①初版判準是「名字出現在圖的 JSON 任何地方」，圖下卡片也算，於是 20 項只在卡片、沒畫在流程上也被放行（「不是說所有的檔案嗎」）②第二版改成只認節點，但要檢查的清單是寫死的幾個位置（`.claude/agents`、`.claude/hooks`、`tests/Project_Detail`…），init 動到其他檔就漏（「不應該寫死，要看有新增或更改的檔案」）→ 改成快照比對 ③節點齊了但沒有線，看不出知識筆記在哪一步被讀、被寫（「讀跟寫的流程也都沒有畫出來」）→ 加「每個節點都要有線」。
+  - 實測（模擬一次安裝：卡丽斯韩国的副本拿掉 init 的檔 → 拍快照 → 放回、另改 `.gitignore`、留一個測試殘檔）：抓到新增 40、修改 1；`.gitignore` 與殘檔這兩個寫死清單不可能發現的都被抓出；原本就有、沒被改的 `.claude/settings.json` 不列入；三張圖合併通過；只給圖一抓出 30 項；舊的單張圖抓出 22 個沒有線的節點；沒拍快照時停下並說明補拍無效。
+  - 全部關係畫進同一張圖時實測 29 處線交叉、64 處線共用通道、線穿過節點，無法閱讀，因此拆成三張；三張各自以 `--quality showcase` 通過（0 錯誤、0 警告），規定不准降成 `standard` 過關。
+- `skills/init/scripts/flow-page.js`：把三張 archify 圖組成同一頁（只做外框，圖本身仍由 archify 產）。
+- **交付前易讀性自檢** `skills/init/scripts/readability-check.js`＋`skills/init/plain-language-terms.json`：流程圖的全部文字（標題、泳道、節點小字、線上的字）與收尾回報（改為先寫成 `.claude/harness/install-report.md`）交付前都要過。規則依據是 deliver-report plugin 的 `references/document-readability.md`——它自己的機械閘只掃 `.docx`、且只在調用它的回合啟動，掃不到 init 的產出，所以在這裡跑它機器判得準的部分（編號連續、未定義代號、異動紀錄用語，異動用語直接讀它的 `banned-patterns.json`），加上內部用語表（SKILL「對使用者講話的寫法」的機械可讀版，另收流程圖實際被指出看不懂的詞：派工、欄位、對齊回合、主對話、快照、注回…）；判不準的幾條印出來要模型讀完規則全文後逐條自檢。找不到可用的 deliver-report（`installed_plugins.json` 沒有這個專案看得到的安裝紀錄，或 settings 停用）→ 跳過、exit 3，並在收尾回報提示安裝指令。原因：流程圖寫「派工缺欄位」，第一次用的人看不懂。
+  - 實測：舊版三張圖掃出 26 處（含「派工缺欄位」），改寫後通過；自訂測試檔 5 處全抓到，反引號內、括號已說明的、檔名與 kebab-case 名稱不誤判；以空的家目錄模擬沒裝、以專案 settings 停用模擬停用，兩種都正確跳過並提示。實測中發現並修正一個誤判：英文詞原本不分大小寫，把檔名 `CONTEXT` 當成內部用語 context。
+  - 同一標準自檢本 plugin 的 `README.md`：正文與檔案清單共改 39 處內部用語與代號（例：判斷矩陣的「A1-A8／B1-B23／C1-C9」改成「8 條何時停下換方法、23 條怎樣才算做完、9 條哪些動作要先問你」，條數以 `grep -c` 核對過）。
+- 兩支檢查腳本的邊界修正（逐項以案例重現後才修）：編號檢查不再把程式碼框內的數字當清單、項目間的空行不再當成新清單；有連字號的內部用語（dry-run）原本在跳過 kebab-case 檔名時一起被跳過、永遠比不到；節點名稱比對加邊界，`foobar.js` 不再算涵蓋 `bar.js`；圖的 JSON 解析失敗或缺 nodes／edges 時直接報錯（原本被當成文字繼續比對）；指向不存在節點的線不再讓節點算「有線」、節點 id 重複或缺少會報出；nodes／edges（易讀性自檢另含泳道、卡片）裡有 null 不再當掉；落點不是目錄時拒絕；讀不到的檔案列出來而不是略過（原本會被誤報成刪除）；讀不到的目錄底下的檔、拍快照當下讀不到的檔，都列為「無法判斷」，不算新增或刪除；`node_modules` 內讀不到的也回報；沒有 id 的節點與兩端沒寫的線會被抓出（同一節點只列一次）；英文內部用語加字界，gateway 不再被當成 gate；`node_modules/` 這類彙總項底下有讀不到的，整項列為無法判斷；Markdown 程式碼框也認 `~~~` 與四個以上反引號，行首的行內程式碼（```npm ci```）不當成框；路徑只在 Windows 忽略大小寫。
+- 完整性檢查加「同一張圖裡，同一個檔案只能有一個節點」：原本 SKILL 規定「同一支 agent 做兩步就畫兩個節點」，architect 併入 backend-engineer 的專案被畫成兩個 backend-engineer（一個寫設計、一個寫程式），使用者看成專案裡有後端架構師。改成每支 agent 一個節點，兩步用一來一回的線表示；以舊範例實測抓得到、新圖通過。
+- 完整性檢查排除流程圖自己的產出時，原本只寫了單一檔名 `flow.json`，實際產出是 `flow-1.json`～`flow-3.html`，會被當成 init 新增的檔要求畫上圖；改用樣式排除，並一併排除 `install-report.md`（實測五個產出檔都被排除、其他檔照常列入）。
+- `skills/init/references/example-flow-1.json`～`example-flow-3.json`：三張圖的結構範例，皆以 archify `validate --quality showcase` 驗過。
+- **參考模式**：專案原本就有 Claude Code 設定（`CLAUDE.md`、`.claude/` 的 agents／hooks／commands／skills、有 hooks 或 permissions 的 settings，含之前裝過的 harness）時，Phase 0-2 不再停下：先整份備份到 `.harness-backup/<時間>/` 並比對 hash，Phase 1 新增第 12 項逐項讀原有設定（裡面的專案事實照樣當盤點證據，原有 hook 在擋的風險列入第 2、5 題），Phase 2 攤出「原有設定怎麼處理」對照表（沿用／併入／取代，使用者可改），Phase 3 新增第 0 題問原本哪裡不好用，後面的建議朝解決這些痛點調整。預設處置：專案事實與知識條目一律留下，流程與機制換成 harness 的，harness 沒有對應的 agent、hook、指令原樣沿用，不靜默刪任何東西。原因：使用者會在已有設定的專案重跑 init，代表他覺得原本的流程有問題，原本「已裝就停、既有設定讓位」等於把他想換掉的東西原樣留著。
+- Phase 5 靜態驗收加第十項（參考模式）：備份一致、處置表逐列對帳、知識條目數新舊相等、原 CLAUDE.md 每條規則都有去向。
+
+### Changed
+- 收尾回報改成八段（參考模式九段），「之後一個需求進來會怎麼跑」與「裝了哪些東西」放最前面；第 2 段的項目數要和完整性檢查的結果一致；參考模式另交代備份位置、處置表最終版，以及第 0 題每個痛點這次怎麼處理（沒處理的照實說）。
+- 「既有治理層讓位」只適用多工具共用的治理層（AGENTS.md、.agents/、.cursor/）；Claude Code 自己的設定改為參考來源（`adaptation-guide.md` §2、SKILL 核心原則第 4 條、裁切規則）。
+- 知識筆記檔在參考模式下，原有的真實條目原樣搬進新結構。
+
 ## [0.3.3] - 2026-09-26
 
 ### Changed

@@ -1,0 +1,300 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "圖二：每份文件在哪一步被讀、被寫",
+    "subtitle": "結構範例（只抄結構）：虛線＝讀（從文件指向那一步）；粗線＝寫（從那一步指向文件）",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "rules",
+      "label": "規則文件（Claude 會讀）"
+    },
+    {
+      "id": "steps",
+      "label": "做事的步驟"
+    },
+    {
+      "id": "notes",
+      "label": "知識筆記（Claude 會讀，也會寫）"
+    },
+    {
+      "id": "mem",
+      "label": "記憶"
+    }
+  ],
+  "mainPath": [
+    "s_open",
+    "s_align",
+    "s_dispatch",
+    "s_eng",
+    "s_qa",
+    "s_done"
+  ],
+  "nodes": [
+    {
+      "id": "d_claude",
+      "lane": "rules",
+      "col": 0,
+      "type": "database",
+      "label": "CLAUDE.md",
+      "sublabel": "專案規則總表"
+    },
+    {
+      "id": "d_readme",
+      "lane": "rules",
+      "col": 1,
+      "type": "database",
+      "label": "harness/README.md",
+      "sublabel": "規則文件的目錄",
+      "width": 140
+    },
+    {
+      "id": "d_02",
+      "lane": "rules",
+      "col": 2,
+      "type": "database",
+      "label": "02-model-dispatch.md",
+      "sublabel": "工作交給哪個模型",
+      "width": 160
+    },
+    {
+      "id": "d_04",
+      "lane": "rules",
+      "col": 3,
+      "type": "database",
+      "label": "04-delegation-templates.md",
+      "sublabel": "交代工作的寫法範本",
+      "width": 201
+    },
+    {
+      "id": "d_03",
+      "lane": "rules",
+      "col": 4,
+      "type": "database",
+      "label": "03-judgment-matrix.md",
+      "sublabel": "何時該停、怎樣算做完",
+      "width": 167
+    },
+    {
+      "id": "d_05",
+      "lane": "rules",
+      "col": 5,
+      "type": "database",
+      "label": "05-knowledge-protocol.md",
+      "sublabel": "怎麼記下踩過的坑",
+      "width": 188
+    },
+    {
+      "id": "s_open",
+      "lane": "steps",
+      "col": 0,
+      "type": "backend",
+      "label": "開始對話",
+      "sublabel": "Claude"
+    },
+    {
+      "id": "s_align",
+      "lane": "steps",
+      "col": 1,
+      "type": "backend",
+      "label": "先確認需求",
+      "sublabel": "Claude",
+      "width": 94
+    },
+    {
+      "id": "s_dispatch",
+      "lane": "steps",
+      "col": 2,
+      "type": "backend",
+      "label": "把工作交給分工角色",
+      "sublabel": "Claude",
+      "width": 150
+    },
+    {
+      "id": "s_eng",
+      "lane": "steps",
+      "col": 3,
+      "type": "backend",
+      "label": "設計＋寫程式",
+      "sublabel": "backend-engineer",
+      "width": 108
+    },
+    {
+      "id": "s_qa",
+      "lane": "steps",
+      "col": 4,
+      "type": "backend",
+      "label": "測試",
+      "sublabel": "qa-engineer"
+    },
+    {
+      "id": "s_done",
+      "lane": "steps",
+      "col": 5,
+      "type": "backend",
+      "label": "結束",
+      "sublabel": "Claude 記下這次學到的",
+      "width": 134
+    },
+    {
+      "id": "k_context",
+      "lane": "notes",
+      "col": 1,
+      "type": "database",
+      "label": "CONTEXT.md",
+      "sublabel": "專案用語的意思",
+      "width": 98
+    },
+    {
+      "id": "k_flows",
+      "lane": "notes",
+      "col": 3,
+      "type": "database",
+      "label": "FLOWS.md",
+      "sublabel": "改 A 要不要一起改 B",
+      "width": 123
+    },
+    {
+      "id": "k_project",
+      "lane": "notes",
+      "col": 4,
+      "type": "database",
+      "label": "tests/Project_Detail/PROJECT.md",
+      "sublabel": "測試時要注意的事",
+      "width": 235
+    },
+    {
+      "id": "m_mem",
+      "lane": "mem",
+      "col": 5,
+      "type": "database",
+      "label": "記憶（存在專案外）",
+      "sublabel": "踩過的坑",
+      "width": 150
+    },
+    {
+      "id": "m_adv",
+      "lane": "mem",
+      "col": 4,
+      "type": "messagebus",
+      "label": "memory-write-advisory",
+      "sublabel": "記憶太長時提醒整理",
+      "width": 167
+    }
+  ],
+  "edges": [
+    {
+      "from": "s_open",
+      "to": "s_align"
+    },
+    {
+      "from": "s_align",
+      "to": "s_dispatch"
+    },
+    {
+      "from": "s_dispatch",
+      "to": "s_eng"
+    },
+    {
+      "from": "s_eng",
+      "to": "s_qa"
+    },
+    {
+      "from": "s_qa",
+      "to": "s_done"
+    },
+    {
+      "from": "d_claude",
+      "to": "s_open",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "d_readme",
+      "to": "s_align",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "d_02",
+      "to": "s_dispatch",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "d_04",
+      "to": "s_eng",
+      "label": "照範本寫",
+      "variant": "dashed"
+    },
+    {
+      "from": "d_03",
+      "to": "s_qa",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "d_05",
+      "to": "s_done",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "k_context",
+      "to": "s_align",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "k_flows",
+      "to": "s_eng",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "k_project",
+      "to": "s_qa",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "s_done",
+      "to": "k_project",
+      "label": "寫",
+      "variant": "emphasis"
+    },
+    {
+      "from": "s_done",
+      "to": "m_mem",
+      "label": "寫",
+      "variant": "emphasis"
+    },
+    {
+      "from": "m_mem",
+      "to": "m_adv",
+      "label": "寫入後提醒",
+      "variant": "dashed"
+    },
+    {
+      "from": "s_done",
+      "to": "k_context",
+      "label": "寫",
+      "variant": "emphasis"
+    },
+    {
+      "from": "s_done",
+      "to": "k_flows",
+      "label": "寫",
+      "variant": "emphasis"
+    },
+    {
+      "from": "s_qa",
+      "to": "k_project",
+      "label": "寫",
+      "variant": "emphasis"
+    }
+  ]
+}

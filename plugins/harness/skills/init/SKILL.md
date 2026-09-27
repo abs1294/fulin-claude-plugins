@@ -12,7 +12,9 @@ description: 把一套開發流程制度（模型調度／停損熔斷／派工�
 1. **開發流程骨幹全帶，事故型條款不帶**：純行為紀律照搬、可參數化的判準挖空填入、agent pipeline 依盤點裁切；綁死特定工作法的條款與單一事故的細則不帶（那些從目標專案自己的 memory 長出來，或歸未來的 `/harness:review`）。
 2. **規則要有機械閘**：skill 與制度檔寫「必須」是自律，AI 會繞；只有 hook 是他律。所以本 init 產出可執行的 hook，並用冷啟探針實測它真的會擋。
 3. **實例化不是複製**：目標專案的事實（build 指令、agent 名單、邊界、危險動作）必須**實地查證後填入**，禁止從別的專案的實例照抄、禁止用猜的。
-4. **既有治理層讓位**：目標專案已有自己的 agent 治理（AGENTS.md／.agents/／既有 CLAUDE.md 規範／既有 agents）時，harness 只補 Claude Code 特有行為層，開發流程正本讓給既有治理層（adaptation-guide §2）。
+4. **既有設定分兩種對待**：
+   - **既有的 Claude Code 設定（`.claude/`、`CLAUDE.md`，含之前裝過的 harness）是參考來源，不是權威**。使用者會在已經有設定的專案跑 init，代表他覺得原本的流程有問題，想換這套試試。所以不停下、不讓位：先整份備份，再把它當成盤點證據（裡面的指令、邊界、保護動作、agent 分工都是這個專案的事實），逐項決定沿用、併入或取代，並問出原本哪裡不好用（見 Phase 0-2、Phase 1 第 12 項、第 0 題）。
+   - **其他工具共用的治理層（AGENTS.md／.agents/／.cursor/ 這類多工具規範）讓位**：harness 只補 Claude Code 特有行為層，開發流程正本讓給它（adaptation-guide §2）。這些檔不只 Claude 在用，改掉會影響別的工具與別的人。
 5. **誠實**：init 給的是骨架＋長出資產的路徑，不是一套成熟的 harness。收尾回報必須講清楚「你已經有的」與「你還沒有的」。
 
 ## 對使用者講話的寫法（Phase 0、Phase 2、每一題訪談、Q5 清單、收尾回報都適用）
@@ -42,28 +44,40 @@ description: 把一套開發流程制度（模型調度／停損熔斷／派工�
 另外三條：
 - **agent 名稱第一次出現附中文職稱**：`backend-architect`（後端架構設計）、`backend-engineer`（後端實作）、`frontend-engineer`（前端實作）、`qa-engineer`（測試）、`code-reviewer`（程式碼審查）。
 - **每題都講清楚「選了之後會發生什麼」**，不要只講選項名稱。
-- **送出前自掃一次**：拿上表左欄逐詞搜自己的草稿，命中就改寫再送。
+- **送出前自掃一次**：拿上表左欄逐詞搜自己的草稿，命中就改寫再送。上表的機械可讀版在 `plain-language-terms.json`（另收了流程圖實際被指出看不懂的詞：派工、欄位、對齊回合、主對話、快照、注回…），流程圖與收尾回報由 Phase 6 的易讀性自檢腳本掃；兩份要同步。
 
 ## 流程總覽
 
 ```
-Phase 0 前置檢查 ─→ Phase 1 盤點（唯讀） ─→ Phase 2 攤開核對 ─→ Phase 3 訪談（一次一題，Q1~Q7）
+Phase 0 前置檢查 ─→ Phase 1 盤點（唯讀） ─→ Phase 2 攤開核對 ─→ Phase 3 訪談（一次一題，Q0~Q7）
                                                                           │
-              收尾回報 ←─ Phase 5 驗收（靜態九項＋冷啟探針五項） ←─ Phase 4 生成（五層）
+收尾回報 ←─ Phase 6 流程圖 ←─ Phase 5 驗收（靜態十項＋冷啟探針五項） ←─ Phase 4 生成（五層）
 ```
+
+**已經有 Claude Code 設定的專案**（Phase 0-2 判定）多走四步：Phase 0 先整份備份 → Phase 1 第 12 項盤點原有設定 → Phase 2 攤出「原有設定怎麼處理」對照表 → Phase 3 第 0 題問原本哪裡不好用。收尾回報多一段交代原有設定的去向與痛點有沒有解。
 
 任一 Phase 未完成不得進下一個。Phase 5 任一項失敗＝init 未完成。
 
 ---
 
-## Phase 0 — 前置檢查（四項，任一不過就停在這裡）
+## Phase 0 — 前置檢查（四項；0-3 不過就停在這裡，其餘記下繼續）
 
-先確認目標 workspace 路徑（預設＝當前工作目錄；使用者指定別的路徑就用那個），以下指令一律對目標路徑跑：
+先確認目標 workspace 路徑（預設＝當前工作目錄；使用者指定別的路徑就用那個）。
+
+**第一個動作、在動任何檔案之前：拍快照**（Phase 6 靠它找出 init 新增或改過的每個檔案，事後補拍比不出差異）：
+
+```
+node <本 plugin>/skills/init/scripts/check-flow-diagram.js snapshot <目標>
+```
+
+之後 Phase 1 實跑測試、Phase 4 生成、Phase 5 探針留下的所有變動都會被 Phase 6 抓出來——不該留的殘檔要在收尾前刪掉，否則會被要求畫上流程圖。
+
+以下指令一律對目標路徑跑：
 
 | # | 檢查 | 指令 | 不過時 |
 |---|------|------|--------|
 | 0-1 | 目標是不是 git repo | `git -C <目標> rev-parse --is-inside-work-tree`；workspace 根不是 repo 時再列子資料夾：`for d in <目標>/*/; do git -C "$d" rev-parse --show-toplevel 2>/dev/null; done` | 不是 repo 也可以繼續，但記下「非 git repo」：沉澱閘改綁 Stop hook、git-commit 相關的閘與探針整組不裝不測 |
-| 0-2 | 有沒有裝過 harness | `ls <目標>/.claude/harness/ <目標>/.claude/agents/ 2>/dev/null`；另查 `<目標>/CLAUDE.md` 是否含「Harness 路由表」 | **已有 → 停止，不覆蓋**。回報現況（有哪些檔、哪一版的形狀），差異檢查目前沒有現成指令（`/harness:review` 規劃中、尚未提供），請使用者決定要手動比對還是備份後重裝；使用者明確要求重裝時，先整個備份再說 |
+| 0-2 | 有沒有既有的 Claude Code 設定 | 對 workspace 根與每個子 repo 各查一次：`ls <目標>/CLAUDE.md <目標>/.claude/ 2>/dev/null`；`.claude/` 底下列 `agents/`、`hooks/`、`commands/`、`skills/`、`harness/`，讀 `settings.json`／`settings.local.json` 看有沒有 `hooks`、`permissions`；`CLAUDE.md` 是否含「Harness 路由表」（＝之前裝過 harness） | **不停下**。判定規則：只有 `settings*.json` 且裡面只有 `enabledPlugins`＝**沒有既有設定**，照一般流程走（settings 照 Phase 4 合併）。其餘任何一項存在＝**有既有設定，進入參考模式**：①動 Phase 1 之前先整份備份——`CLAUDE.md`、`.claude/`（排除 `node_modules/`）、`CONTEXT.md`、`FLOWS.md`、`tests/Project_Detail/PROJECT.md` 原樣複製到 `<目標>/.harness-backup/<YYYYMMDD-HHMM>/`（保持相對路徑）；是 git repo 就把 `.harness-backup/` 加進 `.gitignore`；備份完用 `diff -r` 或逐檔 hash 比對確認一致，比對不過就停 ②Phase 1 第 12 項盤點原有設定 ③Phase 3 第 0 題問原本哪裡不好用。之前裝過 harness 也一樣走參考模式（重裝），不另外停 |
 | 0-3 | Codex CLI 裝了沒 | `codex --version` | **沒裝 → 產出「請先裝 Codex」的指引並停下，不降級成單軌**（見下方指引範本）。理由：git-commit 的三軌審查裡，Codex 是與 code-reviewer 不同源的那一軌；少了它，審查就只剩同一家模型看自己的東西，驗證器與施作器同源（03 B23） |
 | 0-4 | Playwright MCP 在不在 `permissions.allow` | 讀 `<目標>/.claude/settings.json`、`<目標>/.claude/settings.local.json`、`~/.claude/settings.json` 的 `permissions.allow`，找 `mcp__playwright` 開頭的項 | 不在 → 不擋，記下來：Phase 1 判定為「瀏覽器可驅動前端」時，Phase 4 settings 層要補（經 Phase 2 核對）；非瀏覽器或無前端時此項不適用 |
 
@@ -88,7 +102,7 @@ commit 前的程式碼審查需要 Codex CLI：它和 Claude 各審一次，
 
 ## Phase 1 — 盤點（唯讀，一次查完再往下）
 
-超過 3 檔的探索照骨架 02 的紀律派 `Explore`（prompt 帶上「搜尋限定目標目錄、禁止全碟掃描」）。以下十一項全部查完，填進盤點表：
+超過 3 檔的探索照骨架 02 的紀律派 `Explore`（prompt 帶上「搜尋限定目標目錄、禁止全碟掃描」）。以下十二項全部查完（第 12 項只在參考模式查），填進盤點表：
 
 | # | 項目 | 怎麼查（實讀，不信 README） | 記下什麼 |
 |---|------|----------------------------|----------|
@@ -97,12 +111,28 @@ commit 前的程式碼審查需要 Codex CLI：它和 Claude 各審一次，
 | 3 | repo 結構與 git remote | workspace 根的資料夾；每個 repo 的 `git -C <repo> remote -v`；檔案數（`git -C <repo> ls-files \| wc -l`） | remote 指向外部／客戶伺服器＝push 屬外向動作，要進邊界條款；檔案數供裁切規則判斷「小專案」 |
 | 4 | 前端類型（三分類） | 照下方「前端分類判準」 | 瀏覽器可驅動／非瀏覽器前端／無前端，**附證據檔案路徑** |
 | 5 | 測試基礎 | 找測試目錄（`tests/`、`test/`、`__tests__/`、`spec/`、`src/test/`）與測試設定；**打開看裡面有沒有東西**——數測試檔數量、讀一支確認不是空殼 | 目錄存在 ≠ 有測試（曾實測某 repo 自述有測試目錄，實際不存在）。記「有且有 N 支實測／有目錄但空／無」 |
-| 6 | 既有治理層 | `AGENTS.md`、`.agents/`、`.cursor/`、`.github/copilot-instructions.md`、既有 `CLAUDE.md`／`.claude/`、`CONTRIBUTING.md`、`docs/` 底下的開發規範、CI 規範 | 有 → 記下它管什麼（流程／規範／stack 限制），harness 讓位；這些檔也是 Q7「必讀文件」的候選 |
+| 6 | 既有治理層 | `AGENTS.md`、`.agents/`、`.cursor/`、`.github/copilot-instructions.md`、`CONTRIBUTING.md`、`docs/` 底下的開發規範、CI 規範（既有 `CLAUDE.md`／`.claude/` 不在這項，歸第 12 項） | 有 → 記下它管什麼（流程／規範／stack 限制），harness 讓位；這些檔也是 Q7「必讀文件」的候選 |
 | 7 | 既有 agent | `.claude/agents/`、`.agents/`、plugin 提供的 agent（`claude plugin list` 或讀 `~/.claude/settings.json` 的 enabledPlugins） | 有 → Q1 裁切規則「已有自己的 agents→用他的名字」 |
 | 8 | 外部副作用路徑 | 照下方「危險動作候選推導」掃描表逐類 grep | 每類命中的檔案:行號（取樣 ≤5 筆）＋判斷是真路徑還是假命中；供 Q2 |
 | 9 | 敏感物 | `.env*`、`*.pem`／`*.key`／`*.pfx`、`credentials*`、`secrets*`、VPN 設定、客戶機密目錄；`.gitignore` 有沒有擋 | 進實例 CLAUDE.md 絕對邊界（「不得出現在 commit、文件、對外輸出」）；沒被 `.gitignore` 擋的要回報 |
 | 10 | 執行期風險事實（B 類 hook 的依據） | ①資料庫：用戶端指令（`psql`／`mysql`／`sqlcmd`／`mongosh`／`redis-cli`）出現在腳本或文件、連線字串與其中的帳號（`sa`／`root`／`postgres`／`admin` 這類高權帳號要特別記）、正式與測試庫主機名 ②起服務：啟動指令與它依賴的環境變數（`NODE_ENV`／`ASPNETCORE_ENVIRONMENT`／`SPRING_PROFILES_ACTIVE`／`--profile`／`.env.<環境>`） ③測試指令本體（第 2 項已查）與測試是否讀環境變數或設定檔（`process.env`／`os.environ`／`.env.test`／測試設定檔） | 每一項都會變成 `guard-risky-command` 或 `guard-test-preconditions` 的一條規則（見 `references/hook-catalog.md` 第 10–14 列）；記下樣式與「正確值」長什麼樣 |
 | 11 | 工作法（C 類 hook 的依據） | `.claude/local-overrides.yml` 有沒有條目；有沒有本機覆寫檔（`*.local.*`、`appsettings.*.json`、`.env.local`、`settings.local.*` 被追蹤卻常有未提交改動——`git status` 看一次）；有沒有多工作樹（`git worktree list`） | 有本機覆寫 → 裝本機覆寫保護三件組（形狀目錄第 16–18 列）；只有多工作樹沒有覆寫檔 → 不裝，記進收尾回報 |
+| 12 | 原有的 Claude Code 設定（**僅參考模式**） | 從備份讀，逐項**打開看內容**，不只列檔名：`CLAUDE.md` 每一節；`.claude/agents/*.md` 每支的職責、工具、模型、硬性規則；`.claude/hooks/*` 每支擋什麼（讀程式，不信檔頭註解）與 settings 裡怎麼接線；`.claude/commands/`、`.claude/skills/` 各做什麼；settings 的 `permissions`（allow／deny／ask）；之前裝過 harness 的話，另讀 `05-knowledge-protocol.md` 的健檢紀錄、三份知識筆記檔有沒有真實條目（示範條目不算） | 每一項記「它在管什麼」＋「對應到 harness 的哪一塊」＋預設處置（見下方「原有設定的預設處置」）。**裡面寫到的專案事實是盤點證據**：build／test 指令、禁止動作、保護某個檔或某台主機的 hook，照樣拿去跟第 2、8、10 項交叉查證——原有 hook 在擋的東西，代表使用者在乎那個風險，Q2 與 Q5 要列入，不能因為 harness 的形狀目錄沒有就丟掉 |
+
+### 原有設定的預設處置（參考模式）
+
+原則：**事實與知識一律留下，流程與機制換成 harness 的，但每一項都要在 Phase 2 攤給使用者否決**。不靜默刪除任何東西——就算有備份，使用者沒看到就是沒交代。
+
+| 原有的東西 | 預設處置 | 為什麼 |
+|---|---|---|
+| `CLAUDE.md` | **取代**：用 harness 骨架重寫；原檔裡的專案事實（指令、路徑、邊界、禁止事項、術語）逐條搬進新檔對應的節；流程類規定（怎麼派工、怎麼審查）由 harness 的取代。每條原規則記去向：搬進哪一節／被哪條 harness 規則取代／沒搬（理由） | 使用者就是對原本的流程不滿意；但專案事實不會因為換流程而失效 |
+| 角色與 harness 某個 agent 相同的 agent（例：原本的 reviewer 對上 code-reviewer） | **併入**：用 harness 骨架建，原 agent 裡的專案專屬內容（技術棧規範、檢查清單、禁止事項）搬進新檔的硬性規則。名字預設用 harness 的名字；使用者要保留原名就用原名，02 對照表、04 模板、check-agent-model 名單跟著改 | 骨架帶交接契約與回報格式（派工閘與 git-commit 依賴它們），原 agent 帶專案知識，兩邊都要 |
+| harness 沒有對應角色的 agent（例：資料遷移專員、文件撰寫） | **沿用**：原檔不動，加進 02 對照表與 check-agent-model 名單（要在名單裡才受派工檢查管） | 不是 harness 該決定的分工 |
+| 原有 hook | 讀程式判斷它擋什麼：形狀與 harness 某支相同 → **取代**（harness 版有 cases 可實測）；harness 沒有的 → **沿用**，照原接線寫進新 settings，並在 05 健檢清單加一列（沒有 cases 可跑，註明「原有 hook，手動試跑」） | 原有 hook 在擋的東西代表使用者在乎那個風險 |
+| `commands/`、`skills/` | **沿用**，原封不動 | 不屬於開發流程骨架 |
+| settings 的 `permissions` | **沿用**，照 Phase 4 JSON 合併 | 使用者自己決定的權限 |
+| 之前裝過的 harness（重裝） | 制度文件與 hook 用新版骨架重生，**上一版填進去的專案參數與規則（B 類規則、agent 名單、Q 的答案）當成這次訪談的預設答案**；知識筆記檔與 05 健檢紀錄的真實條目**原樣保留**，只換結構；memory 不動 | 知識是專案自己長出來的資產，重裝不能歸零 |
+| 其他檔（`.claude/` 下的過程產物、殘檔） | **不動**，列在收尾回報，由使用者決定 | 不確定用途的東西不替使用者處理 |
 
 ### 前端分類判準
 
@@ -140,25 +170,38 @@ commit 前的程式碼審查需要 Codex CLI：它和 Claude 各審一次，
 
 內容（下列項目名稱是給你的清單；攤給使用者時照「對使用者講話的寫法」改成白話，例如「危險動作候選清單」寫成「做了收不回來的動作，我找到這幾個」）：
 
-1. 十一項盤點表（每項附證據路徑；查不到的明寫「查不到」）
-2. Phase 0 四項檢查結果
+1. 十二項盤點表（每項附證據路徑；查不到的明寫「查不到」；第 12 項非參考模式時不列）
+2. Phase 0 四項檢查結果（參考模式另附備份位置與比對結果）
 3. 自動推導的預設：
    - 前端分類與對應處置
    - Q1 預設 pipeline 依裁切規則裁完的樣子（先給出，Q1 再讓使用者改）
-   - 危險動作候選清單（Q2 的題目來源）
+   - 危險動作候選清單（Q2 的題目來源；參考模式含原有 hook 在擋的東西）
    - 是否觸發 Q3（無前端）、Q6（無測試基礎）
 4. 發現的目標專案自身問題（文件漂移、缺測試基礎、敏感物未被 `.gitignore` 擋）
+5. **原有設定怎麼處理**（僅參考模式）：每一項一列，照下面格式。使用者在這裡改處置，改了就照改的做
+
+```
+| 原有的東西 | 它在管什麼 | 我打算怎麼處理 | 處理後在哪裡 |
+| CLAUDE.md 的「部署前要先跑 smoke test」 | 部署前的檢查 | 搬過去（這是專案事實） | 新 CLAUDE.md「絕對邊界」一節 |
+| CLAUDE.md 的「改完直接 commit」 | 開發流程 | 換成新流程（改完要先實測、再審查） | 新 CLAUDE.md 的開發流程圖 |
+| .claude/agents/reviewer.md | 程式碼審查 | 合併進 code-reviewer（程式碼審查），它的檢查清單搬過去 | .claude/agents/code-reviewer.md |
+| .claude/hooks/block-prod-db.js | 擋連正式資料庫 | 保留，繼續接著 | 新 settings 照原樣接線 |
+| .claude/commands/deploy.md | 部署指令 | 不動 | 原位 |
+```
+
+   表格下面一句話講備份在哪、怎麼還原（「整份原樣在 `.harness-backup/<時間>/`，要還原就把裡面的檔案複製回原位」）。
 
 訊息開頭先用兩三句講結論（這是什麼專案、有沒有前端與測試、找到幾類做了收不回來的動作），再接上面四項；整則訊息的**最後一句**固定是：「以上事實有錯請直接指出；沒有的話我開始逐題訪談（共 N 題）。」使用者糾正的事實回 Phase 1 重查確認後更新表格。**無人值守（headless）時**：照推導預設繼續，所有推導值在收尾回報列為「已代決」供事後否決。
 
 ---
 
-## Phase 3 — 訪談（共 7 題，**一次一題**）
+## Phase 3 — 訪談（共 7 題，參考模式加問第 0 題；**一次一題**）
 
 **一次一題，不要湊成一次 AskUserQuestion**——每題的答案會改變後面題目的選項（Q1 裁掉 frontend-engineer，Q5 的 hook 名單就跟著變）。每題都附**推薦選項與一行理由**（未附推薦會被 check-ask-discipline 閘擋下，也是三重自查有做的證據）。條件問的題目條件不成立就跳過，並在收尾回報記「Q<N> 跳過：<原因>」。
 
 | 題 | 必問／條件問 | 問什麼 | 答案決定什麼 |
 |----|-------------|--------|-------------|
+| **Q0** | **僅參考模式問，排在最前面** | 原本的設定哪裡不好用、這次想改善什麼（可複選，附「其他」） | 後面每一題的推薦選項要朝解決這些痛點調整；每個痛點在收尾回報都要交代「這次怎麼處理的，或沒處理、為什麼」。選項從第 12 項盤點推：例如原本沒有審查角色 →「改完沒人審」；原本 hook 只有 0～1 支 →「規則寫了但 Claude 不照做」；CLAUDE.md 很長 →「規則太多、Claude 抓不到重點」 |
 | **Q1** | **必問** | 給預設 pipeline（已依裁切規則裁過）讓使用者刪改 | 02 agent 對照表、04 模板五 pipeline、`.claude/agents/` 建哪幾支、check-agent-model 名單 |
 | **Q2** | **必問** | Phase 1 掃出來的危險動作，哪些要熔斷（執行前必須徵得同意） | 03 C2 清單、CLAUDE.md 絕對邊界；掃描零命中時改問「有沒有掃不到但確實存在的危險動作」 |
 | **Q3** | **僅無前端時問** | 怎樣算做完（沒有畫面可以看，「實際跑起來」的證據是什麼：CLI 輸出？API 回應？產出檔案？） | 03 B3 的驗證方式、qa-engineer 骨架 (C) 段的實測方式 |
@@ -170,6 +213,15 @@ commit 前的程式碼審查需要 Codex CLI：它和 Claude 各審一次，
 ### 每一題對使用者怎麼問（照這個講，`<…>` 換成盤點到的實際內容）
 
 上表是給你判斷用的；下面才是對使用者說的話。每題都要有：要他決定什麼、選了之後會發生什麼、我的建議與理由。
+
+**第 0 題（原本的設定哪裡不好用；只在專案已經有 Claude Code 設定時問）**
+> 你的專案原本就有 Claude Code 設定（<例：CLAUDE.md、2 個 agent、1 支自動檢查>），已經整份備份在 `.harness-backup/<時間>/`。
+> 會重新裝一套，應該是原本用起來有地方不順。哪些是你想改善的？可以複選：
+> 1. <例：規則寫了，但 Claude 常常不照做>
+> 2. <例：改完沒人審查，錯到你自己發現>
+> 3. <例：CLAUDE.md 太長，Claude 抓不到重點>
+> 4. 其他（直接告訴我）
+> 建議：<選項>——<一行理由，從盤點到的原有設定推，例：原本只有文字規則、沒有任何自動檢查>。
 
 **第 1 題（開發流程的角色分工）**
 > 之後每個開發需求，Claude 會照下面的順序分給不同角色做：
@@ -236,7 +288,8 @@ commit 前的程式碼審查需要 Codex CLI：它和 Claude 各審一次，
 | **非瀏覽器前端** | 保留 `frontend-engineer`；QA 改寫（qa-engineer 用 (B) 段），不裝 qa-webwright |
 | **前後端同 repo 且無分層**（前後端程式碼混在同一套目錄結構、沒有 API 邊界） | `architect` 與 `engineer` 併一步：engineer 先產出設計文件並經簽收再實作（backend-engineer 骨架的併步改寫說明） |
 | **單人小專案**（1 個 repo、`git ls-files` < 50 檔） | `architect` 併入 `engineer`，**但保留對齊回合與 QA**——小專案省的是角色切換，不是驗證 |
-| **已有自己的 agents** | 用他的名字：不建同名通用 agent，02 對照表、04 模板、check-agent-model 名單全部改填既有名稱 |
+| **已有自己的 agents**（參考模式） | 照 Phase 1「原有設定的預設處置」：同角色的併入 harness 骨架（名字預設用 harness 的，使用者要保留原名就用原名）；harness 沒有的角色沿用並加進名單。02 對照表、04 模板、check-agent-model 名單填最後定案的名字 |
+| **AGENTS.md／.agents/ 這類多工具治理層定義了角色** | 用它的名字：不建同名通用 agent，02 對照表、04 模板、check-agent-model 名單全部改填既有名稱（adaptation-guide §2） |
 
 多條同時成立時全部套用（例：無後端＋單人小專案＝只剩 frontend-engineer → qa-engineer → code-reviewer，且 architect 職責併入 frontend-engineer 的設計步驟）。
 
@@ -256,7 +309,7 @@ commit 前的程式碼審查需要 Codex CLI：它和 Claude 各審一次，
 
 推導（事實判定，不問使用者）：
 
-1. 形狀目錄逐列判觸發條件，用 Phase 1 十一項與 Q1–Q4 的答案。
+1. 形狀目錄逐列判觸發條件，用 Phase 1 十二項與 Q1–Q4 的答案（參考模式：原有 hook 照「原有設定的預設處置」逐支判定取代或沿用，沿用的也列進 Q5 清單，標「原本就有」）。
 2. **B 類的每一個風險都要落成一條規則**：Phase 1 第 8 項的危險動作候選（Q2 勾選的）、第 10 項的執行期風險事實，各自變成 `guard-risky-command.js` 或 `guard-test-preconditions.js` 的一條規則。**熔斷清單上的項目只寫進文字、沒有對應規則＝推導不完整**——只能靠人判斷、做不成樣式比對的，要在 Q5 與收尾回報逐項說明為什麼停在文字（對使用者這樣講：「<某動作>沒辦法從指令的樣子認出來，所以沒有自動檢查，只寫進規則文件，靠 Claude 做之前自己停下來問你」）。
 3. D 類不複製，列進安裝指引；E 類不裝，寫進 05 §6 的「可升格機械閘」清單。
 
@@ -322,7 +375,7 @@ Q5 攤給使用者的格式（每項一列；不列 A～E 分類，第一欄是�
 | `skeleton-agent-qa-engineer.md` | `<落點>/.claude/agents/qa-engineer.md` | 依前端分類保留 (A)／(B)／(C) 其一；測試目錄與指令 |
 | `skeleton-agent-code-reviewer.md` | `<落點>/.claude/agents/code-reviewer.md` | 規範來源、靜態掃描工具；**VERDICT 輸出格式不得改**（git-commit C 軌依賴它） |
 
-「已有自己的 agents」時不建同名檔；只把 harness 需要的段落（交接契約、回報格式）以建議形式列在收尾回報，由使用者決定要不要合併。
+參考模式照 Phase 2 定案的處置表做：「併入」的用骨架建、把原 agent 的專案專屬內容搬進硬性規則（每條註明出自原檔哪一節）；「沿用」的原檔不動。AGENTS.md 這類多工具治理層已定義角色時不建同名檔，只把 harness 需要的段落（交接契約、回報格式）以建議形式列在收尾回報，由使用者決定要不要合併。
 
 ### 知識容器層（3 份）
 
@@ -332,11 +385,13 @@ Q5 攤給使用者的格式（每項一列；不列 A～E 分類，第一欄是�
 | `skeleton-FLOWS.md` | `<落點>/FLOWS.md` | 模組單位（repo／服務／模組）；**不憑盤點畫鏈路**，只留示範 |
 | `skeleton-PROJECT.md` | `<落點>/tests/Project_Detail/PROJECT.md` | 「環境與執行」節填 Phase 1 查證事實；其餘三節只留示範 |
 
+參考模式：原本的知識筆記檔有真實條目（不是示範）時，**條目原樣搬進新結構，一條都不能少**，示範條目才刪；寫完逐條比對新舊條目數（`grep -c` 各自的條目標記），數字對不上就是漏搬。
+
 ### settings 層
 
 | 來源 | 落點 | 內容 |
 |------|------|------|
-| 每支已裝 hook 檔頭的「接線」註解 | Q4 決定：`<落點>/.claude/settings.local.json`（單人）或 `.claude/settings.json`（團隊） | `hooks` 區接上每支 hook（PreToolUse matcher 照檔頭）；Phase 0-4 缺的 `mcp__playwright__*` 補進 `permissions.allow`（僅瀏覽器可驅動時）。**既有 settings 檔先建 `.bak` 再以 JSON 合併寫回，不整檔覆蓋**；寫完 `node -e "JSON.parse(...)"` 驗格式 |
+| 每支已裝 hook 檔頭的「接線」註解 | Q4 決定：`<落點>/.claude/settings.local.json`（單人）或 `.claude/settings.json`（團隊） | `hooks` 區接上每支 hook（PreToolUse matcher 照檔頭）；Phase 0-4 缺的 `mcp__playwright__*` 補進 `permissions.allow`（僅瀏覽器可驅動時）。**既有 settings 檔先建 `.bak` 再以 JSON 合併寫回，不整檔覆蓋**；寫完 `node -e "JSON.parse(...)"` 驗格式。參考模式：處置為「沿用」的原有 hook 照原本的接線（事件、matcher、指令）保留；處置為「取代」的把原接線拿掉、只留 harness 版，免得同一件事被擋兩次 |
 
 壓縮交接五支（形狀目錄第 26 列）掛四個事件：PreCompact 的 timeout 必須大於 `compact-handoff.js` 的 `CHILD_TIMEOUT`（範本為 240 秒對 220 秒，差距留給快照寫檔），否則交接信寫到一半被中止，兩者要一起調；`compact-reinject.js` 掛 SessionStart matcher `compact`，只在壓縮後注入；`resume-stale-reminder.js` 掛 SessionStart matcher `resume`，只在 resume 時判斷要不要提醒。
 
@@ -346,7 +401,7 @@ SessionStart 提醒由本 plugin 的條件式 hook 提供（偵測到 `.claude/h
 
 ## Phase 5 — 驗收（兩層，任一項失敗＝init 未完成）
 
-### 第一層：靜態九項
+### 第一層：靜態十項
 
 ```
 □ grep "{{" 於所有實例檔（文件層、agent 層、容器層、hook 檔）= 0 命中（無殘留填空；hook 檔的「init 填空區」常數已填）
@@ -362,6 +417,7 @@ SessionStart 提醒由本 plugin 的條件式 hook 提供（偵測到 `.claude/h
   印 `true true`（任一個 false＝該文法沒裝上，對應的指令走正則判法，回報寫明）；`git check-ignore .claude/hooks/node_modules` 有輸出（不會被 commit 進去）
 □ B 類每條規則的「放行方式」若是可照抄的指令：①以同一個 hook 餵回去必須放行 ②在它說的位置實際執行一次（唯讀或無害的才實跑；有副作用的只驗①並在回報裡註明）——過得了閘卻跑不起來的放行方式，照上面「訊息怎麼寫」第 2 點改寫。另掃一次 `reason`／`fix` 不得出現「看不到」「擋不住」「限制」這類引擎盲點字樣
 □ 形狀目錄逐列對帳：每一列都有「已裝／不裝＋理由／由 plugin 提供」三者之一；B 類每個 Q2 勾選項都對得到一條規則
+□ 參考模式（非參考模式標「不適用」）：①備份與原檔逐檔 hash 一致（在 Phase 4 動檔之前比，Phase 5 再比一次備份本身沒被動過）②Phase 2 處置表逐列對帳：「併入」與取代時搬過去的專案事實，內容在新檔找得到（grep 原句的關鍵詞）；「沿用」的原檔 hash 未變、接線還在；「取代」的原接線已拿掉 ③原知識筆記檔的真實條目數＝新檔條目數 ④原有 CLAUDE.md 的每條規則都在處置表上有去向（逐節對，不抽樣）
 ```
 
 ### 第二層：冷啟探針（新開 session 實測，不是讀設定檔推論）
@@ -388,26 +444,113 @@ cd <目標> && claude -p "<探針 prompt>" --output-format text
 - 任一 FAIL → 回 Phase 4 修（常見原因：settings 接線路徑錯、`$CLAUDE_PROJECT_DIR` 沒展開、hook 檔名不一致、agent 名單沒填對），修完**整組重跑**，不是只重跑失敗那項。
 - 探針的原始輸出貼進收尾回報（證據紀律：只寫「探針通過」不算）。
 
+---
+
+## Phase 6 — 流程圖：裝了什麼、之後一個需求進來會怎麼跑
+
+**為什麼有這一步**：只給檔案清單，使用者看完仍不知道裝了這些之後，下一個需求進來會發生什麼事、每個東西在哪一步起作用（實際回饋：「裝完之後沒有告訴我裝了些什麼」）。所以收尾前畫流程圖，三條硬規則，都由 `scripts/check-flow-diagram.js` 機械檢查：
+
+1. **要畫的清單不是寫死的，是 init 實際動過的檔案**：Phase 0 拍的快照對比現況，新增、修改、刪除的每個檔案都要是某張圖上的一個節點（`label` 含它的名字）。只寫在卡片、線上文字或 sublabel 都不算——卡片是圖外清單，看不出在哪一步（實際回饋：「不應該寫死，要看有新增或更改的檔案」「不是說所有的檔案嗎」）。
+2. **每個節點都要有線**，線上標關係：讀、寫、擋、觸發、載入。只擺節點不拉線，看不出它跟流程的關係（實際回饋：「知識筆記裡面讀跟寫的流程也都沒有畫出來」）。
+3. **拆成三張圖放同一頁**：全部檔案加上全部關係塞進一張圖，實測 29 處線交叉、線穿過別的節點，讀不出來。
+
+### 1. 找 archify（跑 CLI 驗活，不看目錄在不在）
+
+依序試 `~/.claude/skills/archify`、`~/.agents/skills/archify`，對每個路徑跑 `node <路徑>/bin/archify.mjs doctor`，**exit 0 才算可用**（目錄在但 Node 版本不符或檔案不全時照樣跑不動）。
+
+找不到或都不是 exit 0 → **不准自己裝**，問使用者，四件事一次講完：這是什麼（第三方的流程圖產生工具 tt-a1i/archify，MIT 授權、免費）、為什麼要它（有格式檢查與真瀏覽器量測，比手刻可靠）、裝了會動到什麼（連網下載、寫進 `~/.claude/skills/`，不動這個專案）、不裝會怎樣（改成在終端機給流程表，內容一樣完整，只是沒有圖）。他說要才跑 `npx skills add tt-a1i/archify -g`，裝完再跑一次 doctor。他說不要、或無人值守 → 走第 6 步的退回做法。
+
+### 2. 先列清單，再寫三張圖的 JSON
+
+先寫一個只有 `{"nodes":[],"edges":[]}` 的暫存 JSON，跑一次 `check-flow-diagram.js check <落點> <那個暫存 JSON>` 拿到「init 之後的變動」清單（它會全部列成缺項，這就是要畫的清單）。清單裡有不該留下的殘檔（測試產物、暫存檔）→ 刪掉，不要畫上去。
+
+每個檔案的關係要**查證後才畫**：讀它的是誰、在哪一步（讀 agent 檔的「開工前必讀」、CLAUDE.md 路由表、hook 檔頭的接線與填空區常數），寫它的是誰、在哪一步。查不到就不畫那條線，並在收尾回報說明。
+
+落點：`<落點>/.claude/harness/flow-1.json`～`flow-3.json`，產出 `flow-1.html`～`flow-3.html`，再組成 `flow.html`（路由表要列 `flow.html`）。格式：archify `workflow`、`schema_version: 2`、`meta.quality_profile: "showcase"`、`meta.locale: "zh-CN"`（archify 只收 `en`／`zh-CN`；節點文字照樣寫繁體中文，只有圖例與按鈕會是簡體，這是 archify 的限制）。結構範例見 `references/example-flow-1.json`～`example-flow-3.json`——**只抄結構，內容一律換成這次實際的檔案與查證過的關係**。
+
+| 圖 | 泳道（由上往下） | 放什麼 | 線 |
+|---|---|---|---|
+| **圖一：需求進來之後怎麼跑** | 自動檢查（擋主對話，`variant: "exception"`）／主對話（含你提出需求、你簽收）／agent 角色／自動檢查（擋 agent，`exception`） | 主線：需求 → 對齊 → 派工 → 第 1 題定案的每支 agent → 收尾。**每支 agent 只畫一個節點、名字照實際裝的檔名**：同一支做兩步（例：architect 併入 engineer 時，engineer 先寫設計、你同意後再寫程式），用「設計給你看」「同意後寫程式」一來一回兩條線表示，小字寫它做哪幾步；畫兩個同名節點，讀者會以為專案裡有兩個角色（實際回饋：被看成有後端架構師）；每支**會擋人的** hook 放在它擋的那一步的上方或下方 | 主線箭頭；步驟 → hook 標「擋」（`variant: "security"`、`role: "error"`） |
+| **圖二：文件在哪一步被讀、被寫** | 規則文件（只讀）／流程步驟／知識筆記（讀＋寫）／記憶 | 步驟一列：開 session、對齊、派工、設計＋實作、實測、收尾（不做的步驟拿掉）；CLAUDE.md、harness/README.md、02～05 放在讀它的那一步上方；CONTEXT.md、FLOWS.md、`tests/Project_Detail/` 底下每個檔放在讀它的那一步下方 | 文件 → 步驟標「讀」（`variant: "dashed"`）；步驟 → 文件標「寫」（`variant: "emphasis"`）。**知識筆記讀和寫都要畫**：誰在哪一步讀、誰在哪一步寫，分開兩條線 |
+| **圖三：背景自動執行與維護工具** | 設定／觸發時機／背景自動執行／讀寫的資料／維護 | settings 檔；開 session、resume、壓縮前、壓縮後這些時機；不擋人的 hook 與它載入的模組；它們讀寫的東西（專案外的就註明「專案外」）；健檢時跑的 probe-hooks 與 `hooks/cases/` | 時機 → hook 標「觸發」；hook 之間標「載入」；讀寫同圖二的畫法 |
+
+參考模式另把沿用的原有 agent、hook、指令、skill 畫進它所屬的那張圖，sublabel 標「原有」。
+
+限制：
+- 同一張圖裡，同一個檔案（agent、hook、文件）只能有一個節點；完整性檢查會擋。
+- 一條泳道同一欄只能有一個節點，最多六個；放不下就再開一條泳道，不准合併節點或移到卡片。
+- 檔名一律完整寫出。archify 預設節點寬 92px，檔名放不下時 validate 會回報「Label … is wider than node」，這時給該節點設 `width`（約：英數字每字 7px、中文每字 14px，再加 24px），**不准縮寫檔名**。
+- 一群用途相同的檔（例：`hooks/cases/` 的測試案例）可以畫成一個目錄節點（label 以 `/` 結尾），sublabel 寫份數；各有作用的檔不准用目錄節點帶過。
+- 先不要手寫 `via`、`channelX` 這類座標，驗證報錯再照它給的修法改。
+
+### 3. 驗證與產出（三張各跑一次）
+
+```
+node <archify>/bin/archify.mjs validate workflow <flow-N.json> --quality showcase --json
+node <archify>/bin/archify.mjs deliver  workflow <flow-N.json> <flow-N.html> --quality showcase --json
+node <archify>/bin/archify.mjs visual-check <flow-N.html> --json
+```
+
+- validate 有錯就照回報的 `supportedFixes` 修，連續兩輪錯誤數沒有減少就停，照實回報沒修掉的診斷。**線交叉（`composition/proper-crossing`）要靠調整節點所在的欄與泳道消除，不准降成 `standard` 品質來過關**。
+- **`deliver` exit 非 0＝沒產出**，不准說成功。
+- visual-check 唯一可接受的診斷是 `viewer/viewport-overflow` 且 `overflowX` 為 false（頁面要往下捲）；其他診斷都要修。記下它在 1440 寬回報的 `scrollHeight`（pass 時記 900），組頁要用。
+- 組成同一頁：`node <本 plugin>/skills/init/scripts/flow-page.js <落點>/.claude/harness/flow.html "<專案名>：裝了什麼、需求進來怎麼跑" flow-1.html:<高度> flow-2.html:<高度> flow-3.html:<高度>`
+- **每張圖都截圖親自看過**：`chrome --headless=new --window-size=1600,1300 --screenshot=<png> file:///<flow-N.html>`。主線看得出順序、檔名完整沒被截斷、每條讀寫線看得出從哪到哪，才算數。
+
+### 4. 完整性檢查（不同判準的兜底，這步沒過不准收尾）
+
+```
+node <本 plugin>/skills/init/scripts/check-flow-diagram.js check <落點> <落點>/.claude/harness/flow-1.json <落點>/.claude/harness/flow-2.json <落點>/.claude/harness/flow-3.json
+```
+
+腳本不看圖怎麼畫，而是拿 Phase 0 的快照對比現況，列出 init 之後新增、修改、刪除的每個檔案（排除 `.git/`、備份、流程圖本身、測試快取；`node_modules` 收成一項），逐項確認它是三張圖其中一張的節點 label；另外檢查每個節點都至少有一條線。exit 1 會列出缺哪些 → 補節點或補線（殘檔就刪）→ 重跑第 3 步與這一步，直到 exit 0。腳本輸出原文貼進收尾回報。
+
+### 5. 交付前易讀性自檢（流程圖與收尾回報都要過）
+
+讀者是第一次用 harness 的人。流程圖上的每一句話（標題、泳道、節點小字、線上的字）與收尾回報，都要讓他不用開口問就看得懂（實際回饋：流程圖寫「派工缺欄位」，第一次用的人根本不知道是什麼意思）。規則依據是 deliver-report plugin 的易讀性鐵則。
+
+```
+node <本 plugin>/skills/init/scripts/readability-check.js <落點> <落點>/.claude/harness/flow-1.json <落點>/.claude/harness/flow-2.json <落點>/.claude/harness/flow-3.json <落點>/.claude/harness/install-report.md
+```
+
+- **exit 3＝這個專案看不到可用的 deliver-report**（沒裝，或被停用）：跳過這一步，照腳本印的那段話在收尾回報告訴使用者「這次沒做易讀性自檢，要裝的話輸入 `/plugin install deliver-report@fulin-plugins`」（Claude 不能代裝）。不准因為沒裝就卡住 init。
+- **exit 1**：逐項改。內部用語換成腳本給的說法；節點小字放不下說明就改寫整句，不准用「（見圖二）」這類叫讀者去別處找的寫法。改完**整份重跑**，不是只重跑被點到的那一處。
+- **exit 0 之後還沒完**：腳本會印出它判不準的幾條（兩邊對照、資訊放一起、重複、做完寫成做完…）。**先把它印出的規則檔全文讀完**，再對三張圖與收尾回報逐條自檢，改到的地方重跑第 3 步的 deliver。
+- 內部用語清單在 `plain-language-terms.json`，是本檔「對使用者講話的寫法」對照表的機械可讀版；使用者再指出看不懂的詞，兩邊一起加。
+- 沒有 archify、改用 Markdown 流程表時，把指令裡的三個 flow-N.json 換成 `flow.md`。
+- 範圍：流程圖三張（或 `flow.md`）＋收尾回報。寫進專案的制度文件（CLAUDE.md、02～05、agent 檔）是給 Claude 照做的規則，本來就用內部用語，不在這一步的範圍。
+
+### 6. 給使用者看
+
+- 有 archify：用系統預設瀏覽器打開 `flow.html`（Windows `start "" <路徑>`、macOS `open`、Linux `xdg-open`；無人值守時不開，只給路徑）。
+- 沒有 archify：寫一份 Markdown 流程表到 `<落點>/.claude/harness/flow.md`，一樣分三節對應三張圖；每一列是一步，欄位是「步驟｜誰做｜讀了哪些檔｜寫了哪些檔｜被哪支自動檢查擋｜觸發了什麼」，每個變動檔都要以完整檔名出現在它那一步；第 4 步的完整性檢查改對這份檔跑，同樣要 exit 0。
+
 ### 收尾回報（誠實條款，缺一不算完成）
 
-七段的內容如下；寫給使用者時照「對使用者講話的寫法」，段名可以直接用下面的粗體字。
+先寫成檔案 `<落點>/.claude/harness/install-report.md`，過完上面第 5 步的易讀性自檢，再把同樣的內容貼給使用者（之後他也能回頭看這份檔）。下面八段（參考模式九段）；寫給使用者時照「對使用者講話的寫法」，段名可以直接用下面的粗體字。**第 1、2 段放最前面**——使用者最想知道的是「之後會怎麼跑」與「裝了什麼」，驗收證據往後放。
 
-1. **裝了哪些東西**：逐檔列出路徑，每個檔附一句用途。接著列「我替你做的決定」：拿掉了哪些角色、沿用了你們哪些既有規範、哪些是我先決定的（無人值守時，剛才盤點推導出的預設全列在這裡，註明「你可以推翻」）。
-2. **驗收證據**：靜態檢查九項逐項結果，加上「開新 session 實際試擋」五項的原始輸出。
-3. **你已經有的**：
+1. **之後一個需求進來會怎麼跑**：先給流程圖的路徑（說明已經在瀏覽器打開）；接著在終端機寫一段 5～8 步的文字版，每步一行：誰做、讀了哪些檔、寫了哪些檔、哪個自動檢查在這一步擋什麼、卡住時會怎樣；背景與維護另寫兩三行。**圖打不開也要看得懂**，每個檔名都要出現在它那一步。最後一句講「完整性檢查：init 新增 N、修改 M、刪除 K 項，每一項都是圖上的節點、每個節點都有線」，附腳本輸出。
+2. **裝了哪些東西**：逐檔列出路徑，每個檔附一句用途，分新增／修改／刪除。**項目要和完整性檢查腳本列的變動清單一致**（腳本列幾項，這裡就是幾項；修改的寫出改了什麼）。接著列「我替你做的決定」：拿掉了哪些角色、沿用了你們哪些既有規範、哪些是我先決定的（無人值守時，剛才盤點推導出的預設全列在這裡，註明「你可以推翻」）。
+3. **驗收證據**：靜態檢查十項逐項結果、「開新 session 實際試擋」五項的原始輸出、流程圖完整性檢查與易讀性自檢的腳本輸出（易讀性自檢被跳過時，寫明是因為沒裝 deliver-report，並附安裝指令）。
+4. **你已經有的**：
    - 一套開發流程：各角色的分工與順序（列出來）、固定跟著流程走的三條規則、40 條判斷規則（什麼時候該停下來換方法、怎樣才算做完、哪些動作要先問你）、派工範本、記錄踩坑的規則
    - <N> 項會真的擋下來的自動檢查，每項一句講它擋什麼；危險指令檢查逐條列出各自對應的風險。<N> 個 agent 角色（名稱加中文職稱）
    - 沒有裝的自動檢查逐項列出與原因：用不到／你取消的／要另裝某個 plugin／要等專案有了某個工具才用得到
    - 三份知識筆記檔（`CONTEXT.md` 詞彙表、`FLOWS.md` 跨模組流程、`PROJECT.md` 測試知識）的空白範本與收錄原則
-4. **你還沒有的**（照實列，不要美化）：
-   - **踩坑知識 0 條**——memory 與三份知識筆記檔都是空的（只有示範條目）。成熟的 harness 靠的是數十到上百條「這裡曾經出過什麼事」，那些只能從本專案自己的工作裡長出來。
+5. **你還沒有的**（照實列，不要美化）：
+   - **踩坑知識 0 條**——memory 與三份知識筆記檔都是空的（只有示範條目）。成熟的 harness 靠的是數十到上百條「這裡曾經出過什麼事」，那些只能從本專案自己的工作裡長出來。（參考模式且原本就有真實條目時，改寫「沿用原有 N 條」，照實數）
    - **回歸測試 0 支**（init 不寫測試）<若 Phase 1 盤點到既有測試，寫「既有測試 N 支，還沒照這套流程檢視過」>
    - 每個模組測到哪裡的登記、專案專屬的檢查腳本、針對過去事故寫的規則——全部沒有。
    - 目前的規則都是通用版本：裡面的數字與範例還沒被本專案真實發生過的問題校正過。
-5. **之後怎麼讓它越用越貼合**：
+6. **之後怎麼讓它越用越貼合**：
    - 每次踩坑 → 照 `05-knowledge-protocol.md` 的「踩坑紀錄格式」記進 memory；同一類坑第二次出現 → 照同一檔的「升格協議」提議寫進正式規則，能自動檢查的就一起做成自動檢查
-   - 每次 commit → commit 前會問你四個問題（這次有沒有新名詞、新的跨模組流程、新的測試知識、自創的縮寫），答案記進知識筆記檔
+   - 每次 commit（不是 git repo 時改成：每個有改檔的回合結束）→ 會問你四個問題（這次有沒有新名詞、新的跨模組流程、新的測試知識、自創的縮寫），答案記進知識筆記檔
    - 每次改到程式行為 → 補一支可以重跑的自動測試
    - 每 30 天 → 照 `05-knowledge-protocol.md` 的「定期健檢」檢查一次，包括拿每項自動檢查試跑：該擋的有擋、不該擋的有放行
-6. **在哪裡開 session 才有效**：自動檢查只在設定所在的那一層目錄開 session 時生效。在子 repo 裡開 session，`CLAUDE.md` 仍會被讀到（上層目錄的也會讀），但 workspace 根的自動檢查不會跑。
-7. **盤點發現的專案本身問題**（文件寫的指令其實不存在、沒有測試、敏感檔沒被 `.gitignore` 擋）照實回報，不略過。
+7. **在哪裡開 session 才有效**：自動檢查只在設定所在的那一層目錄開 session 時生效。在子 repo 裡開 session，`CLAUDE.md` 仍會被讀到（上層目錄的也會讀），但 workspace 根的自動檢查不會跑。
+8. **盤點發現的專案本身問題**（文件寫的指令其實不存在、沒有測試、敏感檔沒被 `.gitignore` 擋）照實回報，不略過。
+9. **原本的設定怎麼處理了**（僅參考模式）：
+   - 備份位置與還原方式（「整份原樣在 `.harness-backup/<時間>/`，要還原就把裡面的檔案複製回原位」）
+   - Phase 2 處置表的最終版（使用者改過的照改過的寫），每列附「處理後在哪裡」
+   - **第 0 題的每個痛點逐一交代**：這次靠哪個東西解決（寫出檔名或自動檢查名）；沒解決的照實說沒解決、為什麼、之後怎麼補。不准只寫「已改善」
+   - 原有 `.claude/` 裡沒動的殘檔清單，由使用者決定去留

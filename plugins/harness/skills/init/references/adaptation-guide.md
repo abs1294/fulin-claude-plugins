@@ -30,6 +30,13 @@ init 產出的是**骨架＋長出資產的路徑**，不是「一套成熟的 h
 
 ## 2. 既有治理層的讓位規則
 
+**先分清楚是哪一種既有設定**，兩種的對待方式相反：
+
+| 既有的東西 | 對待方式 | 理由 |
+|---|---|---|
+| Claude Code 自己的設定：`CLAUDE.md`、`.claude/`（agents、hooks、commands、skills、settings），含之前裝過的 harness | **參考來源，不讓位**：整份備份後當盤點證據，逐項沿用／併入／取代，經使用者核對（SKILL.md Phase 0-2、Phase 1 第 12 項、Phase 2 第 5 項） | 使用者在已有設定的專案跑 init，代表他覺得原本的流程有問題；讓位等於把他想換掉的東西原樣留著。但裡面的專案事實與知識條目不會因為換流程而失效，一律留下 |
+| 多工具共用的治理層：AGENTS.md、.agents/、.cursor/、copilot-instructions | **讓位**（下列規則） | 不只 Claude 在用，改掉會影響別的工具與別的人 |
+
 目標 repo 已有 AGENTS.md／.agents/ 這類治理層（常見於多工具協作 repo）時：
 
 - 開發流程（sizing、gate、review checkpoint、stack 限制）正本＝它；harness 實例**只管 Claude Code 特有層**：subagent 模型派工、停損熔斷、隔離驗證、memory 協議。
@@ -101,5 +108,5 @@ grep -c '^| [ABC][0-9]' references/skeleton-03-judgment-matrix.md   # 03 條款�
 
 - **來源實例**（fulin 主力業務專案的 workspace）：完整版（01~06＋十餘支 guard hooks＋三份知識容器＋數百支 e2e 測試），本 plugin 0.3.0 骨架的條款來源。0.3.0 回收了它的 40 條可移植判準、五支 agent、三份知識容器的結構，以及當時全部 23 支 hook 的形狀；0.3.1 再補 resume 過期提醒一支，合計 24 支（見 `hook-catalog.md`：20 支做成範本或收進兩個規則引擎、2 支移進 git-commit plugin、1 支因綁多工作樹拓撲不移植、1 支屬「長出稽核工具才裝」）；判斷矩陣刻意不帶的三條（本機覆寫、多站鏡像、環境檔歸屬）留在該實例，但本機覆寫的保護 hook 已做成 C 類範本，目標專案偵測到同樣工作法時會裝。
 - **fulin-claude-plugins**：手動版（A/C/D/E/F/G 命名），早於本 plugin，命名體系不同——**不強制遷移**，它自己的 F 反思協議管自己。
-- **首個標準實例**（0.1.0 驗收樣本）：02~05＋讓位 AGENTS.md，屬 0.1.0／0.2.0 形狀（無 agent 層、無 hook 層、無知識容器、03 只有 23 條）。**0.3.0 不回寫**；該專案若要升級，由它自己依 05 紅區流程決定，可重跑 `/harness:init` 的 Phase 1~3 取得差異清單後手動合併（Phase 0 偵測到既有 harness 會停下，不覆蓋）。
+- **首個標準實例**（0.1.0 驗收樣本）：02~05＋讓位 AGENTS.md，屬 0.1.0／0.2.0 形狀（無 agent 層、無 hook 層、無知識容器、03 只有 23 條）。**0.3.0 不回寫**；該專案若要升級，由它自己依 05 紅區流程決定，可重跑 `/harness:init`（0.4.0 起偵測到既有 harness 會走參考模式：先整份備份，再逐項給出沿用／併入／取代的處置表讓該專案核對，不會直接覆蓋）。
 - 0.3.0 以後的新實例：五層產出（文件／hook／agent／知識容器／settings），以 SKILL.md Phase 5 的冷啟探針為驗收基準。
