@@ -24,7 +24,7 @@
 | # | 來源 hook | 通用形狀 | 掛載 | 類別 | 觸發條件（init 怎麼判） | 專案參數（填空區） | 範本 |
 |---|---|---|---|---|---|---|---|
 | 1 | check-agent-model | 派專案 agent 必帶 model；subagent 不得擅用最高階模型 | PreToolUse `Agent\|Task` | A | Q1 裁切後有建專案 agent | agent 名單 | `check-agent-model.js` |
-| 2 | check-review-discipline | 派工 prompt 必含該 agent 的紀律標記（三件套、回報鏈鐵則、QA 的範圍展開與測資來源…）才准派 | PreToolUse `Agent\|Task` | A | 有建專案 agent | 每個 agent 必含的標記表（對齊 04 模板欄位） | `check-review-discipline.js` |
+| 2 | check-review-discipline | 派工 prompt 必含該 agent 的紀律標記（三件套、回報鏈鐵則、QA 的範圍展開與測資來源…）與【開工前必讀】，而且必讀清單要寫到該角色的必讀檔（全部角色：CLAUDE.md、CONTEXT.md；架構／實作／審查：FLOWS.md；QA：PROJECT.md）才准派 | PreToolUse `Agent\|Task` | A | 有建專案 agent | 每個 agent 必含的標記表（對齊 04 模板欄位） | `check-review-discipline.js` |
 | 3 | check-ask-discipline | 問使用者時每題必附建議選項 | PreToolUse `AskUserQuestion` | A | 無 | 無 | `check-ask-discipline.js` |
 | 4 | guard-qa-before-commit | 行為類改動沒表態 QA 狀態不准 commit | PreToolUse `Skill`（git-commit） | A | 有 git-commit、是 git repo | 行為類副檔名、排除路徑、repo 清單 | `guard-qa-before-commit.js` |
 | 5 | guard-sediment-sweep | 收尾前逼答知識沉澱四題（詞／鏈／QA／代號） | 有 git-commit → PreToolUse `Skill`；否則 `Stop` | A | 無（兩種形狀都在範本） | 三個容器路徑、`TRIGGER_MODE` | `guard-sediment-sweep.js` |

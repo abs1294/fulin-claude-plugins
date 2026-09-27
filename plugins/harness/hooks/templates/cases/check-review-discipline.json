@@ -2,12 +2,13 @@
   "hook": "check-review-discipline.js",
   "cases": [
     {
-      "label": "backend-engineer：齊全（親自執行＋驗收條件＋回報格式＋開工前必讀）→ 放行",
+      "label": "backend-engineer：齊全（親自執行＋驗收條件＋回報格式＋開工前必讀含 CLAUDE.md／CONTEXT.md／FLOWS.md）→ 放行",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "backend-engineer",
-          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 動了哪些檔"
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
         }
       },
       "expect": "ALLOW"
@@ -18,10 +19,59 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "backend-engineer",
-          "prompt": "【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 動了哪些檔"
+          "model": "sonnet",
+          "prompt": "【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
         }
       },
       "expect": "BLOCK"
+    },
+    {
+      "label": "backend-engineer：必讀清單沒寫到 FLOWS.md → 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "backend-engineer：必讀清單沒寫到 CONTEXT.md → 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "backend-architect：現在也受管；缺必讀 → 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-architect",
+          "model": "sonnet",
+          "prompt": "【目標】設計 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "backend-architect：齊全 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-architect",
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】設計 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW"
     },
     {
       "label": "frontend-engineer：齊全 → 放行",
@@ -29,7 +79,8 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "frontend-engineer",
-          "prompt": "【開工前必讀】\n- C:/proj/frontend/CLAUDE.md\n【目標】新增畫面\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- lint 0 error\n【回報格式】\n- 動了哪些檔"
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】新增畫面\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
         }
       },
       "expect": "ALLOW"
@@ -40,18 +91,44 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "frontend-engineer",
-          "prompt": "【開工前必讀】\n- C:/proj/frontend/CLAUDE.md\n【目標】新增畫面\n【驗收條件】\n- lint 0 error\n【回報格式】\n- 動了哪些檔"
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】新增畫面\n【驗收條件】\n- lint 0 error\n【回報格式】\n- 動了哪些檔"
         }
       },
       "expect": "BLOCK"
     },
     {
-      "label": "qa-engineer：齊全（含範圍展開＋測試資料來源）→ 放行",
+      "label": "qa-engineer：齊全（含範圍展開＋測試資料來源＋必讀含 PROJECT.md）→ 放行",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
-          "prompt": "【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\na 走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 逐格回報"
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\na 走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：必讀清單沒寫到 PROJECT.md → 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\na 走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：必讀清單寫的是 Windows 反斜線路徑 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:\\proj\\tests\\Project_Detail\\PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\na 走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -62,18 +139,20 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
-          "prompt": "【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 逐格回報"
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
     },
     {
-      "label": "code-reviewer：齊全（含產出路徑＋驗證方式）→ 放行",
+      "label": "code-reviewer：齊全（含產出路徑＋驗證方式＋必讀含 FLOWS.md）→ 放行",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "code-reviewer",
-          "prompt": "【目標】驗證產出\n本任務由你親自執行，不得再轉派給其他 agent。\n【產出路徑】\n- C:/proj/src/x.js\n【驗證方式】\n- 重新 Read 產出檔\n【驗收條件】\n1. 條件一\n【回報格式】\n- 每條一行"
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】驗證產出\n本任務由你親自執行，不得再轉派給其他 agent。\n【產出路徑】\n- C:/proj/src/x.js\n【驗證方式】\n- 重新 Read 產出檔\n【驗收條件】\n1. 條件一\n【回報格式】\n- 已讀清單\n- 每條一行"
         }
       },
       "expect": "ALLOW"
@@ -84,10 +163,47 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "code-reviewer",
-          "prompt": "【目標】驗證產出\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n1. 條件一\n【回報格式】\n- 每條一行"
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】驗證產出\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n1. 條件一\n【回報格式】\n- 每條一行"
         }
       },
       "expect": "BLOCK"
+    },
+    {
+      "label": "code-reviewer：只漏寫 FLOWS.md → 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "code-reviewer",
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n【目標】驗證產出\n本任務由你親自執行，不得再轉派給其他 agent。\n【產出路徑】\n- C:/proj/src/x.js\n【驗證方式】\n- 重新 Read 產出檔\n【驗收條件】\n1. 條件一\n【回報格式】\n- 已讀清單\n- 每條一行"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "backend-engineer：只漏寫 CLAUDE.md → 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "code-reviewer：git-commit C 軌的審查 prompt（git-commit 0.8.7 範本逐字取出填好）→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "code-reviewer",
+          "model": "sonnet",
+          "prompt": "請審查 staged diff（在 C:/repo/.claude/.git-commit-tmp/staged.diff，請先 `cat` 讀取）。本任務由你親自執行，不得再轉派給其他 agent。\n\n【開工前必讀】（專案有這些檔就讀，沒有就略過）\n- CLAUDE.md（有「專案概要」一節就先讀那節）\n- CONTEXT.md（專案用語）\n- FLOWS.md（改動觸及已收錄鏈路時，確認鏈路其他層有沒有同步；沒觸及就略過）\n【產出路徑】staged diff：C:/repo/.claude/.git-commit-tmp/staged.diff\n【驗證方式】cat 讀 diff；需要上下文時 Read 對應檔案全檔，不只看 diff 行\n【任務背景】<一句話：這次改動在做什麼、影響範圍>\n【審查對象】Repository: myrepo；檔案類型：<.vue/.cs/...>；適用規則：code-review Skill＋rules/\n\n【驗收條件】（判準）\n- BLOCK：🔴 Critical（違反架構原則、資安洞、破壞 DDD 分層、必錯邏輯）\n- PASS：無 Critical 即放行；🟡 Important／🟢 Minor 列清單供使用者決定。\n\n【重點檢查】架構規範（DDD/CQRS/Repository/Section component）／規則違反／資安／i18n 完整性／測試覆蓋\n\n【回報格式】（嚴格遵守）\n第 1 行：`VERDICT: PASS` 或 `VERDICT: BLOCK`\n第 2 行起每行 `- <file>:<line> [<Critical|Important|Minor>] <短描述>`\n最後一行 `- 已讀：<實際讀過的必讀檔名，逗號分隔>；略過：<檔名（理由：專案沒有這個檔／沒觸及已收錄鏈路）>`\n一句話講清楚即可，不寫「應該怎麼改」；不要分析段、標題、總結。\n"
+        }
+      },
+      "expect": "ALLOW"
     },
     {
       "label": "非專案 agent（general-purpose）：即使 prompt 什麼都沒帶 → 放行（不受本閘管轄）",
@@ -95,6 +211,7 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "general-purpose",
+          "model": "sonnet",
           "prompt": "隨便查一下這個檔案"
         }
       },
@@ -106,7 +223,8 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "myplugin:backend-engineer",
-          "prompt": "【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 動了哪些檔"
+          "model": "sonnet",
+          "prompt": "【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
         }
       },
       "expect": "BLOCK"

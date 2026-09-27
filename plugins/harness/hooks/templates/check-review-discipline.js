@@ -16,7 +16,7 @@
 // 派一個要連過多道閘的 agent 會被連續擋很多次，而且每次 deny 都燒一輪 context。
 //
 // 通用化說明：本範本的 REQUIRED_MARKERS 表格對齊 04-delegation-templates.md 的欄位標題——
-// 共用三項（回報鏈鐵則、【驗收條件】、【回報格式】）＋依 agent 角色加碼的欄位（見填空區
+// 共用四項（回報鏈鐵則、【驗收條件】、【回報格式】、【開工前必讀】，且必讀要寫到 CLAUDE.md、CONTEXT.md）＋依 agent 角色加碼的欄位（見填空區
 // 註解）。這是通用骨架的預設表，**不含**任何特定專案自訂的紀律標記（例如某種靜態掃描
 // 工具名、某種分流判準、某個環境的 port 對照）——專案要加自己的紀律時，直接在表裡
 // 用同樣的形狀加一條（見填空區範例的「如何自加一條」）。
@@ -36,10 +36,16 @@ const path = require('path');
 //   hint    — 缺這項時給使用者的提示，講清楚該補什麼
 //
 // 表格對齊 04-delegation-templates.md 的模板欄位標題：
-//   共用（'*'）：回報鏈鐵則（「不得轉派」或「親自執行」）、【驗收條件】、【回報格式】
-//   實作型 agent（例：backend-engineer／frontend-engineer）另加【開工前必讀】
-//   QA agent（例：qa-engineer）另加【範圍展開】與【測試資料來源】
-//   審查型 agent（例：code-reviewer）依模板四的驗證欄位（【產出路徑】、【驗證方式】）
+//   共用（'*'）：回報鏈鐵則（「不得轉派」或「親自執行」）、【驗收條件】、【回報格式】、【開工前必讀】，
+//     且必讀清單一定要寫到 CLAUDE.md（專案概要）與 CONTEXT.md（專案用語）——所有角色都要讀
+//   架構、實作、審查（backend-architect／backend-engineer／frontend-engineer／code-reviewer）另要寫到 FLOWS.md
+//     （觸及已收錄鏈路就列入；沒觸及也寫一句，逼派工的人判斷一次——「有沒有觸及」機械判不了）
+//   QA agent（例：qa-engineer）另加【範圍展開】【測試資料來源】，必讀清單要寫到 tests/Project_Detail/PROJECT.md
+//   審查型 agent（例：code-reviewer）另加模板四的驗證欄位（【產出路徑】、【驗證方式】）
+// 為什麼必讀也要擋：只寫在 agent 檔與 04 範本裡的必讀清單，實測派工時會漏（例：QA 派工沒列測試知識檔），
+//   而 subagent 回報時也不會發現自己少讀了什麼。這支 hook 只驗「檔名有寫進 prompt」，有沒有真的讀，
+//   靠回報的「已讀清單」與主對話核對（04「派工後的指揮官義務」第 1 條）。
+// init 時照 Q1 定案的 agent 名單改 key；裁掉的角色整組刪掉；專案沒有某份知識筆記檔時刪掉對應那條。
 //
 // 專案要自加一條時，照同樣的形狀加進對應 agent 的陣列（或加進 '*' 讓全部 agent 都要過）：
 //   { name: '某工具掃描', pattern: '某工具名', hint: '派工 prompt 必須要求跑 <某工具> 並附輸出' }
@@ -59,23 +65,47 @@ const REQUIRED_MARKERS = {
     {
       name: '回報格式',
       pattern: '【回報格式】',
-      hint: '派工 prompt 必須含【回報格式】欄位，講清楚回報要包含哪些內容（成果路徑＋關鍵行號＋結論，禁止噴大段代碼）。',
+      hint: '派工 prompt 必須含【回報格式】欄位，講清楚回報要包含哪些內容（成果路徑＋關鍵行號＋結論，禁止噴大段代碼）；'
+        + '有【開工前必讀】時，回報格式要要求列「已讀清單」。',
+    },
+    {
+      name: '開工前必讀',
+      pattern: '【開工前必讀】',
+      hint: '派工 prompt 必須含【開工前必讀】：列出這個角色開工前要逐檔 Read 的檔案路徑（見 04-delegation-templates.md 共通規則）。',
+    },
+    {
+      name: '必讀：專案概要',
+      pattern: 'CLAUDE\\.md',
+      hint: '【開工前必讀】要列 CLAUDE.md 的「專案概要」一節（這個專案在做什麼、哪個環境是正式、做到哪）。',
+    },
+    {
+      name: '必讀：專案用語',
+      pattern: 'CONTEXT\\.md',
+      hint: '【開工前必讀】要列 CONTEXT.md（專案用語的定義；需求裡的詞以它為準）；專案沒有這個檔就寫「CONTEXT.md：專案沒有這個檔」。',
+    },
+  ],
+  'backend-architect': [
+    {
+      name: '必讀：跨模組鏈路',
+      pattern: 'FLOWS\\.md',
+      hint: '【開工前必讀】要寫到 FLOWS.md：本需求觸及已收錄鏈路就列入必讀；沒觸及也要寫一句「FLOWS.md：沒觸及已收錄鏈路」，'
+        + '讓派工的人當場判斷過一次。',
     },
   ],
   'backend-engineer': [
     {
-      name: '開工前必讀',
-      pattern: '【開工前必讀】',
-      hint: '實作型 agent 的派工 prompt 必須含【開工前必讀】：列出該讀哪些既有治理層檔案／規範文件的絕對路徑，'
-        + '開工第一步逐檔 Read 完再動工。',
+      name: '必讀：跨模組鏈路',
+      pattern: 'FLOWS\\.md',
+      hint: '【開工前必讀】要寫到 FLOWS.md：本需求觸及已收錄鏈路就列入必讀；沒觸及也要寫一句「FLOWS.md：沒觸及已收錄鏈路」，'
+        + '讓派工的人當場判斷過一次。',
     },
   ],
   'frontend-engineer': [
     {
-      name: '開工前必讀',
-      pattern: '【開工前必讀】',
-      hint: '實作型 agent 的派工 prompt 必須含【開工前必讀】：列出該讀哪些既有治理層檔案／規範文件的絕對路徑，'
-        + '開工第一步逐檔 Read 完再動工。',
+      name: '必讀：跨模組鏈路',
+      pattern: 'FLOWS\\.md',
+      hint: '【開工前必讀】要寫到 FLOWS.md：本需求觸及已收錄鏈路就列入必讀；沒觸及也要寫一句「FLOWS.md：沒觸及已收錄鏈路」，'
+        + '讓派工的人當場判斷過一次。',
     },
   ],
   'qa-engineer': [
@@ -91,6 +121,11 @@ const REQUIRED_MARKERS = {
       hint: '派 QA agent 的 prompt 必須含【測試資料來源】：表明測試資料怎麼來（走真實業務流程／自種自清／'
         + '依賴既有字典資料），並說明理由；禁止硬編業務 Id 或使用者身分當輸入。',
     },
+    {
+      name: '必讀：測試知識',
+      pattern: 'tests[\\\\/]Project_Detail[\\\\/]PROJECT\\.md',
+      hint: '【開工前必讀】要列 tests/Project_Detail/PROJECT.md（本專案測試時踩過的坑、測試環境位址與測試設計知識）；專案沒有這個檔就寫「tests/Project_Detail/PROJECT.md：專案沒有這個檔」。',
+    },
   ],
   'code-reviewer': [
     {
@@ -103,6 +138,11 @@ const REQUIRED_MARKERS = {
       pattern: '【驗證方式】',
       hint: '派審查型 agent 的 prompt 必須含【驗證方式】：講清楚審查者要怎麼驗（重新 Read 產出檔、跑哪些指令），'
         + '審查者的預設立場是「不相信它完成了，找證據」。',
+    },
+    {
+      name: '必讀：跨模組鏈路',
+      pattern: 'FLOWS\\.md',
+      hint: '【開工前必讀】要寫到 FLOWS.md：改動觸及已收錄鏈路時，審查要確認鏈路其他層有沒有同步；沒觸及也要寫一句「FLOWS.md：沒觸及已收錄鏈路」。',
     },
   ],
 };

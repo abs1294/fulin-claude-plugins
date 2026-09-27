@@ -2,6 +2,13 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.9.1] - 2026-09-27
+
+### Fixed
+- 派工範本（`skills/browser-qa/SKILL.md`、`agents/qa-engineer.md`、`commands/qa-run.md` 三份一致）與填好的範例補上【驗收條件】【回報格式】，【開工前必讀】一律寫出 `CLAUDE.md`（專案概要）、`CONTEXT.md`、`tests/Project_Detail/PROJECT.md`，專案沒有的寫「<檔名>：專案沒有這個檔」（harness 的檢查看檔名有沒有寫到，不看檔案在不在）。原因：在裝了 harness 的專案，harness 的派工檢查會剝掉 plugin 前綴，把 `qa-webwright:qa-engineer` 當 qa-engineer 檢查，照本範本填的派工會被擋（實跑確認）。沒裝 harness 的專案多這幾格不受影響；本 plugin 自己的 `guard-qa-dispatch` 不檢查這幾格。
+- `tests/test_docs.py`：版本常數改 0.9.1；「最上面一筆版本紀錄」的檢查與「0.9.0 發布內容（三節＋六個缺陷）」的檢查拆開，後者固定驗 0.9.0 那一筆，不再要求每個小版本都長成那樣。
+- 驗證：閘測試 `hooks/test-gate.mjs` 544 項全過（含「範本與範例的格子一致」）；`tests/` 全部 973 項通過、4 項略過；範例丟給 harness 的派工檢查，`qa-webwright:qa-engineer` 與 `qa-engineer` 兩種名稱都放行。
+
 ## [0.9.0] - 2026-09-24
 
 吸收一個大型專案 QA 基礎設施中已驗證可泛化的機制（測試資產稽核工具、pytest 掛點、寫測試碼當下的衛生閘、QA 流程紀律閘、測試方法論），並修掉移植時發現的六個缺陷。來源專案的逐項對照與回修建議屬該專案內部文件，不隨 plugin 發布。

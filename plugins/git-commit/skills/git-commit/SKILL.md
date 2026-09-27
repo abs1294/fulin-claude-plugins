@@ -212,20 +212,27 @@ Prompt 範本（開頭的 cd 指示與 codex exec 用法照 145–147 兩件事�
 `subagent_type` **先用 `code-reviewer`**（專案自訂的審查者，帶該專案規範）；Agent 工具回 `Agent type 'code-reviewer' not found` 時，**同輪改用 `git-commit:code-reviewer`**（本 plugin 自帶的通用版）重發，不算失敗、不降級單軌。**名稱解析規則（實測）**：plugin 自帶的 agent 只能用帶前綴的 `git-commit:code-reviewer` 叫到，裸名 `code-reviewer` 只會解析到專案層／使用者層的同名 agent——**即使全環境只有 plugin 這一支，裸名也回 not found**。所以兩段式缺一不可：只寫裸名，沒有自訂審查者的專案就沒有 C 軌；只寫前綴，有自訂審查者的專案會被通用版蓋掉。`run_in_background: true`，同輪觸發。Prompt 範本（VERDICT 格式與 B 軌對齊，利匯流判讀）：
 
 ```
-請審查 staged diff（在 <DIFF_PATH>，請先 `cat` 讀取）。
+請審查 staged diff（在 <DIFF_PATH>，請先 `cat` 讀取）。本任務由你親自執行，不得再轉派給其他 agent。
 
+【開工前必讀】（專案有這些檔就讀，沒有就略過）
+- CLAUDE.md（有「專案概要」一節就先讀那節）
+- CONTEXT.md（專案用語）
+- FLOWS.md（改動觸及已收錄鏈路時，確認鏈路其他層有沒有同步；沒觸及就略過）
+【產出路徑】staged diff：<DIFF_PATH>
+【驗證方式】cat 讀 diff；需要上下文時 Read 對應檔案全檔，不只看 diff 行
 【任務背景】<一句話：這次改動在做什麼、影響範圍>
 【審查對象】Repository: <repo>；檔案類型：<.vue/.cs/...>；適用規則：code-review Skill＋rules/
 
-【判準】
+【驗收條件】（判準）
 - BLOCK：🔴 Critical（違反架構原則、資安洞、破壞 DDD 分層、必錯邏輯）
 - PASS：無 Critical 即放行；🟡 Important／🟢 Minor 列清單供使用者決定。
 
 【重點檢查】架構規範（DDD/CQRS/Repository/Section component）／規則違反／資安／i18n 完整性／測試覆蓋
 
-【回覆格式，嚴格遵守】
+【回報格式】（嚴格遵守）
 第 1 行：`VERDICT: PASS` 或 `VERDICT: BLOCK`
 第 2 行起每行 `- <file>:<line> [<Critical|Important|Minor>] <短描述>`
+最後一行 `- 已讀：<實際讀過的必讀檔名，逗號分隔>；略過：<檔名（理由：專案沒有這個檔／沒觸及已收錄鏈路）>`
 一句話講清楚即可，不寫「應該怎麼改」；不要分析段、標題、總結。
 ```
 

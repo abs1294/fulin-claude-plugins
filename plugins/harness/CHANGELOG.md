@@ -2,6 +2,26 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.5.1] - 2026-09-27
+
+### Fixed
+- **必讀檔讀取閉環**：逐一盤點 init 產出的每份文件「誰寫、誰讀、讀有沒有機制擋」，找到同一類缺口——寫入有檢查（沉澱四問逼問要不要寫），讀取只寫在文件裡，派工時漏列或 agent 沒讀都沒人發現。實例：`tests/Project_Detail/PROJECT.md` 只有 qa-engineer 的 agent 檔與 04 範本六列為必讀，派工檢查對 QA 只要求【範圍展開】【測試資料來源】，04 也只核對實作型回報的已讀清單；`CONTEXT.md` 不在任何實作、測試、審查角色的必讀清單；code-reviewer 的派工範本連【開工前必讀】欄位都沒有；backend-architect 根本不在派工檢查的表裡。現在每個角色都走同一個閉環：agent 檔列必讀 → 04 範本有【開工前必讀】欄位 → 派工檢查（`check-review-discipline.js`）擋缺欄位、也擋漏寫必讀檔名 → 回報列「已讀清單」、主對話核對。
+  - 全部角色必讀 `CLAUDE.md`（專案概要）與 `CONTEXT.md`；架構、實作、審查另要寫到 `FLOWS.md`（有沒有觸及已收錄鏈路機械判不了，所以沒觸及也要寫一句，逼派工的人判斷一次）；QA 另要 `tests/Project_Detail/PROJECT.md`（Windows 反斜線路徑也認得）。
+  - 04 範本二（實作）把必讀檔逐項列出（原本只有佔位字，照範本派會被新的檢查擋）；範本三（重構）補「親自執行」與派專案 agent 時的【開工前必讀】（原本拿去派專案 agent 會被擋，既有缺口）；範本四（審查）加【開工前必讀】欄位與原本就缺的「親自執行」；範本六（測試）加 `CONTEXT.md` 與回報的已讀清單；「派工後的指揮官義務」第 1 條從「只核對實作型」改成凡附【開工前必讀】的回報都核對：清單上每一項要有交代（讀了，或寫出允許的略過理由——`FLOWS.md` 沒觸及已收錄鏈路、專案沒有這個檔），都沒交代才退回。QA 的必讀規則要求路徑含 `tests/`（寫錯目錄的同名檔不算）。專案真的沒有某份必讀檔時，派工照樣寫出檔名並註「專案沒有這個檔」（擋下訊息會提示這個寫法）；qa-engineer 骨架與 04 各範本的「缺一檔＝整份退回」改成「沒讀又沒交代理由才退回」。
+  - agent 骨架：backend-engineer 補專案概要與 `CONTEXT.md`；frontend-engineer 補專案概要與 `FLOWS.md`（`CONTEXT.md` 原本就有）；qa-engineer 補 `CONTEXT.md` 與回報的已讀清單；code-reviewer 補專案概要、`CONTEXT.md`、`FLOWS.md`，VERDICT 格式最後加一行 `- 已讀：…`（仍是「- 」開頭，匯流只看第 1 行，實測不受影響）；backend-architect 的必讀先讀專案概要、回報第一段是已讀清單。
+  - 派工檢查的測試案例重寫為 19 個（只漏 CLAUDE.md、只漏 CONTEXT.md、只漏 FLOWS.md（實作與審查各一）、只漏 PROJECT.md 各有單項擋下案例，架構角色納管，Windows 反斜線路徑放行，git-commit 審查 prompt 放行），probe-hooks 兩條路徑全過。
+  - 參考模式或多工具治理層保留原名的 agent：SKILL 的裁切規則加上「`REQUIRED_MARKERS` 的 key 也要改成定案名字」，否則那個角色完全不受派工檢查。
+  - 已讀清單在 04 共通規則、三支實作／架構骨架、qa-webwright 範本都寫明「沒讀的寫理由」；04 共通規則的已讀清單要求獨立成一行（原本和可刪的填空寫在同一行，照字面刪會連帶刪掉）；改名時要改 `REQUIRED_MARKERS` key 的提醒補齊到 Q1、參考模式處置表、adaptation-guide 三處；派工檢查裡 git-commit 審查範本的案例改成從 git-commit 範本逐字取出。
+  - 舊說法清掉：「開工前必讀清單」「04 必讀清單」「共用三項」等 5 處改成現行寫法。
+- **harness 的派工檢查會擋 git-commit 的審查**：git-commit 派 code-reviewer 的 prompt 範本沒有 harness 要求的欄位，裝了 harness 又有自訂 code-reviewer 的 git repo，每次 commit 前的審查都會先被擋一次（實跑確認：一次列出 5 項缺漏）。不會卡死（補齊後重派即可），但每次多一輪。已由 git-commit 0.8.7 補上欄位，實跑新範本兩種名稱（`code-reviewer`、`git-commit:code-reviewer`）都放行。
+- **harness 的派工檢查也會擋 qa-webwright 的派工範本**：harness 會剝掉 plugin 前綴，`qa-webwright:qa-engineer` 被當成 qa-engineer 檢查，而 qa-webwright 的範本原本就缺【驗收條件】【回報格式】，這次又多缺必讀檔名。已由 qa-webwright 0.9.1 補上，填好的範例兩種名稱都放行；qa-webwright 自己的閘測試 544 項全過，`tests/` 全部 973 項通過、4 項略過。
+
+### 盤點後判定不改的
+- `.claude/harness/README.md`、02～05 只有開 session 時的提醒，沒有「讀了沒」的檢查：其中關鍵規則已有結果面的自動檢查（派工帶 model、派工欄位、問題附建議、沉澱四問），逐條擋讀取成本過高；改由規劃中的 `/harness:review` 從實際紀錄量測有沒有照做。
+- 健檢提醒：盤點時被判為「只在滿 30 天提醒一次」，實跑推翻——逾期期間每個 session 都會提醒（模擬第 31、50 天都有輸出）。
+- memory：主對話的 `MEMORY.md` 索引由 Claude Code 在 session 開始時自動載入；派工時照 04 規定把相關條目內聯進 prompt。
+- 卡丽斯韩国實例缺專案概要、install-report、流程圖：該專案用 0.3.2 安裝，這些是 0.4.0、0.5.0 才加的，屬版本落後，要用 `/harness:init` 參考模式升級，不手動補。
+
 ## [0.5.0] - 2026-09-27
 
 ### Added

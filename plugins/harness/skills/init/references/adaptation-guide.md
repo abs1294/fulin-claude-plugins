@@ -40,8 +40,8 @@ init 產出的是**骨架＋長出資產的路徑**，不是「一套成熟的 h
 目標 repo 已有 AGENTS.md／.agents/ 這類治理層（常見於多工具協作 repo）時：
 
 - 開發流程（sizing、gate、review checkpoint、stack 限制）正本＝它；harness 實例**只管 Claude Code 特有層**：subagent 模型派工、停損熔斷、隔離驗證、memory 協議。
-- 路由中心（CLAUDE.md）明寫分工與衝突仲裁順序；04 的「開工前必讀清單」改接該治理層的檔案；**模板五改走（A）讓位版**（不建 pipeline 編排）。
-- 目標專案已有自己的 agents → 不建同名通用 agent，02 對照表與 check-agent-model 的名單改填既有名稱。
+- 路由中心（CLAUDE.md）明寫分工與衝突仲裁順序；04 的【開工前必讀】改接該治理層的檔案；**模板五改走（A）讓位版**（不建 pipeline 編排）。
+- 目標專案已有自己的 agents → 不建同名通用 agent，02 對照表、check-agent-model 的名單、`check-review-discipline.js` 的 `REQUIRED_MARKERS` key 改填既有名稱（沒改 key 的角色不受派工檢查）。
 - 該治理層檔案列入實例 05 的紅區（通常已入版控＝共用資源）。
 - 引用它的內容時**先驗證**（實查目錄與檔案，勿信其自述——實戰抓過治理層自己的文件漂移：宣稱有測試目錄實際沒有）。
 

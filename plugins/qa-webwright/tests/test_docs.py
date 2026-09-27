@@ -8,7 +8,7 @@ import pytest
 
 from conftest import PLUGIN, SKILL
 
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 # 來源專案禁字：與 test_review_fixes.H3_BANNED 同一份（不分大小寫、ASCII 縮寫用字界；拆開寫免得本檔自己命中）
 from test_review_fixes import H3_BANNED  # noqa: E402
 
@@ -31,7 +31,8 @@ def test_changelog_top_entry():
     text = (PLUGIN / "CHANGELOG.md").read_text(encoding="utf-8")
     first = re.search(r"^## \[(\d+\.\d+\.\d+)\]", text, re.M)
     assert first and first.group(1) == VERSION
-    entry = text.split("## [%s]" % VERSION, 1)[1].split("\n## [", 1)[0]
+    # 下面驗的是 0.9.0 那一次發布的內容（三節＋六個缺陷），不隨之後的小版本移動
+    entry = text.split("## [0.9.0]", 1)[1].split("\n## [", 1)[0]
     for sec in ("### Added", "### Changed", "### Fixed"):
         assert sec in entry
     for n in range(1, 7):
