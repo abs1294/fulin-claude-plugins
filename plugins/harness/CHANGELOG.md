@@ -2,6 +2,18 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.6.1] - 2026-09-27
+
+### Fixed
+- `/harness:review` 收集腳本：0.6.0 發布時兩道審查附的 8 項建議。
+  - **主機名含底線時完全沒被計到**：`ssh prod_db`、`psql -h prod_db.corp` 這類原本整條丟掉，連「文件沒寫過的主機」計數都沒有，判讀時會漏看；現在照樣計數，文件寫過的照樣列出。
+  - **日期用 UTC 比**：逐字紀錄的時間是 UTC，`--since` 與安裝日是當地日期，台北清晨的 session 會被當成前一天而略過；現在先換成當地日期再比。
+  - **跨午夜的派工沒算**：主對話 23:59 派出、subagent 午夜後才跑完時，subagent 有算進 D，但那次派工沒進 C，兩邊數字對不起來；現在用派工回傳的 agentId 對到 subagent 檔，這次派工照樣算進 C（範圍前的其他列仍不算；只認 Agent／Task 的回傳，別的工具輸出裡剛好有「agentId:」不算；這種派工之前的對齊線索在範圍前沒被看過，第一次派工的對齊狀態記「無法判斷」而不是「沒對齊」）。
+  - **改檔工具自己失敗仍算有改檔**：「String to replace not found」這類失敗的 Edit 原本仍把該回合算成有改檔；現在任何失敗的改檔都不算。
+  - **parserMode 被失敗案例說明誤判**：原本掃整段試跑輸出，FAIL 案例說明裡剛好有「沒有完整載入」就判成 ⚠；現在只看狀態行。
+  - **沉澱回答值可帶少量任意字**：原本收「已＋1～3 個中文字＋數字」，改成固定清單（無、已補N詞／條／鏈／處／個、已正名N處）。
+  - **文件**：SKILL 的「示範條目還在＝筆記沒被用過」改成只是線索，要先看安裝後異動與正文；SKILL 補寫沒有點的主機名與 ssh 別名一律只計數（含底線但有點的主機名，文件寫過照樣列出）；0.6.0 條目「後面接空白」更正為「接空白或引號」（與程式一致）。
+
 ## [0.6.0] - 2026-09-27
 
 ### Added
@@ -15,7 +27,7 @@ All notable changes to this plugin will be documented in this file.
 - **試跑**：只取合計數字、失敗的 hook 檔名與 BLOCK／ALLOW／NOTE／CRASH，另記規則引擎實際走的判定路徑（parserMode；解析器沒裝好時兩次試跑都走正則，數字照樣全綠）。
 - **只讀**：讀派工檢查表不用 `eval`（會執行專案程式碼），改文字解析；試跑要加 `--probe`，SKILL 規定先問使用者；收集結果寫到系統暫存目錄，不進專案。
 - **範圍**：日期逐筆篩（原本 session 有一筆在範圍內就整段算）；cwd 逐列篩（逐字紀錄目錄名換算會撞名、session 中途會切專案），subagent 也篩，沒有 cwd 的在主對話切過專案時略過，subagent 以最後一筆時間判斷在不在範圍內，主對話沒有範圍內的列、但 subagent 有時整個 session 照樣看（午夜前派出、午夜後才跑完的不會被丟掉）；略過安裝 session 與冷啟探針 session；安全分類器插入的訊息不算使用者發言；解析失敗的行記進 notes。
-- **判定**：hook 擋下只認 `is_error=true` 且標籤是已知 hook 標籤（hook 程式碼裡引號後緊接、後面接空白的「[標籤]」，不收含正則符號的；規則引擎的 `LABEL` 常數；派工檢查規則的 name；範圍含實例、plugin 範本與 plugin 常駐 hook。實測漏收 `LABEL` 時守門擋下會被算成 0 次。已知限制：提醒型 hook 的格式標記如「[memory]」也在清單裡，非 hook 的錯誤訊息開頭剛好是它們時會被多算）、或帶「PreToolUse:… hook error:」前綴（含 MCP 工具名）；被擋的提問不算對齊、被擋的派工另列、被擋的改檔不算有改檔；F 的「危險指令檢查擋下」只算危險指令守門本身（交付路徑、測試前置條件守門另計在 C）；subagent 的 Read 要對到成功的結果才算讀了，失敗記 failedReads；CLAUDE.md 自動載入只認 `type=attachment` 列（實測內容在 `rendered[].content`），比對完整路徑且路徑要在那裡結束（`CLAUDE.md.backup` 不算）；知識筆記不算 init 建檔那一行；以一般文字徵求同意也列為可能已對齊。
+- **判定**：hook 擋下只認 `is_error=true` 且標籤是已知 hook 標籤（hook 程式碼裡引號後緊接、後面接空白或引號的「[標籤]」，不收含正則符號的；規則引擎的 `LABEL` 常數；派工檢查規則的 name；範圍含實例、plugin 範本與 plugin 常駐 hook。實測漏收 `LABEL` 時守門擋下會被算成 0 次。已知限制：提醒型 hook 的格式標記如「[memory]」也在清單裡，非 hook 的錯誤訊息開頭剛好是它們時會被多算）、或帶「PreToolUse:… hook error:」前綴（含 MCP 工具名）；被擋的提問不算對齊、被擋的派工另列、被擋的改檔不算有改檔；F 的「危險指令檢查擋下」只算危險指令守門本身（交付路徑、測試前置條件守門另計在 C）；subagent 的 Read 要對到成功的結果才算讀了，失敗記 failedReads；CLAUDE.md 自動載入只認 `type=attachment` 列（實測內容在 `rendered[].content`），比對完整路徑且路徑要在那裡結束（`CLAUDE.md.backup` 不算）；知識筆記不算 init 建檔那一行；以一般文字徵求同意也列為可能已對齊。
 - **主機**：斷詞後取——網址取最後一個 `@` 之後；ssh／sftp 取第一個位置參數，scp／rsync 取 `host:path`；認得續行、`$()`、反引號、sshpass、合併短選項。38 條常見寫法抽到 37 條（漏的是沒有點的 ssh 別名，刻意只計數）。主機只輸出專案文件裡以完整主機名出現過的（兩側都不能再接「.英數字」，文件寫 `api.example.com` 不會放行 `api.example`），其他只計 unknownHosts。
 - **金鑰偵測**（只記種類與出處）：名稱規則要求金鑰字在名稱結尾，補 20 多種寫法，排除佔位字與引用（`os.environ`、`.*`、`/run/secrets`）；審查者造的 22 條該抓的抓到 21 條、17 條不該抓的誤判 2 條。
 - **文件**：README、05 骨架、init SKILL、adaptation-guide 的「規劃中、尚未提供」改成實際分工（review 只看單一實例，跨專案收進骨架仍由維護者判斷）；05 的健檢清單標明 review 會附證據的項目與不查的項目；留健檢紀錄與試跑自動檢查都要先問使用者。

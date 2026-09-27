@@ -38,6 +38,12 @@ const tdir = opt('--transcripts') || path.join(os.homedir(), '.claude', 'project
 const claudeMd = read(path.join(root, 'CLAUDE.md')) || '';
 const installDate = (claudeMd.match(/^- (\d{4}-\d{2}-\d{2})[^\n]*(?:建立|init)/m) || [])[1] || null;
 const since = opt('--since') || installDate;
+// 逐字紀錄的時間是 UTC；--since 與安裝日是當地日期，比較前先換成當地日期（台北清晨的 session 在 UTC 還是前一天）
+const localDay = (ts) => {
+  const d = new Date(ts); if (isNaN(d)) return String(ts || '').slice(0, 10);
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+};
 if (opt('--since') && !/^\d{4}-\d{2}-\d{2}$/.test(opt('--since'))) {
   console.error('--since 要寫成 YYYY-MM-DD：' + opt('--since'));
   process.exit(2);
@@ -169,7 +175,8 @@ let hookFiles = [];
 try { hookFiles = fs.readdirSync(path.join(root, '.claude', 'hooks')).filter((x) => x.endsWith('.js')); } catch {}
 const OUTCOMES = ['BLOCK', 'ALLOW', 'NOTE', 'CRASH'];
 // 沉澱回答的值只收固定樣態（無、已補2詞、已正名2處…），其他換成固定字樣
-const sedimentValue = (v) => /^(?:無|已[一-鿿]{1,3}\d{1,3}[一-鿿]?)$/.test(v) ? v : '（非標準值，回原文看）';
+// 固定清單（hook 範例的寫法）：無、已補N詞／條／鏈／處、已正名N處——不再用「已＋任意中文」的樣態（帶得進少量任意字）
+const sedimentValue = (v) => /^(?:無|已補\d{1,3}(?:詞|條|鏈|處|個)|已正名\d{1,3}處)$/.test(v) ? v : '（非標準值，回原文看）';
 
 // ── 逐字紀錄 ──
 const badLines = {};   // 解析失敗的行數（含開頭 BOM），寫進 notes，不默默丟掉
@@ -199,12 +206,13 @@ function cmdShape(c) {
   const seen = new Set();
   const addHost = (h) => {
     h = String(h || '').toLowerCase().replace(/:\d+$/, '');
-    if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/.test(h) || seen.has(h)) return;
+    // 標籤允許底線（ssh prod_db、ssh config 別名常見；原本被整條丟掉、連計數都沒有——審查者實測）
+    if (!/^[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?)*$/.test(h) || seen.has(h)) return;
     seen.add(h);
     if (knownHost(h)) hosts.add(h); else unknownHosts++;
   };
   // 網址：帳密段取最後一個 @ 之後；主機名碰到第一個非主機字元就停（; ? # / : 等）
-  for (const m of c.matchAll(/\b[a-z][\w+.-]*:\/\/([^\s\/'"?#]+)/gi)) addHost((m[1].split('@').pop().match(/^[a-z0-9.-]+/i) || [])[0]);
+  for (const m of c.matchAll(/\b[a-z][\w+.-]*:\/\/([^\s\/'"?#]+)/gi)) addHost((m[1].split('@').pop().match(/^[a-z0-9_.-]+/i) || [])[0]);
   // ssh 類：斷詞後跳過選項與選項的值，只看第一個位置參數（引號包住的內層指令是一整個詞，不會被掃）
   const toks = shellWords(c);
   const takesValue = { ssh: 'BbcDEeFIiJLlmOoPpQRSWw', scp: 'cFiJloPS', sftp: 'BbcDFiJloPRs', rsync: 'eBfT' };
@@ -319,13 +327,15 @@ const agg = {
 for (const f of files) {
   const R = rows(f);
   // 主對話或任一 subagent 在範圍內有活動就看（23:59 派出、午夜後才跑完的 subagent，主對話可能沒有範圍內的列）
-  const inRangeRow = (o) => o.timestamp && (!since || o.timestamp.slice(0, 10) >= since);
+  const inRangeRow = (o) => o.timestamp && (!since || localDay(o.timestamp) >= since);
   let inRange = R.some(inRangeRow);
-  if (!inRange) {
+  // 範圍內還有活動的 subagent（檔名 agent-<agentId>.jsonl）
+  const lateAgents = new Set();
+  try {
     const sd = path.join(tdir, path.basename(f, '.jsonl'), 'subagents');
-    try { inRange = fs.readdirSync(sd).filter((x) => x.endsWith('.jsonl')).some((x) => rows(path.join(sd, x)).some(inRangeRow)); } catch {}
-  }
-  if (!inRange) continue;
+    for (const x of fs.readdirSync(sd).filter((n) => n.endsWith('.jsonl'))) if (rows(path.join(sd, x)).some(inRangeRow)) lateAgents.add(x.replace(/^agent-|\.jsonl$/g, ''));
+  } catch {}
+  if (!inRange && !lateAgents.size) continue;
   const sid = path.basename(f, '.jsonl');
   const cwds = [...new Set(R.map((o) => o.cwd).filter(Boolean))];
   if (cwds.length && !cwds.some(isMine)) {
@@ -351,17 +361,31 @@ for (const f of files) {
   if (/\[harness\] 本專案有制度層/.test(raw)) agg.reminderSessions++;
   // 先找出被 hook 擋下的工具呼叫：被擋的提問不算對齊，被擋的派工不算真的派出去
   const deniedIds = new Set();
+  const failedIds = new Set();   // 任何失敗的工具呼叫（含被擋下、改檔工具自己失敗）
+  const lateDispatch = new Set();   // 派出的 subagent 在範圍內還有活動的派工：派工本身在範圍前也算（跨午夜）
+  // 只認 Agent／Task 的回傳（Bash、grep 查逐字紀錄時，輸出裡也可能出現「agentId: …」——審查者實測）
+  const agentCallIds = new Set();
+  for (const o of R) for (const b of blocks(o)) if (o.type === 'assistant' && b.type === 'tool_use' && (b.name === 'Agent' || b.name === 'Task')) agentCallIds.add(b.id);
   for (const o of R) for (const b of blocks(o)) {
-    if (o.type === 'user' && hookDenialTag(b)) deniedIds.add(b.tool_use_id);
+    if (o.type !== 'user' || b.type !== 'tool_result') continue;
+    if (hookDenialTag(b)) deniedIds.add(b.tool_use_id);
+    if (b.is_error === true) failedIds.add(b.tool_use_id);
+    if (!agentCallIds.has(b.tool_use_id)) continue;
+    // 回傳結果帶 agentId（toolUseResult.agentId，或文字裡的「agentId: …」；實測兩處都有）
+    const aid = (o.toolUseResult && typeof o.toolUseResult === 'object' && o.toolUseResult.agentId) || (textOf(b).match(/agentId:\s*([\w-]+)/) || [])[1];
+    if (aid && lateAgents.has(String(aid))) lateDispatch.add(b.tool_use_id);
   }
   let sawAlign = false; let sawDispatch = false; let approvalBefore = null; let turnEdited = false; let turnStart = null;
   const closeTurn = () => { if (turnEdited) agg.editTurns.push(turnStart); turnEdited = false; };
   let curTs = null;
   for (const o of R) {
-    if (o.timestamp) curTs = o.timestamp.slice(0, 10);
-    if (since && (!curTs || curTs < since)) continue;
+    if (o.timestamp) curTs = localDay(o.timestamp);
+    const early = since && (!curTs || curTs < since);
+    const isLate = (b) => b.type === 'tool_use' && lateDispatch.has(b.id);
+    if (early && !blocks(o).some(isLate)) continue;
     if (!o.__mine) continue;
     for (const b of blocks(o)) {
+      if (early && !isLate(b)) continue;   // 範圍前的列只看那次跨午夜的派工
       if (o.type === 'user' && b.type === 'text') {
         const t = b.text || '';
         if (/^\[Request interrupted by user/.test(t)) agg.interrupts++;
@@ -379,8 +403,8 @@ for (const f of files) {
       if (o.type === 'assistant' && b.type === 'tool_use') {
         const inp = b.input || {};
         if (b.name === 'AskUserQuestion' && !deniedIds.has(b.id)) { agg.askUser++; if (!sawDispatch) sawAlign = true; }
-        // 被 hook 擋下的改檔不算；還沒有使用者發言時，出處記這次改檔
-        if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(b.name) && !deniedIds.has(b.id)) { turnEdited = true; if (!turnStart) turnStart = where(f, o); }
+        // 失敗的改檔不算（被 hook 擋下、或工具自己失敗如「String to replace not found」）；還沒有使用者發言時，出處記這次改檔
+        if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(b.name) && !failedIds.has(b.id)) { turnEdited = true; if (!turnStart) turnStart = where(f, o); }
         if (b.name === 'Agent' || b.name === 'Task') {
           const type = agentName(String(inp.subagent_type || '').split(':').pop());
           const p = String(inp.prompt || '');
@@ -392,7 +416,10 @@ for (const f of files) {
           };
           agg.dispatch.push(d); if (!d.blocked) sess.dispatches++;
           if (!sawDispatch && !d.blocked) {
-            agg.firstDispatchAligned.push({ session: sid, aligned: sawAlign ? true : (approvalBefore ? '可能（使用者表示同意：' + approvalBefore + '，回原文確認）' : false), at: d.at });
+            // 跨午夜的派工：它之前的對齊線索在範圍前、沒被看過，判斷不了，不可記成沒對齊
+            const aligned = early ? '無法判斷（派工在範圍前、對齊線索沒看，回原文確認）'
+              : sawAlign ? true : (approvalBefore ? '可能（使用者表示同意：' + approvalBefore + '，回原文確認）' : false);
+            agg.firstDispatchAligned.push({ session: sid, aligned, at: d.at });
             sawDispatch = true;
           }
         }
@@ -428,7 +455,7 @@ for (const f of files) {
     const SR = rows(sf);
     // 看最後一筆時間：範圍內還有活動的就算（午夜前開、午夜後才讀檔回報的不能被丟掉）；它範圍前的讀檔也算讀了
     const lastTs = ([...SR].reverse().find((o) => o.timestamp) || {}).timestamp || '';
-    if (since && lastTs && lastTs.slice(0, 10) < since) continue;   // 整段都在範圍前的 subagent 不算
+    if (since && lastTs && localDay(lastTs) < since) continue;   // 整段都在範圍前的 subagent 不算
     const subCwds = [...new Set(SR.map((o) => o.cwd).filter(Boolean))];
     if (subCwds.length && !subCwds.some(isMine)) { out.notes.push('略過 cwd 不是這個專案的 subagent：' + sid + '/subagents/' + s); continue; }
     // subagent 紀錄完全沒有 cwd：主對話中途切過別的專案時分不出是誰派的，保守略過
@@ -471,7 +498,7 @@ for (const f of files) {
 }
 
 for (const [f, n] of Object.entries(badLines)) out.notes.push(f + ' 有 ' + n + ' 行解析失敗，已略過（檔案可能還在寫入，或被截斷）');
-if (since && since > new Date().toISOString().slice(0, 10)) out.notes.push('--since ' + since + ' 在未來，所以看不到任何 session');
+if (since && since > localDay(new Date())) out.notes.push('--since ' + since + ' 在未來，所以看不到任何 session');
 if (!agg.sessions) out.notes.push('範圍內沒有可看的 session：數字全為 0 不代表流程沒起作用，而是沒有資料');
 
 // ── A 自動檢查還活著 ──
@@ -495,7 +522,8 @@ out.A.wiring = settingsWiring();
 out.A.wiringMissing = out.A.wiring.filter((w) => w.exists === false);
 // 規則引擎實際走哪條判定路徑（對應成固定值，不抄原文）：解析器沒完整載入時兩次試跑都會走正則，數字看起來一樣全綠
 function parserMode(lines) {
-  const t = lines.join('\n');
+  // 只看狀態行（開頭的「規則引擎判定路徑：」與結尾的 ⚠ 提醒），不看 FAIL 案例的說明文字
+  const t = lines.filter((l) => /^(?:規則引擎判定路徑：|⚠ 語法解析器)/.test(l)).join('\n');
   if (/沒有完整載入/.test(t)) return '⚠ 語法解析器沒有完整載入，實際走正則路徑（在實例 .claude/hooks 跑 npm ci 補裝）';
   if (/正則路徑（--parser=off）/.test(t)) return '正則路徑（刻意關掉解析器）';
   if (/語法樹路徑（Bash 與 PowerShell 解析器都已載入）/.test(t)) return '語法樹路徑';
