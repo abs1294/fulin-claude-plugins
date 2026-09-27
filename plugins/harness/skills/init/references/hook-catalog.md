@@ -32,7 +32,7 @@
 | 7 | memory-write-advisory | 寫 memory 後提醒索引大小與總則檔合併 | PostToolUse `Write\|Edit\|MultiEdit` | A | 無 | memory 目錄、索引字元上限 | `memory-write-advisory.js` |
 | 8 | guard-claude-dir-hygiene | `.claude/` 底下只准在機制目錄新建檔，過程產物不得混進制度層 | PreToolUse `Write` | A | 無 | 白名單目錄、產物應去的落點 | `guard-claude-dir-hygiene.js` |
 | 9 | （inline 提醒） | 開 session 提醒制度入口 | SessionStart | A | 未啟用 harness plugin 時 inline；啟用則由 plugin 提供 | 無 | settings inline |
-| 10 | guard-db-login | 連資料庫禁用高權帳號／禁連正式庫 | PreToolUse `Bash\|PowerShell` | B | Phase 1 掃到 DB 用戶端指令、連線字串或 Q2 勾選「資料庫」 | 高權帳號名、正式庫主機樣式、允許的測試帳號 | `guard-risky-command.js` 的規則 |
+| 10 | guard-db-login | 連資料庫禁用高權帳號／禁連正式庫 | PreToolUse `Bash\|PowerShell` | B | Phase 1 掃到 DB 用戶端指令、連線字串或 Q2 勾選「資料庫」 | 高權帳號名、使用者在 U1 確認過的測試庫主機（沒確認的就擋：規則照 `guard-risky-command.js` 填空說明的寫法，連線指令只放行完整形狀認得、主機在清單上的，其餘一律擋；不是只擋認得出的正式主機）、允許的測試帳號 | `guard-risky-command.js` 的規則 |
 | 11 | guard-service-startup | 起服務必帶正確環境設定 | PreToolUse `Bash\|PowerShell` | B | Phase 1 掃到啟動指令依賴環境變數（`NODE_ENV`／`ASPNETCORE_ENVIRONMENT`／`--profile`…） | 啟動指令樣式、必帶的環境值 | `guard-risky-command.js` 的規則 |
 | 12 | （熔斷清單的部署、推送、毀滅性 SQL） | 熔斷清單上的不可逆指令，執行前一律擋下請示 | PreToolUse `Bash\|PowerShell` | B | Q2 每一項勾選 | 每項的指令樣式與放行條件 | `guard-risky-command.js` 的規則 |
 | 13 | guard-mail-recipients | 跑測試前驗證寄信已收斂（收件人／SMTP 指向本機） | PreToolUse `Bash\|PowerShell` | B | Phase 1 掃到寄信程式碼，且專案有測試指令 | 測試指令樣式、要驗的設定檔／環境變數與判準 | `guard-test-preconditions.js` 的檢查 |

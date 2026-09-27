@@ -25,6 +25,10 @@
       "id": "gbot",
       "label": "自動檢查：擋下分工角色",
       "variant": "exception"
+    },
+    {
+      "id": "docs",
+      "label": "收尾時更新的文件"
     }
   ],
   "phases": [
@@ -183,6 +187,15 @@
       "label": "guard-report-output",
       "sublabel": "報告沒放進 reports 資料夾",
       "width": 154
+    },
+    {
+      "id": "d_claude",
+      "lane": "docs",
+      "col": 5,
+      "type": "database",
+      "label": "CLAUDE.md",
+      "sublabel": "專案概要：流程狀態與進度",
+      "width": 120
     }
   ],
   "edges": [
@@ -263,6 +276,12 @@
       "label": "擋",
       "variant": "security",
       "role": "error"
+    },
+    {
+      "from": "done",
+      "to": "d_claude",
+      "label": "寫：更新專案概要",
+      "variant": "emphasis"
     }
   ]
 }

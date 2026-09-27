@@ -40,7 +40,7 @@
       "col": 0,
       "type": "database",
       "label": "CLAUDE.md",
-      "sublabel": "專案規則總表"
+      "sublabel": "3 系統、5 條流程"
     },
     {
       "id": "d_readme",
@@ -145,7 +145,7 @@
       "col": 1,
       "type": "database",
       "label": "CONTEXT.md",
-      "sublabel": "專案用語的意思",
+      "sublabel": "8 個你確認過的用語",
       "width": 98
     },
     {
@@ -163,7 +163,7 @@
       "col": 4,
       "type": "database",
       "label": "tests/Project_Detail/PROJECT.md",
-      "sublabel": "測試時要注意的事",
+      "sublabel": "測試環境位址、測試時要注意的事",
       "width": 235
     },
     {
@@ -209,12 +209,12 @@
     {
       "from": "d_claude",
       "to": "s_open",
-      "label": "讀",
+      "label": "開對話就載入",
       "variant": "dashed"
     },
     {
       "from": "d_readme",
-      "to": "s_align",
+      "to": "s_open",
       "label": "讀",
       "variant": "dashed"
     },
@@ -295,6 +295,18 @@
       "to": "k_project",
       "label": "寫",
       "variant": "emphasis"
+    },
+    {
+      "from": "d_claude",
+      "to": "s_align",
+      "label": "讀：專案概要",
+      "variant": "dashed"
+    },
+    {
+      "from": "d_claude",
+      "to": "s_dispatch",
+      "label": "列進必讀清單",
+      "variant": "dashed"
     }
   ]
 }

@@ -5,7 +5,7 @@
       "replace": [
         [
           "const RULES = [];",
-          "const RULES = [\n  {\n    \"id\": \"db-privileged-login\",\n    \"when\": \"\\\\b(psql|mysql|sqlcmd|mongosh)\\\\b[^\\\\n]*(-U\\\\s*|-u\\\\s*|--user(name)?[=\\\\s]+)(postgres|root|sa|admin)\\\\b\",\n    \"reason\": \"高權帳號連錯密碼會觸發登入鎖定。\",\n    \"fix\": \"改用測試帳號 app_test。\"\n  },\n  {\n    \"id\": \"deploy\",\n    \"when\": \"(^|[\\\\s/\\\\\\\\\\\"'])deploy\\\\.(sh|ps1)\\\\b|\\\\b(kubectl\\\\s+apply|terraform\\\\s+apply|helm\\\\s+(upgrade|install))\\\\b\",\n    \"unless\": \"--dry-run\\\\b\",\n    \"reason\": \"部署不可逆。\",\n    \"fix\": \"先 --dry-run；真的要部署請使用者親自執行。\"\n  },\n  {\n    \"id\": \"ssh-prod\",\n    \"when\": \"\\\\b(ssh|scp|rsync)\\\\b[^\\\\n]*\\\\b[\\\\w.-]*(prod|prd)[\\\\w.-]*\",\n    \"reason\": \"正式主機在熔斷清單上。\",\n    \"fix\": \"請使用者親自操作。\"\n  },\n  {\n    \"id\": \"destructive-sql\",\n    \"when\": \"^(?=[^\\\\n]*\\\\b(psql|mysql|sqlcmd|sqlite3|mongosh|invoke-sqlcmd)\\\\b)(?=[^\\\\n]*(\\\\bDROP\\\\s+(TABLE|DATABASE|SCHEMA)\\\\b|\\\\bTRUNCATE\\\\b|\\\\bDELETE\\\\s+FROM\\\\s+[^\\\\s;\\\"']+(?![^;\\\\n]*\\\\bWHERE\\\\b)))\",\n    \"reason\": \"整批毀掉資料。\",\n    \"fix\": \"帶 WHERE 只刪自己造的列。\"\n  },\n  {\n    \"id\": \"start-needs-env\",\n    \"when\": \"\\\\b(npm|pnpm|yarn)\\\\s+(run\\\\s+)?(start|dev)\\\\b|\\\\bnode\\\\b[^\\\\n]*\\\\bserver\\\\.js\\\\b\",\n    \"requireEnv\": {\n      \"APP_ENV\": \"^(local|development)$\"\n    },\n    \"reason\": \"沒帶 APP_ENV 會靜默跑正式設定。\",\n    \"fix\": \"APP_ENV=local npm start\"\n  },\n  {\n    \"id\": \"git-push\",\n    \"when\": \"\\\\bgit\\\\b[^\\\\n]*\\\\bpush\\\\b\",\n    \"reason\": \"推送會改到共用分支。\",\n    \"fix\": \"走專案的提交流程。\"\n  },\n  {\n    \"id\": \"quoted-token\",\n    \"when\": \"PROD_ADMIN_TOKEN\",\n    \"matchQuoted\": true,\n    \"reason\": \"正式環境管理權杖不得出現在指令裡。\",\n    \"fix\": \"改用測試權杖。\"\n  }\n];"
+          "const RULES = [\n  {\n    \"id\": \"db-privileged-login\",\n    \"when\": \"\\\\b(psql|mysql|sqlcmd|mongosh)\\\\b[^\\\\n]*(-U\\\\s*|-u\\\\s*|--user(name)?[=\\\\s]+)(postgres|root|sa|admin)\\\\b\",\n    \"reason\": \"高權帳號連錯密碼會觸發登入鎖定。\",\n    \"fix\": \"改用測試帳號 app_test。\"\n  },\n  {\n    \"id\": \"deploy\",\n    \"when\": \"(^|[\\\\s/\\\\\\\\\\\"'])deploy\\\\.(sh|ps1)\\\\b|\\\\b(kubectl\\\\s+apply|terraform\\\\s+apply|helm\\\\s+(upgrade|install))\\\\b\",\n    \"unless\": \"--dry-run\\\\b\",\n    \"reason\": \"部署不可逆。\",\n    \"fix\": \"先 --dry-run；真的要部署請使用者親自執行。\"\n  },\n  {\n    \"id\": \"remote-unconfirmed-host\",\n    \"when\": \"(?:(?:^|[\\\\s;&|(]|[\\\\\\\\/])(?:ssh|scp|rsync|sftp|ssh-copy-id|autossh|mosh)(?:\\\\.exe)?(?=[\\\\s\\\"']|$)|\\\\b(?:RSYNC_RSH|GIT_SSH_COMMAND)\\\\s*=|\\\\bcore\\\\.sshCommand\\\\b)\",\n    \"unless\": \"(?:^\\\\s*(?:[^\\\\s\\\"';&|()]*[\\\\\\\\/])?ssh(?:\\\\.exe)?(?:\\\\s+(?:-[46AaCfGgKkMNnqsTtVvXxYy]+|-[ip]\\\\s*\\\\S+))*\\\\s+[\\\"']?(?:[\\\\w.-]+@)?(?:test-app-01|staging-db)(?:\\\\.example\\\\.internal)?[\\\"']?(?:\\\\s+(?!-)(?![^\\\\n]*\\\\b(?:ssh|scp|rsync|sftp|ssh-copy-id|autossh|mosh)(?:\\\\.exe)?\\\\b[^\\\\n]*$)[^\\\\n]*)?\\\\s*$|^\\\\s*(?:[^\\\\s\\\"';&|()]*[\\\\\\\\/])?scp(?:\\\\.exe)?(?:\\\\s+(?:-[346BCpqrTv]+|-[iP]\\\\s*\\\\S+))*(?:\\\\s+(?:[\\\"']?(?:[\\\\w.-]+@)?(?:test-app-01|staging-db)(?:\\\\.example\\\\.internal)?:[^\\\\s\\\"'@]*[\\\"']?|[\\\"']?(?!-)(?:[A-Za-z]:[\\\\\\\\/])?[^\\\\s\\\"':@$]+[\\\"']?))+\\\\s*$|^\\\\s*(?:[^\\\\s\\\"';&|()]*[\\\\\\\\/])?rsync(?:\\\\s+(?:-(?![^\\\\s]*e)[A-Za-z]+|--(?!rsh\\\\b|rsync-path\\\\b)[\\\\w-]+(?:=[^\\\\s\\\"']+)?))*(?:\\\\s+(?:[\\\"']?(?:[\\\\w.-]+@)?(?:test-app-01|staging-db)(?:\\\\.example\\\\.internal)?:[^\\\\s\\\"'@]*[\\\"']?|[\\\"']?(?!-)(?:[A-Za-z]:[\\\\\\\\/])?[^\\\\s\\\"':@$]+[\\\"']?))+\\\\s*$)\",\n    \"reason\": \"連到沒確認為測試環境的主機，或用了這條規則認不得的寫法。\",\n    \"fix\": \"只連確認過的測試主機；需要別的主機或寫法，請使用者親自操作。\"\n  },\n  {\n    \"id\": \"url-unconfirmed-host\",\n    \"when\": \"(?:^|[^\\\\w.-])(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)(?:\\\\.exe)?(?=[\\\\s;)}\\\"']|$)\",\n    \"unless\": \"^\\\\s*(?:git\\\\s+(?:commit|tag)|gh\\\\s+(?:pr|issue|release)\\\\s+\\\\w+|echo|printf|Write-Host|Write-Output)\\\\b(?![^\\\\n]*(?:[;&|()`]|\\\\$\\\\(|\\\\bthen\\\\b|\\\\bdo\\\\b))|^(?![^\\\\n]*(?:https?://(?:(?!(?:localhost|127\\\\.0\\\\.0\\\\.1|\\\\[::1\\\\]|test-api\\\\.example\\\\.com)(?=[:/?#\\\"'\\\\s]|$))|[^/\\\\s\\\"'?#]*@)|\\\\b(?!https?://)[a-z][a-z0-9+.-]*://))(?![^\\\\n]*\\\\s-[A-Za-z]{0,4}[ki]\\\\s+-(?=\\\\s|$))(?![^\\\\n]*\\\\s(?:(?:--connect-to|--resolve|--proxy[\\\\w.-]*|--socks[\\\\w-]*|--preproxy|--config|--execute|--input-file)(?=[\\\\s=]|$)|-proxy\\\\w*(?=[\\\\s:]|$)|-[A-Za-z]{0,4}x(?:\\\\s+|(?=[^\\\\sA-Za-z])|(?=[A-Za-z]*[.:]))(?!(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)(?=\\\\s|$))[^\\\\s-]|-[A-Za-z]{0,4}[kei]\\\\s+(?![\\\"']?(?:https?://|-))\\\\S|-[A-Za-z]{0,4}[kei][^\\\\s]*[.\\\\/\\\\\\\\]))[^\\\\n]*https?://(?:localhost|127\\\\.0\\\\.0\\\\.1|\\\\[::1\\\\]|test-api\\\\.example\\\\.com)(?=[:/?#\\\"'\\\\s]|$)\",\n    \"matchQuoted\": true,\n    \"reason\": \"打到沒確認為測試環境的網址。\",\n    \"fix\": \"只打確認過的測試網址；要打別的網址，請使用者親自操作。\"\n  },\n  {\n    \"id\": \"destructive-sql\",\n    \"when\": \"^(?=[^\\\\n]*\\\\b(psql|mysql|sqlcmd|sqlite3|mongosh|invoke-sqlcmd)\\\\b)(?=[^\\\\n]*(\\\\bDROP\\\\s+(TABLE|DATABASE|SCHEMA)\\\\b|\\\\bTRUNCATE\\\\b|\\\\bDELETE\\\\s+FROM\\\\s+[^\\\\s;\\\"']+(?![^;\\\\n]*\\\\bWHERE\\\\b)))\",\n    \"reason\": \"整批毀掉資料。\",\n    \"fix\": \"帶 WHERE 只刪自己造的列。\"\n  },\n  {\n    \"id\": \"start-needs-env\",\n    \"when\": \"\\\\b(npm|pnpm|yarn)\\\\s+(run\\\\s+)?(start|dev)\\\\b|\\\\bnode\\\\b[^\\\\n]*\\\\bserver\\\\.js\\\\b\",\n    \"requireEnv\": {\n      \"APP_ENV\": \"^(local|development)$\"\n    },\n    \"reason\": \"沒帶 APP_ENV 會靜默跑正式設定。\",\n    \"fix\": \"APP_ENV=local npm start\"\n  },\n  {\n    \"id\": \"git-push\",\n    \"when\": \"\\\\bgit\\\\b[^\\\\n]*\\\\bpush\\\\b\",\n    \"reason\": \"推送會改到共用分支。\",\n    \"fix\": \"走專案的提交流程。\"\n  },\n  {\n    \"id\": \"quoted-token\",\n    \"when\": \"PROD_ADMIN_TOKEN\",\n    \"matchQuoted\": true,\n    \"reason\": \"正式環境管理權杖不得出現在指令裡。\",\n    \"fix\": \"改用測試權杖。\"\n  }\n];"
         ]
       ]
     }
@@ -110,12 +110,716 @@
       "expect": "BLOCK"
     },
     {
-      "label": "ssh：連 staging 主機",
+      "label": "ssh：連確認過的測試主機 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh dev@staging-db uptime"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "ssh：主機名看起來像 staging 但沒確認過 → 擋",
       "variant": "demo",
       "payload": {
         "tool_name": "Bash",
         "tool_input": {
           "command": "ssh dev@web-staging-01 uptime"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "scp：來源是測試主機、目的地沒確認 → 擋（不能因為出現一個測試主機就整條放行）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "scp staging-db:/dump.sql prod-db:/tmp/"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：-J 跳板是測試主機、目標沒確認 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh -J staging-db prod-db"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "scp：-J 跳板沒確認、目的地是測試主機 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "scp -J prod-db ./file staging-db:/tmp/"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：-o ProxyJump 另指跳板 → 擋（認不得的寫法一律擋）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh -o ProxyJump=prod-db staging-db"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：ssh.exe 連沒確認的主機 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh.exe prod-db"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：IPv6 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh admin@[2001:db8::1]"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：前面接 sudo 照樣判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sudo ssh prod-db"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "scp：目的地加引號（看不到位址）→ 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "scp a.txt \"prod-db:/tmp\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "rsync：-e 自訂遠端殼 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rsync -avz -e 'ssh -J prod-db' ./d staging-db:/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "rsync：傳到確認過的測試主機 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rsync -av ./d staging-db:/srv/"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：確認過的測試網址（加引號）→ 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -X POST \"https://test-api.example.com/orders\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：沒確認的網址加引號照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -X POST \"https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：測試網址後面接別的網域 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl https://test-api.example.com.evil.io/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：一條指令兩個網址，一個沒確認 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl https://test-api.example.com/a https://prod-api.example.com/b"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：目的主機後面接 -o 改寫目的地 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh staging-db -oHostName=prod-db"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：遠端指令自己帶選項 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh staging-db uptime -v"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：測試主機名放在帳號段、實際主機沒確認 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl https://test-api.example.com:password@prod-api.example.com/orders"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：確認過的測試網址帶埠號 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl \"https://test-api.example.com:8443/orders\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "ssh：帶路徑的指令名照樣判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "/usr/bin/ssh prod-db"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：Windows 完整路徑的 ssh.exe 連測試主機 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "C:/Windows/System32/OpenSSH/ssh.exe staging-db"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "sftp：同類連線工具沒有放行形狀 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sftp prod-db"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "rsync：同一條指令前面用 RSYNC_RSH 改遠端殼 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "RSYNC_RSH='ssh -J prod-db' rsync -av ./d staging-db:/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "git：GIT_SSH_COMMAND 改遠端殼 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "GIT_SSH_COMMAND='ssh -oHostname=prod-db' git fetch"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：不寫 https:// 的網址 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl prod-api.example.com/orders"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：--connect-to 改連線目標 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl --connect-to test-api.example.com:443:prod-api.example.com:443 https://test-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：-X POST 不是代理選項 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -X POST -d @body.json https://test-api.example.com/x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：-x 只寫代理主機名（用預設埠）→ 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -x proxy.corp https://test-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：curl -K 讀設定檔（設定檔裡可以寫別的網址）→ 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -K prod.cfg https://test-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：wget -e 設代理 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "wget -e https_proxy=p:1 https://test-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：wget -i 從檔案讀網址 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "wget -i urls.txt https://test-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：--socks5 走代理 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl --socks5 p:1080 https://test-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：合併短選項 -sSx 帶代理 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -sSx proxy.corp:8080 https://test-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：合併短選項 -sSXPOST 是方法不是代理 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -sSXPOST https://test-api.example.com/x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：curl -kL（合併旗標，不是 -K 設定檔）→ 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -kL https://test-api.example.com/x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：PowerShell -Proxy → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Invoke-WebRequest -Uri https://test-api.example.com/x -Proxy http://proxy.corp:8080"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：PowerShell -OutFile 不是短選項 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Invoke-WebRequest -Uri https://test-api.example.com/x -OutFile out.json"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "rsync：目的地是變數（看不到實際主機）→ 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rsync -avz ./dist/ $DEPLOY_TARGET"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：PowerShell 用引號包住帶空格的路徑呼叫 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "./build.ps1; & \"C:\\Program Files\\OpenSSH\\ssh.exe\" prod-db"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：PowerShell 用引號包住 curl.exe 路徑 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& \"C:\\Windows\\System32\\curl.exe\" https://prod-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：curl -K - 從標準輸入讀設定 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -K - https://test-api.example.com/x < prod.cfg"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：第二個網址是其他協定 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl https://test-api.example.com/a ftp://prod-ftp/b"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：gh 的 <( ) 裡執行 curl → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh pr create --body-file <(curl -s https://prod-api.example.com/notes)"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：打本機起的服務 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl http://localhost:3000/api/health"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：PowerShell 打本機服務 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Invoke-RestMethod http://localhost:5000/api/orders"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：localhost 後面接別的網域 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl http://localhost.evil.io/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：PowerShell -MaximumRedirection 不是代理選項 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Invoke-WebRequest -Uri https://test-api.example.com/x -MaximumRedirection 0"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：curl -k（略過憑證檢查，不是 -K）→ 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -k https://test-api.example.com/x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：curl -i（印出標頭，不是 wget -i）→ 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -i https://test-api.example.com/x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：commit 訊息提到 curl 不觸發 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'bump curl'"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：bash -c 裡的 curl 照樣判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c \"curl https://prod-api.example.com/x\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：sudo curl 照樣判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sudo curl https://prod-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：if curl …; then 照樣判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "if curl -s https://prod-api.example.com/health; then echo ok; fi"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：watch curl 照樣判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "watch -n 5 curl https://prod-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：commit 後面串接真的 curl → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m \"x\" && curl https://prod-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：PowerShell 變數賦值 $r = irm → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$r = irm https://prod-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：PowerShell 帶 ./x.ps1（改走正則路徑）照樣判 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "./build.ps1; $r = iwr https://prod-api.example.com/x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：PowerShell if 區塊裡的 curl.exe → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "./deploy-check.ps1; if ($?) { curl.exe https://prod-api.example.com/x }"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：PowerShell 打確認過的測試網址 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$r = Invoke-RestMethod -Uri \"https://test-api.example.com/x\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "網址：Write-Host 只是提到 irm → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Write-Host \"use irm https://prod-api.example.com\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "ssh：遠端指令用 sftp 再跳一台 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh staging-db sftp prod-db"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "網址：commit 訊息提到 http 不觸發 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m \"fix http timeout, see https://github.com/org/repo/issues/1\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "ssh：IP 位址沒確認 → 擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh root@10.0.0.5"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ssh：選項的值（-i key.pem）不當成主機 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ssh -i key.pem staging-db uptime"
         }
       },
       "expect": "ALLOW"
@@ -496,7 +1200,7 @@
       "payload": {
         "tool_name": "Bash",
         "tool_input": {
-          "command": "curl -H \"Authorization: Bearer PROD_ADMIN_TOKEN\" https://api.example.com"
+          "command": "curl -H \"Authorization: Bearer PROD_ADMIN_TOKEN\" https://test-api.example.com"
         }
       },
       "expect": "BLOCK"
@@ -507,7 +1211,7 @@
       "payload": {
         "tool_name": "Bash",
         "tool_input": {
-          "command": "curl -H \"Authorization: Bearer test-token\" https://api.example.com"
+          "command": "curl -H \"Authorization: Bearer test-token\" https://test-api.example.com"
         }
       },
       "expect": "ALLOW"

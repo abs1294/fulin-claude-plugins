@@ -146,8 +146,13 @@
 //
 // ── init 怎麼從盤點結果產規則 ──────────────────────────────────────────────
 // 1. Phase 1「危險動作候選」與 Q2 熔斷清單勾選的每一項，各落成一列；做不成 regex 的在 Phase 5 回報說明。
-// 2. when 取自盤點到的實際指令形狀（專案用哪個 DB 用戶端、部署腳本叫什麼、正式主機的命名樣式）；
+// 2. when 取自盤點到的實際指令形狀（專案用哪個 DB 用戶端、部署腳本叫什麼、連主機用什麼指令）；
 //    unless 取自專案查證過的「正確做法」（測試帳號、dry-run 旗標）。不要填猜的值。
+//    主機與網址類規則一律「沒確認的就擋」，照下方兩個示範的寫法：
+//    - 遠端主機（ssh／scp／rsync）：unless 列出允許的完整指令形狀，認不得的寫法一律擋——這類指令寫法太多（-o、跳板、別名、IPv6），
+//      列舉「認得出的主機位置」再比對一定有漏；也不要寫成「出現測試主機就放行」（scp 測試機:/f 正式機:/f 會過）。
+//    - 網址：同樣列出放行條件（寫出確認過的測試網址、沒有別的網址、沒有改連線目標的選項），其餘一律擋；要開 matchQuoted（網址常加引號）。
+//    兩種都不要只列認得出的正式主機來擋（沒被認出來的正式主機會過）。
 // 3. 起服務類：Phase 1 看到啟動指令依賴環境變數（NODE_ENV／APP_ENV／--profile…）→ 一列 requireEnv。
 // 4. 每加一列，cases/guard-risky-command.json 就要補一擋一放，跑 probe-hooks.js 全綠才算裝完。
 //
@@ -161,10 +166,49 @@
 //     unless: '--dry-run\\b',
 //     reason: '部署會改到共用環境，出錯要別人收拾，且不可逆。',
 //     fix: '先用 --dry-run 看差異；真的要部署，把指令交給使用者親自執行。' },
-//   { id: 'ssh-prod',
-//     when: '\\b(ssh|scp|rsync)\\b[^\\n]*\\b[\\w.-]*(prod|prd)[\\w.-]*',
-//     reason: '對正式主機的任何操作都在熔斷清單上：沒有回滾、影響真實使用者。',
-//     fix: '需要正式主機的資訊，請使用者提供或由使用者親自登入操作。' },
+//   // ── 下面兩條是「沒確認的就擋」的示範。定位是防手滑（Claude 下錯主機、打錯網址），不是防刻意繞過的沙箱。
+//   //    已知極限（寫給維護者，不准寫進 reason／fix）：刻意改寫的指令名（ss''h、\ssh、$c、alias、eval、iex）、
+//   //    遠端指令裡用改寫過的名字再跳一台、先 export RSYNC_RSH 再 rsync（語法樹路徑把 export 當環境事件，規則看不到）、
+//   //    ssh config 裡的別名、curl 用兩個網址其中一個不寫 https://。專案真的有這些寫法，補 cases 並改規則。
+//   //    引擎本身的極限（對所有規則都一樣）：正則路徑（沒裝解析器、或 PowerShell 指令帶 ./x.ps1 這類寫法而退回正則）會把
+//   //    echo／Write-Host／Write-Output 整段當成「只是印字」不檢查，PowerShell 在裡面夾子運算式執行（Write-Host (irm https://…)）看不到；
+//   //    語法樹路徑會擋，Bash 的 echo $(curl …) 兩條路徑都會擋。要補得改 executedText 的正則路徑，另案處理。
+//   //    涵蓋範圍：只示範 ssh／scp／rsync（含同類工具）與 curl／wget／iwr／irm。git 遠端（git clone git@主機:…）、python／node 在程式裡發的 HTTP 請求不在示範內，專案有需要另寫規則。
+//   { id: 'remote-unconfirmed-host',   // 只放行形狀完全認得、而且遠端主機都在確認清單上的 ssh／scp／rsync，其餘一律擋
+//     // unless 列出允許的完整指令形狀（錨定整段，指令名可以帶路徑）：ssh 只准不帶值的旗標與 -i／-p，目的主機後第一個參數不准 - 開頭
+//     // （OpenSSH 會把緊接在目的主機後的 -o… 當選項）；scp 只准列出的選項；rsync 不准 -e／--rsh／--rsync-path。
+//     // sftp／ssh-copy-id／autossh／mosh 沒有放行形狀＝一律擋；RSYNC_RSH=、GIT_SSH_COMMAND=、core.sshCommand 改了遠端殼＝擋
+//     // （已知極限：git -c core.sshCommand="…" 值加引號時，語法樹路徑看不到）。
+//     // 遠端指令裡不准再出現 ssh／scp／rsync／sftp／ssh-copy-id／autossh／mosh（在測試主機上再跳一台），與 when 同一組工具。
+//     // 指令名後面可以接引號（& "C:\Program Files\OpenSSH\ssh.exe" …，PowerShell 呼叫帶空格路徑的標準寫法），形狀認不得＝擋；
+//     // 本機路徑不准含 $：scp／rsync 的目的地是變數（rsync ./d $DEPLOY_TARGET）看不到實際主機＝擋。
+//     // 刻意不開 matchQuoted：引號內容會被遮掉，加了引號的位址看不到＝擋（scp a.txt "staging-db:/tmp" 也會被擋，這是寧可多擋的代價）；
+//     // 好處是 commit 訊息裡提到 ssh 不會觸發。清單（test-app-01|staging-db 那段）只放使用者在 init 確認過的測試主機。
+//     when: '(?:(?:^|[\\s;&|(]|[\\\\/])(?:ssh|scp|rsync|sftp|ssh-copy-id|autossh|mosh)(?:\\.exe)?(?=[\\s"\']|$)|\\b(?:RSYNC_RSH|GIT_SSH_COMMAND)\\s*=|\\bcore\\.sshCommand\\b)',
+//     unless: '(?:^\\s*(?:[^\\s"\';&|()]*[\\\\/])?ssh(?:\\.exe)?(?:\\s+(?:-[46AaCfGgKkMNnqsTtVvXxYy]+|-[ip]\\s*\\S+))*\\s+["\']?(?:[\\w.-]+@)?(?:test-app-01|staging-db)(?:\\.example\\.internal)?["\']?(?:\\s+(?!-)(?![^\\n]*\\b(?:ssh|scp|rsync|sftp|ssh-copy-id|autossh|mosh)(?:\\.exe)?\\b[^\\n]*$)[^\\n]*)?\\s*$|^\\s*(?:[^\\s"\';&|()]*[\\\\/])?scp(?:\\.exe)?(?:\\s+(?:-[346BCpqrTv]+|-[iP]\\s*\\S+))*(?:\\s+(?:["\']?(?:[\\w.-]+@)?(?:test-app-01|staging-db)(?:\\.example\\.internal)?:[^\\s"\'@]*["\']?|["\']?(?!-)(?:[A-Za-z]:[\\\\/])?[^\\s"\':@$]+["\']?))+\\s*$|^\\s*(?:[^\\s"\';&|()]*[\\\\/])?rsync(?:\\s+(?:-(?![^\\s]*e)[A-Za-z]+|--(?!rsh\\b|rsync-path\\b)[\\w-]+(?:=[^\\s"\']+)?))*(?:\\s+(?:["\']?(?:[\\w.-]+@)?(?:test-app-01|staging-db)(?:\\.example\\.internal)?:[^\\s"\'@]*["\']?|["\']?(?!-)(?:[A-Za-z]:[\\\\/])?[^\\s"\':@$]+["\']?))+\\s*$)',
+//     reason: '連到沒確認為測試環境的主機，或用了這條規則認不得的寫法。',
+//     fix: '只連確認過的測試主機；需要別的主機或寫法，請使用者親自操作。' },
+//   { id: 'url-unconfirmed-host',   // curl／wget／iwr／irm 一律觸發，只有寫出確認過的測試網址、沒有別的網址、沒有改連線目標的選項才放行
+//     // 不寫 https:// 的網址（curl prod-api.example.com/x）因此一律擋；主機前面有 @（帳號段）也擋。會改連線目標或從檔案讀網址的選項一律擋：
+//     // --connect-to、--resolve、--proxy*、--socks*、--preproxy、-x 代理、--config／-K、--execute／-e（wget）、--input-file／-i（wget）。
+//     // 引擎比對不分大小寫，短選項這樣判（含合併寫法 -sSx、-qe、-qi，最多 5 個字母，免得 PowerShell 的 -OutFile 這類參數名被當成短選項）：
+//     // -x 後面接任何值都擋，只有 GET／POST 這類方法名除外（-X POST、-XPOST）；-K／-e／-i 在合併的最後、後面空一格接的不是網址也不是選項才擋，
+//     // 或值直接黏著而且看起來像檔名（-Kprod.cfg）才擋——所以 curl -k https://…、curl -kL、curl -sSi 照常放行；-Kcfg 這種黏著又不像檔名的看不出來。
+//     // PowerShell 的 -Proxy 同樣擋；-x 的值要空一格、或直接黏著而帶 . 或 :（-xproxy.corp），免得 PowerShell 的 -MaximumRedirection 被當成 -x。
+//     // 本機位址（localhost、127.0.0.1、[::1]）預設放行：QA 要實際打本機起的服務；localhost.evil.io、localhost@別的主機 照擋。
+//     // 指令名後面可以接引號（& "C:\…\curl.exe" …）；「只在文字裡提到」的例外不准含 ( ) 與 <(（Write-Host (irm …)、--body-file <(curl …) 是在執行）；
+//     // 其他協定的網址（ftp://、file://）一律擋；-K -／-i - 從標準輸入讀設定或網址也擋。
+//     // 指令名出現在任何位置都觸發（$r = irm …、if (…) { iwr … }、if curl …; then、watch curl …）——列舉「執行位置」一定有漏，
+//     // PowerShell 只要帶 ./x.ps1 或 -- 就會改走正則路徑，更容易漏。唯一例外：整行是 git commit／git tag／gh pr|issue|release／echo／
+//     // printf／Write-Host／Write-Output 開頭、沒有 ; & | 反引號 $( then do 串接別的指令，才當成「只在文字裡提到」放行
+//     // （語法樹路徑的原文會拿掉引號，只能靠開頭的指令判斷；commit 訊息裡含分號也會被多擋）。
+//     // 已知極限：ALL_PROXY／CURL_HOME 這類環境變數沒處理；已有確認過的測試網址時，另一個網址用變數寫（curl https://test-api… $PROD_URL）看不到。
+//     // 伺服器端轉址（確認過的測試網址回 3xx 轉到別的主機，curl -L／wget 預設會跟）執行前看不到，這是測試伺服器的行為，不是指令寫錯。
+//     when: '(?:^|[^\\w.-])(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)(?:\\.exe)?(?=[\\s;)}"\']|$)',
+//     unless: '^\\s*(?:git\\s+(?:commit|tag)|gh\\s+(?:pr|issue|release)\\s+\\w+|echo|printf|Write-Host|Write-Output)\\b(?![^\\n]*(?:[;&|()`]|\\$\\(|\\bthen\\b|\\bdo\\b))|^(?![^\\n]*(?:https?://(?:(?!(?:localhost|127\\.0\\.0\\.1|\\[::1\\]|test-api\\.example\\.com)(?=[:/?#"\'\\s]|$))|[^/\\s"\'?#]*@)|\\b(?!https?://)[a-z][a-z0-9+.-]*://))(?![^\\n]*\\s-[A-Za-z]{0,4}[ki]\\s+-(?=\\s|$))(?![^\\n]*\\s(?:(?:--connect-to|--resolve|--proxy[\\w.-]*|--socks[\\w-]*|--preproxy|--config|--execute|--input-file)(?=[\\s=]|$)|-proxy\\w*(?=[\\s:]|$)|-[A-Za-z]{0,4}x(?:\\s+|(?=[^\\sA-Za-z])|(?=[A-Za-z]*[.:]))(?!(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)(?=\\s|$))[^\\s-]|-[A-Za-z]{0,4}[kei]\\s+(?!["\']?(?:https?://|-))\\S|-[A-Za-z]{0,4}[kei][^\\s]*[.\\/\\\\]))[^\\n]*https?://(?:localhost|127\\.0\\.0\\.1|\\[::1\\]|test-api\\.example\\.com)(?=[:/?#"\'\\s]|$)',
+//     matchQuoted: true,
+//     reason: '打到沒確認為測試環境的網址。',
+//     fix: '只打確認過的測試網址；要打別的網址，請使用者親自操作。' },
 //   { id: 'destructive-sql',
 //     // 兩個前瞻：同一行（同一條管線）裡「有 DB 用戶端」且「有毀滅性語句」，不限先後——
 //     // `echo "TRUNCATE …" | psql` 的語句在用戶端之前。
