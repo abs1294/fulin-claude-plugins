@@ -9,7 +9,7 @@ description: 把一套開發流程制度（模型調度／停損熔斷／派工�
 
 ## 核心原則（動工前先讀 `references/adaptation-guide.md`，本節只是摘要）
 
-1. **開發流程骨幹全帶，事故型條款不帶**：純行為紀律照搬、可參數化的判準挖空填入、agent pipeline 依盤點裁切；綁死特定工作法的條款與單一事故的細則不帶（那些從目標專案自己的 memory 長出來，或歸未來的 `/harness:review`）。
+1. **開發流程骨幹全帶，事故型條款不帶**：純行為紀律照搬、可參數化的判準挖空填入、agent pipeline 依盤點裁切；綁死特定工作法的條款與單一事故的細則不帶（那些從目標專案自己的 memory 長出來，或由 `/harness:review` 健檢時從該實例的紀錄列進提案，同一件事反覆出錯就提升格）。
 2. **規則要有機械閘**：skill 與制度檔寫「必須」是自律，AI 會繞；只有 hook 是他律。所以本 init 產出可執行的 hook，並用冷啟探針實測它真的會擋。
 3. **實例化不是複製**：目標專案的事實（build 指令、agent 名單、邊界、危險動作）必須**實地查證後填入**，禁止從別的專案的實例照抄、禁止用猜的。
 4. **既有設定分兩種對待**：
@@ -131,7 +131,7 @@ commit 前的程式碼審查需要 Codex CLI：它和 Claude 各審一次，
 |---|---|---|
 | `CLAUDE.md` | **取代**：用 harness 骨架重寫；原檔裡的專案事實（指令、路徑、邊界、禁止事項、術語）逐條搬進新檔對應的節；流程類規定（怎麼派工、怎麼審查）由 harness 的取代。每條原規則記去向：搬進哪一節／被哪條 harness 規則取代／沒搬（理由） | 使用者就是對原本的流程不滿意；但專案事實不會因為換流程而失效 |
 | 角色與 harness 某個 agent 相同的 agent（例：原本的 reviewer 對上 code-reviewer） | **併入**：用 harness 骨架建，原 agent 裡的專案專屬內容（技術棧規範、檢查清單、禁止事項）搬進新檔的硬性規則。名字預設用 harness 的名字；使用者要保留原名就用原名，02 對照表、04 模板、check-agent-model 名單、`check-review-discipline.js` 的 `REQUIRED_MARKERS` key 跟著改 | 骨架帶交接契約與回報格式（派工閘與 git-commit 依賴它們），原 agent 帶專案知識，兩邊都要 |
-| harness 沒有對應角色的 agent（例：資料遷移專員、文件撰寫） | **沿用**：原檔不動，加進 02 對照表與 check-agent-model 名單（要在名單裡才受派工檢查管） | 不是 harness 該決定的分工 |
+| harness 沒有對應角色的 agent（例：資料遷移專員、文件撰寫） | **沿用**：原檔不動，加進 02 對照表、check-agent-model 名單與 `check-review-discipline.js` 的 `REQUIRED_MARKERS`（兩份名單都要加：前者管有沒有指定模型，後者管派工欄位與必讀檔名） | 不是 harness 該決定的分工 |
 | 原有 hook | 讀程式判斷它擋什麼：形狀與 harness 某支相同 → **取代**（harness 版有 cases 可實測）；harness 沒有的 → **沿用**，照原接線寫進新 settings，並在 05 健檢清單加一列（沒有 cases 可跑，註明「原有 hook，手動試跑」） | 原有 hook 在擋的東西代表使用者在乎那個風險 |
 | `commands/`、`skills/` | **沿用**，原封不動 | 不屬於開發流程骨架 |
 | settings 的 `permissions` | **沿用**，照 Phase 4 JSON 合併 | 使用者自己決定的權限 |

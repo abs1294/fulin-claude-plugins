@@ -67,6 +67,8 @@ metadata:
 
 觸發時機：使用者說「harness 健檢」，或任何 session 發現距上次健檢**超過 30 天**（看本檔 changelog 最後日期）時主動提議。
 
+**用 `/harness:review` 執行**：它從實際的對話紀錄、subagent 紀錄、知識筆記抽證據（要實際試跑自動檢查時會先問使用者，同意才跑），判斷這套流程有沒有真的起作用；下面清單裡的「§0 專案概要的日期」「hook 接線對得上嗎」「04 模板有沒有被用」「機械閘還活著嗎」與三份知識筆記的異動，它會附證據（判讀仍要照清單的做法確認）。清單其餘的檔案健康項目（CLAUDE.md 長度、路由路徑、MEMORY.md 字元數、memory 退場、03 驗證指令等）review 不查，仍照下面清單逐項做。review 做完會問使用者要不要在本檔 Changelog 補一行健檢紀錄，同意才補（本檔改之前要先問）。沒裝 harness plugin 的環境整份清單都手動做。
+
 檢查項目：
 
 ```
@@ -78,7 +80,7 @@ metadata:
 □ 03 矩陣 B 的本專案驗證指令是否仍與 repo 現況相符？（實查 build 腳本與目錄結構）
 □ 04 模板是否被實際使用？（抽查近期派工有無三件套——沒有就代表模板腐化，回報使用者）
 □ 隔離驗證是否形同虛設？（抽查驗證回報是否有證據行號，全是無證據 PASS 即腐化）
-□ 機械閘還活著嗎？在 `.claude/hooks/` 跑 `node probe-hooks.js`：每支 hook 的 cases 兩個方向都要全數符合預期（該擋的擋、該放的放——只驗「會擋」會漏掉「解析壞掉、全部誤擋」這種失效；機械保證的機械也會鏽）。有 hook 缺 cases 會被列為失敗——新加的 hook 要一併補 cases。本期若改過某支 hook 的填空區常數，先確認對應 cases 同步改了。有裝規則引擎（`guard-risky-command`／`guard-test-preconditions`）時，probe 開頭那行要是「語法樹路徑（Bash 與 PowerShell 解析器都已載入）」；出現「⚠ 語法解析器沒有完整載入」＝解析器沒裝或載入失敗，引擎正退回正則判法——在 `.claude/hooks/` 跑 `npm ci` 補回
+□ 機械閘還活著嗎？在 `.claude/hooks/` 跑 `node probe-hooks.js`（用 `/harness:review` 時，這項要使用者同意才會跑）：每支 hook 的 cases 兩個方向都要全數符合預期（該擋的擋、該放的放——只驗「會擋」會漏掉「解析壞掉、全部誤擋」這種失效；機械保證的機械也會鏽）。有 hook 缺 cases 會被列為失敗——新加的 hook 要一併補 cases。本期若改過某支 hook 的填空區常數，先確認對應 cases 同步改了。有裝規則引擎（`guard-risky-command`／`guard-test-preconditions`）時，probe 開頭那行要是「語法樹路徑（Bash 與 PowerShell 解析器都已載入）」；出現「⚠ 語法解析器沒有完整載入」＝解析器沒裝或載入失敗，引擎正退回正則判法——在 `.claude/hooks/` 跑 `npm ci` 補回
 □ 熔斷清單與機械閘對得上嗎？CLAUDE.md 熔斷清單（與 03 C2）的每一項，在 `guard-risky-command.js`／`guard-test-preconditions.js` 都找得到對應規則，或寫明為什麼只能停在文字；本期新增的熔斷項有沒有補規則
 □ CONTEXT.md 斷鏈與新詞補課（①詞條內引用的詞是否都已定義 ②本期新敲定的詞有沒有進來——對照近期 memory 新增條目抽查）
 □ CONTEXT.md 與 memory 分工有無漂移？（詞彙表混入實作事實／memory 混入純詞彙）
@@ -107,7 +109,7 @@ metadata:
 2. 同類坑**第 2 次**出現、或單次後果嚴重（返工 >1 天／污染交付物）→ 提議升格為 harness 條款（紅區流程：說明原因＋位置＋建議內容，經使用者同意）。
 3. 升格時遵守 §1 三條紀律；禁止把別的專案的事故條款整批預載進來——沒付過學費的規則只是 token 稅。
 4. **「一定要落地」的條款要配機械閘**：skill／制度檔寫「必須」是自律，AI 會繞；只有 hook 是他律。升格時問一句「這條被跳過時，有沒有東西會擋下來？」——沒有且後果嚴重，就同時提議一支 hook（fail-open：hook 故障時放行但 loud 報錯，不得變成擋路石）。先查 harness plugin 的 hook 形狀目錄（`skills/init/references/hook-catalog.md`）有沒有同形狀的範本或規則引擎可以直接用——多數「執行某類指令前先擋」「跑測試前先驗環境」只要往 `guard-risky-command.js`／`guard-test-preconditions.js` 加一條規則，不必新寫 hook。新 hook 或新規則都要補 `cases/` 兩向案例，`node probe-hooks.js` 全綠才算升格完成。
-5. **分流**：本實例 init 時已帶的是**開發流程骨幹**（行為紀律＋可參數化的判準）；綁定特定事故的條款（某個第三方套件的坑、某種環境配置的坑）不在骨架裡——那類條款從本專案 memory 長出來，或日後由 harness plugin 規劃中的 `/harness:review`（尚未提供）對照其他實例提議，經本節流程升格。
+5. **分流**：本實例 init 時已帶的是**開發流程骨幹**（行為紀律＋可參數化的判準）；綁定特定事故的條款（某個第三方套件的坑、某種環境配置的坑）不在骨架裡——那類條款從本專案 memory 長出來，或由 `/harness:review` 健檢時從該實例的紀錄列進提案，同一件事反覆出錯就提升格，經本節流程升格。
 
 ## Changelog
 - {{YYYY-MM-DD}} 建立（harness plugin /harness:init 實例化）
