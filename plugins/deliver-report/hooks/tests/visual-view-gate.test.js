@@ -17,6 +17,7 @@ function manifest(name, n, src) {
   fs.mkdirSync(dir, { recursive: true });
   const images = [];
   for (let i = 1; i <= n; i++) images.push(path.join(dir, `page-00${i}.png`));
+  for (const im of images) fs.writeFileSync(im, 'png');   // 閘只要求「還在的圖」，測試圖要真的存在
   const m = path.join(dir, 'visual-manifest.json');
   fs.writeFileSync(m, JSON.stringify({ file: src || path.join(tmp, name + '.pptx'), images, overview: path.join(dir, 'overview.png') }));
   return { m, images };
@@ -24,11 +25,17 @@ function manifest(name, n, src) {
 const user = (text) => ({ type: 'user', promptId: 'p1', message: { role: 'user', content: text } });
 const bashResult = (text, extra = {}) => ({ type: 'user', promptId: 'p1', toolUseResult: { stdout: text },
   message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: text }] }, ...extra });
+let rid = 0;
 const read = (p, extra = {}) => ({ type: 'assistant', message: { role: 'assistant',
-  content: [{ type: 'tool_use', name: 'Read', input: { file_path: p } }] }, ...extra });
+  content: [{ type: 'tool_use', id: 'r' + (++rid), name: 'Read', input: { file_path: p } }] }, ...extra });
+// Read 的回傳；isError 為 true 表示讀圖失敗或被拒
+const readResult = (id, isError) => ({ type: 'user', promptId: 'p1', toolUseResult: {},
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, is_error: isError, content: isError ? 'denied' : 'ok' }] } });
+// Stop hook 擋下後寫進 transcript 的回饋行（實際格式：type=user、有 promptId、isMeta:true、沒有 toolUseResult）
+const hookFeedback = () => ({ type: 'user', promptId: 'p1', isMeta: true, message: { role: 'user', content: 'Stop hook feedback: 【視覺檢查】…' } });
 
-function run(label, lines, expectBlock, expectCount) {
-  const tp = path.join(tmp, label.replace(/\W+/g, '_') + '.jsonl');
+function run(label, lines, expectBlock, expectCount, tpName) {
+  const tp = path.join(tmp, (tpName || label.replace(/\W+/g, '_')) + '.jsonl');
   fs.writeFileSync(tp, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
   const r = spawnSync('node', [HOOK], { input: JSON.stringify({ transcript_path: tp }), encoding: 'utf8' });
   const blocked = !!(r.stdout && r.stdout.trim() && JSON.parse(r.stdout).decision === 'block');
@@ -67,6 +74,39 @@ if (process.platform === 'win32') {
     ...A.images.map((p) => read(p.replace(/\\/g, '/').toUpperCase()))], false);
 }
 run('transcript 壞行、null 行不影響判斷 → 擋', [user('check'), bashResult('VISUAL_MANIFEST: ' + A.m), null, 'x'], true, 3);
+
+run('擋下後多一行 Stop hook feedback，仍要擋（不可把回饋行當新回合）',
+  [user('check'), bashResult('VISUAL_MANIFEST: ' + A.m), hookFeedback()], true, 3);
+run('擋下後補看完，放行', [user('check'), bashResult('VISUAL_MANIFEST: ' + A.m), hookFeedback(),
+  ...A.images.map((p) => read(p))], false);
+const r1 = read(A.images[0]), r2 = read(A.images[1]), r3 = read(A.images[2]);
+run('讀圖失敗的不算看過 → 擋 1 張', [user('check'), bashResult('VISUAL_MANIFEST: ' + A.m),
+  r1, readResult(r1.message.content[0].id, false), r2, readResult(r2.message.content[0].id, true),
+  r3, readResult(r3.message.content[0].id, false)], true, 1);
+const C = manifest('c', 2);
+fs.unlinkSync(C.images[1]);
+run('圖檔已經不在就不要求 → 看完還在的那張就放行', [user('check'), bashResult('VISUAL_MANIFEST: ' + C.m), read(C.images[0])], false);
+// 退出口：同一回合連擋、張數沒減少，第 4 次放行並提醒
+const stuck = [user('check'), bashResult('VISUAL_MANIFEST: ' + A.m)];
+for (let k = 1; k <= 3; k++) run(`連擋第 ${k} 次 → 擋`, stuck, true, 3, 'stuck');
+{
+  const tp = path.join(tmp, 'stuck.jsonl');
+  const r = spawnSync('node', [HOOK], { input: JSON.stringify({ transcript_path: tp }), encoding: 'utf8' });
+  const o = r.stdout.trim() ? JSON.parse(r.stdout) : {};
+  const ok = r.status === 0 && o.decision !== 'block' && /連續 3 次/.test(o.systemMessage || '');
+  console.log(`${ok ? 'PASS' : 'FAIL'}  連擋 3 次沒進展 → 第 4 次放行並提醒`); ok ? pass++ : fail++;
+}
+
+// 計次檔寫不進去（指到一個資料夾）→ 沒有退出口，必須放行並提醒，不能每次都擋
+{
+  const tp = path.join(tmp, 'nostate.jsonl');
+  fs.writeFileSync(tp, [user('check'), bashResult('VISUAL_MANIFEST: ' + A.m)].map((l) => JSON.stringify(l)).join('\n') + '\n');
+  const r = spawnSync('node', [HOOK], { input: JSON.stringify({ transcript_path: tp }), encoding: 'utf8',
+    env: { ...process.env, DR_VISUAL_GATE_STATE: tmp } });
+  const o = r.stdout.trim() ? JSON.parse(r.stdout) : {};
+  const ok = r.status === 0 && o.decision !== 'block' && /無法記錄/.test(o.systemMessage || '');
+  console.log(`${ok ? 'PASS' : 'FAIL'}  計次檔寫不進去 → 放行並提醒`); ok ? pass++ : fail++;
+}
 
 // 壞 JSON 輸入 → 放行
 const bad = spawnSync('node', [HOOK], { input: '{not json', encoding: 'utf8' });

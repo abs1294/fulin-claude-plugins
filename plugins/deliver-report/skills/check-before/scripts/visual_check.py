@@ -88,15 +88,40 @@ def _kill_pids(pidfile):
             pass
 
 
-def _run(cmd, env=None, pidfile=None, timeout=RENDER_TIMEOUT):
+def _automation_pids(proc, since):
+    """Windows：命令列帶 /Automation -Embedding（程式呼叫啟動）、且在 since（epoch 秒）之後建立的 Office 程序。
+    只拿來「列出」可能殘留的程序給使用者看，不拿來殺——特徵證明不了是這次檢查開的（可能是別的程式同時開的）。"""
+    ps = ("Get-CimInstance Win32_Process -Filter \"Name='{}.EXE'\" | Where-Object {{ $_.CommandLine -match 'Embedding|/automation' }} | "
+          "ForEach-Object {{ '{{0}} {{1}}' -f $_.ProcessId, ([DateTimeOffset]$_.CreationDate).ToUnixTimeSeconds() }}").format(proc)
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                           capture_output=True, timeout=30, creationflags=0x08000000)
+    except Exception:
+        return []
+    out = []
+    for line in r.stdout.decode("utf-8", "replace").splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].lstrip("-").isdigit() and int(parts[1]) >= since - 2:
+            out.append(parts[0])
+    return out
+
+
+def _run(cmd, env=None, pidfile=None, timeout=RENDER_TIMEOUT, proc=None):
     kw = dict(capture_output=True, timeout=timeout, env={**os.environ, **(env or {})})
     if IS_WIN:
         kw["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+    started = time.time()
     try:
         r = subprocess.run(cmd, **kw)
     except subprocess.TimeoutExpired:
-        if pidfile:
-            _kill_pids(pidfile)
+        if pidfile and os.path.isfile(pidfile):
+            _kill_pids(pidfile)   # pidfile 裡的編號是用視窗代號查出來的，確定是這次開的
+        elif IS_WIN and proc:
+            # 卡在拿到視窗代號之前（COM 啟動、開檔對話框）：證明不了哪個程序是這次開的，寧可留著也不誤殺，只列給使用者
+            cands = _automation_pids(proc, started)
+            if cands:
+                raise RenderError("逾時 {} 秒；可能殘留程式啟動的 {}（程序 {}），確認不是別的程式在用後請手動關閉"
+                                  .format(timeout, proc, "、".join(cands)))
         raise RenderError("逾時 {} 秒".format(timeout))
     except FileNotFoundError:
         raise RenderError("找不到執行檔 {}".format(cmd[0]))
@@ -111,27 +136,48 @@ _PS_OFFICE = r"""
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[System.Text.Encoding]::UTF8
 trap { [Console]::Error.WriteLine('DR_ERR: ' + $_.Exception.Message); exit 1 }
-$proc=$env:DR_PROC
-$pre=@(Get-Process $proc -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
-$app=New-Object -ComObject $env:DR_PROGID
-$mine=@(Get-Process $proc -ErrorAction SilentlyContinue | Where-Object { $pre -notcontains $_.Id } | ForEach-Object { $_.Id })
-Set-Content -Path $env:DR_PIDFILE -Value ($mine -join ',') -Encoding ascii
+Add-Type -Namespace DrVisual -Name Win -MemberDefinition '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, out uint pid);'
+# 用視窗代號（HWND）查出 COM 物件所在的確切程序——這是唯一能「證明」哪個 Office 是這次開的方法。
+# 比對程序清單或命令列都只能推測（同時段別的程式、使用者自己開的都可能被算進來而誤關、誤殺）
+function OwnerPid($hwnd) { $o=[uint32]0; [void][DrVisual.Win]::GetWindowThreadProcessId([IntPtr][int64]$hwnd, [ref]$o); return [int]$o }
+# 本次開的＝啟動前不存在、而且是程式呼叫啟動的（命令列帶 /Automation）。後者擋掉「快照之後使用者剛好雙擊開了 PowerPoint、COM 接到它」
+function IsMine($owner) {
+  if ($owner -le 0 -or $pre -contains $owner) { return $false }
+  $c = Get-CimInstance Win32_Process -Filter "ProcessId=$owner" -ErrorAction SilentlyContinue
+  return [bool]($c -and $c.CommandLine -match '/automation|Embedding')
+}
+$pre=@(Get-Process $env:DR_PROC -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+# 建立不了 COM 物件＝這台沒裝（或沒註冊）Office：訊息要帶「沒有安裝」，呼叫端才會提示安裝而不是報「排版失敗」
+try { $app=New-Object -ComObject $env:DR_PROGID }
+catch { [Console]::Error.WriteLine('DR_ERR: 沒有安裝 ' + $env:DR_PROGID.Split('.')[0] + '（' + $_.Exception.Message + '）'); exit 1 }
+$mine=$false
+$p=$null; $d=$null
 try {
   if ($env:DR_PROGID -eq 'PowerPoint.Application') {
+    $owner=OwnerPid $app.HWND
+    # 啟動前就存在的程序＝使用者本來開著的 PowerPoint（COM 接到同一個）——不記、最後也不 Quit
+    $mine=IsMine $owner
+    if ($mine) { Set-Content -Path $env:DR_PIDFILE -Value $owner -Encoding ascii }
     # Open(檔名, ReadOnly=True, Untitled=False, WithWindow=False)；SaveAs 32 = PDF
     $p=$app.Presentations.Open($env:DR_SRC, -1, 0, 0)
     $p.SaveAs($env:DR_OUT, 32)
-    $p.Close()
   } else {
-    $app.Visible=$false; $app.DisplayAlerts=0
+    # Word 要有文件視窗才有視窗代號：先開一份空白文件判定歸屬再關掉，之後開檔失敗（例如有密碼）也知道要不要 Quit。
+    # 程式啟動的 Word 預設就不顯示，不必（也不該）去改 Visible——接到使用者的 Word 時會把它藏起來
+    $probe=$app.Documents.Add()
+    $owner=OwnerPid $probe.ActiveWindow.Hwnd
+    $probe.Close(0)
+    $mine=IsMine $owner
+    if ($mine) { Set-Content -Path $env:DR_PIDFILE -Value $owner -Encoding ascii; $app.DisplayAlerts=0 }
     # 假密碼：有密碼的文件直接失敗，不會跳出輸入密碼視窗卡到逾時
     $d=$app.Documents.Open($env:DR_SRC,$false,$true,$false,'__dr_no_password__')
     $d.ExportAsFixedFormat($env:DR_OUT, 17)
-    $d.Close(0)
   }
 } finally {
-  # 使用者本來就開著 PowerPoint 時，COM 會接到同一個程式——這時不能 Quit，否則會把使用者的簡報一起關掉
-  if ($mine.Count -gt 0) { $app.Quit() }
+  # 轉檔失敗也要關掉開過的複本：接到使用者開著的 Office 時不會 Quit，不關的話複本會一直開在使用者的程式裡
+  if ($p) { try { $p.Close() } catch {} }
+  if ($d) { try { $d.Close(0) } catch {} }
+  if ($mine) { $app.Quit() }
 }
 """
 
@@ -141,7 +187,7 @@ def render_office_win(src, out_pdf, progid, proc):
     try:
         _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _PS_OFFICE],
              env={"DR_SRC": src, "DR_OUT": out_pdf, "DR_PROGID": progid, "DR_PROC": proc, "DR_PIDFILE": pidfile},
-             pidfile=pidfile)
+             pidfile=pidfile, proc=proc)
     finally:
         try:
             os.remove(pidfile)
@@ -488,8 +534,21 @@ def pptx_structure(path):
             if s["rect"]:
                 s["rect"] = tuple(v / EMU_PER_PT for v in s["rect"])
         pics = [tuple(v / EMU_PER_PT for v in r) for r in pics]
-        slides.append({"shapes": shapes, "fonts": fonts, "pics": pics})
+        # 隱藏投影片（<p:sld show="0">）：PowerPoint 匯出 PDF 時不輸出（實測）；其他排版方式未實測，
+        # 所以不假設行為，交給 slide_map() 用張數判斷
+        slides.append({"shapes": shapes, "fonts": fonts, "pics": pics, "hidden": root.get("show") in ("0", "false")})
     return {"size": size, "slides": slides, "embedded": embedded, "theme_fonts": theme_fonts}
+
+
+def slide_map(struct, page_count):
+    """PDF 第 i 頁對應哪一張投影片。排版結果不輸出隱藏投影片，所以先比「未隱藏的張數」；
+    對不上就回 None——對錯頁會把別頁的文字、方塊拿來比，產生假的「文字被裁掉」硬缺陷。"""
+    shown = [s for s in struct["slides"] if not s["hidden"]]
+    if len(shown) == page_count:
+        return shown
+    if len(struct["slides"]) == page_count:
+        return struct["slides"]
+    return None
 
 
 # Windows 與 macOS（裝了 Office）都有的字型：沒內嵌也不會被替換
@@ -579,14 +638,22 @@ def analyze(pdf_path, src_ext, struct, out_dir, fitz, Image, ImageDraw, target=T
     bad, notes, images, hashes = [], [], [], {}
     small_pages, over_img_pages, blank_pages = [], [], []
 
-    if struct is not None and len(struct["slides"]) != doc.page_count:
-        notes.append("簡報有 {} 張投影片、排版結果 {} 頁（隱藏投影片不會輸出；逐頁對照以排版結果為準）"
-                     .format(len(struct["slides"]), doc.page_count))
+    smap = slide_map(struct, doc.page_count) if struct is not None else None
+    if struct is not None and smap is None:
+        notes.append("簡報有 {} 張投影片（{} 張隱藏）、排版結果 {} 頁，對不上哪一頁是哪一張，"
+                     "「字跑出方塊外」「文字被裁掉」「字被縮小」三項未檢查".format(
+                         len(struct["slides"]), sum(s["hidden"] for s in struct["slides"]), doc.page_count))
+    elif struct is not None and len(smap) != len(struct["slides"]):
+        notes.append("有 {} 張隱藏投影片沒有輸出，頁碼以排版結果為準（第幾張＝放映時看到的第幾張）"
+                     .format(len(struct["slides"]) - len(smap)))
 
     for pno in range(doc.page_count):
         page = doc[pno]
         label = "第 {} {}".format(pno + 1, unit)
-        pr = page.rect
+        # 用「未旋轉」的頁面範圍比對：抽出來的字座標是未旋轉的；page.rect 是旋轉後的（實測 90 度頁寬高對調）
+        pr = fitz.Rect(page.rect) * page.derotation_matrix
+        pr.normalize()
+        sl = smap[pno] if smap is not None else None
         lines = page_lines(page, fitz)
         marks = []   # (bbox, color)
 
@@ -612,24 +679,26 @@ def analyze(pdf_path, src_ext, struct, out_dir, fitz, Image, ImageDraw, target=T
             bx = ln["bbox"]
             if bx[0] < pr.x0 - EDGE_TOL or bx[1] < pr.y0 - EDGE_TOL or bx[2] > pr.x1 + EDGE_TOL or bx[3] > pr.y1 + EDGE_TOL:
                 bad.append("{} 文字超出頁面邊界：「{}」".format(label, _clip(ln["text"])))
-                marks.append(((max(bx[0], pr.x0), max(bx[1], pr.y0), min(bx[2], pr.x1), min(bx[3], pr.y1)), "red"))
+                clip = (max(bx[0], pr.x0), max(bx[1], pr.y0), min(bx[2], pr.x1), min(bx[3], pr.y1))
+                if clip[2] > clip[0] and clip[3] > clip[1]:   # 整行都在頁外時沒有可框的範圍（反向座標會讓畫框出錯）
+                    marks.append((clip, "red"))
 
         # 字太小
         for ln in lines:
             if 0 < ln["size"] < MIN_PT - 0.05:
                 small_pages.append((pno + 1, round(ln["size"], 1), ln["text"]))
         # 不是用 PowerPoint 排版時，改從檔案記錄的縮小比例推算 PowerPoint 會顯示的字級
-        if not target and struct is not None and pno < len(struct["slides"]):
-            for sh in struct["slides"][pno]["shapes"]:
+        if not target and sl is not None:
+            for sh in sl["shapes"]:
                 if sh.get("shrunk_pt") and sh["shrunk_pt"] < MIN_PT - 0.05:
                     small_pages.append((pno + 1, sh["shrunk_pt"], sh["text"] + "（PowerPoint 縮小後）"))
 
         # 文字壓在圖上（整頁背景圖不算）。
         # pptx 用簡報裡真正的圖片物件：PowerPoint 匯出時會把方塊的陰影、漸層畫成點陣圖，
         # 只看 PDF 會把「字放在有陰影的方塊上」誤報成壓在圖上（實測誤報）
-        if struct is not None and pno < len(struct["slides"]):
+        if sl is not None:
             sc = pr.width / (struct["size"][0] / EMU_PER_PT)
-            imgs = [(x * sc, y * sc, (x + w) * sc, (y + h) * sc) for x, y, w, h in struct["slides"][pno]["pics"]]
+            imgs = [(x * sc, y * sc, (x + w) * sc, (y + h) * sc) for x, y, w, h in sl["pics"]]
         else:
             try:
                 imgs = [tuple(i["bbox"]) for i in page.get_image_info()]
@@ -641,8 +710,7 @@ def analyze(pdf_path, src_ext, struct, out_dir, fitz, Image, ImageDraw, target=T
             over_img_pages.append("{}（「{}」）".format(pno + 1, _clip(cover[0]["text"], 10)))
 
         # pptx：字跑出有底色／框線的方塊；有字卻沒畫出來（被裁掉）
-        if struct is not None and pno < len(struct["slides"]):
-            sl = struct["slides"][pno]
+        if sl is not None:
             scale = pr.width / (struct["size"][0] / EMU_PER_PT)
             page_text = _norm("".join(l["text"] for l in lines))
             missing = [p for s in sl["shapes"] for p in s["paras"]
@@ -662,15 +730,20 @@ def analyze(pdf_path, src_ext, struct, out_dir, fitz, Image, ImageDraw, target=T
                     if len(nt) < 2 or nt not in st:
                         continue
                     cx = (ln["bbox"][0] + ln["bbox"][2]) / 2
-                    if not (x - EDGE_TOL <= cx <= x + w + EDGE_TOL):
+                    # 用「水平方向有重疊」認定是這個方塊的字，不用中心點：往右溢出很多的一行，
+                    # 中心點會落在方塊外而被跳過（實測 p12：行 79～500pt、方塊 72～288pt）
+                    if ln["bbox"][2] < x - EDGE_TOL or ln["bbox"][0] > x + w + EDGE_TOL:
                         continue
                     # 這一行若也屬於另一個完整裝得下它的方塊，就是那個方塊的字，不是溢出
                     owners = [o for o in boxes if o is not s and nt in _norm(o["text"])]
+                    # 「裝得下」要上下左右都包住；只看中心點時，兩個方塊有重複文字會讓真正的左右溢出被跳過
                     if any(o["rect"][1] * scale - EDGE_TOL <= ln["bbox"][1] and ln["bbox"][3] <= (o["rect"][1] + o["rect"][3]) * scale + EDGE_TOL
-                           and o["rect"][0] * scale - EDGE_TOL <= cx <= (o["rect"][0] + o["rect"][2]) * scale + EDGE_TOL
+                           and o["rect"][0] * scale - EDGE_TOL <= ln["bbox"][0] and ln["bbox"][2] <= (o["rect"][0] + o["rect"][2]) * scale + EDGE_TOL
                            for o in owners):
                         continue
-                    if ln["bbox"][3] > y + h + EDGE_TOL or ln["bbox"][1] < y - EDGE_TOL:
+                    # 上下左右都要看：不自動換行（wrap=none）的字會從方塊左右兩側跑出去
+                    if (ln["bbox"][3] > y + h + EDGE_TOL or ln["bbox"][1] < y - EDGE_TOL
+                            or ln["bbox"][2] > x + w + EDGE_TOL or ln["bbox"][0] < x - EDGE_TOL):
                         spill.append(ln)
                         marks.append((ln["bbox"], "red"))
                 if spill:
@@ -690,8 +763,13 @@ def analyze(pdf_path, src_ext, struct, out_dir, fitz, Image, ImageDraw, target=T
         if marks:
             dr = ImageDraw.Draw(img)
             for (bx, color) in marks:
-                r = [(bx[0] - pr.x0) * zoom - 3, (bx[1] - pr.y0) * zoom - 3, (bx[2] - pr.x0) * zoom + 3, (bx[3] - pr.y0) * zoom + 3]
-                dr.rectangle(r, outline=(230, 0, 0), width=3)
+                # 標記座標是未旋轉的；圖片是旋轉後畫出來的，要先轉回畫面座標
+                rr = fitz.Rect(bx) * page.rotation_matrix
+                rr.normalize()
+                r = [(rr.x0 - page.rect.x0) * zoom - 3, (rr.y0 - page.rect.y0) * zoom - 3,
+                     (rr.x1 - page.rect.x0) * zoom + 3, (rr.y1 - page.rect.y0) * zoom + 3]
+                if r[2] > r[0] and r[3] > r[1]:
+                    dr.rectangle(r, outline=(230, 0, 0), width=3)
         fn = os.path.join(out_dir, "page-{:03d}.png".format(pno + 1))
         img.save(fn)
         images.append(os.path.abspath(fn))
@@ -770,10 +848,14 @@ def main():
     i = 0
     while i < len(args):
         a = args[i]
-        if a == "--out":
-            out_dir = args[i + 1]; i += 1
-        elif a == "--engine":
-            force = args[i + 1]; i += 1
+        if a in ("--out", "--engine"):
+            if i + 1 >= len(args) or args[i + 1].startswith("--"):
+                die(2, "{} 後面要接值".format(a), as_json)   # exit 2＝沒檢查；不能掉成 exit 1（那是「有硬缺陷」）
+            if a == "--out":
+                out_dir = args[i + 1]
+            else:
+                force = args[i + 1]
+            i += 1
         elif a != "--json" and src is None:
             src = a
         i += 1
@@ -792,8 +874,18 @@ def main():
         die(2, "視覺檢查需要 PyMuPDF 與 Pillow：pip install pymupdf pillow（缺 {}）".format(e.name), as_json)
 
     if not out_dir:
+        base = os.path.join(tempfile.gettempdir(), "deliver-report-visual")
+        # 7 天前的舊輸出順手清掉（只清這個專用資料夾底下、名稱是本工具格式的子資料夾）
+        try:
+            for d in os.listdir(base):
+                p = os.path.join(base, d)
+                if re.search(r"-\d{8}-\d{6}-[0-9a-f]{6}$", d) and os.path.isdir(p) and time.time() - os.path.getmtime(p) > 7 * 86400:
+                    shutil.rmtree(p, ignore_errors=True)
+        except OSError:
+            pass
         stem = re.sub(r"[^\w\-]+", "_", os.path.splitext(os.path.basename(src))[0])[:40]
-        out_dir = os.path.join(tempfile.gettempdir(), "deliver-report-visual", "{}-{}".format(stem, time.strftime("%Y%m%d-%H%M%S")))
+        # 加亂數尾碼：同一秒檢查兩份同名檔（不同資料夾）時不會共用資料夾、互相覆蓋圖片與清單
+        out_dir = os.path.join(base, "{}-{}-{}".format(stem, time.strftime("%Y%m%d-%H%M%S"), os.urandom(3).hex()))
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
@@ -810,21 +902,33 @@ def main():
             if not engines:
                 die(2, "這台電腦不支援排版方式「{}」".format(force), as_json)
         fails = []
-        for key, name, is_target, fn in engines:
-            try:
-                if os.path.exists(pdf):
-                    os.remove(pdf)
-                fn(src, pdf)
-                if not os.path.isfile(pdf) or os.path.getsize(pdf) == 0:
-                    raise RenderError("沒有產出 PDF")
-                engine_used, target = name, is_target
-                break
-            except RenderError as e:
-                fails.append("{}：{}".format(name, e))
+        # 排版一律開「複本」：直接開原檔時，若使用者正開著同一份，Mac 的 close saving no 會連使用者的視窗一起關掉、
+        # 丟掉沒存的修改；Word 也不能同時開兩份同名文件。複本取不會撞名的檔名，放在獨立暫存資料夾，用完就刪
+        work = tempfile.mkdtemp(prefix="dr-src-")
+        copy = os.path.join(work, "dr-check-{}{}".format(os.urandom(4).hex(), ext))
+        try:
+            shutil.copy2(src, copy)
+            for key, name, is_target, fn in engines:
+                try:
+                    if os.path.exists(pdf):
+                        os.remove(pdf)
+                    fn(copy, pdf)
+                    if not os.path.isfile(pdf) or os.path.getsize(pdf) == 0:
+                        raise RenderError("沒有產出 PDF")
+                    engine_used, target = name, is_target
+                    break
+                except RenderError as e:
+                    fails.append("{}：{}".format(name, e))
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
         if not engine_used:
             hint = ("Windows 請安裝 Microsoft Office 或 LibreOffice" if IS_WIN else
                     "macOS 請安裝 Microsoft Office、Keynote 或 LibreOffice（brew install --cask libreoffice）" if IS_MAC else
                     "請安裝 LibreOffice（例如 sudo apt install libreoffice）")
+            # 軟體都在、是這份檔打不開（有密碼、損毀）時不能叫人去裝軟體
+            none_installed = all(("沒有安裝" in f) or ("找不到執行檔" in f) for f in fails)
+            if fails and not none_installed:
+                die(2, "視覺未驗證：排版失敗（{}）".format("；".join(fails)), as_json)
             die(2, "視覺未驗證：沒有可用的排版軟體（{}）。{}".format("；".join(fails) or "本機沒有支援的軟體", hint), as_json)
         if fails:
             notes_pre.append("前面的排版方式沒成功，改用 {}：{}".format(engine_used, "；".join(fails)))

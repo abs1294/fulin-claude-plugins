@@ -50,8 +50,13 @@ CASES = [
     ("p08_ghost.pptx", "報疊兩層或疊字", lambda b, n: has(b, "疊了兩層") or has(b, "疊字")),
     ("p09_multi.pptx", "第 2 張疊字、第 3 張空白", lambda b, n: has(b, "第 2 張", "疊字") and not has(b, "第 1 張") and has(n, "空白頁", "3")),
     ("p10_placeholders.pptx", "0 缺陷", lambda b, n: not b),
+    ("p11_hidden_slide.pptx", "0 缺陷（隱藏頁不能讓頁碼對錯）", lambda b, n: not b),
+    ("p12_card_wrap_none.pptx", "報字跑出方塊（左右）", lambda b, n: has(b, "跑出方塊")),
+    ("p13_hidden_false.pptx", "0 缺陷、不報對不上頁（show=\"false\" 也是隱藏）",
+     lambda b, n: not b and not has(n, "對不上")),
     ("d11_clean.docx", "0 缺陷", lambda b, n: not b),
     ("d12_tight_spacing.docx", "報疊字", lambda b, n: has(b, "疊字")),
+    ("f15_rotated.pdf", "0 缺陷（旋轉頁不能誤報超出頁面）", lambda b, n: not b),
 ]
 
 results, npass = [], 0

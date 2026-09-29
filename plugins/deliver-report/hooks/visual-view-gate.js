@@ -54,7 +54,8 @@ function main(raw) {
   if (turnRaw.indexOf('VISUAL_MANIFEST') === -1 && turnRaw.indexOf('visual-manifest.json') === -1) return allow();
 
   const manifests = new Map();   // 原始檔 → { manifest 路徑, 行號 }
-  const reads = [];              // { file: 正規化路徑, at: 行號 }
+  const reads = [];              // { id, file: 正規化路徑, at: 行號 }
+  const failedIds = new Set();   // 回傳錯誤的工具呼叫：讀圖失敗或被拒，不算看過
   for (let i = start + 1; i < lines.length; i++) {
     const l = lines[i];
     if (!l) continue;
@@ -66,9 +67,10 @@ function main(raw) {
       for (const b of c) {
         if (!b || typeof b !== 'object') continue;
         if (b.type === 'tool_use' && b.name === 'Read' && b.input && typeof b.input.file_path === 'string') {
-          reads.push({ file: norm(b.input.file_path), at: i });
+          reads.push({ id: b.id, file: norm(b.input.file_path), at: i });
         }
         if (b.type === 'tool_result') {
+          if (b.is_error === true && b.tool_use_id) failedIds.add(b.tool_use_id);
           for (const t of textsOf(b.content)) for (const m of manifestPaths(t)) addManifest(manifests, m, i);
         }
       }
@@ -86,10 +88,28 @@ function main(raw) {
   for (const { manifest, at, data } of manifests.values()) {
     const imgs = (data.images || []).filter((p) => typeof p === 'string');
     total += imgs.length;
-    const seen = new Set(reads.filter((r) => r.at > at).map((r) => r.file));
-    for (const im of imgs) if (!seen.has(norm(im))) missing.push({ src: data.file, im });
+    const seen = new Set(reads.filter((r) => r.at > at && !failedIds.has(r.id)).map((r) => r.file));
+    for (const im of imgs) {
+      // 圖檔已經不在（暫存被清掉）就不要求——要求一張讀不到的圖只會讓 session 卡住
+      if (!seen.has(norm(im)) && fileExists(im)) missing.push({ src: data.file, im });
+    }
   }
-  if (!missing.length) return allow();
+  const key = `${norm(tp)}#${start}`;   // 同一個回合＝同一份 transcript 的同一個起點
+  if (!missing.length) { saveStrikes(key, null); return allow(); }
+
+  // 退出口：同一回合連擋 3 次、沒看的張數都沒減少，就放行並提醒——Stop hook 不能讓 session 卡死
+  const prev = loadStrikes(key);
+  const strikes = prev && missing.length >= prev.missing ? prev.strikes + 1 : 0;
+  if (strikes >= 3) {
+    saveStrikes(key, null);
+    return warn(`【視覺檢查】連續 3 次提醒仍有 ${missing.length} 張畫面沒打開看過，這次先放行。` +
+      '回報時必須明講哪幾頁沒看過、那些頁的視覺檢查屬未驗證。');
+  }
+  // 計次存不下來就沒有退出口（每次都從 0 算、永遠擋）——這種環境直接放行並提醒，不冒卡死 session 的風險
+  if (!saveStrikes(key, { missing: missing.length, strikes })) {
+    return warn(`【視覺檢查】還有 ${missing.length} 張畫面沒打開看過（無法記錄提醒次數，這次不擋）。` +
+      '回報時必須明講哪幾頁沒看過、那些頁的視覺檢查屬未驗證。');
+  }
 
   const out = [`【視覺檢查】還有 ${missing.length} 張畫面沒打開看過（本回合共 ${total} 張）。`,
     '機械判定只抓得到字形互相壓到、字跑出方塊；SmartArt、圖片裡的字、文字轉外框的疊字要看圖才知道。',
@@ -97,6 +117,34 @@ function main(raw) {
   for (const m of missing.slice(0, 40)) out.push('   ' + m.im);
   if (missing.length > 40) out.push(`   …另 ${missing.length - 40} 張（同一資料夾的 page-*.png）`);
   block(out.join(NL));
+}
+
+function warn(msg) {
+  try { process.stdout.write(JSON.stringify({ systemMessage: msg }), () => process.exit(0)); } catch (_) { allow(); }
+}
+
+function fileExists(p) {
+  try { return fs.statSync(p).isFile(); } catch (_) { return false; }
+}
+
+// 連擋次數存在系統暫存資料夾（一個檔，依回合分鍵；只留最近 50 筆）。讀寫失敗 → 當作沒有紀錄（fail-open）
+// DR_VISUAL_GATE_STATE 僅供測試指定位置（例如指到寫不進去的路徑）
+const STRIKE_FILE = process.env.DR_VISUAL_GATE_STATE || path.join(require('os').tmpdir(), 'deliver-report-visual-gate.json');
+function loadStrikes(key) {
+  try { return JSON.parse(fs.readFileSync(STRIKE_FILE, 'utf8'))[key] || null; } catch (_) { return null; }
+}
+function saveStrikes(key, val) {
+  try {
+    let all = {};
+    try { all = JSON.parse(fs.readFileSync(STRIKE_FILE, 'utf8')) || {}; } catch (_) { /* 沒有舊檔 */ }
+    if (val) all[key] = val; else delete all[key];
+    const keys = Object.keys(all);
+    for (const k of keys.slice(0, Math.max(0, keys.length - 50))) delete all[k];
+    fs.writeFileSync(STRIKE_FILE, JSON.stringify(all));
+    // 寫得進去不代表讀得回來（權限只給寫、被防毒鎖讀）：讀回來比對，對不上就當作存不下來
+    const back = JSON.parse(fs.readFileSync(STRIKE_FILE, 'utf8'));
+    return JSON.stringify(back[key] === undefined ? null : back[key]) === JSON.stringify(val || null);
+  } catch (_) { return false; }   // 寫不進去：呼叫端改為放行
 }
 
 function addManifest(map, p, at) {
@@ -135,5 +183,8 @@ function isUserPromptLine(o) {
   if (o.type !== 'user' || !o.promptId) return false;
   if ('toolUseResult' in o) return false;
   if (o.isSidechain === true) return false;
+  // Stop hook 擋下後寫進 transcript 的「Stop hook feedback」行也是 type=user、有 promptId，但帶 isMeta:true。
+  // 把它當回合起點，第二次 Stop 就看不到前面的清單而直接放行——等於只擋得了一次（實測真實 transcript 確認）
+  if (o.isMeta === true) return false;
   return true;
 }

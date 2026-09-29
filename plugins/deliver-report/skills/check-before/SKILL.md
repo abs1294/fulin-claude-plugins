@@ -37,7 +37,8 @@ description: >
    在回報裡逐頁寫一句看到什麼：有沒有疊字、被切掉、空白、字擠成一團。
    - 機器只判得準「字形互相壓到」；SmartArt、圖片裡的字、文字轉外框、字壓在圖案上，只有看圖才抓得到。
    - 總覽圖 `overview.png` 只當索引，縮圖看不出細微疊字，不能代替逐張看。
-   - **Stop hook（`hooks/visual-view-gate.js`）會檢查**：清單上的每一張都要在清單印出後被 Read 過，漏看就擋下收尾。
+   - **Stop hook（`hooks/visual-view-gate.js`）會檢查**：清單上的每一張都要在清單印出後被 Read 過（讀取失敗的不算），漏看就擋下收尾。
+     圖檔已被刪掉的不要求；同一回合連擋 3 次都沒有進展會放行並提醒，這時回報必須列出哪幾頁沒看、屬未驗證。
 
 4. **人工判斷四條**（機器判不了，逐條讀過文件再下判斷，不能跳）：
    - 鐵則 1：讀者是否要兩邊對照才能做完一件事？
@@ -88,12 +89,15 @@ macOS 第一次跑會跳「允許終端機控制 PowerPoint／Keynote」，要�
 | 空白頁、重複頁 | 整頁同一顏色；兩頁畫面完全相同 | 提醒 |
 
 輸出在系統暫存資料夾的 `deliver-report-visual/<檔名>-<時間>/`：`page-NNN.png`、`overview.png`、`rendered.pdf`、`visual-manifest.json`。
-回歸測試：`python hooks/tests/visual/run_fixtures.py [--engine powerpoint|keynote|libreoffice]`（12 份測試文件，逐份對照預期）。
+回歸測試：`python hooks/tests/visual/run_fixtures.py [--engine powerpoint|keynote|libreoffice]`（16 份測試文件，逐份對照預期）。
+排版時一律開複本（暫存資料夾、不撞名的檔名），不會動到或關掉使用者正開著的原檔；只關掉、清掉用視窗代號確認是這次開的 PowerPoint／Word；逾時時若還沒拿到視窗代號（卡在啟動或開檔對話框），一律不殺，只在訊息列出可能殘留的程序編號，請使用者確認後手動關。
+排版開的是複本，簡報或文件裡用相對路徑連結的外部檔（連結的圖片、OLE 物件）在複本位置找不到，這類內容的畫面可能和原檔不同。
+隱藏投影片不會輸出，頁碼以放映時看到的順序為準；張數對不上時「字跑出方塊外」「文字被裁掉」「字被縮小」三項改記未檢查。
 
 ## 前置依賴
 
 - Node.js（掃描本體；docx／pptx 用內建 zlib 解壓，不需 PowerShell，各平台都能跑）
-- 檢查 docx 的目錄頁碼：Windows 上的 Microsoft Word（唯讀開檔、比對更新目錄前後，不存檔；約 5 秒）。沒有 Word 或非 Windows 會記「目錄頁碼未檢查」，不算通過
+- 檢查 docx 的目錄頁碼：Windows 上的 Microsoft Word（唯讀開檔、比對更新目錄前後，不存檔；約 5 秒）。沒有 Word 或非 Windows 時記成提醒「目錄頁碼未檢查（此項屬未驗證）」——腳本不會因此 exit 非 0，回報時要列進「這次沒檢查到的」，不可說目錄已檢查
 - 檢查 pdf 的文字：Python 3 與 `pypdf`（`pip install pypdf`）
 - 視覺檢查：Python 3、`pip install pymupdf pillow`，加上排版軟體（見上表）
 

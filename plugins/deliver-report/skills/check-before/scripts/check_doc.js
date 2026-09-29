@@ -92,7 +92,9 @@ if (wantVisual) {
   const { spawnSync } = require('child_process');
   const script = path.join(__dirname, 'visual_check.py');
   let ran = null;
-  for (const exe of ['python', 'python3', 'py']) {
+  // DR_VISUAL_PYTHON：指定 Python 執行檔（測試「找不到 python」時用；平常不必設）
+  const pys = process.env.DR_VISUAL_PYTHON ? [process.env.DR_VISUAL_PYTHON] : ['python', 'python3', 'py'];
+  for (const exe of pys) {
     const p = spawnSync(exe, [script, file, '--json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true,
       timeout: 15 * 60 * 1000 });
     if (p.error && p.error.code === 'ENOENT') continue;

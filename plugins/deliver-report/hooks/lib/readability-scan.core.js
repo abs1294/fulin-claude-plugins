@@ -347,7 +347,8 @@ function openZip(file) {
       const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
       const data = buf.subarray(start, start + csize);
       if (method === 0) return Buffer.from(data);
-      if (method === 8) return zlib.inflateRawSync(data);
+      // 解壓上限 256MB：Stop hook 會掃目錄裡的 docx，異常的 zip 不能一次吃光記憶體（超過就丟例外＝讀不到）
+      if (method === 8) return zlib.inflateRawSync(data, { maxOutputLength: 256 * 1024 * 1024 });
       throw new Error(`不支援的壓縮方式 ${method}`);
     });
     p += 46 + nameLen + extraLen + cmtLen;
@@ -358,7 +359,19 @@ function openZip(file) {
 function readZipText(file, name) {
   const z = openZip(file);
   if (!z || !z.has(name)) return null;
-  try { return z.get(name)().toString('utf8'); } catch (_) { return null; }
+  try { return decodeXml(z.get(name)()); } catch (_) { return null; }
+}
+
+// XML 可以是 UTF-16（開頭有 BOM）；舊的 PowerShell 讀法會自動辨識 BOM，換成 Node 後要自己處理
+function decodeXml(b) {
+  if (b.length >= 2 && b[0] === 0xff && b[1] === 0xfe) return b.subarray(2).toString('utf16le');
+  if (b.length >= 2 && b[0] === 0xfe && b[1] === 0xff) {
+    const le = Buffer.from(b.subarray(2));
+    for (let i = 0; i + 1 < le.length; i += 2) { const t = le[i]; le[i] = le[i + 1]; le[i + 1] = t; }
+    return le.toString('utf16le');
+  }
+  if (b.length >= 3 && b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) return b.subarray(3).toString('utf8');
+  return b.toString('utf8');
 }
 
 // ---------- 讀 docx 的 document.xml ----------
@@ -372,7 +385,7 @@ function readDocXml(file) {
 function readPptxSlides(file) {
   const z = openZip(file);
   if (!z) return null;
-  const txt = (n) => { try { return z.has(n) ? z.get(n)().toString('utf8') : null; } catch (_) { return null; } };
+  const txt = (n) => { try { return z.has(n) ? decodeXml(z.get(n)()) : null; } catch (_) { return null; } };
   const pres = txt('ppt/presentation.xml');
   const rels = txt('ppt/_rels/presentation.xml.rels');
   if (!pres || !rels) return null;
@@ -389,7 +402,10 @@ function readPptxSlides(file) {
     if (!t) continue;
     const xml = txt(path.posix.normalize(path.posix.join('ppt', t.replace(/^\//, '').replace(/^ppt\//, ''))));
     if (!xml) continue;
-    const paras = [...xml.matchAll(/<a:p\b(?:(?!<\/a:p>).)*?<\/a:p>|<a:p\/>/gs)]
+    // 空段落 <a:p/> 要先比對：放在後面時第一個分支會從 <a:p/> 一路吞到下一段的 </a:p>，兩段併成一段。
+    // 隱藏投影片（show="0"）照樣掃：它還在交付的檔案裡，對方取消隱藏就看得到（視覺檢查不輸出隱藏頁是另一回事）
+    // 自閉合要涵蓋 <a:p/> 與 <a:p />、<a:p attr="x"/>；一般段落的開頭標籤結尾不能是 "/>"
+    const paras = [...xml.matchAll(/<a:p(?:\s[^>]*)?\/>|<a:p(?:\s[^>]*)?(?<!\/)>(?:(?!<\/a:p>).)*?<\/a:p>/gs)]
       .map((p) => decodeEntities([...p[0].matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((x) => x[1]).join('')));
     out.push({ slide: i, paras });
   }

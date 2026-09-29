@@ -129,22 +129,54 @@ s.shapes.title.text = "使用內建版面配置的標題"
 s.placeholders[1].text = "第一點\n第二點\n第三點"
 p.save(os.path.join(out, "p10_placeholders.pptx"))
 
+# 11 中間夾一張隱藏投影片（PowerPoint 不輸出隱藏頁；頁碼要對到未隱藏的投影片，必須不報）
+p = deck()
+s = p.slides.add_slide(p.slide_layouts[6]); box(s, 1, 1, 10, 1, "第一張正常投影片", 28)
+s = p.slides.add_slide(p.slide_layouts[6]); box(s, 1, 1, 10, 1, "這一張是隱藏投影片的內容", 28)
+s._element.set("show", "0")
+s = p.slides.add_slide(p.slide_layouts[6]); box(s, 1, 1, 10, 1, "第三張正常投影片", 28)
+p.save(os.path.join(out, "p11_hidden_slide.pptx"))
+
+# 11b 同上，但隱藏寫成 show="false"（XML 布林值的另一種合法寫法，必須同樣不報）
+p = deck()
+s = p.slides.add_slide(p.slide_layouts[6]); box(s, 1, 1, 10, 1, "第一張正常投影片", 28)
+s = p.slides.add_slide(p.slide_layouts[6]); box(s, 1, 1, 10, 1, "這一張是隱藏投影片的內容", 28)
+s._element.set("show", "false")
+s = p.slides.add_slide(p.slide_layouts[6]); box(s, 1, 1, 10, 1, "第三張正常投影片", 28)
+p.save(os.path.join(out, "p13_hidden_false.pptx"))
+
+# 12 有底色的方塊裡一行不換行的長字，從方塊右側跑出去（必須報字跑出方塊外）
+p = deck(); s = p.slides.add_slide(p.slide_layouts[6])
+c = card(s, 1, 1, 3, 1, "這一行字不會自動換行所以會從方塊右邊跑出去", 20)
+c.text_frame.word_wrap = False
+p.save(os.path.join(out, "p12_card_wrap_none.pptx"))
+
 # ---- docx ----
 from docx import Document
 from docx.shared import Pt as DPt
 
-# 11 docx 乾淨（必須全綠）
+# 13 docx 乾淨（必須全綠）
 d = Document()
 d.add_heading("系統說明", 1)
 for k in range(8):
     d.add_paragraph("第 {} 段說明文字，內容正常、行距正常，不應該被判為疊字。".format(k + 1) * 3)
 d.save(os.path.join(out, "d11_clean.docx"))
 
-# 12 docx 行距固定值太小：12pt 的字設固定行距 6pt，上下行互相壓到（必須報疊字）
+# 14 docx 行距固定值太小：12pt 的字設固定行距 6pt，上下行互相壓到（必須報疊字）
 d = Document()
 para = d.add_paragraph("行距設得太小的段落，" * 30)
 para.paragraph_format.line_spacing = DPt(6)
 for r in para.runs:
     r.font.size = DPt(12)
 d.save(os.path.join(out, "d12_tight_spacing.docx"))
+# ---- pdf ----
+import fitz
+
+# 15 旋轉 90 度的頁面，字在未旋轉座標的右側（x=320，未旋轉寬 400、旋轉後寬 300）；必須不報超出頁面
+d = fitz.open()
+pg = d.new_page(width=400, height=300)
+pg.insert_text((320, 100), "right", fontsize=14)
+pg.insert_text((50, 200), "rotated page body text", fontsize=14)
+pg.set_rotation(90)
+d.save(os.path.join(out, "f15_rotated.pdf"))
 print("fixtures ->", os.path.abspath(out))
