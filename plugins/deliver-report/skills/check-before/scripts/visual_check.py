@@ -451,12 +451,22 @@ def pptx_structure(path):
                             g = (lay_idx.get(k[1]) or lay_type.get(k[0]) or mas_idx.get(k[1]) or mas_type.get(k[0]))
                     bp = body.find("a:bodyPr", NS)
                     vert = bp is not None and bp.get("vert", "horz") not in ("horz",)
+                    # 「溢出時縮小文字」記在檔案裡的縮小比例：PowerPoint 開檔照這個比例顯示，
+                    # LibreOffice 會自己重算（實測同一份 35% 的簡報，PowerPoint 6.96pt、LibreOffice 11pt）
+                    shrunk = None
+                    na = bp.find("a:normAutofit", NS) if bp is not None else None
+                    if na is not None and na.get("fontScale"):
+                        ratio_ = int(na.get("fontScale")) / 100000.0
+                        szs = [int(r.get("sz")) / 100.0 for r in body.iter("{%s}rPr" % NS["a"]) if r.get("sz")]
+                        if szs:
+                            shrunk = round(min(szs) * ratio_, 1)
                     shapes.append({
                         "rect": tf(*g[:4]) if g else None,
                         "rotated": bool(g and g[4]) or vert,
                         "text": text,
                         "visible_box": _has_visible_box(el),
                         "paras": [p for p in text.split("\n") if _norm(p)],
+                        "shrunk_pt": shrunk,
                     })
                 elif tag == "pic":
                     spPr = el.find("p:spPr", NS)
@@ -562,7 +572,7 @@ def _clip(s, n=14):
     return s if len(s) <= n else s[:n] + "…"
 
 
-def analyze(pdf_path, src_ext, struct, out_dir, fitz, Image, ImageDraw):
+def analyze(pdf_path, src_ext, struct, out_dir, fitz, Image, ImageDraw, target=True):
     fitz.TOOLS.set_small_glyph_heights(True)   # 字形外框用字級高度，不含行距留白——否則相鄰兩行會互相「重疊」
     doc = fitz.open(pdf_path)
     unit = "張投影片" if src_ext == ".pptx" else "頁"
@@ -608,6 +618,11 @@ def analyze(pdf_path, src_ext, struct, out_dir, fitz, Image, ImageDraw):
         for ln in lines:
             if 0 < ln["size"] < MIN_PT - 0.05:
                 small_pages.append((pno + 1, round(ln["size"], 1), ln["text"]))
+        # 不是用 PowerPoint 排版時，改從檔案記錄的縮小比例推算 PowerPoint 會顯示的字級
+        if not target and struct is not None and pno < len(struct["slides"]):
+            for sh in struct["slides"][pno]["shapes"]:
+                if sh.get("shrunk_pt") and sh["shrunk_pt"] < MIN_PT - 0.05:
+                    small_pages.append((pno + 1, sh["shrunk_pt"], sh["text"] + "（PowerPoint 縮小後）"))
 
         # 文字壓在圖上（整頁背景圖不算）。
         # pptx 用簡報裡真正的圖片物件：PowerPoint 匯出時會把方塊的陰影、漸層畫成點陣圖，
@@ -827,9 +842,17 @@ def main():
             notes_pre.append("讀不到簡報結構（{}），「字跑出方塊外」「文字被裁掉」「字型」三項未檢查".format(type(e).__name__))
 
     try:
-        res = analyze(pdf, ext, struct, out_dir, fitz, Image, ImageDraw)
+        res = analyze(pdf, ext, struct, out_dir, fitz, Image, ImageDraw, target)
     except Exception as e:
         die(2, "排版結果讀取失敗（{}: {}）".format(type(e).__name__, str(e)[:160]), as_json)
+    # 非原生排版（LibreOffice、Keynote）：疊字、字跑出方塊、超出頁面都取決於換行位置，
+    # 而換行跟字寬走——實測兩份真實簡報在 PowerPoint 0 處、在 LibreOffice 各多 6～7 處（標題最後一個字被擠到下一行）。
+    # 所以全部降為提醒，請使用者在原生軟體確認；紅框照畫、圖照樣要逐張看。
+    if not target:
+        app = "PowerPoint" if ext == ".pptx" else "Word"
+        res["notes"] = ["【{} 排版下的問題，{} 可能正常，請在 {} 確認】{}".format(engine_used, app, app, b)
+                        for b in res["bad"]] + res["notes"]
+        res["bad"] = []
     res["notes"] = notes_pre + res["notes"]
     manifest = {
         "file": src, "engine": engine_used, "target_software": target, "out_dir": os.path.abspath(out_dir),

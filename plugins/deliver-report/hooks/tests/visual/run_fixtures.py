@@ -72,7 +72,13 @@ for name, want, judge in CASES:
     if not j.get("ok"):
         ok, got = False, "無法執行：" + str(j.get("error"))
     else:
-        ok = judge(j["bad"], j["notes"])
+        # 非原生排版會把版面缺陷降為提醒（標「可能正常，請在…確認」）；對照預期時當成缺陷看
+        demoted = [n.split("】", 1)[1] for n in j["notes"] if "可能正常，請在" in n]
+        others = [n for n in j["notes"] if "可能正常，請在" not in n]
+        if j.get("target_software") is False and j["bad"]:
+            ok = False   # 非原生排版不該再有硬缺陷
+        else:
+            ok = judge(j["bad"] + demoted, others)
         got = "；".join(j["bad"] + ["（提醒）" + x for x in j["notes"]]) or "0 缺陷、0 提醒"
     npass += ok
     results.append({"file": name, "want": want, "pass": ok, "engine": j.get("engine"), "seconds": round(time.time() - t0, 1),
