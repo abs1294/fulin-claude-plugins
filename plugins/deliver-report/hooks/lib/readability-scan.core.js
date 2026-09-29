@@ -6,7 +6,7 @@
  *   skills/check-before/scripts/check_doc.js   CLI：四個 subskill 的交付前自檢步驟都呼叫它，
  *                                              使用者也可用 check-before 點名任一份檔案
  * 兩個入口：scan(docx, minParas) 是 hook 的原始 docx 路徑（行為不變）；
- *          scanFile(任意格式) 另加九項必掃中的第 4、8 項與 Markdown 標題編號。
+ *          scanFile(任意格式) 另加十項必掃中的第 4、8、10 項（目錄頁碼只在 docx 有目錄時跑）與 Markdown 標題編號。
  * 依據：references/document-readability.md
  */
 const fs = require('fs');
@@ -29,7 +29,11 @@ function loadBanned() {
       if (key.startsWith('_')) continue;
       const g = j[key];
       if (!g || !Array.isArray(g.applies_to) || !g.applies_to.includes('docx')) continue;
-      for (const src of g.patterns || []) {
+      // patterns 與 subgroups 兩種寫法都要讀（content_guard.py 兩種都吃；只讀 patterns 會讓
+      // subgroups 寫法的組整組靜默失效——曾因此以為某個字「不在清單裡」）
+      const srcs = [...(g.patterns || [])];
+      for (const pats of Object.values(g.subgroups || {})) srcs.push(...pats);
+      for (const src of srcs) {
         // (?i) 前綴轉成 JS 的 i flag（JS 不支援行內 (?i)）
         let flags = 'g', body = src;
         if (body.startsWith('(?i)')) { body = body.slice(4); flags += 'i'; }
@@ -37,12 +41,91 @@ function loadBanned() {
         catch (_) { /* 單一 pattern 壞掉 → 略過該條，不影響其餘 */ }
       }
     }
+    for (const re of harvestLocalAiNames()) groups.push({ key: 'ai_tool_names', label: 'AI 工具名稱', re, harvested: true });
     const lits = (j.revision_history && j.revision_history.literals) || fallback.literals;
     return { literals: lits, groups };
   } catch (_) {
     return fallback;   // 讀不到就用內建，維持原有行為
   }
 }
+
+// 命中時要遮蔽值的組：只有機密。其餘組（AI 名稱、敬稱…）印原文，否則看不出要改哪個字
+const MASK_KEYS = new Set(['credentials', 'pii']);
+
+/**
+ * 本機 AI 工具名稱自動蒐集——新裝的 AI 工具不必手動加進禁用清單。
+ * 來源（全部 fail-open：讀不到就略過該來源）：
+ *   1. Claude Code 已安裝的 plugin、marketplace、MCP 伺服器名稱：這些本身就是我方工具鏈，
+ *      但只收「含連字號或數字、至少 5 字元」的名稱（deliver-report、openai-codex、figma-remote-mcp）。
+ *      單字名稱（figma、harness、playwright）在一般文件會正常出現，不收——品牌族規則另外涵蓋 AI 品牌單字。
+ *   2. 全域 npm 套件：描述或關鍵字標明是 AI／LLM／agent 類的，收它的指令名稱與套件名
+ *      （@openai/codex → codex；@fission-ai/openspec → openspec），不看描述的一般工具（playwright、typescript）不收。
+ * 比對不分大小寫、以「前後不是英數字或連字號」為邊界。
+ */
+function harvestLocalAiNames() {
+  const home = require('os').homedir();
+  const names = new Set();
+  const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; } };
+  const distinctive = (n) => typeof n === 'string' && n.length >= 5 && /[-0-9]/.test(n) && /^[\w.-]+$/.test(n);
+
+  const inst = readJson(path.join(home, '.claude', 'plugins', 'installed_plugins.json'));
+  for (const id of Object.keys((inst && (inst.plugins || inst)) || {})) {
+    for (const part of String(id).split('@')) if (distinctive(part)) names.add(part);
+  }
+  const mkts = readJson(path.join(home, '.claude', 'plugins', 'known_marketplaces.json'));
+  for (const n of Object.keys(mkts || {})) if (distinctive(n)) names.add(n);
+  const cj = readJson(path.join(home, '.claude.json'));
+  if (cj) {
+    for (const n of Object.keys(cj.mcpServers || {})) if (distinctive(n)) names.add(n);
+    for (const pj of Object.values(cj.projects || {})) for (const n of Object.keys((pj && pj.mcpServers) || {})) if (distinctive(n)) names.add(n);
+  }
+  // 專案層級的 .mcp.json（從目前目錄往上找到 repo 根為止；專案內設定的 MCP 不會出現在 ~/.claude.json）
+  for (let dir = process.cwd(), i = 0; i < 8; i++) {
+    const mj = readJson(path.join(dir, '.mcp.json'));
+    if (mj) for (const n of Object.keys(mj.mcpServers || {})) if (distinctive(n)) names.add(n);
+    if (fs.existsSync(path.join(dir, '.git'))) break;
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+
+  const AI_SIGNAL = /\b(?:ai|llm|gpt|openai|anthropic|claude|gemini|copilot|agent|agentic|mcp)\b|AI-native/i;
+  // 全域 npm 的常見位置都看（不執行 npm root -g：要多花數百毫秒，Stop hook 每次都會跑到）
+  //   Windows 預設 %APPDATA%\npm；自訂 prefix（npm_config_prefix）；
+  //   macOS／Linux 與 nvm：node 執行檔所在的 <prefix>/lib/node_modules；Windows 安裝版：<node 目錄>/node_modules
+  const nodeDir = path.dirname(process.execPath);
+  const prefix = process.env.npm_config_prefix || process.env.NPM_CONFIG_PREFIX;
+  const npmRoots = [...new Set([
+    process.env.APPDATA && path.join(process.env.APPDATA, 'npm', 'node_modules'),
+    prefix && path.join(prefix, 'node_modules'),
+    prefix && path.join(prefix, 'lib', 'node_modules'),
+    path.join(nodeDir, '..', 'lib', 'node_modules'),
+    path.join(nodeDir, 'node_modules'),
+    path.join(home, '.npm-global', 'lib', 'node_modules'),
+  ].filter(Boolean).map((p) => path.resolve(p)))];
+  const pkgDirs = [];
+  for (const npmRoot of npmRoots) {
+    let top = [];
+    try { top = fs.readdirSync(npmRoot); } catch (_) { continue; /* 這個位置沒有 */ }
+    for (const d of top) {
+      if (d.startsWith('@')) { try { for (const s of fs.readdirSync(path.join(npmRoot, d))) pkgDirs.push(path.join(npmRoot, d, s)); } catch (_) { /* 略過 */ } }
+      else pkgDirs.push(path.join(npmRoot, d));
+    }
+  }
+  for (const d of pkgDirs) {
+    const pj = readJson(path.join(d, 'package.json'));
+    if (!pj) continue;
+    const meta = [pj.description || '', ...(pj.keywords || [])].join(' ');
+    if (!AI_SIGNAL.test(meta)) continue;
+    const bins = typeof pj.bin === 'string' ? [String(pj.name).split('/').pop()] : Object.keys(pj.bin || {});
+    for (const b of bins) if (typeof b === 'string' && b.length >= 4 && /^[\w.-]+$/.test(b)) names.add(b);
+    if (String(pj.name).startsWith('@')) names.add(String(pj.name));
+  }
+
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  return [...names].map((n) => new RegExp(`(?<![A-Za-z0-9_-])${esc(n)}(?![A-Za-z0-9_-])`, 'gi'));
+}
+
 const BANNED = loadBanned();
 
 // ---------- 掃描單一 .docx ----------
@@ -73,6 +156,7 @@ function scanText(text, docx) {
   // 交付文件同樣會夾帶：截圖說明、資料修正紀錄、參數對照表都是常見落點。
   // 命中一律遮蔽值本身再回報——訊息會出現在終端機，不該把憑證再印一次。
   const honorifics = [];   // 敬稱命中集中收集，最後併成一行（每條 pattern 各自成 group）
+  const plainHits = new Map();   // 不遮蔽的組（AI 名稱…）：同組命中併成一行，原文照印
   for (const g of BANNED.groups) {
     let m;
     g.re.lastIndex = 0;
@@ -90,10 +174,18 @@ function scanText(text, docx) {
       if (g.key === 'formal_honorifics') {
         // 只提醒不擋：詞邊界問題會誤判（貴司機／成本中心／本司法），見檔頭說明。
         honorifics.push(...raw);
-      } else {
+      } else if (MASK_KEYS.has(g.key)) {
         bad.push(`${g.label}：疑似 ${hits.join('、')}（已遮蔽，請確認是否該出現在交付文件）`);
+      } else {
+        if (!plainHits.has(g.label)) plainHits.set(g.label, new Set());
+        for (const v of raw) plainHits.get(g.label).add(v);
       }
     }
+  }
+  for (const [label, set] of plainHits) {
+    const seen = new Map();   // 同一個字只差大小寫（Claude／claude）只列一次
+    for (const v of set) if (!seen.has(v.toLowerCase())) seen.set(v.toLowerCase(), v);
+    bad.push(`${label}：${[...seen.values()].join('、')}（對外文件不得出現，請改寫或刪除）`);
   }
 
   // ---- 鐵則 3：小數點式編號 ----
@@ -238,7 +330,8 @@ function readDocXml(file) {
       `$r.ReadToEnd();$r.Close();$z.Dispose()`;
     const psFull = `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;` + ps;
     const buf = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', psFull],
-      { maxBuffer: 64 * 1024 * 1024, timeout: 12000, windowsHide: true });
+      // 錯誤訊息收起來不印：讀不到就回 null，由呼叫端講「讀不到」，不把 PowerShell 原始錯誤灑在畫面上
+      { maxBuffer: 64 * 1024 * 1024, timeout: 12000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const s = buf.toString('utf8');
     return s.includes('<w:p') ? s : null;
   } catch (_) { return null; }
@@ -293,7 +386,8 @@ function pdfToLines(f) {
   ].join(NL);
   for (const exe of ['python', 'python3', 'py']) {
     try {
-      const out = execFileSync(exe, ['-c', py, f], { maxBuffer: 64 * 1024 * 1024, timeout: 60000, windowsHide: true });
+      const out = execFileSync(exe, ['-c', py, f], { maxBuffer: 64 * 1024 * 1024, timeout: 60000, windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'] });   // 錯誤收進 e.stderr，下面組成一行訊息，不直接印到畫面
       return out.toString('utf8').split(/\r?\n/);
     } catch (e) {
       if (e.code === 'ENOENT') continue;
@@ -307,13 +401,13 @@ function pdfToLines(f) {
 function maskSecrets(s) {
   let out = s;
   for (const g of BANNED.groups) {
-    if (g.key === 'formal_honorifics') continue;   // 敬稱不是機密
+    if (!MASK_KEYS.has(g.key)) continue;   // 只遮機密；AI 名稱、敬稱不是機密
     out = out.replace(new RegExp(g.re.source, g.re.flags), '［已遮蔽］');
   }
   return out;
 }
 
-// 九項必掃裡 hook 原本沒跑的三項（第 4、8 項＋Markdown 標題編號）
+// 十項必掃裡 Stop hook 不跑的項目（第 4、8 項＋Markdown 標題編號；第 10 項目錄頁碼在 scanFile 另外跑）
 function extraChecks(text, mdSource) {
   const bad = [], notes = [];
 
@@ -377,7 +471,7 @@ function extraChecks(text, mdSource) {
 }
 
 /**
- * 掃一份檔案（docx／md／txt／pdf），跑九項必掃中機器判得了的全部項目。
+ * 掃一份檔案（docx／md／txt／pdf），跑十項必掃中機器判得了的全部項目。
  * 讀不到內容 → 丟 ReadError（hook 端接住放行；check-before 端明講讀不到）。
  * 回傳 { file, ext, paragraphs, bad, notes }。
  */
@@ -393,6 +487,14 @@ function scanFile(file) {
     // 空白或只有圖片（例如掃描檔轉成的 docx）＝沒有可掃的文字，不可回報通過
     if (!text.some(t => t.trim())) throw new ReadError('docx 沒有可讀的文字（空白或只有圖片）');
     result = scanText(text, { paras, xml });
+    // 有目錄欄位才開 Word 檢查頁碼（開 Word 要數秒；Stop hook 走 scan() 不跑這項，避免逾時）
+    if (/<w:instrText[^>]*>\s*TOC\b|w:instr="\s*TOC\b/.test(xml)) {
+      const toc = checkToc(file);
+      if (toc.error) result.notes.push(`目錄頁碼未檢查：${toc.error}（此項屬未驗證）`);
+      else if (toc.stale.length) result.bad.push(`目錄未更新：${toc.stale.slice(0, 4).join('；')}` +
+        `${toc.stale.length > 4 ? `；另 ${toc.stale.length - 4} 處` : ''}` +
+        `（在目錄上按右鍵 → 更新功能變數 → 更新整個目錄）`);
+    }
   } else {
     if (ext === '.pdf') text = pdfToLines(file);
     else {
@@ -412,8 +514,117 @@ function scanFile(file) {
   };
 }
 
+/**
+ * 目錄是否過期：用 Word 唯讀開檔，比對「更新目錄前」與「更新目錄後」的內容，不存檔。
+ * 用 Word 自己的排版與目錄邏輯判斷——頁碼、改過名的標題、新增或刪掉的標題都涵蓋，不必自己推算分頁。
+ * 回傳 { stale: [差異說明…] } 或 { error: '原因' }（沒有 Word、開檔失敗等；呼叫端記為未驗證）。
+ */
+function checkToc(file) {
+  if (process.platform !== 'win32') return { error: '需要 Windows 與 Microsoft Word' };
+  const pidFile = path.join(require('os').tmpdir(), `dr-toc-${process.pid}-${Date.now()}.pid`);
+  const ps = [
+    "$ErrorActionPreference='Stop'",
+    '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8',
+    // 記下「這支腳本啟動的」WINWORD 程序：逾時被砍時由 Node 端只清掉這一個，不碰使用者自己開的 Word
+    '$pre=@(Get-Process WINWORD -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })',
+    '$w=New-Object -ComObject Word.Application',
+    '$mine=@(Get-Process WINWORD -ErrorAction SilentlyContinue | Where-Object { $pre -notcontains $_.Id } | ForEach-Object { $_.Id })',
+    'Set-Content -Path $env:DR_TOC_PIDFILE -Value ($mine -join ",") -Encoding ascii',
+    '$w.Visible=$false; $w.DisplayAlerts=0',
+    'try {',
+    // 參數依序：檔名、ConfirmConversions、ReadOnly、AddToRecentFiles、PasswordDocument。
+    // 假密碼：有密碼的文件直接開檔失敗，不會跳出輸入密碼視窗卡到逾時（沒密碼的文件會忽略這個值）
+    "  $d=$w.Documents.Open($env:DR_TOC_FILE,$false,$true,$false,'__dr_no_password__')",
+    '  $res=@()',
+    '  foreach($t in $d.TablesOfContents){ $b=$t.Range.Text; $t.Update(); $a=$t.Range.Text; $res+=[pscustomobject]@{before=$b;after=$a} }',
+    '  $d.Close(0)',
+    '} finally { $w.Quit() }',
+    'ConvertTo-Json -InputObject @($res) -Compress',
+  ].join(NL);
+  let out;
+  try {
+    out = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps],
+      { env: { ...process.env, DR_TOC_FILE: path.resolve(file), DR_TOC_PIDFILE: pidFile },
+        stdio: ['ignore', 'pipe', 'pipe'],   // PowerShell 的錯誤訊息收進 e.stderr，不直接印到畫面弄亂輸出
+        maxBuffer: 16 * 1024 * 1024, timeout: Number(process.env.DR_TOC_TIMEOUT_MS) || 90000,   // 環境變數僅供測試逾時清理
+        windowsHide: true }).toString('utf8').trim();
+  } catch (e) {
+    // 逾時或失敗：PowerShell 的 finally 不保證跑到，補砍這支腳本自己啟動的 Word
+    try {
+      for (const pid of fs.readFileSync(pidFile, 'ascii').split(',').map((s) => s.trim()).filter((s) => /^\d+$/.test(s))) {
+        try { execFileSync('taskkill', ['/PID', pid, '/F'], { windowsHide: true, stdio: 'ignore' }); } catch (_) { /* 已結束 */ }
+      }
+    } catch (_) { /* 沒有 pid 檔：Word 還沒啟動就失敗 */ }
+    const why = e.code === 'ETIMEDOUT' || e.signal ? `逾時 ${Math.round((Number(process.env.DR_TOC_TIMEOUT_MS) || 90000) / 1000)} 秒`
+      : (String(e.stderr || '').trim() || String(e.message)).split(/\r?\n/)[0].slice(0, 80);
+    return { error: `無法用 Word 開啟（${why}）` };
+  } finally {
+    try { fs.unlinkSync(pidFile); } catch (_) { /* 略過 */ }
+  }
+  let tocs;
+  try { tocs = JSON.parse(out); } catch (_) { return { error: 'Word 回傳內容無法解析' }; }
+  // 依目錄條目的順序比對，不用標題當鍵：報告常有同名標題（多個「測試結果」），當鍵會互相覆蓋而漏報
+  const entries = (txt) => {
+    const arr = [];
+    for (const line of String(txt || '').split(/\r|\n/)) {
+      const i = line.lastIndexOf('\t');
+      if (i > 0) arr.push([line.slice(0, i).trim(), line.slice(i + 1).trim()]);
+    }
+    return arr;
+  };
+  const stale = [];
+  for (const t of tocs) {
+    const b = entries(t.before), a = entries(t.after);
+    if (b.length === a.length) {
+      for (let i = 0; i < b.length; i++) {
+        if (b[i][0] !== a[i][0]) stale.push(`第 ${i + 1} 條目錄「${b[i][0]}」與正文標題「${a[i][0]}」不一致`);
+        else if (b[i][1] !== a[i][1]) stale.push(`「${b[i][0]}」目錄寫第 ${b[i][1]} 頁、實際第 ${a[i][1]} 頁`);
+      }
+    } else {
+      // 條目數不同：用「標題出現次數」比出多的與少的
+      const count = (arr) => arr.reduce((m, [x]) => m.set(x, (m.get(x) || 0) + 1), new Map());
+      const cb = count(b), ca = count(a);
+      stale.push(`目錄 ${b.length} 條、正文標題 ${a.length} 個`);
+      for (const [x, n] of cb) if (n > (ca.get(x) || 0)) stale.push(`「${x}」目錄有、正文找不到（標題改過名或刪掉了）`);
+      for (const [x, n] of ca) if (n > (cb.get(x) || 0)) stale.push(`「${x}」正文有、目錄沒列`);
+    }
+  }
+  // 標題原文會印到畫面：先遮蔽憑證／個資，不把其他掃描已遮蔽的值再印一次
+  return { stale: stale.map(maskSecrets) };
+}
+
+/**
+ * 規則載入完整性：規則檔裡「套用在 docx 的規則」有幾條，實際載入了幾條。
+ * 用和 loadBanned() 不同的算法數——走訪整個組的結構、收集所有字串陣列（不管是 patterns、
+ * subgroups 還是將來的新寫法），只排除 applies_to／literals／note。
+ * 由來：loadBanned() 曾只讀 patterns，subgroups 寫法的組整組靜默漏載一個月；
+ * 測試全都用同一個讀取函式驗證，所以對它的盲區完全看不見。
+ */
+function ruleCoverage() {
+  let j;
+  try {
+    j = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'references', 'banned-patterns.json'), 'utf8'));
+  } catch (e) {
+    return { ok: false, expected: null, loaded: 0, reason: '規則檔讀不到或格式錯誤：' + e.message };
+  }
+  let expected = 0;
+  const walk = (v, keyName) => {
+    if (['applies_to', 'literals', 'note', 'label'].includes(keyName)) return;
+    if (Array.isArray(v)) { for (const x of v) if (typeof x === 'string') expected++; else walk(x); }
+    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, k);
+  };
+  for (const [key, g] of Object.entries(j)) {
+    if (key.startsWith('_') || !g || !Array.isArray(g.applies_to) || !g.applies_to.includes('docx')) continue;
+    walk(g);
+  }
+  const loaded = BANNED.groups.filter((g) => !g.harvested).length;
+  return { ok: expected === loaded, expected, loaded,
+           reason: expected === loaded ? '' : `規則檔有 ${expected} 條套用在文件的規則，只載入了 ${loaded} 條` };
+}
+
 module.exports = {
+  ruleCoverage,
   BANNED, SUPPORTED, ReadError,
   scan, scanText, scanFile, extraChecks, mdToLines, pdfToLines,
-  checkStyle, checkTables, readDocXml, strip,
+  checkStyle, checkTables, checkToc, harvestLocalAiNames, readDocXml, strip,
 };

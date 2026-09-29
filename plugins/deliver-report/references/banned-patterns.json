@@ -1,13 +1,14 @@
 {
   "_readme": [
     "對外產物的禁用樣式，單一事實來源。兩個閘各自讀這一份，改一次兩邊生效：",
-    "  - hooks/doc-readability-gate.js（Node，Stop hook，掃 .docx）",
+    "  - hooks/lib/readability-scan.core.js（Node：Stop hook 與 check-before 的 check_doc.js 共用，掃 docx／md／pdf）",
     "  - skills/daily-report/scripts/content_guard.py（Python，寄送前，掃 .md）",
     "",
     "為什麼分組：錯誤訊息要能講出「這屬於哪一類」，使用者才知道為何被擋。",
     "為什麼不是全部共用：兩種產物該擋的東西不同（見各組的 applies_to）。",
     "  credentials / pii  → 兩邊都要（任何對外產物都不該夾帶）",
-    "  ai_toolchain       → 只有日報（測試報告本身就在講系統，禁字另有九條鐵則管）",
+    "  ai_tool_names      → 兩邊都要（AI 產品／模型名稱，品牌族寫法；本機工具另由掃描端自動蒐集）",
+    "  ai_toolchain       → 只有日報（AI、LLM、prompt、agent 等一般字眼；技術文件可能正常使用）",
     "  revision_history   → 只有文件（易讀性鐵則 5；日報是當日快照，無此問題）",
     "  formal_honorifics  → 兩邊都要，但**只提醒不擋**（易讀性鐵則 14；中文無詞邊界會誤判，見該組 note）",
     "",
@@ -16,10 +17,12 @@
     "  - Python 端載入時直接餵給 re.compile，不做轉換",
     "  - 需要忽略大小寫的用 (?i) 前綴；JS 端載入時會轉成 i flag"
   ],
-
   "credentials": {
     "label": "憑證與密鑰",
-    "applies_to": ["docx", "daily"],
+    "applies_to": [
+      "docx",
+      "daily"
+    ],
     "note": "抓的是『形狀』不是關鍵字，誤判率低。誤判會訓練使用者忽略警告，比漏抓更難補救，所以寧可窄一點。",
     "patterns": [
       "GOCSPX-[A-Za-z0-9_-]{6,}",
@@ -36,10 +39,12 @@
       "\\b[A-Za-z0-9_-]{1,64}\\.apps\\.googleusercontent\\.com"
     ]
   },
-
   "pii": {
     "label": "個資",
-    "applies_to": ["docx", "daily"],
+    "applies_to": [
+      "docx",
+      "daily"
+    ],
     "note": "測試報告的截圖說明、資料修正紀錄最容易夾帶真實個資。",
     "patterns": [
       "\\b[A-Z][12]\\d{8}\\b",
@@ -52,67 +57,168 @@
       "\\b09\\d{2}[- ]?\\d{3}[- ]?\\d{3}\\b": "手機號碼"
     }
   },
-
   "email": {
     "label": "電子郵件位址",
-    "applies_to": ["daily"],
+    "applies_to": [
+      "daily"
+    ],
     "note": "日報的收件人由 config 管，內文不該有 email。測試報告的截圖裡可能有系統畫面的信箱，不一律擋。",
     "patterns": [
       "\\b[\\w.+-]+@[\\w-]+\\.[\\w.]+\\b"
     ]
   },
-
   "money": {
     "label": "金額",
-    "applies_to": ["daily"],
+    "applies_to": [
+      "daily"
+    ],
     "note": "日報不寫金額（報價、成本屬敏感）。測試報告可能正當出現金額欄位，不擋。",
     "patterns": [
       "(?:NT\\$|NTD|US\\$|USD|＄|\\$)\\s?[\\d,]{4,}",
       "[\\d,]{4,}\\s*(?:萬元|億元|元整)"
     ]
   },
-
+  "ai_tool_names": {
+    "label": "AI 工具名稱",
+    "applies_to": [
+      "docx",
+      "daily"
+    ],
+    "note": "對外產物不得出現我方使用的 AI 工具名稱。寫法是『品牌／型號族』：一條規則涵蓋整個系列與未來版號（GPT-任意版號、Llama 加數字…），不逐一列版本。另外，本機已安裝的 AI 工具由 hooks/lib/readability-scan.core.js 的 harvestLocalAiNames() 在掃描時自動蒐集（Claude Code plugin／marketplace／MCP 名稱、描述標為 AI 的全域 npm CLI），新裝的工具不必手動加進這裡。容易和一般字詞或技術用語撞名的品牌（Cursor、Perplexity、Devin、Sora、Grok、Kimi、Bard…）只在帶上 AI／IDE 等字樣時才算。",
+    "patterns": [
+      "(?i)\\bChatGPT\\b",
+      "(?i)\\bGPT[-\\s]?[0-9][\\w.]*",
+      "(?i)\\bClaude\\b",
+      "(?i)\\bAnthropic\\b",
+      "(?i)\\bOpenAI\\b",
+      "(?i)\\bCodex\\b",
+      "(?i)\\bCopilot\\b",
+      "(?i)\\bGemini\\b",
+      "(?i)\\bGoogle\\s?Bard\\b",
+      "(?i)\\bDeepMind\\b",
+      "(?i)\\bLlama[-\\s]?[0-9]",
+      "(?i)\\bLlamaIndex\\b",
+      "(?i)\\b(?:Mistral|Mixtral|Codestral)\\b",
+      "(?i)\\bQwen[0-9.]*\\b",
+      "(?i)\\bDeepSeek\\b",
+      "(?i)\\bGrok(?:[-\\s]?[0-9]|\\s?(?:AI|by\\s?xAI))\\b",
+      "(?i)\\bKimi(?:\\s?(?:AI|Chat)|[-\\s]?k[0-9])\\b",
+      "(?i)\\bMidjourney\\b",
+      "(?i)\\bStable\\s?Diffusion\\b",
+      "(?i)\\bDALL[-\\s]?E\\b",
+      "(?i)\\bOllama\\b",
+      "(?i)\\bLangChain\\b",
+      "(?i)\\bHugging\\s?Face\\b",
+      "(?i)\\bWindsurf\\b",
+      "(?i)\\bTabnine\\b",
+      "(?i)\\bCodeWhisperer\\b",
+      "(?i)\\bAmazon\\s?Q\\b",
+      "(?i)\\bAider\\b",
+      "(?i)\\bReplit\\s?Agent\\b",
+      "(?i)\\bv0\\.dev\\b",
+      "(?i)\\bbolt\\.new\\b",
+      "(?i)\\b(?:Cursor|Perplexity|Devin|Sora|Cline|Cody)\\s?(?:AI|IDE|Agent)\\b",
+      "Cursor\\s?編輯器",
+      "(?i)\\b(?:Opus|Sonnet|Haiku|Fable)\\s?[0-9]",
+      "豆包",
+      "文心一言",
+      "通義千問",
+      "通义千问",
+      "智譜清言",
+      "智谱清言",
+      "月之暗面"
+    ]
+  },
   "ai_toolchain": {
     "label": "AI 與工具鏈",
-    "applies_to": ["daily"],
-    "note": "測試報告的同類禁字寫在 skills/test-report-docx/SKILL.md 鐵則 1（那份含 e2e/pytest 等 runner 名，與日報需求不同），不從這裡讀。",
+    "applies_to": [
+      "daily"
+    ],
+    "note": "測試報告的同類禁字寫在 skills/test-report-docx/SKILL.md 鐵則 1（那份含 e2e/pytest 等 runner 名，與日報需求不同），不從這裡讀。 AI 產品／模型名稱已移到 ai_tool_names（docx 與日報都套）；本組只留一般字眼，技術文件可能正常使用，所以只套日報。",
     "subgroups": {
       "AI 與模型": [
-        "\\bAI\\b", "\\bA\\.I\\.", "人工智慧", "人工智能",
-        "\\bClaude\\b", "\\bAnthropic\\b", "\\bChatGPT\\b", "\\bGPT-?[0-9]?\\b",
-        "\\bCopilot\\b", "\\bGemini\\b", "\\bCodex\\b", "\\bLLM\\b",
-        "大語言模型", "語言模型", "生成式"
+        "\\bAI\\b",
+        "\\bA\\.I\\.",
+        "人工智慧",
+        "人工智能",
+        "\\bLLM\\b",
+        "大語言模型",
+        "語言模型",
+        "生成式",
+        "\\bGPT\\b"
       ],
       "工具鏈與提示詞": [
-        "\\bprompt\\b", "提示詞", "\\bagent\\b", "\\bsubagent\\b", "代理人",
-        "\\bplugin\\b", "外掛", "\\bskill\\b(?!s?-)", "技能包",
-        "\\btoken\\b", "權杖", "\\bMCP\\b", "\\bhook\\b",
-        "紅藍對抗", "對抗式審查", "自動生成", "自動產生"
+        "\\bprompt\\b",
+        "提示詞",
+        "\\bagent\\b",
+        "\\bsubagent\\b",
+        "代理人",
+        "\\bplugin\\b",
+        "外掛",
+        "\\bskill\\b(?!s?-)",
+        "技能包",
+        "\\btoken\\b",
+        "權杖",
+        "\\bMCP\\b",
+        "\\bhook\\b",
+        "紅藍對抗",
+        "對抗式審查",
+        "自動生成",
+        "自動產生"
       ],
       "自動化痕跡": [
-        "由.{0,6}協助", "協助完成", "自動彙整", "智能助理", "智慧助理",
-        "機器人", "\\bbot\\b"
+        "由.{0,6}協助",
+        "協助完成",
+        "自動彙整",
+        "智能助理",
+        "智慧助理",
+        "機器人",
+        "\\bbot\\b"
       ]
     }
   },
-
   "formal_honorifics": {
     "label": "公文式敬稱",
-    "applies_to": ["docx", "daily"],
+    "applies_to": [
+      "docx",
+      "daily"
+    ],
     "note": "易讀性鐵則 14：稱呼對方一律用「您們」（單人「您」），自稱用「我們」。★ 本組是 ADVISORY：只提醒、不擋交付——Node 端走 warn 不走 block，Python 端不計入 exit code。理由：中文沒有詞邊界，實測全組 19 條、28 個誘餌全部誤判（貴司→貴司機、本中心→成本中心、本司→本司法/本司令、貴方→貴方案），逐條加負向前瞻是打地鼠、右界限定則漏抓 15/19。照鐵則 13 的同一判準處置：誤判會訓練使用者忽略警告，比漏抓更難補救。該中心/該單位不列入（第三人稱指稱，改寫會變更語意）。",
     "patterns": [
-      "貴司", "貴公司", "貴中心", "貴單位", "貴部門", "貴部(?!門)", "貴院", "貴局", "貴處", "貴校", "貴廠", "貴組", "貴方",
+      "貴司",
+      "貴公司",
+      "貴中心",
+      "貴單位",
+      "貴部門",
+      "貴部(?!門)",
+      "貴院",
+      "貴局",
+      "貴處",
+      "貴校",
+      "貴廠",
+      "貴組",
+      "貴方",
       "您司",
-      "敝司", "敝公司", "敝中心", "本中心", "本司"
+      "敝司",
+      "敝公司",
+      "敝中心",
+      "本中心",
+      "本司"
     ]
   },
-
   "revision_history": {
     "label": "異動紀錄用語",
-    "applies_to": ["docx"],
+    "applies_to": [
+      "docx"
+    ],
     "note": "易讀性鐵則 5：交付文件只寫現況，不寫版本沿革。字面比對即可，不是正則。",
     "literals": [
-      "本次查核", "本文件初版", "原文件", "上一版", "第 N 輪", "本次清點"
+      "本次查核",
+      "本文件初版",
+      "原文件",
+      "上一版",
+      "第 N 輪",
+      "本次清點"
     ]
   }
 }

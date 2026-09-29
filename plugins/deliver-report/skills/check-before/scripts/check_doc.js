@@ -57,6 +57,10 @@ function resolveTarget(t) {
   return out;
 }
 
+// 規則沒有完整載入就不掃：少載的規則會讓結果靜默顯示「通過」（曾整組漏載一個月沒人發現）
+const cov = core.ruleCoverage();
+if (!cov.ok) die(2, `禁用規則載入不完整，不執行檢查：${cov.reason}（references/banned-patterns.json 與 hooks/lib/readability-scan.core.js 的讀法對不上）`);
+
 let found;
 // 找檔階段的例外（權限不足、existsSync 之後檔案被刪等）同樣是「讀不到」＝ exit 2
 try { found = resolveTarget(target); }

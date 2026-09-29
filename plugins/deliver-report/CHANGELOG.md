@@ -2,6 +2,14 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.1.0] - 2026-09-29
+### Changed
+- AI 工具名稱改為 docx 也擋：新增 ai_tool_names 規則組（品牌／型號族寫法，一條涵蓋整個系列與未來版號），並在掃描時自動蒐集本機已安裝的 AI 工具名稱（Claude Code plugin／marketplace／MCP、描述標為 AI 的全域 npm CLI），新裝工具不必手動加。修正共用模組 loadBanned() 只讀 patterns、漏讀 subgroups 的問題。命中 AI 名稱時印原字（只有憑證、個資遮蔽）。易讀性必掃新增第 10 項「目錄頁碼」：docx 有目錄時用 Word 唯讀開檔比對更新前後，不存檔；Stop hook 不跑此項（會逾時）。全 repo「九項必掃」同步為「十項」，deliver-report 第三步之二的必掃表補齊第 8～10 項。
+- 修正：共用模組讀規則檔時只讀 `patterns`、漏讀 `subgroups`（自 0.10.0 起潛伏；當時套在文件上的組都用 patterns，所以沒有可見錯誤）。新增載入完整性檢查 `ruleCoverage()`：用不同算法數出規則檔裡套在文件的規則數，與實際載入數比對；`check_doc.js` 對不上就回 exit 2 不掃，並新增 `hooks/tests/banned-load.test.js`（含「故意漏讀 subgroups 必須被抓到」的驗證器自測）。
+- 審查修正：單獨的「GPT」（磁碟分割表）不再算 AI 名稱，docx 只擋帶版號的 GPT 與 ChatGPT，日報仍擋單獨的 GPT；全域 npm 位置改為一併查 npm_config_prefix、<node 目錄>/../lib/node_modules（macOS／Linux／nvm）與 Windows 預設位置；目錄檢查逾時時只清掉檢查器自己啟動的 Word（記錄程序編號，不碰使用者開著的 Word），開檔帶假密碼避免跳出密碼視窗；目錄比對改依條目順序，重複標題不再互相覆蓋；呼叫 PowerShell／Python 時錯誤訊息不再直接印到畫面。
+- 審查修正：Grok（Logstash 日誌解析）、Kimi（人名）、Bard（詩人）改為帶 AI 語境才算；自動蒐集補讀專案層級 .mcp.json。
+- 審查修正：目錄差異訊息印出的標題先遮蔽憑證／個資。
+
 ## [1.0.1] - 2026-09-29
 ### Fixed
 - to-checklist 的 SKILL.md 內嵌 Changelog 段落移到 CHANGELOG.md；補上缺漏的 0.11.0 條目（2026-09-05 併入 to-questionnaire）。

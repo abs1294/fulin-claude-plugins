@@ -1,8 +1,8 @@
 ---
 name: check-before
 description: >
-  交付前對「使用者指定的一份文件」做易讀性自檢：跑九項機械掃描（編號連續、未定義代號、
-  交叉引用、重複、異動紀錄用語、樣式一致、表格欄寬、內部推導痕跡、公文式敬稱）再加四條人工判斷，
+  交付前對「使用者指定的一份文件」做易讀性自檢：跑十項機械掃描（編號連續、未定義代號、
+  交叉引用、重複、異動紀錄用語、樣式一致、表格欄寬、內部推導痕跡、公文式敬稱、目錄頁碼），並擋 AI 工具名稱再加四條人工判斷，
   回報要改的地方。支援 .docx / .md / .txt / .pdf。**需要使用者給檔案路徑或檔名**，沒給就先問。
   當使用者說「check-before」「交付前檢查這份」「幫我自檢 XXX.docx」「這份文件可以交了嗎」
   「掃一下這份文件的易讀性」時觸發。
@@ -51,4 +51,11 @@ description: >
 
 - Node.js（掃描本體）
 - 檢查 docx：Windows PowerShell（解壓讀內文，系統內建）
+- 檢查 docx 的目錄頁碼：Microsoft Word（唯讀開檔、比對更新目錄前後，不存檔；約 5 秒）。沒有 Word 會記「目錄頁碼未檢查」，不算通過
+
+## AI 工具名稱怎麼擋（不必逐一加名字）
+
+- **品牌族規則**：`references/banned-patterns.json` 的 `ai_tool_names`，一條規則涵蓋整個系列與未來版號（GPT-任意版號、Llama 加數字、Claude／Codex／Gemini…）。
+- **本機自動蒐集**：每次掃描時自動讀取本機已安裝的 Claude Code plugin、marketplace、MCP 伺服器名稱（只收含連字號或數字的，如 `deliver-report`、`openai-codex`），以及描述標為 AI／LLM／agent 的全域 npm 工具（如 `codex`、`openspec`）。以後裝了新的 AI 工具，不用改任何設定就會一起擋。
+- 一般工具（Playwright、TypeScript、Figma、資料庫 cursor）不會被擋。命中時會印出原字，照提示改寫或刪除。
 - 檢查 pdf：Python 3 與 `pypdf`（`pip install pypdf`）
