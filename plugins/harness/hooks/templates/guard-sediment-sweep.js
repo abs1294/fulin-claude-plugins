@@ -8,7 +8,7 @@
 //            commit 是「一輪工作收尾」的天然時機，表態寫在 git-commit 的 args 裡。
 //     接線："PreToolUse": [{ "matcher": "Skill", "hooks": [{ "type": "command",
 //             "command": "node \"<專案絕對路徑>/.claude/hooks/guard-sediment-sweep.js\"", "timeout": 10 }] }]
-//   'stop' ：沒裝 git-commit、或目標不是 git repo → 綁 Stop hook。本回合有改檔（Write／Edit 類工具）時，
+//   'stop' ：沒裝 git-commit、或目標是非 git 專案（根目錄與子資料夾都不是 repo）→ 綁 Stop hook。本回合有改檔（Write／Edit 類工具）時，
 //            結束前要求回覆正文出現一行四題表態；本回合沒改檔不擋。
 //     接線："Stop": [{ "hooks": [{ "type": "command",
 //             "command": "node \"<專案絕對路徑>/.claude/hooks/guard-sediment-sweep.js\"", "timeout": 10 }] }]

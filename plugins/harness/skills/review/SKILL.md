@@ -64,6 +64,7 @@ review 會替 `05-knowledge-protocol.md` §5 清單的幾項附證據（H 的專
 - **危險指令**（F）：逐條看 riskyLookingCommands——unknownHosts 大於 0 的每一條都要照出處回原文，看連到哪裡（沒有點的主機名與 ssh 設定檔別名一律只計數，不會列在 hosts；含底線但有點的主機名跟一般主機一樣，文件寫過才列出）；再對照 CLAUDE.md 專案概要的環境表與 `03-judgment-matrix.md` 的熔斷清單：連到沒確認的主機卻沒被擋的，是最嚴重的一類發現。secretsInCommands 每一處都回原文確認是真的金鑰（不是路徑裡的編號）；確認後報告只寫次數與出處、不寫值，提案通常是「改用環境變數或設定檔載入」加一條自動檢查。
 - **使用者介入**（G）：糾正與打斷逐條看原文——同一件事被糾正兩次以上，代表 harness 該防沒防住，一定要進提案。
 - **版本差距**（I）：列出來，提案走 `/harness:init` 參考模式升級，不建議手補。
+- **當初略過的安裝項**：`05-knowledge-protocol.md` 健檢清單有「Codex 還沒裝」那一列（init 時使用者選了不裝）時，跑一次 `codex --version`：還是沒裝 → 報告的「沒起作用」寫「commit 前只有一位審查員（同一家模型），因為 Codex 還沒裝」，提案附安裝三步（`npm install -g @openai/codex`、`codex login`、`codex --version`）；已經裝了 → 提案刪掉那一列，並提醒 commit 審查現在會多一位 Codex 審查員。
 
 分三類寫結論：**有起作用**（附證據）／**沒起作用**（附證據與失敗情境）／**沒機會驗證**（附為什麼沒被觸發）。
 

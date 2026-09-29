@@ -33,7 +33,7 @@
 | `code-reviewer` | 靜態審查（規範／資安／設計品質），不做瀏覽器操作 | `sonnet` | 主對話（完成報告） |
 }}
 
-{{若目標專案已有自己的 agents（Phase 1 盤點到）：改列該專案既有 agent 名稱與職責，不另建同名 agent；hook 名單改填既有名稱。}}
+{{若目標專案已有自己的 agents（Phase 1 盤點到）：改列該專案既有 agent 名稱與職責，不另建同名 agent；hook 名單改填既有名稱。預設 model 照職責對應（adaptation-guide §2.1）：寫規格／做設計的填 `opus`，實作、測試、審查照上表同級，原 agent 檔自己寫了 model 的照原檔。}}
 
 內建 type 仍可用：唯讀探索用 `Explore`，一般任務用 `general-purpose`，規劃用 `Plan`。{{既有治理層有定義唯讀角色時註明由哪個內建 type 對應承擔、同樣禁改檔}}
 

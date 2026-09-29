@@ -41,9 +41,23 @@ init 產出的是**骨架＋長出資產的路徑**，不是「一套成熟的 h
 
 - 開發流程（sizing、gate、review checkpoint、stack 限制）正本＝它；harness 實例**只管 Claude Code 特有層**：subagent 模型派工、停損熔斷、隔離驗證、memory 協議。
 - 路由中心（CLAUDE.md）明寫分工與衝突仲裁順序；04 的【開工前必讀】改接該治理層的檔案；**模板五改走（A）讓位版**（不建 pipeline 編排）。
-- 目標專案已有自己的 agents → 不建同名通用 agent，02 對照表、check-agent-model 的名單、`check-review-discipline.js` 的 `REQUIRED_MARKERS` key 改填既有名稱（沒改 key 的角色不受派工檢查）。
+- 目標專案已有自己的 agents → 不建同名通用 agent，02 對照表、check-agent-model 的名單、`check-review-discipline.js` 的 `REQUIRED_MARKERS` key 改填既有名稱（沒改 key 的角色不受派工檢查）。預設模型照 §2.1 對應，不一律套 sonnet。
 - 該治理層檔案列入實例 05 的紅區（通常已入版控＝共用資源）。
 - 引用它的內容時**先驗證**（實查目錄與檔案，勿信其自述——實戰抓過治理層自己的文件漂移：宣稱有測試目錄實際沒有）。
+
+### 2.1 沿用原有 agent 時的預設模型
+
+原有 agent 的名字與 harness 骨架不同，但職責對得上某一級——照職責給預設模型，不看名字：
+
+| 原 agent 的職責 | 對應骨架哪一級 | 預設模型 |
+|---|---|---|
+| 寫規格或做設計：需求規格、UX／產品規格、系統架構、API 契約、資料模型 | `backend-architect` | `opus` |
+| 照規格實作（前端、後端、手機、元件庫） | `*-engineer` | `sonnet`（02 的進階判準任兩項成立改 `opus`） |
+| 測試 | `qa-engineer` | 不低於它要驗的那支實作用的模型 |
+| 審查 | `code-reviewer` | `sonnet` |
+| 純機械（批次改名、格式轉換、整理清單） | — | `haiku` |
+
+原 agent 檔的 frontmatter 自己寫了 `model` 的，照原檔，不改。理由：寫規格的角色出錯，後面每一棒都照著錯的規格做，錯的代價最大；實際發生過沿用原有的規格 agent 時被套成 sonnet，使用者看到模型對照表才要求改成 opus。
 
 ## 3. 外向邊界判定
 

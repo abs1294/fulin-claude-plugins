@@ -26,7 +26,7 @@
 | 1 | check-agent-model | 派專案 agent 必帶 model；subagent 不得擅用最高階模型 | PreToolUse `Agent\|Task` | A | Q1 裁切後有建專案 agent | agent 名單 | `check-agent-model.js` |
 | 2 | check-review-discipline | 派工 prompt 必含該 agent 的紀律標記（三件套、回報鏈鐵則、QA 的範圍展開與測資來源…）與【開工前必讀】，而且必讀清單要寫到該角色的必讀檔（全部角色：CLAUDE.md、CONTEXT.md；架構／實作／審查：FLOWS.md；QA：PROJECT.md）才准派 | PreToolUse `Agent\|Task` | A | 有建專案 agent | 每個 agent 必含的標記表（對齊 04 模板欄位） | `check-review-discipline.js` |
 | 3 | check-ask-discipline | 問使用者時每題必附建議選項 | PreToolUse `AskUserQuestion` | A | 無 | 無 | `check-ask-discipline.js` |
-| 4 | guard-qa-before-commit | 行為類改動沒表態 QA 狀態不准 commit | PreToolUse `Skill`（git-commit） | A | 有 git-commit、是 git repo | 行為類副檔名、排除路徑、repo 清單 | `guard-qa-before-commit.js` |
+| 4 | guard-qa-before-commit | 行為類改動沒表態 QA 狀態不准 commit | PreToolUse `Skill`（git-commit） | A | 有 git-commit、是 git 專案（單一 repo 或多 repo 工作區，SKILL Phase 0-1） | 行為類副檔名、排除路徑、repo 清單 | `guard-qa-before-commit.js` |
 | 5 | guard-sediment-sweep | 收尾前逼答知識沉澱四題（詞／鏈／QA／代號） | 有 git-commit → PreToolUse `Skill`；否則 `Stop` | A | 無（兩種形狀都在範本） | 三個容器路徑、`TRIGGER_MODE` | `guard-sediment-sweep.js` |
 | 6 | health-check-reminder | 距上次制度健檢超過 N 天就提醒 | SessionStart | A | 無 | 天數門檻、健檢紀錄所在檔 | `health-check-reminder.js` |
 | 7 | memory-write-advisory | 寫 memory 後提醒索引大小與總則檔合併 | PostToolUse `Write\|Edit\|MultiEdit` | A | 無 | memory 目錄、索引字元上限 | `memory-write-advisory.js` |
@@ -44,7 +44,7 @@
 | 19 | check-wt-hacks-on-start | 從別的工作樹起服務時提醒覆寫帶齊沒 | PreToolUse `Bash\|PowerShell` | C（不移植） | 多工作樹＋多服務拓撲 | — | 無：形狀依賴來源專案的服務拓撲與埠號對照；16–18＋`guard-test-preconditions` 已涵蓋「環境不對」的主要形狀。專案真的長出多工作樹工作法時，走 05 升格協議 |
 | 20 | guard-codex-diff-embed | 派 Codex 審查時 diff 必須內嵌、不得叫它讀檔（沙箱擋外部 shell） | PreToolUse `Agent\|Task` | D | 裝了 git-commit（它的 B 軌需要） | 無 | git-commit plugin 自帶（`plugins/git-commit/hooks/`） |
 | 21 | check-codex-cwd | 派 Codex 時 prompt 必須指定要 cd 進的 repo | PreToolUse `Agent\|Task` | D | 同 20 | 無（cd 目標是否存在、是否在 git repo 內由 hook 動態判斷） | git-commit plugin 自帶（`plugins/git-commit/hooks/`） |
-| 22 | （git-commit）block-bare-git-commit | 裸 `git commit`／plumbing 繞過審查流程 | PreToolUse `Bash\|PowerShell` | D | 是 git repo | 無 | git-commit plugin 自帶 |
+| 22 | （git-commit）block-bare-git-commit | 裸 `git commit`／plumbing 繞過審查流程 | PreToolUse `Bash\|PowerShell` | D | 是 git 專案（單一 repo 或多 repo 工作區） | 無 | git-commit plugin 自帶 |
 | 23 | （qa-webwright）landing／early-nudge／project-knowledge | 用了瀏覽器卻沒落地可重跑測試；先讀 QA 知識檔 | Stop／PostToolUse／PreToolUse | D | 前端為瀏覽器可驅動 | 無 | qa-webwright plugin 自帶 |
 | 24 | （cbm-guard）guard-cbm-query | 程式碼圖譜查詢的錯誤寫法攔截 | PreToolUse cbm 工具 | D | 專案有用 codebase-memory-mcp | 無 | cbm-guard plugin 自帶 |
 | 25 | guard-test-asset-hygiene | 寫測試檔後自動跑測試資產稽核（硬編資料、覆蓋登記、顯示文字定位、skip 濫用），只擋新增 | PostToolUse `Write\|Edit\|MultiEdit` | E | 專案已有對應的稽核工具 | 測試目錄、每個稽核工具的指令 | `guard-test-asset-hygiene.js`（範本已備，init 只在有稽核工具時裝） |
