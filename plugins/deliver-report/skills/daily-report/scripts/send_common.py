@@ -142,6 +142,27 @@ def assert_content_clean(report_path, project_dir=None):
               "內容檢查未通過，已中止寄送（見上方命中清單）。", 3)
 
 
+def assert_readable(report_path):
+    """硬閘：易讀性自檢（同 plugin check-before/scripts/check_doc.js，與 Stop hook 同一套判準）。
+    硬缺陷擋寄送；提醒照印不擋。找不到 node 或腳本一律拒寄——寧可擋，不冒無檢查寄出的風險。
+    與 content_guard 分工：content_guard 管「不該出現的字」（AI 字眼、憑證、個資），
+    這支管「讀得懂」（編號連續、未定義代號、異動紀錄用語、交叉引用）。"""
+    import shutil
+    checker = os.path.normpath(os.path.join(
+        SCRIPT_DIR, "..", "..", "check-before", "scripts", "check_doc.js"))
+    node = shutil.which("node")
+    if not node:
+        die("找不到 node，無法跑易讀性自檢（check_doc.js），拒絕寄送。", 3)
+    if not os.path.exists(checker):
+        die("找不到 check_doc.js——易讀性閘缺失，拒絕寄送（不冒無檢查寄出的風險）。", 3)
+    r = subprocess.run([node, checker, report_path],
+                       capture_output=True, text=True, encoding="utf-8")
+    if r.returncode != 0:
+        sys.stderr.write(r.stdout or r.stderr or "")
+        die("易讀性自檢未通過，已中止寄送（見上方清單）。", 3)
+    sys.stdout.write(r.stdout or "")
+
+
 def assert_confirm_ready(date, project_dir=None):
     """硬閘（僅 --auto）：喚醒觸發的自動寄送必須通過確認窗口。
     使用者明確說「寄」時不帶 --auto，不受此限——那是他的意思表示。"""
@@ -166,7 +187,7 @@ class SendPlan:
 def prepare_send(args, cfg):
     """兩條寄送路徑共用的前置流程。回傳 SendPlan；任一關卡不過就在此 die。
 
-    順序固定：展開路徑 → 讀檔 → 解析收件人 → sent 去重 → 內容閘 →（--auto）確認閘。
+    順序固定：展開路徑 → 讀檔 → 解析收件人 → sent 去重 → 內容閘 → 易讀性閘 →（--auto）確認閘。
     去重放在閘之前：已寄過就沒必要再跑內容/確認檢查。
     """
     expand_paths(args)
@@ -196,6 +217,7 @@ def prepare_send(args, cfg):
             args.date, prev.get("sent_at", "?"), ", ".join(prev.get("recipients", []))), 4)
 
     assert_content_clean(args.report, project_dir)
+    assert_readable(args.report)
     if getattr(args, "auto", False):
         assert_confirm_ready(args.date, project_dir)
 

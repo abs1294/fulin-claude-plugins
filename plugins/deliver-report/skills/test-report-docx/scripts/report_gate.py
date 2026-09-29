@@ -301,8 +301,12 @@ def _extract_from_docx(docx_path):
     return {"summary": summary, "details": details, "images": images}
 
 
-def verify_docx(docx_path, cases, open_with_word=True):
-    """閘三。讀回產出的 docx，與 CASES 對帳；並用 Word 實開確認檔案能開。
+def verify_docx(docx_path, cases, open_with_word=True, check_readability=True):
+    """閘三。讀回產出的 docx，與 CASES 對帳；用 Word 實開確認檔案能開；再跑易讀性自檢。
+
+    check_readability：呼叫同 plugin 的 check-before/scripts/check_doc.js（與 Stop hook 同一套判準）。
+    接在這裡而不是靠 Stop hook——hook 只掃 cwd／_work／docs／output，報告規定放的
+    tests/reports/<主題>_<日期>/ 不在它的範圍內，靠 hook 等於沒掃。
 
     open_with_word：Windows 上以 COM 實際開檔（python-docx 開得了 ≠ Word 開得了）。
     """
@@ -378,14 +382,45 @@ def verify_docx(docx_path, cases, open_with_word=True):
     if open_with_word and sys.platform == "win32":
         errs.extend(_word_open_check(docx_path))
 
+    # ⑦ 易讀性自檢（硬缺陷擋、提醒照印）。check_doc.js 讀 docx 靠 Windows PowerShell，
+    #    非 Windows 與 ⑥ Word 實開一樣跳過並明講未檢查，不讓原本跨平台可跑的對帳失敗
+    if check_readability:
+        if sys.platform == "win32":
+            errs.extend(_readability_check(docx_path))
+        else:
+            print("  易讀性自檢未執行：讀 docx 需要 Windows PowerShell——此項屬未驗證，不可宣稱已檢查")
+
     if errs:
         raise GateError(
-            "\n閘三不通過，產出檔與資料源對不上（檔案已產出但不得交付）：\n"
+            "\n閘三不通過（對帳、Word 實開或易讀性；檔案已產出但不得交付）：\n"
             + "\n".join("  - " + e for e in errs)
             + "\n"
         )
 
     return True
+
+
+def _readability_check(docx_path):
+    """跑 check_doc.js。硬缺陷、讀不到、沒有 node 都算不通過；提醒只印出來由人判斷。"""
+    import json
+    import shutil
+    import subprocess
+    checker = (Path(__file__).resolve().parent.parent.parent
+               / "check-before" / "scripts" / "check_doc.js")
+    node = shutil.which("node")
+    if not node:
+        return ["本機找不到 node，未能跑易讀性自檢（check_doc.js）——此項屬未驗證"]
+    if not checker.exists():
+        return ["找不到易讀性自檢腳本 {}".format(checker)]
+    r = subprocess.run([node, str(checker), str(Path(docx_path).resolve()), "--json"],
+                       capture_output=True, timeout=180)
+    out = r.stdout.decode("utf-8", "replace").strip()
+    if r.returncode == 2 or not out.startswith("{"):
+        return ["易讀性自檢讀不到產出檔：{}".format(out or r.stderr.decode("utf-8", "replace").strip())]
+    res = json.loads(out)
+    for n in res["notes"]:
+        print("  易讀性提醒（不擋，逐條判斷）：" + n)
+    return ["易讀性：" + b for b in res["bad"]]
 
 
 def _word_open_check(docx_path):

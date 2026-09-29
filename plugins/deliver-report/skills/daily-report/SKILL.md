@@ -67,13 +67,21 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/extract_sessions.py" -
 - **合計列就寫成普通一列**（前幾格留空、寫 `Total hours` 與數字），轉換器不做特殊處理。
 - 表格是「敘述放不下才用」的工具——一般日報的專案進度仍用條列，不要為了表格而表格。
 
-### 4. 內容硬閘（寫完必跑，不可略）
+### 4. 內容硬閘與易讀性閘（寄送腳本自動跑）
+
+**日報是對外文件，不得出現任何 AI / 工具鏈痕跡**（AI、Claude、plugin、prompt、agent、token、紅藍對抗、自動彙整…），也要讀得懂（編號連續、沒有未定義代號、沒有「本次查核」這類異動紀錄用語）。兩道閘都寫在寄送腳本的共用前置流程裡（`send_common.prepare_send`）：
+
+- `content_guard.py`：AI／工具鏈字眼、憑證、個資。**不可豁免（公文式敬稱組除外，見下）**。
+- `check-before/scripts/check_doc.js`：易讀性，與 Stop hook 同一套判準。硬缺陷擋寄送，提醒照印。
+
+**Gmail API（A）與 SMTP（B）兩條路徑不用手動跑**——第 5 步呈現前跑的 `--dry-run` 就會經過這兩道閘，沒過就拿不到預覽；實寄時會再跑一次。
+
+**只有 MCP 建草稿（C）要手動跑**：這條路徑是直接呼叫 Gmail 工具，不經過寄送腳本，沒有任何閘會自動執行。建草稿前兩支都要跑、都要過：
 
 ```
 python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/content_guard.py" <報告.md> [--project <目錄>]
+node "${CLAUDE_PLUGIN_ROOT}/skills/check-before/scripts/check_doc.js" <報告.md>
 ```
-
-**日報是對外文件，不得出現任何 AI / 工具鏈痕跡**（AI、Claude、plugin、prompt、agent、token、紅藍對抗、自動彙整…）。這道閘在寄送腳本裡也會再跑一次且**不可豁免（公文式敬稱組除外，見下）**，所以與其被擋再改，不如寫完就先自檢。
 
 > **例外：公文式敬稱（易讀性鐵則 14）只提醒、不擋寄送**。「貴司／貴中心／本中心」這類敬稱命中時會印 `⚠ 提醒（不擋寄送）`，exit code 仍為 0——因為中文沒有詞邊界，「貴司機」「成本中心」「本司法」都會誤命中，擋下去會訓練使用者忽略警告。看到提醒請自己判斷：是敬稱就改「您們」，是正常詞就忽略。
 
@@ -121,7 +129,7 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/confirm_gate.py" arm <
 
 | 回應 | 動作 |
 |---|---|
-| 改內容 | 更新報告 → 重跑內容硬閘 → **`confirm_gate clear <date>`** → 重新呈現並 arm（窗口重新計時） |
+| 改內容 | 更新報告 → 重跑 `--dry-run`（兩道閘隨之重跑；MCP 草稿路徑則手動重跑第 4 步兩支）→ **`confirm_gate clear <date>`** → 重新呈現並 arm（窗口重新計時） |
 | 喊停 | **`confirm_gate veto <date> --reason "..."`** → `CronDelete <id>` → 不寄 |
 | 說「寄」 | 直接寄，**不帶 `--auto`**（這是他的意思表示，不必等窗口） |
 

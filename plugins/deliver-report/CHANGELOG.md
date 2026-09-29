@@ -2,6 +2,13 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.0.0] - 2026-09-29
+### Changed
+- 波浪號全面改用半形 ~（原為全形，較耗 token）：deliver-report 的範例與收尾規則 8 處、to-checklist 的 md_to_pdf.py 訊息 1 處。
+- to-questionnaire 改名 to-checklist，產出改為確認清單 PDF（形狀照實際開過會的規格對齊會議說明；新增 md_to_pdf.py：轉檔前驗議題與章節編號連續、轉檔後驗標題可抽出，並修正微軟正黑體經 Chrome 轉檔時「一、用、長」等字被寫成部首字元導致 PDF 搜尋不到的問題）。新增 check-before skill：指定一份文件（docx／md／txt／pdf）做交付前易讀性自檢。易讀性掃描抽成 hooks/lib/readability-scan.core.js 單一實作，Stop hook 與 check-before 的 check_doc.js 共用；Stop hook 納入 to-checklist（掃 checklist-*.md），docx 路徑行為不變（改前改後輸出逐位元組相同）。
+- 易讀性檢查改成接進各 subskill 自己的腳本自動跑，SKILL.md 不再叫 AI 手動跑已有閘的檢查：to-checklist 在 `md_to_pdf.py` 轉檔前（硬缺陷不轉檔）、test-report-docx 在 `report_gate.verify_docx()` 閘三（硬缺陷閘三不過）、daily-report 在 `send_common.prepare_send` 寄送前置（硬缺陷拒寄，dry-run 預覽也會跑）。仍需手動的只剩沒有腳本可接的地方：daily-report 的 MCP 草稿路徑（content_guard 與易讀性兩支都要手動跑，原本這條路徑的 content_guard 也只是自律）、deliver-report 交付的非 docx 或不在 Stop hook 掃描目錄內的檔案。
+- 修正：test-report-docx 的報告規定放在 `tests/reports/<主題>_<日期>/`，不在 Stop hook 的掃描目錄（目前目錄、`_work/`、`docs/`、`output/`）內，原本等於沒被易讀性閘掃到；改由閘三負責。
+
 ## [0.19.0] - 2026-09-17
 
 ### Added

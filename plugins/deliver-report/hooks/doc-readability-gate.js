@@ -70,7 +70,8 @@ function main(raw) {
   let advisories = [];  // 只提醒用
   for (const d of docs) {
     let r;
-    try { r = scan(d); } catch (_) { continue; }   // 單檔失敗 → 略過該檔
+    // docx 走原本的 scan（段落 <20 視為不像交付文件）；確認清單 md 走 scanFile（多驗標題編號連續）
+    try { r = d.toLowerCase().endsWith('.docx') ? scan(d) : scanFile(d); } catch (_) { continue; }   // 單檔失敗 → 略過該檔
     if (!r) continue;
     const name = path.basename(d);
     if (r.bad && r.bad.length) findings.push({ file: name, items: r.bad });
@@ -115,43 +116,16 @@ function main(raw) {
   block(lines.join('\n'));
 }
 
-// ---------- 共用禁用樣式（references/banned-patterns.json）----------
-// 單一事實來源，與 skills/daily-report/scripts/content_guard.py 讀同一份。
-// ★ FAIL-OPEN：讀不到 / 壞掉 → 回退到內建最小清單，絕不因此擋住 session。
-function loadBanned() {
-  const fallback = {
-    literals: ['本次查核', '本文件初版', '原文件', '上一版', '第 N 輪', '本次清點'],
-    groups: [],
-  };
-  try {
-    const f = path.join(__dirname, '..', 'references', 'banned-patterns.json');
-    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
-    const groups = [];
-    for (const key of Object.keys(j)) {
-      if (key.startsWith('_')) continue;
-      const g = j[key];
-      if (!g || !Array.isArray(g.applies_to) || !g.applies_to.includes('docx')) continue;
-      for (const src of g.patterns || []) {
-        // (?i) 前綴轉成 JS 的 i flag（JS 不支援行內 (?i)）
-        let flags = 'g', body = src;
-        if (body.startsWith('(?i)')) { body = body.slice(4); flags += 'i'; }
-        try { groups.push({ key, label: g.label || key, re: new RegExp(body, flags) }); }
-        catch (_) { /* 單一 pattern 壞掉 → 略過該條，不影響其餘 */ }
-      }
-    }
-    const lits = (j.revision_history && j.revision_history.literals) || fallback.literals;
-    return { literals: lits, groups };
-  } catch (_) {
-    return fallback;   // 讀不到就用內建，維持原有行為
-  }
-}
-const BANNED = loadBanned();
+// ---------- 掃描判準（共用模組，check-before skill 也用同一份）----------
+const { scan, scanFile } = require('./lib/readability-scan.core.js');
+
 
 // 本 plugin 中「會產出交付文件」的 skill 名單。
-// 兩個都要列：deliver-report 產交付訊息、test-report-docx 產報告 DOCX。
+// deliver-report 產交付訊息、test-report-docx 產報告 DOCX、to-checklist 產確認清單（md 原稿＋PDF）。
+// daily-report 不列：它的日報寫在家目錄、不在 cwd，且寄送腳本自有 content_guard 硬閘。
 // ⚠ 這裡曾經是 indexOf('deliver-report') 的子字串比對——skill 一旦改名或新增，
 //   閘門會靜默失效（看起來還在，實際沒守）。改成明確清單，新增 skill 請一併加進來。
-const GATED_SKILLS = ['deliver-report', 'test-report-docx'];
+const GATED_SKILLS = ['deliver-report', 'test-report-docx', 'to-checklist'];
 
 // skill 名可能帶 plugin 前綴（如 'deliver-report:test-report-docx'），
 // 故用「結尾比對或完全相等」而非寬鬆子字串。
@@ -211,6 +185,7 @@ function calledSkillThisTurn(tp) {
 
 function recentDocx(cwd) {
   const out = [];
+  const mds = [];   // checklist-*.md 另外計數，不佔 docx 的 4 份額度（docx 的挑選結果必須與舊版相同）
   const seen = new Set();
   const cutoff = Date.now() - 6 * 3600 * 1000;   // 6 小時內改過的
   const dirs = [cwd, path.join(cwd, '_work'), path.join(cwd, 'docs'), path.join(cwd, 'output')];
@@ -218,211 +193,21 @@ function recentDocx(cwd) {
     let names;
     try { names = fs.readdirSync(dir); } catch (_) { continue; }
     for (const n of names) {
-      if (!n.toLowerCase().endsWith('.docx')) continue;
+      const ln = n.toLowerCase();
+      // docx，或 to-checklist 的原稿 checklist-*.md（只認這個檔名，避免 README 之類的 md 被誤擋）
+      if (!ln.endsWith('.docx') && !(ln.startsWith('checklist-') && ln.endsWith('.md'))) continue;
       if (n.startsWith('~$')) continue;              // Word 暫存檔
       const p = path.join(dir, n);
       if (seen.has(p)) continue;
       try {
         const st = fs.statSync(p);
-        if (st.mtimeMs >= cutoff && st.size > 0) { out.push(p); seen.add(p); }
+        if (st.mtimeMs >= cutoff && st.size > 0) { (ln.endsWith('.md') ? mds : out).push(p); seen.add(p); }
       } catch (_) { /* 略過 */ }
     }
   }
-  return out.slice(0, 4);   // 最多檢查 4 份，避免逾時
+  return out.slice(0, 4).concat(mds.slice(0, 2));   // docx 最多 4 份（同舊版）、md 另計最多 2 份，避免逾時
 }
 
-// ---------- 掃描單一 .docx ----------
-function scan(file) {
-  const xml = readDocXml(file);
-  if (!xml) return null;                            // 讀不到 → 不擋
-
-  const paras = [...xml.matchAll(/<w:p\b(?:(?!<\/w:p>).)*?<\/w:p>/gs)].map(m => m[0]);
-  if (paras.length < 20) return null;               // 太短、不像交付文件 → 不擋
-  const text = paras.map(strip);
-  const full = text.join('\n');
-
-  const bad = [];     // 擋下：判得準的硬缺陷
-  const notes = [];   // 只提醒：判不準、誤判成本高於漏抓的（見檔頭分類）
-
-  // ---- 鐵則 5：異動紀錄用語（清單來自共用檔）----
-  const hitBanned = BANNED.literals.filter(w => full.includes(w));
-  if (hitBanned.length) bad.push(`鐵則5 異動紀錄用語：${hitBanned.join('、')}`);
-
-  // ---- 憑證與個資（共用檔的 credentials / pii）----
-  // 交付文件同樣會夾帶：截圖說明、資料修正紀錄、參數對照表都是常見落點。
-  // 命中一律遮蔽值本身再回報——訊息會出現在終端機，不該把憑證再印一次。
-  const honorifics = [];   // 敬稱命中集中收集，最後併成一行（每條 pattern 各自成 group）
-  for (const g of BANNED.groups) {
-    let m;
-    g.re.lastIndex = 0;
-    const hits = [];
-    const raw = [];
-    while ((m = g.re.exec(full)) !== null) {
-      const v = m[0];
-      if (!raw.includes(v)) raw.push(v);
-      hits.push(v.length > 12 ? v.slice(0, 4) + '…' + v.slice(-2) : v.slice(0, 2) + '…');
-      if (hits.length >= 3) break;
-      if (m.index === g.re.lastIndex) g.re.lastIndex++;   // 零寬匹配防呆
-    }
-    if (hits.length) {
-      // 敬稱不是機密，遮蔽了反而看不出要改哪個詞 → 這組原文照印並直接給改法。
-      if (g.key === 'formal_honorifics') {
-        // 只提醒不擋：詞邊界問題會誤判（貴司機／成本中心／本司法），見檔頭說明。
-        honorifics.push(...raw);
-      } else {
-        bad.push(`${g.label}：疑似 ${hits.join('、')}（已遮蔽，請確認是否該出現在交付文件）`);
-      }
-    }
-  }
-
-  // ---- 鐵則 3：小數點式編號 ----
-  if (/步驟[一二三四五六七八九十]+之[二三四五]/.test(full)) {
-    bad.push('鐵則3 出現小數點式步驟編號（如「步驟四之二」），應攤平為連續整數');
-  }
-
-  // ---- 鐵則 3：編號缺號 ----
-  const NUM = { 一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,十:10,十一:11,十二:12 };
-  const stepSet = new Set();
-  for (const m of full.matchAll(/步驟(十二|十一|十|[一二三四五六七八九])(?![之0-9])/g)) {
-    const v = NUM[m[1]];
-    if (v) stepSet.add(v);
-  }
-  if (stepSet.size >= 3) {
-    const arr = [...stepSet].sort((a, b) => a - b);
-    const gaps = [];
-    for (let i = 1; i <= arr[arr.length - 1]; i++) if (!stepSet.has(i)) gaps.push(i);
-    if (gaps.length) bad.push(`鐵則3 步驟編號缺號：缺 ${gaps.join('、')}（現有 ${arr.join('、')}）`);
-  }
-
-  // ---- 鐵則 4：未定義代號 ----
-  const codeChecks = [
-    { re: /§\s?\d+/g,                         name: '§N',      hint: '改寫「本報告第N節」' },
-    { re: /#\d+/g,                            name: '#N',      hint: '改寫「第 N 項」' },
-    { re: /(?<![A-Za-z0-9])[SV]\d+(?![0-9])/g, name: 'S/V 編號', hint: '改用步驟名或項次' },
-  ];
-  const defHint = ['指的是', '＝', '代表', '意思是', '欄＝', '是各'];
-  for (const c of codeChecks) {
-    const hits = [...full.matchAll(c.re)].map(m => m[0]);
-    if (!hits.length) continue;
-    const uniq = [...new Set(hits)];
-    // 有定義句就放過
-    const defined = text.some(t => uniq.some(u => t.includes(u)) && defHint.some(h => t.includes(h)));
-    if (!defined) {
-      bad.push(`鐵則4 未定義代號 ${c.name}（${uniq.slice(0, 4).join('、')}${uniq.length > 4 ? '…' : ''}）→ ${c.hint}`);
-    }
-  }
-
-  // ---- 鐵則 8：交叉引用失效 ----
-  const secRefs = new Set([...full.matchAll(/(?:見|詳見)\s*第([一二三四五六七八九十]+)節/g)].map(m => m[1]));
-  const brokenSec = [...secRefs].filter(n => !text.some(t => new RegExp(`^${n}、`).test(t.trim())));
-  // 指向另一份文件的不算（有「報告」「說明書」字樣）
-  const crossDoc = /(?:測試報告|變更說明書|另一份)/.test(full);
-  if (brokenSec.length && !crossDoc) {
-    bad.push(`鐵則8 交叉引用失效：第 ${brokenSec.join('、')} 節不存在`);
-  }
-
-  // ---- 鐵則 9：樣式一致性 ----
-  const styleIssues = checkStyle(paras);
-  bad.push(...styleIssues);
-
-  // ---- 鐵則 9d：表格窄欄塞長字 ----
-  const narrow = checkTables(xml);
-  if (narrow.length) {
-    bad.push(`鐵則9 表格窄欄塞長字（會擠成直排）：${narrow.slice(0, 3).join('；')}`);
-  }
-
-  if (honorifics.length) {
-    const uniq = [...new Set(honorifics)];
-    notes.push(`鐵則14 公文式敬稱：${uniq.join('、')}` +
-               `（建議改「您們」，自稱用「我們」；若是「貴司機／成本中心／本司法」這類正常詞請忽略）`);
-  }
-
-  return { bad, notes };
-}
-
-// ---------- 樣式一致性 ----------
-function checkStyle(paras) {
-  const out = [];
-  const info = paras.map(p => ({
-    t: strip(p).trim(),
-    sz: (p.match(/<w:sz w:val="(\d+)"\/>/) || [])[1],
-    color: (p.match(/<w:color w:val="([0-9A-Fa-f]{6})"\/>/) || [])[1],
-    bold: p.includes('<w:b/>'),
-    inCell: p.includes('<w:tc>'),
-    mono: p.includes('Consolas'),
-  })).filter(x => x.t && !x.inCell && !x.mono);
-
-  // (a) 同一種前綴符號的樣式是否一致（2 段以上就該一致）
-  for (const sym of ['⚠', '※', '◆', '★']) {
-    const g = info.filter(x => x.t.startsWith(sym));
-    if (g.length < 2) continue;
-    const sigs = [...new Set(g.map(x => `${x.sz || '?'}|${x.color || '-'}|${x.bold ? 'B' : 'n'}`))];
-    if (sigs.length > 1) {
-      out.push(`鐵則9 「${sym}」有 ${sigs.length} 種樣式（共 ${g.length} 段：${sigs.join(' / ')}），應統一`);
-    }
-  }
-
-  // (b) 主標是否小於子標（步驟X vs 步驟X-N）
-  const main = info.filter(x => /^【?步驟[一二三四五六七八九十]+[　\s】]/.test(x.t) && x.sz);
-  const sub  = info.filter(x => /^(?:［步驟[^］]*］)?步驟?[一二三四五六七八九十]*-?\d*[【S]/.test(x.t) && x.sz && !/^【?步驟[一二三四五六七八九十]+[　\s】]/.test(x.t));
-  if (main.length && sub.length) {
-    const mn = Math.min(...main.map(x => +x.sz));
-    const mx = Math.max(...sub.map(x => +x.sz));
-    if (mn < mx) out.push(`鐵則9 主標字級(${mn})小於子標(${mx})`);
-  }
-
-  // (c) 同級節標題顏色是否一致
-  const sect = info.filter(x => /^[一二三四五六七八九十]+(之[一二三])?、/.test(x.t) && x.sz);
-  if (sect.length >= 2) {
-    const cols = new Set(sect.map(x => x.color || '-'));
-    if (cols.size > 1) out.push(`鐵則9 節標題有 ${cols.size} 種顏色（${[...cols].join('、')}），應統一`);
-  }
-  return out;
-}
-
-// ---------- 表格窄欄 ----------
-function checkTables(xml) {
-  const out = [];
-  for (const tm of xml.matchAll(/<w:tbl>.*?<\/w:tbl>/gs)) {
-    const tbl = tm[0];
-    const rows = [...tbl.matchAll(/<w:tr\b.*?<\/w:tr>/gs)].map(m => m[0]);
-    if (rows.length < 2) continue;
-    const head = [...rows[0].matchAll(/<w:tc>.*?<\/w:tc>/gs)].map(m => strip(m[0]).trim());
-    const widths = [...rows[0].matchAll(/<w:tcW w:type="dxa" w:w="(\d+)"\/>/g)].map(m => +m[1]);
-    for (const r of rows.slice(1)) {
-      const cells = [...r.matchAll(/<w:tc>.*?<\/w:tc>/gs)].map(m => strip(m[0]).trim());
-      for (let k = 0; k < Math.min(cells.length, widths.length); k++) {
-        if (widths[k] < 1500 && cells[k].length > 10) {
-          const hn = (head[k] && /^[\u4e00-\u9fff\w #（）()／/－-]{1,14}$/.test(head[k]))
-                     ? head[k] : ('第' + (k + 1) + '欄');
-          out.push(`「${hn}」寬${widths[k]} 放 ${cells[k].length} 字`);
-          k = widths.length;   // 同表同欄只報一次
-        }
-      }
-    }
-  }
-  return [...new Set(out)];
-}
-
-// ---------- 讀 docx 的 document.xml（不依賴外部套件）----------
-function readDocXml(file) {
-  // 優先用 PowerShell 的 System.IO.Compression（Windows 內建）
-  try {
-    const ps = `$ErrorActionPreference='Stop';` +
-      `Add-Type -AssemblyName System.IO.Compression.FileSystem;` +
-      `$z=[System.IO.Compression.ZipFile]::OpenRead('${file.replace(/'/g, "''")}');` +
-      `$e=$z.Entries | Where-Object { $_.FullName -eq 'word/document.xml' };` +
-      `$r=New-Object System.IO.StreamReader($e.Open(),[System.Text.Encoding]::UTF8);` +
-      `$r.ReadToEnd();$r.Close();$z.Dispose()`;
-    const psFull = `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;` + ps;
-    const buf = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', psFull],
-      { maxBuffer: 64 * 1024 * 1024, timeout: 12000, windowsHide: true });
-    const s = buf.toString('utf8');
-    return s.includes('<w:p') ? s : null;
-  } catch (_) { return null; }
-}
-
-function strip(x) { return x.replace(/<[^>]+>/g, ''); }
 
 // ---------- 擋次計數 ----------
 
