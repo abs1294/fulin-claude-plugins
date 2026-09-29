@@ -566,9 +566,37 @@ classify_verdict() {
       echo "       詳見 SKILL.md 核心原則 5。" >&2
       return 1
     fi
+    # C 軌「找不到 agent」不算不可用：本 plugin 自帶審查者定義（agents/code-reviewer.md），
+    # 專案沒啟用 git-commit 時 agent 不會註冊，但仍可用 general-purpose 載入該檔審查（SKILL.md 1.3c 第三層）。
+    # 實案：在沒啟用 git-commit 的專案借用 flow.sh，C 軌連續多次記成 skipped: not found，實際只有 Codex 一軌在審。
+    if [ "$label" = "code-reviewer" ]; then
+      # 放行清單、失敗即擋：C 軌的 skipped 只收「第三層 general-purpose 也試過且失敗」這一種。
+      # 不猜理由的寫法——舊版列舉「找不到 agent」的句型，審了五輪每輪都冒出新的誤擋或漏擋
+      # （host not found、找不到 code-reviewer 的回覆、找不到審查者…），列舉收斂不了。
+      # 本 plugin 自帶審查者定義（agents/code-reviewer.md），任何 agent 都叫不到時仍可用 general-purpose 載入它審。
+      local gp_hit=0
+      restore_nocase="$(shopt -p nocasematch || true)"
+      shopt -s nocasematch
+      [[ "$text" =~ general-purpose ]] && gp_hit=1
+      eval "$restore_nocase"
+      if [ "$gp_hit" -eq 0 ]; then
+        local self_dir reviewer_md
+        # flow.sh 本身可能是檔案層級的 symlink：先把腳本路徑解析成實體（pwd -P 只解析目錄、不追檔案連結）；
+        # readlink -f 不可用（舊版 macOS）時退回原路徑，目錄層級的連結仍由 pwd -P 處理
+        local self_src="${BASH_SOURCE[0]}" resolved
+        if resolved="$(readlink -f "$self_src" 2>/dev/null)" && [ -n "$resolved" ]; then self_src="$resolved"; fi
+        self_dir="$(cd "$(dirname "$self_src")" && pwd -P)"
+        reviewer_md="$self_dir/../../agents/code-reviewer.md"
+        echo "ERROR: code-reviewer 那一軌只有在「第三層 general-purpose 也試過且失敗」時才能記 skipped。" >&2
+        echo "       本 plugin 自帶預設審查者：改用 subagent_type: general-purpose，prompt 開頭請它先讀這份定義並照它執行：" >&2
+        echo "         $reviewer_md" >&2
+        echo "       再接 SKILL.md 1.3c 的 prompt 範本（見 1.3c 第三層）。第三層也失敗時，理由寫明 general-purpose 並貼它的錯誤原文。" >&2
+        return 1
+      fi
+    fi
     echo "SKIPPED"; return 0
   fi
-  echo "ERROR: $label 的第一行必須是「VERDICT: PASS」（貼 agent 回覆原文）或「skipped: <原因>」（該軌確定不可用）。" >&2
+  echo "ERROR: $label 的第一行必須是「VERDICT: PASS」（貼 agent 回覆原文）或「skipped: <原因>」（該軌確定不可用；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的）。" >&2
   echo "       收到的第一行：${head:-（空白）}" >&2
   return 1
 }
@@ -577,7 +605,7 @@ print_review_howto() {
   local repo="$1"
   echo "       commit 前必須跑完 Codex 與 code-reviewer 兩軌，並把兩軌回覆記下來：" >&2
   echo "         flow.sh review-record $repo --codex \"<Codex 回覆原文>\" --reviewer \"<code-reviewer 回覆原文>\"" >&2
-  echo "       某一軌確定不可用：該軌填 \"skipped: <原因>\"（兩軌都 skipped 不收，要停下來問使用者）。" >&2
+  echo "       某一軌確定不可用：該軌填 \"skipped: <原因>\"（兩軌都 skipped 不收，要停下來問使用者；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的）。" >&2
   echo "       額度／用量上限不算不可用：不能記 skipped，要排額度恢復後重跑這一軌（SKILL.md 核心原則 5）。" >&2
   echo "       使用者明示豁免（Style/Docs 豁免、POC、plugin 發布、緊急修正經同意跳過審查）：" >&2
   echo "         flow.sh review-record $repo --exempt \"<理由>\"" >&2
@@ -670,7 +698,7 @@ cmd_review_record() {
     mode="exempt"
   else
     if [ "$has_codex" -eq 0 ] || [ "$has_reviewer" -eq 0 ]; then
-      echo "ERROR: 兩軌結果都要給：--codex 與 --reviewer 缺一不可（不可用的那軌填 \"skipped: <原因>\"）。" >&2
+      echo "ERROR: 兩軌結果都要給：--codex 與 --reviewer 缺一不可（不可用的那軌填 \"skipped: <原因>\"；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的）。" >&2
       echo "$usage" >&2
       exit 1
     fi
@@ -1629,7 +1657,7 @@ Commands:
   review-record <repo> --codex "<回覆>" --reviewer "<回覆>" [--qa "<QA 狀態>"]
   review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"]
                                     把兩軌結果（或使用者豁免）綁定到當下 staged diff；ship／amend 沒有它就拒絕
-                                    回覆第一行須為 VERDICT: PASS，不可用的那軌填 "skipped: <原因>"（兩軌都 skipped 不收）
+                                    回覆第一行須為 VERDICT: PASS，不可用的那軌填 "skipped: <原因>"（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的）
                                     額度／用量上限不算不可用：skipped 理由含 usage limit、quota、額度等字樣一律拒收（要排重跑）
   audit   <repo> [<range>]          體檢既有 commit 的 message，唯讀。抓：空 message／缺 Type: 前綴／
                                     Type 不在允許清單／描述超長／痕跡命中／含多行 body

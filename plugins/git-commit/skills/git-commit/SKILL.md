@@ -29,7 +29,7 @@ description: >
 2. **任一軌 BLOCK → 永不自動 commit**，列必修項等使用者——即使使用者已先回 OK。
 3. 使用者明確否決（「等等」「先別上」、改 message、調 staging）→ 照使用者意思，不 commit。
 4. PASS 附清單＝「可 commit 但有建議」，預設放行；使用者要先修 → 改碼 → 重跑 `prepare` → 兩軌重送（diff 變了就重判豁免）。BLOCK 後重做同樣走完整 Step 1。禁止沿用先前確認過的 message 直接 commit（碼可能已變）。
-5. **某一軌確定不可用**（額度用完不算，見本條下方）→ 單軌降級（該軌記 `skipped: <原因>`、匯流視為 PASS；`review-record` 該軌就填這串），預覽明講已降為單軌，並由主 agent 補做該軌該查的項目。**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認（`review-record` 收到兩軌都 `skipped` 會直接拒絕；使用者核可後改走 `--exempt`）。
+5. **某一軌確定不可用**（額度用完不算，見本條下方）→ 單軌降級（該軌記 `skipped: <原因>`、匯流視為 PASS；C 軌要先走 1.3c 第三層，第三層也失敗才能記 skipped；`review-record` 該軌就填這串），預覽明講已降為單軌，並由主 agent 補做該軌該查的項目。**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認（`review-record` 收到兩軌都 `skipped` 會直接拒絕；使用者核可後改走 `--exempt`）。
    > 「確定不可用」有嚴格判準，不是「我等不下去」——B 軌見 `references/codex-troubleshooting.md`，**自行判定不可用就 commit ＝ 違規**。
    > **額度／用量上限不算不可用**（錯誤原文如 `You've hit your usage limit ... try again at 8:24 PM`）：這是暫時狀態，**不得記 `skipped`、不得單軌降級**——`review-record` 會機械擋下理由含 usage limit／rate limit／quota／credits／try again at／額度／用量上限／配額的 skipped。處置：
    > 1. 從錯誤原文取重置時間（`try again at <時間>`）；讀不到就停下問使用者，不要自己猜一個時間了事。
@@ -54,7 +54,7 @@ description: >
 | `flow.sh analyze <repo>` | 狀態分類＋local-overrides 過濾＋敏感字掃描 |
 | `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查） |
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾用：git 已把合併進來的檔案 stage 好）。index 空的拒絕 |
-| `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆第一行須為 `VERDICT: PASS`（BLOCK 不收）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；理由含額度字樣不收——額度用完要排重跑，見核心原則 5） |
+| `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆第一行須為 `VERDICT: PASS`（BLOCK 不收）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的；理由含額度字樣不收——額度用完要排重跑，見核心原則 5） |
 | `flow.sh review-record <repo> --exempt "<理由>"` | 使用者明示豁免（Style/Docs、POC、plugin 發布、使用者要求跳過審查）。理由寫使用者的原話或豁免依據，會進稽核流水帳 `review-log.tsv` |
 | `review-record ... --qa "<QA 狀態>"`（選填） | QA 表態，與審查結果一起寫進紀錄與流水帳。flow.sh 本身不強制；專案可用 hook 在行為類改動時要求必帶（例：供應商平台的 `guard-qa-before-commit.js` 要求 `已QA：…` 或 `分流例外：…`） |
 | `flow.sh audit <repo> [<range>]` | 體檢既有 commit 的 message，唯讀。抓：空 message／缺 `Type:` 前綴／Type 不在允許清單／描述超長／痕跡命中／含多行 body（軟清單命中另標「待確認」）。exit `0`＝乾淨、`1`＝有問題、`2`＝range 無效 |
@@ -209,7 +209,12 @@ Prompt 範本（開頭的 cd 指示與 codex exec 用法照 145–147 兩件事�
 
 #### 1.3c code-reviewer（C 軌）
 
-`subagent_type` **先用 `code-reviewer`**（專案自訂的審查者，帶該專案規範）；Agent 工具回 `Agent type 'code-reviewer' not found` 時，**同輪改用 `git-commit:code-reviewer`**（本 plugin 自帶的通用版）重發，不算失敗、不降級單軌。**名稱解析規則（實測）**：plugin 自帶的 agent 只能用帶前綴的 `git-commit:code-reviewer` 叫到，裸名 `code-reviewer` 只會解析到專案層／使用者層的同名 agent——**即使全環境只有 plugin 這一支，裸名也回 not found**。所以兩段式缺一不可：只寫裸名，沒有自訂審查者的專案就沒有 C 軌；只寫前綴，有自訂審查者的專案會被通用版蓋掉。`run_in_background: true`，同輪觸發。Prompt 範本（VERDICT 格式與 B 軌對齊，利匯流判讀）：
+`subagent_type` **先用 `code-reviewer`**（專案自訂的審查者，帶該專案規範）；Agent 工具回 `Agent type 'code-reviewer' not found` 時，**同輪改用 `git-commit:code-reviewer`**（本 plugin 自帶的通用版）重發，不算失敗、不降級單軌。**名稱解析規則（實測）**：plugin 自帶的 agent 只能用帶前綴的 `git-commit:code-reviewer` 叫到，裸名 `code-reviewer` 只會解析到專案層／使用者層的同名 agent——**即使全環境只有 plugin 這一支，裸名也回 not found**。所以兩段式缺一不可：只寫裸名，沒有自訂審查者的專案就沒有 C 軌；只寫前綴，有自訂審查者的專案會被通用版蓋掉。
+
+**第三層（兩個名稱都 not found 時，同輪再發）**：`git-commit:code-reviewer` 只在**有啟用 git-commit 的專案**才會註冊；從別的專案借用 flow.sh（例如 symlink 或絕對路徑呼叫）時它不存在。這時改用 `subagent_type: general-purpose`，prompt 開頭加一句「先讀 `<本 skill 目錄>/../../agents/code-reviewer.md`，照其中的角色、判準與回報格式執行」，其餘接下方範本。本 skill 目錄或 flow.sh 本身走 symlink 時仍指得到 plugin 本體（flow.sh 先用 `readlink -f` 解析腳本路徑、再用 `pwd -P` 解析目錄；檔案層級 symlink 的情境未實測）。
+C 軌的 skipped **只收一種**：第三層 general-purpose 也試過且失敗（理由寫明 general-purpose 並貼它的錯誤原文）。其餘理由——找不到 agent、逾時、連線失敗——一律先走第三層重試。`flow.sh review-record` 以放行清單機械把關：理由裡沒有 general-purpose 就拒收，並印出審查者定義檔的實際路徑。記錄時 `--reviewer` 貼 general-purpose 回覆原文即可。
+
+`run_in_background: true`，同輪觸發。Prompt 範本（VERDICT 格式與 B 軌對齊，利匯流判讀）：
 
 ```
 請審查 staged diff（在 <DIFF_PATH>，請先 `cat` 讀取）。本任務由你親自執行，不得再轉派給其他 agent。

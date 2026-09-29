@@ -27,6 +27,12 @@
 - 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
 - 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
 
+## [0.9.0] - 2026-09-29
+### Changed
+- C 軌審查者保證跑得到：plugin 自帶的 code-reviewer 只在有啟用 git-commit 的專案才會註冊，從別的專案借用 flow.sh 時兩個名稱都 not found，過去被記成 skipped、實際只剩 Codex 一軌。SKILL.md 1.3c 新增第三層：改用 general-purpose 載入 agents/code-reviewer.md 執行（已實地用這個方式完成多輪審查）。
+- flow.sh review-record 的 C 軌 skipped 改為放行清單、失敗即擋：只收「理由寫明 general-purpose 第三層也試過且失敗」的，其餘（找不到 agent、逾時、連線失敗…）一律拒收並印出審查者定義檔的實際路徑；走 symlink（含檔案層級，以 readlink -f 解析）也指得到。額度閘仍優先。起因：先用列舉「找不到 agent」句型的做法審了五輪，每輪都冒出新的誤擋或漏擋，依『列舉收斂不了就改放行清單』改寫。
+- SKILL.md 指令總表與核心原則 5、README、flow.sh 的錯誤訊息與 --help 同步寫明 C 軌只收第三層也失敗的 skipped；T06 改走「兩軌都不可用」那段邏輯（新增 T06b）。回歸測試 T41～T41h，88 項全過（空白語系與 C.UTF-8 各跑一次）。已知邊界：放行清單以「理由含 general-purpose 字樣」判定，刻意寫假理由擋不住（屬刻意繞過）。檔案層級 symlink 的情境本機無權限建立 symlink，未實測。
+
 ## [0.8.7] - 2026-09-27
 
 ### Fixed
