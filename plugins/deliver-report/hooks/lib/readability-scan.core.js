@@ -7,6 +7,8 @@
  *                                              使用者也可用 check-before 點名任一份檔案
  * 兩個入口：scan(docx, minParas) 是 hook 的原始 docx 路徑（行為不變）；
  *          scanFile(任意格式) 另加十項必掃中的第 4、8、10 項（目錄頁碼只在 docx 有目錄時跑）與 Markdown 標題編號。
+ * docx／pptx 用內建 zlib 自己解 zip（openZip），不依賴 PowerShell——Mac／Linux 也能跑。
+ * 版面類問題（疊字、字跑出方塊）不在這裡，見 skills/check-before/scripts/visual_check.py。
  * 依據：references/document-readability.md
  */
 const fs = require('fs');
@@ -318,23 +320,80 @@ function checkTables(xml) {
   return [...new Set(out)];
 }
 
-// ---------- 讀 docx 的 document.xml（不依賴外部套件）----------
+// ---------- 讀 zip 內的檔案（docx／pptx 都是 zip；純 Node，不依賴 PowerShell，Mac／Linux 也能跑）----------
+// 回傳 Map<entry 名稱, 讀取函式>；不是 zip 或壞檔 → null。不支援 ZIP64（Office 文件不會大到需要）。
+function openZip(file) {
+  let buf;
+  try { buf = fs.readFileSync(file); } catch (_) { return null; }
+  // 中央目錄結尾（EOCD）在檔尾，後面最多接 65535 位元組的註解
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 65535); i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) return null;
+  const count = buf.readUInt16LE(eocd + 10);
+  let p = buf.readUInt32LE(eocd + 16);
+  const entries = new Map();
+  const zlib = require('zlib');
+  for (let n = 0; n < count; n++) {
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) return null;
+    const method = buf.readUInt16LE(p + 10);
+    const csize = buf.readUInt32LE(p + 20);
+    const nameLen = buf.readUInt16LE(p + 28), extraLen = buf.readUInt16LE(p + 30), cmtLen = buf.readUInt16LE(p + 32);
+    const local = buf.readUInt32LE(p + 42);
+    const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
+    entries.set(name, () => {
+      // 本地標頭的檔名／額外欄位長度可能與中央目錄不同，要以本地標頭為準
+      const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+      const data = buf.subarray(start, start + csize);
+      if (method === 0) return Buffer.from(data);
+      if (method === 8) return zlib.inflateRawSync(data);
+      throw new Error(`不支援的壓縮方式 ${method}`);
+    });
+    p += 46 + nameLen + extraLen + cmtLen;
+  }
+  return entries;
+}
+
+function readZipText(file, name) {
+  const z = openZip(file);
+  if (!z || !z.has(name)) return null;
+  try { return z.get(name)().toString('utf8'); } catch (_) { return null; }
+}
+
+// ---------- 讀 docx 的 document.xml ----------
 function readDocXml(file) {
-  // 優先用 PowerShell 的 System.IO.Compression（Windows 內建）
-  try {
-    const ps = `$ErrorActionPreference='Stop';` +
-      `Add-Type -AssemblyName System.IO.Compression.FileSystem;` +
-      `$z=[System.IO.Compression.ZipFile]::OpenRead('${file.replace(/'/g, "''")}');` +
-      `$e=$z.Entries | Where-Object { $_.FullName -eq 'word/document.xml' };` +
-      `$r=New-Object System.IO.StreamReader($e.Open(),[System.Text.Encoding]::UTF8);` +
-      `$r.ReadToEnd();$r.Close();$z.Dispose()`;
-    const psFull = `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;` + ps;
-    const buf = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', psFull],
-      // 錯誤訊息收起來不印：讀不到就回 null，由呼叫端講「讀不到」，不把 PowerShell 原始錯誤灑在畫面上
-      { maxBuffer: 64 * 1024 * 1024, timeout: 12000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    const s = buf.toString('utf8');
-    return s.includes('<w:p') ? s : null;
-  } catch (_) { return null; }
+  const s = readZipText(file, 'word/document.xml');
+  return s && s.includes('<w:p') ? s : null;
+}
+
+// ---------- 讀 pptx 各頁文字（依簡報順序，每個 <a:p> 一段；表格儲存格、群組內文字都含）----------
+// 回傳 [{ slide: 頁碼, paras: [文字…] }]；讀不到 → null
+function readPptxSlides(file) {
+  const z = openZip(file);
+  if (!z) return null;
+  const txt = (n) => { try { return z.has(n) ? z.get(n)().toString('utf8') : null; } catch (_) { return null; } };
+  const pres = txt('ppt/presentation.xml');
+  const rels = txt('ppt/_rels/presentation.xml.rels');
+  if (!pres || !rels) return null;
+  const target = new Map([...rels.matchAll(/<Relationship\b[^>]*>/g)].map((m) => {
+    const id = (m[0].match(/\bId="([^"]+)"/) || [])[1];
+    const t = (m[0].match(/\bTarget="([^"]+)"/) || [])[1];
+    return [id, t];
+  }));
+  const out = [];
+  let i = 0;
+  for (const m of pres.matchAll(/<p:sldId\b[^>]*\br:id="([^"]+)"/g)) {
+    i++;
+    const t = target.get(m[1]);
+    if (!t) continue;
+    const xml = txt(path.posix.normalize(path.posix.join('ppt', t.replace(/^\//, '').replace(/^ppt\//, ''))));
+    if (!xml) continue;
+    const paras = [...xml.matchAll(/<a:p\b(?:(?!<\/a:p>).)*?<\/a:p>|<a:p\/>/gs)]
+      .map((p) => decodeEntities([...p[0].matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((x) => x[1]).join('')));
+    out.push({ slide: i, paras });
+  }
+  return out;
 }
 
 function strip(x) { return x.replace(/<[^>]+>/g, ''); }
@@ -342,7 +401,7 @@ function strip(x) { return x.replace(/<[^>]+>/g, ''); }
 // =====================================================================
 // 以下：任意格式的單檔掃描（check-before 點名檢查、Stop hook 掃確認清單 md 共用）
 // =====================================================================
-const SUPPORTED = ['.docx', '.md', '.markdown', '.txt', '.pdf'];
+const SUPPORTED = ['.docx', '.pptx', '.md', '.markdown', '.txt', '.pdf'];
 const NL = String.fromCharCode(10);
 
 class ReadError extends Error {}   // 讀不到內容：呼叫端決定是放行（hook）還是明講（check-before）
@@ -471,7 +530,7 @@ function extraChecks(text, mdSource) {
 }
 
 /**
- * 掃一份檔案（docx／md／txt／pdf），跑十項必掃中機器判得了的全部項目。
+ * 掃一份檔案（docx／pptx／md／txt／pdf），跑十項必掃中機器判得了的全部項目。
  * 讀不到內容 → 丟 ReadError（hook 端接住放行；check-before 端明講讀不到）。
  * 回傳 { file, ext, paragraphs, bad, notes }。
  */
@@ -495,6 +554,16 @@ function scanFile(file) {
         `${toc.stale.length > 4 ? `；另 ${toc.stale.length - 4} 處` : ''}` +
         `（在目錄上按右鍵 → 更新功能變數 → 更新整個目錄）`);
     }
+  } else if (ext === '.pptx') {
+    const slides = readPptxSlides(file);
+    if (!slides) throw new ReadError('讀不到 pptx 內容（不是有效的簡報檔）');
+    text = slides.flatMap((s) => s.paras);
+    // 整份是圖片的簡報（實例：每頁一張截圖）沒有文字可掃，但疊字、空白頁仍要靠視覺檢查——不當成讀檔失敗
+    if (!text.some(t => t.trim())) {
+      return { file, ext, paragraphs: 0, bad: [], notes: ['簡報沒有文字（整份是圖片），文字規則沒有可檢查的內容'] };
+    }
+    // 字級／欄寬另由視覺檢查（visual_check.py）依實際排版判斷，這裡只跑文字規則
+    result = scanText(text, null);
   } else {
     if (ext === '.pdf') text = pdfToLines(file);
     else {
@@ -626,5 +695,5 @@ module.exports = {
   ruleCoverage,
   BANNED, SUPPORTED, ReadError,
   scan, scanText, scanFile, extraChecks, mdToLines, pdfToLines,
-  checkStyle, checkTables, checkToc, harvestLocalAiNames, readDocXml, strip,
+  checkStyle, checkTables, checkToc, harvestLocalAiNames, readDocXml, readPptxSlides, openZip, strip,
 };

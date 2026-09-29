@@ -382,13 +382,10 @@ def verify_docx(docx_path, cases, open_with_word=True, check_readability=True):
     if open_with_word and sys.platform == "win32":
         errs.extend(_word_open_check(docx_path))
 
-    # ⑦ 易讀性自檢（硬缺陷擋、提醒照印）。check_doc.js 讀 docx 靠 Windows PowerShell，
-    #    非 Windows 與 ⑥ Word 實開一樣跳過並明講未檢查，不讓原本跨平台可跑的對帳失敗
+    # ⑦ 易讀性自檢（硬缺陷擋、提醒照印）。check_doc.js 讀 docx 改用純 Node 解壓，各平台都能跑；
+    #    只有其中的「目錄頁碼」要開 Word，非 Windows 會記為未檢查（印在提醒裡）
     if check_readability:
-        if sys.platform == "win32":
-            errs.extend(_readability_check(docx_path))
-        else:
-            print("  易讀性自檢未執行：讀 docx 需要 Windows PowerShell——此項屬未驗證，不可宣稱已檢查")
+        errs.extend(_readability_check(docx_path))
 
     if errs:
         raise GateError(

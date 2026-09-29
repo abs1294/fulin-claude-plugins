@@ -8,7 +8,7 @@
 | **test-report-docx** | 一份**測試報告 DOCX 檔** | 測試已做完、證據在手，要把結果文件化給 PM／客戶簽核轉發 |
 | **daily-report** | 一封**工作日報**（核可後寄出） | 把當天散在各專案的工作，濃縮成主管／客戶看得懂的日報 |
 | **to-checklist** | 一份**確認清單 PDF**（附 Markdown 原稿） | 有幾件事要對方拍板才能往下做，要在會議上逐項對齊或寄給對方逐項回覆（僅點名觸發） |
-| **check-before** | 一份**自檢結果**（不改檔） | 指定一份要交出去的文件（docx／md／txt／pdf），交付前跑易讀性檢查；它的腳本也已接進其他 subskill 的產檔／寄送腳本自動跑 |
+| **check-before** | 一份**自檢結果**（不改檔） | 指定一份要交出去的文件（docx／pptx／md／txt／pdf），交付前跑易讀性檢查；pptx／docx／pdf 另做視覺檢查（用 PowerPoint／Word 實際排版抓疊字、字跑出方塊、超出頁面，每頁出圖逐張看）。它的腳本也已接進其他 subskill 的產檔／寄送腳本自動跑（這些呼叫端不跑視覺檢查） |
 
 前兩者的分流判準一句：**對方收到的是「文字」還是「檔案」？** 兩者常前後接續——報告檔產好之後要寫段訊息把它交出去，就換 `deliver-report`。
 
@@ -24,6 +24,8 @@
 
 - `references/document-readability.md`（**plugin 層級共用一份**）：交付文件易讀性十四條鐵則＋交付前必做的十項機械掃描。每一條都是使用者當面指出過 2~4 次的實案。
 - `hooks/lib/readability-scan.core.js`：上述鐵則中「機器判得準」那幾項的**唯一實作**。Stop hook 與 `skills/check-before/scripts/check_doc.js` 都 require 它，判準改一處全部生效。`check_doc.js` 是 CLI（exit 0 通過／1 有硬缺陷／2 讀不到），已接進各 subskill 自己的腳本自動跑：to-checklist 的 `md_to_pdf.py`（轉檔前）、test-report-docx 的 `report_gate.verify_docx()`（閘三）、daily-report 的 `send_common.prepare_send`（寄送前置；MCP 草稿路徑不經腳本，要手動跑）。deliver-report 沒有產檔腳本，docx 靠下面的 Stop hook，其他格式手動跑。
+- `skills/check-before/scripts/visual_check.py`：視覺檢查。先用對方實際的軟體排版成 PDF（Windows：PowerPoint／Word；macOS：PowerPoint／Word，簡報另可退到 Keynote；各平台最後退到 LibreOffice），再讀每個字實際畫出的位置判疊字、字跑出方塊、超出頁面、字太小，每頁輸出 PNG。pptx 由 `check_doc.js` 預設呼叫，docx／pdf 要加 `--visual`（check-before 一律加）。回歸測試 `hooks/tests/visual/run_fixtures.py`。
+- `hooks/visual-view-gate.js`：Stop hook，視覺檢查印出的每頁圖片都要在本回合被 Read 過，漏看就擋。機器只判得準字形互相壓到，SmartArt、圖片裡的字這類疊字要看圖才抓得到，寫在 SKILL.md 是自律、AI 會只看總覽，所以用 hook。測試 `hooks/tests/visual-view-gate.test.js`。
 - `hooks/doc-readability-gate.js`：Stop hook，把上述判準做成交付前機械閘。**deliver-report、test-report-docx、to-checklist 會觸發**（掃目前目錄、`_work/`、`docs/`、`output/` 內近 6 小時改過的 docx 與 `checklist-*.md`）。⚠ test-report-docx 的報告放在 `tests/reports/…/`，不在掃描範圍，它的易讀性檢查靠閘三（純 prompt 規範擋不住——實證：該文件寫完「修完一類要全文重掃」之後，作者接著又在同一批文件犯了三次同類問題）。
 - `hooks/gmail-draft-link-gate.js`：Stop hook，**七項檢查、全部只提醒不硬擋**。守的是**寄出去就收不回來**的那一段——上面那支閘掃的是檔案，**草稿本身原本沒有任何人掃**，而它才是真正到外人手上的東西。只讀 transcript 裡已發生的工具呼叫與回傳（**不碰 Gmail API、不需憑證**）。
   ⚠ **這支在正常交付流程下幾乎不會開火**：它只掃「最後一則使用者輸入之後」的工具呼叫，而使用者通常會在建完草稿後再講一句話，草稿就全部落在掃描窗外。實際生效的是下一條的 PostToolUse，這支留作判準的回歸基準。七項檢查是：

@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.2.0] - 2026-09-29
+### Changed
+- check-before 新增視覺檢查（visual_check.py）：用對方實際的軟體排版成 PDF（Windows：PowerPoint／Word；macOS：PowerPoint／Word，簡報另可退到 Keynote；各平台最後退到 LibreOffice），讀每個字實際畫出的位置判疊字、字跑出方塊外、超出頁面（硬缺陷），字太小、文字壓在圖上、字型沒內嵌、空白頁（提醒），每頁輸出 PNG 並標紅框。pptx 由 check_doc.js 預設跑，docx／pdf 加 --visual（check-before 一律加；測試報告閘、確認清單轉檔、日報寄送不跑，行為不變）。新增 Stop hook visual-view-gate.js：每頁圖片都要在本回合被 Read 過才能收尾。check_doc.js 支援 pptx 文字規則。docx 讀檔改用純 Node 解壓，不再依賴 PowerShell，Mac／Linux 也能跑；test-report-docx 閘三的易讀性自檢因此不再只限 Windows。實測：12 份測試文件（PowerPoint／Word）12/12 符合預期；6 份真實簡報與文件抓到 1 處真的疊字，實測中發現的 4 類誤報（箭頭符號抽不到字、方塊陰影被當成圖片、頁首頁尾每頁重複提醒、Calibri 誤報為被替換）已修正；14 份真實 docx 新舊讀檔內容與掃描結果完全一致；看圖閘單元測試 14/14。
+
 ## [1.1.0] - 2026-09-29
 ### Changed
 - AI 工具名稱改為 docx 也擋：新增 ai_tool_names 規則組（品牌／型號族寫法，一條涵蓋整個系列與未來版號），並在掃描時自動蒐集本機已安裝的 AI 工具名稱（Claude Code plugin／marketplace／MCP、描述標為 AI 的全域 npm CLI），新裝工具不必手動加。修正共用模組 loadBanned() 只讀 patterns、漏讀 subgroups 的問題。命中 AI 名稱時印原字（只有憑證、個資遮蔽）。易讀性必掃新增第 10 項「目錄頁碼」：docx 有目錄時用 Word 唯讀開檔比對更新前後，不存檔；Stop hook 不跑此項（會逾時）。全 repo「九項必掃」同步為「十項」，deliver-report 第三步之二的必掃表補齊第 8～10 項。
