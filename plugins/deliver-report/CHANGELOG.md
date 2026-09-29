@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.0.1] - 2026-09-29
+### Fixed
+- to-checklist 的 SKILL.md 內嵌 Changelog 段落移到 CHANGELOG.md；補上缺漏的 0.11.0 條目（2026-09-05 併入 to-questionnaire）。
+
 ## [1.0.0] - 2026-09-29
 ### Changed
 - 波浪號全面改用半形 ~（原為全形，較耗 token）：deliver-report 的範例與收尾規則 8 處、to-checklist 的 md_to_pdf.py 訊息 1 處。
@@ -244,6 +248,10 @@
 ## [0.12.0] - 2026-09-13
 ### Added
 - 新增易讀性鐵則 13：我方的內部推導過程不進對外文件（定價折扣、人天估算擺盪、工期 buffer、候選方案比較、內部風險分級與人員配置、與其他客戶的比較基準六類）；照 hook 既有慣例歸入「判不準只提醒不擋」（同一金額在「折後 320,000」要擋、在「總價 320,000」是必要欄位，正則分不出，誤判比漏抓難補救），改以鐵則 8 必掃表第 8 列的自檢落地；連帶同步全 repo 7 處「十二條」為「十三條」
+
+## [0.11.0] - 2026-09-05
+### Added
+- 併入 to-questionnaire skill：把「自己答不了的決策」變成給第三方逐題填的問卷 Markdown。2026-08-07 引進自 mattpocock/skills 的 productivity/to-questionnaire（經使用者核准；frontmatter 中文化、補 deliver-report 銜接註記，正文保留原文）。1.0.0 改名為 to-checklist。
 
 ## [0.10.0] - 2026-08-30
 ### Added

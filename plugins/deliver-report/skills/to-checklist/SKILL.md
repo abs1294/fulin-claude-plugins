@@ -68,7 +68,3 @@ disable-model-invocation: true
 - Python 3：`markdown`、`pypdf`（`pip install markdown pypdf`）
 - Chrome 或 Edge（無頭列印用）
 - Node.js（md_to_pdf.py 轉檔前會呼叫 check-before 的掃描；沒有 node 就不轉檔）
-
-## Changelog
-- 2026-09-29 由 to-questionnaire 改名為 to-checklist：產出從「給對方逐題填答的問卷 Markdown」改為「逐項拍板的確認清單 PDF」，形狀改照實際開過會的規格對齊會議說明；新增 md_to_pdf.py（轉檔前後兩道閘＋部首字元修正）
-- 2026-08-07 以 to-questionnaire 之名引進自 mattpocock/skills productivity/to-questionnaire
