@@ -17,7 +17,7 @@ description: >
 判準與 Stop hook（`hooks/doc-readability-gate.js`）是**同一份程式**（`hooks/lib/readability-scan.core.js`），
 所以這裡過了，交付時的自動閘也會過。差別：這裡由使用者點名、任何格式（docx／pptx／md／txt／pdf）都能查，
 且對 docx 多跑三項（重複偵測、內部推導痕跡、Markdown 標題編號）——Stop hook 掃 docx 時不跑這三項，避免交付時多出判不準的提醒。
-其他 subskill 已經把這支腳本接進自己的腳本裡，會自動跑：to-checklist 在 `md_to_pdf.py` 轉檔前、test-report-docx 在 `report_gate.verify_docx()`（閘三）、daily-report 在寄送前置流程（`send_common.prepare_send`，MCP 草稿路徑除外）。deliver-report 沒有產檔腳本，docx 由 Stop hook 掃，其他格式手動跑這支。
+其他 subskill 已經把這支腳本接進自己的腳本裡，會自動跑：to-checklist 在 `md_to_pdf.py` 轉檔前、test-report-docx 在 `report_gate.verify_docx()`（閘三）、daily-report 在寄送前置流程（`send_common.prepare_send`）與 MCP 建草稿前（PreToolUse hook `daily-draft-gate.js`）。deliver-report 沒有產檔腳本，由 Stop hook 掃本回合提到或寫過的交付檔（任何位置與格式，含 docx 目錄頁碼）。
 
 ## 流程
 

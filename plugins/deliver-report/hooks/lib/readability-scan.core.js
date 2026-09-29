@@ -562,7 +562,7 @@ function scanFile(file) {
     // 空白或只有圖片（例如掃描檔轉成的 docx）＝沒有可掃的文字，不可回報通過
     if (!text.some(t => t.trim())) throw new ReadError('docx 沒有可讀的文字（空白或只有圖片）');
     result = scanText(text, { paras, xml });
-    // 有目錄欄位才開 Word 檢查頁碼（開 Word 要數秒；Stop hook 走 scan() 不跑這項，避免逾時）
+    // 有目錄欄位才開 Word 檢查頁碼（開 Word 要數秒；Stop hook 走 scan() 另外呼叫 checkToc，限每次 2 份）
     if (/<w:instrText[^>]*>\s*TOC\b|w:instr="\s*TOC\b/.test(xml)) {
       const toc = checkToc(file);
       if (toc.error) result.notes.push(`目錄頁碼未檢查：${toc.error}（此項屬未驗證）`);
@@ -604,7 +604,9 @@ function scanFile(file) {
  * 用 Word 自己的排版與目錄邏輯判斷——頁碼、改過名的標題、新增或刪掉的標題都涵蓋，不必自己推算分頁。
  * 回傳 { stale: [差異說明…] } 或 { error: '原因' }（沒有 Word、開檔失敗等；呼叫端記為未驗證）。
  */
-function checkToc(file) {
+function checkToc(file, timeoutMs) {
+  // timeoutMs：呼叫端的時間預算（Stop hook 要把總時間壓在 hooks.json 的逾時以內）；環境變數僅供測試
+  const limit = Number(process.env.DR_TOC_TIMEOUT_MS) || timeoutMs || 90000;
   if (process.platform !== 'win32') return { error: '需要 Windows 與 Microsoft Word' };
   const pidFile = path.join(require('os').tmpdir(), `dr-toc-${process.pid}-${Date.now()}.pid`);
   const ps = [
@@ -631,7 +633,7 @@ function checkToc(file) {
     out = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps],
       { env: { ...process.env, DR_TOC_FILE: path.resolve(file), DR_TOC_PIDFILE: pidFile },
         stdio: ['ignore', 'pipe', 'pipe'],   // PowerShell 的錯誤訊息收進 e.stderr，不直接印到畫面弄亂輸出
-        maxBuffer: 16 * 1024 * 1024, timeout: Number(process.env.DR_TOC_TIMEOUT_MS) || 90000,   // 環境變數僅供測試逾時清理
+        maxBuffer: 16 * 1024 * 1024, timeout: limit,
         windowsHide: true }).toString('utf8').trim();
   } catch (e) {
     // 逾時或失敗：PowerShell 的 finally 不保證跑到，補砍這支腳本自己啟動的 Word
@@ -640,7 +642,7 @@ function checkToc(file) {
         try { execFileSync('taskkill', ['/PID', pid, '/F'], { windowsHide: true, stdio: 'ignore' }); } catch (_) { /* 已結束 */ }
       }
     } catch (_) { /* 沒有 pid 檔：Word 還沒啟動就失敗 */ }
-    const why = e.code === 'ETIMEDOUT' || e.signal ? `逾時 ${Math.round((Number(process.env.DR_TOC_TIMEOUT_MS) || 90000) / 1000)} 秒`
+    const why = e.code === 'ETIMEDOUT' || e.signal ? `逾時 ${Math.round(limit / 1000)} 秒`
       : (String(e.stderr || '').trim() || String(e.message)).split(/\r?\n/)[0].slice(0, 80);
     return { error: `無法用 Word 開啟（${why}）` };
   } finally {

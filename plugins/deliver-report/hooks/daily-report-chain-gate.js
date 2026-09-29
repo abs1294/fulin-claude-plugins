@@ -372,6 +372,10 @@ function isUserPromptLine(o) {
   if (o.type !== 'user' || !o.promptId) return false;
   if ('toolUseResult' in o) return false;
   if (o.isSidechain === true) return false;
+  // isMeta:true 的 user 行不是使用者輸入：Skill 工具叫起 skill 後注入的說明內容、Stop hook 擋下後的
+  //「Stop hook feedback」、斜線指令的 caveat 都是這種行（type=user、有 promptId、無 toolUseResult）。
+  // 當成起點的話，Skill 呼叫會落在起點之前——實測真實順序的 transcript＋有缺陷的 docx，閘第一次就放行。
+  if (o.isMeta === true) return false;
   return true;
 }
 

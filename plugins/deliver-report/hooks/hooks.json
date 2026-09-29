@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/doc-readability-gate.js\"",
-            "timeout": 25
+            "timeout": 150
           },
           {
             "type": "command",
@@ -35,6 +35,18 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gmail-draft-posttool-gate.js\"",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__claude_ai_Gmail__(create_draft|update_draft)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/daily-draft-gate.js\"",
+            "timeout": 90
           }
         ]
       }

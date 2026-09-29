@@ -76,7 +76,7 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/extract_sessions.py" -
 
 **Gmail API（A）與 SMTP（B）兩條路徑不用手動跑**——第 5 步呈現前跑的 `--dry-run` 就會經過這兩道閘，沒過就拿不到預覽；實寄時會再跑一次。
 
-**只有 MCP 建草稿（C）要手動跑**：這條路徑是直接呼叫 Gmail 工具，不經過寄送腳本，沒有任何閘會自動執行。建草稿前兩支都要跑、都要過：
+**MCP 建草稿（C）也不用手動跑**：這條路徑直接呼叫 Gmail 工具、不經寄送腳本，所以由 PreToolUse hook `hooks/daily-draft-gate.js` 在建立／更新草稿**之前**把關——主旨含「工作日報」的草稿，內文會先跑同樣兩支（`content_guard.py`、`check_doc.js`），任一不過就拒絕建立草稿並附上命中清單。想在建草稿前先看結果，可手動跑：
 
 ```
 python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/content_guard.py" <報告.md> [--project <目錄>]
@@ -129,7 +129,7 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/confirm_gate.py" arm <
 
 | 回應 | 動作 |
 |---|---|
-| 改內容 | 更新報告 → 重跑 `--dry-run`（兩道閘隨之重跑；MCP 草稿路徑則手動重跑第 4 步兩支）→ **`confirm_gate clear <date>`** → 重新呈現並 arm（窗口重新計時） |
+| 改內容 | 更新報告 → 重跑 `--dry-run`（兩道閘隨之重跑；MCP 草稿路徑在重建草稿時由 hook 自動重跑）→ **`confirm_gate clear <date>`** → 重新呈現並 arm（窗口重新計時） |
 | 喊停 | **`confirm_gate veto <date> --reason "..."`** → `CronDelete <id>` → 不寄 |
 | 說「寄」 | 直接寄，**不帶 `--auto`**（這是他的意思表示，不必等窗口） |
 

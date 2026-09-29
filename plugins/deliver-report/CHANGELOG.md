@@ -2,6 +2,13 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.3.0] - 2026-09-29
+### Changed
+- 修正：deliver-report 的四支 hook（易讀性 Stop hook、日報接鏈閘、Gmail 草稿檢查與其共用模組）判斷回合起點時沒排除 isMeta 的 user 行——Skill 工具叫起 skill 後注入的說明內容、Stop hook feedback 都是這種行，被當成起點後 Skill 呼叫落在起點之前；照真實行順序實測，易讀性閘不會觸發（拿掉 isMeta 行才會擋）。易讀性 Stop hook 另支援斜線指令叫起的 skill。易讀性 Stop hook 的掃描範圍擴大到本回合提到或寫過的交付檔（交付訊息裡的檔名、Write 寫出的檔；任何位置、docx／md／txt／pdf／pptx，最多 6 份），docx 有目錄時另檢查目錄頁碼（每次最多 2 份，hook 逾時放寬到 120 秒）。新增 PreToolUse hook daily-draft-gate.js：主旨含「工作日報」的 Gmail 草稿，建立／更新前先跑內容閘與易讀性閘，沒過就拒絕建立（MCP 草稿路徑原本只靠自律）。新增回歸測試 turn-start（26 項）、doc-gate-scope（6 項）、daily-draft-gate（8 項）。
+- 審查修正：只在文字裡提到的檔要 6 小時內改過才當交付檔，已擋過一次（stop_hook_active）且缺陷只在這類檔上時降為提醒——避免讀過的客戶原稿把收尾一直卡住；本回合寫出的檔每次都擋。目錄頁碼每份 35 秒、總預算 70 秒，hook 逾時 150 秒（避免 hook 被砍、Word 殘留）。daily-draft-gate：update_draft 沒帶主旨時從 transcript 找回原主旨、找不到再看內文；body 與 htmlBody 都掃；只改收件人的更新放行；兩支腳本各 25 秒、hook 逾時 90 秒；放行時暫存檔（日報內文）確實刪除。Write／Edit 的路徑直接採用不再拆解（含空白也抓得到）；交付檔同時在固定目錄內時照交付檔處理。
+- 審查修正（第二輪）：擋過一次後降為提醒的範圍，擴大到「固定目錄裡近期改過的檔」——舊版因 isMeta 問題這條從未生效，修好後客戶給的 docx 放在目前目錄會每次收尾都擋；只有本回合 Write／Edit 寫出的檔每次都擋。Markdown 連結 [標籤](路徑) 另外抽網址部分（含 <> 包住的空白路徑）。daily-draft-gate：update_draft 沒帶主旨又找不到原主旨時失敗即擋，請帶主旨再更新。
+- 審查修正（第三輪）：回傳 is_error 的 Write／Edit（找不到字串、沒權限）不算「寫出」，不會把客戶原稿變成每次硬擋；檔名帶半形括號（報告(v2).docx）也抓得到；Markdown 連結用 <> 包住時可含空白與括號；Write／Edit 給的完整路徑原樣採用，不做標點與括號清理。
+
 ## [1.2.0] - 2026-09-29
 ### Changed
 - check-before 新增視覺檢查（visual_check.py）：用對方實際的軟體排版成 PDF（Windows：PowerPoint／Word；macOS：PowerPoint／Word，簡報另可退到 Keynote；各平台最後退到 LibreOffice），讀每個字實際畫出的位置判疊字、字跑出方塊外、超出頁面（硬缺陷），字太小、文字壓在圖上、字型沒內嵌、空白頁（提醒），每頁輸出 PNG 並標紅框。pptx 由 check_doc.js 預設跑，docx／pdf 加 --visual（check-before 一律加；測試報告閘、確認清單轉檔、日報寄送不跑，行為不變）。新增 Stop hook visual-view-gate.js：每頁圖片都要在本回合被 Read 過才能收尾。check_doc.js 支援 pptx 文字規則。docx 讀檔改用純 Node 解壓，不再依賴 PowerShell，Mac／Linux 也能跑；test-report-docx 閘三的易讀性自檢因此不再只限 Windows。實測：12 份測試文件（PowerPoint／Word）12/12 符合預期；6 份真實簡報與文件抓到 1 處真的疊字，實測中發現的 4 類誤報（箭頭符號抽不到字、方塊陰影被當成圖片、頁首頁尾每頁重複提醒、Calibri 誤報為被替換）已修正；14 份真實 docx 新舊讀檔內容與掃描結果完全一致；看圖閘單元測試 14/14。

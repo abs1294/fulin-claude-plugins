@@ -14,7 +14,7 @@
  *   鐵則 9  樣式一致性：同級標題字級不一、主標小於子標、⚠※◆ 樣式分歧
  *   鐵則 9d 表格窄欄塞長字（<1500 dxa 放 >10 字，會擠成直排）
  *   AI 工具名稱：references/banned-patterns.json 的 ai_tool_names（品牌族寫法）＋本機已安裝 AI 工具自動蒐集
- *   （目錄頁碼不在 hook 跑：要開 Word、數秒，會逾時；check-before／report_gate 會跑）
+ *   目錄頁碼：docx 有目錄時以 Word 唯讀開檔比對更新前後（每份約 5 秒，每次最多 2 份；hooks.json 逾時 120 秒）
  *
  * 判不準（只提醒，不擋）：
  *   鐵則 1 兩邊對照 / 2 資訊放一起 / 6 能自查卻丟給讀者 / 10 該腳本化
@@ -65,19 +65,57 @@ function main(raw) {
   // 判不出來（沒有 transcript_path、讀檔失敗、解析失敗）一律放行。
   if (calledSkillThisTurn(payload.transcript_path) !== true) return allow();
 
-  const docs = recentDocx(cwd);
+  // 兩個來源：①固定目錄內近期改過的 docx／checklist-*.md（舊行為）；
+  // ②本回合提到或寫過的交付檔（任何位置、docx／md／txt／pdf）——交付訊息裡列的檔、Write 寫出的檔。
+  // 去重時保留「本回合明確提到」這一邊：同一份檔若也在固定目錄，要照交付檔處理（不套 20 段門檻）
+  const referenced = referencedDeliverables(payload.transcript_path, cwd);   // [{ path, source: 'write'|'text' }]
+  const refKeys = new Set(referenced.map((x) => path.resolve(x.path).toLowerCase()));
+  const fromDirs = recentDocx(cwd).filter((q) => !refKeys.has(path.resolve(q).toLowerCase()))
+    .map((p) => ({ path: p, source: 'dir' }));
+  const docs = referenced.concat(fromDirs);
   if (!docs.length) return allow();
 
-  let findings = [];    // 擋下用
+  let findings = [];    // 擋下用：{ file, items, source }
   let advisories = [];  // 只提醒用
-  for (const d of docs) {
+  let tocChecked = 0;
+  const t0 = Date.now();
+  // 目錄頁碼要開 Word：每份給 35 秒、總預算 70 秒，最多 2 份——總時間壓在 hooks.json 的 150 秒以內，
+  // hook 被 Claude Code 砍掉時來不及清 Word 程序、結果也全丟
+  const TOC_EACH_MS = 35000, TOC_BUDGET_MS = 70000;
+  for (const { path: d, source } of docs) {
     let r;
-    // docx 走原本的 scan（段落 <20 視為不像交付文件）；確認清單 md 走 scanFile（多驗標題編號連續）
-    try { r = d.toLowerCase().endsWith('.docx') ? scan(d) : scanFile(d); } catch (_) { continue; }   // 單檔失敗 → 略過該檔
+    const isDocx = d.toLowerCase().endsWith('.docx');
+    // 目錄內的 docx 走原本的 scan（段落 <20 視為不像交付文件）；本回合明確提到的交付檔不做這個門檻；
+    // md／txt／pdf 走 scanFile（多驗標題編號連續）
+    try { r = isDocx ? scan(d, source === 'dir' ? 20 : 0) : scanFile(d); } catch (_) { continue; }   // 單檔失敗 → 略過該檔
     if (!r) continue;
+    if (isDocx && tocChecked < 2 && hasTocField(d)) {
+      const left = TOC_BUDGET_MS - (Date.now() - t0);
+      if (left < 10000) {
+        (r.notes = r.notes || []).push('目錄頁碼未檢查：這次收尾的時間預算用完了（此項屬未驗證，可用 check-before 單獨檢查）');
+      } else {
+        tocChecked++;
+        const toc = checkToc(d, Math.min(TOC_EACH_MS, left));
+        if (toc.error) (r.notes = r.notes || []).push(`目錄頁碼未檢查：${toc.error}（此項屬未驗證）`);
+        else if (toc.stale.length) (r.bad = r.bad || []).push(`目錄未更新：${toc.stale.slice(0, 4).join('；')}` +
+          `${toc.stale.length > 4 ? `；另 ${toc.stale.length - 4} 處` : ''}（在目錄上按右鍵 → 更新功能變數 → 更新整個目錄）`);
+      }
+    }
     const name = path.basename(d);
-    if (r.bad && r.bad.length) findings.push({ file: name, items: r.bad });
+    if (r.bad && r.bad.length) findings.push({ file: name, items: r.bad, source });
     if (r.notes && r.notes.length) advisories.push({ file: name, items: r.notes });
+  }
+
+  // 已經擋過一次（stop_hook_active）而剩下的缺陷都不在「本回合寫出的檔」上：降為提醒。
+  // 只在文字裡提到的檔、固定目錄裡剛好近期改過的檔，都可能是客戶給的原稿，改不了也不該改；
+  // 一直擋會讓 session 出不去（C 軌審查兩輪各實跑重現：連續 4 次收尾都被擋）。
+  // 本回合 Write／Edit 寫出的檔仍每次都擋——那一定是我方的產出。
+  if (findings.length && payload.stop_hook_active === true && findings.every((f) => f.source !== 'write')) {
+    for (const f of findings) {
+      const why = f.source === 'dir' ? '這份是固定目錄裡近期改過的檔' : '這份只在文字裡被提到';
+      advisories.push({ file: f.file, items: [`（已擋過一次，${why}、不是本回合寫出的，改為提醒：若它是交付檔請修正）`, ...f.items] });
+    }
+    findings = [];
   }
 
   // 沒有硬缺陷時：有提醒就 warn（不擋），否則直接放行。
@@ -119,7 +157,94 @@ function main(raw) {
 }
 
 // ---------- 掃描判準（共用模組，check-before skill 也用同一份）----------
-const { scan, scanFile } = require('./lib/readability-scan.core.js');
+const { scan, scanFile, checkToc, readDocXml, SUPPORTED } = require('./lib/readability-scan.core.js');
+
+function hasTocField(file) {
+  try { return /<w:instrText[^>]*>\s*TOC\b|w:instr="\s*TOC\b/.test(readDocXml(file) || ''); } catch (_) { return false; }
+}
+
+/**
+ * 本回合提到或寫過的交付檔：Write／Edit 的 file_path，以及 assistant 文字裡寫到的檔名或路徑
+ * （交付訊息會列出交付檔）。只收存在的檔案、支援的副檔名；排除說明文件與設定（CLAUDE.md、SKILL.md、
+ * README、CHANGELOG、MEMORY、.claude／memory／node_modules 底下的檔），最多 6 份。
+ * 由來：舊版只掃固定 4 個目錄的 docx，deliver-report 交付的 md／txt／pdf 或放在別處的 docx 完全沒人檢查。
+ */
+function referencedDeliverables(tp, cwd) {
+  if (!tp) return [];
+  let raw;
+  try { raw = fs.readFileSync(tp, 'utf8'); } catch (_) { return []; }
+  const lines = raw.split('\n');
+  let start = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let o;
+    try { o = JSON.parse(lines[i]); } catch (_) { continue; }
+    if (isUserPromptLine(o)) { start = i; break; }
+  }
+  if (start < 0) return [];
+  const exts = (SUPPORTED || ['.docx', '.md', '.markdown', '.txt', '.pdf']).map((e) => e.slice(1)).join('|');
+  // 路徑字元排除 [ ]：Markdown 連結 [報告](deliver/report.pdf) 另外抽網址部分，不然會連標籤一起抓成路徑。
+  // 半形 ( ) 保留：檔名本身常帶括號（報告(v2).docx）；抓到後再去掉開頭多出的「(」
+  const pathRe = new RegExp(`(?:[A-Za-z]:[\\\\/]|\\.{0,2}[\\\\/])?[^\\s"'\`<>|*?\\[\\]（）「」【】，。：；]+\\.(?:${exts})\\b`, 'gi');
+  // 失敗的 Write／Edit（Edit 找不到字串、Write 沒權限…）不算「寫出」：先收集本回合回傳 is_error 的 tool_use id
+  const failed = new Set();
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i].indexOf('"is_error":true') === -1) continue;
+    let o;
+    try { o = JSON.parse(lines[i]); } catch (_) { continue; }
+    const c = o && o.message && o.message.content;
+    if (Array.isArray(c)) for (const b of c) if (b && b.type === 'tool_result' && b.is_error === true) failed.add(b.tool_use_id);
+  }
+  const texts = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    let o;
+    try { o = JSON.parse(lines[i]); } catch (_) { continue; }
+    if (!o || o.type !== 'assistant' || o.isSidechain === true) continue;
+    const c = o.message && o.message.content;
+    if (!Array.isArray(c)) continue;
+    for (const b of c) {
+      if (!b) continue;
+      if (b.type === 'text' && typeof b.text === 'string') texts.push({ text: b.text });
+      if (b.type === 'tool_use' && /^(Write|Edit|NotebookEdit)$/.test(b.name) && b.input && typeof b.input.file_path === 'string' &&
+          !failed.has(b.id)) {
+        texts.push({ exact: b.input.file_path });   // 完整路徑直接用，不再拆解（含空白的路徑拆了會被截斷）
+      }
+    }
+  }
+  const EXCLUDE_BASE = /^(claude|skill|readme|changelog|memory|agents|conventions)\.md$/i;
+  const EXCLUDE_DIR = /[\\/](\.claude|memory|node_modules|\.git)[\\/]/i;
+  const out = [];
+  const seen = new Set();
+  // Write／Edit 寫出的路徑排在前面：同一份檔既被寫過又被提到時，以「寫出」為準（每次都擋）
+  texts.sort((a, b) => (b.exact ? 1 : 0) - (a.exact ? 1 : 0));
+  for (const item of texts) {
+    // 反引號包住的路徑可能含空白（中文檔名常見），先整段取出
+    const t = item.text || '';
+    const cands = item.exact ? [item.exact]
+      : [...t.matchAll(/`([^`\n]+)`/g)].map((m) => m[1])
+        // Markdown 連結的網址部分：<> 包住的抓到 > 為止（可含空白與括號），沒包的抓到 ) 或空白為止
+        .concat([...t.matchAll(/\]\(\s*<([^>\n]+)>\s*\)/g)].map((m) => m[1]))
+        .concat([...t.matchAll(/\]\(\s*([^<\s)][^)\s]*)\s*\)/g)].map((m) => m[1]))
+        .concat([...t.matchAll(pathRe)].map((m) => m[0]));
+    for (let cand of cands) {
+      // 文字擷取的結果才清理前後標點與前導括號；Write／Edit 給的是完整路徑，原樣採用（檔名可能本來就以括號開頭）
+      if (!item.exact) cand = cand.trim().replace(/[.,;:)\]]+$/, '').replace(/^[(]+/, '');
+      if (!new RegExp(`\\.(?:${exts})$`, 'i').test(cand)) continue;
+      const p = path.resolve(cwd, cand);
+      const key = p.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (EXCLUDE_BASE.test(path.basename(p)) || EXCLUDE_DIR.test(p)) continue;
+      let st;
+      try { st = fs.statSync(p); if (!st.isFile()) continue; } catch (_) { continue; }
+      // 只在文字裡提到的檔，要 6 小時內改過才算交付檔：讀過的輸入檔（客戶原稿）通常是舊檔，
+      // 不這樣篩會把輸入檔當交付檔一直擋（C 軌審查實跑重現：連續 4 次收尾都被擋）
+      if (!item.exact && Date.now() - st.mtimeMs > 6 * 3600 * 1000) continue;
+      out.push({ path: p, source: item.exact ? 'write' : 'text' });
+      if (out.length >= 6) return out;
+    }
+  }
+  return out;
+}
 
 
 // 本 plugin 中「會產出交付文件」的 skill 名單。
@@ -162,6 +287,18 @@ function calledSkillThisTurn(tp) {
     if (isUserPromptLine(o)) { start = i; break; }
   }
   if (start < 0) return null;
+
+  // 使用者直接打斜線指令（/deliver-report:deliver-report …）時，transcript 沒有 Skill tool_use，
+  // 只在起點那行使用者輸入裡寫 <command-name>/deliver-report:deliver-report</command-name>
+  try {
+    const so = JSON.parse(lines[start]);
+    const c = so && so.message && so.message.content;
+    const txt = typeof c === 'string' ? c
+      : Array.isArray(c) ? c.map((b) => (b && typeof b.text === 'string' ? b.text : '')).join('\n') : '';
+    for (const m of txt.matchAll(/<command-name>\s*\/?([^<\s]+)\s*<\/command-name>/g)) {
+      if (isGatedSkill(m[1])) return true;
+    }
+  } catch (_) { /* 解析不了就照舊只看 Skill tool_use */ }
 
   for (let i = start + 1; i < lines.length; i++) {
     const l = lines[i];
@@ -233,5 +370,9 @@ function isUserPromptLine(o) {
   if (o.type !== 'user' || !o.promptId) return false;
   if ('toolUseResult' in o) return false;
   if (o.isSidechain === true) return false;
+  // isMeta:true 的 user 行不是使用者輸入：Skill 工具叫起 skill 後注入的說明內容、Stop hook 擋下後的
+  //「Stop hook feedback」、斜線指令的 caveat 都是這種行（type=user、有 promptId、無 toolUseResult）。
+  // 當成起點的話，Skill 呼叫會落在起點之前——實測真實順序的 transcript＋有缺陷的 docx，閘第一次就放行。
+  if (o.isMeta === true) return false;
   return true;
 }
