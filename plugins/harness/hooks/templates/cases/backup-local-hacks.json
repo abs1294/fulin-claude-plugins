@@ -54,7 +54,7 @@
         "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
       },
       "payload": { "tool_name": "Bash", "tool_input": { "command": "git reset --hard" } },
-      "expect": "ALLOW"
+      "expect": "SILENT"
     },
     {
       "label": "沒有清單檔",
@@ -65,7 +65,7 @@
         "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
       },
       "payload": { "tool_name": "Bash", "tool_input": { "command": "ls" } },
-      "expect": "ALLOW"
+      "expect": "SILENT"
     },
     {
       "label": "節流時間內不重跑",
@@ -76,7 +76,7 @@
         "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
       },
       "payload": { "tool_name": "Bash", "tool_input": { "command": "ls" } },
-      "expect": "ALLOW"
+      "expect": "SILENT"
     },
     {
       "label": "不相干的工具（Read）不觸發",
@@ -87,7 +87,7 @@
         "env": { "OVERRIDES_BACKUP_VERBOSE": "1" }
       },
       "payload": { "tool_name": "Read", "tool_input": { "file_path": "conf.txt" } },
-      "expect": "ALLOW"
+      "expect": "SILENT"
     }
   ]
 }

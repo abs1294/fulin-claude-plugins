@@ -63,7 +63,7 @@
     {
       "name": "harness",
       "source": "./plugins/harness",
-      "description": "開發流程制度安裝器與使用檢查：/harness:review 從實際使用紀錄檢查裝好的流程有沒有起作用；/harness:init 盤點專案（技術面與業務面）後一次一題訪談，先確認專案在做什麼、哪個環境是正式、專案用語，再生成制度文件＋可執行 hook＋通用 agent 組＋知識容器＋settings，用冷啟探針實測 hook 真的會擋，最後畫三張流程圖（需求進來之後怎麼跑、文件在哪一步被讀寫、背景自動執行）；專案原有的 Claude Code 設定備份後當參考來源。引擎在 plugin、實例在專案。"
+      "description": "開發流程制度安裝器與制度健檢：/harness:review 三軌健檢（實際使用紀錄＋健檢清單與專案稽核工具＋/doctor 與 /insights 交叉比對），可逆的修正一次核可後當場修；/harness:init 盤點專案（技術面與業務面）後一次一題訪談，先確認專案在做什麼、哪個環境是正式、專案用語，再生成制度文件＋可執行 hook＋通用 agent 組＋知識容器＋settings，用冷啟探針實測 hook 真的會擋，最後畫三張流程圖（需求進來之後怎麼跑、文件在哪一步被讀寫、背景自動執行）；專案原有的 Claude Code 設定備份後當參考來源。引擎在 plugin、實例在專案。"
     },
     {
       "name": "wtf",

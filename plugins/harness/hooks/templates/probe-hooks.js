@@ -33,14 +33,15 @@
 //     },
 //     "payload": { "hook_event_name": "PreToolUse", "tool_name": "...", "tool_input": {...} },
 //                                                  // payload 字串裡的 {PROJECT_DIR} 會換成本次暫存專案的絕對路徑
-//     "expect": "BLOCK" | "ALLOW" | "NOTE",        // NOTE＝不擋但要有輸出（提醒型 hook）
+//     "expect": "BLOCK" | "ALLOW" | "NOTE" | "SILENT", // NOTE＝不擋但要有輸出（提醒型 hook）；SILENT＝不擋而且不能有任何輸出
+//                                                  // （提醒型 hook「該安靜」的案例用它：ALLOW 不看輸出，誤報提醒也會判 ALLOW）
 //     "exit": 1,                                   // 選填：預期結束碼（刻意以 0／2 以外結束的 CLI 腳本用）
 //     "parser": "only"                             // 選填：只有語法樹路徑做得到（正則路徑的已知極限）；
 //                                                  // 走正則路徑時略過並計數，不算通過也不算失敗
 //   }]
 // }
 // 判定：exit 2、stdout JSON 的 hookSpecificOutput.permissionDecision=deny、或 decision=block ＝ BLOCK；
-// 否則 ALLOW。NOTE 需 ALLOW 且 stdout 或 stderr 非空。exit 0／2 以外的結束碼、逾時、訊號終止＝CRASH，一律不符。
+// 否則 ALLOW。NOTE 需 ALLOW 且 stdout 或 stderr 非空；SILENT 需 ALLOW 且 stdout、stderr 都是空的。exit 0／2 以外的結束碼、逾時、訊號終止＝CRASH，一律不符。
 'use strict';
 const fs = require('fs');
 const os = require('os');
@@ -181,7 +182,9 @@ for (const hook of hooks) {
     // 案例可用 "exit" 宣告預期結束碼（給 CLI 腳本這種刻意以非 0／2 結束的）；有宣告就必須剛好相符。
     const crashed = r.error || r.signal ||
       (c.exit !== undefined ? r.status !== c.exit : (r.status !== 0 && r.status !== 2));
-    const got = crashed ? 'CRASH' : (block ? 'BLOCK' : (c.expect === 'NOTE' && said ? 'NOTE' : 'ALLOW'));
+    const got = crashed ? 'CRASH' : (block ? 'BLOCK'
+      : (c.expect === 'NOTE' && said ? 'NOTE'
+        : (c.expect === 'SILENT' ? (said ? 'ALLOW（有輸出）' : 'SILENT') : 'ALLOW')));
     const ok = got === c.expect;
     ok ? pass++ : fail++;
     console.log(`${ok ? 'PASS' : 'FAIL'} | ${hook} | 期望 ${c.expect} 實得 ${got} (exit ${r.status}) | ${c.label}`);

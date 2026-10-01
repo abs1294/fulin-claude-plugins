@@ -5,9 +5,11 @@
       "label": "距上次健檢 40 天（超過門檻）→ 提醒",
       "setup": {
         "files": {
-          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-08-01 健檢執行：10 項中 9 OK\n"
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
         },
-        "env": { "HARNESS_TODAY": "2026-09-10" }
+        "env": {
+          "HARNESS_TODAY": "2026-09-10"
+        }
       },
       "payload": {
         "hook_event_name": "SessionStart"
@@ -18,27 +20,31 @@
       "label": "距上次健檢 5 天（未超過門檻）→ 靜默",
       "setup": {
         "files": {
-          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-05 健檢執行：10 項中 9 OK\n"
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-05 【健檢執行】/harness:review：正常\n"
         },
-        "env": { "HARNESS_TODAY": "2026-09-10" }
+        "env": {
+          "HARNESS_TODAY": "2026-09-10"
+        }
       },
       "payload": {
         "hook_event_name": "SessionStart"
       },
-      "expect": "ALLOW"
+      "expect": "SILENT"
     },
     {
-      "label": "只有「修改健檢制度」條目、無執行語意詞 → 不算做過一輪，落回無基準靜默",
+      "label": "剛好等於門檻天數（30 天整）→ 不觸發（> 判準，不含等於）",
       "setup": {
         "files": {
-          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-08 健檢清單加三項\n"
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-08-11 【健檢執行】：正常\n"
         },
-        "env": { "HARNESS_TODAY": "2026-09-10" }
+        "env": {
+          "HARNESS_TODAY": "2026-09-10"
+        }
       },
       "payload": {
         "hook_event_name": "SessionStart"
       },
-      "expect": "ALLOW"
+      "expect": "SILENT"
     },
     {
       "label": "健檢紀錄檔不存在 → 靜默放行",
@@ -46,7 +52,7 @@
       "payload": {
         "hook_event_name": "SessionStart"
       },
-      "expect": "ALLOW"
+      "expect": "SILENT"
     },
     {
       "label": "檔案存在但沒有任何日期式 changelog 條目 → 靜默放行",
@@ -54,25 +60,289 @@
         "files": {
           ".claude/harness/05-knowledge-protocol.md": "# 05\n\n沒有 changelog 區塊\n"
         },
-        "env": { "HARNESS_TODAY": "2026-09-10" }
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
       },
       "payload": {
         "hook_event_name": "SessionStart"
       },
-      "expect": "ALLOW"
+      "expect": "SILENT"
     },
     {
-      "label": "剛好等於門檻天數（30 天整）→ 不觸發（> 判準，不含等於）",
+      "label": "沒有任何帶標記的紀錄、也沒有備援日期 → 退到 changelog 最早日期（09-08，21 天）→ 未逾期，靜默",
       "setup": {
         "files": {
-          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-08-11 健檢執行：10 項中 9 OK\n"
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-08 健檢清單加三項\n"
         },
-        "env": { "HARNESS_TODAY": "2026-09-10" }
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
       },
       "payload": {
         "hook_event_name": "SessionStart"
       },
-      "expect": "ALLOW"
+      "expect": "SILENT"
+    },
+    {
+      "label": "新的寫在最上面：最新一次 1 天前、舊的 59 天前 → 取日期最大的，靜默（舊寫法取最後一筆會誤報 59 天）",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 【健檢執行】/harness:review：結果正常\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "舊的寫在最上面：同樣兩筆換順序 → 一樣靜默",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n- 2026-09-28 【健檢執行】/harness:review：結果正常\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Windows 換行（CRLF）的紀錄也要認得 → 1 天前 → 靜默",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 【健檢執行】：正常\r\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\r\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "備援日期（09-25）比真實紀錄（08-01）晚：有真實紀錄就不用備援 → 59 天 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE",
+      "variant": "fallback-late"
+    },
+    {
+      "label": "完全沒有帶標記的紀錄才用備援日期（08-01）→ 59 天 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-20 健檢清單加一項\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE",
+      "variant": "fallback-set"
+    },
+    {
+      "label": "升級行為：沒有標記的舊格式紀錄（健檢執行：、制度健檢（/harness:review）執行：）不算 → 以 59 天前帶標記那筆為準 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 健檢執行：10 項中 9 OK\n- 2026-09-27 制度健檢（/harness:review）執行：正常\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "改制度的紀錄「改健檢清單：新增一項（結果欄位說明）」不算跑過 → 以 59 天前那筆為準 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 改健檢清單：新增一項（結果欄位說明）\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "改制度的紀錄「調整健檢: 新增結果欄位」不算跑過 → 以 59 天前那筆為準 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 調整健檢: 新增結果欄位\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "改制度的紀錄「調整制度健檢結果欄位」不算跑過 → 以 59 天前那筆為準 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 調整制度健檢結果欄位\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "改制度的紀錄「新增 健檢執行步驟」不算跑過 → 以 59 天前那筆為準 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 新增 健檢執行步驟\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "改制度的紀錄「健檢執行步驟調整」不算跑過 → 以 59 天前那筆為準 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 健檢執行步驟調整\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "改制度的紀錄「健檢執行：改為每月一次」不算跑過 → 以 59 天前那筆為準 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 健檢執行：改為每月一次\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "改制度的紀錄「健檢結果：欄位改名」不算跑過 → 以 59 天前那筆為準 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 健檢結果：欄位改名\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "改制度的紀錄「改健檢清單：說明【健檢執行】標記怎麼寫」不算跑過 → 以 59 天前那筆為準 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 改健檢清單：說明【健檢執行】標記怎麼寫\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "升級前只有無標記舊紀錄（最早 08-01）、沒有備援日期 → 退到最早日期，59 天 → 提醒（不可永久靜默）",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-01 健檢執行：正常\n- 2026-08-01 建立（harness init）\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "新專案只有建立那一行（09-20）→ 9 天未逾期 → 靜默；滿 30 天才第一次提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-20 建立（harness plugin /harness:init 實例化）\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
     }
-  ]
+  ],
+  "variants": {
+    "fallback-late": {
+      "replace": [
+        [
+          "const FALLBACK_BASE_DATE = '';",
+          "const FALLBACK_BASE_DATE = '2026-09-25';"
+        ]
+      ]
+    },
+    "fallback-set": {
+      "replace": [
+        [
+          "const FALLBACK_BASE_DATE = '';",
+          "const FALLBACK_BASE_DATE = '2026-08-01';"
+        ]
+      ]
+    }
+  }
 }

@@ -141,7 +141,7 @@ commit 前的審查可以多一位 Codex（OpenAI 的指令列工具）。你目
 | # | 項目 | 怎麼查（實讀，不信 README） | 記下什麼 |
 |---|------|----------------------------|----------|
 | 1 | 技術棧 | 讀套件與建置設定檔：`package.json`、`pyproject.toml`／`requirements.txt`、`go.mod`、`pom.xml`／`build.gradle`、`*.csproj`／`*.sln`、`Cargo.toml`、`Gemfile`、`composer.json`、`pubspec.yaml` | 語言、框架、資料存取方式、資料庫；前端與後端各一行 |
-| 2 | build／test 指令 | **實際讀**腳本本體：`package.json` 的 `scripts`、`Makefile`、`*.sh`／`*.bat`／`*.ps1`、CI 設定（`.github/workflows/`、`.gitlab-ci.yml`）。能安全執行的（build、測試列出）實跑一次確認存在 | 每條指令＋「查證方式」（讀到哪個檔哪一行、有沒有實跑）。README 寫了但腳本不存在的，記成「文件漂移」 |
+| 2 | build／test 指令 | **實際讀**腳本本體：`package.json` 的 `scripts`、`Makefile`、`*.sh`／`*.bat`／`*.ps1`、CI 設定（`.github/workflows/`、`.gitlab-ci.yml`）。能安全執行的（build、測試列出）實跑一次確認存在 | 每條指令＋「查證方式」（讀到哪個檔哪一行、有沒有實跑）。README 寫了但腳本不存在的，記成「文件漂移」。另記**專案自己的掃描或稽核腳本**（有 `--baseline`、或靠 exit code 判斷的：硬編檢查、對應檢查、沒人用的譯文或 export、覆蓋登記…）與**會說謊的東西**（程式碼索引、快取、產生物——過期了不報錯、只給舊答案）：指令、在哪個目錄跑、怎樣算過、看不到什麼，供 05 §5.1 |
 | 3 | repo 結構與 git remote | workspace 根的資料夾；每個 repo 的 `git -C <repo> remote -v`；檔案數（`git -C <repo> ls-files \| wc -l`） | remote 指向外部／客戶伺服器＝push 屬外向動作，要進邊界條款；檔案數供裁切規則判斷「小專案」 |
 | 4 | 前端類型（三分類） | 照下方「前端分類判準」 | 瀏覽器可驅動／非瀏覽器前端／無前端，**附證據檔案路徑** |
 | 5 | 測試基礎 | 找測試目錄（`tests/`、`test/`、`__tests__/`、`spec/`、`src/test/`）與測試設定；**打開看裡面有沒有東西**——數測試檔數量、讀一支確認不是空殼 | 目錄存在 ≠ 有測試（曾實測某 repo 自述有測試目錄，實際不存在）。記「有且有 N 支實測／有目錄但空／無」 |
@@ -430,7 +430,7 @@ Q5 攤給使用者的格式（每項一列；不列 A～E 分類，第一欄是�
 | `skeleton-02-model-dispatch.md` | `<落點>/.claude/harness/02-model-dispatch.md` | agent 對照表（Q1 裁切後）、MCP 紀律（依前端分類保留或改寫）、hook 強制句（Q5） |
 | `skeleton-03-judgment-matrix.md` | `<落點>/.claude/harness/03-judgment-matrix.md` | 驗證指令（Phase 1 第 2 項）、B 系列參數（測試目錄、QA agent、工具）、C2 熔斷清單（Q2）；矩陣 D（Q8 選的經驗，一條一列附出處；Q8 沒問或都不要時整節刪除）；**不適用條款保留編號改寫為「本專案不適用：<理由>」，不刪列** |
 | `skeleton-04-delegation-templates.md` | `<落點>/.claude/harness/04-delegation-templates.md` | 必讀清單（Q7；過時文件加「（過時：…，以程式碼為準）」）、模板五 pipeline（Q1；有既有治理層走 (A) 讓位版）、模板六參數、Q6 豁免行 |
-| `skeleton-05-knowledge-protocol.md` | `<落點>/.claude/harness/05-knowledge-protocol.md` | 紅區清單（含既有治理層檔案、Q4 紅區語義）、健檢清單列出實際裝的 hook 與其 dry-run 輸入 |
+| `skeleton-05-knowledge-protocol.md` | `<落點>/.claude/harness/05-knowledge-protocol.md` | 紅區清單（含既有治理層檔案、Q4 紅區語義）、健檢清單列出實際裝的 hook 與其 dry-run 輸入、§5.1 稽核工具表（Phase 1 第 2 項記下的掃描／稽核腳本與會說謊的東西；一支都沒有就寫「目前沒有」）；有裝 cbm-guard plugin 時保留「會說謊的東西」那一項的 cbm 新鮮度指令；參考模式原本健檢清單裡專案專屬的項目（跑某支掃描、看某個指標），照「原有設定的預設處置」搬進新清單，使用者要求「健檢時提醒我看」的項目標【使用者親自看】 |
 
 ### 可執行層（hook）
 
@@ -638,7 +638,7 @@ node <本 plugin>/skills/init/scripts/readability-check.js <落點> <落點>/.cl
    - 每次踩坑 → 照 `05-knowledge-protocol.md` 的「踩坑紀錄格式」記進 memory；同一類坑第二次出現 → 照同一檔的「升格協議」提議寫進正式規則，能自動檢查的就一起做成自動檢查
    - 每次 commit（非 git 專案、或你選了不裝 git-commit 時改成：每個有改檔的回合結束）→ 會問你四個問題（這次有沒有新名詞、新的跨模組流程、新的測試知識、自創的縮寫），答案記進知識筆記檔
    - 每次改到程式行為 → 補一支可以重跑的自動測試
-   - 每 30 天 → 照 `05-knowledge-protocol.md` 的「定期健檢」檢查一次，包括拿每項自動檢查試跑：該擋的有擋、不該擋的有放行
+   - 每 30 天 → 跑 `/harness:review` 做一次制度健檢（開機時會提醒）。三軌：它自己檢查制度有沒有被照做、逐項跑 05 健檢清單與本專案的稽核工具；另外會請你在提示列輸入 `/doctor`（看工具鏈）和 `/insights`（看使用習慣），三軌結果交叉比對。可逆的修正（重建過期索引、清過期 memory、修明顯的 hook 錯誤…）列成一批讓你一次核可，當場修完逐項驗證；改規則的仍一項一項問你
 7. **在哪裡開 session 才有效**：自動檢查只在設定所在的那一層目錄開 session 時生效。在子 repo 裡開 session，`CLAUDE.md` 仍會被讀到（上層目錄的也會讀），但 workspace 根的自動檢查不會跑。
 8. **盤點發現的專案本身問題**（文件寫的指令其實不存在、沒有測試、敏感檔沒被 `.gitignore` 擋）照實回報，不略過。
 9. **原本的設定怎麼處理了**（僅參考模式）：

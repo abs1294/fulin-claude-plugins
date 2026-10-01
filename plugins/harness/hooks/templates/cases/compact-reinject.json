@@ -53,7 +53,7 @@
         ]
       },
       "payload": { "hook_event_name": "SessionStart", "source": "startup", "session_id": "s1" },
-      "expect": "ALLOW"
+      "expect": "SILENT"
     },
     {
       "label": "交接信子 session → 直接退出（防遞迴）",
@@ -64,7 +64,7 @@
         ]
       },
       "payload": { "hook_event_name": "SessionStart", "source": "compact", "session_id": "s1" },
-      "expect": "ALLOW"
+      "expect": "SILENT"
     }
   ]
 }
