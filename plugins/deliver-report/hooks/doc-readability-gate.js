@@ -77,6 +77,8 @@ function main(raw) {
 
   let findings = [];    // 擋下用：{ file, items, source }
   let advisories = [];  // 只提醒用
+  const needPy = [];    // 缺 Python／pypdf 而沒檢查的檔：不擋，但一定要說出來（這個 skill 不只一台機器在用）
+  const pyFailed = [];  // Python 本身沒跑成（逾時、崩潰）而沒檢查的檔：同樣不擋、一定要說出來
   let tocChecked = 0;
   const t0 = Date.now();
   // 目錄頁碼要開 Word：每份給 35 秒、總預算 70 秒，最多 2 份——總時間壓在 hooks.json 的 150 秒以內，
@@ -86,8 +88,13 @@ function main(raw) {
     let r;
     const isDocx = d.toLowerCase().endsWith('.docx');
     // 目錄內的 docx 走原本的 scan（段落 <20 視為不像交付文件）；本回合明確提到的交付檔不做這個門檻；
-    // md／txt／pdf 走 scanFile（多驗標題編號連續）
-    try { r = isDocx ? scan(d, source === 'dir' ? 20 : 0) : scanFile(d); } catch (_) { continue; }   // 單檔失敗 → 略過該檔
+    // md／txt／pdf／pptx／xlsx 走 scanFile（多驗標題編號連續）
+    try { r = isDocx ? scan(d, source === 'dir' ? 20 : 0) : scanFile(d); }
+    catch (e) {   // 單檔失敗 → 略過該檔；缺執行環境、Python 沒跑成的另外列出來提醒
+      if (NeedsPython && e instanceof NeedsPython) needPy.push(`${path.basename(d)}：${e.message}`);
+      else if (PythonFailed && e instanceof PythonFailed) pyFailed.push(`${path.basename(d)}：${String(e.message).split(NL)[0]}`);
+      continue;
+    }
     if (!r) continue;
     if (isDocx && tocChecked < 2 && hasTocField(d)) {
       const left = TOC_BUDGET_MS - (Date.now() - t0);
@@ -120,14 +127,21 @@ function main(raw) {
 
   // 沒有硬缺陷時：有提醒就 warn（不擋），否則直接放行。
   // 為什麼分流：誤判會訓練使用者忽略警告，比漏抓更難補救——所以判不準的只提醒。
+  const envBlocks = [];   // 每段第一行是標題
+  if (needPy.length) envBlocks.push(['以下檔案這台機器沒辦法檢查（缺執行環境，不影響結束；裝好後再檢查一次）：', ...needPy.map((x) => `   · ${x}`), '']);
+  if (pyFailed.length) envBlocks.push(['以下檔案的檢查沒跑成（Python 逾時或異常結束，不影響結束；請用 check-before 單獨檢查）：', ...pyFailed.map((x) => `   · ${x}`), '']);
   if (!findings.length) {
-    if (!advisories.length) return allow();
-    const w = ['【交付前提醒】以下是判不準的項目，請自行確認（不影響結束）：', ''];
-    for (const a of advisories) {
-      w.push(`■ ${a.file}`);
-      for (const it of a.items) w.push(`   · ${it}`);
-      w.push('');
+    if (!advisories.length && !envBlocks.length) return allow();
+    const w = [];
+    if (advisories.length) {
+      w.push('【交付前提醒】以下是判不準的項目，請自行確認（不影響結束）：', '');
+      for (const a of advisories) {
+        w.push(`■ ${a.file}`);
+        for (const it of a.items) w.push(`   · ${it}`);
+        w.push('');
+      }
     }
+    for (const b of envBlocks) w.push('【交付前提醒】' + b[0], ...b.slice(1));
     return warn(w.join(NL));
   }
 
@@ -146,6 +160,7 @@ function main(raw) {
     }
     lines.push('');
   }
+  for (const b of envBlocks) lines.push(...b);
   lines.push('依據：deliver-report plugin 的 references/document-readability.md');
   lines.push('');
   lines.push('機器判不了、需你自己確認的四條：');
@@ -157,7 +172,7 @@ function main(raw) {
 }
 
 // ---------- 掃描判準（共用模組，check-before skill 也用同一份）----------
-const { scan, scanFile, checkToc, readDocXml, SUPPORTED } = require('./lib/readability-scan.core.js');
+const { scan, scanFile, checkToc, readDocXml, SUPPORTED, NeedsPython, PythonFailed } = require('./lib/readability-scan.core.js');
 
 function hasTocField(file) {
   try { return /<w:instrText[^>]*>\s*TOC\b|w:instr="\s*TOC\b/.test(readDocXml(file) || ''); } catch (_) { return false; }
@@ -181,7 +196,7 @@ function referencedDeliverables(tp, cwd) {
     if (isUserPromptLine(o)) { start = i; break; }
   }
   if (start < 0) return [];
-  const exts = (SUPPORTED || ['.docx', '.md', '.markdown', '.txt', '.pdf']).map((e) => e.slice(1)).join('|');
+  const exts = (SUPPORTED || ['.docx', '.pptx', '.xlsx', '.md', '.markdown', '.txt', '.pdf']).map((e) => e.slice(1)).join('|');
   // 路徑字元排除 [ ]：Markdown 連結 [報告](deliver/report.pdf) 另外抽網址部分，不然會連標籤一起抓成路徑。
   // 半形 ( ) 保留：檔名本身常帶括號（報告(v2).docx）；抓到後再去掉開頭多出的「(」
   const pathRe = new RegExp(`(?:[A-Za-z]:[\\\\/]|\\.{0,2}[\\\\/])?[^\\s"'\`<>|*?\\[\\]（）「」【】，。：；]+\\.(?:${exts})\\b`, 'gi');

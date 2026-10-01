@@ -8,7 +8,7 @@
 | **test-report-docx** | 一份**測試報告 DOCX 檔** | 測試已做完、證據在手，要把結果文件化給 PM／客戶簽核轉發 |
 | **daily-report** | 一封**工作日報**（核可後寄出） | 把當天散在各專案的工作，濃縮成主管／客戶看得懂的日報 |
 | **to-checklist** | 一份**確認清單 PDF**（附 Markdown 原稿） | 有幾件事要對方拍板才能往下做，要在會議上逐項對齊或寄給對方逐項回覆（僅點名觸發） |
-| **check-before** | 一份**自檢結果**（不改檔） | 指定一份要交出去的文件（docx／pptx／md／txt／pdf），交付前跑易讀性檢查；pptx／docx／pdf 另做視覺檢查（用 PowerPoint／Word 實際排版抓疊字、字跑出方塊、超出頁面，每頁出圖逐張看）。它的腳本也已接進其他 subskill 的產檔／寄送腳本自動跑（這些呼叫端不跑視覺檢查） |
+| **check-before** | 一份**自檢結果**（不改檔） | 指定一份要交出去的文件（docx／pptx／xlsx／md／txt／pdf），交付前跑易讀性檢查與文件屬性檢查（標題、作者留著產生工具的預設值、含 AI 工具名稱就擋）；可選擇對照客戶最新來信（`--thread`）、與上一版比對合約條款（`--prev`），沒給就列成「這次沒檢查到」；pptx／docx／pdf 另做視覺檢查（用 PowerPoint／Word 實際排版抓疊字、字跑出方塊、超出頁面，每頁出圖逐張看）。它的腳本也已接進其他 subskill 的產檔／寄送腳本自動跑（這些呼叫端不跑視覺檢查） |
 
 前兩者的分流判準一句：**對方收到的是「文字」還是「檔案」？** 兩者常前後接續——報告檔產好之後要寫段訊息把它交出去，就換 `deliver-report`。
 
@@ -23,10 +23,10 @@
 ## 共用的東西
 
 - `references/document-readability.md`（**plugin 層級共用一份**）：交付文件易讀性十四條鐵則＋交付前必做的十項機械掃描。每一條都是使用者當面指出過 2~4 次的實案。
-- `hooks/lib/readability-scan.core.js`：上述鐵則中「機器判得準」那幾項的**唯一實作**。Stop hook 與 `skills/check-before/scripts/check_doc.js` 都 require 它，判準改一處全部生效。`check_doc.js` 是 CLI（exit 0 通過／1 有硬缺陷／2 讀不到），已接進各 subskill 自己的腳本自動跑：to-checklist 的 `md_to_pdf.py`（轉檔前）、test-report-docx 的 `report_gate.verify_docx()`（閘三）、daily-report 的 `send_common.prepare_send`（寄送前置）；daily-report 的 MCP 草稿路徑由 PreToolUse hook `hooks/daily-draft-gate.js` 在建立／更新 Gmail 草稿前跑內容閘與易讀性閘，沒過就拒絕建立。deliver-report 沒有產檔腳本，由下面的 Stop hook 掃本回合提到或寫過的交付檔（任何位置與格式）。
+- `hooks/lib/readability-scan.core.js`：上述鐵則中「機器判得準」那幾項的**唯一實作**。Stop hook 與 `skills/check-before/scripts/check_doc.js` 都 require 它，判準改一處全部生效。`check_doc.js` 是 CLI（exit 0 通過／1 有硬缺陷／2 讀不到；本機沒有 Python 時 xlsx／pdf 內容與文件屬性列為「這次沒檢查到」並提醒安裝，不算 exit 2），已接進各 subskill 自己的腳本自動跑：to-checklist 的 `md_to_pdf.py`（轉檔前）、test-report-docx 的 `report_gate.verify_docx()`（閘三）、daily-report 的 `send_common.prepare_send`（寄送前置）；daily-report 的 MCP 草稿路徑由 PreToolUse hook `hooks/daily-draft-gate.js` 在建立／更新 Gmail 草稿前跑內容閘與易讀性閘，沒過就拒絕建立。deliver-report 沒有產檔腳本，由下面的 Stop hook 掃本回合提到或寫過的交付檔（任何位置與格式）。
 - `skills/check-before/scripts/visual_check.py`：視覺檢查。先用對方實際的軟體排版成 PDF（Windows：PowerPoint／Word；macOS：PowerPoint／Word，簡報另可退到 Keynote；各平台最後退到 LibreOffice），再讀每個字實際畫出的位置判疊字、字跑出方塊、超出頁面、字太小，每頁輸出 PNG。pptx 由 `check_doc.js` 預設呼叫，docx／pdf 要加 `--visual`（check-before 一律加）。回歸測試 `hooks/tests/visual/run_fixtures.py`。
 - `hooks/visual-view-gate.js`：Stop hook，視覺檢查印出的每頁圖片都要在本回合被 Read 過，漏看就擋。機器只判得準字形互相壓到，SmartArt、圖片裡的字這類疊字要看圖才抓得到，寫在 SKILL.md 是自律、AI 會只看總覽，所以用 hook。測試 `hooks/tests/visual-view-gate.test.js`。
-- `hooks/doc-readability-gate.js`：Stop hook，把上述判準做成交付前機械閘。**deliver-report、test-report-docx、to-checklist 會觸發**（Skill 工具或斜線指令叫起都算）。掃兩種來源：本回合提到或寫過的交付檔（交付訊息裡的檔名、Write 寫出的檔；任何位置、docx／md／txt／pdf／pptx，最多 6 份），以及目前目錄、`_work/`、`docs/`、`output/` 內近 6 小時改過的 docx 與 `checklist-*.md`；docx 有目錄時另檢查目錄頁碼（每次最多 2 份）。回合起點排除 `isMeta` 的 user 行——Skill 叫起後注入的說明內容與 Stop hook feedback 都是這種行，舊版把它當成起點，照真實行順序實測時閘不會觸發（回歸測試 `hooks/tests/turn-start.test.js`、`doc-gate-scope.test.js`）。
+- `hooks/doc-readability-gate.js`：Stop hook，把上述判準做成交付前機械閘。**deliver-report、test-report-docx、to-checklist 會觸發**（Skill 工具或斜線指令叫起都算）。掃兩種來源：本回合提到或寫過的交付檔（交付訊息裡的檔名、Write 寫出的檔；任何位置、docx／md／txt／pdf／pptx／xlsx，最多 6 份；文件屬性不在 Stop hook 範圍），以及目前目錄、`_work/`、`docs/`、`output/` 內近 6 小時改過的 docx 與 `checklist-*.md`；docx 有目錄時另檢查目錄頁碼（每次最多 2 份）。回合起點排除 `isMeta` 的 user 行——Skill 叫起後注入的說明內容與 Stop hook feedback 都是這種行，舊版把它當成起點，照真實行順序實測時閘不會觸發（回歸測試 `hooks/tests/turn-start.test.js`、`doc-gate-scope.test.js`）。本機沒有 Python 而讀不了的檔（xlsx、pdf）不擋，結束時提醒哪幾份沒檢查、要裝什麼。
 - `hooks/daily-draft-gate.js`：PreToolUse hook（`mcp__claude_ai_Gmail__create_draft`／`update_draft`）。主旨含「工作日報」的草稿，內文先跑 `content_guard.py` 與 `check_doc.js`，任一不過就拒絕建立草稿——daily-report 的 MCP 草稿路徑原本不經任何腳本、兩道閘只靠自律。回歸測試 `hooks/tests/daily-draft-gate.test.js`。
 - `hooks/gmail-draft-link-gate.js`：Stop hook，**七項檢查、全部只提醒不硬擋**。守的是**寄出去就收不回來**的那一段——上面那支閘掃的是檔案，**草稿本身原本沒有任何人掃**，而它才是真正到外人手上的東西。只讀 transcript 裡已發生的工具呼叫與回傳（**不碰 Gmail API、不需憑證**）。
   ⚠ **這支在正常交付流程下幾乎不會開火**：它只掃「最後一則使用者輸入之後」的工具呼叫，而使用者通常會在建完草稿後再講一句話，草稿就全部落在掃描窗外。實際生效的是下一條的 PostToolUse，這支留作判準的回歸基準。七項檢查是：

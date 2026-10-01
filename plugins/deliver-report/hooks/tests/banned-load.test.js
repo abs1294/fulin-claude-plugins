@@ -59,6 +59,20 @@ else {
   const c3 = b.ruleCoverage();
   check(`故意漏讀 subgroups 時會被抓到（載入 ${c3.loaded}/${c3.expected}）`, !c3.ok);
 }
+// 4. 文件屬性的預設值組（generator_defaults）：applies_to 只寫 metadata，不算進文件規則數；
+//    誤加 docx 時 loadBanned 讀不到它的 defaults（是物件不是正則），ruleCoverage 必須報不一致
+check('generator_defaults 有載入（至少 8 條）', core.loadGeneratorDefaults().length >= 8, String(core.loadGeneratorDefaults().length));
+const metaRules = { ...rules, m: { applies_to: ['metadata'], defaults: [{ source: 'x', fields: ['title'], value: '預設標題' }] } };
+fs.writeFileSync(path.join(tmp, 'references', 'banned-patterns.json'), JSON.stringify(metaRules));
+fs.writeFileSync(path.join(tmp, 'hooks', 'lib', 'core-meta.js'), src);
+const c4 = require(path.join(tmp, 'hooks', 'lib', 'core-meta.js')).ruleCoverage();
+check(`只套 metadata 的組不影響文件規則數（${c4.loaded}/${c4.expected}）`, c4.ok && c4.expected === 6, c4.reason);
+metaRules.m.applies_to = ['docx', 'metadata'];
+fs.writeFileSync(path.join(tmp, 'references', 'banned-patterns.json'), JSON.stringify(metaRules));
+fs.writeFileSync(path.join(tmp, 'hooks', 'lib', 'core-meta2.js'), src);
+const c5 = require(path.join(tmp, 'hooks', 'lib', 'core-meta2.js')).ruleCoverage();
+check(`預設值組誤加 docx 時會被抓到（載入 ${c5.loaded}/${c5.expected}）`, !c5.ok);
+
 fs.rmSync(tmp, { recursive: true, force: true });
 
 console.log(`\n${pass} 過、${fail} 失敗`);

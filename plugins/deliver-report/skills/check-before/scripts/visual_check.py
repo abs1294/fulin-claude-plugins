@@ -52,6 +52,7 @@ IS_MAC = sys.platform == "darwin"
 
 def die(code, msg, as_json=False):
     if as_json:
+        print()   # 先換行：啟動設定（sitecustomize）印字不換行時，JSON 才會獨占最後一行
         print(json.dumps({"ok": False, "error": msg}, ensure_ascii=False))
     else:
         print(msg)
@@ -626,8 +627,18 @@ def find_collisions(lines):
     return hits
 
 
+# 引用片段的標記（私用區字元）：帶 --raw-quotes 時不在這裡截短，改交出完整片段與原本的長度，
+# 由呼叫端（check_doc.js）先遮蔽憑證／個資再截——先截再遮蔽，被截斷的號碼比對不到遮蔽規則
+QUOTE_OPEN, QUOTE_SEP, QUOTE_CLOSE = "\ue000", "\ue001", "\ue002"
+
+
 def _clip(s, n=14):
     s = re.sub(r"\s+", " ", s).strip()
+    # 用命令列旗標、不用環境變數：環境變數會被繼承，直接執行時可能誤開、把標記字元印到畫面上
+    if "--raw-quotes" in sys.argv[1:]:
+        for ch in (QUOTE_OPEN, QUOTE_SEP, QUOTE_CLOSE):
+            s = s.replace(ch, "")
+        return "{}{}{}{}{}".format(QUOTE_OPEN, n, QUOTE_SEP, s, QUOTE_CLOSE)
     return s if len(s) <= n else s[:n] + "…"
 
 
@@ -856,7 +867,7 @@ def main():
             else:
                 force = args[i + 1]
             i += 1
-        elif a != "--json" and src is None:
+        elif a not in ("--json", "--raw-quotes") and src is None:
             src = a
         i += 1
     if not src:
@@ -873,16 +884,77 @@ def main():
     except ImportError as e:
         die(2, "視覺檢查需要 PyMuPDF 與 Pillow：pip install pymupdf pillow（缺 {}）".format(e.name), as_json)
 
-    if not out_dir:
-        base = os.path.join(tempfile.gettempdir(), "deliver-report-visual")
-        # 7 天前的舊輸出順手清掉（只清這個專用資料夾底下、名稱是本工具格式的子資料夾）
+    base = os.path.join(tempfile.gettempdir(), "deliver-report-visual")
+    # 7 天前的舊輸出順手清掉（只清這個專用資料夾底下、名稱是本工具格式的子資料夾）。
+    # 給了 --out 也要清：check-before 一律指定輸出資料夾（同一個專用資料夾、同樣的命名格式）。
+    # 本次的輸出資料夾與它的祖先不清：--out 剛好指到舊資料夾（或它底下）時，不能先把它刪掉
+    # --out 路徑上只要有一層是連結（符號連結、junction 等重新導向點），這次就不清：
+    # 連結可以指向別的連結、一層接一層，路徑實際會經過哪些資料夾無法只從各層的解析結果推回來。
+    # 舊輸出只是晚一點清。專用資料夾本身與它的上層是連結不算（macOS 的暫存路徑經過 /var → /private/var）：
+    # 候選資料夾也是從同一個專用資料夾路徑列出來的，那一段的連結兩邊解析結果相同，不影響比對。
+    # 沒有連結時，路徑字串之外再依實際檔案身分比對 --out 每一層已存在的祖先，
+    # 涵蓋大小寫不同與 8.3 短檔名這類同一資料夾的不同寫法；字串比對與它重疊，留著在比對檔案身分出錯時備用
+    def _is_link(p):
+        # 0x400＝Windows 的 FILE_ATTRIBUTE_REPARSE_POINT（junction 不算 islink）
+        return os.path.islink(p) or bool(getattr(os.lstat(p), "st_file_attributes", 0) & 0x400)
+
+    def _has_link(p):
+        # 本工具的輸出只有圖片、清單與 PDF，不會含連結；含連結的資料夾可能是別的路徑借道之處
+        # （例如暫存資料夾本身是連結、繞經舊輸出裡的連結），刪了會讓那條路徑斷掉，所以不刪
         try:
-            for d in os.listdir(base):
-                p = os.path.join(base, d)
-                if re.search(r"-\d{8}-\d{6}-[0-9a-f]{6}$", d) and os.path.isdir(p) and time.time() - os.path.getmtime(p) > 7 * 86400:
-                    shutil.rmtree(p, ignore_errors=True)
+            if _is_link(p):
+                return True
+            for e in os.scandir(p):
+                if _is_link(e.path) or (e.is_dir(follow_symlinks=False) and _has_link(e.path)):
+                    return True
         except OSError:
-            pass
+            return True
+        return False
+
+    keep = os.path.normcase(os.path.abspath(out_dir)) if out_dir else None
+    nbase = os.path.normcase(os.path.abspath(base))
+    guards = []
+    linked = False
+    if out_dir:
+        cur = os.path.abspath(out_dir)
+        while True:
+            ncur = os.path.normcase(cur)
+            shared = ncur == nbase or nbase.startswith(ncur if ncur.endswith(os.sep) else ncur + os.sep)
+            if os.path.lexists(cur) and not shared:
+                try:
+                    if _is_link(cur):
+                        linked = True
+                except OSError:
+                    linked = True
+            if os.path.exists(cur):
+                guards.append(cur)
+            nxt = os.path.dirname(cur)
+            if nxt == cur:
+                break
+            cur = nxt
+
+    def _protected(p):
+        np_ = os.path.normcase(os.path.abspath(p))
+        if keep and (keep == np_ or keep.startswith(np_ + os.sep)):
+            return True
+        for g in guards:
+            try:
+                if os.path.samefile(p, g):
+                    return True
+            except OSError:
+                pass
+        return False
+
+    try:
+        for d in ([] if linked else os.listdir(base)):
+            p = os.path.join(base, d)
+            if _protected(p):
+                continue
+            if re.search(r"-\d{8}-\d{6}-[0-9a-f]{6}$", d) and os.path.isdir(p) and time.time() - os.path.getmtime(p) > 7 * 86400 and not _has_link(p):
+                shutil.rmtree(p, ignore_errors=True)
+    except OSError:
+        pass
+    if not out_dir:
         stem = re.sub(r"[^\w\-]+", "_", os.path.splitext(os.path.basename(src))[0])[:40]
         # 加亂數尾碼：同一秒檢查兩份同名檔（不同資料夾）時不會共用資料夾、互相覆蓋圖片與清單
         out_dir = os.path.join(base, "{}-{}-{}".format(stem, time.strftime("%Y%m%d-%H%M%S"), os.urandom(3).hex()))
@@ -968,6 +1040,7 @@ def main():
     manifest["manifest"] = os.path.abspath(mpath)
 
     if as_json:
+        print()   # 先換行，理由同 die()
         print(json.dumps({"ok": True, **manifest}, ensure_ascii=False))
     else:
         print("視覺檢查：{}".format(src))
