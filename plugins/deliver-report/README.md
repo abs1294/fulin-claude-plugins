@@ -22,7 +22,7 @@
 
 ## 共用的東西
 
-- `references/document-readability.md`（**plugin 層級共用一份**）：交付文件易讀性十四條鐵則＋交付前必做的十項機械掃描。每一條都是使用者當面指出過 2~4 次的實案。
+- `references/document-readability.md`（**plugin 層級共用一份**）：交付文件易讀性十五條鐵則＋交付前必做的十一項機械掃描。每一條都是使用者當面指出過 2~4 次的實案。
 - `hooks/lib/readability-scan.core.js`：上述鐵則中「機器判得準」那幾項的**唯一實作**。Stop hook 與 `skills/check-before/scripts/check_doc.js` 都 require 它，判準改一處全部生效。`check_doc.js` 是 CLI（exit 0 通過／1 有硬缺陷／2 讀不到；本機沒有 Python 時 xlsx／pdf 內容與文件屬性列為「這次沒檢查到」並提醒安裝，不算 exit 2），已接進各 subskill 自己的腳本自動跑：to-checklist 的 `md_to_pdf.py`（轉檔前）、test-report-docx 的 `report_gate.verify_docx()`（閘三）、daily-report 的 `send_common.prepare_send`（寄送前置）；daily-report 的 MCP 草稿路徑由 PreToolUse hook `hooks/daily-draft-gate.js` 在建立／更新 Gmail 草稿前跑內容閘與易讀性閘，沒過就拒絕建立。deliver-report 沒有產檔腳本，由下面的 Stop hook 掃本回合提到或寫過的交付檔（任何位置與格式）。
 - `skills/check-before/scripts/visual_check.py`：視覺檢查。先用對方實際的軟體排版成 PDF（Windows：PowerPoint／Word；macOS：PowerPoint／Word，簡報另可退到 Keynote；各平台最後退到 LibreOffice），再讀每個字實際畫出的位置判疊字、字跑出方塊、超出頁面、字太小，每頁輸出 PNG。pptx 由 `check_doc.js` 預設呼叫，docx／pdf 要加 `--visual`（check-before 一律加）。回歸測試 `hooks/tests/visual/run_fixtures.py`。
 - `hooks/visual-view-gate.js`：Stop hook，視覺檢查印出的每頁圖片都要在本回合被 Read 過，漏看就擋。機器只判得準字形互相壓到，SmartArt、圖片裡的字這類疊字要看圖才抓得到，寫在 SKILL.md 是自律、AI 會只看總覽，所以用 hook。測試 `hooks/tests/visual-view-gate.test.js`。

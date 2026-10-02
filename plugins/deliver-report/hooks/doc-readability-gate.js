@@ -163,9 +163,10 @@ function main(raw) {
   for (const b of envBlocks) lines.push(...b);
   lines.push('依據：deliver-report plugin 的 references/document-readability.md');
   lines.push('');
-  lines.push('機器判不了、需你自己確認的四條：');
+  lines.push('機器判不了、需你自己確認的五條：');
   lines.push('  1 讀者是否要兩邊對照才能做完一件事？');
   lines.push('  2 同一項要改的東西是否散在正文與備註兩處？');
+  lines.push('  4 從第一頁讀起，每個代號、術語在第一次出現時就看得懂嗎？（例：「方案 B」第一次出現就說它是什麼）');
   lines.push('  6 有沒有「待確認」其實你自己查得到？');
   lines.push(' 10 有沒有機械性步驟該寫成腳本而不是叫人手動做？');
   block(lines.join('\n'));

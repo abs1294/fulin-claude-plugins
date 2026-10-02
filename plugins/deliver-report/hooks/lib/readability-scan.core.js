@@ -6,7 +6,8 @@
  *   skills/check-before/scripts/check_doc.js   CLI：四個 subskill 的交付前自檢步驟都呼叫它，
  *                                              使用者也可用 check-before 點名任一份檔案
  * 兩個入口：scan(docx, minParas) 是 hook 的原始 docx 路徑（行為不變）；
- *          scanFile(任意格式) 另加十項必掃中的第 4、8、10 項（目錄頁碼只在 docx 有目錄時跑）與 Markdown 標題編號。
+ *          scanFile(任意格式) 另加十一項必掃中的第 4、8、10、11 項（目錄頁碼只在 docx 有目錄時跑）與 Markdown 標題編號；
+ *          代號先用後定義（第 1 項延伸）兩個入口都跑。
  * docx／pptx／xlsx 用內建 zlib 自己解 zip（openZip），不依賴 PowerShell——Mac／Linux 也能跑。
  * 文件屬性（標題、作者等）、待確認事項、新舊版條款比對只給 check_doc.js 用，Stop hook 不跑。
  * 版面類問題（疊字、字跑出方塊）不在這裡，見 skills/check-before/scripts/visual_check.py。
@@ -140,7 +141,12 @@ function scan(file, minParas = 20) {
 
   const paras = [...xml.matchAll(/<w:p\b(?:(?!<\/w:p>).)*?<\/w:p>/gs)].map(m => m[0]);
   if (paras.length < minParas) return null;         // 太短、不像交付文件 → 不擋
-  return scanText(paras.map(strip), { paras, xml });
+  const r = scanText(paras.map(strip), { paras, xml });
+  // 代號先用後定義（鐵則 4 延伸）與 scanFile 同一份判準；結果全是提醒，hook 只看 bad，不影響放行
+  const o = checkTermOrder(unitsFromText(paras.map(strip)));
+  r.bad.push(...o.bad);
+  r.notes.push(...o.notes);
+  return r;
 }
 
 // ---------- 掃描逐段文字（docx／md／pdf 共用）----------
@@ -793,7 +799,7 @@ function maskSecrets(s) {
   return out;
 }
 
-// 十項必掃裡 Stop hook 不跑的項目（第 4、8 項＋Markdown 標題編號；第 10 項目錄頁碼在 scanFile 另外跑）
+// 十一項必掃裡 Stop hook 不跑的項目（第 4、8 項＋Markdown 標題編號；第 10 項目錄頁碼在 scanFile 另外跑）
 function extraChecks(text, mdSource) {
   const bad = [], notes = [];
 
@@ -856,15 +862,163 @@ function extraChecks(text, mdSource) {
   return { bad, notes };
 }
 
+// ---------- 鐵則 4（代號先用後定義）＋鐵則 15（術語首次出現沒有說明）----------
+// 由來：簡報第 2 頁寫「建議方案 B」，「方案 B」到第 18 頁才定義，讀者看到第 2 頁就關了；
+// 鐵則 4 延伸：代號（方案 A／B、C1、(g1) 等）要在第一次出現處就有定義，不是全文某處有定義就算。
+// 這裡依文件順序看每個代號第一次出現的位置：該處（同頁，或前後 3 個非空段落內）沒有認得出的定義 → 提醒（不擋；「算不算定義」機器判不準）。
+// 術語（snake_case、camelCase、全大寫縮寫）第一次出現沒有中文括號說明 → 只提醒（判不準，技術文件本來就多）。
+function loadTermRules() {
+  const fallback = { code_prefixes: ['方案', '選項', '情境', '階段', 'Plan', 'Option', 'Phase'],
+                     code_whitelist: [], term_whitelist: [], max_list: 12 };
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'references', 'term-rules.json'), 'utf8'));
+    const arr = (v) => Array.isArray(v) && v.every((x) => typeof x === 'string');
+    if (!j || typeof j !== 'object' || !arr(j.code_prefixes) || !j.code_prefixes.length ||
+        !arr(j.code_whitelist) || !arr(j.term_whitelist)) return fallback;
+    const max = Number.isInteger(j.max_list) && j.max_list > 0 ? j.max_list : 12;
+    return { code_prefixes: j.code_prefixes, code_whitelist: j.code_whitelist, term_whitelist: j.term_whitelist,
+             max_list: max };
+  } catch (_) { return fallback; }
+}
+const TERM_RULES = loadTermRules();
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const CJK = /[一-鿿]/;
+
 /**
- * 掃一份檔案（docx／pptx／xlsx／md／txt／pdf），跑十項必掃中機器判得了的全部項目。
+ * units：依文件順序的段落 [{ t: 文字, page: 頁碼或 null, where: '第 N 頁'／'第 N 段' }]。
+ * 回傳 { bad, notes }。頁首頁尾（同一段文字出現 3 次以上）不算第一次出現。
+ */
+function checkTermOrder(units) {
+  const bad = [], notes = [];
+  const freq = new Map();
+  for (const u of units) { const k = u.t.trim(); if (k) freq.set(k, (freq.get(k) || 0) + 1); }
+  let ord = 0;   // 非空段落序號：「前後 3 段」不把空白段算進去
+  // 頁首頁尾（同一段出現 3 次以上）：可以提供定義，但不算「第一次出現」；術語掃描則整段略過
+  const all = units.map((u, idx) => ({ ...u, idx, ord: u.t.trim() ? ++ord : ord, t: u.t.trim() }))
+    .filter((u) => u.t).map((u) => ({ ...u, hdr: freq.get(u.t) >= 3 && u.t.length > 6 }));
+  const list = all.filter((u) => !u.hdr);
+  // 標籤格的「下一段」要看原始順序：頁首頁尾過濾會把重複出現的名稱格（附錄又列一次）一起濾掉
+  const nextOf = (u) => { for (let j = u.idx + 1; j < units.length; j++) { const t = units[j].t.trim(); if (t) return { t }; } return null; };
+  const near = (a, b) => (a.page != null && b.page != null) ? a.page === b.page : Math.abs(a.ord - b.ord) <= 3;
+
+  // ---- 代號 ----
+  const pre = TERM_RULES.code_prefixes.map(esc).join('|');
+  const white = new Set(TERM_RULES.code_whitelist);
+  const fams = [
+    { kind: 'prefix', re: new RegExp(`(${pre})\\s?([A-Z]|\\d{1,2})(?![A-Za-z0-9])|(?<![A-Za-z0-9])([A-Z])\\s?案(?![例件])`, 'g'),
+      key: (m) => m[3] ? `方案 ${m[3]}` : `${m[1]} ${m[2]}`, fam: (k) => k.split(' ')[0] },
+    // 大寫字母＋1～2 位數字（C1、E15）；S／V 編號原本的規則已經在管，這裡不重複
+    { kind: 'letter', re: /(?<![A-Za-z0-9_\-./#])([A-RT-UW-Z])(\d{1,2})(?![A-Za-z0-9_])/g,
+      key: (m) => m[1] + m[2], fam: (k) => k[0] },
+    { kind: 'paren', re: /(?<![A-Za-z0-9])[（(]([a-z](?:\d{1,2})?)[）)]/g, key: (m) => `(${m[1]})`, fam: () => '(x)' },
+  ];
+  const isDef = (u, tok, kind, m, next) => {
+    const t = u.t;
+    // 只看代號前後各 200 字：極長段落裡同一個代號出現上萬次時，不會每次都切整段（實測 12 萬字曾要 130 秒）
+    const at = m.index, rawHead = t.slice(Math.max(0, at - 200), at);
+    const atStart = at <= 200;   // rawHead 是否包含段首
+    const after = t.slice(at + m[0].length, at + m[0].length + 200).replace(/^(?:\*\*|__|\*|_|`)+/, '');   // **方案 A**：… 的收尾標記
+    if (/^[\s　]*(?:[＝=]|是(?!否)|是指|指的是|指|代表|意思是|即)/.test(after)) return true;
+    if (/^[\s　]+(?:is|means|refers to|stands for)\b/i.test(after)) return true;        // Plan B is …
+    // 句中定義：代號在句首或標點之後（不是「建議方案 B：」這種接在一般文字後面），後接「為」或冒號
+    if (((atStart && /^[\s　•·\-–*\d.、#]*$/.test(rawHead)) || /[，、；;,：:。（(「]\s*$/.test(rawHead)) &&
+        /^[\s　]*(?:為(?![了何止])|[：:])/.test(after)) return true;
+    if (/^[\s　]*[（(][^）)]{2,}[）)]/.test(after)) return true;             // 方案 B（照規格原樣做）、Option A (retain …)
+    if (/[一-鿿」』][^。；;]{0,30}[＝=][\s　]*$/.test(rawHead)) return true;    // 「只搬檔案」＝C 案
+    // 「X（C1）」型括號註記：字母／括號編號才算定義；「方案」類常寫成「某做法（方案 A）」表示歸屬，不是定義
+    if (kind !== 'prefix' && /[一-鿿][^（(]{0,30}[（(][\s　]*$/.test(rawHead) && /^[\s　]*[）)]/.test(after)) return true;
+    // 句中列舉「(a)資料完整」：單一字母標記後面直接是內容
+    if (kind === 'paren' && /^\([a-z]\)$/.test(tok) && /^[\s　]*[一-鿿]/.test(after)) return true;
+    // 以下看代號是不是「標籤」：Markdown 表格以 | 分格，只看代號所在那一格
+    const cells = after.split('|');
+    const cellAfter = cells[0];
+    const pipe = rawHead.lastIndexOf('|');
+    if (pipe < 0 && !atStart) return false;   // 不在段首、也不在表格格子開頭 → 不是標籤
+    const head = rawHead.slice(pipe + 1).replace(/^[\s　•·\-–*\d.、#]*/, '');
+    if (head) return false;
+    if (/^[\s　]*[：:]/.test(cellAfter)) return true;                     // 段首標籤：「方案 A：…」
+    // 列首標籤：「C1 PostHog」「方案 A 照規格原樣做」；後面是疑問（「方案 B 怎麼做」「方案 B 是什麼？」）不算
+    if (cellAfter.trim()) return /^[\s　]+\S{2,}/.test(cellAfter) && !/^[\s　]*(?:怎麼|如何|為什麼|為何|是什麼|有哪些|呢|嗎)|[？?]\s*$/.test(cellAfter);
+    // 代號單獨一格／一行：下一格（同列）或下一段是名稱就算定義；表頭列「方案 A | 方案 B」也算
+    const sameRow = cells.slice(1).find((c) => c.trim());
+    const n = sameRow != null ? sameRow.trim() : ((next() || {}).t || '').trim();
+    if (!n) return false;
+    if (kind === 'letter' && /^[A-Z]\d{1,2}(?![0-9])/.test(n)) return false;   // 「E1」下一格又是「E2」：只是一排編號
+    return true;
+  };
+  const seen = new Map();   // tok → { kind, fam, use, def }
+  all.forEach((u) => {
+    for (const f of fams) {
+      f.re.lastIndex = 0;
+      for (const m of u.t.matchAll(f.re)) {
+        const tok = f.key(m);
+        if (f.kind === 'letter' && white.has(tok)) continue;
+        let s = seen.get(tok);
+        if (!s) seen.set(tok, s = { kind: f.kind, fam: f.fam(tok), use: null, def: null, disp: m[0].trim() });
+        if (!s.use && !u.hdr) s.use = u;
+        if (!s.def && isDef(u, tok, f.kind, m, () => nextOf(u))) s.def = u;
+      }
+    }
+  });
+  const byFam = new Map();
+  for (const [tok, s] of seen) {
+    const k = s.kind + ':' + s.fam;
+    if (!byFam.has(k)) byFam.set(k, []);
+    byFam.get(k).push({ tok, ...s });
+  }
+  for (const [, arr] of byFam) {
+    // 定義在第一次使用之前或附近都算；只出現在頁首頁尾的代號不檢查
+    const late = arr.filter((s) => s.use && (!s.def || (s.def.idx > s.use.idx && !near(s.use, s.def))));
+    if (!late.length) continue;
+    const desc = late.slice(0, 4).map((s) => s.def
+      ? `「${s.disp}」${s.use.where}首次出現，${s.def.where}才定義`
+      : `「${s.disp}」${s.use.where}首次出現，全文沒有定義`).join('；') + (late.length > 4 ? `；另 ${late.length - 4} 個` : '');
+    const msg = `鐵則4 代號先用後定義：${desc}` +
+      ' → 在第一次出現的地方就說清楚它是什麼（例：「方案 B（我方建議的改法）」），或改用白話名稱';
+    // 只提醒、不擋交付：「這一句算不算定義」機器判不準，擋了就會誤擋正常文件，由人工判斷確認
+    notes.push(msg);
+  }
+
+  // ---- 術語 ----
+  const tw = new Set(TERM_RULES.term_whitelist.map((x) => x.toLowerCase()));
+  const termRe = /(?<![A-Za-z0-9_@/.\-])(?:[a-z][a-z0-9]*(?:_[a-z0-9]+)+|[a-z]+(?:[A-Z][a-z0-9]+)+|[A-Z]{2,8}s?)(?![A-Za-z0-9_\-])/g;
+  const firstSeen = new Map();
+  for (const u of list) {
+    // 純英文大寫的裝飾標題（AGENDA、ANALYSIS & SELECTION · 2026）不是術語，是版面字
+    if (!CJK.test(u.t) && /^[A-Z0-9\s&·•|:,.'’\-–/]+$/.test(u.t)) continue;
+    for (const m of u.t.matchAll(termRe)) {
+      const tok = m[0];
+      if (tw.has(tok.toLowerCase()) || tw.has(tok.replace(/s$/, '').toLowerCase()) || firstSeen.has(tok)) continue;
+      // 只看前後 200 字：避免極長段落每個術語都重掃整段
+      const after = u.t.slice(m.index + tok.length, m.index + tok.length + 200), before = u.t.slice(Math.max(0, m.index - 200), m.index);
+      const glossed = /^\s*[（(][^）)]*[一-鿿]/.test(after) || /[一-鿿][^（(]{0,30}[（(]\s*$/.test(before);
+      firstSeen.set(tok, { u, glossed });
+    }
+  }
+  const unexplained = [...firstSeen].filter(([, v]) => !v.glossed);
+  if (unexplained.length) {
+    const n = TERM_RULES.max_list;
+    notes.push(`鐵則15 術語首次出現沒有中文說明 ${unexplained.length} 個（讀者不懂技術時，在第一次出現處加白話說明，例：「UPSERT（有就累加、沒有就新增）」）：` +
+      unexplained.slice(0, n).map(([tok, v]) => `${tok}（${v.u.where}）`).join('、') + (unexplained.length > n ? `…另 ${unexplained.length - n} 個` : ''));
+  }
+  return { bad, notes };
+}
+
+// 把逐段文字轉成 checkTermOrder 要的 units（沒有頁的格式用段落序號）
+function unitsFromText(text, label = '段') {
+  let n = 0;
+  return text.map((t) => ({ t, page: null, where: `第 ${t.trim() ? ++n : n} ${label}` }));
+}
+
+/**
+ * 掃一份檔案（docx／pptx／xlsx／md／txt／pdf），跑十一項必掃中機器判得了的全部項目。
  * 讀不到內容 → 丟 ReadError（hook 端接住放行；check-before 端明講讀不到）。
  * 回傳 { file, ext, text, paragraphs, bad, notes }。文件屬性不在這裡，另由 checkMetadata() 檢查。
  */
 function scanFile(file) {
   const ext = path.extname(file).toLowerCase();
   if (!SUPPORTED.includes(ext)) throw new ReadError(`不支援的格式 ${ext}（支援 ${SUPPORTED.join(' ')}）`);
-  let text, result, mdSource = null;
+  let text, result, mdSource = null, units = null;
   if (ext === '.docx') {
     const xml = readDocXml(file);
     if (!xml) throw new ReadError('讀不到 docx 內文（word/document.xml）');
@@ -891,6 +1045,7 @@ function scanFile(file) {
     }
     // 字級／欄寬另由視覺檢查（visual_check.py）依實際排版判斷，這裡只跑文字規則
     result = scanText(text, null);
+    units = slides.flatMap((s) => s.paras.map((t) => ({ t, page: s.slide, where: `第 ${s.slide} 頁` })));
   } else if (ext === '.xlsx') {
     const x = readXlsx(file);
     if (!x) throw new ReadError('讀不到 xlsx 內容（不是有效的 Excel 檔）');
@@ -923,6 +1078,14 @@ function scanFile(file) {
     result = scanText(text, null);
   }
   const extra = extraChecks(text, mdSource);
+  const order = checkTermOrder(units || unitsFromText(text, ext === '.pdf' ? '行' : '段'));
+  if (ext === '.xlsx') {
+    // 表格資料的 C1、E15 多半是儲存格位置或資料代碼，與上面鐵則 4 的 xlsx 處理一致：降為提醒
+    order.notes.unshift(...order.bad.map((b) => b + '（表格資料常見代碼，是資料就不用改）'));
+    order.bad = [];
+  }
+  extra.bad.push(...order.bad);
+  extra.notes.push(...order.notes);
   return {
     file, ext,
     text,   // 逐段文字：check_doc.js 的來信對照、條款比對要用
@@ -1045,7 +1208,7 @@ function ruleCoverage() {
 module.exports = {
   ruleCoverage,
   BANNED, SUPPORTED, META_EXTS, ReadError, NeedsPython, PythonFailed, PY_INSTALL, findPython, hasModule,
-  scan, scanText, scanFile, extraChecks, mdToLines, pdfToLines,
+  scan, scanText, scanFile, extraChecks, checkTermOrder, unitsFromText, mdToLines, pdfToLines,
   checkStyle, checkTables, checkToc, harvestLocalAiNames, readDocXml, readPptxSlides, readXlsx, openZip, strip,
   readMetadata, checkMetadata, loadGeneratorDefaults, pendingItems, latestMailDate, compareClauses, maskSecrets,
 };

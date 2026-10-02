@@ -1,0 +1,12 @@
+{
+  "_comment": "鐵則4（代號先用後定義）與鐵則15（術語首次出現沒有說明）的設定。判準實作在 hooks/lib/readability-scan.core.js 的 checkTermOrder()。",
+  "code_prefixes": ["方案", "選項", "情境", "階段", "Plan", "Option", "Phase"],
+  "code_whitelist": ["Q1", "Q2", "Q3", "Q4", "H1", "H2", "A3", "A4", "A5", "B4", "B5", "P0", "P1", "P2", "P3", "P4", "L1", "L2", "L3", "4K", "5G", "4G", "3G", "M2", "T1", "T2"],
+  "term_whitelist": [
+    "AI", "API", "APP", "CSV", "DB", "ERP", "CRM", "MES", "HR", "IT", "ID", "IP", "KPI", "OK", "PC", "PDF", "PM", "PPT", "QA", "UAT",
+    "UI", "UX", "URL", "USB", "VPN", "WiFi", "PNG", "JPG", "JPEG", "GIF",
+    "NTD", "TWD", "USD", "OS", "CPU", "RAM", "GB", "MB", "KB", "TB", "LINE", "FAQ", "EOF", "PS", "NG", "VS", "CEO", "CTO", "CIO", "TBD", "NA", "N/A",
+    "Excel", "Word", "PowerPoint", "Outlook", "Teams", "Windows", "Mac", "iOS", "Android", "Google", "Gmail", "GitHub", "Email", "email", "iPhone", "iPad"
+  ],
+  "max_list": 12
+}
