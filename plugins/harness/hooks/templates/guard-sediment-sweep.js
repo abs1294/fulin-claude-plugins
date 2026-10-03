@@ -59,10 +59,10 @@ function missingAnswers(text) {
 
 function questionLines(whereToAnswer) {
   return [
-    '1. 本輪有無「新專案詞」（本專案特有、IS-not-DOES、≤2 句可定義）？有 → 補進 ' + CONTEXT_PATH + '（含 Changelog）。',
+    '1. 本輪有無「新專案詞」（本專案特有、IS-not-DOES、≤2 句可定義）？有 → 補進 ' + CONTEXT_PATH + '（同時在它的變更紀錄檔補一行，落點見 05 §4）。',
     '2. 本輪有無「新跨模組鏈路」或既有鏈路變更？有 → 補進 ' + FLOWS_PATH + '（掛事故收據）。',
     '3. 本輪有無「新 QA 操作坑／測試設計知識」？有 → 補進 ' + QA_KNOWLEDGE_PATH,
-    '   （**寫入時必須同時在該檔的 Changelog 段補一行**，否則事後查不到這題有沒有被執行過）。',
+    '   （**寫入時必須同時在該檔的變更紀錄補一行**，落點見 05 §4，否則事後查不到這題有沒有被執行過）。',
     '4. 本輪的註解／文件有無「自創代號」（態 A、模式 B、階段一這類讀者查不到定義的簡稱）？',
     '   有 → 換成 ' + CONTEXT_PATH + ' 已定義的詞，或直接寫白話；沒有既有詞又非講不可 → 先進 ' + CONTEXT_PATH + ' 再用。',
     '   判準：讀者不必問你就知道那是什麼嗎？' + (OFFICIAL_CODE_EXAMPLES ? '專案正式代號（' + OFFICIAL_CODE_EXAMPLES + '）不算自創，照用。' : '專案正式代號不算自創，照用。'),
@@ -164,6 +164,8 @@ try {
   if (TRIGGER_MODE === 'stop') runStopMode(input);
   else runSkillMode(input);
 } catch (e) {
-  console.log(`[sediment-sweep] ERROR: hook 故障——${e.message}（放行，但 hook 鏽蝕要修，勿靜默忽略）`);
+  // 放行的訊息要用 JSON 才有人看得到：exit 0 的純文字 stdout 只進除錯紀錄。輸入壞了就不知道是哪個事件，
+  // 用所有事件都支援的 systemMessage（顯示給使用者）
+  process.stdout.write(JSON.stringify({ systemMessage: `[sediment-sweep] ERROR: hook 故障——${e.message}（放行，但 hook 鏽蝕要修，勿靜默忽略）` }));
   process.exit(0);
 }

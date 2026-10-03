@@ -21,7 +21,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "寫索引檔本身（MEMORY.md）→ 印字元數比例提示",
+      "label": "寫索引檔本身（MEMORY.md）→ 印字元數比例提示（輸出要是 additionalContext JSON，模型才看得到）",
       "setup": {
         "files": {
           ".claude/projects/demo-project/memory/MEMORY.md": "# Project Memory\n\n- 一些條目\n"
@@ -34,10 +34,11 @@
           "file_path": ".claude/projects/demo-project/memory/MEMORY.md"
         }
       },
-      "expect": "NOTE"
+      "expect": "NOTE",
+      "visible": true
     },
     {
-      "label": "新建一支 memory 條目檔、同前綴已有 3 支 → 提示可掛總則檔",
+      "label": "新建一支 memory 條目檔、同前綴已有 3 支 → 提示可掛總則檔（輸出要是 additionalContext JSON，模型才看得到）",
       "setup": {
         "files": {
           ".claude/projects/demo-project/memory/MEMORY.md": "# Project Memory\n",
@@ -57,7 +58,8 @@
           "type": "create"
         }
       },
-      "expect": "NOTE"
+      "expect": "NOTE",
+      "visible": true
     },
     {
       "label": "新建 memory 條目檔、同前綴無既有檔 → 無輸出（索引檔也不存在；PostToolUse 在寫入之後才觸發，所以條目檔本身已存在）",

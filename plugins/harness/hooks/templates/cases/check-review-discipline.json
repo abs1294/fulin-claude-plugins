@@ -104,7 +104,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "model": "sonnet",
-          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\na 走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -116,7 +116,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "model": "sonnet",
-          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\na 走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -128,7 +128,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "model": "sonnet",
-          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:\\proj\\tests\\Project_Detail\\PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\na 走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:\\proj\\tests\\Project_Detail\\PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -228,6 +228,355 @@
         }
       },
       "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：【測試資料來源】只寫說明、沒寫選哪個 → 擋（舊版只看標題會放行）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n走真實流程，從下單頁操作\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：整段範本（標題括號說明＋a./b./c. 說明＋⛔）貼上、沒作答 → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一；選 b/c 必附一句理由）\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：標題後保留範本括號說明，下一行「選 a：…」→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一；選 b/c 必附一句理由）\n選 a：從下單頁實際操作產生訂單\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b 沒附 檔名:行號 → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：真流程太慢\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：選 b，理由寫「比較快」，檔名:行號只出現在下方範本說明行 → 擋（說明行不得頂替作答）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：比較快\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：選 b 並附產品端證據 檔名:行號 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：訂單只由上游 ERP 推送，產品端唯一寫入點 src/sync/erp_import.py:88，畫面沒有建立入口\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b，證據寫成網址帶 port（x.com:9443）不算檔名:行號 → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：上游在 http://erp.example.com:9443 推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：選 c 沒附理由 → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 c\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：選 c，理由只寫「待補」→ 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 c，理由：待補\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：選 c 並說明屬字典類 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 c：訂單狀態字典，屬設定類主檔，期望值查 DB 推導\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：第一句同時提到兩個選項（選 a 或 b）→ 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a 或 b 都可以\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：前後矛盾（第一行選 a、後面又寫選 b）→ 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實流程\n選 b：自種自清 src/x.py:3\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：「選擇：a」寫法也認得 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選擇：a，從入口操作產生\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "backend-engineer：【驗收條件】只有標題、沒有內容 → 擋（舊版只看標題會放行）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "backend-engineer：【驗收條件】只剩範本佔位 <…> → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- <功能行為條款，逐條可觀察>\n- <另一條>\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "code-reviewer：【驗收條件】（逐條判定）後面只有編號＋佔位 → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "code-reviewer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【產出路徑】\n- C:/proj/src/x.js\n【驗證方式】\n- 重新 Read 產出檔\n【驗收條件】（逐條判定）\n1. <條件一>\n2. <條件二>\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "code-reviewer：【驗收條件】（逐條判定）後面有實際條件 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "code-reviewer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【產出路徑】\n- C:/proj/src/x.js\n【驗證方式】\n- 重新 Read 產出檔\n【驗收條件】（逐條判定）\n1. x.js 的 add() 對負數回傳正確\n2. 既有測試全綠\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "backend-engineer：【驗收條件】同一行直接寫內容（佔位旁邊有真條件）→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】 build 0 error；<其餘>\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：用骨架模板六的標題原文（括號說明裡還有一層說明），下一行「選 a：…」→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 a：從訂單建立畫面實際下單產生資料\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：用骨架模板六的標題原文，下一行選 c 並說明屬設定類 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 c：幣別屬設定類主檔，期望值由資料庫查出\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：用骨架模板六的標題原文，下一行沒作答 → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\na. 走真實業務流程長出來\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：同一行寫「選 a，選 b」（前後矛盾）→ 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a，選 b：兩種都可以\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "派工內容檢查故障（模擬丟例外）、標記齊全 → 放行，但要用 additionalContext 告訴模型「派工內容檢查故障」（舊版空 catch 靜默放行）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "NOTE",
+      "variant": "content-check-throws",
+      "visible": true
+    },
+    {
+      "label": "派工內容檢查故障（模擬丟例外）、缺【開工前必讀】→ 標記表的缺項照擋，不被故障吞掉",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "model": "sonnet",
+          "prompt": "【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "content-check-throws"
+    },
+    {
+      "label": "qa-engineer：選 b 的作答含「【」（見【規格】src/x.py:3）→ 放行（舊版切到下一個「【」為止，證據被切掉而誤擋）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b：見【規格】src/sync/erp_import.py:88，訂單只由上游 ERP 推送，畫面沒有建立入口\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b 的作答含「【」但沒有 檔名:行號（見【規格】第三節）→ 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b：見【規格】第三節，訂單只由上游 ERP 推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "backend-engineer：【驗收條件】沒寫內容，下一格標題寫成 **【回報格式】**（行首有 markdown 粗體）→ 仍認得是下一格，擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n**【回報格式】**\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：前文在句中先提到【測試資料來源】，底下那格照格式作答 → 放行（取行首的標題）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "本次資料依下方【測試資料來源】那格造。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：從訂單畫面實際下單\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
     }
-  ]
+  ],
+  "variants": {
+    "content-check-throws": {
+      "replace": [
+        [
+          "function acceptanceIsEmpty(prompt) {",
+          "function acceptanceIsEmpty(prompt) {\n  throw new Error('probe：模擬派工內容檢查故障');"
+        ]
+      ]
+    }
+  }
 }

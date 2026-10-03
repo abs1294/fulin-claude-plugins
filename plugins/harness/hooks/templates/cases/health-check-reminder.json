@@ -2,6 +2,131 @@
   "hook": "health-check-reminder.js",
   "cases": [
     {
+      "label": "新格式：CHANGELOG.md 的 05 節有 40 天前的【健檢執行】、05 本體沒有 changelog → 提醒（舊版只讀 05 本體會靜默）",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 01-diagnosis.md\n- 2026-09-01 建立\n\n## 05-knowledge-protocol.md\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n",
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n健檢清單…\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-10"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "新格式優先：CHANGELOG.md 的 05 節 5 天前跑過 → 靜默（05 本體殘留 59 天前的舊紀錄不得蓋過）",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-09-24 【健檢執行】/harness:review：正常\n",
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-08-01 【健檢執行】/harness:review：舊紀錄\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "只認 05 那一節：別節（04）昨天寫了【健檢執行】、05 節最近一筆 59 天前 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 04-delegation-templates.md\n- 2026-09-28 【健檢執行】誤寫在別節\n\n## 05-knowledge-protocol.md\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "只認 05 那一節：05 節之後的 06 節昨天寫了【健檢執行】也不算（節到下一個 ## 為止）→ 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n\n## 06-handover-letter.md\n- 2026-09-28 【健檢執行】誤寫在別節\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "相容舊實例：CHANGELOG.md 存在但沒有 05 那一節 → 退回讀 05 本體，1 天前跑過 → 靜默",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 01-diagnosis.md\n- 2026-09-01 建立\n",
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-09-28 【健檢執行】/harness:review：正常\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "相容舊實例：CHANGELOG.md 存在但沒有 05 那一節 → 退回讀 05 本體，59 天前 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 01-diagnosis.md\n- 2026-09-01 建立\n",
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n## Changelog\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "來源專案的形狀：05 節只有無標記的「健檢執行（軌一…）」、05 本體沒有日期行 → 退到該節最早日期 → 提醒（舊版靜默）",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-09-29 健檢執行（軌一）：27 項中 17 OK\n- 2026-07-03 建立\n",
+          ".claude/harness/05-knowledge-protocol.md": "# 05\n\n健檢清單…\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-10-03"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "CHANGELOG.md 是 Windows 換行（標題行尾帶 CR）也要認得那一節 → 40 天前 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 01-diagnosis.md\r\n- 2026-09-01 建立\r\n\r\n## 05-knowledge-protocol.md\r\n- 2026-08-01 【健檢執行】/harness:review：10 項中 9 OK\r\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-10"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
       "label": "距上次健檢 40 天（超過門檻）→ 提醒",
       "setup": {
         "files": {

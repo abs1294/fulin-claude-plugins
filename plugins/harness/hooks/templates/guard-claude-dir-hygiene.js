@@ -38,10 +38,12 @@ const ALLOWED_DIRS = new Set([
   'plans',
 ]);
 // `.claude/` 第一層允許新建的檔案。local-overrides.yml＝本機覆寫清單，git-commit plugin 會在
-// 任何專案自動建立它（本機覆寫保護 hook 也讀同一個檔），所以必須放行；其餘依專案實際檔名調整。
+// 任何專案自動建立它（本機覆寫保護 hook 也讀同一個檔），所以必須放行；qa-gate.conf＝git-commit 的
+// review-record QA 閘設定（init 產生）、git-commit-reviewer-addendum.md＝git-commit C 軌的專案附加審查要求，
+// 都是 git-commit 規定放在這一層的設定檔，不放行的話 init 自己建不出來；其餘依專案實際檔名調整。
 const ALLOWED_ROOT_FILES = new Set([
   'settings.json', 'settings.local.json',
-  'local-overrides.yml',
+  'local-overrides.yml', 'qa-gate.conf', 'git-commit-reviewer-addendum.md',
   'CLAUDE.md', '.gitignore',
 ]);
 // 擋下時建議的產物落點（依檔名關鍵字分流；找不到關鍵字時給預設落點）。

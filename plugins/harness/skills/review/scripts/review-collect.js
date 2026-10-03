@@ -5,7 +5,8 @@
 // 用法：
 //   node review-collect.js <落點> [--since YYYY-MM-DD] [--transcripts <目錄>] [--out <檔.json>] [--probe]
 //   <落點>：裝了 harness 的專案根目錄（有 .claude/harness/README.md）
-//   --since：只看這天以後的 session（預設取 CLAUDE.md Changelog 第一筆「建立」的日期）
+//   --since：只看這天以後的 session（預設取安裝日：CLAUDE.md changelog 裡「建立」那一筆；0.10.0 起
+//            changelog 拆出指令檔，找不到時再看 CLAUDE.changelog.md 與 .claude/harness/CHANGELOG.md，見 changelogEntries）
 //   --transcripts：逐字紀錄目錄（預設 ~/.claude/projects/<落點換算的名稱>）
 //   --include-install：連跑 /harness:init 的 session 與安裝時的冷啟探針 session 一起算（預設略過，探針會故意觸發擋下）
 //   --probe：另外在實例的 .claude/hooks 跑 probe-hooks.js（兩條路徑）。這會執行專案裡的程式，所以要明確加才跑；
@@ -36,7 +37,52 @@ const rel = (p) => path.relative(root, p).split(path.sep).join('/');
 const slug = root.replace(/[^A-Za-z0-9]/g, '-');
 const tdir = opt('--transcripts') || path.join(os.homedir(), '.claude', 'projects', slug);
 const claudeMd = read(path.join(root, 'CLAUDE.md')) || '';
-const installDate = (claudeMd.match(/^- (\d{4}-\d{2}-\d{2})[^\n]*(?:建立|init)/m) || [])[1] || null;
+
+// ── changelog 讀取（harness 0.10.0 起 changelog 從指令檔與知識容器拆出去）──
+// 一份檔的異動紀錄可能在三個地方，三處都讀、合併（同一個出處不重複）：
+//   ① 舊格式：檔案本體的 `## Changelog` 節（到下一個 `## ` 標題或檔尾）——0.9.x 以前安裝的實例
+//   ② 同目錄的 `<主檔名>.changelog.md`（根目錄知識容器：CONTEXT.changelog.md、FLOWS.changelog.md…）——整份的日期行都算
+//   ③ 同目錄的 `CHANGELOG.md` 裡 `## <檔名>` 那一節（.claude/harness/CHANGELOG.md 的 `## 05-knowledge-protocol.md`、
+//      .claude/agents/CHANGELOG.md 的 `## qa-engineer.md`；來源專案的 tests/Project_Detail/CHANGELOG.md 也是這個形狀）
+// 只認 `- YYYY-MM-DD` 開頭的行；輸出只記日期與出處（檔名:行號），不抄內容（筆記可能寫了帳密）。
+const DATED = /^- (\d{4}-\d{2}-\d{2})/;
+function sectionLines(text, title) {   // 回 [{ l, i }]（i＝0 起算的行號）；title 為 null 時取 `## Changelog`
+  const all = text.split('\n');
+  const isHead = title == null ? (l) => /^## Changelog\s*$/.test(l) : (l) => l.replace(/\s+$/, '') === '## ' + title;
+  const start = all.findIndex(isHead);
+  if (start < 0) return [];
+  const out = [];
+  for (let i = start + 1; i < all.length; i++) { if (/^## /.test(all[i])) break; out.push({ l: all[i].replace(/\r$/, ''), i }); }
+  return out;
+}
+function changelogEntries(relFile) {
+  const dir = path.posix.dirname(relFile), base = path.posix.basename(relFile), stem = base.replace(/\.md$/i, '');
+  const relOf = (n) => (dir === '.' ? n : dir + '/' + n);
+  const found = [];
+  const push = (file, rows) => { for (const { l, i } of rows) { const m = l.match(DATED); if (m) found.push({ date: m[1], at: file + ':' + (i + 1), line: l }); } };
+  const own = read(path.join(root, relFile));
+  if (own != null) push(relFile, sectionLines(own, null));
+  const split = relOf(stem + '.changelog.md');
+  const splitText = read(path.join(root, split));
+  if (splitText != null) push(split, splitText.split('\n').map((l, i) => ({ l: l.replace(/\r$/, ''), i })));
+  const shared = relOf('CHANGELOG.md');
+  const sharedText = shared === relFile ? null : read(path.join(root, shared));
+  if (sharedText != null) push(shared, sectionLines(sharedText, base));
+  const seen = new Set();
+  return found.filter((e) => (seen.has(e.at) ? false : (seen.add(e.at), true)));
+}
+const INIT_LINE = /建立（harness plugin|\/harness:init 實例化/;
+// 安裝日：① CLAUDE.md 的變更紀錄（changelogEntries 合併本體的 Changelog 節與 CLAUDE.changelog.md）裡「建立／init」那幾行的最早日期；
+// ② 沒有就退到 .claude/harness/CHANGELOG.md 任一節裡 init 建檔那一行的最早日期（實例化時每份制度檔都記一行
+// 「建立（harness plugin /harness:init 實例化…）」）。
+// 不對 CLAUDE.md 全文比對：新實例的本體已經沒有 changelog，專案概要裡「- 2026-01-05 建立訂單模組」這種進度行會被誤認成安裝日。
+const installDate = (() => {
+  const fromSplit = changelogEntries('CLAUDE.md').filter((e) => /建立|init/.test(e.line)).map((e) => e.date).sort()[0];
+  if (fromSplit) return fromSplit;   // changelogEntries 也讀本體的 Changelog 節，舊實例在這裡就找得到
+  const h = read(path.join(root, '.claude', 'harness', 'CHANGELOG.md')) || '';
+  return h.split('\n').map((l) => l.replace(/\r$/, '')).filter((l) => DATED.test(l) && INIT_LINE.test(l))
+    .map((l) => l.slice(2, 12)).sort()[0] || null;
+})();
 const since = opt('--since') || installDate;
 // 逐字紀錄的時間是 UTC；--since 與安裝日是當地日期，比較前先換成當地日期（台北清晨的 session 在 UTC 還是前一天）
 const localDay = (ts) => {
@@ -580,16 +626,33 @@ out.E.sedimentAnswers = agg.sediment;
 function knowledge(file) {
   const t = read(path.join(root, file));
   if (t == null) return { file, exists: false };
-  const all = t.split('\n'); const start = all.findIndex((l) => /^## Changelog/.test(l));
-  const cl = start < 0 ? [] : all.map((l, i) => ({ l, i })).slice(start + 1).filter((x) => /^- \d{4}-\d{2}-\d{2}/.test(x.l));
+  const cl = changelogEntries(file);
   return {
     file, exists: true, demoEntriesLeft: (t.match(/（示範）/g) || []).length,
+    // 實際讀到紀錄的位置（本體 Changelog 節／<檔名>.changelog.md／同目錄 CHANGELOG.md 的分節），判讀時知道去哪看
+    changelogSources: [...new Set(cl.map((e) => e.at.replace(/:\d+$/, '')))],
     // 不算 init 建檔那一行（實測：安裝當天的「建立（harness plugin /harness:init 實例化…）」會被誤算成一筆新知識）
     // 只記日期與行號，不抄內容（筆記可能寫了帳密）；要看內容回原檔
-    changelogSince: cl.filter(({ l }) => (!since || l.slice(2, 12) >= since) && !/建立（harness plugin|\/harness:init 實例化/.test(l)).map(({ l, i }) => ({ date: l.slice(2, 12), at: file + ':' + (i + 1) })),
+    changelogSince: cl.filter((e) => (!since || e.date >= since) && !INIT_LINE.test(e.line)).map((e) => ({ date: e.date, at: e.at })),
   };
 }
 out.E.knowledge = ['CONTEXT.md', 'FLOWS.md', 'tests/Project_Detail/PROJECT.md'].map(knowledge);
+// 上次健檢：05 的紀錄裡帶【健檢執行】標記、日期最大的一筆，讀法與 health-check-reminder.js 一致——
+// .claude/harness/CHANGELOG.md 有 05 那一節就只讀那一節，沒有才讀 05 本體（兩處都讀的話，升級到一半的實例
+// 會跟提醒 hook 算出不同的「上次健檢」）
+{
+  const RAN = /^- \d{4}-\d{2}-\d{2}\s+【健檢執行】/;
+  const sharedRel = '.claude/harness/CHANGELOG.md';
+  const sharedText = read(path.join(root, sharedRel));
+  const sec = sharedText == null ? [] : sectionLines(sharedText, '05-knowledge-protocol.md');
+  const hasSection = sharedText != null && sharedText.split('\n').some((l) => l.replace(/\s+$/, '') === '## 05-knowledge-protocol.md');
+  const pool = hasSection
+    ? sec.filter(({ l }) => DATED.test(l)).map(({ l, i }) => ({ date: l.slice(2, 12), at: sharedRel + ':' + (i + 1), line: l }))
+    : changelogEntries('.claude/harness/05-knowledge-protocol.md');
+  const runs = pool.filter((e) => RAN.test(e.line));
+  const last = runs.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))[0];
+  out.E.lastHealthCheck = last ? { date: last.date, at: last.at } : null;
+}
 
 // ── F 危險動作 ──
 // 危險指令檢查＝guard-risky-command 的 LABEL（交付路徑守門、測試前置條件守門是別的檢查，不算）
@@ -645,6 +708,7 @@ out.summary = {
   mustRead: `${allSubs.length} 個 subagent，少讀必讀檔的 ${out.D.missingReads.length} 個，回報沒有已讀清單的 ${out.D.reportsWithoutReadList.length} 個（對照：${out.D.mustReadSource}）`,
   sediment: `有改檔的回合 ${agg.editTurns.length} 個；Stop 沉澱提醒 ${agg.stopFeedback.length} 次；回答 ${agg.sediment.length} 次`,
   knowledge: out.E.knowledge.map((k) => `${k.file}：${k.exists ? `安裝後異動 ${k.changelogSince.length} 筆、剩示範條目 ${k.demoEntriesLeft}` : '不存在'}`),
+  lastHealthCheck: out.E.lastHealthCheck ? `${out.E.lastHealthCheck.date}（${out.E.lastHealthCheck.at}）` : '找不到帶【健檢執行】標記的紀錄',
   risky: `看起來有風險的指令 ${agg.riskyCmds.length} 條（其中連到專案文件沒寫過的主機 ${agg.riskyCmds.filter((x) => x.unknownHosts).length} 條）；危險指令檢查擋下 ${out.F.guardDenials.length} 次`,
   secrets: `指令裡直接寫了金鑰、密碼或權杖 ${agg.secretCmds.length} 處`,
   userSignals: `糾正 ${agg.corrections.length} 次、打斷 ${agg.interrupts} 次`,

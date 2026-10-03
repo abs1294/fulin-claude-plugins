@@ -49,6 +49,7 @@
 - 仲裁：`使用者當下指示 > 本檔 > repo CLAUDE.md > harness > memory`。}}
 
 ## 3. 絕對邊界
+<!-- init：「無則刪」的條款刪掉後，剩下的條款重新連號（別處引用本節時用條文標題，不用編號）。實例化後刪除本註解。 -->
 
 1. {{外向動作條款：remote 為外部/客戶時「push 前徵得同意」；無則刪}}
 2. commit message 與程式碼不加 AI 署名；commit／push 一律走 `git-commit` skill，禁止裸 `git commit`（{{若有裝 git-commit plugin：plugin 的 PreToolUse hook 會攔裸 commit；無則改寫為「commit 前照 03 矩陣 B 自查」}}）。
@@ -56,6 +57,7 @@
 {{Phase 3 Q2 確認要熔斷的危險動作逐條列（寄信、打外部 API、毀滅性 SQL、部署、金流、實機硬體、資料管線中本專案命中的項）：「<動作>：執行前徵得使用者同意（03 C2）」；無則刪}}
 4. 檔案／內容搜尋一律限定在本 workspace 或 repo 目錄內，禁止全碟掃描（全域規則）。
 5. {{敏感物條款：憑證/機密目錄不得出現在 commit、文件、對外輸出；無則刪}}
+6. **引入專案沒有的新模式前，先徵得使用者同意**：寫法在本 repo 查無先例（首次使用某個語言特性、首次採用某種狀態同步機制、首次引入某個函式庫或某種用法）時，不得先採用再回報，也不得因為 subagent 審查通過就當作放行。動手前先 grep 確認有沒有既有慣例；查無先例就停下來問，附「既有做法 vs 新做法」對照與取捨。理由：一致性是團隊資產，多一種模式的成本由所有維護者承擔，不該由單次任務的便利決定。
 
 ## 4. 開發流程（Agent Pipeline）
 
@@ -89,7 +91,4 @@
 
 ## 6. 本檔維護
 
-本檔屬紅區（§0 的流程狀態與進度除外，見該節）：修改前先說明原因、位置、建議內容，經使用者確認後才動。分級制見 `.claude/harness/05-knowledge-protocol.md` §1。
-
-## Changelog
-- {{YYYY-MM-DD}} 建立（harness plugin /harness:init 實例化）
+本檔屬紅區（§0 的流程狀態與進度除外，見該節）：修改前先說明原因、位置、建議內容，經使用者確認後才動。分級制見 `.claude/harness/05-knowledge-protocol.md` §1。本檔不放 changelog 節，變更紀錄寫在同目錄的 `CLAUDE.changelog.md`（規格見 05 §4）。

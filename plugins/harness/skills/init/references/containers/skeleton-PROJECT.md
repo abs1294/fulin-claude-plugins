@@ -9,7 +9,7 @@
 
 > **收錄原則**：只收「**QA 實測時才會撞到**」的知識——操作上的坑、測試寫法上的坑、測試設計上的判斷。
 > 一般開發的坑歸 memory、專案詞彙歸 `CONTEXT.md`、跨模組鏈路歸 `FLOWS.md`。
-> **寫入紀律**：每寫一條，同時在本檔 Changelog 段補一行——否則事後查不到「這次 QA 有沒有把學到的東西留下來」。
+> **寫入紀律**：每寫一條，同時在同目錄 `CHANGELOG.md` 的 `## PROJECT.md` 節補一行——否則事後查不到「這次 QA 有沒有把學到的東西留下來」。
 > 讀者＝qa-engineer（開工前必讀本檔，見 `.claude/agents/qa-engineer.md`）。
 
 ## 環境與執行
@@ -38,5 +38,4 @@
 
 - （示範）**動到日期／時間欄位** → 必須走真實 UI 輸入驗證，四點一致：UI 輸入值 → 送出的 payload → 資料庫實值 → 重新整理後的顯示值（手寫 API payload 通常剛好避開時區換算）。
 
-## Changelog
-- {{YYYY-MM-DD}} 建立（harness plugin /harness:init 實例化；三節示範條目待第一條真知識寫入時刪除）
+變更紀錄見同目錄 `CHANGELOG.md` 的 `## PROJECT.md` 節

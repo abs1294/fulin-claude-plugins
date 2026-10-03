@@ -16,11 +16,20 @@
 // 為什麼掛 PostToolUse 而不是等健檢：健檢是低頻（見 health-check-reminder.js），索引可能在
 // 健檢週期內就已超限；寫入當下提醒能在膨脹初期就被看見。
 // 為什麼 exit 0：這裡沒有「錯」的寫入，只有「可以更好」——用 exit 2 會把每次寫 memory
-// 都變成一次打斷。訊息走 stdout，模型看得到即可。
-// hook 故障一律放行（exit 0）＋印訊息，不得變成擋路石。
+// 都變成一次打斷。
+// 輸出管道：PostToolUse 的 exit 0＋純文字 stdout 只進紀錄，**模型看不到**（官方 hooks 文件只列
+// UserPromptSubmit／UserPromptExpansion／SessionStart／PostModelSwitch 會把純文字 stdout 加進 context；
+// claude -p 實測：純文字提醒模型回報「沒收到」，同內容改成下面的 JSON 就以 system reminder 讀到）。
+// 所以一律印 {"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"…"}}，仍是 exit 0、不擋。
+// hook 故障一律放行（exit 0）＋印訊息（同樣走 additionalContext），不得變成擋路石。
 
 const fs = require('fs');
 const path = require('path');
+
+// 給模型看的提醒：PostToolUse 只有 additionalContext 會進模型的 context（見檔頭「輸出管道」）
+function tellModel(text) {
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } }) + '\n');
+}
 
 // ── init 填空區 ──────────────────────────────────────────────────────────────
 // auto-memory 目錄的路徑樣式（regex，比對正規化為正斜線後的絕對路徑）。
@@ -86,9 +95,9 @@ try {
     }
   }
 
-  if (out.length) console.log(out.join('\n'));
+  if (out.length) tellModel(out.join('\n'));
   process.exit(0);
 } catch (e) {
-  console.log('[memory-write-advisory] hook 故障放行：' + (e && e.message));
+  tellModel('[memory-write-advisory] hook 故障放行：' + (e && e.message) + '（hook 鏽蝕要修，勿靜默忽略）');
   process.exit(0);
 }

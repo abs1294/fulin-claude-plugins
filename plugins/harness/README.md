@@ -36,7 +36,7 @@ init 產出的是**一套基本架構，加上讓它越用越完整的方法**�
 | 2 攤開核對 | 最前面先給一份「這是什麼專案」的概要草稿（每句附出處，請你直接改），接著把盤點結果和據此推導的預設一次給你看，有錯請直接指出；原本有設定的話，逐項列出打算沿用、合併還是換掉，你可以改 |
 | 3 訪談 | 一次問一題、每題附建議。先問專案本身：原本的設定哪裡不好用（只有原本有設定時問，後面的建議會朝解決這些問題調整）、每個外部系統與資料庫哪個是正式環境哪個是測試環境、專案現在做到哪與接下來做什麼、從文件挑出的專案用語意思對不對。再問流程設定：①開發流程要哪些角色 ②哪些動作執行前一定要先問你 ③沒有畫面的專案怎樣算做完（只有沒前端時問）④一個人用還是團隊用 ⑤要裝哪些自動檢查（預設全裝，你可以取消）⑥還沒有自動測試時要不要先暫停「每次改動都補測試」的要求（只有沒測試時問）⑦哪些文件動手前必讀（已經過時的文件會標出哪裡過時）。原本有設定的話，另外問：原本規矩裡這個專案自己累積的經驗（用讀懂意思的方式挑出來，不是比對關鍵字），照預設不會帶進新規則的，要升格哪幾條；裝完驗收時會再派一位獨立審查員，從舊文件逐條確認經驗有沒有帶走 |
 | 4 生成 | 規則文件、自動檢查、agent 角色、知識筆記檔、Claude Code 設定檔（settings）。CLAUDE.md 最前面是你確認過的專案概要（每次交代工作都第一個讀），`CONTEXT.md` 寫進你確認過的專案用語 |
-| 5 驗收 | 檔案檢查十一項（其中一項只在原本有設定時檢查：備份完整、原有設定都照核對結果處理、知識條目沒漏搬；一項檢查專案概要與專案用語跟你確認的內容一致），加上開新 session 實際試五項（交代工作沒指定模型會被擋／正常交代工作不會被誤擋／開 session 時有出現提醒／直接下 git commit 會被擋／危險指令的自動檢查真的有接上），任一項失敗就不算完成 |
+| 5 驗收 | 檔案檢查十二項（有 `.claude/qa-gate.conf` 時，其中一項另在暫存 repo 實跑一次 git-commit 的 QA 閘：不帶 `--qa` 被拒、帶了才通過；其中一項只在原本有設定時檢查：備份完整、原有設定都照核對結果處理、知識條目沒漏搬；一項檢查專案概要與專案用語跟你確認的內容一致），加上開新 session 實際試五項（交代工作沒指定模型會被擋／正常交代工作不會被誤擋／開 session 時有出現提醒／直接下 git commit 會被擋／危險指令的自動檢查真的有接上），任一項失敗就不算完成 |
 | 6 流程圖 | 用 archify 畫三張圖放在同一頁，開在瀏覽器給你看（`.claude/harness/flow.html`）：①需求進來之後怎麼跑、每一步被哪支自動檢查擋 ②每份文件在哪一步被誰讀、被誰寫（`CONTEXT.md`、`FLOWS.md`、`tests/Project_Detail/` 的讀和寫都畫）③開 session、壓縮對話這些時機背景自動做了什麼、健檢怎麼跑。**要畫哪些檔不是寫死的**：init 一開始先記下專案裡每個檔案的狀態，最後比對出這次新增、修改、刪除的每個檔案，每一個都必須是圖上的節點、而且有線標出它跟哪一步是什麼關係，由檢查腳本擋漏項。沒裝 archify 會先問你要不要裝，不裝就改給流程表。流程圖與結束時的回報，會先用 deliver-report plugin 的易讀性規則自檢（不能有內部用語、沒解釋的代號）；沒裝 deliver-report 就跳過，並告訴你怎麼裝 |
 
 原本的設定分兩種處理：
@@ -89,9 +89,11 @@ skills/init/
     skeleton-CLAUDE-md.md                 CLAUDE.md 的骨架（最前面是專案概要：用途、外部系統的正式與測試環境、業務流程、目前進度；含角色分工一節，以及指向知識筆記檔、分工角色、自動檢查的索引表）
     skeleton-harness-README.md            harness 導航頁骨架（五層清單、生效範圍、誠實揭露）
     skeleton-02-model-dispatch.md         哪種工作用哪個模型（各分工角色用什麼模型、最高階模型不下放、用量節流、跟你對話的 Claude 只分派不親做、另開一個 Claude 驗收）
-    skeleton-03-judgment-matrix.md        判斷規則 41 條（9 條何時停下換方法、23 條怎樣才算做完、9 條哪些動作要先問你）＋動手前的三重自查＋設計取捨的決定流程
+    skeleton-03-judgment-matrix.md        判斷規則 43 條（9 條何時停下換方法、25 條怎樣才算做完、9 條哪些動作要先問你）＋動手前的三重自查＋設計取捨的決定流程
     skeleton-04-delegation-templates.md   交代工作的六種範本（第五種排整條角色分工、第六種交代測試）
-    skeleton-05-knowledge-protocol.md     知識協議（三區分級、踩坑格式、MEMORY.md 字元數精簡觸發、健檢、升格）
+    skeleton-05-knowledge-protocol.md     知識協議（三區分級、產物存放、踩坑格式與 memory 星等、MEMORY.md 字元數精簡觸發、變更紀錄落點、健檢、升格、01／06 何時建）
+    skeleton-harness-CHANGELOG.md         harness 各規則檔的變更紀錄（依檔名分節；規則檔本體不放 changelog，免得每次載入都佔 context）
+    skeleton-CLAUDE.changelog.md          CLAUDE.md 的變更紀錄
     example-flow-1.json～example-flow-3.json  第 6 步三張流程圖的 archify 結構範例（只抄結構，內容換成實際的檔案與查證過的關係）
     agents/                               五支通用 agent 骨架
       skeleton-agent-backend-architect.md
@@ -99,10 +101,13 @@ skills/init/
       skeleton-agent-frontend-engineer.md
       skeleton-agent-qa-engineer.md       （瀏覽器可驅動時整段指向 qa-webwright plugin）
       skeleton-agent-code-reviewer.md     （審查結論的輸出格式不能改，git-commit 的審查流程要讀它）
-    containers/                           三份知識筆記檔的骨架（收錄原則＋示範條目＋Changelog）
+      skeleton-agents-CHANGELOG.md        五支 agent 的變更紀錄（依檔名分節）
+    containers/                           三份知識筆記檔的骨架（收錄原則＋示範條目）與各自的變更紀錄骨架
       skeleton-CONTEXT.md                 專案特有詞彙表 → workspace 根 CONTEXT.md
       skeleton-FLOWS.md                   跨模組鏈路圖 → workspace 根 FLOWS.md
       skeleton-PROJECT.md                 QA 操作坑與測試設計知識 → tests/Project_Detail/PROJECT.md
+      skeleton-CONTEXT.changelog.md、skeleton-FLOWS.changelog.md、skeleton-Project_Detail-CHANGELOG.md
+                                          三份筆記檔的變更紀錄 → CONTEXT.changelog.md、FLOWS.changelog.md、tests/Project_Detail/CHANGELOG.md
 hooks/
   hooks.json                              plugin 自己的自動檢查要在什麼時候啟動
   session-reminder.js                     SessionStart 條件式提醒：偵測到 .claude/harness/ 才輸出，未 init 的專案保持沉默

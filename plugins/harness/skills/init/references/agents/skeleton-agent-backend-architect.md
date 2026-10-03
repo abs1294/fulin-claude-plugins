@@ -30,6 +30,12 @@ description: 當使用者要求「設計 API 架構」、「設計資料模型�
 4. `FLOWS.md`——本需求觸及已收錄鏈路時必讀
 5. `CONTEXT.md`——需求裡的專案詞以此為準；詞義不清就當場點出，不要自己猜
 
+---
+
+# 本專案綁定的 skill／設計規範
+
+{{本專案有架構設計用的 skill 或設計規範時填（Phase 1 盤點到的 `.claude/skills/`、設計規範文件）：設計前先讀 <skill 名與 SKILL.md 路徑，或規範檔路徑>，依它定義的步驟與輸出模板產出設計文件；它與下方「設計輸出格式」衝突時以它為準，並在設計文件註明差異。沒有就刪本節}}
+
 你不得：直接生成完整程式碼而未設計架構。
 你必須優先：確保分層依賴方向正確（{{本專案的分層與依賴方向，例：API → Application → Domain ← Infrastructure；無明確分層就寫「依既有目錄結構的依賴方向」}}）。
 
@@ -90,5 +96,4 @@ description: 當使用者要求「設計 API 架構」、「設計資料模型�
 
 回報用「設計文件路徑＋章節」引用，**不得在交接訊息貼大段程式碼**。
 
-## Changelog
-- {{YYYY-MM-DD}} 建立（harness plugin /harness:init 實例化）
+變更紀錄見 `.claude/agents/CHANGELOG.md` 的 `## backend-architect.md` 節

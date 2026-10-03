@@ -59,6 +59,13 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// 不擋、只提醒的訊息（工具故障、hook 故障）：PostToolUse 的 exit 0 純文字 stdout 只進紀錄、模型看不到
+// （官方 hooks 文件；claude -p 實測），要包成 additionalContext 才會進模型的 context。
+// 擋下（exit 2）時改走 stderr——那條路徑本來就會送給模型。
+function tellModel(text) {
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } }) + '\n');
+}
+
 try {
   let raw = '';
   try { raw = fs.readFileSync(0, 'utf8'); } catch (e) { process.exit(0); }
@@ -96,10 +103,15 @@ try {
     }
   }
 
-  if (notes.length) process.stdout.write('[' + LABEL + '] ' + notes.join('\n') + '\n');
-  if (!failures.length) process.exit(0);
+  // 沒有違規時，工具故障的提醒走 additionalContext（exit 0 的純文字 stdout 模型看不到，見 tellModel）；
+  // 有違規時 exit 2 只送 stderr、stdout 的 JSON 不會被處理，所以併進 stderr 的訊息裡。
+  if (!failures.length) {
+    if (notes.length) tellModel('[' + LABEL + '] ' + notes.join('\n'));
+    process.exit(0);
+  }
 
   const msg = ['[' + LABEL + '] 剛寫入的 ' + rel + ' 出現新增的稽核違規：', ''];
+  if (notes.length) msg.push(...notes.map((n) => '（另外）' + n), '');
   for (const f of failures) {
     msg.push('── ' + (f.c.name || f.c.cmd) + '（結束碼 ' + f.code + '）──', '');
     msg.push(...f.out.map((l) => '  ' + l));
@@ -112,6 +124,6 @@ try {
   process.stderr.write(msg.join('\n') + '\n');
   process.exit(2);
 } catch (e) {
-  process.stdout.write('[' + LABEL + '] hook 故障——' + e.message + '（放行，但 hook 鏽蝕要修，勿靜默忽略）\n');
+  tellModel('[' + LABEL + '] hook 故障——' + e.message + '（放行，但 hook 鏽蝕要修，勿靜默忽略）');
   process.exit(0);
 }

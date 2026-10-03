@@ -3,7 +3,7 @@
 > 建立：{{YYYY-MM-DD}}，由 harness plugin 的 `/harness:init` 產生。
 > 用途：讓 Claude（不論用哪一級模型）照同一套規則穩定地自己把事做完。workspace 根的 `CLAUDE.md` 會指引 Claude 來讀這個目錄。
 > 這裡放的是**開發流程的基本規則**（做事紀律、依本專案調整過的判斷標準、各角色的分工、會自動擋下危險動作的檢查）加上 init 時查證過的本專案事實；**不含任何因為特定事故而定的規則**——那些要從本專案自己踩過的坑累積，方法見 `05-knowledge-protocol.md` 的「升格協議」一節。
-> ⚠ 先說清楚：這是一套基本架構，加上讓它越用越完整的方法，不是一套成熟的 harness。成熟的 harness 還包括數十到上百條踩坑紀錄、數百支自動測試、每個模組測到哪裡的登記——那些要靠本專案自己累積，init 給不了。
+> ⚠ 先說清楚：這是一套基本架構，加上讓它越用越完整的方法，不是一套成熟的 harness。成熟的 harness 還包括數十到上百條踩坑紀錄、數百支自動測試、每個模組測到哪裡的登記（形狀見 `05-knowledge-protocol.md` §5.1）——那些要靠本專案自己累積，init 給不了。
 
 ## 檔案清單與用途
 
@@ -12,7 +12,8 @@
 | `02-model-dispatch.md` | 派工規則：什麼工作用哪一級模型、哪些情況主對話必須交給 agent 做而不自己動手、派工單必寫的三件事（目標、驗收條件、回報格式）、寫程式的和驗收的不能是同一個 | 主對話每次要派工或卡關時 |
 | `03-judgment-matrix.md` | 判斷規則：什麼情況該停下來換方法、怎樣才算做完、哪些情況要停下來問使用者 | 所有模型；卡關時、說「做完了」之前、想問使用者之前 |
 | `04-delegation-templates.md` | 派工單範本 | 主對話派 agent 前，複製後填空 |
-| `05-knowledge-protocol.md` | 哪些檔案改之前要先問、踩坑怎麼記、定期健檢清單、同類坑重複出現時怎麼寫進正式規則 | 踩坑後要記錄時；想改本目錄任何檔案時 |
+| `05-knowledge-protocol.md` | 哪些檔案改之前要先問、踩坑怎麼記、定期健檢清單、同類坑重複出現時怎麼寫進正式規則、產物放哪、變更紀錄寫哪、01／06 何時建 | 踩坑後要記錄時；想改本目錄任何檔案時 |
+| `CHANGELOG.md` | 本目錄各檔的變更紀錄，依檔名分節（指令檔本身不放 changelog，理由見 05 §4） | 想知道某條規則何時、為何改的時候；健檢提醒 hook 讀 `## 05-knowledge-protocol.md` 節算上次健檢日 |
 
 **本目錄以外、init 一起建立的東西**：
 
@@ -23,8 +24,9 @@
 | workspace 根 `CONTEXT.md` | 本專案特有詞彙表（詞是什麼，不是怎麼做） | 每個角色開工前必讀（派工檢查會擋漏列的）；詞義不清、詞義衝突時當場查與補 |
 | workspace 根 `FLOWS.md` | 跨模組流程圖（只收出過問題、或橫跨兩個以上模組的流程） | 要改到已收錄流程的任何一段之前必讀 |
 | `tests/Project_Detail/PROJECT.md` | 測試時踩過的坑與測試設計知識 | 測試用的 agent（qa-engineer）開工前必讀 |
+| 變更紀錄檔：`.claude/agents/CHANGELOG.md`、workspace 根 `CLAUDE.changelog.md`／`CONTEXT.changelog.md`／`FLOWS.changelog.md`、`tests/Project_Detail/CHANGELOG.md` | 上面各檔的變更紀錄（規則見 05 §4） | 改了上面任一檔時補一行；想查某段何時改的時候 |
 
-（沒有 `01-diagnosis.md`（專案痛點診斷）與 `06-handover-letter.md`（交接信）：這兩份要等本專案累積出自己的問題才寫得出來，屆時照 `05-knowledge-protocol.md` 的規則建立。）
+（沒有 `01-diagnosis.md`（專案痛點診斷）與 `06-handover-letter.md`（交接信）：這兩份要等本專案累積出自己的問題才寫得出來。何時該建、照什麼結構建，見 `05-knowledge-protocol.md` §7。）
 
 ## 快速啟動（給未來的主對話模型）
 
@@ -46,5 +48,4 @@
 
 本目錄的檔案改之前要先問過使用者（團隊則走 PR 審查）；只有在 `04-delegation-templates.md` 新增模板可以直接改，但要在當次回覆講明改了什麼、為什麼。完整分級見 `05-knowledge-protocol.md` 的「檔案分級制」一節。
 
-## Changelog
-- {{YYYY-MM-DD}} 建立（harness plugin /harness:init 實例化）
+變更紀錄見同目錄 `CHANGELOG.md` 的 `## README.md` 節

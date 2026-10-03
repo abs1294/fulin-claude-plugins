@@ -78,6 +78,30 @@
         "tool_input": { "file_path": ".claude/settings.local.json" }
       },
       "expect": "ALLOW"
+    },
+    {
+      "label": ".claude/ 根層新建 git-commit 的設定檔（qa-gate.conf）→ 放行（init 要建它）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": ".claude/qa-gate.conf"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": ".claude/ 根層新建 git-commit 的設定檔（git-commit-reviewer-addendum.md）→ 放行（init 要建它）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": ".claude/git-commit-reviewer-addendum.md"
+        }
+      },
+      "expect": "ALLOW"
     }
   ]
 }

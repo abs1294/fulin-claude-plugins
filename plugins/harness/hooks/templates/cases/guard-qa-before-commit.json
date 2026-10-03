@@ -122,6 +122,193 @@
         }
       },
       "expect": "ALLOW"
+    },
+    {
+      "label": "覆寫夾帶（開）：Skill 入口，analyze 印出 [STAGED, in overrides]，即使帶 --qa-verified 也擋",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n",
+          "conf.txt": "a=1\n",
+          ".claude/skills/git-commit/flow.sh": "#!/bin/bash\necho \"=== REPO: $2 ===\"\necho \"--- Excluded by local-overrides (1) ---\"\necho \"conf.txt [STAGED, in overrides]\"\n"
+        },
+        "stage": [
+          "src/add.js",
+          "conf.txt"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit",
+          "args": "--qa-verified"
+        }
+      },
+      "expect": "BLOCK",
+      "variant": "overrides-on"
+    },
+    {
+      "label": "覆寫夾帶（開）：Skill 入口帶 --allow-overrides --qa-verified → 放行",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n",
+          "conf.txt": "a=1\n",
+          ".claude/skills/git-commit/flow.sh": "#!/bin/bash\necho \"=== REPO: $2 ===\"\necho \"--- Excluded by local-overrides (1) ---\"\necho \"conf.txt [STAGED, in overrides]\"\n"
+        },
+        "stage": [
+          "src/add.js",
+          "conf.txt"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit",
+          "args": "--qa-verified --allow-overrides"
+        }
+      },
+      "expect": "ALLOW",
+      "variant": "overrides-on"
+    },
+    {
+      "label": "覆寫夾帶（開）：analyze 沒有標記 → 只剩 QA 表態檢查，帶 --qa-verified 放行",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n",
+          "conf.txt": "a=1\n",
+          ".claude/skills/git-commit/flow.sh": "#!/bin/bash\necho \"=== REPO: $2 ===\"\necho \"--- Excluded by local-overrides (0) ---\"\necho \"(none)\"\n"
+        },
+        "stage": [
+          "src/add.js",
+          "conf.txt"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit",
+          "args": "--qa-verified"
+        }
+      },
+      "expect": "ALLOW",
+      "variant": "overrides-on"
+    },
+    {
+      "label": "覆寫夾帶（關，預設）：analyze 會印標記也不跑這項 → 帶 --qa-verified 放行",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n",
+          "conf.txt": "a=1\n",
+          ".claude/skills/git-commit/flow.sh": "#!/bin/bash\necho \"=== REPO: $2 ===\"\necho \"--- Excluded by local-overrides (1) ---\"\necho \"conf.txt [STAGED, in overrides]\"\n"
+        },
+        "stage": [
+          "src/add.js",
+          "conf.txt"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit",
+          "args": "--qa-verified"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "覆寫夾帶（開）：FLOW_SH 填錯找不到 → 這項放行但要用 additionalContext 提醒模型（fail-open 要 loud，純文字模型看不到）",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n",
+          "conf.txt": "a=1\n",
+          ".claude/skills/git-commit/flow.sh": "#!/bin/bash\necho \"=== REPO: $2 ===\"\necho \"--- Excluded by local-overrides (1) ---\"\necho \"conf.txt [STAGED, in overrides]\"\n"
+        },
+        "stage": [
+          "src/add.js",
+          "conf.txt"
+        ]
+      },
+      "payload": {
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "git-commit",
+          "args": "--qa-verified"
+        }
+      },
+      "expect": "NOTE",
+      "variant": "overrides-on-bad-path",
+      "visible": true
+    },
+    {
+      "label": "Bash 入口已不判斷：flow.sh review-record 沒帶 --qa、staged 有行為類檔 → hook 不攔也不出聲（權威檢查在 flow.sh＋.claude/qa-gate.conf）",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n"
+        },
+        "stage": [
+          "src/add.js"
+        ]
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash ~/.claude/plugins/cache/m/git-commit/1.0.0/skills/git-commit/flow.sh review-record . --codex \"VERDICT: PASS\" --reviewer \"VERDICT: PASS\""
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Bash 入口已不判斷：flow.sh review-record 帶 --qa → 同樣不攔也不出聲",
+      "setup": {
+        "files": {
+          "src/add.js": "export const add = (a, b) => a + b;\n",
+          "README.md": "# x\n",
+          "tests/add.test.js": "require(\"node:test\")\n"
+        },
+        "stage": [
+          "src/add.js"
+        ]
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash ~/.claude/plugins/cache/m/git-commit/1.0.0/skills/git-commit/flow.sh review-record . --codex \"PASS\" --reviewer \"PASS\" --qa \"已QA：tests/add.test.js 實跑 3 passed\""
+        }
+      },
+      "expect": "SILENT"
     }
-  ]
+  ],
+  "variants": {
+    "overrides-on": {
+      "replace": [
+        [
+          "const CHECK_OVERRIDES = false;",
+          "const CHECK_OVERRIDES = true;"
+        ]
+      ]
+    },
+    "overrides-on-bad-path": {
+      "replace": [
+        [
+          "const CHECK_OVERRIDES = false;",
+          "const CHECK_OVERRIDES = true;"
+        ],
+        [
+          "const FLOW_SH = '';",
+          "const FLOW_SH = 'no/such/flow.sh';"
+        ]
+      ]
+    }
+  }
 }

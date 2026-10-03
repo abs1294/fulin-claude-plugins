@@ -40,6 +40,9 @@ rule-scan
 SendEmailService
 partner_identity
 hardcode_check
+# drift_check／gen_catalog／CATALOG.md／COVERAGE.md：來源專案「覆蓋登記」那一套的專屬名（登記檔、稽核工具、產生的索引）。
+#   替代做法：骨架只帶形狀——skeleton-05 §5.1「覆蓋登記」用 {{覆蓋登記檔}}／{{覆蓋稽核工具}} 填空，qa-engineer 的 codify 完成判準
+#   （0 孤兒／0 幽靈／0 佔位）引用同一處。範本要講這件事時寫「覆蓋登記檔」「覆蓋稽核工具」，不要把這幾個檔名放回範本。
 drift_check
 gen_catalog
 i18n_locator_check

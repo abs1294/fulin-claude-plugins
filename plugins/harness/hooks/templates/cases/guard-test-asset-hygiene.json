@@ -8,6 +8,18 @@
           "const CHECKERS = [\n  {\n    \"name\": \"hardcoded-data\",\n    \"cmd\": \"node -e \\\"process.exit(require('fs').readFileSync(process.argv[1],'utf8').includes('HARDCODED')?1:0)\\\" {file}\",\n    \"fix\": \"改走產品入口造資料，不要寫死。\"\n  }\n];"
         ]
       ]
+    },
+    "slow-tool": {
+      "replace": [
+        [
+          "const CHECKERS = [];",
+          "const CHECKERS = [{ name: \"slow\", cmd: \"node -e \\\"setTimeout(function(){}, 5000)\\\" {file}\" }];"
+        ],
+        [
+          "const CHECK_TIMEOUT_MS = 90000;",
+          "const CHECK_TIMEOUT_MS = 300;"
+        ]
+      ]
     }
   },
   "cases": [
@@ -128,6 +140,24 @@
         }
       },
       "expect": "ALLOW"
+    },
+    {
+      "label": "稽核工具逾時（沒有結束碼）→ 不擋，但工具故障的提醒要是 additionalContext JSON（exit 0 純文字模型看不到）",
+      "variant": "slow-tool",
+      "setup": {
+        "files": {
+          "tests/login.test.js": "const id = makeUser();\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "tests/login.test.js"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
     }
   ]
 }

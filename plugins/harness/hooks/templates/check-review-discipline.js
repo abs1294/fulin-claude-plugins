@@ -9,8 +9,17 @@
 //
 // 背景：派工 prompt 該帶的紀律條款（回報鏈鐵則、驗收條件、回報格式……）若只寫在文件裡、
 // 沒有機械檢查，實測會被跳過——派工單漏一項，subagent 照樣開工，缺口要等審查甚至上線
-// 才被發現。這支 hook 只能保證「派工 prompt 有帶紀律條款的文字標記」，不驗內容對不對、
-// 也不驗 agent 有沒有真的照做——執行面仍要靠 agent 定義檔與 skill 正文把關。
+// 才被發現。這支 hook 保證「派工 prompt 有帶紀律條款的文字標記」，另對兩格驗「有沒有作答」（見下），
+// 不驗內容對不對、也不驗 agent 有沒有真的照做——執行面仍要靠 agent 定義檔與 skill 正文把關。
+//
+// 為什麼不能只比對標題（來源專案實際發生過）：只驗「有沒有出現【測試資料來源】這幾個字」時，
+// 寫了標題就過——選 a/b/c 哪個、選 b/c 有沒有附理由都不看，等於只擋「完全沒寫」。實測代價是全庫
+// 幾十處寫死業務代碼、上百處直接 INSERT 業務主體表造狀態，而那些派工單多半都「有寫這格」；
+// 【驗收條件】同理，整段範本貼上、只留佔位 <…> 也能過閘。所以這兩格改為驗作答：
+//   【測試資料來源】（DATA_SOURCE_AGENTS）：①這格第一行要寫「選 a／選 b／選 c」（固定格式）
+//     ②選 b 要附產品端證據「檔名:行號」 ③選 c 要附理由（為何屬字典／設定類）
+//   【驗收條件】（ACCEPTANCE_BODY_AGENTS）：剝掉範本佔位 <…>、標題後的括號說明、條列符號後不能是空的
+// 仍不判「選得對不對」「條件寫得好不好」——那要看程式碼與需求，是審查與 QA 的事。
 //
 // 一次列完所有未過的閘（不要一項一項擠牙膏）：若每次只回報一項，補一項撞一項，
 // 派一個要連過多道閘的 agent 會被連續擋很多次，而且每次 deny 都燒一輪 context。
@@ -21,7 +30,8 @@
 // 工具名、某種分流判準、某個環境的 port 對照）——專案要加自己的紀律時，直接在表裡
 // 用同樣的形狀加一條（見填空區範例的「如何自加一條」）。
 //
-// fail-open：解析失敗或任何例外一律放行。
+// fail-open：解析失敗或任何例外一律放行。派工內容檢查（驗作答那兩格）丟例外時同樣放行，
+// 但用 additionalContext 告訴模型「派工內容檢查故障」（已有其他缺項要擋時併進 deny 理由）。
 
 'use strict';
 
@@ -146,9 +156,153 @@ const REQUIRED_MARKERS = {
     },
   ],
 };
+
+// 派工內容檢查（見檔頭「為什麼不能只比對標題」）。名單用 agent 名（不含 plugin 前綴）；'*'＝表中所有專案 agent。
+// 只在該格標題存在時驗內容——標題整個沒寫，由上面的標記表報缺，不重複報。
+// 【驗收條件】要有實際內容的 agent。
+const ACCEPTANCE_BODY_AGENTS = ['*'];
+// 【測試資料來源】要驗作答的 agent（通常只有 QA agent；Q1 裁掉 QA 時清空）。
+const DATA_SOURCE_AGENTS = ['qa-engineer'];
 // ────────────────────────────────────────────────────────────────────────────
 
+// 取「【標題】」之後、到下一格標題之前的內容當作該格的作答區；沒有這格回 null。
+// 「下一格標題」＝換行後緊接的【…】（行首可有空白與 markdown 記號 > * _ # -，例：「**【回報格式】**」「- 【範圍展開】」）。
+// 不切在任意「【」：作答內容常引用別處（「選 b：見【規格】src/x.py:3」），切在那裡會把證據切掉而誤擋。
+// 不用已知標題清單：04 模板的欄位標題都寫在行首，而專案自加的欄位不必回頭維護清單；
+// 已知限制：作答內容自己有一行以「【」開頭時會被當成下一格（把引用寫在行中即可）。
+function fieldSegment(prompt, title) {
+  // 先找出現在行首的標題（前面只能是空白與 markdown 記號）：前文在句子中間提到「依下方【測試資料來源】造」時，
+  // 取第一次出現會切到那一句，底下照格式作答也被判沒作答。沒有行首的才退回第一次出現。
+  const esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const head = new RegExp('(?:^|\\n)[ \\t>*_#-]*' + esc).exec(prompt);
+  const i = head ? head.index + head[0].length - title.length : prompt.indexOf(title);
+  if (i < 0) return null;
+  const rest = prompt.slice(i + title.length);
+  const next = /\n[ \t>*_#-]*【/.exec(rest);
+  return next ? rest.slice(0, next.index) : rest;
+}
+// 範本佔位（<…>，可巢狀）由內往外剝到沒有變化為止：佔位裡的示範文字不算作答
+function stripPlaceholders(s) {
+  let out = String(s);
+  for (;;) {
+    const next = out.replace(/<[^<>]*>/g, ' ');
+    if (next === out) return out;
+    out = next;
+  }
+}
+// 04 範本在標題同一行附了括號說明（「【驗收條件】（逐條判定）」「【測試資料來源】（必填，三選一…）」），不算作答
+// 剝掉標題後面的括號說明。說明裡可能還有一層括號（「…附「檔名:行號」（說明為何…），選 c…」），
+// 只剝到第一個右括號的話，剩下半句會被當成作答——照範本正確作答也被擋。所以數括號深度，剝到配對的那個為止
+function dropHeadingNote(seg) {
+  const m = /^[ \t]*[（(]/.exec(seg);
+  if (!m) return seg;
+  let depth = 0;
+  for (let i = m[0].length - 1; i < seg.length; i++) {
+    const c = seg[i];
+    if (c === '\n') return seg;   // 說明沒在同一行收尾：不剝，照原樣判
+    if (c === '（' || c === '(') depth++;
+    else if ((c === '）' || c === ')') && --depth === 0) return seg.slice(i + 1);
+  }
+  return seg;
+}
+
+function acceptanceIsEmpty(prompt) {
+  const seg = fieldSegment(prompt, '【驗收條件】');
+  if (seg === null) return false;   // 沒有這格由標記表報
+  const body = stripPlaceholders(dropHeadingNote(seg)).split(/\r?\n/)
+    .map((l) => l.replace(/^\s*(?:[-*•>]+|[\d０-９]+[.)、．）])\s*/, '')).join('');
+  return body.replace(/[\s\p{P}\p{S}]/gu, '') === '';
+}
+
+// 回缺失訊息陣列（空＝通過）
+function dataSourceProblems(prompt) {
+  const raw = fieldSegment(prompt, '【測試資料來源】');
+  if (raw === null) return [];      // 沒有這格由標記表報
+  const seg = stripPlaceholders(dropHeadingNote(raw));
+  const COMMON = '（04-delegation-templates.md 模板六）該格**第一行開頭**寫「選 a」「選 b」或「選 c」，後面接理由：'
+    + 'a 走真實業務流程長出來（首選）；b 自種自清（寫入後取回自己建的 Id＋teardown 自刪），要附為何不走 a 所根據的產品端證據「檔名:行號」'
+    + '（例：上游推送的唯一寫入點、擋住入口的守門）；c 依賴既有資料，僅限字典／設定類，要說明為何屬這類。'
+    + '範本裡 a./b./c. 的說明與 ⛔ 清單可以留著，但作答要寫在它們前面。請在 prompt 補上後重發同一個 agent。';
+
+  // 作答段：第一個非空行起，到空行、或到以「a. b. c.」「（」「⛔」開頭的說明行為止。
+  // 範本在同一格下方附 a/b/c 說明與 ⛔ 清單，裡面有「檔名:行號」樣的字，不得頂替作答
+  // （來源專案實際發生過：整段範本貼上、只填「選 b，理由：比較快」就放行）。
+  const answer = (() => {
+    const out = [];
+    for (const l of seg.split(/\r?\n/)) {
+      if (!out.length) { if (l.trim() !== '') out.push(l); continue; }
+      if (l.trim() === '' || /^\s*(?:\**\s*[abc]\**\s*[.．、)）](?![A-Za-z0-9@\[][\w.\-/@\[\]+~]*(?:[:：]|#L)\d)|[（(]|⛔)/i
+        .test(l.replace(/^[\s_`#>\-：:]+/, ''))) break;
+      out.push(l);
+    }
+    return out.join('\n');
+  })();
+
+  // 選項判定——固定格式：第一行開頭必須是「選 a」「選 b」「選 c」（「選擇：a」「選用 b」也算）。
+  // 自由文字的判法在來源專案試過五種（字母＋說明詞、否定詞清單、成對否定、第一子句、選字族優先），每一種都有新破口
+  // （「不用 a，選 b」判成 a、「本案可從畫面造出，選 a」判成沒選），故不再猜。
+  const picked = (() => {
+    const head = /^選(?:擇|用)?\s*[:：]?\s*([abc])(?![A-Za-z0-9])/i;
+    const lines = seg.split(/\r?\n/)
+      .map((l) => l.replace(/^[\s*_`#>\-：:]+/, '').replace(/^[\d０-９]+[.)、．）]\s*/, '').trim()).filter((l) => l !== '');
+    if (!lines.length) return null;
+    const m = head.exec(lines[0]);
+    if (!m) return null;
+    const L = m[1].toLowerCase();
+    // 第一句同時提到別的選項（「選 a 或 b」）不算明選
+    const rest = lines[0].slice(m[0].length).split(/[，,。；;：:（(]/)[0];
+    if (['a', 'b', 'c'].some((x) => x !== L && new RegExp('(^|[^A-Za-z0-9])' + x + '($|[^A-Za-z0-9])', 'i').test(rest))) return null;
+    // 同一行後面又寫了另一個「選 X」（「選 a，選 b」）也不算明選
+    const again = /選(?:擇|用)?\s*[:：]?\s*([abc])(?![A-Za-z0-9])/gi;
+    let k;
+    while ((k = again.exec(lines[0].slice(m[0].length))) !== null) if (k[1].toLowerCase() !== L) return null;
+    // 後面又出現另一個「選 X」（前後矛盾）也不算
+    if (lines.slice(1).some((l) => { const k = head.exec(l); return k && k[1].toLowerCase() !== L; })) return null;
+    return L;
+  })();
+
+  if (!picked) {
+    // 沒選之前談「缺理由／缺證據」沒有意義，但補完選項後可能再撞那兩項——訊息先講明，不讓人以為補完這項就結束
+    return ['[測試資料來源·未明選] prompt 有【測試資料來源】這格，但沒看到明確選了 a／b／c 哪一個。寫標題不算表態；'
+      + '先寫說明、後面才表態，或第一句同時提到兩個選項，都不算。⚠ 選 b 或 c 的話請一併附上證據／理由，'
+      + '否則補完選項會再撞一次「缺證據／缺理由」——這兩項在邏輯上有先後，不是漏報。' + COMMON];
+  }
+  const out = [];
+  if (picked === 'b') {
+    // 只認作答段裡的「檔名:行號」（或 檔名#L行號）；推託詞不列舉，改要求看過產品程式碼的證據
+    const EVIDENCE = /[\w\u4e00-\u9fff./\\@\[\]+~-]+\.(?:cs|js|mjs|cjs|ts|tsx|jsx|vue|svelte|py|java|kt|go|rb|php|sql|rs|swift|dart|scala|sh|ps1|json|ya?ml|xml|c|h|cc|cpp|hpp|m|ex|exs|html|cshtml|razor)(?:[:：]|#L)\d+/;
+    if (!EVIDENCE.test(answer)) {
+      out.push('[測試資料來源·缺證據] （只讀作答段：第一行起到空行，或到以 a./b./c.／（／⛔ 開頭的說明行為止）選了 b，'
+        + '但沒附產品端證據：寫出「為何不走真實流程」所根據的程式位置「檔名:行號」（上游推送的唯一寫入點、擋住入口的守門、'
+        + '真流程要經過的那幾個入口）。沒去看產品程式碼就主張走不了真流程，多半是誤判。' + COMMON);
+    }
+  }
+  if (picked === 'c') {
+    // 理由要真的寫出內容：出現字典／設定類字眼即算；否則取「理由／因為／原因」後面的文字，刪掉佔位詞與全部空白、標點、符號，
+    // 剩下至少 2 個字才算（不列舉句型——列舉「佔位＋其後結束」的 regex 在來源專案連兩輪都漏）
+    const hasReason = (() => {
+      if (/字典|設定類|設定|主檔/.test(answer)) return true;
+      const m = /理由|因為|原因|why|because|reason(?![A-Za-z])/i.exec(answer);
+      if (!m) return false;
+      return answer.slice(m.index + m[0].length)
+        .replace(/待補[充中上齊]?|待確認|待定|之後再補|之後補|稍後補|再補|後補|之後|稍後|同上|沒有|無|(?<![A-Za-z])(?:(?:TBD)+|TODO|N\/?A|none|OK)(?![A-Za-z])|\.{2,}|…+/gi, '')
+        .replace(/[\s\p{P}\p{S}]/gu, '').length >= 2;
+    })();
+    if (!hasReason) {
+      out.push('[測試資料來源·缺理由] （只讀作答段）選了 c 但沒附理由：說明「為何屬字典／設定類」——業務資料列一律不得走 c。'
+        + '一句話即可，但要寫。' + COMMON);
+    }
+  }
+  return out;
+}
+
 let raw = '';
+let contentCheckError = null;
+function contentCheckNote() {
+  return '[派工紀律] ⚠ 派工內容檢查故障（' + (contentCheckError && contentCheckError.message)
+    + '）：【驗收條件】有沒有寫內容、【測試資料來源】有沒有作答這次沒檢查到，已放行（標記表的檢查照常）。'
+    + '請自行確認這兩格有作答；hook 鏽蝕要修（.claude/hooks/check-review-discipline.js），勿靜默忽略。';
+}
 process.stdin.on('data', (c) => { raw += c; });
 process.stdin.on('end', () => {
   const reasons = [];
@@ -172,6 +326,19 @@ process.stdin.on('end', () => {
         reasons.push(`[${rule.name}] ${rule.hint} 請在 prompt 補上後重發同一個 agent，不得改派其他 agent type 繞過本檢查。`);
       }
     }
+    // 派工內容檢查：標題在、但沒作答（見檔頭）。
+    // 自己包一層 try：這段丟例外時放行（fail-open），但要讓模型知道這項沒檢查到——
+    // 包在外層空 catch 裡的話會靜默放行，hook 壞了沒人發現。
+    const inList = (list) => isManaged && (list.includes('*') || list.includes(type));
+    try {
+      if (inList(ACCEPTANCE_BODY_AGENTS) && acceptanceIsEmpty(prompt)) {
+        reasons.push('[驗收條件·沒寫內容] 【驗收條件】只有標題、或只剩範本佔位 <…>：逐條列出可機械判定的 PASS/FAIL 條件，'
+          + '每一條都要答得出「用什麼指令或什麼觀察來判定」（04 共通規則）。請在 prompt 補上後重發同一個 agent。');
+      }
+      if (inList(DATA_SOURCE_AGENTS)) reasons.push(...dataSourceProblems(prompt));
+    } catch (e) {
+      contentCheckError = e;
+    }
   } catch (e) {}
 
   if (reasons.length) {
@@ -185,9 +352,14 @@ process.stdin.on('end', () => {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
-        permissionDecisionReason: head + body,
+        permissionDecisionReason: head + body + (contentCheckError ? '\n\n' + contentCheckNote() : ''),
       },
     }));
+  } else if (contentCheckError) {
+    // 放行但要讓模型知道：PreToolUse 以 exit 0 結束時純文字 stdout 模型看不到，要包成 additionalContext
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: contentCheckNote() },
+    }) + '\n');
   }
   process.exit(0);
 });
