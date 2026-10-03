@@ -25,6 +25,7 @@
 #   flow.sh prepare <repo> <files...>
 #   flow.sh review-record <repo> --codex "<回覆>" --reviewer "<回覆>"   # 兩軌結果
 #   flow.sh review-record <repo> --exempt "<理由>"                        # 使用者明示豁免
+#     （兩種都可加 --qa "<QA 狀態>"；專案有 .claude/qa-gate.conf 時，staged 含行為類檔就必帶，見 assert_qa_gate）
 #   flow.sh ship <repo> <type> <description>            # 只 local commit（預設）
 #   flow.sh ship <repo> <type> <description> --push     # 經使用者核可後才推遠端
 # ============================================================
@@ -129,8 +130,8 @@ repo_identity_candidates() {
   local url
   url="$(git -C "$repo_path" remote get-url origin 2>/dev/null || true)"
   if [ -n "$url" ]; then
-    url="${url%.git}"
     url="${url%/}"
+    url="${url%.git}"
     basename "$url"
   fi
 
@@ -646,17 +647,335 @@ check_review_recorded() {
 }
 
 # ------------------------------------------------------------
+# QA 閘（專案選用）：.claude/qa-gate.conf
+#
+# 「行為類改動要先 QA」原本由專案 hook 在 Bash 指令層攔，但看指令文字（連語法樹也一樣）
+# 擋不住間接呼叫：函式包裝、變數、陣列、`set -- …; source flow.sh`、PowerShell 的 Invoke-Expression…
+# 繞法補不完。review-record 是 ship 前必經的一步，在這裡由腳本自己看實際 staged 內容，
+# 指令外面怎麼包裝（函式、變數、Invoke-Expression…）都會走到這裡被查。設定檔找不到＝完全不檢查，舊專案行為不變。
+# 有好幾份設定檔時取第一個找到的、不合併（repo 自帶的設定會蓋過工作目錄層的；往上找也會走到家目錄的 .claude）。
+#
+# 設定檔位置：依序從 repo 目錄（字面路徑、實體路徑）、主 repo 目錄（worktree 時）、工作目錄（WORKSPACE_DIR）
+# 各自往上逐層找 .claude/qa-gate.conf，取第一個找到的。只看 WORKSPACE_DIR 的話，沒設 CLAUDE_PROJECT_DIR 時 WORKSPACE_DIR＝當下目錄，
+# 先 cd 進 repo 再用 '.'（本檔錯誤訊息也這樣建議）就找不到設定檔、閘整個不觸發（審查時實跑重現）。
+# 同一層的 local-overrides.yml 一併當成 block_staged_overrides 的清單來源（比對方式見 list_override_entries 上方）。
+#
+# 格式（key=value；整行 # 開頭是註解；「空白後接 #」起到行尾也是註解；值前後空白會剝掉）：
+#   behavior_ext=.js .ts .vue        空白分隔；比對檔名結尾，大小寫不分；沒寫或空＝不做 QA 檢查
+#   exclude=^tests?/ (^|/)__tests__/  空白分隔的 ERE，任一命中（比對 repo 內相對路徑）就不算行為類
+#   block_staged_overrides=1          staged 含 local-overrides 清單上的檔就拒絕記錄（--allow-overrides 放行）
+# ------------------------------------------------------------
+
+QA_GATE_CONF=""
+
+# 從給的幾個起點各自往上找 .claude/qa-gate.conf，印出第一個找到的完整路徑；都沒有就不印、回 1。
+find_qa_gate_conf() {
+  local start d parent
+  for start in "$@"; do
+    [ -n "$start" ] && [ -d "$start" ] || continue
+    d="$(cd "$start" 2>/dev/null && pwd -P)" || continue
+    # 同一個起點的字面路徑（可能經過 symlink）也走一遍：與實體路徑不同時先試字面路徑
+    local lit
+    lit="$(cd "$start" 2>/dev/null && pwd -L)" || lit=""
+    if [ -n "$lit" ] && [ "$lit" != "$d" ]; then
+      local ld="$lit" lparent
+      while [ -n "$ld" ]; do
+        if [ -f "$ld/.claude/qa-gate.conf" ]; then printf '%s\n' "$ld/.claude/qa-gate.conf"; return 0; fi
+        lparent="$(dirname "$ld")"
+        [ "$lparent" = "$ld" ] && break
+        ld="$lparent"
+      done
+    fi
+    while [ -n "$d" ]; do
+      if [ -f "$d/.claude/qa-gate.conf" ]; then printf '%s\n' "$d/.claude/qa-gate.conf"; return 0; fi
+      parent="$(dirname "$d")"
+      [ "$parent" = "$d" ] && break
+      d="$parent"
+    done
+  done
+  return 1
+}
+
+trim_space() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+# 讀設定檔到 QA_BEHAVIOR_EXT、QA_EXCLUDE、QA_BLOCK_OVERRIDES。參數＝repo 目錄；找不到設定檔回 1。
+load_qa_gate_conf() {
+  QA_BEHAVIOR_EXT=""; QA_EXCLUDE=""; QA_BLOCK_OVERRIDES=0
+  # 起點：repo 目錄（find 內部取實體路徑）、未展開 symlink 的路徑、主 repo 目錄（worktree 放在工作目錄外時
+  # 靠它找回主 repo 那邊的設定檔）、工作目錄。各自往上找，取第一個找到的。
+  local logical="" main=""
+  logical="$(cd "$1" 2>/dev/null && pwd -L)" || logical=""
+  main="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && main="$(dirname "$main")" || main=""
+  QA_GATE_CONF="$(find_qa_gate_conf "$1" "$logical" "$main" "$WORKSPACE_DIR")" || return 1
+  local line key val n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n+1))
+    line="${line%$'\r'}"
+    # UTF-8 BOM（PowerShell 5.1 存檔預設會加）：不剝的話第一行的 key 認不出來，閘就靜默失效
+    [ "$n" -eq 1 ] && line="${line#$'\xef\xbb\xbf'}"
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    # 只剝「空白後接 #」：緊貼在值裡的 # 保留（ERE 可能用到）
+    line="$(printf '%s' "$line" | sed 's/[[:space:]]#.*$//')"
+    if [[ "$line" != *=* ]]; then
+      echo "WARNING: $QA_GATE_CONF 第 $n 行不是 key=value，已略過：$line" >&2
+      continue
+    fi
+    key="$(trim_space "${line%%=*}")"
+    val="$(trim_space "${line#*=}")"
+    case "$key" in
+      behavior_ext) QA_BEHAVIOR_EXT="$val" ;;
+      exclude) QA_EXCLUDE="$val" ;;
+      block_staged_overrides)
+        case "$val" in
+          1) QA_BLOCK_OVERRIDES=1 ;;
+          0|"") QA_BLOCK_OVERRIDES=0 ;;
+          *) echo "WARNING: $QA_GATE_CONF 的 block_staged_overrides 只收 0 或 1，收到「$val」，當成 0（不檢查）。" >&2
+             QA_BLOCK_OVERRIDES=0 ;;
+        esac
+        ;;
+      *) echo "WARNING: $QA_GATE_CONF 第 $n 行的 key「$key」不認得，已略過（可用：behavior_ext、exclude、block_staged_overrides）。" >&2 ;;
+    esac
+  done < "$QA_GATE_CONF"
+  return 0
+}
+
+# --qa 的值是否算有效表態：去掉前導空白後以「已QA」（中間可有空白、QA 大小寫不分）或「分流例外」開頭，
+# 後面接分隔符（冒號、空白）再接內容。只寫「已QA」「分流例外」沒有內容、或「已QAnope」都不算——
+# 表態要留下可查的依據（報告路徑、測試輸出、為何讀 code 就能確定）。
+qa_value_ok() {
+  local v rest prev="" re='^已([[:space:]]|　)*[Qq][Aa](.*)$'
+  v="$(trim_space "$1")"
+  if [[ "$v" =~ $re ]]; then
+    rest="${BASH_REMATCH[2]}"
+  elif [[ "$v" == 分流例外* ]]; then
+    rest="${v#分流例外}"
+  else
+    return 1
+  fi
+  case "$rest" in
+    :*|：*|" "*|"　"*|$'\t'*) ;;
+    *) return 1 ;;
+  esac
+  # 逐一剝掉前導的分隔符（不用 ${rest#?}：C 語系下它只剝一個位元組，會把全形字切壞）
+  while [ "$rest" != "$prev" ]; do
+    prev="$rest"
+    rest="${rest#:}"; rest="${rest#：}"; rest="${rest# }"; rest="${rest#　}"; rest="${rest#$'\t'}"
+  done
+  [ -n "$rest" ]
+}
+
+# ---- 本機覆寫夾帶檢查用：以 git 實際身分比對（block_staged_overrides）----
+# 不靠「repo 參數寫成什麼字」去對清單的 key：cd 進子目錄、Windows 大小寫不同、worktree、symlink
+# 都會讓寫法對不上（審查時連三輪實跑重現）。改成把清單每一區解析成「哪個 git repo（git 共用目錄，
+# worktree 與主 repo 相同）＋檔案在 repo 裡的路徑」，staged 的檔用同一套身分比。
+
+# 路徑比較用的正規化：git 設了 core.ignorecase（Windows、macOS 預設）就轉小寫
+qa_norm_path() {
+  if [ "$2" = "true" ]; then printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; else printf '%s' "$1"; fi
+}
+
+# 某個目錄所屬 repo 的 git 共用目錄（實體絕對路徑）；不是 git repo 就回 1
+git_common_of() {
+  local c
+  c="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  [ -n "$c" ] || return 1
+  (cd "$c" 2>/dev/null && pwd -P)
+}
+
+# 列出覆寫清單所有條目：<區塊 key>\x1f<repo 值>\x1f<path>（格式與 parse_overrides_for_repo 相同的那套縮排規則）
+list_override_entries() {
+  [ -f "$OVERRIDES_FILE" ] || return 0
+  awk '
+    { sub(/\r$/, "") }
+    /^[^[:space:]#][^:]*:[[:space:]]*$/ { key = $0; sub(/:.*$/, "", key); repo = ""; next }
+    /^  repo:[[:space:]]/ { repo = $0; sub(/^  repo:[[:space:]]*/, "", repo); next }
+    /^    - path:[[:space:]]/ { p = $0; sub(/^    - path:[[:space:]]*/, "", p); print key "\037" repo "\037" p }
+  ' "$OVERRIDES_FILE"
+}
+
+# review-record 寫紀錄前的專案閘。沒過就印原因並 exit 1（不寫紀錄）。
+# 兩個檢查的問題一次列完，免得修一個才看到下一個。
+assert_qa_gate() {
+  local repo="$1" qa="$2" allow_overrides="$3"
+  local repo_path
+  repo_path="$(resolve_repo_path "$repo")"
+  load_qa_gate_conf "$repo_path" || return 0
+  # block_staged_overrides 讀的覆寫清單跟設定檔同一層（parse_overrides_for_repo 讀 OVERRIDES_FILE；local 會一路帶進它）
+  local OVERRIDES_FILE
+  OVERRIDES_FILE="$(dirname "$QA_GATE_CONF")/local-overrides.yml"
+
+  local exts=() excludes=() re rc
+  read -r -a exts <<< "$QA_BEHAVIOR_EXT" || true
+  read -r -a excludes <<< "$QA_EXCLUDE" || true
+  [ "${#exts[@]}" -eq 0 ] && [ "$QA_BLOCK_OVERRIDES" -ne 1 ] && return 0
+
+  for re in ${excludes[@]+"${excludes[@]}"}; do
+    rc=0; [[ "" =~ $re ]] || rc=$?
+    if [ "$rc" -eq 2 ]; then
+      echo "ERROR: $QA_GATE_CONF 的 exclude 有無效的正規表示式：$re" >&2
+      echo "       修正設定檔後再跑 review-record。" >&2
+      exit 1
+    fi
+  done
+
+  # 用 -z（NUL 分隔）讀原始檔名：不用 -z 時，檔名含 Tab、換行或雙引號會被 git 包成 "a\"b.js" 輸出，
+  # 副檔名比對失敗就等於不帶 --qa 也能記錄（core.quotepath=false 只管非 ASCII，管不到這幾個字元）。
+  local staged=() f
+  while IFS= read -r -d '' f; do
+    staged+=("$f")
+  done < <(git -C "$repo_path" diff --cached --name-only -z)
+
+  local failed=0 f ext hit restore_nocase
+
+  # ---- QA 表態 ----
+  if [ "${#exts[@]}" -gt 0 ]; then
+    local behavior=()
+    for f in ${staged[@]+"${staged[@]}"}; do
+      [ -z "$f" ] && continue
+      hit=0
+      restore_nocase="$(shopt -p nocasematch || true)"
+      shopt -s nocasematch
+      for ext in "${exts[@]}"; do
+        if [[ "$f" == *"$ext" ]]; then hit=1; break; fi
+      done
+      eval "$restore_nocase"
+      [ "$hit" -eq 1 ] || continue
+      for re in ${excludes[@]+"${excludes[@]}"}; do
+        if [[ "$f" =~ $re ]]; then hit=0; break; fi
+      done
+      [ "$hit" -eq 1 ] && behavior+=("$f")
+    done
+
+    if [ "${#behavior[@]}" -gt 0 ] && ! qa_value_ok "$qa"; then
+      failed=1
+      local total="${#behavior[@]}" i
+      echo "ERROR: staged 含行為類檔（共 $total 個），review-record 必須帶有效的 --qa 表態，已拒絕記錄。" >&2
+      echo "       這個要求來自 $QA_GATE_CONF（behavior_ext／exclude 決定哪些檔算行為類）。" >&2
+      echo "       行為類檔：" >&2
+      for ((i = 0; i < total && i < 20; i++)); do
+        echo "         - ${behavior[$i]}" >&2
+      done
+      [ "$total" -gt 20 ] && echo "         …另 $((total - 20)) 個未列出" >&2
+      echo "       收到的 --qa：${qa:-（未帶）}" >&2
+      echo "       三選一：" >&2
+      echo "         a. 已 QA：--qa \"已QA：<報告或測試檔路徑＋綠的輸出行>\"" >&2
+      echo "         b. 分流例外：--qa \"分流例外：<為何讀 code 就能確定行為正確>\"" >&2
+      echo "         c. 尚未 QA：不得記錄。先派 QA 實測，拿到結果再用 a 記錄。" >&2
+    fi
+  fi
+
+  # ---- staged 含 local-overrides 清單上的檔 ----
+  if [ "$QA_BLOCK_OVERRIDES" -eq 1 ] && [ -z "$allow_overrides" ]; then
+    local hits=() wanted="" my_common ic e_key e_repo e_path cand bdir bcommon bprefix resolved matched names conf_root is_key
+    conf_root="$(dirname "$(dirname "$QA_GATE_CONF")")"
+    my_common="$(git_common_of "$repo_path")" || my_common=""
+    ic="$(git -C "$repo_path" config --bool core.ignorecase 2>/dev/null)" || ic="false"
+    # 這次 repo 的名稱候選（目錄名、remote 名等），只給「目錄解析不出 git repo」的區塊用；`.` 不算名稱
+    names="$(repo_identity_candidates "$repo" | awk 'NF && $0 != "." && !seen[$0]++')"
+    # 這次 repo 的 remote（origin）repo 名：區塊 key 或 repo 值等於它，就算目錄解析成別的 repo 也照樣擋
+    # （同一個 remote 的另一份 clone、或碰巧同名的別的 repo——寧可多擋，有 --allow-overrides 可放行）
+    local my_remote="" ru
+    ru="$(git -C "$repo_path" remote get-url origin 2>/dev/null)" || ru=""
+    if [ -n "$ru" ]; then ru="${ru%/}"; ru="${ru%.git}"; my_remote="${ru##*/}"; my_remote="${my_remote##*:}"; fi
+    # 欄位用 \x1f 分隔：Tab 屬於空白類分隔字元，repo 值是空的時兩個 Tab 會被 read 合併、欄位錯位
+    while IFS=$'\x1f' read -r e_key e_repo e_path; do
+      [ -z "$e_path" ] && continue
+      resolved=0; matched=0
+      # ① git 實際身分：區塊對應的目錄（設定檔所在目錄 + repo 值或區塊 key）解析得出 git repo 時，
+      #    只看它跟這次的 repo 是不是同一個（git 共用目錄相同；worktree、經 symlink、大小寫不同的路徑
+      #    都會解析到同一個），是就把該區的檔換算成 repo 內路徑（區塊目錄若是子目錄，前面補上子目錄路徑）。
+      #    解析得出卻對不上，就是別的 repo，不再用名稱比——否則 `repo: .` 或同名的另一個 repo 會被套到
+      #    這次的 repo 上而誤擋。
+      if [ -n "$my_common" ]; then
+        for cand in "$e_repo" "$e_key"; do
+          [ -z "$cand" ] && continue
+          [ "$cand" = "$e_key" ] && [ -n "$e_repo" ] && [ "$cand" != "$e_repo" ] && is_key=1 || is_key=0
+          [ -z "$e_repo" ] && is_key=1
+          # repo 值可能是絕對路徑（/x/y、C:/x、C:\x）：直接用，不接在設定檔目錄底下
+          case "$cand" in
+            .) bdir="$conf_root" ;;
+            /*|[A-Za-z]:[\\/]*) bdir="$cand" ;;
+            *) bdir="$conf_root/$cand" ;;
+          esac
+          [ -d "$bdir" ] || continue
+          bcommon="$(git_common_of "$bdir")" || continue
+          bprefix="$(git -C "$bdir" rev-parse --show-prefix 2>/dev/null)" || bprefix=""
+          # 由區塊 key 推出的目錄必須本身是 repo 根目錄：上層 repo 裡碰巧同名的普通資料夾
+          # 會被 git 往上解析成上層 repo，不能當成「已認出」（key 多半是 remote 名稱）
+          [ "$is_key" -eq 1 ] && [ -n "$bprefix" ] && continue
+          # 先解析出 git repo 的那個候選說了算（repo 值排在 key 前面）：身分對不上就是別的 repo，
+          # 不再拿下一個候選比，否則 `repo: rb`、key 碰巧是 ra 的區塊會被套到 ra 上
+          resolved=1
+          if [ "$(qa_norm_path "$bcommon" "$ic")" = "$(qa_norm_path "$my_common" "$ic")" ]; then
+            matched=1
+            wanted="$wanted
+$(qa_norm_path "$bprefix$e_path" "$ic")"
+          fi
+          break
+        done
+      fi
+      # ② 認出的是別的 repo，但 key 或 repo 值等於這次 repo 的 origin remote 名：照樣擋（同一個 remote 的
+      #    另一份 clone）。身分已對上時路徑已換算過（可能是子目錄），不能再用原路徑加一次，所以只在對不上時補比
+      if [ "$resolved" -eq 1 ] && [ "$matched" -eq 0 ] && [ -n "$my_remote" ]; then
+        for cand in "$e_repo" "$e_key"; do
+          if [ "$cand" = "$my_remote" ]; then
+            wanted="$wanted
+$(qa_norm_path "$e_path" "$ic")"
+            break
+          fi
+        done
+      fi
+      # ③ 區塊目錄不存在或不是 git repo（例如清單用 remote 名稱當 key）：退回用名稱比，
+      #    key 或 repo 值等於這次 repo 的任一名稱候選就算
+      if [ "$resolved" -eq 0 ] && [ -n "$names" ]; then
+        for cand in "$e_repo" "$e_key"; do
+          [ -n "$cand" ] && [ "$cand" != "." ] || continue
+          if printf '%s\n' "$names" | grep -qxF -- "$cand"; then
+            wanted="$wanted
+$(qa_norm_path "$e_path" "$ic")"
+            break
+          fi
+        done
+      fi
+    done < <(list_override_entries)
+    if [ -n "$wanted" ]; then
+      for f in ${staged[@]+"${staged[@]}"}; do
+        [ -z "$f" ] && continue
+        if printf '%s\n' "$wanted" | grep -qxF -- "$(qa_norm_path "$f" "$ic")"; then hits+=("$f"); fi
+      done
+    fi
+    if [ "${#hits[@]}" -gt 0 ]; then
+      failed=1
+      echo "ERROR: staged 含 local-overrides 清單上的檔（本機專用的覆寫），已拒絕記錄。" >&2
+      echo "       這個檢查來自 $QA_GATE_CONF 的 block_staged_overrides=1。" >&2
+      printf '         - %s\n' "${hits[@]}" >&2
+      echo "       多半是誤加：git restore --staged <檔案> 移出後重跑 prepare。" >&2
+      echo "       確實要推（例如檔內混有真改動、已用 git apply --cached 只 stage 真改動那幾行）：" >&2
+      echo "         加 --allow-overrides \"<理由>\"，理由會寫進 review-log.tsv 供稽核。" >&2
+    fi
+  fi
+
+  [ "$failed" -eq 0 ] || exit 1
+  return 0
+}
+
+# ------------------------------------------------------------
 # Command: review-record <repo> (--codex <回覆> --reviewer <回覆> | --exempt <理由>)
 #   把兩軌結果（或使用者豁免）綁定到當下 staged diff，供 ship／amend 比對
 # ------------------------------------------------------------
 
 cmd_review_record() {
-  local codex="" reviewer="" exempt="" qa=""
-  local has_codex=0 has_reviewer=0 has_exempt=0
+  local codex="" reviewer="" exempt="" qa="" allow_overrides=""
+  local has_codex=0 has_reviewer=0 has_exempt=0 has_allow_overrides=0
   local positional=()
   while [ $# -gt 0 ]; do
     case "$1" in
-      --codex|--reviewer|--exempt|--qa)
+      --codex|--reviewer|--exempt|--qa|--allow-overrides)
         if [ $# -lt 2 ]; then
           echo "ERROR: $1 後面缺內容。" >&2
           exit 1
@@ -665,9 +984,12 @@ cmd_review_record() {
           --codex) codex="$2"; has_codex=1 ;;
           --reviewer) reviewer="$2"; has_reviewer=1 ;;
           --exempt) exempt="$2"; has_exempt=1 ;;
-          # QA 表態由專案自己決定要不要強制（例如專案 hook 看到行為類檔就要求帶），
-          # 這裡只負責把它跟審查結果一起留下來。
+          # QA 表態：專案有 .claude/qa-gate.conf 且 staged 含行為類檔時必帶（assert_qa_gate），
+          # 否則選填；不論哪種都跟審查結果一起留下來。
           --qa) qa="$(printf '%s' "$2" | tr '\r\n\t' '   ' | sed 's/^ *//; s/ *$//')" ;;
+          --allow-overrides)
+            allow_overrides="$(printf '%s' "$2" | tr '\r\n\t' '   ' | sed 's/^ *//; s/ *$//')"
+            has_allow_overrides=1 ;;
         esac
         shift 2
         ;;
@@ -675,14 +997,22 @@ cmd_review_record() {
     esac
   done
 
-  local usage='Usage: flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>" [--qa "<QA 狀態>"]
-       flow.sh review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"]'
+  local usage='Usage: flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>" [--qa "<QA 狀態>"] [--allow-overrides "<理由>"]
+       flow.sh review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"] [--allow-overrides "<理由>"]'
   if [ "${#positional[@]}" -ne 1 ]; then
     echo "$usage" >&2
     exit 1
   fi
   local repo="${positional[0]}"
   assert_valid_repo "$repo"
+
+  if [ "$has_allow_overrides" -eq 1 ] && [ -z "$allow_overrides" ]; then
+    echo "ERROR: --allow-overrides 必須寫明理由（為什麼這次要把 local-overrides 清單上的檔推上去）。" >&2
+    exit 1
+  fi
+
+  # 專案 QA 閘（.claude/qa-gate.conf；沒有這個檔就不檢查）。過了才進原本的記錄邏輯。
+  assert_qa_gate "$repo" "$qa" "$allow_overrides"
 
   local mode codex_status="-" reviewer_status="-" reason="-"
   if [ "$has_exempt" -eq 1 ]; then
@@ -758,6 +1088,7 @@ cmd_review_record() {
     echo "recorded_at=$now"
     echo "repo=$repo"
     echo "qa=${qa:--}"
+    echo "allow_overrides=${allow_overrides:--}"
     if [ "$mode" = "exempt" ]; then
       echo "exempt_reason=$reason"
     else
@@ -769,14 +1100,29 @@ cmd_review_record() {
   } > "$rec"
 
   # 稽核用流水帳，commit 後不清：事後查「哪些 commit 是豁免放行的」只能靠它。
-  [ -f "$REVIEW_LOG" ] || printf 'recorded_at\trepo\tdiff_hash\tmode\tcodex\treviewer\texempt_reason\tqa\n' > "$REVIEW_LOG"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$repo" "$current" "$mode" "$codex_status" "$reviewer_status" "$reason" "${qa:--}" >> "$REVIEW_LOG"
+  # allow_overrides 欄（0.11.0 起）加在最後、不動既有欄位順序；舊檔的表頭就地補上這一欄，
+  # 舊資料列少這一欄＝當時沒有這個旗標。
+  # 已知限制：補表頭是 tmp＋mv 改寫、沒有鎖；兩個 session 剛好同時第一次在 0.11.0 記錄時，可能少掉其中一列。
+  # 只會發生在升級後第一次寫入的那一刻（之後表頭已是新的，只做附加），沒為此加鎖。
+  local log_header_old log_header log_first
+  log_header_old=$'recorded_at\trepo\tdiff_hash\tmode\tcodex\treviewer\texempt_reason\tqa'
+  log_header="$log_header_old"$'\tallow_overrides'
+  if [ ! -f "$REVIEW_LOG" ]; then
+    printf '%s\n' "$log_header" > "$REVIEW_LOG"
+  else
+    log_first="$(head -n 1 "$REVIEW_LOG" | tr -d '\r')"
+    if [ "$log_first" = "$log_header_old" ]; then
+      { printf '%s\n' "$log_header"; tail -n +2 "$REVIEW_LOG"; } > "$REVIEW_LOG.tmp" && mv "$REVIEW_LOG.tmp" "$REVIEW_LOG"
+    fi
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$repo" "$current" "$mode" "$codex_status" "$reviewer_status" "$reason" "${qa:--}" "${allow_overrides:--}" >> "$REVIEW_LOG"
 
   echo "=== 審查紀錄已寫入 ==="
   echo "  repo：$repo"
   echo "  diff hash：$current"
   echo "  結果：$summary"
   echo "  QA：${qa:-（未表態）}"
+  [ -n "$allow_overrides" ] && echo "  放行 local-overrides 檔：$allow_overrides"
   echo "  下一步：flow.sh ship $repo <Type> \"<描述>\""
 }
 
@@ -1679,11 +2025,14 @@ Commands:
                                     index 已有清單外的 staged 項目（多半是別的 session 的）即拒絕
                                     最後印出 .claude/git-commit-reviewer-addendum.md（C 軌專案附加審查要求，沒有就印「無」）
   prepare <repo> --staged           不 git add，直接拿當下 index 送審（merge 收尾用）
-  review-record <repo> --codex "<回覆>" --reviewer "<回覆>" [--qa "<QA 狀態>"]
-  review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"]
+  review-record <repo> --codex "<回覆>" --reviewer "<回覆>" [--qa "<QA 狀態>"] [--allow-overrides "<理由>"]
+  review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"] [--allow-overrides "<理由>"]
                                     把兩軌結果（或使用者豁免）綁定到當下 staged diff；ship／amend 沒有它就拒絕
                                     回覆第一行須為 VERDICT: PASS，不可用的那軌填 "skipped: <原因>"（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的）
                                     額度／用量上限不算不可用：skipped 理由含 usage limit、quota、額度等字樣一律拒收（要排重跑）
+                                    專案有 .claude/qa-gate.conf 時：staged 含行為類檔（behavior_ext／exclude）就必須帶
+                                    --qa "已QA：…" 或 --qa "分流例外：…"；block_staged_overrides=1 時 staged 含
+                                    local-overrides 清單上的檔就拒收，確實要推加 --allow-overrides "<理由>"（寫進 review-log.tsv）
   audit   <repo> [<range>]          體檢既有 commit 的 message，唯讀。抓：空 message／缺 Type: 前綴／
                                     Type 不在允許清單／描述超長／痕跡命中／含多行 body
                                     不帶 range 時：有 upstream 掃未推的，否則掃最近 20 顆

@@ -250,18 +250,18 @@ git -C "$CLAUDE_PROJECT_DIR/cl__one" branch -q -u origin/main
 flow amend cl__one --confirm-rewrite --type Feat --desc "clone 改名" >/dev/null 2>&1
 expect "T39 另一個 repo 的標記不能被 amend 承接" 1 flow ship cl__one Feat "clone 改名" --push
 
-# ---------- --qa 表態（選填，專案 hook 決定何時必填）----------
+# ---------- --qa 表態（無 .claude/qa-gate.conf 時選填；有設定檔的情境見 test_qa_gate.sh）----------
 new_repo r8
 edit r8 a.vue x
 flow prepare r8 a.vue >/dev/null
 expect "T36 帶 --qa 可記錄" 0 flow review-record r8 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY" --qa $'已QA：tests/e2e/x.py\n 3 passed'
 grep -q "^qa=已QA：tests/e2e/x.py  3 passed$" "$(rec_of r8)" && ok "T36b QA 表態寫進紀錄（換行已攤平）" || bad "T36b QA 表態寫進紀錄（換行已攤平）" "$(grep '^qa=' "$(rec_of r8)")"
-grep -q $'\tr8\t.*\t已QA：tests/e2e/x.py  3 passed$' "$LOG" && ok "T36c QA 表態寫進流水帳" || bad "T36c QA 表態寫進流水帳" "$(tail -1 "$LOG")"
+grep -q $'\tr8\t.*\t已QA：tests/e2e/x.py  3 passed\t-$' "$LOG" && ok "T36c QA 表態寫進流水帳（最後一欄是 allow_overrides，未帶記 -）" || bad "T36c QA 表態寫進流水帳" "$(tail -1 "$LOG")"
 expect "T36d 帶 QA 的紀錄 ship 放行" 0 flow ship r8 Feat "帶 QA"
 edit r8 a.vue y
 flow prepare r8 a.vue >/dev/null
 expect "T37 --qa 缺值不收" 1 flow review-record r8 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY" --qa
-expect "T38 豁免模式不帶 --qa 仍可記錄（flow.sh 本身不強制）" 0 flow review-record r8 --exempt "Style：只動樣式"
+expect "T38 豁免模式不帶 --qa 仍可記錄（無 qa-gate.conf 時不強制）" 0 flow review-record r8 --exempt "Style：只動樣式"
 edit r8 a.vue z
 flow prepare r8 a.vue >/dev/null
 expect "T38c 兩軌模式不帶 --qa 仍可記錄" 0 flow review-record r8 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY"
