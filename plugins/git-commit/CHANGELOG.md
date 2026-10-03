@@ -27,6 +27,12 @@
 - 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
 - 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
 
+## [0.10.1] - 2026-10-03
+### Fixed
+- 附加審查要求檔的路徑若誤建成資料夾，`prepare` 原本在 Git Bash 上會靜默印「無」（空資料夾的 `-s` 為假），現在會先印警告再印「無」（`prepare` 照常完成）。
+- `flow.sh --help` 的 prepare 說明補上「最後印出 `.claude/git-commit-reviewer-addendum.md`」，與 README、SKILL.md 一致。
+- 回歸測試補 T42h～T42l：檔尾已有換行時不多出空行、資料夾誤建有警告、`--help` 有提到附加檔。
+
 ## [0.10.0] - 2026-10-03
 ### Added
 - C 軌「專案附加審查要求」：專案在工作目錄層放 `.claude/git-commit-reviewer-addendum.md`（與 `local-overrides.yml` 同層，純 Markdown、無 frontmatter），`flow.sh prepare` 最後整段原文印出，SKILL.md 1.3c 範本新增【專案附加審查要求】段（接在【重點檢查】之後）要求逐字貼入；檔案不存在或為空時印「無」並刪掉該段。起因：供應商平台把 C 軌範本逐字填好送進該專案的派工 hook（check-review-discipline.js）會被擋——缺專案專屬的 rule-scan 步驟，通用範本不可能帶；該專案近 10 個 session 擋了 code-reviewer 15 次。SKILL.md 指令總表與 README 同步；README 新增「專案層設定檔」節（local-overrides.yml 與本檔的位置、讀取時機、寫法範例、目前使用的專案，避免日後沒人知道這個設定）；回歸測試新增 T42（有檔原文印出／無檔印「無」／空檔印「無」）。

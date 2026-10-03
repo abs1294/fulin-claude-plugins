@@ -282,7 +282,14 @@ expect "T42d 有附加檔 prepare 照常" 0 flow prepare r9 a.txt
 printf '%s' "$LAST_OUT" | grep -qF "1. 後端審查第一步跑 node .claude/scripts/rule-scan.js <repo根目錄>" && ok "T42e 附加檔第一行原文印出" || bad "T42e 附加檔第一行原文印出" "$LAST_OUT"
 printf '%s' "$LAST_OUT" | grep -qx "2. 每筆命中逐筆裁決並引 RULE 編號" && ok "T42f 檔尾無換行時最後一行不黏結束標記" || bad "T42f 檔尾無換行時最後一行不黏結束標記" "$LAST_OUT"
 printf '%s' "$LAST_OUT" | grep -q "^--- 附加審查要求結束 ---$" && ok "T42g 有結束標記" || bad "T42g 有結束標記" "$LAST_OUT"
-rm -f "$ADD"
+printf 'A 行\nB 行\n' > "$ADD"
+expect "T42h 檔尾已有換行 prepare 照常" 0 flow prepare r9 a.txt
+printf '%s' "$LAST_OUT" | grep -A1 -x "B 行" | tail -1 | grep -qx -- "--- 附加審查要求結束 ---" && ok "T42i 檔尾已有換行時不多出空行" || bad "T42i 檔尾已有換行時不多出空行" "$LAST_OUT"
+rm -f "$ADD"; mkdir -p "$ADD"
+expect "T42j 同名路徑是資料夾 prepare 不中斷" 0 flow prepare r9 a.txt
+printf '%s' "$LAST_OUT" | grep -q "WARNING: .*不是一般檔案" && ok "T42k 資料夾誤建有警告" || bad "T42k 資料夾誤建有警告" "$LAST_OUT"
+rmdir "$ADD"
+bash "$FLOW" --help | grep -q "git-commit-reviewer-addendum.md" && ok "T42l --help 提到附加審查要求檔" || bad "T42l --help 提到附加審查要求檔"
 
 # ---------- help ----------
 bash "$FLOW" --help | grep -q "review-record" && ok "T30 --help 列出 review-record" || bad "T30 --help 列出 review-record"

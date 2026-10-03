@@ -1009,6 +1009,13 @@ cmd_prepare() {
 # 專案把要求寫進工作目錄層的這份檔，prepare 時原文印出，由 AI 逐字貼進 C 軌 prompt。
 REVIEWER_ADDENDUM_FILE="$WORKSPACE_DIR/.claude/git-commit-reviewer-addendum.md"
 print_reviewer_addendum() {
+  # 同名路徑是資料夾（誤建）時先攔下來講清楚：Git Bash 上空資料夾的 -s 為假，會被靜默當成「無」；
+  # 資料夾大小不為 0 的平台可能反而走進 cat 而中斷 prepare（未實測）。兩種都不該發生。
+  if [ -e "$REVIEWER_ADDENDUM_FILE" ] && [ ! -f "$REVIEWER_ADDENDUM_FILE" ]; then
+    echo "WARNING: $REVIEWER_ADDENDUM_FILE 存在但不是一般檔案（可能誤建成資料夾），C 軌專案附加審查要求未讀到；請改成 Markdown 檔。" >&2
+    echo "C 軌專案附加審查要求：無（路徑不是檔案，見上方 WARNING）"
+    return 0
+  fi
   if [ -s "$REVIEWER_ADDENDUM_FILE" ]; then
     echo "--- C 軌專案附加審查要求（$REVIEWER_ADDENDUM_FILE）：整段逐字貼進 C 軌 prompt 的【專案附加審查要求】---"
     cat "$REVIEWER_ADDENDUM_FILE"
@@ -1670,6 +1677,7 @@ Commands:
   analyze <repo>                    顯示 git 狀態、local-overrides 過濾結果、敏感字掃描（僅提示）
   prepare <repo> <files...>         git add + 輸出 staged diff + 記錄 diff hash 到 .claude/.git-commit-tmp/
                                     index 已有清單外的 staged 項目（多半是別的 session 的）即拒絕
+                                    最後印出 .claude/git-commit-reviewer-addendum.md（C 軌專案附加審查要求，沒有就印「無」）
   prepare <repo> --staged           不 git add，直接拿當下 index 送審（merge 收尾用）
   review-record <repo> --codex "<回覆>" --reviewer "<回覆>" [--qa "<QA 狀態>"]
   review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"]
