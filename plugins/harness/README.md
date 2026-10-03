@@ -89,7 +89,7 @@ skills/init/
     skeleton-CLAUDE-md.md                 CLAUDE.md 的骨架（最前面是專案概要：用途、外部系統的正式與測試環境、業務流程、目前進度；含角色分工一節，以及指向知識筆記檔、分工角色、自動檢查的索引表）
     skeleton-harness-README.md            harness 導航頁骨架（五層清單、生效範圍、誠實揭露）
     skeleton-02-model-dispatch.md         哪種工作用哪個模型（各分工角色用什麼模型、最高階模型不下放、用量節流、跟你對話的 Claude 只分派不親做、另開一個 Claude 驗收）
-    skeleton-03-judgment-matrix.md        判斷規則 40 條（8 條何時停下換方法、23 條怎樣才算做完、9 條哪些動作要先問你）＋動手前的三重自查＋設計取捨的決定流程
+    skeleton-03-judgment-matrix.md        判斷規則 41 條（9 條何時停下換方法、23 條怎樣才算做完、9 條哪些動作要先問你）＋動手前的三重自查＋設計取捨的決定流程
     skeleton-04-delegation-templates.md   交代工作的六種範本（第五種排整條角色分工、第六種交代測試）
     skeleton-05-knowledge-protocol.md     知識協議（三區分級、踩坑格式、MEMORY.md 字元數精簡觸發、健檢、升格）
     example-flow-1.json～example-flow-3.json  第 6 步三張流程圖的 archify 結構範例（只抄結構，內容換成實際的檔案與查證過的關係）
@@ -132,9 +132,9 @@ hooks/
                                           init 在目標專案 .claude/hooks 跑 npm ci，沒裝或解析失敗時引擎退回正則判法
     guard-report-output.js                交付物落點紀律（主題_日期資料夾、過程檔進 _work/）
     ── 偵測到你有只給本機用的設定檔才裝 ──
-    backup-local-hacks.js                 shell 指令前逐檔備份本機覆寫
+    backup-local-hacks.js                 shell 指令前逐檔備份本機覆寫（檔案被清空、刪除時不蓋掉舊備份）
     guard-local-hack-destroy.js           會銷毀工作區的 git 指令碰到本機覆寫 → 擋（沒有放行記號）
-    check-local-hacks-alive.js            開 session 點名遺失的本機覆寫
+    check-local-hacks-alive.js            開 session 點名遺失或被清空的本機覆寫；只在某些分支才需要的、帶到舊版的另外處理
     restore-local-hacks.js                救回腳本（上面三支的訊息會叫使用者跑它）
     ── 專案有了自己的測試檢查工具才裝 ──
     guard-test-asset-hygiene.js           寫測試檔後跑專案自己的稽核工具

@@ -65,6 +65,273 @@
       },
       "payload": { "hook_event_name": "SessionStart", "source": "startup" },
       "expect": "SILENT"
+    },
+    {
+      "label": "覆寫檔被清成 0 bytes、有 .patch 備份 → 點名（有改動不等於還在）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +1 @@\n-a=1\n+a=LOCAL\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": ""
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "覆寫檔行數掉到不到一半（可能是刻意縮短）→ 不點名（backup 存的當下已提醒）",
+      "setup": {
+        "files": {
+          "conf.txt": "line0=x\nline1=x\nline2=x\nline3=x\nline4=x\nline5=x\nline6=x\nline7=x\nline8=x\nline9=x\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +1 @@\n-a=1\n+a=LOCAL\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "line0=x\nline1=LOCAL\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "覆寫檔只改一行（正常覆寫）→ 不點名",
+      "setup": {
+        "files": {
+          "conf.txt": "line0=x\nline1=x\nline2=x\nline3=x\nline4=x\nline5=x\nline6=x\nline7=x\nline8=x\nline9=x\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "line0=x\nline1=x\nline2=x\nline3=LOCAL\nline4=x\nline5=x\nline6=x\nline7=x\nline8=x\nline9=x\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "needed-when 條件不成立（判準檔沒注入它）、覆寫檔不在 → 不報（這個分支用不到）",
+      "setup": {
+        "files": {
+          ".gitignore": "MockMail.cs\n",
+          "Program.cs": "services.AddRealMail();\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: MockMail.cs\n      reason: 本機假寄信服務\n      needed-when-file: Program.cs\n      needed-when-contains: MockMail\n"
+        },
+        "commit": true
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "needed-when 條件成立（判準檔注入它）、覆寫檔不在 → 點名",
+      "setup": {
+        "files": {
+          ".gitignore": "MockMail.cs\n",
+          "Program.cs": "services.AddSingleton<IMail, MockMail>();\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: MockMail.cs\n      reason: 本機假寄信服務\n      needed-when-file: Program.cs\n      needed-when-contains: MockMail\n"
+        },
+        "commit": true
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "needed-when 判準檔讀不到 → 當需要，覆寫檔不在照樣點名",
+      "setup": {
+        "files": {
+          ".gitignore": "MockMail.cs\n",
+          "README.md": "x\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: MockMail.cs\n      reason: 本機假寄信服務\n      needed-when-file: Program.cs\n      needed-when-contains: MockMail\n"
+        },
+        "commit": true
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "requires 宣告的字串不在覆寫檔裡 → 點名內容不完整（帶到舊版）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n      requires: SEQ_V2\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL_SEQ_V1\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "requires 宣告的字串都在 → 不報",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n      requires: SEQ_V2\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL_SEQ_V2\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "requires 寫在 reason 的多行字串裡 → 不是欄位，不報",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: |\n        舊版的說明\n        requires: TEXT_IN_REASON\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "requires 寫在別的屬性底下（更深一層）→ 不掛到這筆，不報",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n      notes:\n        requires: SHOULD_NOT_ATTACH\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "requires 值後面的行尾註解不算進字串 → 字串在檔裡，不報",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n      requires: SEQ_V2  # 新版發號\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL_SEQ_V2\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "requires 寫成 - 清單：每一項都檢查，缺的點名",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n      requires:\n        - TOK1\n        - TOK2\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=TOK1\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "requires 寫成 - 清單、每一項都在 → 不報",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n      requires:\n        - TOK1\n        - TOK2\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=TOK1 TOK2\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "requires 寫成 | 多行字串、每一行都在 → 不報（不可把 | 當成字串）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n      requires: |\n        TOK1\n        TOK2\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=TOK1 TOK2\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "requires 清單後面接同層的下一個欄位 → 清單結束，下一個欄位照常讀",
+      "setup": {
+        "files": {
+          "Program.cs": "nothing\n",
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n      requires:\n        - TOK1\n      needed-when-file: Program.cs\n      needed-when-contains: MockConf\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "expect": "SILENT"
     }
   ]
 }

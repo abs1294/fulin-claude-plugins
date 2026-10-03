@@ -80,6 +80,120 @@
       "payload": {},
       "expect": "NOTE",
       "exit": 1
+    },
+    {
+      "label": "檢查模式：覆寫檔被清成 0 bytes、有 .patch → exit 2（不可報全部完好）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +1 @@\n-a=1\n+a=LOCAL\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": ""
+        }
+      },
+      "payload": {},
+      "expect": "BLOCK"
+    },
+    {
+      "label": "檢查模式：備份用 repo 值命名（別的實作的命名法）→ 認得出來，exit 2",
+      "setup": {
+        "files": {
+          "app/conf.txt": "a=1\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +1 @@\n-a=1\n+a=LOCAL\n",
+          ".claude/local-overrides.yml": "app-block:\n  repo: app\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "BLOCK"
+    },
+    {
+      "label": "檢查模式：目前那份備份是整檔刪除形狀、只有歷史版本正常 → 用歷史版本，exit 2",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +0,0 @@\n-a=1\n",
+          ".claude/hack-backups/app__conf.txt.2026-10-01T10-00-00.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +1 @@\n-a=1\n+a=LOCAL\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "BLOCK"
+    },
+    {
+      "label": "檢查模式：唯一一份備份是整檔刪除形狀 → 當成沒有備份，exit 0",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +0,0 @@\n-a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "NOTE"
+    },
+    {
+      "label": "檢查模式：別的清單檔的備份名以本檔為前綴（conf.txt.bak）不能被當成本檔的歷史版本 → exit 0",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +0,0 @@\n-a=1\n",
+          ".claude/hack-backups/app__conf.txt.bak.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +1 @@\n-a=1\n+a=LOCAL\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "NOTE"
+    },
+    {
+      "label": "檢查模式：needed-when 條件不成立 → 不列為可救，exit 0",
+      "setup": {
+        "files": {
+          ".gitignore": "MockMail.cs\n",
+          "Program.cs": "services.AddRealMail();\n",
+          ".claude/hack-backups/app__MockMail.cs.full": "class MockMail {}\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: MockMail.cs\n      reason: 本機假寄信服務\n      needed-when-file: Program.cs\n      needed-when-contains: MockMail\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "NOTE"
+    },
+    {
+      "label": "檢查模式：needed-when 條件成立、有 .full 備份 → exit 2",
+      "setup": {
+        "files": {
+          ".gitignore": "MockMail.cs\n",
+          "Program.cs": "services.AddSingleton<IMail, MockMail>();\n",
+          ".claude/hack-backups/app__MockMail.cs.full": "class MockMail {}\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: MockMail.cs\n      reason: 本機假寄信服務\n      needed-when-file: Program.cs\n      needed-when-contains: MockMail\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "BLOCK"
+    },
+    {
+      "label": "檢查模式：行數掉到不到一半（可能是刻意縮短）→ 不列為可救，exit 0",
+      "setup": {
+        "files": {
+          "conf.txt": "line0=x\nline1=x\nline2=x\nline3=x\nline4=x\nline5=x\nline6=x\nline7=x\nline8=x\nline9=x\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +1 @@\n-a=1\n+a=LOCAL\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "line0=NEW\n"
+        }
+      },
+      "payload": {},
+      "expect": "NOTE"
     }
   ]
 }

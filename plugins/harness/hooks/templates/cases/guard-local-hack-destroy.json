@@ -544,6 +544,66 @@
         }
       },
       "expect": "BLOCK"
+    },
+    {
+      "label": "sh -c 包裝、先 cd 再 git reset --hard（git 不是引號裡第一個字）→ 擋",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sh -c \"cd . && git reset --hard\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "bash -c 單引號包裝、先 cd 再 git checkout -- . → 擋",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c 'cd . && git checkout -- .'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "bash -c 引號裡只是提到 git 這個字（echo legit）→ 放行",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c \"echo legit reset --hard\""
+        }
+      },
+      "expect": "ALLOW"
     }
   ]
 }

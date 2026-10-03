@@ -88,6 +88,77 @@
       },
       "payload": { "tool_name": "Read", "tool_input": { "file_path": "conf.txt" } },
       "expect": "SILENT"
+    },
+    {
+      "label": "覆寫檔被清成 0 bytes、已有備份 → 不覆蓋，用 additionalContext 提醒",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +1 @@\n-a=1\n+a=LOCAL\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": ""
+        },
+        "env": {
+          "OVERRIDES_BACKUP_VERBOSE": "1"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "覆寫檔被清成 0 bytes、沒有備份 → 不存（存下來的是刪除，不是覆寫）、不提醒",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": ""
+        },
+        "env": {
+          "OVERRIDES_BACKUP_VERBOSE": "1"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "覆寫檔行數掉到不到一半、已有備份 → 照存（前一版轉存歷史版本），提醒一次",
+      "setup": {
+        "files": {
+          "conf.txt": "line0=x\nline1=x\nline2=x\nline3=x\nline4=x\nline5=x\nline6=x\nline7=x\nline8=x\nline9=x\n",
+          ".claude/hack-backups/app__conf.txt.patch": "diff --git a/conf.txt b/conf.txt\n--- a/conf.txt\n+++ b/conf.txt\n@@ -1 +1 @@\n-a=1\n+a=LOCAL\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "line0=x\n"
+        },
+        "env": {
+          "OVERRIDES_BACKUP_VERBOSE": "1"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "NOTE"
     }
   ]
 }
