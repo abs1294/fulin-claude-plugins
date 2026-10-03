@@ -1001,6 +1001,23 @@ cmd_prepare() {
 
   # 重新 prepare 代表要重新送審，上一輪的審查紀錄一律作廢。
   rm -f "$(review_record_file "$repo_slug")"
+
+  print_reviewer_addendum
+}
+
+# C 軌的專案附加審查要求：通用範本不會帶專案專屬步驟（例：Supplier_Code 的 rule-scan），
+# 專案把要求寫進工作目錄層的這份檔，prepare 時原文印出，由 AI 逐字貼進 C 軌 prompt。
+REVIEWER_ADDENDUM_FILE="$WORKSPACE_DIR/.claude/git-commit-reviewer-addendum.md"
+print_reviewer_addendum() {
+  if [ -s "$REVIEWER_ADDENDUM_FILE" ]; then
+    echo "--- C 軌專案附加審查要求（$REVIEWER_ADDENDUM_FILE）：整段逐字貼進 C 軌 prompt 的【專案附加審查要求】---"
+    cat "$REVIEWER_ADDENDUM_FILE"
+    # 檔尾沒換行時補一行，結束標記才不會黏在最後一行後面
+    [ -z "$(tail -c 1 "$REVIEWER_ADDENDUM_FILE")" ] || echo
+    echo "--- 附加審查要求結束 ---"
+  else
+    echo "C 軌專案附加審查要求：無（$REVIEWER_ADDENDUM_FILE 不存在或為空，C 軌 prompt 刪掉【專案附加審查要求】那段）"
+  fi
 }
 
 # ------------------------------------------------------------

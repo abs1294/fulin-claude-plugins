@@ -44,7 +44,7 @@
 | 指令 | 動作 | 對應步驟 |
 |------|------|---------|
 | `flow.sh analyze <repo>` | git 狀態分類 + local-overrides 過濾 + 敏感字掃描 | 1.2 分析 |
-| `flow.sh prepare <repo> <files...>` | `git add`（只加列出的檔，不 `git add .`）→ 產出 staged diff 供兩軌讀取。index 已有不在清單內的 staged 項目（多半是別的 session stage 的）就拒絕；merge 進行中不檢查（合併進來的檔本來就屬於這顆 commit） | 1.2 Stage |
+| `flow.sh prepare <repo> <files...>` | `git add`（只加列出的檔，不 `git add .`）→ 產出 staged diff 供兩軌讀取。index 已有不在清單內的 staged 項目（多半是別的 session stage 的）就拒絕；merge 進行中不檢查（合併進來的檔本來就屬於這顆 commit）。最後印出工作目錄層 `.claude/git-commit-reviewer-addendum.md` 的內容（C 軌的專案附加審查要求，逐字貼進 C 軌 prompt；沒有這個檔就印「無」） | 1.2 Stage |
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾、自己切 hunk stage 時用） | 1.2 Stage／Merge 收尾 |
 | `flow.sh review-record <repo> --codex "<回覆>" --reviewer "<回覆>"` | 把兩軌回覆原文綁定到當下 staged diff；回覆第一行須為 `VERDICT: PASS`，不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的；理由含 usage limit／quota／額度等字樣也不收——額度用完要排重跑）。豁免改用 `--exempt "<理由>"`，可加 `--qa "<QA 狀態>"` | 1.4 匯流後 |
 | `flow.sh ship <repo> <type> "<desc>" [--push]` | 真閘（AI 署名／單行／message 痕跡與寬度／diff hash／敏感字／建置產物／AI 痕跡）→ HEREDOC `git commit` → 驗證。**預設只本機 commit，`--push` 才推遠端**（需使用者當次核可）；沒有 `review-record` 紀錄就拒絕 | Step 2 |
@@ -88,13 +88,33 @@
 
 **反豁免（治本把關）**：只要 diff 觸及「會被執行到的程式邏輯」一律不豁免——例如 `Style` 卻動了 `.vue` 的 `<script>` / `v-if` / `@click`、或改了 i18n 的 **key**（非 value）。AI 偵測到就強制送兩軌，並告知使用者。
 
+## 專案層設定檔
+
+兩份都放在**工作目錄層的 `.claude/`**（你啟動 Claude 的那個目錄；`CLAUDE_PROJECT_DIR` 有設就以它為準，沒設就是執行 `flow.sh` 時的目錄）。一份管工作目錄底下所有 repo。**都是選用的**——沒有這些檔，流程照常走。
+
+| 檔案 | 誰讀、何時讀 | 用途 |
+|------|------|------|
+| `.claude/local-overrides.yml` | `flow.sh analyze`；不存在時 `analyze` 會從 `skills/git-commit/local-overrides.example.yml` 自動建一份空範本 | 列出本機常駐覆寫檔（Mock 切換、本地 DB 連線、測試 JWT），`analyze` 把這些檔排除在告警與建議 stage 清單外（`prepare` 只 stage 你列出的檔，本身不讀這份）。格式見範本檔內說明 |
+| `.claude/git-commit-reviewer-addendum.md`（0.10.0 起） | `flow.sh prepare` 跑完時整份原文印出；AI 照 SKILL.md 1.3c 逐字貼進 C 軌（code-reviewer）prompt 的【專案附加審查要求】段 | 補上通用範本不會有的**專案專屬審查步驟**。不存在或為空時 `prepare` 印「無」，C 軌 prompt 就不帶這段 |
+
+**附加審查要求檔的寫法**：純 Markdown、不要 frontmatter，內容就是要對審查者說的話，條列步驟即可。各 repo 要求不同時在檔內分段寫明適用哪個 repo。範例：
+
+```markdown
+1. 後端（.cs）變更：審查第一步跑 `node .claude/scripts/rule-scan.js <repo根目錄>`，每筆命中逐筆裁決並引 RULE 編號。
+2. 前端變更：註明 rule-scan 不適用，改走 code-review skill 的前端清單。
+```
+
+**為什麼要有這個檔**：有些專案用 hook 檢查「派給 code-reviewer 的 prompt 有沒有帶某些步驟」，通用範本逐字照填也會被擋（供應商平台實測：缺 rule-scan 被擋，近 10 個 session 擋了 15 次）。所以把專案要求放在專案自己的檔裡，由 `prepare` 印出來貼進去。檔內容會被**逐字**貼上，因為專案 hook 可能逐字比對其中的關鍵字，不要讓 AI 摘要或改寫。
+
+**目前在用的專案**：供應商平台 `Winbond\Supplier_Code\.claude\git-commit-reviewer-addendum.md`（rule-scan、前端不適用、註解規範三點；該專案 `.claude` 的純度閘白名單已收錄此檔名）。改這個機制（檔名、位置、印出格式）時要一併通知該專案，否則它的 C 軌會被自己的 hook 擋下。
+
 ## 回歸測試
 
 改 `flow.sh` 或 `hooks/` 之後跑這兩套，全綠才算數（語法檢查過不算）。兩套都在暫時目錄建臨時 git repo 實跑，不動你的 repo。
 
 | 測試檔 | 涵蓋 | 用法 |
 |------|------|------|
-| `skills/git-commit/tests/test_review_gate.sh` | 審查紀錄閘（真閘 7）：無紀錄／紀錄後 staged 變動／BLOCK 不收／豁免／補推捷徑只認 ship 建的 commit／QA 表態 | `bash skills/git-commit/tests/test_review_gate.sh <flow.sh 的路徑>` |
+| `skills/git-commit/tests/test_review_gate.sh` | 審查紀錄閘（真閘 7）：無紀錄／紀錄後 staged 變動／BLOCK 不收／豁免／補推捷徑只認 ship 建的 commit／QA 表態／`prepare` 印出專案附加審查要求（T42） | `bash skills/git-commit/tests/test_review_gate.sh <flow.sh 的路徑>` |
 | `skills/git-commit/tests/test_merge_support.sh` | 裸 commit 偵測器語料（含 `git merge --continue` 的攔／放行）、git 行為依據、hook 端到端、merge 收尾（`prepare --staged`、未解衝突檢查）、外來 staged 閘（含 rename 併筆、repo 設定藏起 submodule 更新、無 HEAD 的 repo）、絕對路徑錯誤訊息、`--help` | `bash skills/git-commit/tests/test_merge_support.sh <flow.sh 的路徑>` |
 
 參數是 `flow.sh` 的路徑；`test_merge_support.sh` 另外從 `flow.sh` 的位置往上找 `hooks/`，所以要測改過的版本時，把整個 plugin 目錄（`hooks/` 與 `skills/`）一起複製。

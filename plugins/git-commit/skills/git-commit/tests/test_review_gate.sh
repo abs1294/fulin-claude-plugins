@@ -267,6 +267,23 @@ flow prepare r8 a.vue >/dev/null
 expect "T38c 兩軌模式不帶 --qa 仍可記錄" 0 flow review-record r8 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY"
 grep -q "^qa=-$" "$(rec_of r8)" && ok "T38b 未表態記成 -" || bad "T38b 未表態記成 -"
 
+# ---------- C 軌專案附加審查要求（prepare 印出 .claude/git-commit-reviewer-addendum.md）----------
+ADD="$CLAUDE_PROJECT_DIR/.claude/git-commit-reviewer-addendum.md"
+new_repo r9
+rm -f "$ADD"
+edit r9 a.txt one
+expect "T42 無附加檔 prepare 照常" 0 flow prepare r9 a.txt
+printf '%s' "$LAST_OUT" | grep -q "C 軌專案附加審查要求：無" && ok "T42a 無附加檔印「無」" || bad "T42a 無附加檔印「無」" "$LAST_OUT"
+: > "$ADD"
+expect "T42b 空附加檔 prepare 照常" 0 flow prepare r9 a.txt
+printf '%s' "$LAST_OUT" | grep -q "C 軌專案附加審查要求：無" && ok "T42c 空附加檔印「無」" || bad "T42c 空附加檔印「無」" "$LAST_OUT"
+printf '1. 後端審查第一步跑 node .claude/scripts/rule-scan.js <repo根目錄>\n2. 每筆命中逐筆裁決並引 RULE 編號' > "$ADD"
+expect "T42d 有附加檔 prepare 照常" 0 flow prepare r9 a.txt
+printf '%s' "$LAST_OUT" | grep -qF "1. 後端審查第一步跑 node .claude/scripts/rule-scan.js <repo根目錄>" && ok "T42e 附加檔第一行原文印出" || bad "T42e 附加檔第一行原文印出" "$LAST_OUT"
+printf '%s' "$LAST_OUT" | grep -qx "2. 每筆命中逐筆裁決並引 RULE 編號" && ok "T42f 檔尾無換行時最後一行不黏結束標記" || bad "T42f 檔尾無換行時最後一行不黏結束標記" "$LAST_OUT"
+printf '%s' "$LAST_OUT" | grep -q "^--- 附加審查要求結束 ---$" && ok "T42g 有結束標記" || bad "T42g 有結束標記" "$LAST_OUT"
+rm -f "$ADD"
+
 # ---------- help ----------
 bash "$FLOW" --help | grep -q "review-record" && ok "T30 --help 列出 review-record" || bad "T30 --help 列出 review-record"
 

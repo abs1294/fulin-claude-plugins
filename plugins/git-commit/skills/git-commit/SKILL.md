@@ -52,7 +52,7 @@ description: >
 | 指令 | 動作 |
 |------|------|
 | `flow.sh analyze <repo>` | 狀態分類＋local-overrides 過濾＋敏感字掃描 |
-| `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查） |
+| `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查）。最後印出 C 軌的專案附加審查要求（見 1.3c） |
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾用：git 已把合併進來的檔案 stage 好）。index 空的拒絕 |
 | `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆第一行須為 `VERDICT: PASS`（BLOCK 不收）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的；理由含額度字樣不收——額度用完要排重跑，見核心原則 5） |
 | `flow.sh review-record <repo> --exempt "<理由>"` | 使用者明示豁免（Style/Docs、POC、plugin 發布、使用者要求跳過審查）。理由寫使用者的原話或豁免依據，會進稽核流水帳 `review-log.tsv` |
@@ -234,12 +234,17 @@ C 軌的 skipped **只收一種**：第三層 general-purpose 也試過且失敗
 
 【重點檢查】架構規範（DDD/CQRS/Repository/Section component）／規則違反／資安／i18n 完整性／測試覆蓋
 
+【專案附加審查要求】
+<prepare 印出的附加審查要求原文，逐字貼上；prepare 印「無」時刪掉這一段>
+
 【回報格式】（嚴格遵守）
 第 1 行：`VERDICT: PASS` 或 `VERDICT: BLOCK`
 第 2 行起每行 `- <file>:<line> [<Critical|Important|Minor>] <短描述>`
 最後一行 `- 已讀：<實際讀過的必讀檔名，逗號分隔>；略過：<檔名（理由：專案沒有這個檔／沒觸及已收錄鏈路）>`
 一句話講清楚即可，不寫「應該怎麼改」；不要分析段、標題、總結。
 ```
+
+**專案附加審查要求**：通用範本不帶專案專屬步驟（例：供應商平台審查前要跑 `rule-scan`）。專案把這類要求寫進工作目錄層的 `.claude/git-commit-reviewer-addendum.md`（與 `local-overrides.yml` 同層；`CLAUDE_PROJECT_DIR` 未設時取 flow.sh 執行時的目錄），`prepare` 最後會整段原文印出，**逐字**貼進範本的【專案附加審查要求】，不摘要、不改寫——專案的派工 hook 可能逐字比對其中的關鍵字。檔案不存在或為空時 `prepare` 印「無」，刪掉那一段。檔案格式：純 Markdown，內容就是要對審查者說的話（條列步驟即可），不需要 frontmatter；一份管工作目錄底下所有 repo，各 repo 要求不同時在檔內分段寫明適用 repo。
 
 多 repo 可合併或拆分送審，但**全部非 BLOCK** 才進 Step 2。
 
