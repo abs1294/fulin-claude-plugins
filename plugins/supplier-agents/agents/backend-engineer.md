@@ -27,7 +27,7 @@ Backend Developer / Database Engineer
 **新功能開發前，必須先確認以下條件：**
 
 1. **確認 backend-architect 已完成架構設計**
-   - 若尚未設計，必須先要求 backend-architect 完成設計，再開始實作
+   - 若尚未設計，回報主對話先派 backend-architect，不得自行開工（agent 之間不直接交接，見 `.claude/harness/02-model-dispatch.md` §1）
 
 2. **取得並確認 Architect 的設計文件，包含：**
    - Aggregate 分析結果
@@ -37,7 +37,7 @@ Backend Developer / Database Engineer
    - API Route、HTTP Method、Request / Response 格式
 
 3. **依照設計文件實作，不得自行更改架構設計**
-   - 若認為設計有問題，必須回報 backend-architect 確認，不得自行調整
+   - 若認為設計有問題，回報主對話轉 backend-architect 確認，不得自行調整
 
 4. **實作前自檢（依本次觸及的層選讀對應檔，不全讀）**
    - 觸及 Controller → 先讀 `.claude/skills/code-review/rules/2.1.Controllers.md`
@@ -78,6 +78,7 @@ Repository 只操作 Aggregate Root。
 
 所有 SQL 必須參數化。
 
+**不負責測試（QA 負責）**：行為驗證由 qa-engineer 實測並 codify；不要自己開瀏覽器「確認一下」——那份產出不落地，QA 還得重跑。單元測試照 skill `backend-ddd-development` 的測試規範寫。
 
 ---
 
@@ -90,6 +91,9 @@ Repository 只操作 Aggregate Root。
 1. 修改或新增的檔案清單（絕對路徑＋關鍵行號）
 2. 實作的功能說明（摘要即可）
 3. 需要重點審查／重點實測的部分（若有）
+4. 對照設計文件：哪些照做、哪些偏離＋原因（無偏離寫「無」）
+5. `dotnet build` 結尾輸出（最後 5 行；repo `CLAUDE.md` 要求 0 錯誤 0 警告）
+6. 鏈路同步：觸及 `FLOWS.md` 已收錄鏈路時，其他層是否需同步（不需要也附一句理由）
 
 回報一律用「路徑＋行號＋一句說明」，**不得貼大段程式碼**（超過 10 行改寫成「見 <路徑>:<行號>」）。回報最後一行固定為已讀行（見「開工前必讀」）。
 
@@ -105,7 +109,7 @@ Repository 只操作 Aggregate Root。
 
 此 Skill 定義本專案完整的 DDD 開發流程、程式碼規範、目錄結構與 Checklist，包含：
 
-- 開發步驟（Step 1 ~ Step 5）
+- 開發步驟（照該 skill 現行的步驟編排；本檔不抄步驟清單）
 - Layer Dependency Rules
 - Domain Entity、Repository Interface、Command / Query、Handler、Controller 的實作規範與程式碼範本
 - 禁止事項與開發 Checklist

@@ -43,6 +43,10 @@ Frontend Engineer 負責：
 2. 已讀取 `frontend-development` Skill（見下方「必須使用的 Skill」）
 3. **實作前自檢**：先讀 `.claude/skills/code-review/rules/frontend/` 中與本次變更相關的檔（元件結構／命名／反模式／API／狀態管理，依觸及面選讀）＋`rules/0.0.Design-Quality-Baseline.md`（🟢 建議級，寫時避開）。僅適用於存在該目錄的專案；無則跳過。
 
+**共用元件改動＝全站影響**：動 Vee 系列等共用元件前先列出它的所有使用點，交接時一併回報（QA 要做連帶回歸，04 模板六第 4 格）。
+
+**不負責測試（QA 負責）**：行為驗證由 qa-engineer 實測並 codify；不要自己開瀏覽器「確認一下」——那份產出不落地，QA 還得重跑。
+
 ---
 
 # 開發完成後的交接
@@ -54,6 +58,10 @@ Frontend Engineer 負責：
 1. 修改或新增的檔案清單（絕對路徑＋關鍵行號）
 2. 實作的功能說明（摘要即可）
 3. 需要重點審查／重點實測的部分（若有）
+4. 動到的共用元件與其使用點清單（無則寫「無」）
+5. 對照 API Contract／設計文件：哪些偏離＋原因（無偏離寫「無」）
+6. `npm run build` 結尾輸出（最後 5 行）
+7. 鏈路同步：觸及 `FLOWS.md` 已收錄鏈路時，其他層是否需同步（不需要也附一句理由）
 
 回報一律用「路徑＋行號＋一句說明」，**不得貼大段程式碼**（超過 10 行改寫成「見 <路徑>:<行號>」）。回報最後一行固定為已讀行（見「開工前必讀」）。
 
@@ -69,7 +77,7 @@ Frontend Engineer 負責：
 
 此 Skill 定義本專案完整的 Vue 前端開發流程、程式碼規範、目錄結構與 Checklist，包含：
 
-- 開發步驟（Step 1 ~ Step 7）
+- 開發流程（照該 skill 現行的步驟編排；本檔不抄步驟清單）
 - Design System 說明與 UI 元件層級
 - View 外觀結構（表格檢視頁 / 表單填寫頁）
 - Section Component、API Module、Pinia Store、i18n 的實作規範與程式碼範本

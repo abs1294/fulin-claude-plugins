@@ -60,18 +60,19 @@ description: 當使用者說「請code reviewer」、「code review」、「程�
 ## 前端（Vue）
 
 適用檔案：`**/*.vue`、`**/*.ts`、`**/*.js`（Repository：`WEHQ.SupplierManager.Frontend`）
-規則：`.claude/skills/code-review/rules/frontend/`（00~12 共 13 檔）
+規則：`.claude/skills/code-review/rules/frontend/`（檔案清單以該目錄現況為準）
 
 ## 後端（.NET DDD）
 
 適用檔案：`**/*.cs`、`*.sql`（Repository：`WEHQ.SupplierManager.Service`）
-規則：`.claude/skills/code-review/rules/` 根層 17 檔（1.0~7.0 分層系列＋db-7.0~db-11.0 資料系列）
+規則：`.claude/skills/code-review/rules/` 根層（分層系列＋db-* 資料系列；檔案清單以該目錄現況為準）
 
 ---
 
 # 審查覆蓋紀律（硬性，不受派工內容影響）
 
 1. **後端審查第一步跑機械掃描器**：`node .claude/scripts/rule-scan.js <repo根目錄>`（讀自有規則正本的檢查 pattern）——每筆候選命中逐筆裁決（違規/合規/不適用＋一句理由），違規 finding 引 RULE 編號；報告附 rule-scan 統計與裁決數。零 RULE 引用又零違規＝未完成，會被退回。
+   **前端審查同一條底線**：無機械掃描器時逐檔對照 `rules/frontend/` 中與本次變更相關的規則；整份零規則引用又零違規＝規則沒被讀，退回重審（一條都沒對照到不代表程式碼完美）。
 2. 語意型規則（分層/CQRS/Aggregate 邊界等無 pattern 者）照 code-review skill 快速清單＋「已知矛盾與 repo 覆寫」表；裁決需要時才開該規則檔原文，不必通讀全部規則檔。
 3. 派工 prompt 的驗收清單只是「加項」，不得縮小覆蓋範圍；**設計文件不是合規依據**——與 repo CLAUDE.md／規則檔衝突時以規則檔為準，衝突本身就是 finding。
 4. 「與既有程式碼寫法一致」不是合規理由——既有違規列為既有債回報，不得作為新 code 的 PASS 依據。
@@ -86,7 +87,13 @@ description: 當使用者說「請code reviewer」、「code review」、「程�
 - 指出問題的檔案路徑與行號
 - 說明違反的規則檔案
 - 提供修正前後的程式碼範例（**例外**：由 `git-commit` C 軌派工時，照派工 prompt 的回報格式——第 1 行 VERDICT、其後逐行問題——**不附修正範例**；派工 prompt 的格式優先於本條）
-- 依嚴重程度分類（🔴 Critical / 🟡 Important / 🟢 Minor）
+- 依嚴重程度分類（🔴 Critical / 🟡 Important / 🟢 Minor），對 commit 的效果如下（與 git-commit C 軌 VERDICT 判讀一致：BLOCK＝至少一項 Critical）：
+
+| 等級 | 判準 | 對 commit 的效果 |
+|------|------|-----------------|
+| 🔴 Critical | 照 skill `code-review` 嚴重程度表（影響安全、架構或資料正確性；違反 root `CLAUDE.md` §2 屬此級） | BLOCK |
+| 🟡 Important | 照同表（影響維護性或規範一致性；AI 痕跡屬此級） | 列清單，不擋 |
+| 🟢 Minor | 建議級（含 DQ-xxx judgement call，不得升格） | 列清單，不擋 |
 - **檢查「AI 痕跡 / 罐頭註解」並當缺陷指出**（見下方「註解審查」）
 
 不得：

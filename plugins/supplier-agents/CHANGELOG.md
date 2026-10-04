@@ -2,6 +2,19 @@
 
 本檔記錄 supplier-agents 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [Unreleased] - 2026-10-04
+同步 harness 引擎 0.10.0 的 agent 骨架補項並修既有缺陷（經使用者同意；plugin.json 版號未動，發版時再定）。
+### Fixed
+- backend-engineer：「要求 backend-architect 完成設計」「回報 backend-architect 確認」改為回報主對話轉派（agent 之間不直接交接，對齊 Supplier_Code `.claude/harness/02-model-dispatch.md` §1）
+- backend-architect／backend-engineer／frontend-engineer：刪除抄自 skill 的步驟編號（「Step 1 ~ Step 7」等，skill 已加 Step 0 而漂移），改為「照該 skill 現行的步驟編排」指標
+- code-reviewer：刪除寫死的規則檔數量（13 檔、17 檔），改為以目錄現況為準
+### Added
+- backend-architect：API Contract 列錯誤碼；測試情境表必含反向路徑（03 B15）；交接前規範符合性自檢，衝突寫進設計文件請使用者裁決
+- backend-engineer：明寫「不負責測試（QA 負責）」；交接加偏離設計之處、`dotnet build` 結尾輸出、FLOWS 鏈路同步判定
+- frontend-engineer：共用元件改動先列使用點；明寫「不負責測試（QA 負責）」；交接加共用元件使用點、偏離契約之處、`npm run build` 結尾輸出、FLOWS 鏈路同步判定
+- qa-engineer：必讀加 `.claude/test-guide/test-guide.md`；設計前先讀被測物；涵蓋範圍改照 04 模板六【範圍展開】四格（取代「正常流程、驗證失敗、邊界條件」）；新坑寫回 `tests/Project_Detail/` 並補同目錄 CHANGELOG
+- code-reviewer：「零規則引用又零違規＝未完成」擴及前端審查；嚴重度加「對 commit 的效果」表（判準指向 skill `code-review` 嚴重程度表）。輸出格式（VERDICT 契約）未動
+
 ## [0.2.0] - 2026-10-03
 ### Changed
 - 開發順序統一為「實作 → 回報主對話 → QA → review」（對齊 Supplier_Code `CLAUDE.md` §3「QA 先於 review」）：

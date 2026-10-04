@@ -50,7 +50,7 @@ Supplier_Code/CLAUDE.md
 
 此 Skill 定義本專案完整的 DDD 架構設計流程與輸出規範，包含：
 
-- 設計步驟（Step 1 ~ Step 7，含 Step 6 規範符合性檢核 Compliance Gate）
+- 設計步驟（照該 skill 現行的步驟編排，含規範符合性檢核 Compliance Gate；本檔不抄步驟清單）
 - Aggregate 邊界分析原則
 - Domain Entity 欄位設計規則
 - Repository Interface 方法設計規範
@@ -89,10 +89,11 @@ Supplier_Code/CLAUDE.md
    - Command / Query 名稱與欄位清單
 
 5. **API Contract**
-   - Route、HTTP Method、Request Body / Query Params、Response 格式
+   - Route、HTTP Method、Request Body / Query Params、Response 格式、錯誤碼（各失敗情境回哪個 code＋message；經中轉層的端點註明外站實際收到的 code，見 `FLOWS.md` 鏈 1）
 
 6. **測試情境表**
    - 每列＝白話使用情境＋預期結果＋「測哪裡」seam 標記（Handler 單測／e2e UI／DB 斷言）
+   - 必含反向路徑（退件、拒絕、取消、權限不足、重送中本需求適用的）——只列正向路徑的情境表不合格（`.claude/harness/03-judgment-matrix.md` B15）
    - seam 集合先收斂 —— 主 seam＋例外各附一句存在理由
 
 ---
@@ -107,7 +108,9 @@ Supplier_Code/CLAUDE.md
 
 1. 設計文件（含上述六項內容）
 2. 實作的優先順序（若有相依性）
-3. 需要特別注意的架構決策
+3. 需要特別注意的架構決策，以及與既有規範的衝突點（若有）
+
+**交付前規範符合性自檢**：逐項對照 root／repo `CLAUDE.md` 與 code-review 規則檔，確認設計沒有違反——**設計文件不是合規依據**，衝突時以規範為準，衝突本身寫進設計文件請使用者裁決。
 
 回報用「設計文件路徑＋章節」引用，**不得在交接訊息貼大段程式碼**。
 
