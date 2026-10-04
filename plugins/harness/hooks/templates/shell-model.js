@@ -14,6 +14,13 @@
 //   lines：給規則比對用的文字，每條管線一行（與舊引擎相同的遮罩規則），{ raw, masked, execs:[索引] }
 //   envAt(execIndex, name)：那個程式執行時實際拿到的變數值（undefined＝不存在，或值無法確認）
 //   envUnsure(execIndex, name)：true＝前面有「可能發生過、也可能沒有」的設定（條件區段、函式本體、兜底補收的指令），值無法確認
+//   dirAt(execIndex)：那個程式執行時的目前目錄 { dir, unsure }——從 startDir 起依序套用一定會執行的 cd；
+//     unsure＝判不準（條件裡的 cd、cd 到變數／~／-、帶旗標的 cd、目標目錄不存在（cd 會失敗）、pushd／popd、
+//     Push-Location／Pop-Location、env -C／--chdir、程式在新程序裡（bash -c、pwsh -Command、xargs、find -exec）、cd 的引數不是恰好一個、
+//     PowerShell 的內建換目錄函式（A:～Z:、cd..、cd\）、PowerShell script block／子運算式裡的換目錄、iex／Invoke-Command 等、
+//     它之前有認不得的指令或自訂函式（同一串定義的函式、清單外的裸名稱可能是 session 裡的函式或別名、PowerShell 的 .ps1 腳本——
+//     它們可能換掉呼叫端的目錄；git 與常見開發工具這類已知外部程式不算））。
+//     給要「確定」目錄的呼叫端用（例：本機覆寫防銷毀閘的點名路徑放寬）；判不準就不要用 dir。
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -241,7 +248,13 @@ function walk(m, node, scope, cond) {
   if (!node) return;
   switch (node.type) {
     case 'program': case 'compound_statement':
-      for (let i = 0; i < node.namedChildCount; i++) walk(m, node.namedChild(i), scope, cond);
+      // 後面接 `&` 的敘述在背景子殼裡跑：它的 export／cd 不會留給後面的指令（`export X=v & cmd` 的 cmd 拿不到 X）
+      for (let i = 0; i < node.childCount; i++) {
+        const c = node.child(i);
+        if (!c.isNamed) continue;
+        const nxt = node.child(i + 1);
+        walk(m, c, nxt && nxt.type === '&' ? m.newScope(scope, 'fork') : scope, cond);
+      }
       return;
     case 'subshell': {
       const s = m.newScope(scope, 'fork');
@@ -446,7 +459,7 @@ function addCommand(m, node, scope, cond, redirects, pipeInfo) {
   }
   varWriters(m, verb, realArgv, realWords, scope, cond);
   if (verb === 'cd' || verb === 'pushd' || verb === 'popd' || verb === 'set-location' || verb === 'sl' || verb === 'chdir') {
-    m.event({ type: 'cd', scope, cond, verb, target: realArgv[1] });
+    m.event({ type: 'cd', scope, cond, verb, target: realArgv[1], argc: realArgv.length - 1, lang: 'bash' });
   }
   if (verb === 'set' && /^[-+]a$/.test(realArgv[1] || '')) m.event({ type: 'allexport', scope, cond, on: realArgv[1] === '-a' });
   // cmd /c 叫起的範圍裡，set X=v 是設環境變數（bash 的 set 是位置參數、PowerShell 的 set 是 Set-Variable，都不算）
@@ -587,12 +600,19 @@ function walkPs(m, node, scope, cond) {
   }
   if (t === 'assignment_expression') {
     const left = node.child(0) ? node.child(0).text : '';
-    const mm = /^\$env:([A-Za-z_][A-Za-z0-9_]*)$/i.exec(left.trim());
+    // $env:X 與 ${env:X} 是同一個變數的兩種寫法
+    const mm = /^\$(?:env:([A-Za-z_][A-Za-z0-9_]*)|\{env:([A-Za-z_][A-Za-z0-9_]*)\})$/i.exec(left.trim());
+    if (mm) mm[1] = mm[1] || mm[2];
     const right = node.childForFieldName('value') || node.namedChild(node.namedChildCount - 1);
     if (mm) {
       const rv = right ? right.text.trim() : '';
       const q = /^(['"])([\s\S]*)\1$/.exec(rv);
+      // 右邊恰好是 $env:B／${env:B}，或雙引號裡只有它（"$env:B"、"${env:B}" 展開後就是 B 的值）
+      const refEnv = /^"?\$(?:env:([A-Za-z_][A-Za-z0-9_]*)|\{env:([A-Za-z_][A-Za-z0-9_]*)\})"?$/i.exec(rv);
+      if (refEnv) refEnv[1] = refEnv[1] || refEnv[2];
       if (/^\$null$/i.test(rv)) m.event({ type: 'unset', scope, cond, name: mm[1] });
+      // 右邊恰好是另一個環境變數（$env:PGPASSWORD = $env:X）：照同名展開記，算值時取 X 當下的值
+      else if (refEnv) m.event({ type: 'assign', scope, cond, name: mm[1], value: V_REF + '$' + refEnv[1], exportIt: true });
       else m.event({ type: 'assign', scope, cond, name: mm[1], value: q ? q[2] : rv, exportIt: true });
     }
     if (right) walkPs(m, right, scope, cond);
@@ -621,7 +641,7 @@ function walkPs(m, node, scope, cond) {
     if (verb === 'remove-item' || verb === 'del' || verb === 'rm' || verb === 'ri') {
       for (const a of argv.slice(1)) { const r = /^env:[\\/]?([A-Za-z_][A-Za-z0-9_]*)$/i.exec(a); if (r) m.event({ type: 'unset', scope, cond, name: r[1] }); }
     }
-    if (verb === 'set-location' || verb === 'sl' || verb === 'cd' || verb === 'chdir') m.event({ type: 'cd', scope, cond, verb: 'cd', target: argv[1] });
+    if (verb === 'set-location' || verb === 'sl' || verb === 'cd' || verb === 'chdir') m.event({ type: 'cd', scope, cond, verb: 'cd', target: argv[1], argc: argv.length - 1, lang: 'powershell' });
     // 包裝：cmd /c、bash -c、powershell -Command、Start-Process -FilePath x -ArgumentList y
     const inner = shellInner(verb, argv);
     if (inner) nested(m, inner.lang, inner.text, exec, 'exec');
@@ -684,7 +704,9 @@ function buildLines(m) {
     const kept = group.filter((e) => !e.dropped);
     if (!kept.length) continue;
     const render = (e, maskIt) => {
-      const pre = e.prefix.map((p) => p.name + '=' + p.value).concat(e.fullArgv.slice(0, e.fullArgv.length - e.argv.length)).join(' ');
+      // 前綴的值若是同名展開（內部記成 V_REF＋原文），比對用的文字還原成原文（`PGPASSWORD=$X`），
+      // 與正則路徑看到的一樣；規則才不必認內部標記（例：DB 登入規則認「密碼前綴引用確認過的變數」）
+      const pre = e.prefix.map((p) => p.name + '=' + (String(p.value).startsWith(V_REF) ? String(p.value).slice(V_REF.length) : p.value)).concat(e.fullArgv.slice(0, e.fullArgv.length - e.argv.length)).join(' ');
       const body = e.words.map((w, k) => (e.hidden && e.hidden.has(k) ? null : (k === 0 || !maskIt || !w.quoted ? w.value : '""')))
         .filter((x) => x !== null).join(' ');
       return (pre ? pre + ' ' : '') + body + (e.heredoc ? ' ' + e.heredoc : '');
@@ -727,6 +749,70 @@ function makeEnvAt(m, startDir, root, inherited) {
       dir = path.resolve(dir === null ? startDir : dir, t);
     }
     return { dirs: dir === null ? [startDir, root] : [dir], unsure };
+  };
+  // 從嚴的目前目錄：判不準就標 unsure（呼叫端據此不放寬）
+  const DIR_UNMODELED = new Set(['pushd', 'popd', 'push-location', 'pop-location', 'pushd.exe']);
+  // PowerShell 5.1 的內建函式也會換目錄：A:～Z:（切磁碟機）、cd..、cd\（實跑 Get-ChildItem function: 確認；cd~ 是較新版本才有，一併算）
+  const PS_LOCATION_FN = /^(?:cd\.\.|cd\\|cd~|[A-Za-z]:)$/;
+  // 會在目前 session 執行看不到內容的程式碼：iex／Invoke-Expression、Invoke-Command、script block 呼叫（& { }、. { }）、dot-source、Start-Job
+  const PS_RUNS_CODE = new Set(['iex', 'invoke-expression', 'invoke-command', 'icm', 'start-job', 'sajb', '.', '&']);
+  const globalUnsure = m.execs.some((x) => DIR_UNMODELED.has(x.verb) ||
+    (x.fullArgv || []).some((a, k) => k < (x.fullArgv.length - x.argv.length) && (a === '-C' || /^--chdir(?:=|$)/.test(a))) ||
+    (m.sawPowerShell && (PS_LOCATION_FN.test(String((x.fullArgv || [])[0] || '')) || PS_RUNS_CODE.has(x.verb) ||
+      /^[{.&]/.test(String((x.fullArgv || [])[0] || ''))))) ||
+    // PowerShell 的 script block、子運算式（& { cd x }、$(cd x)、Invoke-Command { cd x }）裡的換目錄改的是整個 session，
+    // 不是子殼——模型把它們放在子範圍，所以只要不在最外層就判不準（PowerShell 5.1 實跑確認會改到外層）
+    m.events.some((ev) => ev.type === 'cd' && ev.lang === 'powershell' && ev.scope !== '');
+  // 在它之前執行、看不出會不會換目錄的指令：自訂函式、別名、PowerShell 腳本（.ps1）與函式
+  //   bash：用路徑跑的腳本（./x.sh）是子程序，換不到呼叫端的目錄，不算；清單外的裸名稱可能是 session 裡的函式或別名
+  //         （Claude Code 的 Bash 會載入使用者的 shell 快照），算判不準。只看同一範圍或外層範圍、排在它前面的指令。
+  //   PowerShell：.ps1、帶路徑卻不是 .exe 的（./x 會找到 x.ps1）、清單外的名稱（函式、腳本、別名）都算判不準
+  //         ——腳本與函式裡的 Set-Location 改的是整個 session；Get-／Test-／Write- 這類唯讀動詞的 cmdlet 不算。
+  const KNOWN_SAFE = new Set(['git', 'cd', 'chdir', 'set-location', 'sl', 'echo', 'printf', 'true', 'false', 'test', '[', '[[', 'pwd',
+    'ls', 'dir', 'cat', 'type', 'head', 'tail', 'wc', 'grep', 'egrep', 'fgrep', 'rg', 'sed', 'awk', 'sort', 'uniq', 'cut', 'tr', 'diff',
+    'find', 'which', 'where', 'date', 'sleep', 'mkdir', 'touch', 'cp', 'mv', 'rm', 'chmod', 'ln', 'basename', 'dirname', 'realpath',
+    'readlink', 'node', 'npm', 'npx', 'pnpm', 'yarn', 'bun', 'deno', 'python', 'python3', 'py', 'pip', 'pip3', 'java', 'mvn',
+    'gradle', 'go', 'cargo', 'make', 'curl', 'wget', 'jq', 'bash', 'sh', 'zsh', 'pwsh', 'powershell', 'cmd',
+    // 常見開發工具：都是外部程式，在子程序裡跑、換不到呼叫端 shell 的目錄（session 裡若有同名函式或別名蓋過，仍可能看漏）
+    'pytest', 'tsc', 'docker', 'docker-compose', 'podman', 'kubectl', 'helm', 'terraform', 'eslint', 'prettier', 'jest', 'vitest',
+    'ruff', 'mypy', 'black', 'flake8', 'tox', 'poetry', 'uv', 'rustc', 'gcc', 'cmake', 'javac', 'gofmt', 'php', 'ruby', 'gem',
+    'bundle', 'composer',
+    'gci', 'gc', 'gl', 'select', 'where-object', 'foreach-object', 'sort-object', 'measure-object', 'ft', 'fl', '%', '?']);
+  const PS_SAFE_VERB = /^(?:get|test|write|select|where|measure|sort|format|convertto|convertfrom|out|join|split|resolve|compare|group|start-sleep)(?:-|$)/;
+  const unknownBefore = (x) => {
+    const a0 = String((x.argv || [])[0] || '');
+    if (m.sawPowerShell) {
+      if (/\.ps[md]?1$/i.test(a0)) return true;
+      if (/[\/\\]/.test(a0)) return !/\.exe$/i.test(a0);
+      return !KNOWN_SAFE.has(x.verb) && !PS_SAFE_VERB.test(x.verb);
+    }
+    if (/[\/\\]/.test(a0)) return false;
+    return !KNOWN_SAFE.has(x.verb);
+  };
+  const dirAt = (e) => {
+    let dir = startDir;
+    let unsure = globalUnsure || !!e.envUnsure || /\/\d+e(?:\/|$)/.test(e.scope);   // 新程序（exec 範圍）的起始目錄看不到
+    // bash 自訂函式（同一串定義的也算：函式本體可能 cd）與 PowerShell 腳本／函式
+    if (/(?:^|[\s;&|(])function[ \t]+[\w:.-]+|[\w.-]+[ \t]*\([ \t]*\)[ \t]*\{/.test(String(m.text || ''))) unsure = true;
+    if (m.execs.some((x) => x !== e && x.seq < e.seq && (m.sawPowerShell || e.scope === x.scope || e.scope.startsWith(x.scope + '/')) && unknownBefore(x))) unsure = true;
+    for (const ev of m.events) {
+      if (ev.type !== 'cd') continue;
+      if (loopLater(ev, e) || (ev.anytime && scopeVisible(ev, e))) { unsure = true; continue; }
+      if (ev.seq > e.seq) break;
+      if (maybe(ev, e)) { unsure = true; continue; }
+      if (!scopeVisible(ev, e) || !condVisible(ev, e)) continue;
+      let t = ev.target;
+      if (ev.verb !== 'cd' && ev.verb !== 'set-location' && ev.verb !== 'sl' && ev.verb !== 'chdir') { unsure = true; continue; }
+      if (!t || t === '-' || /^[-~]|[$%`]/.test(t)) { unsure = true; continue; }
+      if (ev.argc !== undefined && ev.argc !== 1) { unsure = true; continue; }   // cd a b：bash 與 PowerShell 都報錯、留在原目錄
+      if (process.platform === 'win32') t = t.replace(/^\/([A-Za-z])(?=\/|$)/, '$1:');
+      const next = path.resolve(dir, t);
+      let isDir = false;
+      try { isDir = fs.statSync(next).isDirectory(); } catch (_) { isDir = false; }
+      if (!isDir) unsure = true;   // cd 會失敗：`cd x; git …` 的 git 仍在原目錄跑
+      dir = next;
+    }
+    return { dir, unsure };
   };
   const readEnvFile = (file, bases) => {
     for (const base of bases) {
@@ -910,6 +996,7 @@ function makeEnvAt(m, startDir, root, inherited) {
     envAt: (i, name) => { const r = get(i, name); return !r.unsure && r.values.length === 1 ? r.values[0] : undefined; },
     envUnsure: (i, name) => get(i, name).unsure,
     envInfo: (i, name) => get(i, name),
+    dirAt: (i) => dirAt(m.execs[i]),
   };
 }
 
@@ -951,7 +1038,7 @@ function walkText(m, lang, text, scope, cond) {
   const prev = m.curTree;
   m.curTree = ++m.treeSeq;
   try {
-    if (lang === 'powershell') walkPs(m, tree.rootNode, scope, cond);
+    if (lang === 'powershell') { m.sawPowerShell = true; walkPs(m, tree.rootNode, scope, cond); }
     else walk(m, tree.rootNode, scope, cond);
     sweep(m, tree.rootNode, scope, cond, lang);
   } finally {
@@ -1166,10 +1253,11 @@ function psLiteralText(el) {
 function analyze(command, tool, startDir, root, inherited) {
   if (!available(tool)) return null;
   const m = new Model(startDir, root);
+  m.text = String(command);   // dirAt 用：同一串有沒有定義函式
   walkText(m, tool === 'PowerShell' ? 'powershell' : 'bash', command, '', '');
   const lines = buildLines(m);
   const env = makeEnvAt(m, startDir, root, inherited || ((n) => process.env[n]));
-  return { execs: m.execs, lines, envAt: env.envAt, envUnsure: env.envUnsure, envInfo: env.envInfo, hasError: !!m.hasError };
+  return { execs: m.execs, lines, envAt: env.envAt, envUnsure: env.envUnsure, envInfo: env.envInfo, dirAt: env.dirAt, hasError: !!m.hasError };
 }
 
 module.exports = { analyze, available, runnerPrefix, baseName };

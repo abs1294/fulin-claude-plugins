@@ -106,7 +106,9 @@
 //     兩次各自獨立的 `bash -c '…'` 之間分不出是不是同一個子殼；包裝指令與子殼裡的 cd 照同一條線性順序算。
 //   · [正則] 函式本體裡的測試、here-string 與 stdin 餵給殼的腳本裡的測試認不出來；迴圈體後段的設定不回到前段；
 //     eval、read、printf -v、`for X in`、`declare -n`、`source <(…)` 寫進變數看不到。
-// fail-open：解析失敗、regex 寫壞、任何例外一律放行（壞掉的檢查只印提醒，不擋路）。
+// fail-open：解析失敗、regex 寫壞、任何例外一律放行（壞掉的檢查只提醒，不擋路）。
+// 故障提醒走 hookSpecificOutput.additionalContext（有別的檢查要擋時併進擋下理由）：PreToolUse exit 0 的純文字
+// （stdout、stderr）模型看不到，只寫 stderr 等於靜默失效。
 
 // ── init 填空區 ──────────────────────────────────────────────────────────────
 // 「這條指令是在跑測試」的樣式（= Phase 1 盤點到的測試指令；比對每段段首，不分大小寫）。
@@ -736,6 +738,25 @@ function opaqueMsg(name) {
 // 主流程依本串指令設定；兩條路徑取環境值時先問它
 let envUnsure = () => false;
 
+// 規則／檢查本身故障（regex 寫壞、例外）的提醒。fail-open：故障不擋路，但不能靜默——
+// PreToolUse exit 0 的純文字（stdout 或 stderr）模型看不到，守門其實已經沒在守卻沒人知道。
+// 所以收集起來，結尾走 hookSpecificOutput.additionalContext（有別的項目要擋時併進擋下理由）。
+const faults = [];
+function fault(msg) {
+  if (!faults.includes(msg)) faults.push(msg);
+  try { process.stderr.write(msg + '\n'); } catch (e) {}
+}
+// 只有故障、沒有要擋的項目：放行，但把故障講給模型聽
+function emitFaultsOnly() {
+  if (!faults.length) return;
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      additionalContext: faults.join('\n') + '\n（本次放行；故障的項目沒有生效，請回報使用者修，不要當作已檢查過）',
+    },
+  }));
+}
+
 // 語法解析器路徑（shell-model.js＋npm 裝在 .claude/hooks/node_modules 的 tree-sitter）。
 // 模組缺、解析器沒裝、載入失敗、設 HARNESS_SHELL_PARSER=off、語法樹有錯誤節點時回 null，呼叫端改走正則路徑——準確度較低，但不會整個失效。
 function analyzeWithParser(command, tool, startDir, root) {
@@ -842,18 +863,22 @@ process.stdin.on('end', () => {
             '\n      放行方式：' + (c.fix || '修正後再跑。'));
         }
       } catch (e) {
-        process.stderr.write('[' + LABEL + '] 檢查 ' + (c && c.id) + ' 無法套用（' + e.message + '），已略過——請修檢查。\n');
+        fault('[' + LABEL + '] 檢查 ' + (c && c.id) + ' 無法套用（' + e.message + '），已略過——請修檢查。');
       }
     }
   } catch (e) {
+    // 外層出錯（payload 讀不懂、找測試指令時例外）：照樣放行，但要讓模型知道這次沒檢查
+    fault('[' + LABEL + '] 守門故障（' + String((e && e.message) || e).slice(0, 200) + '），本次沒有套用任何檢查。');
+    emitFaultsOnly();
     process.exit(0);
   }
-  if (!problems.length) process.exit(0);
+  if (!problems.length) { emitFaultsOnly(); process.exit(0); }
 
   const reason = '[' + LABEL + '] 要跑測試，但前置條件不符：\n\n' + problems.join('\n\n') +
     '\n\n這類問題不會報「環境不對」，只會讓測試紅在很遠的斷言上，或產生真實副作用（例如寄信給真人）。' +
     (fileProblem ? '\n改的若是跑中服務讀的設定檔，改完要重啟該服務才會生效——本守門只驗檔案內容，驗不到跑中的程序。' : '') +
-    '\n檢查表在 .claude/hooks/guard-test-preconditions.js 的 CHECKS；判斷是檢查錯擋就回報使用者改檢查，不要繞過。';
+    '\n檢查表在 .claude/hooks/guard-test-preconditions.js 的 CHECKS；判斷是檢查錯擋就回報使用者改檢查，不要繞過。' +
+    (faults.length ? '\n\n另有檢查故障（沒有生效，請回報使用者修）：\n' + faults.join('\n') : '');
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',

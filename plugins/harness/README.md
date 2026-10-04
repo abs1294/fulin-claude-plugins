@@ -130,10 +130,11 @@ hooks/
     compact-summary-log.js                壓縮後記下摘要漏掉的項目、交接信又漏了什麼（評估用流水帳）
     resume-stale-reminder.js              隔數小時才接續之前的對話時，提醒狀態可能已過期，附最近交接信路徑與最後一則指示
     ── 盤點到你的專案有這類風險才裝（規則由 init 依盤點結果填）──
-    guard-risky-command.js                執行前一定要先問你的指令（最高權限帳號連資料庫、部署、連到或打到你沒確認為測試環境的主機與網址、刪資料的 SQL、起服務缺環境設定）→ 擋下
+    guard-risky-command.js                執行前一定要先問你的指令（連資料庫——只准確認過的測試帳號、密碼只從環境變數帶；部署、連到或打到你沒確認為測試環境的主機與網址、刪資料的 SQL、起服務缺環境設定）→ 擋下
     guard-test-preconditions.js           跑測試前驗前置條件（寄信收斂、測試環境對齊）→ 不符就擋
     shell-model.js＋package.json＋package-lock.json
                                           上面兩個引擎共用的指令語法解析（tree-sitter，bash 與 PowerShell 各一套文法）；
+                                          本機覆寫防銷毀閘「依點名路徑放寬」也靠它判目錄與呼叫，沒有它就照原本整條擋；
                                           init 在目標專案 .claude/hooks 跑 npm ci，沒裝或解析失敗時引擎退回正則判法
     guard-report-output.js                交付物落點紀律（主題_日期資料夾、過程檔進 _work/）
     ── 偵測到你有只給本機用的設定檔才裝 ──

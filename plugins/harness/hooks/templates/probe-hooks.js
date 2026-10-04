@@ -27,7 +27,15 @@
 //       "commit": true,                            // 暫存專案 git add -A 並 commit 一次（隱含 git: true），
 //                                                  // 造出「有 HEAD」的狀態；要 dirty 再搭 files_after_commit
 //       "files_after_commit": { "相對路徑": "內容" }, // commit 之後才寫入／覆寫（造出與 HEAD 不同的工作區）
-//       "env": { "KEY": "value" },                 // 額外環境變數；值給 null＝刪掉該變數（不存在），"" 是存在但為空
+//       "repos": {                                 // 選填：在暫存專案底下另建幾個子 repo（多 repo workspace 用）
+//         "<子目錄，可含空白或多層>": {              //   每個子目錄一定會 git init；底下欄位與上面同名欄位同義、
+//           "files": {...}, "commit": true,         //   路徑都相對於該子目錄。什麼都不寫（{}）＝乾淨的空 repo。
+//           "files_after_commit": {...}, "stage": [...]
+//         }                                        //   子 repo 在專案根的 git 處理完之後才建，根目錄 add -A
+//       },                                         //   不會把它們收成內嵌 repo
+//       "links": { "相對路徑": "相對目標" },          // 選填：建目錄連結（Windows junction／其他平台 symlink），測「經連結進入」
+//       "worktrees": { "相對路徑": "repo 相對路徑" }, // 選填：git worktree add（在 repos／commit 之後建）
+//       "env": { "KEY": "value" },               // 額外環境變數；值給 null＝刪掉該變數（不存在），"" 是存在但為空；值裡的 {PROJECT_DIR} 換成暫存專案路徑
 //       "transcript": [ {...}, ... ],              // 寫成 jsonl，路徑放進 payload.transcript_path
 //       "mtime_days_ago": { "相對路徑": 40 }       // 把檔案時間往回撥
 //     },
@@ -43,6 +51,8 @@
 //                                                  // （SessionStart／UserPromptSubmit 的純文字 stdout 會進 context，那些不必標）
 //     "parser": "only"                             // 選填：只有語法樹路徑做得到（正則路徑的已知極限）；
 //                                                  // 走正則路徑時略過並計數，不算通過也不算失敗
+//                                                  // "parser": "off"＝只在正則路徑跑（語法樹路徑略過並計數）：同一寫法兩條路徑
+//                                                  // 預期不同時（例：語法樹路徑能確定判斷而放寬、正則路徑照舊擋），寫成一對案例各標一邊
 //   }]
 // }
 // 判定：exit 2、stdout JSON 的 hookSpecificOutput.permissionDecision=deny、或 decision=block ＝ BLOCK；
@@ -121,28 +131,49 @@ function mkProject(setup, hookFile, variant) {
   if (fs.existsSync(path.join(HERE, 'shell-model.js'))) fs.copyFileSync(path.join(HERE, 'shell-model.js'), path.join(hdir, 'shell-model.js'));
   // 壓縮交接的快照 hook 會 require 同目錄的交接信模組
   if (fs.existsSync(path.join(HERE, 'compact-handoff.js'))) fs.copyFileSync(path.join(HERE, 'compact-handoff.js'), path.join(hdir, 'compact-handoff.js'));
-  for (const [rel, content] of Object.entries(setup.files || {})) {
-    const p = path.join(dir, rel);
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, content);
-  }
-  if (setup.git || setup.stage || setup.commit) {
-    execFileSync('git', ['init', '-q'], { cwd: dir });
-    execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: dir });
-    if (setup.commit) {
-      // 只在暫存目錄裡 commit，用來造「HEAD 與工作區不同」的測試狀態
-      execFileSync('git', ['add', '-A'], { cwd: dir });
-      execFileSync('git', ['-c', 'user.name=probe', '-c', 'user.email=probe@local',
-        'commit', '-qm', 'base', '--allow-empty'], { cwd: dir });
+  // 專案根與 setup.repos 的每個子 repo 用同一套步驟造狀態；force＝不看 git／stage／commit 欄位也一定 git init
+  const buildRepo = (base, spec, force) => {
+    for (const [rel, content] of Object.entries(spec.files || {})) {
+      const p = path.join(base, rel);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, content);
     }
+    if (force || spec.git || spec.stage || spec.commit) {
+      execFileSync('git', ['init', '-q'], { cwd: base });
+      execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: base });
+      if (spec.commit) {
+        // 只在暫存目錄裡 commit，用來造「HEAD 與工作區不同」的測試狀態
+        execFileSync('git', ['add', '-A'], { cwd: base });
+        execFileSync('git', ['-c', 'user.name=probe', '-c', 'user.email=probe@local',
+          'commit', '-qm', 'base', '--allow-empty'], { cwd: base });
+      }
+    }
+    for (const [rel, content] of Object.entries(spec.files_after_commit || {})) {
+      const p = path.join(base, rel);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, content);
+    }
+    // stage 放在 files_after_commit 之後：搭配 commit 時才能造出「改動已被 stage」的狀態
+    for (const rel of spec.stage || []) execFileSync('git', ['add', '--', rel], { cwd: base });
+  };
+  buildRepo(dir, setup, false);
+  for (const [sub, spec] of Object.entries(setup.repos || {})) {
+    const base = path.join(dir, sub);
+    if (path.relative(dir, base).startsWith('..') || path.isAbsolute(path.relative(dir, base))) {
+      throw new Error(`repos 的子目錄必須在暫存專案內：${sub}`);
+    }
+    fs.mkdirSync(base, { recursive: true });
+    buildRepo(base, spec || {}, true);
   }
-  for (const [rel, content] of Object.entries(setup.files_after_commit || {})) {
+  // links：在暫存專案裡建目錄連結（Windows 用 junction，其他平台用 symlink）；worktrees：git worktree add
+  for (const [rel, target] of Object.entries(setup.links || {})) {
     const p = path.join(dir, rel);
     fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, content);
+    fs.symlinkSync(path.join(dir, target), p, process.platform === 'win32' ? 'junction' : 'dir');
   }
-  // stage 放在 files_after_commit 之後：搭配 commit 時才能造出「改動已被 stage」的狀態
-  for (const rel of setup.stage || []) execFileSync('git', ['add', '--', rel], { cwd: dir });
+  for (const [rel, repo] of Object.entries(setup.worktrees || {})) {
+    execFileSync('git', ['-C', path.join(dir, repo), 'worktree', 'add', '-q', '--detach', path.join(dir, rel)], { stdio: 'ignore' });
+  }
   for (const [rel, days] of Object.entries(setup.mtime_days_ago || {})) {
     const t = new Date(Date.now() - days * 86400000);
     fs.utimesSync(path.join(dir, rel), t, t);
@@ -152,11 +183,13 @@ function mkProject(setup, hookFile, variant) {
 
 if (PARSER) console.log('規則引擎判定路徑：' + PARSER.text + '\n');
 let skipped = 0;
+let skippedOff = 0;   // 標 "parser": "off" 的案例在語法樹路徑略過的數量
 for (const hook of hooks) {
   const spec = casesFor(hook);
   if (!spec) { console.log(`MISS | ${hook} | 沒有 cases 檔`); missing++; continue; }
   for (const c of spec.cases) {
     if (c.parser === 'only' && PARSER && !PARSER.on) { skipped++; console.log(`SKIP | ${hook} | 只有語法樹路徑做得到 | ${c.label}`); continue; }
+    if (c.parser === 'off' && PARSER && PARSER.on) { skippedOff++; console.log(`SKIP | ${hook} | 只在正則路徑跑 | ${c.label}`); continue; }
     const setup = c.setup || {};
     const variant = c.variant ? (spec.variants || {})[c.variant] : null;
     let dir;
@@ -174,6 +207,8 @@ for (const hook of hooks) {
     const env = Object.assign(hookEnvBase(), { CLAUDE_PROJECT_DIR: dir }, setup.env || {});
     // setup.env 的值給 null＝這個變數不存在（刪掉）；空字串＝存在但值為空，兩者對環境判斷不同
     for (const [k, v] of Object.entries(setup.env || {})) if (v === null) delete env[k];
+    // env 的值裡的 {PROJECT_DIR} 換成暫存專案的絕對路徑（例：CLAUDE_PROJECT_DIR 指向專案裡的連結）
+    for (const [k, v] of Object.entries(setup.env || {})) if (typeof v === 'string') env[k] = v.split('{PROJECT_DIR}').join(dir);
     const r = spawnSync(process.execPath, [path.join(dir, '.claude', 'hooks', hook)],
       { input: JSON.stringify(payload), cwd: dir, env, encoding: 'utf8', timeout: 30000 });
     let block = r.status === 2;
@@ -205,6 +240,6 @@ for (const hook of hooks) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
   }
 }
-console.log(`\n合計 PASS ${pass} / FAIL ${fail} / 缺 cases ${missing}` + (skipped ? ` / 略過 ${skipped}（只有語法樹路徑做得到）` : ''));
+console.log(`\n合計 PASS ${pass} / FAIL ${fail} / 缺 cases ${missing}` + (skipped ? ` / 略過 ${skipped}（只有語法樹路徑做得到）` : '') + (skippedOff ? ` / 略過 ${skippedOff}（只在正則路徑跑）` : ''));
 if (PARSER && !PARSER.on && !PARSER_OFF) console.log(PARSER.text);
 process.exit(fail || missing ? 1 : 0);

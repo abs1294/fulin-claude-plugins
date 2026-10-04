@@ -22,16 +22,18 @@
 
 ### 本專案 agent 對照表
 
-`/harness:init` 會在 `.claude/agents/` 建一套**通用同名 agent**（骨架出自 harness plugin，已依本專案技術棧填空）。名字刻意與常見 pipeline 慣例同名，讓 04 模板、03 條款、hook 名單可以直接引用：
+`/harness:init` 會在 `.claude/agents/` 建一套**通用同名 agent**（骨架出自 harness plugin，已依本專案技術棧填空）。名字刻意與常見 pipeline 慣例同名，讓 04 模板、03 條款、hook 名單可以直接引用。
 
-| agent | 做什麼 | 預設 model | 交給誰 |
-|-------|--------|-----------|--------|
+**agent 之間不直接交接**：每棒做完一律回報主對話，由主對話把產出原封不動帶進下一棒的派工 prompt（子 agent 彼此看不到對方，主對話是唯一匯流排，見 04 的交接中轉三原則）。下表最後一欄是「主對話接手後派給誰」，不是 agent 自己交棒的對象：
+
+| agent | 做什麼 | 預設 model | 做完後主對話接 |
+|-------|--------|-----------|----------------|
 {{依 Phase 3 Q1 裁切後的 pipeline 逐列填；被裁掉的 agent 不列。預設全套如下，不適用的整列刪：
-| `backend-architect` | 設計 API／資料模型／契約＋測試情境表；等簽收才交棒 | `opus`（或主對話同級） | backend-engineer、frontend-engineer（API Contract） |
-| `backend-engineer` | 依設計文件實作後端 | `sonnet` | qa-engineer（行為類）→ code-reviewer |
-| `frontend-engineer` | 依 API Contract 實作前端 | `sonnet` | qa-engineer（行為類）→ code-reviewer |
-| `qa-engineer` | 設計測試計畫＋親自實測＋codify 進測試目錄 | `sonnet`（命中進階判準任兩項→`opus`） | code-reviewer |
-| `code-reviewer` | 靜態審查（規範／資安／設計品質），不做瀏覽器操作 | `sonnet` | 主對話（完成報告） |
+| `backend-architect` | 設計 API／資料模型／契約＋測試情境表；等簽收才算完成 | `opus`（或主對話同級） | 使用者簽收 → 派 backend-engineer、frontend-engineer（帶 API Contract） |
+| `backend-engineer` | 依設計文件實作後端 | `sonnet` | 行為類 → 派 qa-engineer，之後 code-reviewer；分流例外 → code-reviewer |
+| `frontend-engineer` | 依 API Contract 實作前端 | `sonnet` | 同上 |
+| `qa-engineer` | 設計測試計畫＋親自實測＋codify 進測試目錄 | `sonnet`（命中進階判準任兩項→`opus`） | 派 code-reviewer |
+| `code-reviewer` | 靜態審查（規範／資安／設計品質），不做瀏覽器操作 | `sonnet` | 通過 → 主對話寫完成報告；不通過 → 回實作步驟重派 |
 }}
 
 {{若目標專案已有自己的 agents（Phase 1 盤點到）：改列該專案既有 agent 名稱與職責，不另建同名 agent；hook 名單改填既有名稱。預設 model 照職責對應（adaptation-guide §2.1）：寫規格／做設計的填 `opus`，實作、測試、審查照上表同級，原 agent 檔自己寫了 model 的照原檔。}}

@@ -102,6 +102,60 @@
         }
       },
       "expect": "ALLOW"
+    },
+    {
+      "label": "session 在子目錄（cwd＝<根>/sub）、沒設 CLAUDE_PROJECT_DIR，絕對路徑寫 <根>/.claude/report-x.md → 擋下（專案根要退回 hook 所在位置，不是 cwd）",
+      "setup": {
+        "files": { "sub/.keep": "" },
+        "env": { "CLAUDE_PROJECT_DIR": null }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "cwd": "{PROJECT_DIR}/sub",
+        "tool_input": { "file_path": "{PROJECT_DIR}/.claude/report-x.md" }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "session 在子目錄、沒設 CLAUDE_PROJECT_DIR，相對路徑 ../.claude/report-y.md → 擋下",
+      "setup": {
+        "files": { "sub/.keep": "" },
+        "env": { "CLAUDE_PROJECT_DIR": null }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "cwd": "{PROJECT_DIR}/sub",
+        "tool_input": { "file_path": "../.claude/report-y.md" }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "相對路徑以 payload cwd 為基準判存在：<根>/sub/.claude/legacy/old.md 已存在、cwd＝sub → 放行（覆寫既有檔）",
+      "setup": {
+        "files": { "sub/.claude/legacy/old.md": "既有內容\n" }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "cwd": "{PROJECT_DIR}/sub",
+        "tool_input": { "file_path": ".claude/legacy/old.md" }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "相對路徑以 payload cwd 為基準判存在：只有 <根>/.claude/legacy/x.md 存在、cwd＝sub 寫 .claude/legacy/x.md 是新建 → 擋下",
+      "setup": {
+        "files": { "sub/.keep": "", ".claude/legacy/x.md": "根目錄那份\n" }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "cwd": "{PROJECT_DIR}/sub",
+        "tool_input": { "file_path": ".claude/legacy/x.md" }
+      },
+      "expect": "BLOCK"
     }
   ]
 }

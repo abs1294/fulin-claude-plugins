@@ -32,6 +32,22 @@
           "const CHECKS = [\n{\n  \"id\": \"mail-sink-block\",\n  \"kind\": \"file\",\n  \"path\": \"config/app.ini\",\n  \"within\": \"^\\\\[test\\\\][^\\\\[]*\",\n  \"mustMatch\": \"^mail_sink\\\\s*=\\\\s*on\",\n  \"reason\": \"測試區塊沒收斂寄信會寄給真人。\",\n  \"fix\": \"在 config/app.ini 的 [test] 區塊加 mail_sink = on\"\n}\n];"
         ]
       ]
+    },
+    "broken-check": {
+      "replace": [
+        [
+          "const CHECKS = [",
+          "const CHECKS = [{\"id\":\"broken-check\",\"kind\":\"env\",\"env\":\"TEST_API_BASE\",\"when\":\"(unclosed\",\"reason\":\"示範：regex 寫壞的檢查\",\"fix\":\"修 regex\"},"
+        ]
+      ]
+    },
+    "broken-plus-env": {
+      "replace": [
+        [
+          "const CHECKS = [",
+          "const CHECKS = [{\"id\":\"broken-check\",\"kind\":\"env\",\"env\":\"TEST_API_BASE\",\"when\":\"(unclosed\",\"reason\":\"示範：regex 寫壞的檢查\",\"fix\":\"修 regex\"}, {\"id\":\"api-base\",\"kind\":\"env\",\"env\":\"TEST_API_BASE\",\"matches\":\"^https?://localhost:\\\\d+\",\"reason\":\"測試要打自己起的那套服務。\",\"fix\":\"TEST_API_BASE=http://localhost:3000 npm test\"},"
+        ]
+      ]
     }
   },
   "cases": [
@@ -1759,6 +1775,56 @@
       },
       "expect": "BLOCK",
       "parser": "only"
+    },
+    {
+      "label": "檢查寫壞：regex 編不過 → 放行，但故障提醒走 additionalContext（模型看得到）",
+      "variant": "broken-check",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "檢查寫壞：另一項檢查不符照常擋（故障併進擋下理由）",
+      "variant": "broken-plus-env",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "檢查寫壞：另一項檢查通過 → 放行，故障提醒照樣看得到",
+      "variant": "broken-plus-env",
+      "setup": {
+        "env": {
+          "TEST_API_BASE": "http://localhost:3000"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
     }
   ]
 }

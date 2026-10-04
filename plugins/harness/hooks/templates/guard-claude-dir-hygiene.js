@@ -75,16 +75,20 @@ function main() {
   const fp = (input.tool_input && input.tool_input.file_path) || '';
   if (!fp) process.exit(0);
 
-  const norm = fp.replace(/\\/g, '/');
+  // 本 hook 裝在 <專案根>/.claude/hooks/，往上兩層就是專案根：CLAUDE_PROJECT_DIR 沒設時的備援。
+  // 不能退回 cwd——session 在子目錄時 cwd 是 <根>/sub，寫 <根>/.claude/report.md 會被判成「專案外」而放行。
+  const hookRoot = path.resolve(__dirname, '..', '..');
+  // 相對路徑以 payload 的 cwd 為基準轉成絕對路徑（工具實際寫入的位置），之後一律用絕對路徑判。
+  const baseDir = input.cwd || process.env.CLAUDE_PROJECT_DIR || hookRoot;
+  const absFp = path.resolve(baseDir, fp);
+  const absNorm = absFp.replace(/\\/g, '/');
 
   // 只管**本專案**的 .claude/。不錨專案根會連 Claude Code 自己的全域機制目錄
   // （例如使用者家目錄下的 .claude/plans/，plan mode 每次都會寫）都一併擋下，
   // 且建議落點會指向專案內路徑——錯的診斷配錯的處方。
-  const cwd = input.cwd || process.cwd();
-  const projRoot = (process.env.CLAUDE_PROJECT_DIR || cwd)
+  const projRoot = (process.env.CLAUDE_PROJECT_DIR || hookRoot)
     .replace(/\\/g, '/')
     .replace(/\/+$/, '');
-  const absNorm = path.isAbsolute(fp) ? norm : path.resolve(cwd, fp).replace(/\\/g, '/');
   if (!absNorm.toLowerCase().startsWith(projRoot.toLowerCase() + '/')) process.exit(0);
 
   const m = absNorm.match(/(^|\/)\.claude\/(.+)$/);
@@ -100,16 +104,17 @@ function main() {
   // 允許目錄本身（無子路徑）→ 放行
   if (!rest.includes('/') && ALLOWED_DIRS.has(seg)) process.exit(0);
 
-  // 既有檔就放行（本閘只擋新建；搬遷既有檔是人工決策）
+  // 既有檔就放行（本閘只擋新建；搬遷既有檔是人工決策）。用絕對路徑判：相對路徑交給 existsSync
+  // 會以 hook 程序自己的工作目錄為基準，跟工具實際寫入的位置不一定相同。
   try {
-    if (fs.existsSync(fp)) process.exit(0);
+    if (fs.existsSync(absFp)) process.exit(0);
   } catch { /* ignore */ }
 
   const base = path.basename(rest);
   const dest = suggestDest(base);
 
   const msg = [
-    `[.claude 純度閘] 擋下：${norm}`,
+    `[.claude 純度閘] 擋下：${absNorm}`,
     '',
     '`.claude/` 只放 Claude Code 機制（commands / skills / hooks / agents / scripts）',
     '與工作流制度層。**一次性產物不放這裡。**',
