@@ -6,7 +6,7 @@
  * 與壓縮交接一組（require compact-handoff.js 的真人輸入判定、讀同一個 compact-snapshots/ 找最近的交接信）；
  * 接線（目標專案 .claude/settings.json）：
  *   "SessionStart": [{ "matcher": "resume", "hooks": [{ "type": "command",
- *     "command": "node \"<專案絕對路徑>/.claude/hooks/resume-stale-reminder.js\"", "timeout": 15 }] }]
+ *     "command": "node \"<專案絕對路徑>/.claude/hooks/resume-stale-reminder.js\"", "timeout": 15, "statusMessage": "提醒 resume 後狀態可能已過期" }] }]
  *
  * 壓縮有交接信補位，resume 沒有：context 原封不動回來，裡面「服務在跑」「測試 965 passed」
  * 都還是暫停當下的說法，模型會當成現況接著做。間隔短於 STALE_HOURS 不出聲，免得每次 resume 都洗一段。

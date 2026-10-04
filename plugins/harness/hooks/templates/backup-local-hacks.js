@@ -4,7 +4,7 @@
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
 // 接線（目標專案 .claude/settings.json）：
 //   "PreToolUse": [{ "matcher": "Bash|PowerShell", "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/backup-local-hacks.js\"", "timeout": 20 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/backup-local-hacks.js\"", "timeout": 20, "statusMessage": "備份帶著本機改動的覆寫檔" }] }]
 //   程式本身也處理 Write／Edit／MultiEdit／NotebookEdit：要讓「被編輯工具蓋掉」也留得住備份，
 //   matcher 改成 "Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit"（60 秒節流讓成本可接受）。
 //

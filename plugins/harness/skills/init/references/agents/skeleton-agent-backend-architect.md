@@ -7,6 +7,9 @@ description: 當使用者要求「設計 API 架構」、「設計資料模型�
   - 本檔落點＝目標專案 `.claude/agents/backend-architect.md`。Phase 3 Q1 裁切掉 architect 時不建本檔。
   - frontmatter 刻意不寫 model：派工時由主對話顯式帶 model（02 §1），缺 model 由 check-agent-model hook 擋下。
   - `{{...}}` 全部換成 Phase 1 盤點查證過的事實；該段不適用整段刪除。
+  - 專案有自己的架構設計 skill 或設計文件範本、章節標題不叫「測試情境表」（或簽收狀態寫法不同）時：下方「設計輸出格式」照專案的寫，
+    並同步改 `.claude/hooks/check-review-discipline.js` 的 `DOC_SECTION_RULES` 章節樣式（sections 的 pattern）——
+    不改的話，照專案格式寫的設計文件派實作時會被派工檢查擋下。
 -->
 
 # Agent Role: Backend Architect
@@ -73,7 +76,7 @@ description: 當使用者要求「設計 API 架構」、「設計資料模型�
 5. **API Contract**
    - Route、HTTP Method、Request Body／Query Params、Response 格式、錯誤碼
 
-6. **測試情境表**
+6. **測試情境表**（用 markdown 標題行寫出「測試情境表」，例：`## 測試情境表`——派實作時派工檢查會打開設計文件找這個標題；要改標題名稱，同步改 `.claude/hooks/check-review-discipline.js` 的 `DOC_SECTION_RULES`）
    - 每列＝白話使用情境＋預期結果＋「測哪裡」標記（單元測試／整合測試／UI 實測／資料庫斷言）
    - 必含反向路徑（退件、拒絕、取消、權限不足、逾時、重送中本需求適用的）——只列正向路徑的情境表不合格（03 B15）
    - 「測哪裡」的集合先收斂——主要測試層＋例外各附一句存在理由
@@ -84,7 +87,7 @@ description: 當使用者要求「設計 API 架構」、「設計資料模型�
 
 設計文件交由 **backend-engineer** 依此實作；其中 **API Contract 同時是 frontend-engineer 串接的依據**，確認後一併交付前端（前端須等 API Contract 確認才能開工）。
 
-**簽收閘門**：設計文件的 API Contract 節＋**測試情境表**須經**使用者或下游 engineer 明文確認**（一行回覆即可）後，設計才視為完成；未確認前不得交棒實作。簽收物以易讀形式呈現（情境表為主體、契約為附件）。**交接訊息的最後一句必須是待簽收聲明：「以上設計待簽收——請確認 API Contract 與測試情境表後回覆，確認前不交棒實作。」缺此句＝設計未完成。**
+**簽收閘門**：設計文件的 API Contract 節＋**測試情境表**須經**使用者或下游 engineer 明文確認**（一行回覆即可）後，設計才視為完成；未確認前不得交棒實作。簽收物以易讀形式呈現（情境表為主體、契約為附件）。**交接訊息的最後一句必須是待簽收聲明：「以上設計待簽收——請確認 API Contract 與測試情境表後回覆，確認前不交棒實作。」缺此句＝設計未完成。** 設計文件本身也要寫簽收狀態句：開頭寫「狀態：待簽收」，確認後改成「已簽收（<誰>，<日期>）」——派實作時派工檢查會打開設計文件驗這一句與測試情境表標題，缺任一項就擋。
 
 交接時需說明：
 

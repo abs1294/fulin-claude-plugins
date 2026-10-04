@@ -6,7 +6,7 @@
 // 還沒長出工具時，init 把它寫進 05 升格協議的「可升格機械閘」清單，不裝。
 // 接線（目標專案 .claude/settings.json）：
 //   "PostToolUse": [{ "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-test-asset-hygiene.js\"", "timeout": 120 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-test-asset-hygiene.js\"", "timeout": 120, "statusMessage": "檢查測試檔有沒有寫死業務資料" }] }]
 //
 // 病灶：派工模板早就寫了「禁止硬編業務資料 Id／依賴外部種子資料」，但整條鏈沒有任何一點會因為硬編而擋下來——
 //   派工閘只驗派工單「有沒有寫測試資料來源這幾個字」，驗不到實際寫出來的測試碼；

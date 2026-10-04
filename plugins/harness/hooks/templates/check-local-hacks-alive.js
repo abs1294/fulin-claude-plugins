@@ -4,7 +4,7 @@
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
 // 接線（目標專案 .claude/settings.json）：
 //   "SessionStart": [{ "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/check-local-hacks-alive.js\"", "timeout": 20 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/check-local-hacks-alive.js\"", "timeout": 20, "statusMessage": "檢查本機覆寫還在不在" }] }]
 //
 // 為什麼需要：備份（backup-local-hacks.js）與救回（restore-local-hacks.js）都做好了，
 // 還少「知道要去救」這一環。覆寫被還原掉時沒有任何症狀會立刻浮現——要等到服務起不來、

@@ -6,9 +6,9 @@
  * 接線（目標專案 .claude/settings.json，兩個 matcher 都要掛才完整）：
  *   "PreToolUse": [
  *     { "matcher": "Bash|PowerShell", "hooks": [{ "type": "command",
- *       "command": "node \"<專案絕對路徑>/.claude/hooks/guard-report-output.js\"", "timeout": 15 }] },
+ *       "command": "node \"<專案絕對路徑>/.claude/hooks/guard-report-output.js\"", "timeout": 15, "statusMessage": "檢查交付資料夾有沒有混進過程檔" }] },
  *     { "matcher": "Write|Edit|NotebookEdit", "hooks": [{ "type": "command",
- *       "command": "node \"<專案絕對路徑>/.claude/hooks/guard-report-output.js\"", "timeout": 15 }] }
+ *       "command": "node \"<專案絕對路徑>/.claude/hooks/guard-report-output.js\"", "timeout": 15, "statusMessage": "檢查交付資料夾有沒有混進過程檔" }] }
  *   ]
  *
  * 背景：交付結構的常見約定——交付根層只承載「各次交付的專屬資料夾」，資料夾第一層只放

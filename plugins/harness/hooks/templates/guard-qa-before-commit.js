@@ -5,7 +5,7 @@
 // 前提：目標專案有裝 git-commit plugin（commit 走 Skill "git-commit"，底層是它的 flow.sh）。沒裝就不要接這支。
 // 接線（目標專案 .claude/settings.json）——只接 Skill：
 //   "PreToolUse": [{ "matcher": "Skill", "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-qa-before-commit.js\"", "timeout": 30 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-qa-before-commit.js\"", "timeout": 30, "statusMessage": "commit 前檢查行為類改動有沒有表態 QA" }] }]
 //
 // 病灶：pipeline 明訂「行為類先 QA 再 review」，但兩軌 review 都 PASS 時 commit 流程會自動往下走，
 // QA 從未被派的改動照樣上線——審查者甚至寫了「沒加自動化測試」仍判 PASS。
@@ -17,6 +17,10 @@
 // 這支只是在呼叫 git-commit skill 之前提早提醒：staged 有行為類檔、args 沒帶 --qa-verified／--no-qa 就先擋下要求表態，
 // 免得走到 review-record 才被 flow.sh 退回。表態（args 與 --qa 的值）同時進 transcript，使用者當場可否決。
 // 只擋「staged diff 真的含行為類檔」的情形；純文件／設定／測試資產不擋。
+// 「什麼算行為類」與 flow.sh 用同一份判準：執行時讀專案的 `.claude/qa-gate.conf`（見填空區上方說明），
+// 讀不到才退回填空區——以前兩邊各寫一份要手動同步，改一邊忘了另一邊，提早提醒與權威檢查就判得不一樣。
+// 已知取捨：exclude 的 ERE 只翻譯常見寫法（字元類、[[:alpha:]] 這類 POSIX 類、\< \>、跳脫標點）；
+// 翻不了的寫法退回填空區並提醒，不猜。conf 的位置只照 repo 目錄與專案根往上找（worktree 放在工作目錄外的情形不另找主 repo）。
 // 每一輪 commit 都驗（不設 marker）——每個 commit 的 diff 都不同，一次表態不能覆蓋後續 commit。
 //
 // 為什麼不在 Bash 層攔：hook 只看得到指令文字，flow.sh 可以經函式、變數、陣列、source、Invoke-Expression、
@@ -40,14 +44,16 @@ const { execSync, spawnSync } = require('child_process');
 // ── init 填空區 ──────────────────────────────────────────────────────────────
 // 要檢查 staged 的 repo（相對於專案根）。單 repo 專案＝['.']；多 repo workspace 列各 repo 資料夾名。
 const REPOS = ['.'];
+// 「什麼算行為類」的正本是專案的 `.claude/qa-gate.conf`（behavior_ext／exclude，flow.sh 的權威檢查也讀它）：
+// hook 每次執行時讀它，判準只留一處，改 conf 就兩邊一起生效，不必回頭同步這裡。
+// 找法同 flow.sh：從每個 repo 目錄（其次專案根）往上逐層找 `.claude/qa-gate.conf`，取第一個找到的。
+// 下面兩項只在**找不到 conf**、或 conf 的 exclude 翻譯成 JS 失敗時當退路用（翻譯失敗會用 additionalContext 提醒）。
 // 行為類副檔名（會被執行到的程式邏輯）。依 Phase 1 盤點的技術棧填，例：
 //   Web 前後端：['js','ts','jsx','tsx','mjs','cjs','py','go','java','kt','cs','rb','php']＋前端框架單檔元件副檔名
 //   行動 App：['swift','m','kt','java','dart']
 const BEHAVIOR_EXTS = ['js', 'ts', 'jsx', 'tsx', 'mjs', 'cjs', 'py', 'go', 'java', 'kt', 'cs', 'rb', 'php'];
 // 不算行為類的路徑（regex，比對 repo 內相對路徑）。測試資產本身不需要再 QA。
 const EXCLUDE_PATTERNS = [/^tests?\//, /(^|\/)__tests__\//, /\.(test|spec)\.[a-z]+$/i];
-// ↑ 這兩項與 `.claude/qa-gate.conf` 的 behavior_ext／exclude 是同一份盤點（init 一起填），改一邊要同步另一邊，
-//   否則提早提醒與 flow.sh 的權威檢查對「什麼算行為類」判斷不一致。
 // QA agent 名（訊息用）。
 const QA_AGENT = 'qa-engineer';
 // 本機覆寫夾帶檢查：裝了本機覆寫保護（hook-catalog 16–18）時 init 改成 true。
@@ -58,9 +64,128 @@ const FLOW_SH = '';
 
 const EXT_RE = new RegExp('\\.(' + BEHAVIOR_EXTS.join('|') + ')$', 'i');
 
-function isBehaviorFile(f) {
+// 填空區的判準（退路）
+function fillInIsBehavior(f) {
   if (EXCLUDE_PATTERNS.some((re) => re.test(f))) return false;
   return EXT_RE.test(f);
+}
+
+// ── 讀 .claude/qa-gate.conf（格式與解析規則照 git-commit flow.sh 的 load_qa_gate_conf）──────────────
+// 從每個起點往上逐層找，回第一個找到的完整路徑；都沒有回 null。
+function findQaGateConf(starts) {
+  for (const s of starts) {
+    let d = path.resolve(s);
+    for (;;) {
+      const p = path.join(d, '.claude', 'qa-gate.conf');
+      try { if (fs.statSync(p).isFile()) return p; } catch {}
+      const up = path.dirname(d);
+      if (up === d) break;
+      d = up;
+    }
+  }
+  return null;
+}
+// key=value；整行 # 開頭是註解；「空白後接 #」起到行尾也是註解（緊貼在值裡的 # 保留）；值前後空白剝掉；
+// 第一行的 UTF-8 BOM 剝掉；同一個 key 寫兩次以後面的為準（同 flow.sh 逐行覆寫）。
+function parseQaGateConf(text) {
+  const out = { behavior_ext: '', exclude: '' };
+  String(text).split('\n').forEach((line, i) => {
+    line = line.replace(/\r$/, '');
+    if (i === 0) line = line.replace(/^\uFEFF/, '');
+    if (/^\s*(#|$)/.test(line)) return;
+    line = line.replace(/\s#.*$/, '');
+    const eq = line.indexOf('=');
+    if (eq < 0) return;
+    const key = line.slice(0, eq).trim();
+    if (key === 'behavior_ext' || key === 'exclude') out[key] = line.slice(eq + 1).trim();
+  });
+  return out;
+}
+// POSIX 字元類 → JS（放在 [] 裡面用）
+const POSIX_CLASS = {
+  alpha: 'A-Za-z', digit: '0-9', alnum: 'A-Za-z0-9', upper: 'A-Z', lower: 'a-z', xdigit: '0-9A-Fa-f',
+  space: ' \\t\\n\\r\\f\\v', blank: ' \\t', punct: '!-\\/:-@\\[-`{-~', cntrl: '\\x00-\\x1f\\x7f',
+  print: '\\x20-\\x7e', graph: '\\x21-\\x7e',
+};
+// ERE（bash 的 [[ =~ ]]，區分大小寫、不錨定）翻成等價的 JS RegExp。兩邊意思不同、或 ERE 沒有的寫法一律丟錯
+// （由呼叫端退回填空區並提醒），不猜：
+//   · [] 裡的反斜線在 ERE 是字面字元 → JS 要寫成 \\；[] 開頭的 ] 是字面字元；[[:alpha:]] 這類 POSIX 類照表展開
+//   · \< \> → \b；\. \/ 這類跳脫標點照抄
+//   · (? 開頭（JS 的非捕獲／前後看）、*? +? ?? 這類非貪婪、\d 這類 JS 才有的簡寫、反向參照 → 丟錯
+function ereToJs(src) {
+  let out = '';
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    if (c === '\\') {
+      const d = src[i + 1];
+      if (d === undefined) throw new Error('結尾是單獨的反斜線');
+      if (d === '<' || d === '>') out += '\\b';
+      else if (/[A-Za-z0-9]/.test(d)) throw new Error('\\' + d + ' 在 ERE 與 JS 的意思不同或沒有定義');
+      else out += '\\' + d;
+      i += 2;
+      continue;
+    }
+    if (c === '(' && src[i + 1] === '?') throw new Error('「(?」不是 ERE 語法');
+    if ('*+?}'.includes(c) && src[i + 1] === '?') throw new Error('「' + c + '?」（非貪婪）不是 ERE 語法');
+    if (c === '[') {
+      let j = i + 1;
+      let cls = '[';
+      if (src[j] === '^') { cls += '^'; j++; }
+      if (src[j] === ']') { cls += '\\]'; j++; }
+      let closed = false;
+      while (j < n) {
+        const e = src[j];
+        if (e === ']') { closed = true; j++; break; }
+        if (e === '[' && src[j + 1] === ':') {
+          const end = src.indexOf(':]', j + 2);
+          const name = end < 0 ? null : src.slice(j + 2, end);
+          if (!name || !POSIX_CLASS[name]) throw new Error('不認得的字元類 ' + src.slice(j, end < 0 ? j + 2 : end + 2));
+          cls += POSIX_CLASS[name];
+          j = end + 2;
+          continue;
+        }
+        if (e === '[' && (src[j + 1] === '.' || src[j + 1] === '=')) throw new Error('不支援 [. .] / [= =]');
+        cls += e === '\\' ? '\\\\' : e;
+        j++;
+      }
+      if (!closed) throw new Error('[ 沒有對應的 ]');
+      out += cls + ']';
+      i = j;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return new RegExp(out);   // 括號不成對之類的錯誤由這裡丟
+}
+
+// 回 { isBehavior, from }：conf 讀得到且翻譯成功用 conf；否則用填空區（翻譯失敗時把提醒放進 notes）
+function behaviorRules(repoDir, root, notes) {
+  const conf = findQaGateConf([repoDir, root]);
+  if (!conf) return { isBehavior: fillInIsBehavior, from: '填空區（找不到 .claude/qa-gate.conf）' };
+  let parsed;
+  try { parsed = parseQaGateConf(fs.readFileSync(conf, 'utf8')); } catch (e) {
+    notes.push(`[qa-before-commit] ⚠ 讀不到 ${conf}（${e.message}），這次改用 hook 填空區的判準。`);
+    return { isBehavior: fillInIsBehavior, from: '填空區' };
+  }
+  const exts = parsed.behavior_ext.split(/\s+/).filter(Boolean).map((x) => x.toLowerCase());
+  const excludes = [];
+  for (const re of parsed.exclude.split(/\s+/).filter(Boolean)) {
+    try { excludes.push(ereToJs(re)); } catch (e) {
+      notes.push(`[qa-before-commit] ⚠ ${conf} 的 exclude「${re}」hook 翻不成等價的 JS 正規表示式（${e.message}），`
+        + '這次「什麼算行為類」改用 hook 填空區的判準，可能與 flow.sh 的判斷不一致。'
+        + '請把這條改成 ERE 的基本寫法（例：用 [0-9] 不用 \\d）。flow.sh 只在 bash 認為整條 ERE 無效時（例：括號不成對、「(?」、「*?」）'
+        + '拒絕記錄審查結果；\\w、\\d 這類 bash 接受的寫法它照常往下判（Git Bash 把 \\d 當成字母 d），所以 flow.sh 不會替你抓到這條。');
+      return { isBehavior: fillInIsBehavior, from: '填空區（conf 的 exclude 翻譯失敗）' };
+    }
+  }
+  // 同 flow.sh：副檔名比對檔名結尾、不分大小寫；exclude 區分大小寫、任一命中就不算；behavior_ext 空＝不做 QA 檢查
+  return {
+    isBehavior: (f) => exts.some((x) => f.toLowerCase().endsWith(x)) && !excludes.some((re) => re.test(f)),
+    from: conf,
+  };
 }
 
 // 放行但要讓模型知道的提醒（下一關要帶 --qa、某項檢查沒跑、hook 故障）：PreToolUse 以 exit 0 結束時，純文字 stdout 模型看不到
@@ -202,7 +327,7 @@ try {
     if (qaPassed) notes.push('[qa-before-commit] 已放行 skill 入口。專案有 .claude/qa-gate.conf 時，流程裡記錄審查結果（flow.sh review-record）'
       + '那一步會由 flow.sh 強制要求 QA 表態，staged 含行為類檔卻沒帶就拒絕記錄：'
       + '--qa-verified 對應 `--qa "已QA：<報告或測試檔路徑＋綠的輸出行>"`，--no-qa 對應 `--qa "分流例外：<為何讀 code 就能確定>"`。');
-    if (notes.length) tellModel(notes.join('\n'));
+    if (notes.length) tellModel([...new Set(notes)].join('\n'));
     process.exit(0);
   };
   if (CHECK_OVERRIDES && !/--allow-overrides|覆寫檔已確認/.test(args)) {
@@ -224,15 +349,22 @@ try {
   if (/--qa-verified|--no-qa|QA已驗|QA 已驗/.test(args)) allow(true);
 
   const hits = [];
+  const froms = new Set();   // 這次「什麼算行為類」用的是哪份判準（訊息用）
   for (const r of REPOS) {
     const dir = path.resolve(root, r);
     if (!fs.existsSync(path.join(dir, '.git'))) continue;
     let out = '';
     try {
-      out = execSync('git diff --cached --name-only', { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      // -z（NUL 分隔）讀原始檔名，同 flow.sh：不用 -z 時中文、空白、引號這類檔名會被 git 包成 "src/\350…" 輸出，
+      // 副檔名比對失敗就把行為類檔當成不是
+      out = execSync('git diff --cached --name-only -z', { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     } catch { continue; }
-    for (const f of out.split('\n').map((x) => x.trim()).filter(Boolean)) {
-      if (isBehaviorFile(f)) hits.push(r === '.' ? f : `${r}/${f}`);
+    const files = out.split('\0').filter(Boolean);
+    if (!files.length) continue;
+    const rules = behaviorRules(dir, root, notes);
+    froms.add(rules.from);
+    for (const f of files) {
+      if (rules.isBehavior(f)) hits.push(r === '.' ? f : `${r}/${f}`);
     }
   }
 
@@ -244,6 +376,7 @@ try {
       '',
       ...hits.slice(0, 20).map((f) => `  - ${f}`),
       hits.length > 20 ? `  …共 ${hits.length} 檔` : '',
+      `（行為類的判準來自：${[...froms].join('；')}）`,
       '',
       '請在回覆中三選一明答，讓使用者可否決：',
       '  (a) 已 QA：貼出 QA 報告路徑或 codify 的測試檔路徑＋實跑綠的輸出行；',
@@ -252,7 +385,7 @@ try {
       '',
       '答完後重新呼叫 git-commit skill；判定是 (a) 或 (b) 時，args 帶 "--qa-verified" 即放行本次。',
       '（專案有 .claude/qa-gate.conf 時，flow.sh review-record 那一步要帶 --qa "已QA：…" 或 --qa "分流例外：…"，否則 flow.sh 拒絕記錄——直接用 Bash 跑 flow.sh 也一樣。）',
-      ...notes,
+      ...new Set(notes),
     ].filter(Boolean).join('\n')
   );
   process.exit(2);

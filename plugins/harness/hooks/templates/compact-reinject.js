@@ -5,7 +5,7 @@
  * 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
  * 與 compact-snapshot.js 一組；接線（目標專案 .claude/settings.json）：
  *   "SessionStart": [{ "matcher": "compact", "hooks": [{ "type": "command",
- *     "command": "node \"<專案絕對路徑>/.claude/hooks/compact-reinject.js\"", "timeout": 15 }] }]
+ *     "command": "node \"<專案絕對路徑>/.claude/hooks/compact-reinject.js\"", "timeout": 15, "statusMessage": "把壓縮前的交接信接回對話" }] }]
  *
  * 注入點必須是 SessionStart(compact)：PostCompact 依官方規格不能注入 context，
  * SessionStart 的純文字 stdout 才會進模型 context。

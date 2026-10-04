@@ -4,7 +4,7 @@
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
 // 接線（目標專案 .claude/settings.json）：
 //   "PreToolUse": [{ "matcher": "Bash|PowerShell", "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-local-hack-destroy.js\"", "timeout": 15 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-local-hack-destroy.js\"", "timeout": 15, "statusMessage": "檢查指令會不會毀掉未提交的本機覆寫" }] }]
 //
 // 病灶：本機覆寫（連線字串、mock 開關、測試用 token…）刻意不 commit，長期以未提交改動存在。
 // 這些改動不在 commit、不在 stash、reflog 也沒有——被 checkout/reset 蓋掉就是永久消失，git 完全救不回。

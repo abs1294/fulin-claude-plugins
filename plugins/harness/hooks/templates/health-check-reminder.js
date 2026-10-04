@@ -4,7 +4,7 @@
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
 // 接線（目標專案 .claude/settings.json）：
 //   "SessionStart": [{ "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/health-check-reminder.js\"", "timeout": 15 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/health-check-reminder.js\"", "timeout": 15, "statusMessage": "檢查制度健檢有沒有到期" }] }]
 //
 // 讀健檢紀錄，找帶專用標記【健檢執行】的條目（`- YYYY-MM-DD 【健檢執行】…`，
 // 由 /harness:review 補紀錄時寫入），取其中**日期最大**的一筆，距今超過門檻天數就在開機訊息提醒。

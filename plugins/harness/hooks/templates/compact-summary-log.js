@@ -5,7 +5,7 @@
  * 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
  * 與 compact-snapshot.js 一組；接線（目標專案 .claude/settings.json）：
  *   "PostCompact": [{ "matcher": "", "hooks": [{ "type": "command",
- *     "command": "node \"<專案絕對路徑>/.claude/hooks/compact-summary-log.js\"", "timeout": 15 }] }]
+ *     "command": "node \"<專案絕對路徑>/.claude/hooks/compact-summary-log.js\"", "timeout": 15, "statusMessage": "記錄壓縮摘要漏了什麼" }] }]
  *
  * PostCompact 不能影響壓縮結果、也不能注入 context（官方規格），只做紀錄。
  * 紀錄用途：評估壓縮到底丟了什麼、交接信有沒有補回來（例如調整自動壓縮門檻前後的比較），

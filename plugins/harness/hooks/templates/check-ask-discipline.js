@@ -4,7 +4,7 @@
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治。
 // 接線（目標專案 .claude/settings.json）：
 //   "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/check-ask-discipline.js\"" }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/check-ask-discipline.js\"", "statusMessage": "檢查提問有沒有附建議選項" }] }]
 //
 // 只驗一件事：每題必附建議選項——提得出建議＝三重自查（03 矩陣「問使用者前的三重自查」）真的做過；
 // 提不出建議＝還沒自省，deny 訊息即自省清單。

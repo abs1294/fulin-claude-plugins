@@ -2,6 +2,15 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.12.0] - 2026-10-04
+### Changed
+- **開工前對齊回合不設後果門檻**：04 派工模板原本只在「不同 schema／API／對外行為」時才要求對齊，但真正燒時間的多是低階的理解分岔。改成每次派實作或 QA 都要先對齊，並補兩條判準：使用者說「這題你決定」算明確授權，不能自己推斷他不想被問；清零要同時滿足「已經提不出新的分岔」與「使用者確認」。模板二（實作）、模板三（重構）補上【開工前對齊】欄，與模板六一致。
+- **派工閘驗範本自己的欄位**：`check-review-discipline.js` 原本不驗範本裡已有的三格，等於只靠自律。實作類與 QA 類 agent 驗【開工前對齊】，QA 另驗【目標環境】【既有測試分流】。另新增「打開【計畫／設計文件】指向的 `.md`、驗必要章節」的規則（填空常數 `DOC_SECTION_RULES`）：預設要有「測試情境表」或「驗證計畫」標題，以及「待簽收／已簽收」句；檔案不存在就擋並提示。路徑可寫成 markdown 連結（取括號裡的路徑，`[x](<含空白路徑>)` 取角括號內的）、加引號（可含空白）或 Git Bash 的 `/c/…`（Windows 上轉成 `C:/…`）；沒加引號又含空白時（例：專案在「OneDrive - 公司名」底下），從 `.md` 結尾往前延伸、找磁碟上實際存在的檔照常驗。判不準的——含空白又找不到實際的檔、`~` 開頭、`http(s)://` 網址、Windows 上其他對不到的 `/…` 寫法——不擋、提醒這次沒驗到。相對路徑以專案根解析（找法同 `guard-qa-before-commit`：`CLAUDE_PROJECT_DIR` → hook 所在位置往上兩層 → payload 的 cwd），session 停在子目錄也不會誤擋。不驗的兩種情況：【開工前對齊】開頭寫「分流例外」（04 只要求行為類任務交簽收物）；architect 與 engineer 併一步、第一次派 engineer 時【計畫／設計文件】寫「本次產出：<路徑>」。architect 骨架與 04 的簽收物段落同步寫明這兩項，照骨架產出的文件才過得了閘；architect 骨架另提醒專案有自己的設計文件格式時要同步改 `DOC_SECTION_RULES`，engineer 骨架的併步說明補上簽收狀態句與「本次產出：<路徑>」寫法。
+- **QA 閘的判準只留一份**：`guard-qa-before-commit.js` 原本自帶行為類副檔名與排除樣式，要人工跟 `.claude/qa-gate.conf` 保持一致。改成執行時讀 qa-gate.conf（behavior_ext、exclude；exclude 的 ERE 翻譯成等價的 JS），讀不到或翻譯不了才退回填空區的值，並提醒模型；擋下訊息寫明判準來自哪裡。staged 清單改用 `git diff --cached --name-only -z` 讀原始檔名（同 flow.sh），中文、含空白的檔名不再被 git 包成跳脫字串而漏判。init 的說明改成「conf 是唯一正本」，Phase 5 驗 hook 與 flow.sh 讀的是同一份。
+### Added
+- **接線帶 statusMessage**：每支範本 hook 的接線註解加一行白話說明，init 寫入 settings.json 時一併帶上，慢的 hook 執行時看得出是哪一支在跑。
+- **probe-hooks 新增佔位 `{PROJECT_DIR_POSIX}`**：payload 裡換成暫存專案路徑的 Git Bash 寫法（Windows 上 `/c/…`，其他平台同原路徑），測「派工單用 `/c/…` 寫路徑」的案例。
+
 ## [0.11.0] - 2026-10-04
 ### Fixed
 - **本機覆寫銷毀閘的判斷精度（只在語法解析器可用時放寬，其餘照舊）**：`guard-local-hack-destroy.js` 原本只要同 repo 有改過的覆寫檔，`git restore`／`git checkout` 不論點名哪個檔都整條擋。現在先照原本的判法算，要擋時，若語法解析器可用（同目錄的 `shell-model.js`，與規則引擎共用），再用語法樹確定每個 git 呼叫實際會改到哪些檔：目前目錄照語法樹追蹤一定會執行的 cd，判不準就照原本擋（條件裡的 cd、cd 失敗或引數不是恰好一個、pushd／Push-Location、`env -C`、PowerShell 的 `cd..`、cd 接反斜線、`C:` 這類內建函式、PowerShell script block 或子運算式裡的換目錄、`iex`／`Invoke-Command`、在 `bash -c`／`pwsh -Command` 等新程序裡都算判不準；PowerShell 5.1 實跑確認這些寫法真的會換掉 session 目錄）、環境裡沒有改變 repo 位置的 `GIT_*` 變數、全域選項只認 `-C`（依序疊加）、`--no-pager`、`-P`、`--no-optional-locks`，子命令與旗標都在完整清單內（縮寫、`--pathspec-from-file`、`submodule foreach`、別名都不認）、點名參數沒有萬用字元／pathspec magic／展開語法、執行目錄的 repo 實體路徑與覆寫清單上的 repo 相同，在它之前沒有看不出會不會換目錄的指令（bash 的自訂函式或認不得的名稱、PowerShell 的 `.ps1` 腳本與函式；用路徑跑的 bash 腳本是子程序，不算；git 本身與 `pytest`、`tsc`、`docker`、`make` 這類常見開發工具是已知外部程式，也不算——git 呼叫會不會改工作區另照上面的子命令清單判），而且同一串沒有寫檔的重導向或 cmdlet、`source`／dot-source、`eval`／`iex`、指令名稱不是字面的呼叫、PowerShell 用 .NET 換目錄，文字判斷認出的危險 git 呼叫數也要等於語法樹確認的數目；放寬過程出任何錯都照原本擋；全部確定而且沒點到覆寫檔才放行，任何一處判不準就照原本擋。沒有解析器（或 `HARNESS_SHELL_PARSER=off`、語法樹有錯）時判法與改動前相同。另認得完整路徑的 git（`/usr/bin/git`、加引號的 `…\git.exe`）、合寫短旗標（`stash -ku`、`stash -ua`、`switch -fc`、`checkout -qf`）、`checkout --ours/--theirs`、`checkout --forc`、`checkout --pathspec-fr` 這類縮寫，多行指令裡前一行的 `cd` 也算進去（這幾項只加嚴）。cases 改成兩條路徑各自的預期（`probe-hooks.js` 新增 `"parser": "off"` 標示只在正則路徑跑的案例，以及 `setup.links`、`setup.worktrees`）。

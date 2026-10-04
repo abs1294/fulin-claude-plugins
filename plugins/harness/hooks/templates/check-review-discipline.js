@@ -5,7 +5,7 @@
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
 // 接線（目標專案 .claude/settings.json）：
 //   "PreToolUse": [{ "matcher": "Agent|Task", "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/check-review-discipline.js\"", "timeout": 15 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/check-review-discipline.js\"", "timeout": 15, "statusMessage": "檢查派工單的紀律欄位" }] }]
 //
 // 背景：派工 prompt 該帶的紀律條款（回報鏈鐵則、驗收條件、回報格式……）若只寫在文件裡、
 // 沒有機械檢查，實測會被跳過——派工單漏一項，subagent 照樣開工，缺口要等審查甚至上線
@@ -21,12 +21,31 @@
 //   【驗收條件】（ACCEPTANCE_BODY_AGENTS）：剝掉範本佔位 <…>、標題後的括號說明、條列符號後不能是空的
 // 仍不判「選得對不對」「條件寫得好不好」——那要看程式碼與需求，是審查與 QA 的事。
 //
+// 打開引用的檔驗章節（DOC_SECTION_RULES）：派實作時【計畫／設計文件】指向一份 .md，就打開它驗必要章節
+// （預設：「測試情境表」或「驗證計畫」標題＋簽收狀態句）。只看 prompt 文字的話，設計文件漏產情境表、
+// 還沒簽收就交棒，派工單照樣過閘——交棒那一刻驗簽收物本身，比事後審查才發現便宜。
+// 指向的檔不存在 → 擋（多半是路徑寫錯或還沒產出，放行的話這道檢查等於沒做）；格裡沒寫 .md 路徑 → 不檢查（見已知取捨）。
+// 路徑怎麼取：markdown 連結 `[x](<路徑>)`／`[x](路徑)` 括號裡的 → 引號或反引號包住的（可含空白）→ 其餘第一個 .md 字樣
+// （沒加引號又含空白時，從 .md 結尾往前延伸、找磁碟上實際存在的檔，例：專案放在「OneDrive - 公司名」底下）。
+// Windows 上 Git Bash 寫法 `/c/...` 轉成 `C:/...`。判不準的情況（含空白又找不到實際的檔、`~` 開頭、網址、Windows 上其他
+// `/` 開頭的 Git Bash 路徑）不擋：放行並用 additionalContext 提醒這次沒驗到。相對路徑以專案根解析，找法同 guard-qa-before-commit
+// （CLAUDE_PROJECT_DIR → 本檔在 <專案根>/.claude/hooks/ 時往上兩層 → payload 的 cwd），session 停在子目錄也不會解析錯。
+// 不驗的兩種情況：①【開工前對齊】寫「分流例外」（04 只要求行為類任務交簽收物）
+// ②【計畫／設計文件】寫「本次產出：<路徑>」（architect 與 engineer 併一步時，第一次派 engineer 由它產出設計文件，檔還不存在）。
+//
+// 已知取捨（正常寫法以外的情境，刻意不處理）：
+//   · 【開工前對齊】【目標環境】【既有測試分流】只驗標題有沒有寫，整行範本照貼不改也會過——三格的作答形式太自由，
+//     要判內容就得猜句型；表態對不對由使用者確認開發計畫時看。
+//   · 引用檔只認 .md；寫成其他副檔名、或格裡沒寫路徑，這一項不檢查。
+//   · 「分流例外」只認【開工前對齊】作答的開頭；寫在句中（「無分岔，但屬分流例外」）不算，照樣驗文件。
+//   · 章節只驗「標題行／句子在不在」，不驗情境表裡有沒有反向路徑、簽收是不是真的有人簽。
+//
 // 一次列完所有未過的閘（不要一項一項擠牙膏）：若每次只回報一項，補一項撞一項，
 // 派一個要連過多道閘的 agent 會被連續擋很多次，而且每次 deny 都燒一輪 context。
 //
 // 通用化說明：本範本的 REQUIRED_MARKERS 表格對齊 04-delegation-templates.md 的欄位標題——
-// 共用四項（回報鏈鐵則、【驗收條件】、【回報格式】、【開工前必讀】，且必讀要寫到 CLAUDE.md、CONTEXT.md）＋依 agent 角色加碼的欄位（見填空區
-// 註解）。這是通用骨架的預設表，**不含**任何特定專案自訂的紀律標記（例如某種靜態掃描
+// 共用四項（回報鏈鐵則、【驗收條件】、【回報格式】、【開工前必讀】，且必讀要寫到 CLAUDE.md、CONTEXT.md）＋依 agent 角色加碼的欄位
+// （實作與 QA 驗【開工前對齊】、QA 另驗【目標環境】【既有測試分流】，見填空區註解）。這是通用骨架的預設表，**不含**任何特定專案自訂的紀律標記（例如某種靜態掃描
 // 工具名、某種分流判準、某個環境的 port 對照）——專案要加自己的紀律時，直接在表裡
 // 用同樣的形狀加一條（見填空區範例的「如何自加一條」）。
 //
@@ -50,7 +69,8 @@ const path = require('path');
 //     且必讀清單一定要寫到 CLAUDE.md（專案概要）與 CONTEXT.md（專案用語）——所有角色都要讀
 //   架構、實作、審查（backend-architect／backend-engineer／frontend-engineer／code-reviewer）另要寫到 FLOWS.md
 //     （觸及已收錄鏈路就列入；沒觸及也寫一句，逼派工的人判斷一次——「有沒有觸及」機械判不了）
-//   QA agent（例：qa-engineer）另加【範圍展開】【測試資料來源】，必讀清單要寫到 tests/Project_Detail/PROJECT.md
+//   實作與 QA（backend-engineer／frontend-engineer／qa-engineer）另加【開工前對齊】（04 模板二、三、六；三選一表態，判準見模板五配套 1）
+//   QA agent（例：qa-engineer）另加【範圍展開】【測試資料來源】【目標環境】【既有測試分流】，必讀清單要寫到 tests/Project_Detail/PROJECT.md
 //   審查型 agent（例：code-reviewer）另加模板四的驗證欄位（【產出路徑】、【驗證方式】）
 // 為什麼必讀也要擋：只寫在 agent 檔與 04 範本裡的必讀清單，實測派工時會漏（例：QA 派工沒列測試知識檔），
 //   而 subagent 回報時也不會發現自己少讀了什麼。這支 hook 只驗「檔名有寫進 prompt」，有沒有真的讀，
@@ -59,6 +79,11 @@ const path = require('path');
 //
 // 專案要自加一條時，照同樣的形狀加進對應 agent 的陣列（或加進 '*' 讓全部 agent 都要過）：
 //   { name: '某工具掃描', pattern: '某工具名', hint: '派工 prompt 必須要求跑 <某工具> 並附輸出' }
+// 實作與 QA 共用的【開工前對齊】提示文字（下表三個 agent 的那一條都引用它）。
+// name／pattern 刻意在表裡寫成字面量：/harness:review 的收集腳本只用文字解析讀這張表，寫成變數引用它就讀不到這條。
+const ALIGN_HINT = '派實作／QA agent 的 prompt 必須含【開工前對齊】表態（04 模板二、三、六），三選一：'
+    + '「無分岔＋一句理由」／「已對齊清零（<N> 題）」（模型已提不出新分岔，而且使用者確認過共識）／'
+    + '「分流例外：<理由>」（純結構、文案、死碼等讀 code 就能確定等價）。本檢查只驗有沒有表態，判斷由你做。';
 const REQUIRED_MARKERS = {
   '*': [
     {
@@ -109,6 +134,7 @@ const REQUIRED_MARKERS = {
       hint: '【開工前必讀】要寫到 FLOWS.md：本需求觸及已收錄鏈路就列入必讀；沒觸及也要寫一句「FLOWS.md：沒觸及已收錄鏈路」，'
         + '讓派工的人當場判斷過一次。',
     },
+    { name: '開工前對齊', pattern: '【開工前對齊】', hint: ALIGN_HINT },
   ],
   'frontend-engineer': [
     {
@@ -117,8 +143,22 @@ const REQUIRED_MARKERS = {
       hint: '【開工前必讀】要寫到 FLOWS.md：本需求觸及已收錄鏈路就列入必讀；沒觸及也要寫一句「FLOWS.md：沒觸及已收錄鏈路」，'
         + '讓派工的人當場判斷過一次。',
     },
+    { name: '開工前對齊', pattern: '【開工前對齊】', hint: ALIGN_HINT },
   ],
   'qa-engineer': [
+    { name: '開工前對齊', pattern: '【開工前對齊】', hint: ALIGN_HINT },
+    {
+      name: '目標環境',
+      pattern: '【目標環境】',
+      hint: '派 QA agent 的 prompt 必須含【目標環境】（04 模板六）：預設環境填一行帶過即可；切到其他環境時寫明網址、後端、身分來源'
+        + '——站台寫錯是在派工那一刻發生的，逼派工的人寫出來最容易當場抓到。',
+    },
+    {
+      name: '既有測試分流',
+      pattern: '【既有測試分流】',
+      hint: '派 QA agent 的 prompt 必須含【既有測試分流】（04 模板六），二選一：「reuse：<要改的既有 test 檔絕對路徑>」'
+        + '（變更落在既有案例接得住的範圍，只加斷言或參數化）／「新 TC：<一句理由說明為何既有案例接不住>」。',
+    },
     {
       name: '範圍展開',
       pattern: '【範圍展開】',
@@ -163,6 +203,37 @@ const REQUIRED_MARKERS = {
 const ACCEPTANCE_BODY_AGENTS = ['*'];
 // 【測試資料來源】要驗作答的 agent（通常只有 QA agent；Q1 裁掉 QA 時清空）。
 const DATA_SOURCE_AGENTS = ['qa-engineer'];
+
+// 打開引用的檔驗章節（見檔頭）。每條規則：
+//   name     — 識別名（訊息用）
+//   field    — 欄位標題的 regex 字串；預設對齊 04 模板二的【計畫／設計文件】（也認【設計文件】）
+//   agents   — 適用的 agent 名（不含 plugin 前綴）；prompt 沒有這格就不檢查
+//   sections — 引用檔裡必須有的東西：{ name, pattern（regex 字串，多行模式：^ 對齊每一行行首）, hint }
+// 引用路徑（resolveDocRef）：格內依序取 markdown 連結 [x](<路徑>)／[x](路徑) 括號裡的 → 引號或反引號包住的 →
+// 沒包起來的第一個 .md 字樣（含空白時從 .md 往前延伸，找磁碟上實際存在的檔）。Windows 上 /c/… 轉成 C:/…。
+// 相對路徑以專案根解析（projectRoot：CLAUDE_PROJECT_DIR → 本檔在 <專案根>/.claude/hooks/ 時往上兩層 → payload 的 cwd）。
+// 引用檔不存在 → 擋；格裡沒寫 .md 路徑、【開工前對齊】開頭是「分流例外」、格裡寫「本次產出：」→ 不檢查；
+// 路徑判不準（含空白又找不到實際的檔、~ 開頭、網址、Windows 上對不到的 / 開頭路徑）→ 不擋，用 additionalContext 提醒。agents 照 Q1 定案的實作／審查 agent 名改；
+// 04 模板五「簽收物」的格式改了（例：標題改叫別的名字），sections 要同步改，否則照新格式寫的文件會被擋。
+const DOC_SECTION_RULES = [
+  {
+    name: '設計文件',
+    field: '【[^】\\n]*設計文件[^】\\n]*】',
+    agents: ['backend-engineer', 'frontend-engineer', 'code-reviewer'],
+    sections: [
+      {
+        name: '測試情境表或驗證計畫標題',
+        pattern: '^[ \\t]*#{1,6}[^\\n]*(?:情境表|驗證計畫)',
+        hint: '大案要有一個 markdown 標題行寫「測試情境表」（例：`## 測試情境表`）；小案寫「驗證計畫」（04 模板五「簽收物」）',
+      },
+      {
+        name: '簽收狀態句',
+        pattern: '待簽收|已簽收',
+        hint: '文件裡要寫簽收狀態：「狀態：待簽收」，使用者確認後改成「已簽收（<誰>，<日期>）」',
+      },
+    ],
+  },
+];
 // ────────────────────────────────────────────────────────────────────────────
 
 // 取「【標題】」之後、到下一格標題之前的內容當作該格的作答區；沒有這格回 null。
@@ -296,12 +367,121 @@ function dataSourceProblems(prompt) {
   return out;
 }
 
+// 專案根（相對路徑的解析基準）：與 guard-qa-before-commit 的 projectRoot 同一個找法。
+// CLAUDE_PROJECT_DIR 不保證存在；沒有時先用「本檔在 <root>/.claude/hooks/」推回去，payload 的 cwd 排最後——
+// session 停在子目錄時 cwd 是子目錄，拿它解析相對路徑會把存在的設計文件判成找不到而誤擋。
+function projectRoot(input) {
+  if (process.env.CLAUDE_PROJECT_DIR) return process.env.CLAUDE_PROJECT_DIR;
+  if (path.basename(__dirname) === 'hooks' && path.basename(path.dirname(__dirname)) === '.claude') return path.resolve(__dirname, '..', '..');
+  return (input && input.cwd) || path.resolve(__dirname, '..', '..');
+}
+
+// 【開工前對齊】作答的開頭是「分流例外」：純結構／文案／死碼等非行為類任務，04 不要求交簽收物
+function isTriageException(prompt) {
+  const seg = fieldSegment(prompt, '【開工前對齊】');
+  if (seg === null) return false;
+  const first = stripPlaceholders(dropHeadingNote(seg)).split(/\r?\n/)
+    .map((l) => l.replace(/^[\s>*_#\-：:]+/, '').trim()).find((l) => l !== '');
+  return !!first && /^分流例外/.test(first);
+}
+
+// 路徑寫法本身判不準的先擋在外面（只提醒、不擋）：~ 開頭的家目錄、網址、Windows 上對不到的 Git Bash 路徑。
+// 這幾種若照相對路徑接在專案根後面，必然「找不到檔」而誤擋。回 { p } 或 { unsure: '原因' }
+function nativePath(raw) {
+  if (/^~(?:[\\/]|$)/.test(raw)) return { unsure: '「' + raw + '」是 ~ 開頭的家目錄寫法，hook 不展開' };
+  if (/^[A-Za-z][A-Za-z0-9+.-]+:\/\//.test(raw)) return { unsure: '「' + raw + '」是網址，不是本機檔案' };
+  if (process.platform !== 'win32') return { p: raw };
+  // Windows 上的 Git Bash 寫法：/c/... → C:/...；其他 / 開頭的路徑（/tmp/...）對不到 Windows 路徑
+  const g = /^\/([A-Za-z])(\/.*)?$/.exec(raw);
+  if (g) return { p: g[1].toUpperCase() + ':' + (g[2] || '/') };
+  if (/^\/(?!\/)/.test(raw)) return { unsure: '「' + raw + '」是 Git Bash 的路徑寫法，對不到 Windows 路徑' };
+  return { p: raw };
+}
+const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+
+// 從欄位作答（原文，還沒剝範本佔位）取出 .md 路徑、解析成本機絕對路徑。
+// 回 { p, exists } 或 { unsure: '原因' }（判不準，不檢查）或 null（沒寫路徑）。取法依序：
+//   ① markdown 連結的角括號寫法 [x](<路徑>)：markdown 用角括號包含空白的路徑，要在剝範本佔位 <…> 之前取，否則整段被剝掉
+//   ② markdown 連結 [x](路徑)：取括號裡的（連結文字常只是檔名）
+//   ③ 引號／反引號包住的：可以含空白
+//   ④ 沒包起來的第一個 .md 字樣：可能是含空白路徑的後半段，從 .md 結尾往前一次多延伸一段（空白前的字），
+//      最長的先試，找磁碟上實際存在的檔；都找不到，而前一段長得像路徑（含斜線或磁碟代號）→ 判不準；否則照字樣判「找不到檔」
+function resolveDocRef(rawSeg, baseDir) {
+  const toAbs = (raw) => { const np = nativePath(String(raw).trim()); return np.unsure ? np : { p: path.resolve(baseDir, np.p) }; };
+  let m = /\]\(\s*<([^<>\n]+?\.md)>\s*(?:"[^"\n]*")?\s*\)/i.exec(rawSeg);
+  const seg = stripPlaceholders(rawSeg);
+  if (!m) m = /\]\(\s*([^()<>\n]*?\.md)\s*(?:"[^"\n]*")?\s*\)/i.exec(seg);
+  if (!m) m = /["'`“「]([^"'`”」\n]*?\.md)["'`”」]/i.exec(seg);
+  if (m) { const r = toAbs(m[1]); return r.unsure ? r : { p: r.p, exists: isFile(r.p) }; }
+  m = /[^\s<>《》【】"'`（）()，,；;、：|]+\.md(?![A-Za-z0-9_])/i.exec(seg);
+  if (!m) return null;
+  const lineStart = seg.lastIndexOf('\n', m.index) + 1;
+  const line = seg.slice(lineStart, m.index + m[0].length);
+  const tokenAt = m.index - lineStart;
+  // 候選起點：行內每一段非空白字的開頭（到 .md 字樣本身為止），由最長往短試
+  const starts = [];
+  for (let k = 0; k < tokenAt; k++) if (!/\s/.test(line[k]) && (k === 0 || /\s/.test(line[k - 1]))) starts.push(k);
+  for (const k of starts) {
+    const r = toAbs(line.slice(k));
+    if (!r.unsure && isFile(r.p)) return { p: r.p, exists: true };
+  }
+  const prev = (/(\S+)[ \t]+$/.exec(line.slice(0, tokenAt)) || [])[1];
+  const r = toAbs(m[0]);
+  if (r.unsure) return r;
+  if (isFile(r.p)) return { p: r.p, exists: true };
+  if (prev && /[\\/]|^[A-Za-z]:/.test(prev)) {
+    return { unsure: '看起來含空白（「' + line.slice(starts.length ? starts[0] : tokenAt).trim() + '」），往前延伸也找不到磁碟上實際存在的檔，判不準從哪裡開始' };
+  }
+  return { p: r.p, exists: false };
+}
+
+// 打開引用的檔驗章節（DOC_SECTION_RULES）。回 { out: 缺失訊息, notes: 判不準而沒驗的提醒 }；
+// 讀檔等非預期錯誤往外丟，由呼叫端 fail-open。
+function docSectionProblems(prompt, type, baseDir) {
+  const out = [];
+  const notes = [];
+  if (isTriageException(prompt)) return { out, notes };   // 分流例外：不要求簽收物
+  for (const rule of DOC_SECTION_RULES) {
+    if (!rule.agents.includes(type)) continue;
+    // 標題取法同 fieldSegment：優先行首的那個，沒有才取第一次出現；作答區到下一個行首【…】為止
+    const head = new RegExp('(?:^|\\n)[ \\t>*_#-]*(' + rule.field + ')').exec(prompt)
+      || new RegExp('(' + rule.field + ')').exec(prompt);
+    if (!head) continue;                                 // 沒有這格：不檢查
+    const rest = prompt.slice(head.index + head[0].length);
+    const next = /\n[ \t>*_#-]*【/.exec(rest);
+    const rawSeg = next ? rest.slice(0, next.index) : rest;
+    // architect 與 engineer 併一步：這次由它產出，檔還不存在（範本佔位裡的「本次產出」字樣剝掉後才判，照貼範本不算）
+    if (/本次產出/.test(stripPlaceholders(rawSeg))) continue;
+    const ref = resolveDocRef(rawSeg, baseDir);
+    if (!ref) continue;                                  // 沒寫 .md 路徑：不檢查（見檔頭已知取捨）
+    if (ref.unsure) {
+      notes.push(`[${rule.name}·沒驗到] ${head[1]} 的路徑${ref.unsure}，這次沒打開文件驗章節（這一項不擋）。`
+        + '請改寫成加引號的絕對路徑（例："C:/My Docs/design.md"），或自行確認文件有必要章節。');
+      continue;
+    }
+    const p = ref.p;
+    if (!ref.exists) {
+      out.push(`[${rule.name}·找不到檔] ${head[1]} 指向的 ${p} 不存在（相對路徑以專案根 ${baseDir} 解析）。`
+        + '路徑寫錯就改成絕對路徑；還沒產出就先產出、經使用者簽收再派。請在 prompt 補上後重發同一個 agent。');
+      continue;
+    }
+    const doc = fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '');
+    const missing = rule.sections.filter((s) => !new RegExp(s.pattern, 'm').test(doc));
+    if (missing.length) {
+      out.push(`[${rule.name}·缺章節] ${p} 缺：` + missing.map((s) => `「${s.name}」（${s.hint}）`).join('；')
+        + '——簽收物不完整不得交棒下游。補齊文件後重發同一個 agent（改的是文件，不是 prompt）。');
+    }
+  }
+  return { out, notes };
+}
+
 let raw = '';
 let contentCheckError = null;
+const notes = [];   // 不擋、但要讓模型知道的提醒（例：設計文件路徑判不準而沒驗）
 function contentCheckNote() {
   return '[派工紀律] ⚠ 派工內容檢查故障（' + (contentCheckError && contentCheckError.message)
-    + '）：【驗收條件】有沒有寫內容、【測試資料來源】有沒有作答這次沒檢查到，已放行（標記表的檢查照常）。'
-    + '請自行確認這兩格有作答；hook 鏽蝕要修（.claude/hooks/check-review-discipline.js），勿靜默忽略。';
+    + '）：【驗收條件】有沒有寫內容、【測試資料來源】有沒有作答、引用的設計文件章節齊不齊，這次可能沒檢查到，已放行（標記表的檢查照常）。'
+    + '請自行確認這幾項；hook 鏽蝕要修（.claude/hooks/check-review-discipline.js），勿靜默忽略。';
 }
 process.stdin.on('data', (c) => { raw += c; });
 process.stdin.on('end', () => {
@@ -336,6 +516,11 @@ process.stdin.on('end', () => {
           + '每一條都要答得出「用什麼指令或什麼觀察來判定」（04 共通規則）。請在 prompt 補上後重發同一個 agent。');
       }
       if (inList(DATA_SOURCE_AGENTS)) reasons.push(...dataSourceProblems(prompt));
+      if (isManaged) {
+        const doc = docSectionProblems(prompt, type, projectRoot(input));
+        reasons.push(...doc.out);
+        notes.push(...doc.notes);
+      }
     } catch (e) {
       contentCheckError = e;
     }
@@ -352,13 +537,15 @@ process.stdin.on('end', () => {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
-        permissionDecisionReason: head + body + (contentCheckError ? '\n\n' + contentCheckNote() : ''),
+        permissionDecisionReason: head + body + (contentCheckError ? '\n\n' + contentCheckNote() : '')
+          + notes.map((n) => '\n\n' + n).join(''),
       },
     }));
-  } else if (contentCheckError) {
+  } else if (contentCheckError || notes.length) {
     // 放行但要讓模型知道：PreToolUse 以 exit 0 結束時純文字 stdout 模型看不到，要包成 additionalContext
+    const ctx = (contentCheckError ? [contentCheckNote()] : []).concat(notes).join('\n\n');
     process.stdout.write(JSON.stringify({
-      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: contentCheckNote() },
+      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: ctx },
     }) + '\n');
   }
   process.exit(0);

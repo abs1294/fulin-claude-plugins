@@ -7,11 +7,11 @@
 //   'skill'：目標專案有裝 git-commit plugin → 綁 PreToolUse、matcher "Skill"、只攔 skill === 'git-commit'。
 //            commit 是「一輪工作收尾」的天然時機，表態寫在 git-commit 的 args 裡。
 //     接線："PreToolUse": [{ "matcher": "Skill", "hooks": [{ "type": "command",
-//             "command": "node \"<專案絕對路徑>/.claude/hooks/guard-sediment-sweep.js\"", "timeout": 10 }] }]
+//             "command": "node \"<專案絕對路徑>/.claude/hooks/guard-sediment-sweep.js\"", "timeout": 10, "statusMessage": "commit 前知識沉澱四問" }] }]
 //   'stop' ：沒裝 git-commit、或目標是非 git 專案（根目錄與子資料夾都不是 repo）→ 綁 Stop hook。本回合有改檔（Write／Edit 類工具）時，
 //            結束前要求回覆正文出現一行四題表態；本回合沒改檔不擋。
 //     接線："Stop": [{ "hooks": [{ "type": "command",
-//             "command": "node \"<專案絕對路徑>/.claude/hooks/guard-sediment-sweep.js\"", "timeout": 10 }] }]
+//             "command": "node \"<專案絕對路徑>/.claude/hooks/guard-sediment-sweep.js\"", "timeout": 10, "statusMessage": "收尾前知識沉澱四問" }] }]
 //
 // ═══ 為什麼是「args 表態制」不是「marker 制」（本段是這支 hook 的設計核心，改之前先讀）═══
 //   早期版本用 marker 制：被擋 → 答題 → 自己建一個 marker 檔 → 重呼叫放行。實測失效：

@@ -5,7 +5,7 @@
  * 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
  * 接線（目標專案 .claude/settings.json）：
  *   "PreToolUse": [{ "matcher": "Write", "hooks": [{ "type": "command",
- *     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-claude-dir-hygiene.js\"", "timeout": 15 }] }]
+ *     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-claude-dir-hygiene.js\"", "timeout": 15, "statusMessage": "檢查 .claude 目錄有沒有混進一次性產物" }] }]
  *
  * 背景：`.claude/` 是 Claude Code 的機制目錄（commands / skills / hooks / agents /
  * settings）加上工作流的制度層（例：harness）。一次性產物——設計文件、交接、QA 報告、

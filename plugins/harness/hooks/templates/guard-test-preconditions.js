@@ -4,7 +4,7 @@
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
 // 接線（目標專案 .claude/settings.json）：
 //   "PreToolUse": [{ "matcher": "Bash|PowerShell", "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-test-preconditions.js\"", "timeout": 15 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-test-preconditions.js\"", "timeout": 15, "statusMessage": "跑測試前檢查環境前提" }] }]
 //
 // 為什麼要機械擋：來源專案有兩支同形狀的守門，病灶都是「測試跑下去才發現環境不對，而症狀完全不指向環境」。
 //   ① 寄信收斂：本機把收件人收斂到自己信箱的覆寫遺失了沒人發現，整套測試跑到一半才被攔下，

@@ -6,7 +6,7 @@
  * 本檔與 compact-handoff.js（模組）、compact-reinject.js、compact-summary-log.js、resume-stale-reminder.js 是一組，一起裝。
  * 接線（目標專案 .claude/settings.json；timeout 要大於 compact-handoff.js 的 CHILD_TIMEOUT）：
  *   "PreCompact": [{ "matcher": "", "hooks": [{ "type": "command",
- *     "command": "node \"<專案絕對路徑>/.claude/hooks/compact-snapshot.js\"", "timeout": 240 }] }]
+ *     "command": "node \"<專案絕對路徑>/.claude/hooks/compact-snapshot.js\"", "timeout": 240, "statusMessage": "壓縮前存快照、寫交接信" }] }]
  *
  * 壓縮後會自動回來的：系統提示、CLAUDE.md、memory、最近改過的 5 個檔、用過的 skill。
  * 不會回來、摘要又常漏的：還在跑的背景 agent、只讀過沒改過的任務規範文件、

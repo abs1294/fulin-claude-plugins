@@ -4,7 +4,7 @@
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
 // 接線（目標專案 .claude/settings.json）：
 //   "PreToolUse": [{ "matcher": "Agent|Task", "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/check-agent-model.js\"", "timeout": 15 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/check-agent-model.js\"", "timeout": 15, "statusMessage": "檢查派工有沒有指定 model" }] }]
 //
 // 兩層檢查：
 //   ① 專案 agent 有沒有帶 model——不帶會繼承主對話模型，浪費高階額度。

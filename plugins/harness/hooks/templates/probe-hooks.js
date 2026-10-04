@@ -40,7 +40,8 @@
 //       "mtime_days_ago": { "相對路徑": 40 }       // 把檔案時間往回撥
 //     },
 //     "payload": { "hook_event_name": "PreToolUse", "tool_name": "...", "tool_input": {...} },
-//                                                  // payload 字串裡的 {PROJECT_DIR} 會換成本次暫存專案的絕對路徑
+//                                                  // payload 字串裡的 {PROJECT_DIR} 會換成本次暫存專案的絕對路徑；
+//                                                  // {PROJECT_DIR_POSIX} 換成同一路徑的 Git Bash 寫法（Windows 上 /c/…，其他平台同原路徑）
 //     "expect": "BLOCK" | "ALLOW" | "NOTE" | "SILENT", // NOTE＝不擋但要有輸出（提醒型 hook）；SILENT＝不擋而且不能有任何輸出
 //                                                  // （提醒型 hook「該安靜」的案例用它：ALLOW 不看輸出，誤報提醒也會判 ALLOW）
 //     "exit": 1,                                   // 選填：預期結束碼（刻意以 0／2 以外結束的 CLI 腳本用）
@@ -112,7 +113,11 @@ let pass = 0, fail = 0, missing = 0;
 // 暫存專案路徑要到執行期才知道，cases 檔無法寫死，故用佔位字串；經 JSON 字串層替換以保留反斜線跳脫
 function withProjectDir(payload, dir) {
   const esc = JSON.stringify(dir).slice(1, -1);
-  return JSON.parse(JSON.stringify(payload || {}).split('{PROJECT_DIR}').join(esc));
+  // {PROJECT_DIR_POSIX}：同一個路徑的 Git Bash 寫法（Windows 上 C:\x → /c/x；其他平台就是原路徑），測「payload 用 /c/… 寫法」的案例
+  const posix = process.platform === 'win32'
+    ? dir.replace(/^([A-Za-z]):/, (m, d) => '/' + d.toLowerCase()).split(path.sep).join('/') : dir;
+  return JSON.parse(JSON.stringify(payload || {}).split('{PROJECT_DIR_POSIX}').join(JSON.stringify(posix).slice(1, -1))
+    .split('{PROJECT_DIR}').join(esc));
 }
 
 function mkProject(setup, hookFile, variant) {

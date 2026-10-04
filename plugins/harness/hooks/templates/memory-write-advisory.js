@@ -4,7 +4,7 @@
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
 // 接線（目標專案 .claude/settings.json）：
 //   "PostToolUse": [{ "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/memory-write-advisory.js\"", "timeout": 15 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/memory-write-advisory.js\"", "timeout": 15, "statusMessage": "檢查 memory 寫入的格式與容量" }] }]
 //
 // 只在寫入 auto-memory 目錄底下的 .md 時觸發，做兩件事、全部 advisory（exit 0，不擋）：
 //   ① 印索引檔目前字元數與上限比例——上限是 Claude Code 的載入上限，超限是靜默截斷

@@ -4,7 +4,7 @@
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
 // 接線（目標專案 .claude/settings.json）：
 //   "PreToolUse": [{ "matcher": "Bash|PowerShell", "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-risky-command.js\"", "timeout": 15 }] }]
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/guard-risky-command.js\"", "timeout": 15, "statusMessage": "檢查高風險指令" }] }]
 //
 // 為什麼是「一個引擎＋一張規則表」：來源專案原本有好幾支各綁一個專案事實的守門——
 //   · 資料庫登入守門：曾有人憑印象拼帳密、用高權帳號連測試庫，連續登入失敗觸發鎖定，
