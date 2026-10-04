@@ -13,8 +13,20 @@ confirm_gate.py — 寄送前的確認窗口機械閘（抄 git-commit A 軌，�
   veto    使用者喊停 → 標記否決，之後的自動寄一律拒絕
   clear   使用者改內容 → 清掉舊狀態（呼叫端須重新 arm，窗口重新計時）
 
+  policy  查詢設定是否允許自動寄（exit 0＝允許；14＝需人工核可）
+
 寄送腳本的 --auto（喚醒觸發的自動寄）會強制呼叫 check，狀態不是 ready 就拒寄。
 使用者明確說「寄」時走一般路徑（不帶 --auto），不受窗口限制——這是他的意思表示。
+
+自動寄的總開關是設定檔的 require_approval（只有這一個）：
+  true（預設，或沒寫）＝每封都要使用者親口說「寄」，check 一律回 approval-required，
+                        --auto 的寄送全部拒絕；
+  false               ＝允許「窗口到期沒人喊停就自動寄」，再照下面的窗口狀態判斷。
+讀取順序：專案層 <專案>/.claude/daily-report.json > 家目錄 ~/.claude/daily-report/config.json
+> 預設 true（與 confirm_wait_minutes 同一套分層）。
+舊版把它寫在專案層的 schedule.require_approval，頂層沒寫時照讀同一個值（相容，不是第二個開關）。
+寄信是對外動作，所以這裡 fail-closed：設定檔讀不到/解析失敗、值不是 true/false、
+新舊兩個位置寫了不同值，一律當「需人工核可」。
 
 仍無法機械化的部分（誠實說明）：
 「模型有沒有真的去排喚醒」無法由腳本強制，因為排喚醒是模型的工具呼叫。
@@ -26,8 +38,10 @@ confirm_gate.py — 寄送前的確認窗口機械閘（抄 git-commit A 軌，�
   confirm_gate.py check <date> [--project DIR] [--json]
   confirm_gate.py veto <date> [--reason ...] [--project DIR]
   confirm_gate.py clear <date> [--project DIR]
+  confirm_gate.py policy [--project DIR] [--json]
 
-Exit code（check）：0=ready（可寄）；10=still-waiting；11=vetoed；12=not-armed；13=already-sent
+Exit code（check）：0=ready（可寄）；10=still-waiting；11=vetoed；12=not-armed；13=already-sent；
+                   14=approval-required（設定不允許自動寄）
 """
 import argparse
 import hashlib
@@ -68,6 +82,77 @@ def wait_minutes(project_dir=None):
         except (json.JSONDecodeError, OSError):
             pass
     return val
+
+
+APPROVAL_KEY = "require_approval"
+
+
+def project_config_path(project_dir=None):
+    return os.path.join(os.path.abspath(project_dir or os.getcwd()), ".claude", "daily-report.json")
+
+
+def auto_send_policy(project_dir=None):
+    """自動寄的總開關。回傳 dict：allowed（bool）、source（值從哪來）、reason（白話說明）。
+
+    只有「明確寫了 false」才允許自動寄；其餘（沒寫、寫錯型別、讀檔失敗、新舊位置互相矛盾）
+    一律需人工核可——寄出去的信收不回來，判斷不了時寧可停下來等人說「寄」。"""
+    proj = project_config_path(project_dir)
+    value, source = None, None
+    for path, layer in ((CONFIG_PATH, "home"), (proj, "project")):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, dict):
+                raise ValueError("內容不是 JSON 物件")
+        except (json.JSONDecodeError, OSError, ValueError) as e:
+            return {"allowed": False, "source": path,
+                    "reason": "設定檔讀不到或格式壞了（{}：{}），當作需要人工核可".format(path, e)}
+        # 鍵「有寫」就必須是布林——寫了 null、"false"、0 都不能當成「沒寫」而讓別層的 false 生效
+        # （任一層、新舊任一位置寫了非布林值，整體就判需人工核可）。
+        # 比較用 is 而非 !=：Python 的 False == 0，!= 會把舊位置的 0 當成與 false 一致。
+        found = []
+        if APPROVAL_KEY in data:
+            found.append((data[APPROVAL_KEY], path))
+        if layer == "project" and isinstance(data.get("schedule"), dict) and APPROVAL_KEY in data["schedule"]:
+            found.append((data["schedule"][APPROVAL_KEY], path + "（schedule.{}）".format(APPROVAL_KEY)))
+        for v, where in found:
+            if not isinstance(v, bool):
+                return {"allowed": False, "source": where,
+                        "reason": "{} 的值 {!r} 不是 true/false（{}），當作需要人工核可".format(
+                            APPROVAL_KEY, v, where)}
+        top = data.get(APPROVAL_KEY, None)
+        legacy = None
+        if layer == "project" and isinstance(data.get("schedule"), dict):
+            legacy = data["schedule"].get(APPROVAL_KEY, None)
+        if top is not None and legacy is not None and top is not legacy:
+            return {"allowed": False, "source": path,
+                    "reason": "{} 的 {} 與 schedule.{} 寫了不同的值，當作需要人工核可；"
+                              "請刪掉 schedule 裡那一個，只留最外層".format(path, APPROVAL_KEY, APPROVAL_KEY)}
+        picked = top if top is not None else legacy
+        if picked is not None:
+            # 專案層後讀，覆蓋家目錄
+            value = picked
+            source = path + ("" if top is not None else "（舊位置 schedule.{}）".format(APPROVAL_KEY))
+    if value is None:
+        return {"allowed": False, "source": None,
+                "reason": "設定檔沒有寫 {}，預設需要人工核可".format(APPROVAL_KEY)}
+    if value is False:
+        return {"allowed": True, "source": source,
+                "reason": "{} 設為 false（{}），允許確認窗口到期後自動寄".format(APPROVAL_KEY, source)}
+    if value is True:
+        return {"allowed": False, "source": source,
+                "reason": "{} 設為 true（{}），每封都要使用者說「寄」才寄".format(APPROVAL_KEY, source)}
+    return {"allowed": False, "source": source,
+            "reason": "{} 的值 {!r} 不是 true/false（{}），當作需要人工核可".format(
+                APPROVAL_KEY, value, source)}
+
+
+def how_to_enable(project_dir=None):
+    return ("要開放自動寄，請在 {} 的最外層把 \"{}\" 設成 false"
+            "（只想對所有專案生效則改家目錄 {}）。".format(
+                project_config_path(project_dir), APPROVAL_KEY, CONFIG_PATH))
 
 
 # scope_key / sent_path 的單一事實來源在 send_common——sent 標記由寄送腳本寫、
@@ -146,16 +231,31 @@ def cmd_arm(args):
     print("✓ 已進入待確認狀態")
     print("  日期     : " + args.date)
     print("  收件人   : " + (", ".join(recipients) or "(未指定)"))
+    pol = auto_send_policy(args.project)
+    if not pol["allowed"]:
+        # 需人工核可時窗口不會導向自動寄，印「必須排喚醒」只會誘導出一個注定被拒的喚醒
+        print("  自動寄   : 關閉（" + pol["reason"] + "）")
+        print("\n呼叫端注意：目前設定需要人工核可，**不要排喚醒、不要帶 --auto**。"
+              "停下來等使用者說「寄」再寄（不帶 --auto）。")
+        return
     print("  窗口     : {} 分鐘，到期 {}".format(mins, due.strftime("%H:%M")))
+    print("  自動寄   : 開啟（" + pol["reason"] + "）")
     print("\n呼叫端注意：**這一輪必須立刻排喚醒**（ScheduleWakeup {}s 或 CronCreate），"
           "否則窗口到期沒有任何東西會觸發寄送。".format(int(mins * 60)))
 
 
 def cmd_check(args):
     date = args.date
+    pol = auto_send_policy(args.project)
     if already_sent(date, args.project):
         out = {"status": "already-sent", "message": "{} 的日報已寄出".format(date)}
         code = 13
+    elif not pol["allowed"]:
+        # 開關優先於窗口狀態：需人工核可時，不論窗口是否到期都不准自動寄
+        out = {"status": "approval-required", "source": pol["source"],
+               "message": "目前設定不允許自動寄出：" + pol["reason"] + "。"
+                          "使用者說「寄」時請不帶 --auto 寄出。" + how_to_enable(args.project)}
+        code = 14
     else:
         st = load_state(date, args.project)
         if not st:
@@ -220,6 +320,18 @@ def cmd_clear(args):
         print("（{} 本來就沒有待確認狀態）".format(args.date))
 
 
+def cmd_policy(args):
+    pol = auto_send_policy(args.project)
+    if args.json:
+        print(json.dumps(pol, ensure_ascii=False, indent=2))
+    elif pol["allowed"]:
+        print("[auto-allowed] " + pol["reason"])
+    else:
+        print("[approval-required] " + pol["reason"])
+        print("  " + how_to_enable(args.project))
+    sys.exit(0 if pol["allowed"] else 14)
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -249,6 +361,11 @@ def main():
     cl.add_argument("date")
     cl.add_argument("--project")
     cl.set_defaults(func=cmd_clear)
+
+    p = sub.add_parser("policy", help="查詢設定是否允許自動寄（require_approval）")
+    p.add_argument("--project")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_policy)
 
     args = ap.parse_args()
     args.func(args)

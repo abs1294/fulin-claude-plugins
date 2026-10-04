@@ -8,6 +8,9 @@
   "subject_prefix": "[工作日報]",
   "from_name": "寄件顯示名稱",
 
+  "_require_approval說明": "自動寄出的總開關（只有這一個）。true＝每封日報都要你親口說「寄」才會寄出，剛開始用請維持這個值，先人工看幾天。false＝呈現日報後開一段確認窗口（confirm_wait_minutes，預設 30 分鐘），窗口到期沒人喊停就自動寄出。沒寫、寫錯、或設定檔讀不到時一律當 true。這裡是所有專案的預設；個別專案要不同可在 <專案>/.claude/daily-report.json 最外層再寫一次，專案那份優先。",
+  "require_approval": true,
+
   "oauth": {
     "_說明": "在 Google Cloud Console 建立「桌面應用程式」用戶端後，跑：python gmail_oauth.py setup --client-id <id> --client-secret <secret>。授權完成後 refresh_token 由腳本自動寫入，不必手填。詳細步驟見 SKILL.md 的 OAuth 引導。",
     "client_id": "",

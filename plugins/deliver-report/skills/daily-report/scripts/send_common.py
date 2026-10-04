@@ -13,7 +13,7 @@ send_common.py — 兩條寄送路徑（Gmail API OAuth / SMTP）共用的「寄
 
 主要進入點：
   prepare_send(args, cfg) -> SendPlan
-      展開路徑 → 解析收件人/主旨 → 內容閘 → （--auto 時）確認閘 → sent 去重檢查。
+      展開路徑 → 解析收件人/主旨 → 內容閘 → （--auto 時）自動寄開關＋確認閘 → sent 去重檢查。
       任一關卡不過就在此 die，呼叫端拿到 SendPlan 時代表「可以送了」。
   mark_sent(plan, channel)
       寄成功後寫 sent 標記（與 confirm_gate 同命名空間，供去重與 already_sent 查驗）。
@@ -164,13 +164,16 @@ def assert_readable(report_path):
 
 
 def assert_confirm_ready(date, project_dir=None):
-    """硬閘（僅 --auto）：喚醒觸發的自動寄送必須通過確認窗口。
+    """硬閘（僅 --auto）：喚醒觸發的自動寄送必須通過 confirm_gate check。
+    check 先看設定的 require_approval（自動寄總開關，沒寫或讀不到＝需人工核可→一律拒），
+    開關允許時再看確認窗口（not-armed／still-waiting／vetoed／內容指紋）。
     使用者明確說「寄」時不帶 --auto，不受此限——那是他的意思表示。"""
     a = ["check", date]
     if project_dir:
         a += ["--project", project_dir]
     _run_gate("confirm_gate.py", a,
-              "確認窗口檢查未通過，中止自動寄送。（使用者明確要求寄出時，不要帶 --auto）", 5)
+              "自動寄送檢查未通過（原因見上方），中止自動寄送。"
+              "（使用者明確要求寄出時，不要帶 --auto）", 5)
 
 
 class SendPlan:

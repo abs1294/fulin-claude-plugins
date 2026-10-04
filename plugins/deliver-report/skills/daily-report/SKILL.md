@@ -10,7 +10,10 @@ description: 產生 Claude Code 工作日報並經核可後寄 Gmail 給設定�
 
 ## 核心原則
 
-1. **寄信是對外動作**：報告在寄出前必須完整呈現給使用者、取得明確核可。沒有「默許自動寄」——寧可多等一句「寄吧」。
+1. **寄信是對外動作，預設要人工核可**：報告在寄出前必須完整呈現給使用者。能不能「沒回應就自動寄」只看設定檔的一個開關 `require_approval`：
+   - `true`（預設；沒寫、寫錯、讀不到設定檔都算這個）→ 每封都要使用者親口說「寄」才寄，沒有默許窗口。剛開始用請維持這樣。
+   - `false`（使用者覺得運作順利後自己改）→ 才有「確認窗口到期沒人喊停就自動寄」。
+   這個開關由寄送腳本強制：`require_approval` 不是 `false` 時，帶 `--auto` 的寄送一律被拒，不靠記得。
 2. **收件人視角**：日報是給別人看的。寫「完成了什麼、產出是什麼」，不寫內部術語、不寫 prompt 原文、不寫統計數據（統計只在對話裡給使用者自己看）。
 3. **機密不落 git**：SMTP 憑證只存 `~/.claude/daily-report/config.json`（家目錄）。
 
@@ -98,18 +101,43 @@ python content_guard.py --set-alias "<原名>" "<對外別名>" [--project <目�
 
 登記後永久生效，**同一個專案只會問一次**——別讓使用者每天重答。
 
-### 5. 呈現與核可（30 分鐘默許窗口）
+### 5. 呈現與核可（先問開關：要人工說「寄」，還是允許默許窗口）
 
-**呈現內容**——四塊，缺一不可：
+**先查開關，不要自己讀設定檔判斷**（跟第 6 步用 `setup_gate.py` 同一個道理——腳本每次都查同樣的條件）：
 
-1. **寄送資訊**：收件人、副本、寄件者、主旨、預計自動寄發時間。使用者要在知道「這封會寄給誰」的前提下決定，不能只看內文。（這些**不放進郵件內文**——收件人從 header 就看得到，內文重複是冗餘。）
+```
+python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/confirm_gate.py" policy [--project <目錄>]
+```
+
+- **exit 14（印 `[approval-required]`）** → 走 **5A 需人工核可**。開關是 `true`、沒寫、寫錯、讀不到設定檔，全都落在這裡。
+- **exit 0（印 `[auto-allowed]`）** → 走 **5B 允許自動寄**（使用者已把 `require_approval` 改成 `false`）。
+
+開關的位置與意思：`require_approval` 寫在專案 `<專案>/.claude/daily-report.json` 或家目錄 `~/.claude/daily-report/config.json` 的最外層（專案那份優先，兩邊都沒寫＝`true`）。手動叫日報、定時觸發都看同一個開關，沒有第二個。
+
+**呈現內容**（5A、5B 都一樣）——四塊，缺一不可：
+
+1. **寄送資訊**：收件人、副本、寄件者、主旨；5B 另加「預計自動寄發時間」。使用者要在知道「這封會寄給誰」的前提下決定，不能只看內文。（這些**不放進郵件內文**——收件人從 header 就看得到，內文重複是冗餘。）
 
    ⚠ **每一項都顯示「真正會寄出的值」，不是佔位符或示意**。主旨尤其要注意：直接跑 `send_gmail.py --dry-run`（或 `gmail_oauth.py send --dry-run`）拿它印出的實際主旨，那已經是 `<前綴> <日期> 工作日報` 代換好的完整字串——**不要自己打「（日報前綴）」這種佔位文字給使用者看**。使用者看到的預覽必須等於實際會寄的內容，否則「呈現核可」形同虛設。dry-run 的輸出本身就是最可靠的預覽來源，直接用它。
 2. **日報全文**（將寄出的內容，一字不差）。
 3. **本機統計**（只顯示不寄出）：專案數、session 數、活躍時段、工具呼叫 top 5。
-4. **明確告知窗口**：「N 分鐘內沒有回覆或修改，我就用這個版本自動寄出」。
+4. **下一步怎麼走**：5A 寫「你說『寄』我才寄出，要改內容或不寄也直接說」；5B 寫「N 分鐘內沒有回覆或修改，我就用這個版本自動寄出」。
 
-**然後立刻 arm（同一輪，不可延後）**：
+#### 5A. 需人工核可（`require_approval` 為 `true`，預設）
+
+呈現完就**停下來等使用者回覆**。這條路**不 arm 自動寄、不排喚醒、不帶 `--auto`**——就算排了，寄送腳本也會以 `approval-required` 拒寄。
+
+| 回應 | 動作 |
+|---|---|
+| 說「寄」 | 照第 6 步寄出，**不帶 `--auto`** |
+| 改內容 | 更新報告 → 重跑 `--dry-run`（兩道閘隨之重跑）→ 重新呈現，繼續等 |
+| 不寄 | 不寄，結束 |
+
+想之後改成自動寄，告訴使用者：在專案的 `.claude/daily-report.json`（或家目錄 `config.json`）最外層把 `"require_approval"` 改成 `false`。**這個值只由使用者自己改**，不要主動改、也不要每次都問要不要改。
+
+#### 5B. 允許自動寄（`require_approval` 為 `false`）
+
+呈現後**立刻 arm（同一輪，不可延後）**：
 
 ```
 python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/confirm_gate.py" arm <date> \
@@ -133,7 +161,7 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/confirm_gate.py" arm <
 | 喊停 | **`confirm_gate veto <date> --reason "..."`** → `CronDelete <id>` → 不寄 |
 | 說「寄」 | 直接寄，**不帶 `--auto`**（這是他的意思表示，不必等窗口） |
 
-**喚醒觸發時**：寄送指令**必須帶 `--auto`**，腳本會強制查 `confirm_gate check`——not-armed / still-waiting / vetoed / 內容被改過，任一情況都拒寄。
+**喚醒觸發時**：寄送指令**必須帶 `--auto`**，腳本會強制查 `confirm_gate check`——開關不是 `false`（approval-required）／ not-armed / still-waiting / vetoed / 內容被改過，任一情況都拒寄。
 
 ### 6. 交付（先跑閘，由腳本告訴你走哪條）
 
@@ -231,14 +259,14 @@ CronCreate({
 
 缺口判定由 `scripts/schedule_gate.py` 提供（`check` 列缺口、`next` 算下次時間）。它**不依賴 cron 有沒有觸發**，只比對 `sent/` 目錄裡事實上哪幾天沒有寄出紀錄，所以四種斷鏈成因都抓得到：使用者 veto、內容閘擋下、cron 到點時 REPL 不是 idle、Claude Code 被關掉。回溯天數讀 `schedule.lookback_days`（預設 30）。
 
-### 三、觸發之後做什麼——看 `require_approval`
+### 三、觸發之後做什麼——跟手動叫日報完全一樣
 
-| `require_approval` | 觸發時的行為 |
-|---|---|
-| `true`（預設） | 產日報 → 內容硬閘 → **呈現並 arm 確認窗口** → 停在這裡等回應。使用者說「寄」才寄（不帶 `--auto`）。**沒看過的信不會寄出去** |
-| `false` | 產日報 → 內容硬閘 → 呈現並 arm → **同一輪再排一個 `recurring:false` 的喚醒**（`confirm_wait_minutes` 之後）→ 喚醒時帶 `--auto` 寄出，`confirm_gate` 沒擋就送 |
+定時觸發只是「誰按下開始」不同，之後照執行步驟 1～6 走，**寄不寄由第 5 步的同一個開關 `require_approval` 決定**（`confirm_gate.py policy` 查），這裡沒有另一套規則：
 
-`require_approval: false` 時**仍然要 arm、仍然要呈現**——確認窗口是給使用者喊停的機會，不是可跳過的步驟。差別只在「沒喊停會不會自動寄」。
+- 開關需人工核可（預設）→ 走 5A：呈現完停下來等使用者說「寄」。使用者當天沒回，這天就不寄，之後由下面的缺口檢查提醒。
+- 開關允許自動寄 → 走 5B：呈現、arm、排喚醒，窗口到期沒人喊停就帶 `--auto` 寄出。
+
+`schedule` 區塊裡舊版的 `require_approval` 仍會被讀到（最外層沒寫時），但它跟最外層是**同一個開關**，不是只管排程的第二個開關；新設定請寫在最外層。
 
 > **鏈斷在哪都不會靜默**：`confirm_gate` 管「arm 之後沒寄」，`schedule_gate check` 管「根本沒觸發所以沒 arm」。兩者合起來，才補上 `confirm_gate.py` docstring 裡明文承認的缺口——「模型有沒有真的去排喚醒無法由腳本強制」。
 

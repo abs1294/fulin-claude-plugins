@@ -530,7 +530,8 @@ def main():
     s.add_argument("--dry-run", action="store_true")
     s.add_argument("--force", action="store_true", help="即使當日已寄過仍重寄")
     s.add_argument("--auto", action="store_true",
-                   help="喚醒觸發的自動寄送：強制通過 confirm_gate 檢查才寄")
+                   help="喚醒觸發的自動寄送：設定 require_approval 為 false 且通過 confirm_gate "
+                        "確認窗口檢查才寄；require_approval 為 true／沒寫／讀不到一律拒寄")
     s.set_defaults(func=cmd_send)
 
     args = ap.parse_args()

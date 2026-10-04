@@ -6,6 +6,9 @@
   "subject_prefix": "[專案日報]",
   "confirm_wait_minutes": 30,
 
+  "_require_approval說明": "自動寄出的總開關（只有這一個，手動觸發與定時觸發都看它）。true＝每封都要你說「寄」才寄出，剛開始用請維持 true。false＝確認窗口（confirm_wait_minutes）到期沒人喊停就自動寄出。沒寫時沿用家目錄 config.json 的值，兩邊都沒寫＝true；讀不到設定檔也當 true。舊版寫在 schedule 區塊裡的 require_approval 仍會被讀到（最外層沒寫時），但請搬到這裡。",
+  "require_approval": true,
+
   "schedule": {
     "_說明": "選配：定時觸發日報。走『自續鏈』——寄成功後立刻排下一次（CronCreate 的一次性 job），一次只有一個排程活著。**session 開著才會跑**：關掉 Claude Code 排程就沒了（工具契約原文：jobs live only in this Claude session, nothing is written to disk）。要無人值守請另外用系統排程器，不是這裡。",
 
@@ -14,9 +17,6 @@
 
     "_cron說明": "5 欄位 cron，本機時區，不必換算 UTC。『57 17 * * 1-5』＝週一到週五 17:57。只有『分、時、星期』三欄有意義：分時決定當天幾點，星期決定哪幾天該有日報。**刻意避開 :00 與 :30**（全球使用者都排整點會擠在同一瞬間打 API）；要精準整點就照寫。**不支援步進寫法**（*/2），寫了會被當成『每天』處理。",
     "cron": "57 17 * * 1-5",
-
-    "_require_approval說明": "true＝觸發後只產日報、進確認窗口，**等你核可才寄**。false＝過了 confirm_wait_minutes 沒喊停就自動寄出（走 --auto）。預設 true：沒看過就寄出去的信收不回來。兩種都會先呈現並 arm——確認窗口是喊停的機會，不是可跳過的步驟。",
-    "require_approval": true,
 
     "_lookback_days說明": "缺口回溯幾天。自續鏈的固有失效模式是『斷了就靜默地永遠斷著』（veto、內容閘擋下、cron 到點時 REPL 不是 idle、Claude Code 被關掉），所以 Stop hook（daily-report-chain-gate.js）會在你講完話時比對 sent/ 找缺口並提醒。預設 30 天。",
     "lookback_days": 30,

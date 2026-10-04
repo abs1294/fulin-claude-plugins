@@ -2,6 +2,13 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.6.0] - 2026-10-04
+### Changed
+- daily-report 的「能不能自動寄出」改由設定檔一個開關 `require_approval` 決定，並由寄送腳本強制：`true`（預設；沒寫、值不是 true/false、設定檔讀不到或格式壞了、最外層與舊位置 schedule 裡寫了不同值，都算這個）＝每封都要使用者說「寄」才寄，帶 `--auto` 的寄送（send_gmail.py、gmail_oauth.py send）一律拒寄並印出要改哪個檔的哪個值；`false`＝確認窗口到期沒人喊停就自動寄，照舊檢查未呈現、窗口未到期、已喊停、呈現後內容被改。不帶 `--auto`（使用者親口說寄）不受影響。修正前這個值只寫在 SKILL.md 與範本，沒有任何腳本讀它，第 5 步又不分設定一律開默許窗口並在喚醒後自動寄，與「沒有默許自動寄」的原則互相矛盾。
+- 開關寫在專案 `.claude/daily-report.json` 或家目錄 `config.json` 的最外層（專案優先，兩邊都沒寫＝需人工核可）；舊版寫在專案 `schedule.require_approval` 的值仍讀得到，但與最外層是同一個開關。config.example.json 新增此鍵與說明，專案範本把它從 schedule 區塊搬到最外層。
+- confirm_gate.py 新增 `policy` 子命令（exit 0＝允許自動寄、14＝需人工核可）與 check 的新狀態 `approval-required`（exit 14）；需人工核可時 `arm` 不再提示排喚醒。SKILL.md 核心原則改為「預設需人工核可；設定允許時才有默許窗口」，第 5 步依開關分成 5A（呈現後停下等「寄」，不 arm、不排喚醒）與 5B（照原窗口流程），定時觸發一節改為引用同一開關；README 與首次設定選項說明同步。
+- 新增測試 hooks/tests/auto-send-switch.test.py（28 項，全程 dry-run、暫存家目錄，不寄信）：開關 true＋--auto 拒寄、false＋已到期放行、false＋已喊停拒寄、設定檔壞掉或不存在拒寄、不帶 --auto 不受影響，另含沒寫、字串 "false"、舊位置、新舊矛盾、家目錄與專案分層、窗口未到期、未 arm、內容被改。用修改前的腳本跑同一支測試為 13 過 15 失敗。
+
 ## [1.5.0] - 2026-10-02
 ### Changed
 - check-before 新增「代號先用後定義」：代號（方案 A／B、B 案、情境 1、C1、E15、(g1)）第一次出現處沒有認得出的定義就提醒，附首次出現與定義的頁碼／段落；只提醒、不擋交付（「算不算定義」機器判不準，交付前審查三輪都找到會被誤擋的正常寫法），由新加的人工判斷確認；另加鐵則15「術語首次出現沒有中文說明」提醒（snake_case、camelCase、全大寫縮寫；白名單在 references/term-rules.json）；document-readability.md 鐵則4 擴充、新增鐵則15、必掃改十一項；check-before 人工判斷加「從第一頁讀起，代號與術語第一次出現就看得懂嗎」；新增 hooks/tests/term-order.test.js（40 項）
