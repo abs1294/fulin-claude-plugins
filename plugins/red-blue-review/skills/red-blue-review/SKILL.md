@@ -285,7 +285,7 @@ description: 中文紅藍對抗——對任何命題做對抗式壓力測試（�
 - 確認為真的 finding → 修 → **修復複驗（獨立 agent 實讀改後檔案驗落地/有效，修的 agent 不得自驗；不過 → 退回重修，並把該 root_concern 移出去重集合）** → 可選 Codex 複審 → publish
 - **單輪 pipeline 骨架**詳見 `references/workflow-pattern.md`（紅攻→藍驗的單次 fan-out）
 - **要「迴圈到 0 新發現才收斂」**（loop-until-dry）詳見 `references/loop-runner.md`——含外層 `while (dry < dry_rounds)` 的完整可跨腳本，把「要不要再跑一輪」交給腳本的去重計數判定（機械閘驅動），而非模型自律。**這是收斂能真正做到而非被模型提早喊停的關鍵**；workflow-pattern 是它的單輪內核，loop-runner 是外層驅動器。
-  - ⚠️ **接駁鍵 `root_concern`**：外層迴圈的去重靠 FINDING 的 `root_concern` 欄位。兩檔 schema 已同步含此欄（即插即用）；自訂 FINDING schema 餵進 loop-runner 時**務必保留 `root_concern`**，否則去重鍵為 `undefined` → 每輪都被當「無新弱點」→ 第一輪假收斂（病 A 以新形式復發）。
+  - ⚠️ **接駁鍵 `root_concern`**：外層迴圈的去重靠 FINDING 的 `root_concern` 欄位。兩檔 schema 已同步含此欄（即插即用）；自訂 FINDING schema 餵進 loop-runner 時**務必保留 `root_concern`**，否則去重鍵是空的 → 同一個顧慮每輪都被當成新弱點、重複確認，迴圈收斂不了，一路跑到 round_cap。
 
 ## 重要限制（誠實告知）
 - **開打前一定先給面向提案、等你核可**（你說「直接跑」則列出提案後即開打）；核可後，**預設實作模式會自動改檔並迴圈到攻不破**；只有高風險改（刪檔/跨 repo/改設定）才停下問。不想自動修 → 明說走分析模式（首輪先給確認清單）。

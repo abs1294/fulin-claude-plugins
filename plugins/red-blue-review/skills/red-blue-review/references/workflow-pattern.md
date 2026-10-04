@@ -66,7 +66,7 @@ const confirmed = results.flat().filter(Boolean)
 ## FINDING / VERDICT schema 範例
 
 > 此為範例骨架，`kind` 僅供人讀分類、下游不依賴，可依面向自訂。
-> **`root_concern` 是去重鍵**：單輪 pipeline 若要餵進 `loop-runner.md` 的外層迴圈計數，**必須含 `root_concern`**（loop-runner 的去重 `norm(r.finding.root_concern)` 靠它）。缺了它，外層 `isNew` 會恆為 false → 第一輪假收斂。故此處 schema 已含 `root_concern`，與 loop-runner 保持即插即用。
+> **`root_concern` 是去重鍵**：單輪 pipeline 若要餵進 `loop-runner.md` 的外層迴圈計數，**必須含 `root_concern`**（loop-runner 的去重 `norm(r.finding.root_concern)` 對 `confirmedConcerns` 比，靠它）。缺了它，同一個顧慮每輪都會被當成新弱點、重複確認，迴圈收斂不了、一路跑到 round_cap。故此處 schema 已含 `root_concern`，與 loop-runner 保持即插即用。
 
 ```js
 const FINDING_SCHEMA = { type:'object', properties:{ findings:{ type:'array', items:{
