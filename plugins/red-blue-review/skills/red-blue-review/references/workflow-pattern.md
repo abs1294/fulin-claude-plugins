@@ -17,7 +17,7 @@
 // 先備 ground truth（實際狀況），給每個 agent 當比對基準——這是過濾假陽性的關鍵
 const GROUND_TRUTH = `...實際的檔案清單/版本/行為...`;
 
-// 一個核可面向一筆，欄位照第一步提案表填（不是 type 表的類別名）
+// 一個核可面向一筆，欄位照第一步提案表填（不是 type 表的類別名）；key 必須唯一（loop-runner 遇到空清單、缺 key、重複 key 會直接拒跑）
 const TARGETS = [
   // { key: 'direction', facet: '問錯問題', attack: '具體到本標的的攻擊…',
   //   exclude: '數字/版號一致性、極端輸入…', evidence: '外部錨點', paths: ['plugins/.../SKILL.md'] },

@@ -45,6 +45,14 @@ const TARGETS = args?.targets || [
 ]
 const GROUND_TRUTH = args?.groundTruth || `（實際檔案清單 / 版本 / 行為）`
 
+// ── 面向清單檢查：不合格就拒跑，不要帶著錯的清單跑完再給一個看似正常的結論 ──
+// 空清單：一個面向都沒攻也會「收斂」；key 缺漏或重複：覆蓋閘與熔斷判斷會算錯（重複 key 會在沒人回 null 時誤熔斷）。
+const TARGET_KEYS = TARGETS.map(t => t?.key)
+if (!TARGET_KEYS.length) throw new Error('TARGETS 是空的：先完成 SKILL 第一步，把使用者核可的面向填進來')
+if (TARGET_KEYS.some(k => !k)) throw new Error('TARGETS 有面向缺 key：每個核可面向都要有唯一的 key')
+const DUP_KEYS = [...new Set(TARGET_KEYS.filter((k, i) => TARGET_KEYS.indexOf(k) !== i))]
+if (DUP_KEYS.length) throw new Error(`TARGETS 的 key 重複：${DUP_KEYS.join(', ')}——每個核可面向要有唯一的 key`)
+
 // ── 扁平 schema（鐵律6：別灌巢狀大 JSON，否則撞 StructuredOutput retry cap 炸 workflow）──
 const FINDING_SCHEMA = { type:'object', properties:{ findings:{ type:'array', items:{
   type:'object', properties:{
@@ -228,7 +236,7 @@ return {
 
 ## 鐵律（沿用 workflow-pattern.md，此處只列與迴圈相關的）
 
-- **覆蓋閘**：宣告 `converged` 前，主 Agent 須確認第一步核可的每個面向都至少被攻過一輪（`TARGETS` 一筆就是一個核可面向；腳本回傳的 `uncovered` 就是紅方從頭到尾都回 null、沒攻到的面向，只會在熔斷時非空（此時 `stoppedBy` 為 `'halted_on_null'`）、不得當收斂，`coverage[].missing` 另記每輪漏掉哪些）。未涵蓋不得當收斂——否則退化成只攻淺面向就停。
+- **覆蓋閘**：宣告 `converged` 前，主 Agent 須確認第一步核可的每個面向都至少被攻過一輪（`TARGETS` 一筆就是一個核可面向，key 必須唯一——空清單、缺 key、重複 key 腳本開頭就會拒跑；腳本回傳的 `uncovered` 就是紅方從頭到尾都回 null、沒攻到的面向，只會在熔斷時非空（此時 `stoppedBy` 為 `'halted_on_null'`）、不得當收斂，`coverage[].missing` 另記每輪漏掉哪些）。未涵蓋不得當收斂——否則退化成只攻淺面向就停。
 - **`dry` 只由機械閘計數驅動**：不要在腳本外用「我覺得攻夠了」覆寫 `dry`。要更嚴謹就調高 `DRY_ROUNDS`，不要手動短路。
 - **去重只對已確認的比（升格規則）**：`seen` 只用來告訴紅方「這些提過了，別重刷」；計數去重只看 `confirmedConcerns`。所以某 `root_concern` 先前被判假/LOW、這輪被藍方驗為真且 ≥MEDIUM → 照計新真弱點（`upgraded:true`），不會被當變體吞掉。不會因此不收斂：確認過一次之後再提都是 `duplicate_of_confirmed`，重刷的假 finding 每次都被閘1擋。**root_concern 命名要夠具體**（「哪個檔的哪個具體顧慮」），避免不同問題撞同字串被誤當已確認項的重複。
 - **schema 扁平、下游只傳精煉摘要**：別把整包上游結果 stringify 塞進下游 prompt（撞 retry cap 炸 workflow）。
