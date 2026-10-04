@@ -2,6 +2,10 @@
 
 本檔記錄 red-blue-review 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.7.0] - 2026-10-04
+### Changed
+- 第一步改為「面向提案 → 使用者核可 → 才開打」：先定題（要回答的問題、利害），提面向清單（數量不設限，每面向一個紅方，寫明要攻什麼、為何承重、證據標準、不歸它管），一致性與極端情境預設不攻；核可時有增刪則先重新編號回給使用者定稿；核可面向即範圍，面向外發現列「範圍外觀察」不計迴圈不修；證據標準改逐面向定；覆蓋閘改以核可面向為準；Workflow 骨架改為每面向一個紅方（藍方 prompt 也帶面向與相關檔案）；loop-runner 只把紅方真的有回的面向記為攻過，任一紅方或藍方回 null 即當輪熔斷停跑（stoppedBy `halted_on_null`，附 `halted` 細節），回傳 `uncovered`（沒攻到的面向）、`ledger`（每個 finding 的原文與判定：confirmed／false_positive／low／duplicate_of_confirmed／unverified／out_of_scope）與 `attempts`（各面向紅方自報的最強嘗試攻擊），供逐面向回報；FINDING schema 加 `out_of_scope`、`strongest_attempt`；藍方回 null 的 finding 標 unverified、不進去重集合，結論 BLOCK（未驗證）；熔斷中斷的對抗一律 BLOCK（中斷）；面向外 finding 不派藍方；面向外 finding 另記一份（不進主去重集合，免得吞掉範圍內同顧慮的真弱點），紅方 prompt 帶上已記過的清單免重報。新增四個視角型候選面向（問錯問題、局外人、執行者、致命缺陷）。第五步改為逐面向對標核可提案的最終回報：結論句直接回答「要回答的問題」、總覽表與核可提案一對一、每面向三選一結論（攻過無弱點須寫最強攻擊為何站不住）。去重閘改為只對已確認的顧慮去重：先前判假/LOW、後來被藍方驗為真且 ≥MEDIUM 的改為升格成新真弱點，取代舊版「去重吞掉＋報告留痕」（舊做法會讓真弱點被假收斂帶過、甚至判 GO）。核可面向未攻到時結論由「GO（覆蓋不全）」改為「BLOCK（覆蓋不全）」，補攻後才能 GO（舊標籤寫 GO、內文卻建議別發，方向相反）。
+
 ## [0.6.0] - 2026-07-16
 ### Changed
 - 補上修復複驗機制：修完不採信「已修好」自述，強制獨立複驗產出（實讀改後檔案＋原攻擊路徑再打一次）；複驗不過退回重修並把該 root_concern 移出去重集合，堵住「宣稱修了被閘3吞成變體、永遠隱形」的洞（SKILL 第三/四步、convergence 閘3豁免、loop-runner 修階段鐵律、TaskList 模板、第五步報告欄）

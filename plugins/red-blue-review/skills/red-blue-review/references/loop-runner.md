@@ -6,9 +6,9 @@
 
 ## 為什麼需要這個（病根）
 
-紅藍對抗的收斂條件（迴圈到某輪 0 新真弱點）若寫在 SKILL 散文裡靠模型照著跑，模型會在「感覺差不多」時喊停——因為**沒有任何東西在數「這輪有幾個新弱點、該不該 continue」**。本腳本把那個計數做成真正的 `while (dry < dry_rounds)`：迴圈條件由 `seen` Set 的去重計數 + 機械閘判定，模型只負責「單輪紅攻 + 單 finding 藍驗」，**喊不喊停不在模型手上**。
+紅藍對抗的收斂條件（迴圈到某輪 0 新真弱點）若寫在 SKILL 散文裡靠模型照著跑，模型會在「感覺差不多」時喊停——因為**沒有任何東西在數「這輪有幾個新弱點、該不該 continue」**。本腳本把那個計數做成真正的 `while (dry < dry_rounds)`：迴圈條件由機械閘計數判定（去重對已確認的 `confirmedConcerns` 比；`seen` 只給紅方看、避免重刷），模型只負責「單輪紅攻 + 單 finding 藍驗」，**喊不喊停不在模型手上**。
 
-對應 `convergence.md` 的三道機械閘：閘1 `is_real` 過濾、閘2 LOW/<MEDIUM 不計、閘3 去重對所有提過的比——全在腳本的 `filter` 裡，紅方湊 LOW/假 finding 都無法讓 `dry` 歸零。
+對應 `convergence.md` 的三道機械閘：閘1 `is_real` 過濾、閘2 LOW/<MEDIUM 不計、閘3 去重只對已確認的比（先前判假/LOW、後來驗真的升格照算）——全在腳本的計數迴圈裡，紅方湊 LOW/假 finding 都無法讓 `dry` 歸零。
 
 ## 何時用
 
@@ -38,8 +38,10 @@ const MIN_RANK = SEV_RANK.MEDIUM   // 閘2：< MEDIUM 不計入新弱點
 // ── 標的與基準（換成你的實況）──
 // ⚠️ GROUND_TRUTH 的關鍵事實前提（尤其「X 等價/取代 Y」）動對抗前須先獨立實讀來源驗證，
 //    否則紅藍同拿一份假事實會精緻論證錯誤結論（見 SKILL 重要限制🔴）。
+// 一個「使用者核可的面向」一筆（SKILL 第一步提案表一列），不是一個檔案一筆
 const TARGETS = args?.targets || [
-  // { key: 'skill', path: 'plugins/.../SKILL.md' },
+  // { key: 'direction', facet: '問錯問題', attack: '具體到本標的的攻擊…',
+  //   exclude: '數字/版號一致性、極端輸入…', evidence: '外部錨點', paths: ['plugins/.../SKILL.md'] },
 ]
 const GROUND_TRUTH = args?.groundTruth || `（實際檔案清單 / 版本 / 行為）`
 
@@ -48,8 +50,11 @@ const FINDING_SCHEMA = { type:'object', properties:{ findings:{ type:'array', it
   type:'object', properties:{
     severity:{ type:'string', enum:['CRITICAL','HIGH','MEDIUM','LOW'] },
     root_concern:{ type:'string' },   // 去重靠這個（root concern，不是措辭）
-    quote:{ type:'string' }, problem:{ type:'string' }, reality_or_fix:{ type:'string' }
-  }, required:['severity','root_concern','quote','problem','reality_or_fix'] } } }, required:['findings'] }
+    quote:{ type:'string' }, problem:{ type:'string' }, reality_or_fix:{ type:'string' },
+    out_of_scope:{ type:'boolean' },  // 不屬本面向但重大到非報不可 → true；不計入迴圈、不修，進「範圍外觀察」
+  }, required:['severity','root_concern','quote','problem','reality_or_fix'] } },
+  strongest_attempt:{ type:'string' }, // 本輪試過最強、但自己判斷站不住的攻擊＋站不住的原因（第五步「攻過無弱點」用）
+}, required:['findings','strongest_attempt'] }
 
 const VERDICT_SCHEMA = { type:'object', properties:{
   is_real:{ type:'boolean' }, reason:{ type:'string' },
@@ -61,9 +66,15 @@ const rank = f => SEV_RANK[(f.verdict.corrected_severity || f.finding.severity |
 const norm = s => (s || '').trim().toLowerCase()   // root_concern 正規化，給去重比對
 
 // ── 外層收斂迴圈：dry 歸零靠機械閘計數，不靠模型 ──
-const seen = new Set()         // 閘3：所有提過的 root_concern（含被剔除的假陽性）
+const seen = new Set()         // 給紅方的「已提過的顧慮」：所有提過的 root_concern（含被剔除的假陽性），只用來讓紅方別重刷
+const oosSeen = new Set()      // 已記過的面向外觀察（與 seen 分開，不影響範圍內去重）
 const confirmed = []           // 確認為真且 ≥MEDIUM 的弱點，供收斂後產出
-const coverage = []            // 覆蓋閘：每輪攻過的面向摘要
+const ledger = []              // 全部 finding 與判定（含假陽性、LOW、已確認項的重複），供第五步逐面向回報
+const attempts = []            // 每輪每面向紅方自報的「最強但站不住的攻擊」
+const confirmedConcerns = new Set() // 閘3：已確認的 root_concern——計數去重只對它比
+const coverage = []            // 覆蓋閘：每輪「紅方真的有回」的面向，與沒攻到的面向
+const attackedEver = new Set() // 任一輪紅方有回結果的面向 key
+let halted = null              // 熔斷資訊：哪一輪、哪些面向紅方回 null、幾個 finding 藍方回 null
 let dry = 0                    // 連續 0 新輪數
 let round = 0
 
@@ -71,7 +82,7 @@ while (dry < DRY_ROUNDS && round < ROUND_CAP) {
   round++
   log(`Round ${round} 開跑（dry=${dry}/${DRY_ROUNDS}）`)
 
-  // 每個標的獨立走「紅攻 → 藍逐 finding 驗證」，pipeline 不設 barrier
+  // 每個核可面向獨立走「紅攻 → 藍逐 finding 驗證」，pipeline 不設 barrier
   //
   // ── cache 友善的 prompt 結構（見本檔末「prompt cache 優化」）──
   // prompt 命中 prompt cache 的條件是「前綴逐 byte 相同」。所以每個 prompt 都按
@@ -81,8 +92,10 @@ while (dry < DRY_ROUNDS && round < ROUND_CAP) {
   // 有前綴比對，那段以 cache-read（約 0.1×）計，而非每次全價。GROUND_TRUTH 通常是
   // 大塊（檔案清單/版本/行為），省最多。
   const RED_PREFIX =                                          // ← 穩定前綴：每個紅方 agent 逐 byte 相同
-    `你是紅方稽核員，對照 ground truth 找真正的問題（會實際出錯/真不一致）。\n` +
-    `理論性/風格/可有可無的潤飾標 LOW；真會觸發的錯誤才標 MEDIUM 以上。\n` +
+    `你是紅方，只攻下方「本次任務」指派給你的那一個面向，面向外的觀察原則上不報；` +
+    `真的重大到會改變使用者決定才報，並標 out_of_scope:true（不計入、不修）。\n` +
+    `只報會改變使用者決定或會實際出錯的弱點；可有可無的潤飾標 LOW。\n` +
+    `另在 strongest_attempt 寫出你試過最強、但自己判斷站不住的攻擊與原因（找到弱點也要寫）。\n` +
     `只報「明顯不同的新弱點」，避開下方「已提過的顧慮」清單裡的 root_concern。\n` +
     `=== GROUND TRUTH（比對基準，勿憑印象）===\n${GROUND_TRUTH}\n=== GROUND TRUTH 結束 ===\n`
   const BLUE_PREFIX =                                         // ← 穩定前綴：每個藍方 agent 逐 byte 相同
@@ -90,20 +103,33 @@ while (dry < DRY_ROUNDS && round < ROUND_CAP) {
     `同時校正嚴重度（紅方常高估）。判 is_real 與 corrected_severity。\n` +
     `=== GROUND TRUTH（比對基準，勿憑印象）===\n${GROUND_TRUTH}\n=== GROUND TRUTH 結束 ===\n`
 
+  const attackedThisRound = new Set()                         // 本輪紅方有回結果（非 null）的面向
   const results = await pipeline(
     TARGETS,
     (t, _orig, i) => agent(                                  // 紅方：穩定前綴在前，變動（target/round/seen）在後
       RED_PREFIX +
       `--- 本次任務（變動段）---\n` +
-      `讀 ${t.path}。第 ${round} 輪。\n` +
-      `已提過的顧慮（避開這些 root_concern）：${[...seen].join(' / ') || '（首輪，無）'}`,
+      `你的面向：「${t.facet}」。要攻什麼：${t.attack}\n` +
+      `不歸你管（不要報）：${t.exclude}\n` +
+      `證據標準：${t.evidence}（可重現＝附重現步驟；外部錨點＝base rate/前例/因果機制）\n` +
+      `相關檔案：${(t.paths || []).join(', ')}。第 ${round} 輪。\n` +
+      `已提過的顧慮（避開這些 root_concern）：${[...seen].join(' / ') || '（首輪，無）'}\n` +
+      `已記過的面向外觀察（不要再報）：${[...oosSeen].join(' / ') || '（無）'}`,
       { label: `red:${t.key}:r${round}`, phase: 'Red', schema: FINDING_SCHEMA }
-    ),
+    ).then(audit => {                                         // null＝沒攻到，不記
+      if (audit) {
+        attackedThisRound.add(t.key)
+        attempts.push({ round, facet: t.key, strongest_attempt: audit.strongest_attempt || '' })
+      }
+      return audit
+    }),
     (audit, t) => parallel(                                  // 藍方：穩定前綴在前，變動（該 finding）在後
-      (audit?.findings || []).map((f, j) => () =>
-        agent(
+      (audit?.findings || []).map((f, j) => f.out_of_scope
+        ? () => Promise.resolve({ file: t.key, finding: f, verdict: null })   // 面向外：不計入也不修，不派藍方、省 quota
+        : () => agent(
           BLUE_PREFIX +
           `--- 待驗證 finding（變動段）---\n` +
+          `面向：「${t.facet}」；相關檔案：${(t.paths || []).join(', ')}\n` +
           `Finding：${f.problem}\n原文：${f.quote}\n紅方說應為：${f.reality_or_fix}`,
           { label: `blue:${t.key}:r${round}:${j}`, phase: 'Blue', schema: VERDICT_SCHEMA }
         ).then(verdict => ({ file: t.key, finding: f, verdict }))
@@ -113,56 +139,101 @@ while (dry < DRY_ROUNDS && round < ROUND_CAP) {
 
   // ── 機械閘計數：本輪新真弱點 ──
   const all = results.flat().filter(Boolean)
+  const seenAtRoundStart = new Set(seen)                     // 判「升格」用：只看前幾輪提過的，同輪先假後真不算升格
   let freshThisRound = 0
+  let unverifiedThisRound = 0
   for (const r of all) {
     const rc = norm(r.finding.root_concern)
-    const isNew = rc && !seen.has(rc)                        // 閘3：去重對所有提過的
-    if (rc) seen.add(rc)                                     // 含假陽性也記入 seen，防換皮重刷（取捨見下方註）
-    if (!r.verdict.is_real) continue                         // 閘1：假陽性丟棄
-    if (rank(r) < MIN_RANK) continue                         // 閘2：< MEDIUM 不計入
-    if (!isNew) continue                                     // 變體/重複不算新
+    const entry = {                                          // 第五步逐面向回報用的流水帳
+      round, facet: r.file, root_concern: r.finding.root_concern, problem: r.finding.problem,
+      quote: r.finding.quote, reality_or_fix: r.finding.reality_or_fix,   // 原文與紅方證據／修法，第五步附證據用
+      severity: r.verdict ? (r.verdict.corrected_severity || r.finding.severity) : r.finding.severity,
+      reason: r.verdict?.reason || '', status: '',
+    }
+    ledger.push(entry)
+    if (r.finding.out_of_scope) {                            // 面向外（沒派藍方，verdict 必為 null）：不計入、不修
+      if (rc && oosSeen.has(rc)) { ledger.pop(); continue }  // 已記過的面向外觀察：不重複記
+      entry.status = 'out_of_scope'
+      if (rc) oosSeen.add(rc)                                // 另記一份，不進 seen——免得吞掉之後範圍內同顧慮的真弱點
+      continue
+    }
+    if (!r.verdict) {                                        // 藍方回 null：沒驗到（多半是 quota/API 終止）。
+      entry.status = 'unverified'                            // 不當假陽性、不進 seen；本輪結束後熔斷停跑（見迴圈尾）
+      unverifiedThisRound++
+      continue
+    }
+    const seenBefore = rc && seenAtRoundStart.has(rc)        // 前幾輪提過（可能判假/LOW）
+    if (rc) seen.add(rc)                                     // 記入給紅方的已提過清單，讓紅方別重刷
+    if (!r.verdict.is_real) { entry.status = 'false_positive'; continue } // 閘1：假陽性丟棄（重刷的假 finding 也在這裡擋）
+    if (rank(r) < MIN_RANK) { entry.status = 'low'; continue }            // 閘2：< MEDIUM 不計入
+    if (rc && confirmedConcerns.has(rc)) { entry.status = 'duplicate_of_confirmed'; continue } // 閘3：只對已確認的去重
+    if (seenBefore) entry.upgraded = true                    // 先前判假/LOW、本輪驗為真且 ≥MEDIUM → 升格為新真弱點
+    entry.status = 'confirmed'
+    if (rc) confirmedConcerns.add(rc)
     freshThisRound++
     confirmed.push(r)                                        // 真新 ≥MEDIUM → 進確認清單（待修）
   }
 
-  coverage.push({ round, targets: TARGETS.map(t => t.key), fresh: freshThisRound })
+  for (const k of attackedThisRound) attackedEver.add(k)
+  coverage.push({
+    round,
+    attacked: [...attackedThisRound],                                     // 紅方真的有回的面向
+    missing: TARGETS.map(t => t.key).filter(k => !attackedThisRound.has(k)), // 紅方回 null 的面向
+    fresh: freshThisRound,
+  })
   log(`Round ${round}：新真弱點 ${freshThisRound} 個（confirmed 累計 ${confirmed.length}）`)
+
+  // ── 熔斷：本輪任一紅方或藍方回 null（quota/API 終止）→ 立即停跑，不派下一輪（SKILL「Quota 節流」）──
+  // 已完成的結果都留在 ledger；恢復後用 resumeFromRunId 續跑，未驗的 finding 由下一輪紅方重提、藍方重驗。
+  const redNullThisRound = TARGETS.length - attackedThisRound.size
+  if (redNullThisRound > 0 || unverifiedThisRound > 0) {
+    halted = { round, redNull: coverage[coverage.length - 1].missing, unverified: unverifiedThisRound }
+    log(`Round ${round}：有 agent 回 null，熔斷停跑`)
+    break
+  }
 
   if (freshThisRound === 0) dry++       // 0 新 → 乾一輪
   else dry = 0                          // 有新 → 重置（此處可插入「修 confirmed」階段後再續圈）
 }
 
-const stoppedBy = round >= ROUND_CAP && dry < DRY_ROUNDS ? 'round_cap' : 'converged'
+const uncovered = TARGETS.map(t => t.key).filter(k => !attackedEver.has(k))
+const stoppedBy = halted ? 'halted_on_null'   // 熔斷：不算收斂，結論一律 BLOCK（中斷），回報使用者
+  : round >= ROUND_CAP && dry < DRY_ROUNDS ? 'round_cap'
+  : 'converged'
 log(`收斂結束：${stoppedBy}，共 ${round} 輪，確認弱點 ${confirmed.length} 個`)
 
 return {
-  stoppedBy,                  // 'converged'（自然收斂）或 'round_cap'（達上限強制停）
+  stoppedBy,                  // 'converged'（自然收斂）/ 'round_cap'（達上限強制停）/ 'halted_on_null'（有 agent 回 null，熔斷）
+  halted,                     // 熔斷時的細節；未熔斷為 null
   rounds: round,
   confirmed: confirmed.map(r => ({
     file: r.file, severity: r.verdict.corrected_severity || r.finding.severity,
-    problem: r.finding.problem, fix: r.verdict.fix || r.finding.reality_or_fix,
+    problem: r.finding.problem, quote: r.finding.quote, reason: r.verdict.reason,
+    fix: r.verdict.fix || r.finding.reality_or_fix,
   })),
+  uncovered,                  // 從頭到尾沒攻到的面向 → 非空即 BLOCK（覆蓋不全）
+  ledger,                     // 全部 finding＋status（confirmed〔升格者另帶 upgraded:true〕/ false_positive / low / duplicate_of_confirmed / unverified / out_of_scope）
+  attempts,                   // 每輪每面向的最強嘗試攻擊，「攻過無弱點」面向用
   coverage,
 }
 ```
 
 ## 用法（主 Agent 端）
 
-1. 主 Agent 換好 `TARGETS` / `GROUND_TRUTH`（或用 `args` 傳入），呼叫 `Workflow({ script })`。
-2. 腳本回 `{ stoppedBy, rounds, confirmed, coverage }`。
+1. 主 Agent 先完成 SKILL 第一步（面向提案 → 使用者核可），把核可面向填進 `TARGETS`，換好 `GROUND_TRUTH`（或用 `args` 傳入），呼叫 `Workflow({ script })`。
+2. 腳本回 `{ stoppedBy, halted, rounds, confirmed, uncovered, ledger, attempts, coverage }`。第五步最終回報照 `ledger` 依 `facet` 分組逐面向展開：`confirmed` → 確認弱點；`false_positive` → 假陽性（附 `reason`）；`low` → LOW；`confirmed` 帶 `upgraded:true` 的 → 先前判假/LOW、後來驗為真的升格項，報告註明「先前誤判」；`duplicate_of_confirmed` → 已確認項的重複，不必再列；`unverified` → 藍方回 null 沒驗到（只會出現在熔斷那一輪），照實列出（≥MEDIUM 的未驗項使結論為 BLOCK（未驗證））；`out_of_scope` → 「範圍外觀察」。「攻過無弱點」面向的最強攻擊取自 `attempts`（紅方自報）與該面向的 `false_positive`（藍方判假理由），取較強者。`uncovered` 非空 → 結論為 BLOCK（覆蓋不全）。
 3. 主 Agent 對 `confirmed`（已是 is_real + ≥MEDIUM + 去重後）做第三步的 REFUTE/HARDEN/MITIGATE/ACCEPT 處置 + 修，再過 SKILL「第四步半：常識/第一性原理終檢」，最後產出第五步報告。
-4. `stoppedBy === 'round_cap'` → 產出須註明「達 round_cap 強制停，殘餘弱點如下」，不可假裝已收斂。
+4. `stoppedBy === 'round_cap'` → 產出須註明「達 round_cap 強制停，殘餘弱點如下」，不可假裝已收斂。`stoppedBy === 'halted_on_null'` → 有紅方或藍方回 null（quota/API 終止），腳本已當輪熔斷停跑：**不算收斂**，先回報使用者（`halted` 記了哪一輪、哪些面向紅方沒回、幾個 finding 沒驗到）；結論一律 BLOCK（中斷），並視 `uncovered`／`unverified` 另加註覆蓋不全、未驗證。quota 恢復後以 `resumeFromRunId` 續跑——已完成的走 cache，沒回的重派。
+5. 藍方回 null 的 finding（`unverified`）不當假陽性、不進去重集合，所以續跑後紅方重提時會被重驗；不會有「後輪已驗過、前輪仍留 unverified」的情形，因為一出現 null 腳本就停了。
 
 ## 鐵律（沿用 workflow-pattern.md，此處只列與迴圈相關的）
 
-- **覆蓋閘**：宣告 `converged` 前，主 Agent 須確認該 type 的「預設攻擊面向」每項都至少被攻過一輪（`coverage` 只記了標的，面向覆蓋需主 Agent 對照 attack-catalog 把關）。未涵蓋不得當收斂——否則退化成只攻淺面向就停。
+- **覆蓋閘**：宣告 `converged` 前，主 Agent 須確認第一步核可的每個面向都至少被攻過一輪（`TARGETS` 一筆就是一個核可面向；腳本回傳的 `uncovered` 就是紅方從頭到尾都回 null、沒攻到的面向，只會在熔斷時非空（此時 `stoppedBy` 為 `'halted_on_null'`）、不得當收斂，`coverage[].missing` 另記每輪漏掉哪些）。未涵蓋不得當收斂——否則退化成只攻淺面向就停。
 - **`dry` 只由機械閘計數驅動**：不要在腳本外用「我覺得攻夠了」覆寫 `dry`。要更嚴謹就調高 `DRY_ROUNDS`，不要手動短路。
-- **⚠️ 去重的已知取捨（誠實揭露，非 bug）**：`seen.add(rc)` 對「假陽性 / LOW」的 finding 也執行（在 is_real / 嚴重度閘之前）。這是**刻意的**——為擋「同一假 finding 換個說法每輪重刷、害迴圈永不收斂」。代價是：**若某 `root_concern` 首輪被判假/LOW、次輪同字串卻其實是真 ≥MEDIUM，會被誤殺（不計為新）→ 可能靜默漏一個真弱點、提早收斂**。緩解（非消除）：
-  - **root_concern 命名要夠具體**：用「哪個檔的哪個具體顧慮」而非籠統大類（籠統 → 不同問題撞同字串 → 誤殺率高）。
-  - 高風險命題想完全避免此誤殺，把 `seen.add(rc)` 移到「藍方判假」的分支外、只對 `is_real:false` 記入一個獨立的 `rejected` Set，真弱點另用 `confirmedConcerns` Set 去重——代價是換皮重刷的假 finding 會回來。**兩害相權，預設選「防永不收斂」**；此取捨已誠實標示，由使用者依命題風險選邊。
+- **去重只對已確認的比（升格規則）**：`seen` 只用來告訴紅方「這些提過了，別重刷」；計數去重只看 `confirmedConcerns`。所以某 `root_concern` 先前被判假/LOW、這輪被藍方驗為真且 ≥MEDIUM → 照計新真弱點（`upgraded:true`），不會被當變體吞掉。不會因此不收斂：確認過一次之後再提都是 `duplicate_of_confirmed`，重刷的假 finding 每次都被閘1擋。**root_concern 命名要夠具體**（「哪個檔的哪個具體顧慮」），避免不同問題撞同字串被誤當已確認項的重複。
 - **schema 扁平、下游只傳精煉摘要**：別把整包上游結果 stringify 塞進下游 prompt（撞 retry cap 炸 workflow）。
 - **修在哪做**：上面骨架是「找＋計數」純收斂；要邊找邊修（實作模式），在 `else dry = 0` 那段之後插一個修階段（改檔→可選 Codex 複審），修完再續圈。高風險改（刪檔/跨 repo/改設定）仍須停下問使用者。
-- **修階段後必插「修復複驗」agent（MANDATORY，不信自述）**：每個「宣稱已修」的 finding，spawn 一個**獨立**複驗 agent（不得由執行修的 agent 自驗、不得只看修 agent 的回報文字）——實讀改後檔案確認修改落地、拿原攻擊路徑對改後版本再打一次。**複驗 fail → `seen.delete(norm(rc))` 把該 root_concern 移出去重集合**，讓下一輪紅攻重提時照計新弱點（否則閘3 會把「沒修好」吞成變體、靜默漏掉），並退回重修。收斂（`dry` 累計）只在「本輪所有已修項複驗全過」的前提下才有效。
+- **修階段後必插「修復複驗」agent（MANDATORY，不信自述）**：每個「宣稱已修」的 finding，spawn 一個**獨立**複驗 agent（不得由執行修的 agent 自驗、不得只看修 agent 的回報文字）——實讀改後檔案確認修改落地、拿原攻擊路徑對改後版本再打一次。**複驗 fail → `confirmedConcerns.delete(norm(rc))`（並 `seen.delete`）把該 root_concern 移出去重集合**，讓下一輪紅攻重提時照計新弱點（否則閘3 會把「沒修好」吞成變體、靜默漏掉），並退回重修。收斂（`dry` 累計）只在「本輪所有已修項複驗全過」的前提下才有效。
 
 ## prompt cache 優化（零對抗損失的省 token）
 
