@@ -33,7 +33,7 @@
     {
       "name": "red-blue-review",
       "source": "./plugins/red-blue-review",
-      "description": "中文紅藍對抗：對任何命題做 Red 攻→Blue 守→收斂的對抗式壓力測試。"
+      "description": "中文紅藍對抗：先提案對抗面向給使用者核可，再做 Red 攻→Blue 守→收斂的對抗式壓力測試。"
     },
     {
       "name": "self-heal",
