@@ -46,9 +46,57 @@ WORKSPACE_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 # 通用化：local-overrides 放工作目錄層的 .claude/（一份管底下所有 repo）。
 OVERRIDES_FILE="$WORKSPACE_DIR/.claude/local-overrides.yml"
 
-# 通用化：.tmp 放工作目錄層的 .claude/，與 overrides 同層（不放 skill 內，避免被 plugin 更新影響）。
-TMP_DIR="$WORKSPACE_DIR/.claude/.git-commit-tmp"
+# 審查紀錄與流程暫存檔放「工作區」層的 .claude/（不放 skill 內，避免被 plugin 更新影響）。
+# 沒設 CLAUDE_PROJECT_DIR 時 PWD 可能是 cd 進去的子 repo 或 worktree，直接用 PWD 會把 review-log.tsv
+# 寫進那個 repo：status 冒出 ?? .claude/，工作區的流水帳也少了這幾筆。
+# 只有兩種情況改放上層工作區（從 repo 頂層的上一層往上找第一個有 .claude/local-overrides.yml 的目錄）：
+#   - repo 是 linked worktree（主 repo 不在這裡，worktree 自己的 .claude/ 是複製來的設定，不是工作區）
+#   - 該目錄的 local-overrides.yml 有 `repo: <這個 repo 相對它的路徑>`，表示它本來就是這個 repo 的工作區
+# 其餘一律維持 PWD，單一 repo 專案的行為不變。
+# 工作區不是 PWD 時，檔名與流水帳的 repo 欄改用「repo 相對工作區的路徑」，否則各 worktree 都是 "." 會互蓋。
+TMP_ANCHOR="$WORKSPACE_DIR"
+TMP_KEY_PREFIX=""
+resolve_tmp_anchor() {
+  [ -n "${CLAUDE_PROJECT_DIR:-}" ] && return 0
+  local top git_dir common_dir is_linked=0 dir rel
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
+  top="$(cd "$top" && pwd)"
+  git_dir="$(cd "$(git rev-parse --git-dir)" && pwd -P)"
+  common_dir="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+  [ "$git_dir" != "$common_dir" ] && is_linked=1
+  dir="$(dirname "$top")"
+  while [ "$dir" != "/" ] && [ "$dir" != "." ]; do
+    if [ -f "$dir/.claude/local-overrides.yml" ]; then
+      rel="${top#"$dir"/}"
+      if [ "$is_linked" -eq 1 ] || grep -qE "^[[:space:]]*repo:[[:space:]]*['\"]?${rel//./\\.}['\"]?[[:space:]]*(#.*)?\$" "$dir/.claude/local-overrides.yml"; then
+        TMP_ANCHOR="$dir"
+        TMP_KEY_PREFIX="$rel"
+      fi
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 0
+}
+resolve_tmp_anchor
+# 同理，當下目錄沒有自己的 local-overrides.yml 時改讀工作區那份，
+# 否則 analyze 會在 repo 裡自動建一份空範本，工作區登記的本機覆寫檔也就不會被排除。
+# worktree 自己帶了一份（刻意複製進去的）就照用。
+if [ ! -f "$OVERRIDES_FILE" ] && [ "$TMP_ANCHOR" != "$WORKSPACE_DIR" ]; then
+  OVERRIDES_FILE="$TMP_ANCHOR/.claude/local-overrides.yml"
+fi
+TMP_DIR="$TMP_ANCHOR/.claude/.git-commit-tmp"
 mkdir -p "$TMP_DIR"
+
+# 暫存檔檔名用的 repo 鍵（斜線換 __）與流水帳 repo 欄的值。
+tmp_repo_key() {
+  local repo="$1"
+  if [ -z "$TMP_KEY_PREFIX" ]; then printf '%s' "$repo"
+  elif [ "$repo" = "." ]; then printf '%s' "$TMP_KEY_PREFIX"
+  else printf '%s' "$TMP_KEY_PREFIX/$repo"
+  fi
+}
+tmp_repo_slug() { local key; key="$(tmp_repo_key "$1")"; printf '%s' "${key//\//__}"; }
 
 VALID_TYPES=(Feat Modify Style Refactor Perf Chore Docs Test Fix Hotfix)
 
@@ -1052,7 +1100,7 @@ cmd_review_record() {
   fi
 
   # 紀錄必須對應「prepare 產出、送去審查的那份 diff」，否則等於替沒看過的內容背書。
-  local repo_slug="${repo//\//__}"
+  local repo_slug="$(tmp_repo_slug "$repo")"
   local hash_file="$TMP_DIR/staged-$repo_slug.sha"
   if [ ! -f "$hash_file" ]; then
     echo "ERROR: 找不到 prepare 產生的 diff hash（$hash_file）。先跑 prepare，拿它產出的 diff 送審。" >&2
@@ -1115,7 +1163,7 @@ cmd_review_record() {
       { printf '%s\n' "$log_header"; tail -n +2 "$REVIEW_LOG"; } > "$REVIEW_LOG.tmp" && mv "$REVIEW_LOG.tmp" "$REVIEW_LOG"
     fi
   fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$repo" "$current" "$mode" "$codex_status" "$reviewer_status" "$reason" "${qa:--}" "${allow_overrides:--}" >> "$REVIEW_LOG"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$(tmp_repo_key "$repo")" "$current" "$mode" "$codex_status" "$reviewer_status" "$reason" "${qa:--}" "${allow_overrides:--}" >> "$REVIEW_LOG"
 
   echo "=== 審查紀錄已寫入 ==="
   echo "  repo：$repo"
@@ -1331,7 +1379,7 @@ cmd_prepare() {
 
   # repo 可能是含斜線的子路徑（例：worktree wt/frontend-devout），
   # 斜線會被當成目錄分隔導致寫檔失敗；統一把斜線換成 __ 當檔名 slug。
-  local repo_slug="${repo//\//__}"
+  local repo_slug="$(tmp_repo_slug "$repo")"
   local diff_file="$TMP_DIR/staged-$repo_slug.diff"
   git -c color.ui=false diff --staged > "$diff_file"
   local lines
@@ -1436,7 +1484,7 @@ cmd_ship() {
       # subject 相同不代表內容相同：reset --soft 換掉內容、沿用同一句 message 重新 commit，
       # 就能讓一顆沒審過的 commit 走這條捷徑推出去。所以只認 ship／amend 當初記下的那顆 sha。
       local marker head_sha shipped_commit shipped_repo
-      marker="$(shipped_marker_file "${repo//\//__}")"
+      marker="$(shipped_marker_file "$(tmp_repo_slug "$repo")")"
       head_sha="$(git rev-parse HEAD)"
       shipped_commit="$(read_marker_line "$marker" 1)"
       shipped_repo="$(read_marker_line "$marker" 2)"
@@ -1451,7 +1499,7 @@ cmd_ship() {
       echo "=== Push-only：偵測到同 message 的未推 commit，跳過 commit 直接推 ==="
       local push_only_rc=0
       if git push; then
-        rm -f "$TMP_DIR/staged-${repo//\//__}.sha" "$TMP_DIR/staged-${repo//\//__}.diff" "$marker"
+        rm -f "$TMP_DIR/staged-$(tmp_repo_slug "$repo").sha" "$TMP_DIR/staged-$(tmp_repo_slug "$repo").diff" "$marker"
       else
         push_only_rc=$?
         echo "ERROR: push 失敗（exit $push_only_rc）。處置同主流程：pull --rebase 後重推，禁止 force。" >&2
@@ -1466,7 +1514,7 @@ cmd_ship() {
   fi
 
   # === 真閘 2：TOCTOU — 比對當下 staged diff 與 prepare 時被審查的那份 ===
-  local repo_slug="${repo//\//__}"
+  local repo_slug="$(tmp_repo_slug "$repo")"
   local hash_file="$TMP_DIR/staged-$repo_slug.sha"
   if [ -f "$hash_file" ]; then
     local expected current
@@ -1738,7 +1786,7 @@ EOF
   echo "    改寫前的 HEAD：$(git rev-parse --short "$backup_branch")"
   echo ""
 
-  local repo_slug="${repo//\//__}"
+  local repo_slug="$(tmp_repo_slug "$repo")"
   local hash_file="$TMP_DIR/staged-$repo_slug.sha"
   local has_staged=0
   git diff --staged --quiet || has_staged=1

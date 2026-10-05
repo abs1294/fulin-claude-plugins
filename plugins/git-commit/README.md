@@ -90,7 +90,7 @@
 
 ## 專案層設定檔
 
-三份都放在**工作目錄層的 `.claude/`**（你啟動 Claude 的那個目錄；`CLAUDE_PROJECT_DIR` 有設就以它為準，沒設就是執行 `flow.sh` 時的目錄）；其中 `qa-gate.conf` 另外會依序從 repo 目錄（經過 symlink 的字面路徑、實體路徑）、主 repo 目錄（worktree 時）、工作目錄各自往上逐層找，取第一個找到的、不合併——repo 自帶一份就會蓋過工作目錄層的，往上也可能走到家目錄的 `.claude/`，所以 cd 進 repo 再用 `.` 也找得到。一份管工作目錄底下所有 repo。**都是選用的**——沒有這些檔，流程照常走。
+三份都放在**工作目錄層的 `.claude/`**（你啟動 Claude 的那個目錄；`CLAUDE_PROJECT_DIR` 有設就以它為準，沒設就是執行 `flow.sh` 時的目錄）。例外（0.11.1 起）：沒設 `CLAUDE_PROJECT_DIR`、又是 cd 進某個 repo 再用 `.` 時，從 repo 頂層的上一層往上找第一個有 `.claude/local-overrides.yml` 的目錄，若這個 repo 是 linked worktree、或該清單有 `repo: <此 repo 相對路徑>`，就把它當工作區——審查紀錄與流程暫存檔（`.git-commit-tmp/`）一律寫到那裡，檔名與流水帳的 repo 欄改用相對工作區的路徑（如 `wt/dapfe`）；當下目錄沒有自己的 `local-overrides.yml` 時也改讀那份，不在 repo 裡自動建空範本。找到的第一份清單不符合就停，不再往上；單一 repo 專案的行為不變；其中 `qa-gate.conf` 另外會依序從 repo 目錄（經過 symlink 的字面路徑、實體路徑）、主 repo 目錄（worktree 時）、工作目錄各自往上逐層找，取第一個找到的、不合併——repo 自帶一份就會蓋過工作目錄層的，往上也可能走到家目錄的 `.claude/`，所以 cd 進 repo 再用 `.` 也找得到。一份管工作目錄底下所有 repo。**都是選用的**——沒有這些檔，流程照常走。
 
 | 檔案 | 誰讀、何時讀 | 用途 |
 |------|------|------|
