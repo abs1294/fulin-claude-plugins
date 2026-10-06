@@ -1198,6 +1198,108 @@
         }
       },
       "expect": "BLOCK"
+    },
+    {
+      "label": "B3：markdown 連結帶錨點 [design.md](路徑#測試情境表)、文件完整 → 去掉錨點找到檔、放行（舊版把它判成找不到檔而擋）",
+      "setup": {
+        "files": {
+          "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【計畫／設計文件】[design.md]({PROJECT_DIR}/docs/design.md#測試情境表)\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "B3：markdown 連結帶錨點、文件缺章節 → 照擋（錨點不代表章節存在，章節照整份文件驗）",
+      "setup": {
+        "files": {
+          "docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【計畫／設計文件】[design.md]({PROJECT_DIR}/docs/design.md#測試情境表)\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "B3：角括號連結帶錨點 [x](<含空白路徑#錨點>)、文件完整 → 放行",
+      "setup": {
+        "files": {
+          "my docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【計畫／設計文件】[design.md](<{PROJECT_DIR}/my docs/design.md#測試情境表>)\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "B3：角括號連結帶錨點、文件缺章節 → 照擋",
+      "setup": {
+        "files": {
+          "my docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【計畫／設計文件】[design.md](<{PROJECT_DIR}/my docs/design.md#測試情境表>)\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "B3：相對路徑連結帶錨點 [design.md](docs/design.md#測試情境表)、文件完整 → 以專案根解析、放行",
+      "setup": {
+        "files": {
+          "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【計畫／設計文件】[design.md](docs/design.md#測試情境表)\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "B3：引號包住的路徑帶錨點 \"路徑#錨點\"、文件完整 → 放行",
+      "setup": {
+        "files": {
+          "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【計畫／設計文件】\"{PROJECT_DIR}/docs/design.md#測試情境表\"\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW"
     }
   ],
   "variants": {

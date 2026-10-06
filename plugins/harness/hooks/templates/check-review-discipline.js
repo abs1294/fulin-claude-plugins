@@ -25,7 +25,8 @@
 // （預設：「測試情境表」或「驗證計畫」標題＋簽收狀態句）。只看 prompt 文字的話，設計文件漏產情境表、
 // 還沒簽收就交棒，派工單照樣過閘——交棒那一刻驗簽收物本身，比事後審查才發現便宜。
 // 指向的檔不存在 → 擋（多半是路徑寫錯或還沒產出，放行的話這道檢查等於沒做）；格裡沒寫 .md 路徑 → 不檢查（見已知取捨）。
-// 路徑怎麼取：markdown 連結 `[x](<路徑>)`／`[x](路徑)` 括號裡的 → 引號或反引號包住的（可含空白）→ 其餘第一個 .md 字樣
+// 路徑怎麼取：markdown 連結 `[x](<路徑>)`／`[x](路徑)` 括號裡的 → 引號或反引號包住的（可含空白）→ 其餘第一個 .md 字樣；
+// .md 後面帶錨點（`design.md#測試情境表`）時去掉錨點再找檔，章節照整份文件驗
 // （沒加引號又含空白時，從 .md 結尾往前延伸、找磁碟上實際存在的檔，例：專案放在「OneDrive - 公司名」底下）。
 // Windows 上 Git Bash 寫法 `/c/...` 轉成 `C:/...`。判不準的情況（含空白又找不到實際的檔、`~` 開頭、網址、Windows 上其他
 // `/` 開頭的 Git Bash 路徑）不擋：放行並用 additionalContext 提醒這次沒驗到。相對路徑以專案根解析，找法同 guard-qa-before-commit
@@ -209,7 +210,7 @@ const DATA_SOURCE_AGENTS = ['qa-engineer'];
 //   field    — 欄位標題的 regex 字串；預設對齊 04 模板二的【計畫／設計文件】（也認【設計文件】）
 //   agents   — 適用的 agent 名（不含 plugin 前綴）；prompt 沒有這格就不檢查
 //   sections — 引用檔裡必須有的東西：{ name, pattern（regex 字串，多行模式：^ 對齊每一行行首）, hint }
-// 引用路徑（resolveDocRef）：格內依序取 markdown 連結 [x](<路徑>)／[x](路徑) 括號裡的 → 引號或反引號包住的 →
+// 引用路徑（resolveDocRef）：格內依序取 markdown 連結 [x](<路徑>)／[x](路徑) 括號裡的 → 引號或反引號包住的（三者都容許 .md#錨點，找檔時去掉錨點）→
 // 沒包起來的第一個 .md 字樣（含空白時從 .md 往前延伸，找磁碟上實際存在的檔）。Windows 上 /c/… 轉成 C:/…。
 // 相對路徑以專案根解析（projectRoot：CLAUDE_PROJECT_DIR → 本檔在 <專案根>/.claude/hooks/ 時往上兩層 → payload 的 cwd）。
 // 引用檔不存在 → 擋；格裡沒寫 .md 路徑、【開工前對齊】開頭是「分流例外」、格裡寫「本次產出：」→ 不檢查；
@@ -408,10 +409,11 @@ const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return f
 //      最長的先試，找磁碟上實際存在的檔；都找不到，而前一段長得像路徑（含斜線或磁碟代號）→ 判不準；否則照字樣判「找不到檔」
 function resolveDocRef(rawSeg, baseDir) {
   const toAbs = (raw) => { const np = nativePath(String(raw).trim()); return np.unsure ? np : { p: path.resolve(baseDir, np.p) }; };
-  let m = /\]\(\s*<([^<>\n]+?\.md)>\s*(?:"[^"\n]*")?\s*\)/i.exec(rawSeg);
+  // 三種包起來的寫法都容許 .md 後面接錨點（#章節）：錨點只指到檔內位置，找檔時去掉，章節仍照整份文件驗
+  let m = /\]\(\s*<([^<>\n]+?\.md)(?:#[^<>\n]*)?>\s*(?:"[^"\n]*")?\s*\)/i.exec(rawSeg);
   const seg = stripPlaceholders(rawSeg);
-  if (!m) m = /\]\(\s*([^()<>\n]*?\.md)\s*(?:"[^"\n]*")?\s*\)/i.exec(seg);
-  if (!m) m = /["'`“「]([^"'`”」\n]*?\.md)["'`”」]/i.exec(seg);
+  if (!m) m = /\]\(\s*([^()<>\n]*?\.md)(?:#[^()\s]*)?\s*(?:"[^"\n]*")?\s*\)/i.exec(seg);
+  if (!m) m = /["'`“「]([^"'`”」\n]*?\.md)(?:#[^"'`”」\n]*)?["'`”」]/i.exec(seg);
   if (m) { const r = toAbs(m[1]); return r.unsure ? r : { p: r.p, exists: isFile(r.p) }; }
   m = /[^\s<>《》【】"'`（）()，,；;、：|]+\.md(?![A-Za-z0-9_])/i.exec(seg);
   if (!m) return null;
