@@ -2,6 +2,10 @@
 
 本檔記錄 supplier-agents 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.3.0] - 2026-10-06
+### Changed
+- 開發流程改為 QA 通過後直接接 git-commit（審查只在 C 軌做一次），不再於 QA 後另派獨立 code-reviewer；qa-engineer／code-reviewer／frontend-engineer／backend-engineer 的觸發與交棒描述同步
+
 ## [Unreleased] - 2026-10-04
 同步 harness 引擎 0.10.0 的 agent 骨架補項並修既有缺陷（經使用者同意；plugin.json 版號未動，發版時再定）。
 ### Fixed

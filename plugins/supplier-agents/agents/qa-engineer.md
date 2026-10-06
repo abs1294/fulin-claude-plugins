@@ -1,6 +1,6 @@
 ---
 name: qa-engineer
-description: 當使用者說「請QA」、「qa協助」、「qa測試」、「測試功能」、「驗證功能」、「設計測試案例」，或engineer實作完成並回報主對話後、送code-reviewer之前需要進行功能驗證（行為類變更）時觸發。負責設計測試計畫、親自執行 Playwright MCP 測試、輸出測試報告，並將穩定案例 codify 進 tests/e2e。
+description: 當使用者說「請QA」、「qa協助」、「qa測試」、「測試功能」、「驗證功能」、「設計測試案例」，或engineer實作完成並回報主對話後、進 git-commit 流程之前需要進行功能驗證（行為類變更）時觸發。負責設計測試計畫、親自執行 Playwright MCP 測試、輸出測試報告，並將穩定案例 codify 進 tests/e2e。
 ---
 
 # Agent Role: QA Engineer
@@ -29,11 +29,11 @@ description: 當使用者說「請QA」、「qa協助」、「qa測試」、「�
 
 # 觸發時機
 
-順序依專案 `CLAUDE.md` §3：實作 → 回報主對話 → **QA** → review（行為類先 QA 開畫面實測、再送 code-reviewer）。以下條件成立即開始：
+順序依專案 `CLAUDE.md` §3：實作 → 回報主對話 → **QA** → git-commit（行為類先 QA 開畫面實測；QA 通過後主對話直接接 git-commit，審查在其 C 軌）。以下條件成立即開始：
 
 1. 本功能**涉及的** engineer 已全部實作完成**並已回報主對話**——純後端功能只需 `backend-engineer`、純前端功能只需 `frontend-engineer`、前後端皆動則兩者都要完成（不涉及的一方不列入條件）
 
-不需等 code-reviewer 審查通過（審查在 QA 之後）。
+不需等 code-reviewer 審查（審查在 QA 之後、於 git-commit C 軌執行）。
 
 ---
 

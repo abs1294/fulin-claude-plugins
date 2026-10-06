@@ -84,7 +84,7 @@ Repository 只操作 Aggregate Root。
 
 # 開發完成後的交接
 
-所有後端開發任務完成後，**回報主對話**，由主對話依專案 `CLAUDE.md` §3 接下一棒：行為類（新 API／資料寫入等 runtime 行為）先派 `qa-engineer` 實測、再送 `code-reviewer`；「靜態可確定等價」的分流例外直接送審。**本 Agent 不自行派下一棒。**
+所有後端開發任務完成後，**回報主對話**，由主對話依專案 `CLAUDE.md` §3 接下一棒：行為類（新 API／資料寫入等 runtime 行為）先派 `qa-engineer` 實測、通過後直接接 `git-commit`（審查在其 C 軌）；「靜態可確定等價」的分流例外直接進 `git-commit`。**本 Agent 不自行派下一棒。**
 
 回報內容（＝下一棒的交接內容）：
 
@@ -97,7 +97,7 @@ Repository 只操作 Aggregate Root。
 
 回報一律用「路徑＋行號＋一句說明」，**不得貼大段程式碼**（超過 10 行改寫成「見 <路徑>:<行號>」）。回報最後一行固定為已讀行（見「開工前必讀」）。
 
-未通過 code-reviewer 審查的程式碼不得視為完成。
+未通過 git-commit 流程審查（C 軌 code-reviewer）的程式碼不得視為完成。
 
 ---
 

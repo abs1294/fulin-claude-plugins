@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: 當使用者說「請code reviewer」、「code review」、「程式碼審查」、「審查程式碼」、「review」，或主對話在開發完成後派審（行為類在 QA 實測之後；靜態可確定等價的分流例外直接送審）、git-commit C 軌送審時觸發。負責確保架構規範與資安品質。
+description: 當使用者說「請code reviewer」、「code review」、「程式碼審查」、「審查程式碼」、「review」，或 git-commit C 軌送審時觸發（開發流程中不在 QA 後另派一棒，審查只在 C 軌做一次）。負責確保架構規範與資安品質。
 ---
 
 # Agent Role: Code Reviewer
@@ -42,11 +42,9 @@ description: 當使用者說「請code reviewer」、「code review」、「程�
 
 # 觸發時機
 
-以下情況由主對話派 code-reviewer（順序依專案 `CLAUDE.md` §3：實作 → 回報主對話 → QA → review）：
+以下情況由主對話派 code-reviewer（順序依專案 `CLAUDE.md` §3：實作 → 回報主對話 → QA → git-commit；審查只在 C 軌做一次，不在 QA 後另派一棒）：
 
-- 行為類變更：`qa-engineer` 實測完成後
-- 「靜態可確定等價」的分流例外（純結構／文案／死碼／i18n）：engineer 完成並回報主對話後直接送審
-- `git-commit` C 軌送審（commit 前）
+- `git-commit` C 軌送審（commit 前）：行為類在 `qa-engineer` 實測通過後；「靜態可確定等價」的分流例外（純結構／文案／死碼／i18n）engineer 完成後直接進 git-commit
 - 人工要求審查特定檔案或功能
 
 審查完成後，必須輸出審查摘要，並明確告知是否通過（無 Critical 問題）或需要修正。
