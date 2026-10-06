@@ -35,6 +35,9 @@
  *   (E2) htmlBody 標籤白名單（<p> 就是被這項抓到的）
  *   (F) 機敏內容（憑證／個資，共用 banned-patterns.json）
  *   (F2) 公文式敬稱（advisory，會誤判，措辭寫成「請確認」）
+ *   (G) reply 附件帶入（2026-10-06 實案：replyToMessageId 建草稿，原信 9 張截圖
+ *       被整批複製進草稿附件區，使用者自己打開才發現）→ 寫入時記帳，
+ *       get_draft 讀回時：有附件→提醒清除；無附件→銷帳
  *
  * ── PostToolUse 契約（官方文件確認，與 Stop 不同）──────────────
  *   stdin:  { tool_name, tool_input, tool_use_id, tool_response, transcript_path,
@@ -173,6 +176,23 @@ function main(raw) {
       const i = st.warned.indexOf(noread);
       if (i !== -1) { st.warned.splice(i, 1); C.writeState(st); }
     }
+    // (G) 讀回的附件區：有附件→提醒；確認為零→銷「reply 待檢查」記號
+    const attCount = res ? C.resultAttachmentCount(res) : null;
+    if (attCount !== null && attCount > 0) {
+      once(draftId ? 'attach:' + draftId : null, () =>
+        `■ 這封草稿帶著 ${attCount} 個附件：${draftId || '(未知 draftId)'}\n` +
+        '  若是用 replyToMessageId 建的回覆草稿，原信的附件（對方貼的截圖等）會被整批\n' +
+        '  複製進來——寄回去給對方沒有意義，還撐大信件。請確認每一個都是這次要寄的；\n' +
+        '  要清掉就 update_draft 不帶 attachments 欄位（附件不做合併，未重附即全清，\n' +
+        '  內文與收件人不受影響）。是自己刻意附上的就忽略這行。\n' +
+        '  （SKILL.md 第三步之三 要點 5）'
+      );
+    }
+    if (attCount === 0 && draftId) {
+      const pend = 'attachpending:' + draftId;
+      const i = st.warned.indexOf(pend);
+      if (i !== -1) { st.warned.splice(i, 1); C.writeState(st); }
+    }
   }
 
   // ── 寫入：(C)(D)(E)(E2)(F)(F2) ＋ (A) 記帳 ──
@@ -253,6 +273,20 @@ function main(raw) {
         '  換行一律用 <br>（空一行就是 <br><br>），禁用 <p>；外層只允許一個 <div dir="ltr">。\n' +
         '  （SKILL.md 第三步之三 格式）'
       );
+    }
+
+    // (G) reply 模式會把原信附件複製進草稿——記帳，等 get_draft 讀回確認附件區
+    if (draftId && C.safeStr(toolInput.replyToMessageId)) {
+      const key = 'attachpending:' + draftId;
+      if (st.warned.indexOf(key) === -1 && claimed.indexOf(key) === -1) {
+        claimed.push(key);
+        sections.push(
+          '□ 這封是回覆草稿（replyToMessageId），原信的附件會被複製進草稿附件區\n' +
+          '  （2026-10-06 實案：對方信裡 9 張截圖整批被帶進回覆草稿）。\n' +
+          '  請跑一次 get_draft 檢查附件區；有帶入就 update_draft 不帶 attachments 欄位\n' +
+          '  一次清空（內文與收件人不受影響）。（SKILL.md 第三步之三 要點 5）'
+        );
+      }
     }
 
     // (A) 含網址就記帳，等 get_draft 有效讀回才銷帳

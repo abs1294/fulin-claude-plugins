@@ -661,6 +661,41 @@ function isUserPromptLine(o) {
 function safeStr(x) { return typeof x === 'string' ? x : ''; }
 
 
+// ---- 附件（2026-10-06 實案：reply 草稿帶入原信 9 張截圖，使用者自己發現）----
+
+/**
+ * 讀回草稿的頂層附件數。
+ *
+ * 必須 parse JSON 取頂層 attachments / attachmentIds 欄位——不能字串搜「attachment」：
+ * reply 草稿的 htmlBody 引文區帶著原信內嵌圖片的 URL（…view=fimg&attid=…），
+ * 字串搜會把「引文顯示圖」誤判成「草稿附件」，而那種不是附件、寄出不多掛檔案。
+ * parse 不出來回 null（判不出），呼叫端當作「不知道」而不出聲。
+ */
+function resultAttachmentCount(res) {
+  const t = resultText(res);
+  if (!t) return null;
+  let o;
+  try { o = JSON.parse(t); } catch (_) { return null; }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  if (Array.isArray(o.attachments)) return o.attachments.length;
+  if (Array.isArray(o.attachmentIds)) return o.attachmentIds.length;
+  return 0;
+}
+
+/**
+ * tool_input.attachments 的合計位元組數（base64 → bytes 粗估：len * 3/4）。
+ * 非陣列、content 不是字串 → 當 0 計（fail-open：估不出就不擋）。
+ */
+function attachmentsTotalBytes(input) {
+  if (!input || !Array.isArray(input.attachments)) return 0;
+  let total = 0;
+  for (const a of input.attachments) {
+    if (a && typeof a.content === 'string') total += Math.floor(a.content.length * 3 / 4);
+  }
+  return total;
+}
+
+
 module.exports = {
   // 常數
   REWRITE_MARK, WRITE_TOOLS, READ_TOOL, BANNED, STATE_DIR,
@@ -674,4 +709,6 @@ module.exports = {
   statePath, readState, writeState,
   // transcript
   isUserPromptLine,
+  // 附件
+  resultAttachmentCount, attachmentsTotalBytes,
 };

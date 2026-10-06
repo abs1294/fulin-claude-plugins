@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.7.0] - 2026-10-06
+### Changed
+- 建草稿要點5：reply 附件帶入清除＋附件 25MB 上限與替代路徑；gmail-draft-posttool-gate 新增 (G) reply 附件帶入檢查（寫入記帳、讀回提醒/銷帳）；新增 PreToolUse 閘 gmail-draft-attachment-gate（附件合計 >25MB 直接擋下並列三條替代路徑）
+
 ## [1.6.0] - 2026-10-04
 ### Changed
 - daily-report 的「能不能自動寄出」改由設定檔一個開關 `require_approval` 決定，並由寄送腳本強制：`true`（預設；沒寫、值不是 true/false、設定檔讀不到或格式壞了、最外層與舊位置 schedule 裡寫了不同值，都算這個）＝每封都要使用者說「寄」才寄，帶 `--auto` 的寄送（send_gmail.py、gmail_oauth.py send）一律拒寄並印出要改哪個檔的哪個值；`false`＝確認窗口到期沒人喊停就自動寄，照舊檢查未呈現、窗口未到期、已喊停、呈現後內容被改。不帶 `--auto`（使用者親口說寄）不受影響。修正前這個值只寫在 SKILL.md 與範本，沒有任何腳本讀它，第 5 步又不分設定一律開默許窗口並在喚醒後自動寄，與「沒有默許自動寄」的原則互相矛盾。
