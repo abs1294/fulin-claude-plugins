@@ -64,6 +64,22 @@
           "const RULES = [{\"id\":\"bad-bytool-inner\",\"when\":\"\\\\bdeploy-now\\\\b\",\"byTool\":{\"PowerShell\":\"--dry-run\"},\"reason\":\"示範：byTool 底下的值寫壞\",\"fix\":\"改成物件\"},"
         ]
       ]
+    },
+    "cwd": {
+      "replace": [
+        [
+          "const RULES = [];",
+          "const RULES = [\n  {\n    \"id\": \"start-in-api\",\n    \"when\": \"\\\\b(npm|pnpm|yarn)\\\\s+(run\\\\s+)?(start|dev)\\\\b\",\n    \"requireCwd\": \"^api$\",\n    \"reason\": \"服務把上傳檔寫在目前目錄底下的相對路徑；從別的目錄起，檔案會落到測試找不到的地方。\",\n    \"fix\": \"cd api && npm start\"\n  }\n];"
+        ]
+      ]
+    },
+    "cwd-env": {
+      "replace": [
+        [
+          "const RULES = [];",
+          "const RULES = [\n  {\n    \"id\": \"start-in-api\",\n    \"when\": \"\\\\b(npm|pnpm|yarn)\\\\s+(run\\\\s+)?(start|dev)\\\\b\",\n    \"requireCwd\": \"^api$\",\n    \"reason\": \"服務把上傳檔寫在目前目錄底下的相對路徑；從別的目錄起，檔案會落到測試找不到的地方。\",\n    \"fix\": \"cd api && APP_ENV=local npm start\",\n    \"requireEnv\": {\n      \"APP_ENV\": \"^(local|development)$\"\n    }\n  }\n];"
+        ]
+      ]
     }
   },
   "cases": [
@@ -8430,6 +8446,409 @@
       },
       "expect": "NOTE",
       "visible": true
+    },
+    {
+      "label": "requireCwd：cd 到規定的目錄再起服務 → 放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd：cd 到別的目錄起服務 → 擋",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd web && npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "requireCwd：這串沒有 cd（看不到 session 先前的目錄）→ 不檢查，放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd：cd 到變數（判不準）→ 不檢查，放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd $APP_DIR && npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd：cd 到不存在的目錄（cd 會失敗，判不準）→ 不檢查，放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd missing && npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd：先進 api 又 cd .. 回專案根 → 擋",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && cd .. && npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "requireCwd：取最後一個 cd（web 再到 ../api）→ 放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd web; cd ../api; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd：PowerShell 的 Set-Location 到別的目錄 → 擋",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Set-Location web; npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "requireCwd：PowerShell 的 Set-Location 到規定的目錄 → 放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Set-Location api; npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd：session 目前在 web、cd ../api 後起服務 → 放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd ../api && npm start"
+        },
+        "cwd": "{PROJECT_DIR}/web"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd：只是 commit 訊息提到 → 放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m \"cd web && npm start\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd：條件裡的 cd（語法樹路徑判不準）→ 不檢查，放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "[ -d web ] && cd web; npm start"
+        }
+      },
+      "expect": "ALLOW",
+      "parser": "only"
+    },
+    {
+      "label": "requireCwd：條件裡的 cd（正則路徑不辨識條件，照 cd 算）→ 擋",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "[ -d web ] && cd web; npm start"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "off"
+    },
+    {
+      "label": "requireCwd＋requireEnv：目錄與環境都對 → 放行",
+      "variant": "cwd-env",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && APP_ENV=local npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd＋requireEnv：環境對、目錄錯 → 擋",
+      "variant": "cwd-env",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd web && APP_ENV=local npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "requireCwd＋requireEnv：目錄對、環境沒帶 → 擋",
+      "variant": "cwd-env",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && npm start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "requireCwd：同一串裡 cd 到規定的目錄再 npm run start（&&）→ 放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api && npm run start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd：同一串裡 cd 到別的目錄再 npm run start（&&）→ 擋",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd web && npm run start"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "requireCwd：同一串裡 cd 到規定的目錄再 npm run start（;）→ 放行",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api; npm run start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd：同一串裡 cd 到別的目錄再 npm run start（;）→ 擋",
+      "variant": "cwd",
+      "setup": {
+        "files": {
+          "api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd web; npm run start"
+        }
+      },
+      "expect": "BLOCK"
     }
   ]
 }

@@ -48,6 +48,54 @@
           "const CHECKS = [{\"id\":\"broken-check\",\"kind\":\"env\",\"env\":\"TEST_API_BASE\",\"when\":\"(unclosed\",\"reason\":\"示範：regex 寫壞的檢查\",\"fix\":\"修 regex\"}, {\"id\":\"api-base\",\"kind\":\"env\",\"env\":\"TEST_API_BASE\",\"matches\":\"^https?://localhost:\\\\d+\",\"reason\":\"測試要打自己起的那套服務。\",\"fix\":\"TEST_API_BASE=http://localhost:3000 npm test\"},"
         ]
       ]
+    },
+    "env-file": {
+      "replace": [
+        [
+          "const CHECKS = [];",
+          "const CHECKS = [\n  {\n    \"id\": \"tenant-align\",\n    \"kind\": \"env-file\",\n    \"env\": \"TEST_TENANT_ID\",\n    \"path\": \"api/config/local.json\",\n    \"pattern\": \"\\\"tenantId\\\"\\\\s*:\\\\s*\\\"([^\\\"]+)\\\"\",\n    \"reason\": \"測試種資料用 TEST_TENANT_ID、服務查資料用設定檔的 tenantId；不同就查 0 筆。\",\n    \"fix\": \"把 TEST_TENANT_ID 設成 api/config/local.json 的 tenantId 再跑。\"\n  }\n];"
+        ]
+      ]
+    },
+    "env-file-allow": {
+      "replace": [
+        [
+          "const CHECKS = [];",
+          "const CHECKS = [\n  {\n    \"id\": \"tenant-align\",\n    \"kind\": \"env-file\",\n    \"env\": \"TEST_TENANT_ID\",\n    \"path\": \"api/config/local.json\",\n    \"pattern\": \"\\\"tenantId\\\"\\\\s*:\\\\s*\\\"([^\\\"]+)\\\"\",\n    \"reason\": \"測試種資料用 TEST_TENANT_ID、服務查資料用設定檔的 tenantId；不同就查 0 筆。\",\n    \"fix\": \"把 TEST_TENANT_ID 設成 api/config/local.json 的 tenantId 再跑。\",\n    \"onMissing\": \"allow\"\n  }\n];"
+        ]
+      ]
+    },
+    "custom": {
+      "replace": [
+        [
+          "const CHECKS = [];",
+          "const CHECKS = [{\n  id: 'port-align', kind: 'custom',\n  check: (ctx) => {\n    const want = String(ctx.readFile('api/port.txt') || '').trim();\n    return ctx.env('TEST_PORT').some((x) => x.unsure || x.value !== want) ? ['TEST_PORT 跟 api/port.txt（' + want + '）對不上'] : [];\n  },\n  reason: '測試打的埠要是服務實際聽的埠。', fix: 'TEST_PORT=<api/port.txt 的值> npm test',\n}];"
+        ]
+      ]
+    },
+    "custom-throws": {
+      "replace": [
+        [
+          "const CHECKS = [];",
+          "const CHECKS = [{ id: 'boom', kind: 'custom', check: () => { throw new Error('壞掉了'); }, reason: 'x', fix: 'y' }];"
+        ]
+      ]
+    },
+    "custom-not-array": {
+      "replace": [
+        [
+          "const CHECKS = [];",
+          "const CHECKS = [{ id: 'notarray', kind: 'custom', check: () => 'TEST_PORT 不對', reason: 'x', fix: 'y' }];"
+        ]
+      ]
+    },
+    "bad-kind": {
+      "replace": [
+        [
+          "const CHECKS = [];",
+          "const CHECKS = [{ id: 'typo', kind: 'envfile', env: 'TEST_TENANT_ID', reason: 'x', fix: 'y' }];"
+        ]
+      ]
     }
   },
   "cases": [
@@ -1815,6 +1863,361 @@
       "setup": {
         "env": {
           "TEST_API_BASE": "http://localhost:3000"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "env-file：環境變數與設定檔的值相同 → 放行",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_TENANT_ID=t1 npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file：兩邊不同 → 擋",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_TENANT_ID=t2 npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env-file：環境變數沒設 → 擋",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env-file：值加了引號（殼會剝掉）→ 放行",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_TENANT_ID=\"t1\" npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file：export 之後才跑測試 → 放行",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "export TEST_TENANT_ID=t1 && npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file：同一串後面的測試才設對、前面那條沒設 → 擋",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test; TEST_TENANT_ID=t1 npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env-file：PowerShell 設 $env: 後跑測試 → 放行",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$env:TEST_TENANT_ID = 't1'; npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file：繼承的環境變數就是對的 → 放行",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": "t1",
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file：繼承的環境變數不對 → 擋",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": "t9",
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env-file：設定檔讀不到 → 無法確認，擋",
+      "variant": "env-file",
+      "setup": {
+        "files": {},
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_TENANT_ID=t1 npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env-file：設定檔讀不到、onMissing: allow → 放行",
+      "variant": "env-file-allow",
+      "setup": {
+        "files": {},
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_TENANT_ID=t1 npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "env-file：設定檔裡找不到那個值 → 無法確認，擋",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_TENANT_ID=t1 npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "env-file：不是測試指令（cat 設定檔）→ 放行",
+      "variant": "env-file",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat api/config/local.json"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "custom：自訂檢查通過 → 放行",
+      "variant": "custom",
+      "setup": {
+        "files": {
+          "api/port.txt": "3000\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_PORT=3000 npm test"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "custom：自訂檢查回報問題 → 擋",
+      "variant": "custom",
+      "setup": {
+        "files": {
+          "api/port.txt": "3000\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TEST_PORT=3001 npm test"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "custom：check 丟例外 → 放行，但故障提醒模型看得到",
+      "variant": "custom-throws",
+      "setup": {
+        "files": {},
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "custom：check 回傳的不是陣列 → 放行，但故障提醒模型看得到",
+      "variant": "custom-not-array",
+      "setup": {
+        "files": {},
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "kind 打錯字 → 放行，但故障提醒模型看得到",
+      "variant": "bad-kind",
+      "setup": {
+        "files": {
+          "api/config/local.json": "{ \"tenantId\": \"t1\", \"port\": 3000 }\n"
+        },
+        "env": {
+          "TEST_TENANT_ID": null,
+          "TEST_PORT": null
         }
       },
       "payload": {

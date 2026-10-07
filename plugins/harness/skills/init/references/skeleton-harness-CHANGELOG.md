@@ -29,3 +29,11 @@
 {{註解規範那一題：選「建」保留下面這一節、刪掉本行；選「沿用」也保留，節標題改成「## 07-comment-guide.md（沿用 <既有文件路徑>）」、那一行的「建立」改成「沿用專案既有的註解規範 <路徑>，init 只引用、不改內容」（init 依使用者同意在既有文件補了「編譯器或 linter 要求一定要寫 doc 註解時」一節時，改成「沿用專案既有的註解規範 <路徑>，init 補上「編譯器或 linter 要求一定要寫 doc 註解時」一節」；日期照填），刪掉本行；選「不建」才連同本行把下面兩行一起刪掉}}
 ## 07-comment-guide.md
 - {{YYYY-MM-DD}} 建立（harness plugin /harness:init 實例化）
+
+{{有產生本機覆寫說明時保留下面兩行、刪掉本行；沒有就連同本行一起刪}}
+## local-overrides-guide.md
+- {{YYYY-MM-DD}} 建立（harness plugin /harness:init 實例化）
+
+{{動手前必讀那一題有規則檔選「精煉成自有正本」時保留下面兩行、刪掉本行；沒有就連同本行一起刪}}
+## review-rules.md
+- {{YYYY-MM-DD}} 建立（harness plugin /harness:init 實例化；精煉自 <原檔路徑>，原檔版本 <commit 或日期>）

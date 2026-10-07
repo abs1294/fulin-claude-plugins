@@ -77,6 +77,17 @@
 //                 （`cd api && node --env-file=.env.test …` 讀的是 api/.env.test）。
 //               管線裡有多個指令命中 when 時各自驗。以真 bash 執行的逐一對照見 CHANGELOG。
 //               有 requireEnv 的規則＝「全部變數都對才放行」，任一缺或不符就擋。空字串視同未設。
+//   requireCwd  選填，字串 regex（不分大小寫）——命中的那條指令**啟動當下的工作目錄**要符合它，否則擋。給起服務類用：
+//               程式把檔案寫在相對路徑、或依目前目錄找設定檔時，從別的目錄起服務照樣會跑，只是東西落到錯的地方、
+//               症狀不指向起服務的方式。比對的字串＝工作目錄相對專案根的路徑、正斜線（專案根本身是 `.`，專案外是
+//               正斜線的絕對路徑），例：`^(?:\.|api)$`。**只在看得出來而且確定時才檢查**，其餘一律不檢查（不擋）：
+//               · 這串指令自己沒有字面的切目錄動作（cd／Set-Location／sl／chdir）→ 不檢查（session 先前的 cd 看不到）。
+//               · 語法樹路徑用 shell-model 的 dirAt：判不準（條件裡的 cd、cd 到變數／~／-、目標目錄不存在、pushd、
+//                 新程序裡、前面有認不得的指令或自訂函式…）→ 不檢查。
+//               · 正則路徑取命中那條之前、這串指令裡依序出現的字面 cd 累積出的目錄（相對疊加、絕對取代）；
+//                 目標含 $、%、~、反引號、以 - 開頭、目錄不存在、或碰到 pushd／popd → 不檢查。子殼範圍與條件不辨識
+//                 （`(cd x); 起服務`、`[ -d x ] && cd x; 起服務` 會被當成在 x 裡起）——這是正則路徑的已知極限。
+//               與 requireEnv 可並用：全部條件都對才放行；unless／unlessWith 命中時照樣整條放行。
 //   reason      擋下時說明「為什麼擋」——寫機制與後果，不寫「禁止」兩個字就交差。
 //   fix         怎麼做才會放行——給可照抄的正解，或寫明「請使用者親自執行」。
 //
@@ -1094,6 +1105,37 @@ function analyzeWithParser(command, tool, startDir, root) {
   }
 }
 
+// requireCwd：工作目錄相對專案根、正斜線（專案根＝.；專案外＝正斜線的絕對路徑）
+const HAS_LITERAL_CD = /(?:^|[\s;&|(])(?:cd|set-location|sl|chdir)(?=[\s;&|)]|$)/i;
+function cwdLabel(root, dir) {
+  const rel = path.relative(root, dir);
+  if (rel === '') return '.';
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return dir.split('\\').join('/');
+  return rel.split('\\').join('/');
+}
+function cwdMsg(r, label) {
+  return '工作目錄是 "' + label + '"，不符期望 /' + r.requireCwd + '/';
+}
+// 正則路徑：命中那條之前（before＝前面各行的原文）依序出現的字面 cd 累積出的目錄；判不準或沒有 cd 回 null
+function regexCwd(before, startDir) {
+  const re = /(?:^|[\s;&|(])(cd|pushd|popd|set-location|sl|chdir)(?:\s+-(?:literal)?path)?(?:\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|"')]+)))?(?=\s*(?:$|[;&|)\n]))/gi;
+  let dir = startDir;
+  let seen = false;
+  for (const m of before.matchAll(re)) {
+    seen = true;
+    const verb = m[1].toLowerCase();
+    if (verb === 'pushd' || verb === 'popd') return null;
+    let t = m[2] || m[3] || m[4];
+    if (!t || /^[-~]|[$%`]/.test(t)) return null;
+    if (process.platform === 'win32') t = t.replace(/^\/([A-Za-z])(?=\/|$)/, '$1:');
+    dir = path.resolve(dir, t);
+    let isDir = false;
+    try { isDir = fs.statSync(dir).isDirectory(); } catch (e) { isDir = false; }
+    if (!isDir) return null;   // cd 會失敗：後面的指令仍在原目錄，判不準
+  }
+  return seen ? dir : null;
+}
+
 // 正則路徑（沒有語法解析器時）：原本的判法，照舊保留。
 function regexHits(command, startDir, root, hits) {
   const ex = executedText(command, 0);
@@ -1139,6 +1181,17 @@ function regexHits(command, startDir, root, hits) {
               else if (!new RegExp(want, 'i').test(val)) msg = name + '="' + val + '" 不符期望 /' + want + '/';
               if (msg && !probs.includes(msg)) probs.push(msg);
             }
+          }
+          if (!probs.length && !r.requireCwd) continue;
+          envProblems = probs;
+        }
+        if (r.requireCwd) {
+          // 工作目錄：只在這串有字面 cd、而且累積得出確定的目錄時才檢查
+          const probs = envProblems || [];
+          const dir = HAS_LITERAL_CD.test(command) ? regexCwd(rawLines.slice(0, i).join('\n'), startDir) : null;
+          if (dir !== null && !new RegExp(r.requireCwd, 'i').test(cwdLabel(root, dir))) {
+            const msg = cwdMsg(r, cwdLabel(root, dir));
+            if (!probs.includes(msg)) probs.push(msg);
           }
           if (!probs.length) continue;
           envProblems = probs;
@@ -1231,7 +1284,7 @@ function astPassed(r, a, line, scope, pick) {
     (t.execs.length > 0 || (unlessRe && unlessRe.test(t.text) && !r.confirmedEnv)));
 }
 
-function astHits(a, hits, command) {
+function astHits(a, hits, command, root) {
   for (let r of RULES) {
     try {
       r = forTool(r);
@@ -1267,6 +1320,23 @@ function astHits(a, hits, command) {
               if (msg && !probs.includes(msg)) probs.push(msg);
             }
           }
+          if (!probs.length && !r.requireCwd) continue;
+          envProblems = probs;
+        }
+        if (r.requireCwd) {
+          // 工作目錄：只在這串有字面 cd、而且 dirAt 判得準時才檢查（判不準＝不檢查）
+          const probs = envProblems || [];
+          if (HAS_LITERAL_CD.test(command) && typeof a.dirAt === 'function') {
+            for (const t of (scope.length ? scope : line.parts)) {
+              const d = a.dirAt(t.exec);
+              if (!d || d.unsure || !d.dir) continue;
+              const label = cwdLabel(root, d.dir);
+              if (!new RegExp(r.requireCwd, 'i').test(label)) {
+                const msg = cwdMsg(r, label);
+                if (!probs.includes(msg)) probs.push(msg);
+              }
+            }
+          }
           if (!probs.length) continue;
           envProblems = probs;
         }
@@ -1294,7 +1364,7 @@ process.stdin.on('end', () => {
     TOOL_KEY = input.tool_name === 'PowerShell' ? 'PowerShell' : 'Bash';
     // 有語法解析器就用語法樹判；沒有才走正則路徑
     const analysis = analyzeWithParser(command, input.tool_name, startDir, root);
-    if (analysis) astHits(analysis, hits, command);
+    if (analysis) astHits(analysis, hits, command, root);
     else regexHits(command, startDir, root, hits);
     commandHits(command, hits);
   } catch (e) {

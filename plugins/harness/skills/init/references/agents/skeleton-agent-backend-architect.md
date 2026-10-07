@@ -1,9 +1,12 @@
 ---
 name: backend-architect
-description: 當使用者要求「設計 API 架構」、「設計資料模型」、「定義 API Contract」、「先設計再實作」，或說「請後端架構師」、「backend architect」時觸發；pipeline 中行為類後端需求在實作開始前由本 agent 產出設計文件與測試情境表，經簽收後才交棒實作。
+description: 當使用者要求「設計 API 架構」、「設計資料模型」、「定義 API Contract」、「先設計再實作」，或說「請後端架構師」、「backend architect」{{、本專案慣用的動詞與說法（見檔頭填空紀律）}}時觸發；pipeline 中行為類後端需求在實作開始前由本 agent 產出設計文件與測試情境表，經簽收後才交棒實作。
 ---
 
 <!-- init 填空紀律（實例化後整段刪除）：
+  - description 的「本專案慣用的動詞與說法」填空：Phase 1 從 commit 訊息、既有文件、原有 agent 或 skill 的觸發詞、使用者在訪談裡的講法
+    查到的、這個專案的人實際會怎麼叫這個角色做事（例：「拉一張規格」「先出 contract」），照同樣格式接在既有觸發詞後面（「、「…」」）；
+    查不到就整個填空刪掉，不准拿通用詞充數——description 是模型決定要不要叫這個 agent 時唯一看得到的東西。
   - 本檔落點＝目標專案 `.claude/agents/backend-architect.md`。Phase 3 Q1 裁切掉 architect 時不建本檔。
   - frontmatter 刻意不寫 model：派工時由主對話顯式帶 model（02 §1），缺 model 由 check-agent-model hook 擋下。
   - `{{...}}` 全部換成 Phase 1 盤點查證過的事實；該段不適用整段刪除。

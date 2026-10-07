@@ -34,8 +34,8 @@ init 產出的是**一套基本架構，加上讓它越用越完整的方法**�
 | 0 前置檢查 | 先到遠端 repo 比對正在用的 harness 是不是最新版（落後就停下請你更新）／是不是 git 專案（根目錄不是 repo、但底下有子 repo 的多 repo 工作區也算）／專案裡原本有沒有 Claude Code 設定（有的話先整份備份到 `.harness-backup/<時間>/`，再當參考來源，不停下）／Codex CLI 裝了沒（沒裝就問你要不要裝，附裝與不裝的對照；不裝就照一位審查員裝，並記進定期檢查）／Playwright MCP 有沒有列在允許清單／git-commit plugin 裝了沒（沒裝就在這一步給裝與不裝的對照，由你決定） |
 | 1 盤點 | 十三項實際讀程式碼查（不只看 README）：技術棧、build/test 指令、repo 結構與 remote、前端類型、有沒有測試、既有的開發規範文件、既有 agent、會對外造成影響的動作（寄信、部署、刪資料等七類）、敏感檔案、跑起來時的風險（資料庫帳號、起服務與跑測試要的環境設定）、工作方式（例如本機一直改著不提交的設定檔）、原本的 Claude Code 設定（每個分工角色、自動檢查、指令在管什麼，裡面寫的專案事實照樣當證據）、這個專案在做什麼（給誰用、串接哪些外部系統、業務流程做了哪些、現在做到哪、哪些專案用語容易誤會、哪些文件已經過時） |
 | 2 攤開核對 | 最前面先給一份「這是什麼專案」的概要草稿（每句附出處，請你直接改），接著把盤點結果和據此推導的預設一次給你看，有錯請直接指出；原本有設定的話，逐項列出打算沿用、合併還是換掉，你可以改 |
-| 3 訪談 | 一次問一題、每題附建議。先問專案本身：原本的設定哪裡不好用（只有原本有設定時問，後面的建議會朝解決這些問題調整）、每個外部系統與資料庫哪個是正式環境哪個是測試環境、專案現在做到哪與接下來做什麼、從文件挑出的專案用語意思對不對、用語表要不要每個 session 自動載入（`@CONTEXT.md` 匯入主對話）。再問流程設定：①開發流程要哪些角色 ②哪些動作執行前一定要先問你 ③沒有畫面的專案怎樣算做完（只有沒前端時問）④一個人用還是團隊用 ⑤要裝哪些自動檢查（預設全裝，你可以取消）⑥還沒有自動測試時要不要先暫停「每次改動都補測試」的要求（只有沒測試時問）⑦哪些文件動手前必讀（已經過時的文件會標出哪裡過時）⑧要不要建一份程式註解規範（註解寫為什麼不寫做了什麼、不補空殼說明、不留 AI 參與痕跡；編譯器或檢查工具強制要寫說明時改寫或局部關閉，不補空殼；專案已有自己的註解規範就沿用）。原本有設定的話，另外問：原本規矩裡這個專案自己累積的經驗（用讀懂意思的方式挑出來，不是比對關鍵字），照預設不會帶進新規則的，要升格哪幾條；裝完驗收時會再派一位獨立審查員，從舊文件逐條確認經驗有沒有帶走 |
-| 4 生成 | 規則文件、自動檢查、agent 角色、知識筆記檔、Claude Code 設定檔（settings）。CLAUDE.md 最前面是你確認過的專案概要（每次交代工作都第一個讀），`CONTEXT.md` 寫進你確認過的專案用語 |
+| 3 訪談 | 一次問一題、每題附建議。先問專案本身：原本的設定哪裡不好用（只有原本有設定時問，後面的建議會朝解決這些問題調整）、每個外部系統與資料庫哪個是正式環境哪個是測試環境、專案現在做到哪與接下來做什麼、從文件挑出的專案用語意思對不對、用語表要不要每個 session 自動載入（`@CONTEXT.md` 匯入主對話）。再問流程設定：①開發流程要哪些角色 ②哪些動作執行前一定要先問你 ③沒有畫面的專案怎樣算做完（只有沒前端時問）④一個人用還是團隊用 ⑤要裝哪些自動檢查（預設全裝，你可以取消）⑥還沒有自動測試時要不要先暫停「每次改動都補測試」的要求（只有沒測試時問）⑦哪些文件動手前必讀（已經過時的文件會標出哪裡過時；只給某一個 AI 工具讀的規則檔，例如 `.github/copilot-instructions.md`，另外可以選「照原檔讀」或「整理成一份 Claude 專用的版本」：原檔不動，適用的規則整理成 `.claude/harness/review-rules.md`，跟現況對不上的地方列成一張表寫明照哪一邊）⑧要不要建一份程式註解規範（註解寫為什麼不寫做了什麼、不補空殼說明、不留 AI 參與痕跡；編譯器或檢查工具強制要寫說明時改寫或局部關閉，不補空殼；專案已有自己的註解規範就沿用）⑨要不要多裝幾個專案用的 skill（可複選）：難查的 bug（先做出一條跑了就重現錯誤的指令，才開始讀程式猜原因）、工作流導覽（不確定該走哪條路時的一頁地圖）、整理程式結構（只有你明說才跑，每次最多改一個）；有只給本機用的設定檔時，另外一併產生「每個本機設定該填什麼值、漏了會出什麼症狀」的說明，和碰到這些症狀時自動指到那份說明的 skill（這部分不用選）。原本有設定的話，另外問：原本規矩裡這個專案自己累積的經驗（用讀懂意思的方式挑出來，不是比對關鍵字），照預設不會帶進新規則的，要升格哪幾條；裝完驗收時會再派一位獨立審查員，從舊文件逐條確認經驗有沒有帶走 |
+| 4 生成 | 規則文件、自動檢查、agent 角色、知識筆記檔、Claude Code 設定檔（settings）。CLAUDE.md 最前面是你確認過的專案概要（每次交代工作都第一個讀），`CONTEXT.md` 寫進你確認過的專案用語。依訪談答案另外產生：你選裝的專案 skill（`.claude/skills/` 底下，每支同目錄帶變更紀錄）；有只給本機用的設定檔時，本機覆寫說明（`.claude/harness/local-overrides-guide.md`）和碰到症狀時指到它的 skill；動手前必讀有規則檔選「整理成 Claude 專用的版本」時，`.claude/harness/review-rules.md` |
 | 5 驗收 | 檔案檢查十二項（有 `.claude/qa-gate.conf` 時，其中一項另在暫存 repo 實跑一次 git-commit 的 QA 閘：不帶 `--qa` 被拒、帶了才通過；其中一項只在原本有設定時檢查：備份完整、原有設定都照核對結果處理、知識條目沒漏搬；一項檢查專案概要與專案用語跟你確認的內容一致），加上開新 session 實際試五項（交代工作沒指定模型會被擋／正常交代工作不會被誤擋／開 session 時有出現提醒／直接下 git commit 會被擋／危險指令的自動檢查真的有接上），任一項失敗就不算完成 |
 | 6 流程圖 | 用 archify 畫三張圖放在同一頁，開在瀏覽器給你看（`.claude/harness/flow.html`）：①需求進來之後怎麼跑、每一步被哪支自動檢查擋 ②每份文件在哪一步被誰讀、被誰寫（`CONTEXT.md`、`FLOWS.md`、`tests/Project_Detail/` 的讀和寫都畫）③開 session、壓縮對話這些時機背景自動做了什麼、健檢怎麼跑。**要畫哪些檔不是寫死的**：init 一開始先記下專案裡每個檔案的狀態，最後比對出這次新增、修改、刪除的每個檔案，每一個都必須是圖上的節點、而且有線標出它跟哪一步是什麼關係，由檢查腳本擋漏項。沒裝 archify 會先問你要不要裝，不裝就改給流程表。流程圖與結束時的回報，會先用 deliver-report plugin 的易讀性規則自檢（不能有內部用語、沒解釋的代號）；沒裝 deliver-report 就跳過，並告訴你怎麼裝 |
 
@@ -93,6 +93,8 @@ skills/init/
     skeleton-04-delegation-templates.md   交代工作的六種範本（第五種排整條角色分工、第六種交代測試）
     skeleton-05-knowledge-protocol.md     知識協議（三區分級、產物存放、踩坑格式與 memory 星等、MEMORY.md 字元數精簡觸發、變更紀錄落點、健檢、升格、01／06 何時建）
     skeleton-comment-guide.md             程式註解規範（選裝，訪談選「建」才產生 → .claude/harness/07-comment-guide.md：禁止表、編譯器或 linter 強制要 doc 註解時的處理、真人範本、碰到才清與指紋 grep）
+    skeleton-local-overrides-guide.md     本機覆寫說明（有只給本機用的設定檔才產生 → .claude/harness/local-overrides-guide.md：每個檔每個鍵的本機正確值、漏補時的症狀、類型、開新工作樹後的自檢）
+    skeleton-refined-rules.md             給別的 AI 工具讀的規則檔精煉成 Claude 自有正本（訪談選「整理成 Claude 專用的版本」才產生 → .claude/harness/review-rules.md：依適用範圍分節、逐條附出處、已知矛盾表）
     skeleton-harness-CHANGELOG.md         harness 各規則檔的變更紀錄（依檔名分節；規則檔本體不放 changelog，免得每次載入都佔 context）
     skeleton-CLAUDE.changelog.md          CLAUDE.md 的變更紀錄
     example-flow-1.json～example-flow-3.json  第 6 步三張流程圖的 archify 結構範例（只抄結構，內容換成實際的檔案與查證過的關係）
@@ -103,6 +105,12 @@ skills/init/
       skeleton-agent-qa-engineer.md       （瀏覽器可驅動時整段指向 qa-webwright plugin）
       skeleton-agent-code-reviewer.md     （審查結論的輸出格式不能改，git-commit 的審查流程要讀它）
       skeleton-agents-CHANGELOG.md        五支 agent 的變更紀錄（依檔名分節）
+    skills/                               選裝的專案 skill 骨架（→ .claude/skills/<名稱>/SKILL.md，每支同目錄帶一份 CHANGELOG.md）
+      skeleton-skill-bug-hunt.md          難 bug 診斷：先建會變紅的重現迴路才准讀碼猜原因，建不出就停下要 log；憑證遮罩、除錯輸出固定前綴收尾清光
+      skeleton-skill-workflow-map.md      工作流地圖：主線只指向 04 模板五、不重畫；列每支 skill 與已停用清單
+      skeleton-skill-structure-upkeep.md  架構保養：使用者明說才跑，候選要開檔實讀驗證，每次最多修一個，否決過的記在 skill 目錄的排除清單
+      skeleton-skill-local-env-symptoms.md 本機覆寫出問題時的導向（用症狀當觸發詞，不放任何值，只指向本機覆寫說明）
+      skeleton-skill-CHANGELOG.md         每支專案 skill 同目錄的變更紀錄
     containers/                           三份知識筆記檔的骨架（收錄原則＋示範條目）與各自的變更紀錄骨架
       skeleton-CONTEXT.md                 專案特有詞彙表 → workspace 根 CONTEXT.md
       skeleton-FLOWS.md                   跨模組鏈路圖 → workspace 根 FLOWS.md
@@ -131,8 +139,8 @@ hooks/
     compact-summary-log.js                壓縮後記下摘要漏掉的項目、交接信又漏了什麼（評估用流水帳）
     resume-stale-reminder.js              隔數小時才接續之前的對話時，提醒狀態可能已過期，附最近交接信路徑與最後一則指示
     ── 盤點到你的專案有這類風險才裝（規則由 init 依盤點結果填）──
-    guard-risky-command.js                執行前一定要先問你的指令（連資料庫——只准確認過的測試帳號、密碼只從環境變數帶；部署、連到或打到你沒確認為測試環境的主機與網址、刪資料的 SQL、起服務缺環境設定）→ 擋下
-    guard-test-preconditions.js           跑測試前驗前置條件（寄信收斂、測試環境對齊）→ 不符就擋
+    guard-risky-command.js                執行前一定要先問你的指令（連資料庫——只准確認過的測試帳號、密碼只從環境變數帶；部署、連到或打到你沒確認為測試環境的主機與網址、刪資料的 SQL、起服務缺環境設定或不在指定的工作目錄）→ 擋下
+    guard-test-preconditions.js           跑測試前驗前置條件（寄信收斂、測試環境對齊；可比對測試用的環境變數跟原始碼或設定檔裡的值是否一致）→ 不符就擋
     shell-model.js＋package.json＋package-lock.json
                                           上面兩個引擎共用的指令語法解析（tree-sitter，bash 與 PowerShell 各一套文法）；
                                           本機覆寫防銷毀閘「依點名路徑放寬」也靠它判目錄與呼叫，沒有它就照原本整條擋；
@@ -143,8 +151,10 @@ hooks/
     guard-local-hack-destroy.js           會銷毀工作區的 git 指令碰到本機覆寫 → 擋（沒有放行記號）
     check-local-hacks-alive.js            開 session 點名遺失或被清空的本機覆寫；只在某些分支才需要的、帶到舊版的另外處理
     restore-local-hacks.js                救回腳本（上面三支的訊息會叫使用者跑它）
+    ── 有只給本機用的設定檔、而且有多個工作樹（git worktree）才裝 ──
+    remind-worktree-overrides.js          從別的工作樹起服務時，只查指令提到的那一個工作樹，本機覆寫沒帶齊或帶到舊版 → 提醒（不擋）
     ── 專案有了自己的測試檢查工具才裝 ──
-    guard-test-asset-hygiene.js           寫測試檔後跑專案自己的稽核工具
+    guard-test-asset-hygiene.js           寫測試檔後跑專案自己的稽核工具（每支工具可設成擋或只提醒）
     probe-hooks.js＋cases/                每支自動檢查「該擋」與「該放行」的例子，以及執行它們的程式；第 5 步驗收與每 30 天的定期檢查都跑它
 ```
 

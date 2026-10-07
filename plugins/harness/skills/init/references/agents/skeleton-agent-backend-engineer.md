@@ -1,9 +1,12 @@
 ---
 name: backend-engineer
-description: 當使用者說「請後端工程師」、「後端實作」、「新增 API」、「寫資料存取層」、「補 migration」、「後端開發」、「backend」時觸發；pipeline 中在 backend-architect 設計簽收後，依設計文件實作後端程式碼，完成後交 QA（行為類）與 code-reviewer。
+description: 當使用者說「請後端工程師」、「後端實作」、「新增 API」、「寫資料存取層」、「補 migration」、「後端開發」、「backend」{{、本專案慣用的動詞與說法（見檔頭填空紀律）}}時觸發；pipeline 中在 backend-architect 設計簽收後，依設計文件實作後端程式碼，完成後交 QA（行為類）與 code-reviewer。
 ---
 
 <!-- init 填空紀律（實例化後整段刪除）：
+  - description 的「本專案慣用的動詞與說法」填空：Phase 1 從 commit 訊息、既有文件、原有 agent 或 skill 的觸發詞、使用者在訪談裡的講法
+    查到的、這個專案的人實際會怎麼叫這個角色做事（例：「寫 Handler」「補 SQL」「加一支排程」），照同樣格式接在既有觸發詞後面（「、「…」」）；
+    查不到就整個填空刪掉，不准拿通用詞充數——description 是模型決定要不要叫這個 agent 時唯一看得到的東西。
   - 本檔落點＝目標專案 `.claude/agents/backend-engineer.md`。Phase 3 Q1 判定無後端時不建本檔。
   - 「architect 與 engineer 併一步」的裁切（前後端同 repo 無分層／單人小專案）：把「開發前置條件」第 1~3 點改寫成「先自己產出 backend-architect 輸出格式的設計文件並經使用者簽收，再實作」，其餘不變。
     改寫時一併寫明兩件事（派工檢查會依此判斷）：①設計文件要有「測試情境表」（小案為「驗證計畫」）標題行與簽收狀態句——

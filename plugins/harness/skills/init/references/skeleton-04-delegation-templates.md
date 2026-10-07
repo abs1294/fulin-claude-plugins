@@ -163,6 +163,20 @@
 }}
 ```
 
+**依任務型別走哪一段**（0-b 開發計畫的「預計步驟」照這裡挑；上面那條是全套，不是每個需求都要從頭走到尾）：
+
+```
+{{照 Q1 定案的角色改寫，裁掉的角色那一段跟著拿掉；本專案沒有的型別（例：沒有前端就沒有「前端」「全端」）整行刪除。預設：
+後端：  backend-architect → backend-engineer → qa-engineer → code-reviewer
+前端（API 已經存在）：  frontend-engineer → qa-engineer → code-reviewer
+全端：  backend-architect → backend-engineer → frontend-engineer → qa-engineer → code-reviewer
+資料庫結構（加表、改欄位、資料遷移）：  backend-engineer（照本專案的資料庫規範）→ qa-engineer → code-reviewer
+}}
+```
+
+- qa-engineer 只在行為類必走；純結構、文案、死碼這類讀程式碼就能確定等價的，照配套 3 的分流例外，實作後直接送審查。
+- 判斷是哪一型看**改動落在哪幾層**，不看需求怎麼描述：「改一個按鈕」若要新增 API 就是全端，不是前端。判不出來時在開發計畫裡寫出你判的型別與理由，讓使用者確認時一起否決。
+
 **配套三條（不隨裁切拿掉）**：
 
 1. **無條件對齊回合**：行為類需求開工前**必過一回合、不可跳過**（對話式開工同樣適用）——有決策型解讀分岔 → 一次問一題、逐題訪談到清零；無分岔 → **明說「無分岔＋一句理由」讓使用者可否決才開工**，靜默開工＝違規。

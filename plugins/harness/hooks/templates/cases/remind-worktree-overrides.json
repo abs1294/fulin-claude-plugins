@@ -1,0 +1,433 @@
+{
+  "hook": "remind-worktree-overrides.js",
+  "variants": {
+    "always": {
+      "replace": [
+        [
+          "const ALWAYS_REMIND = '';",
+          "const ALWAYS_REMIND = '先確認埠號指向這個工作樹的服務、建置後有重啟。';"
+        ]
+      ]
+    }
+  },
+  "cases": [
+    {
+      "label": "從工作樹起服務、覆寫沒帶（cd 相對路徑）→ 提醒，模型看得到",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "工作樹已帶覆寫 → 安靜",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        },
+        "files_after_worktrees": {
+          "wt/feat/config/local.json": "{\"db\":\"local\"}\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && npm run dev"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "不是起服務的指令（git status）→ 安靜",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && git status"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "在主要工作目錄起服務（沒提到工作樹）→ 安靜",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm run dev"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "session 目前目錄就在工作樹裡、指令沒寫路徑 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm start"
+        },
+        "cwd": "{PROJECT_DIR}/wt/feat"
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "PowerShell 反斜線路徑 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Set-Location wt\\feat; npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "絕對路徑（加引號）→ 提醒",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd \"{PROJECT_DIR}/wt/feat\" && npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "Git Bash 的 /c/… 寫法 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd {PROJECT_DIR_POSIX}/wt/feat && npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "名字只是前綴相同的別的目錄（wt/feature-x）→ 不算提到，安靜",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feature-x && npm run dev"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "needed-when 條件在工作樹不成立 → 不查那筆，安靜",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      needed-when-file: src/main.js\n      needed-when-contains: useLocalDb\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && npm run dev"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "工作樹有帶、但缺 requires 宣告的字串（帶到舊版）→ 提醒",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      requires: LOCAL_V2\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\",\"v\":\"LOCAL_V2\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        },
+        "files_after_worktrees": {
+          "wt/feat/config/local.json": "{\"db\":\"local\"}\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "被 .gitignore 排除的整檔覆寫，工作樹裡沒有 → 提醒",
+      "setup": {
+        "files": {
+          ".gitignore": "local.env\n",
+          "local.env": "DB=local\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: local.env\n      reason: 本機環境檔\n"
+        },
+        "commit": true,
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "沒有覆寫清單 → 安靜",
+      "setup": {
+        "files": {
+          "config/local.json": "{}\n"
+        },
+        "commit": true,
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && npm run dev"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "多 repo 工作區：子 repo 的工作樹沒帶 → 提醒",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "api:\n  repo: api\n  files:\n    - path: config/local.json\n      reason: 本機連線\n"
+        },
+        "repos": {
+          "api": {
+            "files": {
+              "config/local.json": "{\"db\":\"shared\"}\n"
+            },
+            "commit": true,
+            "files_after_commit": {
+              "config/local.json": "{\"db\":\"local\"}\n"
+            }
+          }
+        },
+        "worktrees": {
+          "api-feat": "api"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd api-feat && npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "ALWAYS_REMIND 有填：覆寫帶齊也照樣提醒那段話",
+      "variant": "always",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        },
+        "files_after_worktrees": {
+          "wt/feat/config/local.json": "{\"db\":\"local\"}\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "別的工具（Write）不管",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "wt/feat/a.txt",
+          "content": "npm run dev"
+        }
+      },
+      "expect": "SILENT"
+    }
+  ]
+}

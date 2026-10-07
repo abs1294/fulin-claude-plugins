@@ -35,8 +35,12 @@
 // 行為：
 //   · 寫入的路徑（相對專案根、正斜線）命中 TEST_FILE 才動作；其餘一律放行。
 //   · 依序跑 CHECKERS 的每支指令（{file} 會換成該檔的絕對路徑，自動加引號；工作目錄＝專案根）。
-//   · 任一支回非 0 → 彙整輸出＋修法寫到 stderr、exit 2：PostToolUse 擋不住已發生的寫入，
+//   · 「擋」等級（預設）的任一支回非 0 → 彙整輸出＋修法寫到 stderr、exit 2：PostToolUse 擋不住已發生的寫入，
 //     但 exit 2 會把訊息推回模型要它修正。不用 exit 1——非 0／2 不阻擋，等於靜默。
+//   · 「只提醒」等級（level: 'warn'）的回非 0 → 不擋：exit 0，同樣的訊息包成 additionalContext 送給模型
+//     （exit 0 的純文字 stdout／stderr 模型看不到，見 tellModel）。給「規則還在試、誤判率沒摸清」或
+//     「存量太大、基線還沒建好」的工具用——先讓模型看得到、不擋寫入，校準過再升成擋。
+//     同一次寫入同時有擋與只提醒的違規時，一起寫進 stderr、exit 2（只提醒的那幾支標明不擋）。
 //   · 稽核指令本身起不來或逾時（沒有結束碼）＝工具故障，不擋，只印提醒。
 //     ⚠ Windows 的 cmd.exe 對「找不到指令」也回 1，與「有違規」無法區分——init 裝之前必須先實跑一次每支 cmd。
 // fail-open：解析失敗或任何例外一律放行（exit 0）＋印訊息，不讓 hook 鏽蝕變成擋路石。
@@ -46,7 +50,8 @@
 // 稽核工具自己所在的目錄（本來就會有違規樣本）要排除在外。
 const TEST_FILE = String.raw`^(?!.*(?:^|/)tools/)(?:.*(?:^|/)(?:tests?|__tests__|spec|e2e)/.+|.*\.(?:test|spec)\.[A-Za-z]+|.*(?:^|/)test_[^/]+\.py|.*_test\.(?:go|py))$`;
 // 稽核指令表（= Phase 1 盤點到的既有稽核工具，每支一列）：
-//   { name: '顯示用名稱', cmd: '可含 {file} 佔位的指令（應帶基線參數）', fix: '修法說明（可多行）' }
+//   { name: '顯示用名稱', cmd: '可含 {file} 佔位的指令（應帶基線參數）', fix: '修法說明（可多行）',
+//     level: 'block' | 'warn' }   // 選填，預設 'block'（擋）；'warn'＝只提醒不擋。其他值當成寫錯：照 'block' 處理並提醒
 // 預設空陣列＝不做任何稽核。
 const CHECKERS = [];
 // 單支稽核指令的逾時（毫秒）。
@@ -84,6 +89,12 @@ try {
 
   const failures = [];
   const notes = [];
+  // level 寫錯（不是 block／warn）：不論這次工具有沒有命中都提醒——只在命中時才講，寫錯的設定會一直沒人發現
+  for (const c of CHECKERS) {
+    if (c && c.level !== undefined && c.level !== 'block' && c.level !== 'warn') {
+      notes.push('稽核「' + (c.name || c.cmd) + '」的 level 寫成 ' + JSON.stringify(c.level) + '（只認 block／warn），已照 block 處理——請修 CHECKERS。');
+    }
+  }
   for (const c of CHECKERS) {
     if (!c || !c.cmd) continue;
     const cmd = String(c.cmd).split('{file}').join('"' + abs + '"');
@@ -99,7 +110,7 @@ try {
         continue;
       }
       const out = (String(e.stdout || '') + String(e.stderr || '')).trim().split(/\r?\n/).slice(0, 30);
-      failures.push({ c, cmd, code: e.status, out });
+      failures.push({ c, cmd, code: e.status, out, warn: c.level === 'warn' });
     }
   }
 
@@ -110,10 +121,11 @@ try {
     process.exit(0);
   }
 
-  const msg = ['[' + LABEL + '] 剛寫入的 ' + rel + ' 出現新增的稽核違規：', ''];
+  const blocking = failures.some((f) => !f.warn);
+  const msg = ['[' + LABEL + '] 剛寫入的 ' + rel + ' 出現新增的稽核' + (blocking ? '違規：' : '提醒（只提醒、不擋，但要看）：'), ''];
   if (notes.length) msg.push(...notes.map((n) => '（另外）' + n), '');
   for (const f of failures) {
-    msg.push('── ' + (f.c.name || f.c.cmd) + '（結束碼 ' + f.code + '）──', '');
+    msg.push('── ' + (f.c.name || f.c.cmd) + '（結束碼 ' + f.code + (f.warn ? '；只提醒，不擋' : '') + '）──', '');
     msg.push(...f.out.map((l) => '  ' + l));
     msg.push('', '重跑：' + f.cmd);
     if (f.c.fix) msg.push('', ...String(f.c.fix).split('\n'));
@@ -121,6 +133,11 @@ try {
   }
   msg.push('⚠ 稽核走基線制（只擋新增、存量豁免），所以它沉默不代表水位是 0；要看真實水位，跑不帶基線參數的那次。');
   msg.push('稽核表在 .claude/hooks/guard-test-asset-hygiene.js 的 CHECKERS；判斷是工具誤判就回報使用者，不要改測試去迎合工具的字面。');
+  if (!blocking) {
+    // 全部是只提醒等級：不擋，訊息包成 additionalContext（exit 0 的純文字模型看不到）
+    tellModel(msg.join('\n'));
+    process.exit(0);
+  }
   process.stderr.write(msg.join('\n') + '\n');
   process.exit(2);
 } catch (e) {

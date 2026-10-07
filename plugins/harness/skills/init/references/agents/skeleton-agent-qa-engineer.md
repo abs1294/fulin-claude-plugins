@@ -1,9 +1,12 @@
 ---
 name: qa-engineer
-description: 當使用者說「請 QA」、「QA 測試」、「測試功能」、「驗證功能」、「設計測試案例」、「回歸測試」，或 pipeline 中行為類改動實作完成、送 code-reviewer 之前需要功能驗證時觸發；負責設計測試計畫、親自執行實測、輸出測試報告，並把穩定案例 codify 成可重跑的測試。
+description: 當使用者說「請 QA」、「QA 測試」、「測試功能」、「驗證功能」、「設計測試案例」、「回歸測試」{{、本專案慣用的動詞與說法（見檔頭填空紀律）}}，或 pipeline 中行為類改動實作完成、送 code-reviewer 之前需要功能驗證時觸發；負責設計測試計畫、親自執行實測、輸出測試報告，並把穩定案例 codify 成可重跑的測試。
 ---
 
 <!-- init 填空紀律（實例化後整段刪除）：
+  - description 的「本專案慣用的動詞與說法」填空：Phase 1 從 commit 訊息、既有文件、原有 agent 或 skill 的觸發詞、使用者在訪談裡的講法
+    查到的、這個專案的人實際會怎麼叫這個角色做事（例：「跑一輪」「點點看」「補 e2e」），照同樣格式接在既有觸發詞後面（「、「…」」）；
+    查不到就整個填空刪掉，不准拿通用詞充數——description 是模型決定要不要叫這個 agent 時唯一看得到的東西。
   - 本檔落點＝目標專案 `.claude/agents/qa-engineer.md`。
   - 下方「執行方式」依 Phase 1 前端分類三選一，刪掉其餘兩段：
       (A) 瀏覽器可驅動 → 整段指向 qa-webwright plugin（它的 browser-qa skill、qa-flow.sh、Stop 落地閘）

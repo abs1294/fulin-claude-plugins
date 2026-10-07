@@ -14,6 +14,8 @@
 | `04-delegation-templates.md` | 派工單範本 | 主對話派 agent 前，複製後填空 |
 | `05-knowledge-protocol.md` | 哪些檔案改之前要先問、踩坑怎麼記、定期健檢清單、同類坑重複出現時怎麼寫進正式規則、產物放哪、變更紀錄寫哪、01／06 何時建 | 踩坑後要記錄時；想改本目錄任何檔案時 |
 {{註解規範那一題選「建」時加這一列；選「沿用」也加，檔案欄改寫既有文件的路徑（例：`../../docs/comment-rules.md`（沿用既有）），用途欄依既有文件實際寫了什麼改寫（只寫它真的有的內容，例：它沒有處理 doc 註解工具的那一節、init 也沒補，就不寫「編譯器或 linter 要求寫 doc 註解時怎麼處理」）；選「不建」才刪本行：| `07-comment-guide.md` | 程式註解怎麼寫、哪些註解算缺陷（不補空殼 doc、不留 AI 參與痕跡）、編譯器或 linter 要求寫 doc 註解時怎麼處理 | 寫程式的 agent 動手寫或改註解前；審查的 agent 審註解時 |}}
+{{有產生本機覆寫說明時加這一列，否則刪本行：| `local-overrides-guide.md` | 本機覆寫每個檔該填什麼值、漏補時的症狀、開新工作樹後的自檢指令（清單「哪些檔」的正本仍是 `.claude/local-overrides.yml`） | 服務起不來、端點整批回授權錯誤、測試信寄出去這類環境異常時（03 A9）；開新工作樹或新分支後 |}}
+{{動手前必讀那一題有規則檔選「精煉成自有正本」時加這一列，否則刪本行：| `review-rules.md` | 精煉自 <原檔路徑> 的規則（原檔是給別的 AI 工具讀的，Claude 不直接讀）＋已知矛盾表 | 寫程式的 agent 動手前；審查的 agent 照「改到哪類檔就照哪份規則審」表審 |}}
 | `CHANGELOG.md` | 本目錄各檔的變更紀錄，依檔名分節（指令檔本身不放 changelog，理由見 05 §4） | 想知道某條規則何時、為何改的時候；健檢提醒 hook 讀 `## 05-knowledge-protocol.md` 節算上次健檢日 |
 
 **本目錄以外、init 一起建立的東西**：
@@ -25,6 +27,7 @@
 | workspace 根 `CONTEXT.md` | 本專案特有詞彙表（詞是什麼，不是怎麼做） | 每個角色開工前必讀（派工檢查會擋漏列的）；詞義不清、詞義衝突時當場查與補 |
 | workspace 根 `FLOWS.md` | 跨模組流程圖（只收出過問題、或橫跨兩個以上模組的流程） | 要改到已收錄流程的任何一段之前必讀 |
 | `tests/Project_Detail/PROJECT.md` | 測試時踩過的坑與測試設計知識 | 測試用的 agent（qa-engineer）開工前必讀 |
+{{選裝 skill 那一題有選、或有產生本機覆寫說明時加這一列，否則刪本行：| `.claude/skills/<每支實際建立的 skill>/` | 選裝的專案 skill（{{逐支列：名稱＋一句做什麼＋什麼時候會被叫到}}）；每支的變更紀錄在同目錄 `CHANGELOG.md` | 碰到它 description 寫的情境時，Claude 自動叫用；架構保養這類高成本的只有你明說才跑 |}}
 | 變更紀錄檔：`.claude/agents/CHANGELOG.md`、workspace 根 `CLAUDE.changelog.md`／`CONTEXT.changelog.md`／`FLOWS.changelog.md`、`tests/Project_Detail/CHANGELOG.md` | 上面各檔的變更紀錄（規則見 05 §4） | 改了上面任一檔時補一行；想查某段何時改的時候 |
 
 （沒有 `01-diagnosis.md`（專案痛點診斷）與 `06-handover-letter.md`（交接信）：這兩份要等本專案累積出自己的問題才寫得出來。何時該建、照什麼結構建，見 `05-knowledge-protocol.md` §7。）

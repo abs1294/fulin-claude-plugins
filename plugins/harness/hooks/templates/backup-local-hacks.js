@@ -69,7 +69,7 @@ const THROTTLE_MS = 60000;
 const HISTORY_KEEP = 20;
 // ────────────────────────────────────────────────────────────────────────────
 
-// ── 覆寫清單解析（backup／guard／alive／restore 四支各帶一份同樣的實作，改一支要同步另外三支）──
+// ── 覆寫清單解析（backup／guard／alive／restore／remind-worktree 五支各帶一份同樣的實作，改一支要同步另外四支）──
 // 格式正本＝git-commit plugin 的 local-overrides.example.yml 與 flow.sh 的 parse_overrides_for_repo：
 //   <頂層 key>:          區塊識別鍵
 //     repo: <值>         "." ＝工作目錄本身；多 repo workspace 用子目錄名或 remote 的 repo 名
@@ -84,7 +84,7 @@ const HISTORY_KEEP = 20;
 //         needed-when-contains: <字串>     這筆覆寫才算需要。用在「只在某些分支才需要的覆寫」——例：本機 mock
 //                                        類別只在有注入它的分支才需要，切到沒有該功能的分支時補回去反而編譯不過；
 //                                        不設的話每次開場都會報它不見了。判準檔讀不到就當需要（寧可多報，不可漏報）。
-//   這三個選填欄位只有 alive 與 restore 會用（四支都帶同一份解析，backup／guard 只讀不用）；flow.sh 只認 path，
+//   這三個選填欄位只有 alive、restore 與 remind-worktree 會用（五支都帶同一份解析，backup／guard 只讀不用）；flow.sh 只認 path，
 //   多寫不影響它。欄位要跟 `path` 同一層縮排
 //   （更深的、或寫在 `reason: |` 多行字串裡的不算）；沒加引號的值，` #` 之後視為註解。
 // 解析比 flow.sh 寬鬆（縮排不拘），是它的超集：flow.sh 讀得到的條目這裡一定讀得到。

@@ -1,39 +1,56 @@
 #!/usr/bin/env node
-// SessionStart：開場點名本機覆寫還在不在，不在就講清楚哪些救得回、怎麼救。
+// PreToolUse(Bash|PowerShell)：要從另一個工作樹（git worktree）起服務時，先查那個工作樹的本機覆寫帶齊了沒。只提醒、不擋。
 //
 // 【範本】由 /harness:init 複製到目標專案 `.claude/hooks/`，之後歸該專案自治（可自改；plugin 更新不會自動同步）。
+// 形狀目錄第 19 列（C 類）：裝了本機覆寫保護（第 16–18 列）、而且 Phase 1 看到多工作樹時才裝。
 // 接線（目標專案 .claude/settings.json）：
-//   "SessionStart": [{ "hooks": [{ "type": "command",
-//     "command": "node \"<專案絕對路徑>/.claude/hooks/check-local-hacks-alive.js\"", "timeout": 20, "statusMessage": "檢查本機覆寫還在不在" }] }]
+//   "PreToolUse": [{ "matcher": "Bash|PowerShell", "hooks": [{ "type": "command",
+//     "command": "node \"<專案絕對路徑>/.claude/hooks/remind-worktree-overrides.js\"", "timeout": 15, "statusMessage": "起服務前檢查工作樹的本機覆寫帶齊沒" }] }]
 //
-// 為什麼需要：備份（backup-local-hacks.js）與救回（restore-local-hacks.js）都做好了，
-// 還少「知道要去救」這一環。覆寫被還原掉時沒有任何症狀會立刻浮現——要等到服務起不來、
-// 端點全回授權錯誤、或測試信寄給了真實收件人，才會回頭查，那時往往已經過了好幾個小時。
+// 為什麼需要：新開的工作樹是乾淨的原版，主要工作目錄裡的本機覆寫（本機連線字串、mock 開關、收件人收斂…）
+// 不會跟過去。第 16–18 列只管「既有工作區的覆寫被毀」：新工作樹沒有東西可救、patch 也套不上別的基準。
+// 漏帶的症狀跟成因看起來毫無關聯——服務起不來、端點整批回授權錯誤、測試信真的寄給同事——每次都要重查一輪。
+// 來源專案實際因為新工作樹漏帶寄信覆寫而誤寄過信。
 //
-// 判準：清單上的檔「目前沒有任何本機改動」（與 HEAD 相同；未追蹤／被排除的檔則是「不存在」），
-// 或「有改動，但其實是被清空、刪除」（wipedReason）＝覆寫可能不見了。有備份的列 [可救]、沒有的列 [無備份]。
-// 只看「有沒有改動」會把 0 bytes 的檔當成「還在」——來源專案實際發生過，開場一句都沒報。
-// 清單條目設了 needed-when 條件、而目前這個 checkout 不成立的不報（切到沒有該功能的分支時不假警報）；
-// 設了 requires 的，檔還在但缺字串時另列「內容不完整」（帶到舊版覆寫）。
-// 只做偵測與提示，不動任何檔案。訊息印在 stdout（SessionStart 的 stdout 會進入對話脈絡，
-// 讓助手能主動轉告使用者）。認不出 repo 目錄、git 讀不到的條目一律不判，避免假警報。
-// fail-open：任何例外一律靜默放行。
+// 為什麼掛在「起服務」而不是 SessionStart：一次稽核所有工作樹很慢、每次開 session 都付不划算；
+// 漏帶真正會出事的時刻就是起服務的那一刻，而且只需要查「這次要起的那一個」。
+//
+// 判定：
+//   · 指令要命中填空區的 START_COMMAND（起服務的指令樣式），否則不動作。
+//   · 用 `git worktree list --porcelain` 找出覆寫清單上每個 repo 的其他工作樹（第一筆是主要工作目錄，不算）。
+//   · 只查**指令提到的那一個**工作樹：指令裡出現它的路徑（絕對路徑、Git Bash 的 /c/… 寫法、相對專案根或相對
+//     目前目錄的路徑，正反斜線都認）；指令沒提到任何工作樹、但 session 的目前目錄就在某個工作樹裡時，查那一個。
+//     同時提到好幾個時取路徑最長的那一個（巢狀時取最內層）。
+//   · 對清單上屬於該 repo 的每一筆（needed-when 條件在該工作樹不成立的略過）：
+//       沒有本機改動（與該工作樹的 HEAD 相同；未追蹤或被排除的檔則是不存在）→「沒帶」；
+//       檔案被清空（0 bytes）→「被清空」；檔案還在、但缺清單 requires 宣告的字串 →「帶到舊版」。
+//     判準與 check-local-hacks-alive.js 相同（同一份清單解析），只是對象換成那個工作樹。
+//   · 有缺漏就印 additionalContext 提醒；沒缺漏時安靜（ALWAYS_REMIND 有填時改成照樣提醒那段話）。
+// 只提醒不擋：該不該帶是人的判斷——那個工作樹的 HEAD 可能本來就含正確值、不需要覆寫。
+// 輸出走 hookSpecificOutput.additionalContext：PreToolUse 的 exit 0 純文字 stdout／stderr 模型看不到（官方 hooks 文件）。
+//
+// 已知極限：
+//   · 只認指令字面上的路徑：路徑放在變數裡（cd "$WT"）、或由腳本切目錄後再起服務，認不出是哪個工作樹，不提醒。
+//   · 路徑比對是字串比對：指令裡剛好出現某個工作樹的路徑、但其實沒在那裡起服務（例：起服務前先 ls 過它），也會查那一個。
+//   · 只查覆寫在不在、內容是不是舊版，不查服務實際連到哪裡——覆寫全帶齊，整條鏈路照樣可能不通（埠號指錯、
+//     跑的是主要工作目錄的服務、建置後沒重啟），那幾件要另外驗（03 的 A9）。
+// fail-open：任何例外一律靜默放行（exit 0）。
 
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
 // ── init 填空區 ──────────────────────────────────────────────────────────────
-// 覆寫清單檔（相對於工作目錄根）。與 git-commit plugin 的 flow.sh 讀同一份檔、同一個格式；
-// 對應 Phase 1 盤點到的覆寫清單位置（沒有特別指定就用預設）。
+// 起服務的指令樣式（字串 regex，不分大小寫，比對整串指令；= Phase 1 第 10 項②盤點到的實際啟動指令）。
+// 預設涵蓋常見寫法；改成本專案實際用的那幾種，用不到的拿掉，免得跑別的指令也去查工作樹。
+const START_COMMAND = String.raw`\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve)\b|(?:^|[\s;&|(/\\])(?:npx\s+)?vite(?=\s|$)|\buvicorn\b|\bflask\s+run\b|\bmanage\.py\s+runserver\b|\brails\s+(?:s|server)\b|\bgo\s+run\b|\bcargo\s+run\b|\bmvn\b[^\n]*\bspring-boot:run\b`;
+// 覆寫清單檔（相對於工作目錄根），與本機覆寫保護三支的同名常數一致。
 const OVERRIDES_REL = '.claude/local-overrides.yml';
-// 備份目錄（相對於工作目錄根），與 backup-local-hacks.js 的同名常數一致。
-const BACKUP_DIR_REL = '.claude/hack-backups';
-// 救回腳本的指令（對應 init 複製 restore-local-hacks.js 的落點）。
-const RESTORE_CMD = 'node .claude/hooks/restore-local-hacks.js';
-// 沒有備份時，去哪裡查該補什麼值（專案若有「本機覆寫該填什麼」的說明文件就填它的路徑；
-// 留空字串＝改提示看清單每筆的 reason 欄）。
+// 去哪裡查該補什麼值（init 產了本機覆寫說明時填它的路徑；留空字串＝改提示看清單每筆的 reason 欄）。
 const SETUP_DOC = '';
+// 從工作樹起服務時「不論有沒有缺漏都要講」的提醒（例：先驗埠號、確認跑的是這個工作樹的建置、建置後有沒有重啟）。
+// 留空字串＝沒缺漏就安靜。
+const ALWAYS_REMIND = '';
 // 最多列幾筆（其餘只算數量）。
 const MAX_LIST = 16;
 // ────────────────────────────────────────────────────────────────────────────
@@ -329,64 +346,136 @@ function findBackup(outDir, ent) {
 }
 // ── 覆寫清單解析 結束 ──
 
+// git worktree list --porcelain：回傳 [{ dir }]，第一筆是主要工作目錄
+function worktreesOf(repoDir) {
+  let out = '';
+  try { out = git(repoDir, ['worktree', 'list', '--porcelain']); } catch (e) { return []; }
+  const list = [];
+  for (const line of out.split(/\r?\n/)) {
+    const m = line.match(/^worktree (.+)$/);
+    if (m) list.push(path.resolve(m[1]));
+  }
+  return list;
+}
+
+const norm = (s) => {
+  const t = String(s).split('\\').join('/');
+  return process.platform === 'win32' ? t.toLowerCase() : t;
+};
+// Git Bash 的寫法：C:/x → /c/x
+const posixOf = (p) => (process.platform === 'win32'
+  ? norm(p).replace(/^([a-z]):/, (m, d) => '/' + d) : norm(p));
+const inside = (base, p) => {
+  const rel = path.relative(base, p);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+};
+const SEP_BEFORE = /[\s"'=;&|(]/;
+const SEP_AFTER = /[\s"';&|)\/]/;
+
+// 指令裡有沒有提到這個路徑寫法：前後要是分隔字元，相對路徑另接受前面帶 ./
+function mentions(cmd, form, isRel) {
+  if (!form) return false;
+  let from = 0;
+  for (;;) {
+    const i = cmd.indexOf(form, from);
+    if (i < 0) return false;
+    from = i + 1;
+    const after = cmd[i + form.length];
+    if (after !== undefined && !SEP_AFTER.test(after)) continue;
+    const before = cmd[i - 1];
+    if (before === undefined || SEP_BEFORE.test(before)) return true;
+    if (isRel && before === '/' && cmd[i - 2] === '.' && (i - 3 < 0 || SEP_BEFORE.test(cmd[i - 3]))) return true;
+    if (!isRel && !/[A-Za-z0-9_.-]/.test(before)) return true;
+  }
+}
+
 try {
+  let raw = '';
+  try { raw = fs.readFileSync(0, 'utf8'); } catch (e) { process.exit(0); }
+  const input = JSON.parse(raw || '{}');
+  if (!/^(Bash|PowerShell)$/.test(String(input.tool_name || ''))) process.exit(0);
+  const cmd = String((input.tool_input || {}).command || '');
+  if (!cmd || !new RegExp(START_COMMAND, 'i').test(cmd)) process.exit(0);
+
   const ROOT = findRoot();
   if (!ROOT) process.exit(0);
   const entries = loadEntries(ROOT);
   if (!entries.length) process.exit(0);
 
-  const outDir = path.join(ROOT, BACKUP_DIR_REL);
+  // 覆寫清單上每個 repo 的其他工作樹
   const cache = {};
-  const gone = [];
-  const stale = [];
+  const byRepo = new Map();
   for (const ent of entries) {
     const dir = repoDirOf(ROOT, ent, cache);
     if (!dir) continue;
-    if (!neededHere(dir, ent)) continue;   // needed-when 條件不成立：這個 checkout 用不到，不報
-    const st = fileState(dir, ent.file);
-    if (st === null) continue;             // 讀不到，不判
-    const label = path.relative(ROOT, path.join(dir, ent.file)).split('\\').join('/') || ent.file;
-    const bk = findBackup(outDir, ent);
-    let why = null;
-    if (st !== 'clean') {
-      // 有改動不等於還在：被清空、刪除在 git 眼中也是改動（行數大幅減少不報：可能是刻意縮短，backup 存的當下已提醒）
-      why = wipedReason(dir, ent);
-      if (!why) {
-        const lack = missingRequires(dir, ent);
-        if (lack.length) stale.push({ label: label, lack: lack });
-        continue;
-      }
-    }
-    gone.push({ label: label + (why ? '（' + why + '）' : ''), hasBackup: !!bk });
+    const key = path.resolve(dir);
+    if (!byRepo.has(key)) byRepo.set(key, { main: key, ents: [], wts: [] });
+    byRepo.get(key).ents.push(ent);
   }
-  if (!gone.length && !stale.length) process.exit(0);
+  const candidates = [];
+  for (const r of byRepo.values()) {
+    const list = worktreesOf(r.main);
+    if (!list.length) continue;
+    const mainDir = list[0];
+    for (const wt of list.slice(1)) candidates.push({ wt: wt, mainDir: mainDir, repo: r });
+  }
+  if (!candidates.length) process.exit(0);
 
+  // 指令提到的那一個（取路徑最長的）；都沒提到時，看 session 目前目錄在不在某個工作樹裡
+  const cwd = path.resolve(input.cwd || ROOT);
+  const ncmd = norm(cmd);
+  let pick = null;
+  let pickLen = -1;
+  for (const c of candidates) {
+    const forms = [
+      [norm(c.wt), false],
+      [posixOf(c.wt), false],
+      [norm(path.relative(ROOT, c.wt)), true],
+      [norm(path.relative(cwd, c.wt)), true],
+    ];
+    for (const [form, isRel] of forms) {
+      if (!form || path.isAbsolute(form) && isRel) continue;
+      if (mentions(ncmd, form, isRel) && c.wt.length > pickLen) { pick = c; pickLen = c.wt.length; }
+    }
+  }
+  if (!pick) {
+    for (const c of candidates) {
+      if (inside(c.wt, cwd) && c.wt.length > pickLen) { pick = c; pickLen = c.wt.length; }
+    }
+  }
+  if (!pick) process.exit(0);
+
+  const wt = pick.wt;
+  const issues = [];
+  for (const ent of pick.repo.ents) {
+    if (!neededHere(wt, ent)) continue;    // needed-when 條件在這個工作樹不成立：用不到
+    const st = fileState(wt, ent.file);
+    if (st === null) continue;              // git 讀不到，不判
+    if (st === 'clean') { issues.push({ tag: '[沒帶]    ', file: ent.file }); continue; }
+    const why = wipedReason(wt, ent);
+    if (why) { issues.push({ tag: '[被清空]  ', file: ent.file, note: why }); continue; }
+    const lack = missingRequires(wt, ent);
+    if (lack.length) issues.push({ tag: '[帶到舊版]', file: ent.file, note: '缺 ' + lack.map((x) => '「' + x + '」').join('、') });
+  }
+  if (!issues.length && !ALWAYS_REMIND) process.exit(0);
+
+  const shown = path.relative(ROOT, wt).split('\\').join('/') || wt;
   const L = [];
-  if (gone.length) {
-    const rescuable = gone.filter((g) => g.hasBackup).length;
-    const lost = gone.length - rescuable;
-    L.push('[本機覆寫遺失] 覆寫清單（' + OVERRIDES_REL + '）上有 ' + gone.length + ' 個檔的覆寫可能不見了（沒有本機改動，或檔案被清空、刪除）。');
-    gone.slice(0, MAX_LIST).forEach((g) => L.push('  ' + (g.hasBackup ? '[可救]  ' : '[無備份]') + ' ' + g.label));
-    if (gone.length > MAX_LIST) L.push('  …另有 ' + (gone.length - MAX_LIST) + ' 個');
-    if (rescuable) {
-      L.push('');
-      L.push('救回：' + RESTORE_CMD + ' --restore');
-      L.push('（先不加 --restore 跑一次，只檢查不改檔）');
-    }
-    if (lost) {
-      L.push('');
-      L.push('有 ' + lost + ' 個沒有備份——' + (SETUP_DOC ? '對照 ' + SETUP_DOC + ' 逐項補回。' : '對照清單每筆的 reason 欄逐項補回。'));
-    }
+  if (issues.length) {
+    L.push('[工作樹的本機覆寫沒帶齊] 要從工作樹 ' + shown + ' 起服務，但覆寫清單（' + OVERRIDES_REL + '）上有 ' + issues.length + ' 筆在這個工作樹沒帶齊：');
+    issues.slice(0, MAX_LIST).forEach((x) => L.push('  ' + x.tag + ' ' + x.file + (x.note ? '（' + x.note + '）' : '')));
+    if (issues.length > MAX_LIST) L.push('  …另有 ' + (issues.length - MAX_LIST) + ' 筆');
     L.push('');
-    L.push('若這些檔本來就不該帶覆寫（例如剛拉了新版、或覆寫已正式 commit），忽略本訊息即可。');
+    L.push('從主要工作目錄（' + pick.mainDir.split('\\').join('/') + '）帶過去：只改了幾行的檔，看 `git -C "' + pick.mainDir.split('\\').join('/') +
+      '" diff -- <檔>` 照著補；整檔都是本機的（不在版控裡的檔），直接複製那一份。');
+    L.push(SETUP_DOC ? '每個檔該填什麼值見 ' + SETUP_DOC + '。' : '每個檔該填什麼值見覆寫清單每筆的 reason 欄。');
+    L.push('漏帶時的症狀跟成因看起來毫無關聯（服務起不來、端點整批回授權錯誤、測試信真的寄出去），起服務前先補齊比事後追便宜。');
+    L.push('⚠ 只是提醒，指令照跑：這個工作樹的 HEAD 可能本來就含正確值、不需要覆寫。');
   }
-  if (stale.length) {
+  if (ALWAYS_REMIND) {
     if (L.length) L.push('');
-    L.push('[本機覆寫內容不完整] 有 ' + stale.length + ' 個覆寫檔還在，但缺少清單（requires 欄）宣告一定要有的字串——可能帶到的是舊版：');
-    stale.slice(0, MAX_LIST).forEach((s) => L.push('  ' + s.label + '：缺 ' + s.lack.map((x) => '「' + x + '」').join('、')));
-    if (stale.length > MAX_LIST) L.push('  …另有 ' + (stale.length - MAX_LIST) + ' 個');
-    L.push('對照主要工作目錄或最新備份裡的版本補齊；' + (SETUP_DOC ? '該補什麼見 ' + SETUP_DOC + '。' : '該補什麼見清單每筆的 reason 欄。'));
+    L.push('[從工作樹起服務] ' + ALWAYS_REMIND);
   }
-  process.stdout.write(L.join('\n') + '\n');
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: L.join('\n') } }) + '\n');
 } catch (e) {}
 process.exit(0);

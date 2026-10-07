@@ -29,6 +29,11 @@
 //        reason: '測試打的服務要跟自己起的那一套同源；指到別套服務，種資料與查資料會落在不同地方。',
 //        fix: '用這套服務自己的環境檔（source 它再跑），不要借用別套環境的既有檔。' }
 //      「指向同一套服務」用多條 env 檢查的 matches 釘在同一個主機／埠來表達。
+//      測試端的值要跟受測服務自己的設定對上（例：測試用的租戶代號 vs 服務設定檔裡寫死的租戶代號）時用 'env-file'：
+//      { id: 'tenant-align', kind: 'env-file', env: 'TEST_TENANT_ID', path: 'api/config/local.json',
+//        pattern: '"tenantId"\\s*:\\s*"([^"]+)"',
+//        reason: '測試種資料用 TEST_TENANT_ID、服務查資料用設定檔的 tenantId；兩邊不同時查 0 筆，看起來像功能壞了。',
+//        fix: '把 TEST_TENANT_ID 設成 api/config/local.json 的 tenantId 再跑（或改設定檔後重啟服務）。' }
 //
 // 兩條判定路徑（兩支規則引擎共用同一套設計）：
 //   · 語法樹路徑（預設）：同目錄的 shell-model.js 用 tree-sitter 把指令解析成語法樹（bash 與 PowerShell 各一套文法），
@@ -60,6 +65,17 @@
 //                    （相對 cd 疊加、絕對 cd 取代）——`cd api && node --env-file=.env.test --test` 讀的是
 //                    api/.env.test；冷啟交叉驗證曾抓到對專案根解析而誤擋環境正確的指令。
 //                    equals（全等）或 matches（字串 regex）；兩者都沒給＝只要求存在。空字串視同未設。
+//            'env-file'：跨來源比對——測試拿到的環境變數 env，要**等於**檔案 path（相對專案根）裡用 pattern 取出的值
+//                    （字串 regex、多行模式，第 1 個括號群組＝值；選填 within 先截區塊，同 'file'）。用在「同一件事寫在
+//                    兩個地方」：測試用的身分寫在環境變數、受測服務吃的身分寫在它自己的設定檔或原始碼——兩邊各自看都
+//                    合法，對不上時症狀是「自己造的資料查 0 筆」，不指向環境。環境值的取法與 'env' 完全相同（每條測試
+//                    指令各自判、條件分支每種可能都要相等、判不準就擋）。檔讀不到、截不到區塊、pattern 沒命中＝無法確認＝擋
+//                    （選填 onMissing: 'allow' 改為放行）；變數未設也擋。兩邊的值前後空白與一層引號會先剝掉再比。
+//            'custom'：逃生口——宣告式欄位寫不出來的檢查。check(ctx) 是一個函式，回傳問題清單（字串陣列；空陣列＝通過）。
+//                    ctx＝{ command, tool, root, cwd, readFile(相對專案根的路徑)→內容或 null, env(變數名)→[{ value, unsure }]
+//                    （每條測試指令一筆；unsure＝值判不準）}。check 丟例外或回傳的不是陣列＝檢查故障：放行，
+//                    但走故障提醒（同 regex 寫壞），不擋路。先用 'file'／'env'／'env-file' 寫得出來的就不要用它——
+//                    函式裡的判斷沒有 cases 就沒人驗，寫了 custom 一定要補一擋一放的案例。
 //   reason   為什麼要這個前置條件（寫機制與後果）。
 //   fix      怎麼做才會放行。
 //
@@ -814,6 +830,37 @@ process.stdin.on('end', () => {
     const found = findTestsWithParser(command, input.tool_name, cwd, root, testRe) || findTestsWithRegex(command, cwd, root, testRe);
     if (!found.tests.length) process.exit(0);
 
+    // 讀專案裡的檔（相對專案根）；讀不到回 null
+    const readRel = (rel) => { try { return fs.readFileSync(path.resolve(root, String(rel)), 'utf8'); } catch (e) { return null; } };
+    // within：只取第一個命中的區塊；截不到回 null（要驗的東西不在，照不符處理——退回整份檔會讓別的區塊的值替它背書）
+    const cut = (body, within) => {
+      if (!within) return body;
+      const w = new RegExp(within, 'm').exec(body);
+      return w ? w[0] : null;
+    };
+    // 每一條測試指令各自取變數值：同一串裡後面的賦值不能替前面的測試背書。
+    // 語法樹路徑給的是全部可能值（條件分支各一種），正則路徑只有一個值。判不準的那條回 { unsureMsg }。
+    const envVerdicts = (name) => found.tests.map((t) => {
+      const info = found.infoOf ? found.infoOf(t, name) : { values: [found.envOf(t, name)], unsure: false };
+      if (envUnsure(name)) return { unsureMsg: envUnsureMsg(name), values: [] };
+      if (info.unsure) return { unsureMsg: info.opaque ? opaqueMsg(name) : condUnsureMsg(name), values: [] };
+      return { unsureMsg: null, values: info.values, tail: info.values.length > 1 ? '（前面有條件式設定，其中一種情況）' : '' };
+    });
+    // judge(v, tail)：回傳不符的說明或 null；每條測試指令的每一種可能值都要通過
+    const envProblems = (name, judge, bad) => {
+      for (const r of envVerdicts(name)) {
+        let msg = r.unsureMsg;
+        if (!msg) {
+          for (const v of r.values) {
+            msg = (v === undefined || v === '') ? name + ' 未設定' + r.tail : judge(v, r.tail);
+            if (msg) break;
+          }
+        }
+        if (msg && !bad.includes(msg)) bad.push(msg);
+      }
+    };
+    const bareValue = (v) => String(v).trim().replace(/^(["'])([\s\S]*)\1$/, '$2');
+
     for (const c of CHECKS) {
       try {
         if (!c) continue;
@@ -821,43 +868,62 @@ process.stdin.on('end', () => {
         const tag = '[' + (c.id || c.kind) + '] ';
         const bad = [];
         if (c.kind === 'file') {
-          let body = null;
-          try { body = fs.readFileSync(path.resolve(root, c.path), 'utf8'); } catch (e) {}
+          let body = readRel(c.path);
           if (body === null) {
             if (c.onMissing !== 'allow') bad.push('讀不到 ' + c.path + '，無法確認前置條件');
           } else {
-            // within 截不到區塊＝要驗的東西不在，照不符處理；退回整份檔會讓別的區塊的值替它背書。
-            const w = c.within ? new RegExp(c.within, 'm').exec(body) : null;
-            if (c.within && !w) {
+            body = cut(body, c.within);
+            if (body === null) {
               bad.push(c.path + ' 找不到指定區塊 /' + c.within + '/');
             } else {
-              if (w) body = w[0];
               for (const re of asList(c.mustMatch)) if (!new RegExp(re, 'm').test(body)) bad.push(c.path + ' 未符合 /' + re + '/');
               for (const re of asList(c.mustNotMatch)) if (new RegExp(re, 'm').test(body)) bad.push(c.path + ' 出現不該有的 /' + re + '/');
             }
           }
         } else if (c.kind === 'env') {
-          // 每一條測試指令各自判：同一串裡後面的賦值不能替前面的測試背書
-          for (const t of found.tests) {
-            // 語法樹路徑給的是全部可能值（條件分支各一種），每一種都要符合；正則路徑只有一個值
-            const info = found.infoOf ? found.infoOf(t, c.env) : { values: [found.envOf(t, c.env)], unsure: false };
-            let msg = null;
-            if (envUnsure(c.env)) msg = envUnsureMsg(c.env);
-            else if (info.unsure) msg = info.opaque ? opaqueMsg(c.env) : condUnsureMsg(c.env);
-            else {
-              const tail = info.values.length > 1 ? '（前面有條件式設定，其中一種情況）' : '';
-              for (const v of info.values) {
-                if (v === undefined || v === '') msg = c.env + ' 未設定' + tail;
-                else if (c.equals !== undefined && v !== String(c.equals)) msg = c.env + '="' + v + '"' + tail + '，應為 "' + c.equals + '"';
-                else if (c.matches && !new RegExp(c.matches, 'i').test(v)) msg = c.env + '="' + v + '"' + tail + ' 不符 /' + c.matches + '/';
-                if (msg) break;
-              }
-            }
-            if (msg && !bad.includes(msg)) bad.push(msg);
+          envProblems(c.env, (v, tail) => {
+            if (c.equals !== undefined && v !== String(c.equals)) return c.env + '="' + v + '"' + tail + '，應為 "' + c.equals + '"';
+            if (c.matches && !new RegExp(c.matches, 'i').test(v)) return c.env + '="' + v + '"' + tail + ' 不符 /' + c.matches + '/';
+            return null;
+          }, bad);
+        } else if (c.kind === 'env-file') {
+          // 跨來源比對：測試拿到的環境變數要等於檔案裡取出的值
+          if (!c.env || !c.path || !c.pattern) throw new Error("env-file 要有 env、path、pattern 三個欄位");
+          const re = new RegExp(c.pattern, 'm');
+          let body = readRel(c.path);
+          let fileVal = null;
+          let why = null;
+          if (body === null) why = '讀不到 ' + c.path;
+          else if ((body = cut(body, c.within)) === null) why = c.path + ' 找不到指定區塊 /' + c.within + '/';
+          else {
+            const m = re.exec(body);
+            if (!m || m[1] === undefined) why = c.path + ' 找不到 /' + c.pattern + '/（第 1 個括號群組＝要比對的值）';
+            else fileVal = bareValue(m[1]);
           }
+          if (fileVal === null) {
+            if (c.onMissing !== 'allow') bad.push(why + '，無法確認 ' + c.env + ' 跟它對不對得上');
+          } else {
+            envProblems(c.env, (v, tail) => (bareValue(v) === fileVal ? null
+              : c.env + '="' + v + '"' + tail + '，但 ' + c.path + ' 裡是 "' + fileVal + '"——兩邊要相同'), bad);
+          }
+        } else if (c.kind === 'custom') {
+          // 逃生口：自訂檢查。故障（例外、回傳不是陣列）不擋路，走故障提醒
+          if (typeof c.check !== 'function') throw new Error('custom 要有 check(ctx) 函式');
+          const ctx = {
+            command, tool: input.tool_name, root, cwd, readFile: readRel,
+            env: (name) => envVerdicts(name).map((r) => (r.unsureMsg
+              ? { value: undefined, unsure: true }
+              : { value: r.values.length === 1 ? r.values[0] : undefined, unsure: r.values.length !== 1 })),
+          };
+          const out = c.check(ctx);
+          if (!Array.isArray(out)) throw new Error('check(ctx) 要回傳字串陣列（目前回傳 ' + typeof out + '）');
+          for (const x of out) if (x !== undefined && x !== null && String(x).trim() && !bad.includes(String(x))) bad.push(String(x));
+        } else if (c.kind !== undefined) {
+          throw new Error('不認得的 kind：' + JSON.stringify(c.kind) + '（只認 file／env／env-file／custom）');
         }
         if (bad.length) {
-          if (c.kind === 'file') fileProblem = true;
+          // env-file 不符時兩邊都可能是錯的那一邊：改的若是服務讀的設定檔，要重啟才生效
+          if (c.kind === 'file' || c.kind === 'env-file') fileProblem = true;
           problems.push('  - ' + tag + bad.join('；') +
             (c.reason ? '\n      為什麼：' + c.reason : '') +
             '\n      放行方式：' + (c.fix || '修正後再跑。'));

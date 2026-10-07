@@ -35,6 +35,7 @@
 //       },                                         //   不會把它們收成內嵌 repo
 //       "links": { "相對路徑": "相對目標" },          // 選填：建目錄連結（Windows junction／其他平台 symlink），測「經連結進入」
 //       "worktrees": { "相對路徑": "repo 相對路徑" }, // 選填：git worktree add（在 repos／commit 之後建）
+//       "files_after_worktrees": { "相對路徑": "內容" }, // 選填：worktree 建好之後才寫入（造出「worktree 裡有本機改動」的狀態）
 //       "env": { "KEY": "value" },               // 額外環境變數；值給 null＝刪掉該變數（不存在），"" 是存在但為空；值裡的 {PROJECT_DIR} 換成暫存專案路徑
 //       "transcript": [ {...}, ... ],              // 寫成 jsonl，路徑放進 payload.transcript_path
 //       "mtime_days_ago": { "相對路徑": 40 }       // 把檔案時間往回撥
@@ -178,6 +179,11 @@ function mkProject(setup, hookFile, variant) {
   }
   for (const [rel, repo] of Object.entries(setup.worktrees || {})) {
     execFileSync('git', ['-C', path.join(dir, repo), 'worktree', 'add', '-q', '--detach', path.join(dir, rel)], { stdio: 'ignore' });
+  }
+  for (const [rel, content] of Object.entries(setup.files_after_worktrees || {})) {
+    const p = path.join(dir, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
   }
   for (const [rel, days] of Object.entries(setup.mtime_days_ago || {})) {
     const t = new Date(Date.now() - days * 86400000);

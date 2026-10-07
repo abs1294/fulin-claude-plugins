@@ -2,6 +2,25 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.14.0] - 2026-10-07
+### Added
+- **選裝 skill 骨架（init 訪談第 12 題）**：三支可選的專案 skill，都照 05 §4.1 的寫法（description 寫觸發與排除、狀態檔住 skill 目錄、同目錄 CHANGELOG.md）。
+  - **難 bug 診斷**：回饋迴路要同時滿足能變紅、確定性、快、執行者自己能跑；迴路建起來之前不准讀碼建理論；建不出迴路就停下列出試過什麼、向使用者要 HAR 或 log；憑證改寫成 `<REDACTED>`；假設寫成可推翻的預測；除錯 log 加固定前綴、收尾清光。「本專案迴路配方」做成填空，紀律指回 03／04 不複製。
+  - **架構保養**：每次最多修一個；候選要先開檔讀過才能進報告；使用者否決過的寫進 skill 目錄的排除清單、不得重提；使用者明說才啟動，不得自主發起、不得在談別的事時順手啟動。
+  - init 驗收只檢查這次產生的 skill（參考模式原封沿用的既有 skill 不算）；流程圖上每支 skill 的 `SKILL.md` 與 `CHANGELOG.md` 各畫一個節點、label 帶 skill 目錄名，不用目錄節點。
+  - **工作流地圖**：主線只放指向派工模板的指標、不重畫；新增或停用 skill 要同步地圖；列已停用清單。
+- **本機覆寫說明與症狀導向 skill**：保留本機覆寫保護時，init 另產 `.claude/harness/local-overrides-guide.md`（檔／鍵／正確值／漏補的症狀／類型，加新工作樹自檢），以及一支用症狀當觸發詞、本身不放任何值的導向 skill。原本的三件組 hook 只管「覆寫還在不在」，這份說明補上「值對不對、漏了會出什麼症狀」。03 A9 指向它。
+- **新 hook `remind-worktree-overrides.js`（選裝、只提醒）**：從 git worktree 起服務時，檢查那個工作樹的本機覆寫帶齊沒，用 additionalContext 提醒、不擋。起服務的指令樣式放填空區；用 `git worktree list` 找工作樹、`local-overrides.yml` 比對。hook-catalog 第 19 列原本判「不移植」，改成 C 類選裝。
+- **別的 AI 工具專用規則檔可精煉成自有正本**：訪談第 7 題多一個選項，把這類規則檔（如 copilot 指示）精煉成專案自己的正本並附已知矛盾表（新骨架 `skeleton-refined-rules.md`），不只讓位；健檢檢查原檔改版了沒。
+### Changed
+- **測試前置條件可做跨來源比對**：`guard-test-preconditions.js` 新增 `env-file` 檢查（測試拿到的環境變數必須等於檔案裡取出的值，例如後端原始碼寫死的身分），以及選填的 `custom` 檢查（`check(ctx)` 回傳問題清單；丟例外或格式不對時放行並走故障提醒）。
+- **測試資產稽核可設「只提醒」**：`guard-test-asset-hygiene.js` 每支稽核工具加 `level: 'block' | 'warn'`，只提醒的工具命中時 exit 0、訊息走 additionalContext；level 寫成別的值時照擋處理，而且不論這次工具有沒有命中都提醒寫錯了。
+- **起服務規則可限制工作目錄**：`guard-risky-command.js` 規則新增 `requireCwd`，看同一串指令裡、服務指令之前的字面 cd（`cd api && npm run start`、`cd api; npm run start` 都算），兩條判定路徑結果一致；判不準就不檢查（沒有字面 cd、語法樹判不出目錄、cd 目標是變數或不存在時）。
+- **判斷矩陣**：A9 補「本機覆寫全綠也可能整條鏈路不通」（埠號錯、跑的是主線不是工作樹、建置後沒重啟）；B13 補「另驗 `response.url`，環境變數設對不等於生效」。
+- **派工模板五依任務型別給 pipeline 變體**：後端、前端、全端、資料庫結構各一條；判型別看改動落在哪幾層，不看需求怎麼描述。
+- **健檢加「卡關升級的路徑荒廢」**：症狀是同一任務工具呼叫數爆量、卻沒有失敗軌跡。
+- **agent 骨架**：code-reviewer 加「改到哪類檔就照哪份規則審」對照表填空；五支 agent 的 description 加「本專案慣用的動詞與說法」填空，查不到就刪、不拿通用詞充數。
+
 ## [0.13.0] - 2026-10-05
 ### Added
 - **註解規範骨架（選裝）**：新增 `skeleton-comment-guide.md`，裝進專案後是 `.claude/harness/07-comment-guide.md`。含跨語言的禁止表（流水帳、AI 參與痕跡、內部文件出處等）、真人範本填空、碰到才清的漸進套用與指紋 grep。重點條款：編譯器或 linter 強制要 doc 註解時（C# CS1591、require-jsdoc、Rust missing_docs 等）不准補空殼，依序改寫、刪除或局部關閉並寫理由；整個專案關掉規則不得自行決定，要使用者同意並記在註解規範的設定表（沒有這類設定時第三節與設定表表頭照留、表下註明目前沒有，之後有地方可記；第四節沒有範例時也保留節標題）。init 盤點加查這類設定，訪談新增第 11 題問要不要建（建／沿用既有文件／不建；沿用時先查既有文件有沒有處理強制 doc 註解設定的那一節：有就讓 agent 指向它實際的節名，沒有就問使用者要不要照骨架第三節補一節，不補則 agent 改用「沒有那一節」的寫法，不指向不存在的節）；engineer 骨架寫明「改寫、不補空殼」，code-reviewer 骨架寫明「不得要求補空殼」。

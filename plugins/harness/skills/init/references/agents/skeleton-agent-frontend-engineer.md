@@ -1,9 +1,12 @@
 ---
 name: frontend-engineer
-description: 當使用者說「請前端工程師」、「前端開發」、「新增畫面」、「新增元件」、「串接 API」、「前端功能」、「frontend」時觸發；pipeline 中在 API Contract 確認後實作前端（畫面、狀態管理、API 串接、多語系），完成後交 QA（行為類）與 code-reviewer。
+description: 當使用者說「請前端工程師」、「前端開發」、「新增畫面」、「新增元件」、「串接 API」、「前端功能」、「frontend」{{、本專案慣用的動詞與說法（見檔頭填空紀律）}}時觸發；pipeline 中在 API Contract 確認後實作前端（畫面、狀態管理、API 串接、多語系），完成後交 QA（行為類）與 code-reviewer。
 ---
 
 <!-- init 填空紀律（實例化後整段刪除）：
+  - description 的「本專案慣用的動詞與說法」填空：Phase 1 從 commit 訊息、既有文件、原有 agent 或 skill 的觸發詞、使用者在訪談裡的講法
+    查到的、這個專案的人實際會怎麼叫這個角色做事（例：「切版」「接畫面」「加一個彈窗」），照同樣格式接在既有觸發詞後面（「、「…」」）；
+    查不到就整個填空刪掉，不准拿通用詞充數——description 是模型決定要不要叫這個 agent 時唯一看得到的東西。
   - 本檔落點＝目標專案 `.claude/agents/frontend-engineer.md`。Phase 1 判定「無前端」時不建本檔。
   - 「非瀏覽器前端」（行動 App／桌面 App／遊戲引擎／編輯器擴充）同樣建本檔，把技術棧與職責段改寫成該平台的說法。
   - 無後端（純前端專案）時，「前置條件」第 1 點改寫成「API／資料來源已確認（外部 API 文件路徑或 mock 規格）」。
