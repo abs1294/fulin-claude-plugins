@@ -26,6 +26,8 @@
 #   qa-flow.sh audit      [--fix]
 #   qa-flow.sh tools-sync [--force]
 #   qa-flow.sh migrate    [--dry-run]
+#   qa-flow.sh smoke-try <服務名> | smoke-preflight | smoke-run <等級> | smoke-report | smoke-stop
+#              （上線前健檢；設定 tests/Project_Detail/SMOKE.json，邏輯在 tools/smoke.py）
 #
 # 可攜性：須能在 macOS 內建 bash 3.2 ＋ BSD 工具、Windows Git Bash、Linux 上跑。
 #   禁用 declare -A / mapfile / ${v,,} / sed -i / grep -P / readlink -f / date -d / stat -c 等
@@ -999,6 +1001,49 @@ cmd_migrate() {
 }
 
 # ------------------------------------------------------------
+# Command: smoke-try / smoke-preflight / smoke-run / smoke-report / smoke-stop
+#   上線前健檢。設定讀 WORKSPACE_DIR/tests/Project_Detail/SMOKE.json；邏輯在 plugin 本體的
+#   tools/smoke.py（直接跑本體，不經專案 tests/e2e/tools/，專案還沒 scaffold 也能用）。
+#   不殺別人的程序：port 被佔且不健康 → 印佔用者、exit 4；stop 只停狀態檔記錄的、身分相符的 PID。
+#   exit：0 完成／1 服務起不來或沒產出 junit／2 設定或參數錯（含等級不存在）／3 前置條件不符而拒絕／4 port 被別人佔且不健康
+# ------------------------------------------------------------
+
+run_smoke() {
+  require_python
+  local extra=""
+  if [ "$1" = "run" ]; then
+    detect_pytest
+    if [ -z "$PYTEST_CMD" ]; then
+      echo "ERROR: 找不到可用的 pytest（試過 pytest / python3 -m pytest / python -m pytest / py -m pytest）。" >&2
+      echo "       請先安裝：python3 -m pip install pytest-playwright && python3 -m playwright install chromium" >&2
+      exit 1
+    fi
+    extra="$PYTEST_CMD"
+  fi
+  QA_SMOKE_PYTEST="$extra" PYTHONDONTWRITEBYTECODE=1 PYTHONIOENCODING=utf-8 \
+    "$PY_CMD" "$(native_path "$SKILL_DIR/tools/smoke.py")" --workspace "$(native_path "$WORKSPACE_DIR")" "$@"
+}
+
+cmd_smoke() {
+  local sub="$1"; shift
+  case "$sub" in
+    try)
+      if [ -z "${1:-}" ]; then
+        echo "Usage: qa-flow.sh smoke-try <服務名（SMOKE.json 的 services[].name）>" >&2
+        exit 2
+      fi
+      run_smoke try "$1" ;;
+    run)
+      if [ -z "${1:-}" ]; then
+        echo "Usage: qa-flow.sh smoke-run <等級（SMOKE.json 的 levels 其中一個）>" >&2
+        exit 2
+      fi
+      run_smoke run "$1" ;;
+    *) run_smoke "$sub" ;;
+  esac
+}
+
+# ------------------------------------------------------------
 # Entry
 # ------------------------------------------------------------
 
@@ -1010,6 +1055,11 @@ case "${1:-}" in
   audit)      shift; cmd_audit "$@" ;;
   tools-sync) shift; cmd_tools_sync "$@" ;;
   migrate)    shift; cmd_migrate "$@" ;;
+  smoke-try)       shift; cmd_smoke try "$@" ;;
+  smoke-preflight) shift; cmd_smoke preflight ;;
+  smoke-run)       shift; cmd_smoke run "$@" ;;
+  smoke-report)    shift; cmd_smoke report ;;
+  smoke-stop)      shift; cmd_smoke stop ;;
   -h|--help|"")
     cat <<USAGE
 Usage: qa-flow.sh <command> [args]
@@ -1023,6 +1073,13 @@ Commands:
   audit    [--fix]                       三層：drift_check（孤兒/幽靈/佔位）；legacy：catalog 孤兒列
   tools-sync [--force]                   以 plugin 新版更新 tests/e2e/tools/（本地修改只警告不覆蓋）
   migrate  [--dry-run]                   舊版單一 catalog → 三層（列數對帳、舊檔改名保留）
+
+上線前健檢（設定：tests/Project_Detail/SMOKE.json；port 被別人佔且不健康一律不殺、印佔用者後停止）：
+  smoke-try <服務名>                     照設定試起＋等 LISTEN＋健康檢查；通過才寫回該服務的 verified
+  smoke-preflight                        依 order 逐一：port 空→用 verified 設定代起；有人用→健康檢查，過了沿用
+  smoke-run <等級>                       levels 的 -m 篩選式＋always_run 跑 pytest，junit 落 report_dir；等級不存在 exit 2
+  smoke-report                           junit 逐筆計數＋手動 TC 結果出報告；junit 缺／0 筆／手動沒填完一律拒絕
+  smoke-stop                             只停狀態檔記錄、且身分相符的本腳本起的 PID
 
 落點：一律鎖 CLAUDE_PROJECT_DIR（session 起始目錄）底下的 tests/e2e/，不接受絕對路徑 / '..'。
 覆蓋狀態合法值：完整 / 部分 / 未覆蓋（自動加 ✅/⚠️/❌）

@@ -222,6 +222,7 @@ QA Agent（qa-engineer，接續 Phase 1 由自己執行）嚴格按測試計畫�
 | `qa-flow.sh audit [--fix]` | 三層：drift_check（孤兒/幽靈/佔位，有漂移 exit 3）；`--fix` 把孤兒補成「待補」佔位列，補完仍有漂移（佔位待寫情境、幽靈）照樣 exit 3，exit 0 才是 drift 0/0/0；舊版：catalog 孤兒列。非本 plugin 格式的 catalog 一律跳過 | Phase2-6 收尾 |
 | `qa-flow.sh tools-sync [--force]` | 以 plugin 新版更新已複製的工具；專案端改過的只警告不覆蓋；參數檔永不覆寫 | plugin 升級後 |
 | `qa-flow.sh migrate [--dry-run]` | 舊版 4 欄 catalog → 三層（列數對帳、舊檔改名保留） | 舊專案一次性 |
+| `qa-flow.sh smoke-try／smoke-preflight／smoke-run／smoke-report／smoke-stop` | 上線前健檢（設定 `tests/Project_Detail/SMOKE.json`）：試起通過才寫 verified、照 order 代起或沿用（port 被別人佔且不健康一律不殺）、依等級跑 pytest、junit 缺／0 筆／手動沒填完拒絕出報告、只停自己起的程序；流程見 `methodology/smoke-run.md`，入口 `/qa-webwright:smoke` | 上線前 |
 
 **bootstrap 決策訊號怎麼接：**
 - `ASSET: pytest-existing` → 直接復用既有、對齊風格，進 Phase2-1。
@@ -313,15 +314,17 @@ BUG-{編號}｜嚴重度：Critical/Major/Minor｜對應 TC-{編號}
 
 ## 文件地圖
 
-- `qa-flow.sh` — 流程輔助腳本（bootstrap / scaffold / run / catalog / audit / tools-sync / migrate）；把落地動作鎖進腳本，落點鎖 `CLAUDE_PROJECT_DIR`
-- `tools/` — 測試資產工具（scaffold 複製進專案 `tests/e2e/tools/`）：`qa_config.py`、`baseline.py`、`qa_pytest_plugin.py`、`runs_db.py`、`coverage_md.py`、`gen_catalog.py`、`drift_check.py`、`make_skeleton.py`、`fill_orphans.py`、`coverage_register.py`、`migrate_catalog.py`、`skip_audit.py`、`hardcode_check.py`、`i18n_locator_check.py`、`env_gates.py`、`sweep_residue.py`、`run_by_folder.py`
+- `qa-flow.sh` — 流程輔助腳本（bootstrap / scaffold / run / catalog / audit / tools-sync / migrate / smoke-try / smoke-preflight / smoke-run / smoke-report / smoke-stop）；把落地動作鎖進腳本，落點鎖 `CLAUDE_PROJECT_DIR`
+- `tools/` — 測試資產工具（scaffold 複製進專案 `tests/e2e/tools/`）：`qa_config.py`、`baseline.py`、`qa_pytest_plugin.py`、`runs_db.py`、`coverage_md.py`、`gen_catalog.py`、`drift_check.py`、`make_skeleton.py`、`fill_orphans.py`、`coverage_register.py`、`migrate_catalog.py`、`skip_audit.py`、`hardcode_check.py`、`i18n_locator_check.py`、`env_gates.py`、`sweep_residue.py`、`run_by_folder.py`、`smoke.py`
 - `lib/install_tools.py` — 工具複製與版本比對（scaffold / tools-sync 用）
 - `templates/qa-webwright.example.json` — 專案參數檔範例（欄位說明見 plugin README「專案參數檔」）
 - `templates/conftest_snippet.py` — conftest 掛點片段（sqlite 執行紀錄、A/D skip 閘、drift 摘要、環境閘）
+- `templates/SMOKE.example.json`、`templates/SMOKE.example.md`、`templates/SMOKE-manual.example.md` — 上線前健檢的專案設定、服務說明、手動 TC 清單範例（放專案 `tests/Project_Detail/`）
 - `methodology/test-plan-design.md` — 覆蓋矩陣、可追溯、必測 checklist、TC 格式、測試資料原則、探索七類、失敗注入、前後端 A/B 對照、範圍展開四格與欄位級驗證
 - `methodology/critical-points.md` — TC 預期 → critical point → assert 的對映與證據規範、五條硬規則、斷言隔離度
 - `methodology/test-discipline.md` — 核心鐵則（選單導航不直打 URL、mock 在就不准拿外部系統當 skip 藉口、測試庫可破壞）、不打斷、整輪才出報告、直打界線、副作用邊界、判斷與交付的證據要求（掩蓋手段、每批三重重驗、red→green、ablation、掃描器盲區）
 - `methodology/test-asset-hygiene.md` — 三層登記與 drift、skip 四分類紀律、xfail 鎖定與反向紀律、故意保留紅燈、缺陷現場當定位錨、直寫 DB 例外判準框架（四條判準、宣稱例外的四步證據、不算例外的理由）、G 類五種 safe 性質與 `G-REVIEWED`
+- `methodology/smoke-run.md` — 上線前健檢：分級、起服務決策樹（試起後 codify、不殺別人的程序）、自動套件優先再手動、執行規則四條、報告閘、FAIL 不自動修
 - `knowledge/pitfalls.md` — 踩過的雷與領域知識（A 後端驗證、B 日期時區、C 壞值、D/D2 Windows 啟動與 pytest、E 元件互動、F state 同步、G webwright 操作雷〔僅啟用 webwright 時適用〕、H 外部站 TLS/HTTP2 指紋封鎖、I 長流程 context 經濟、J 定位比對強度與多語系、K 等待時序與 API 攔截、L 斷言盲區、M 種子資料與共用狀態、N 環境多實例與 runner 執行）；**持續 append**（新增分類時同步更新此枚舉）
 - 沉澱 runner 的官方文件（pytest-playwright / Playwright Test）— 瀏覽器啟動、locator、斷言、fixture
 - （選用，僅外部站備用探索）webwright skill 的 `reference/` — 瀏覽器啟動、aria snapshot、log 格式

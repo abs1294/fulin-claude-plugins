@@ -1,0 +1,59 @@
+{
+  "_doc": "上線前健檢設定（放 tests/Project_Detail/SMOKE.json）。機器讀的欄位放這裡，說明與起服務的坑寫在同目錄 SMOKE.md。以底線開頭的 key 是註解、腳本忽略。欄位說明見 plugin README「上線前健檢」節。",
+  "_levels": "等級名 → pytest -m 篩選式（名稱、and／or／not、括號）；空字串＝不加 -m（全部）",
+  "levels": {
+    "P0": "P0",
+    "P0+P1": "P0 or P1",
+    "P0+P1+P2": ""
+  },
+  "_always_run": "不分等級固定加跑的測試（檔案、資料夾或 path::test 節點）；會從等級套件排除、另跑一次，不會重複計數",
+  "always_run": [],
+  "_test_paths": "等級套件的範圍（相對專案根）；省略＝[\"tests/e2e\"]",
+  "test_paths": ["tests/e2e"],
+  "_pytest_args": "兩次 pytest 都加的參數，例如 [\"-n\", \"3\"]（讀取型並行；寫入型請序列）",
+  "pytest_args": [],
+  "_services": "依 order 由小到大處理（先後端、後前端）。verified 由 smoke-try 寫入，不要手填；驗證後改過 start／health／port 等設定會失效、要重新 smoke-try",
+  "services": [
+    {
+      "name": "backend",
+      "port": 8080,
+      "scheme": "https",
+      "cwd": "backend",
+      "start": {
+        "cmd": "dotnet",
+        "args": ["run", "--project", "src/App.Api", "--no-launch-profile", "--urls", "https://localhost:8080"],
+        "env": {"ASPNETCORE_ENVIRONMENT": "Development"}
+      },
+      "health": {"url": "https://localhost:8080/swagger", "expect_status": 200},
+      "order": 1,
+      "timeout_s": 180,
+      "post_start_checks": [
+        {"type": "log_present", "pattern": "Hosting environment: Development", "desc": "環境名有帶到（--no-launch-profile 時漏帶會用 Production）"}
+      ],
+      "verified": null
+    },
+    {
+      "name": "frontend",
+      "port": 5173,
+      "scheme": "https",
+      "cwd": "frontend",
+      "start": {
+        "cmd": "npx",
+        "args": ["vite", "--mode", "local", "--port", "5173"],
+        "env": {"VITE_API_URL": "https://localhost:8080/"}
+      },
+      "health": {"url": "https://localhost:5173/", "expect_status": 200},
+      "order": 2,
+      "post_start_checks": [
+        {"type": "log_absent", "pattern": "remote-api\\.example\\.com", "desc": "前端沒有指到遠端後端"}
+      ],
+      "verified": null
+    }
+  ],
+  "_manual_tc_file": "自動套件還沒涵蓋的手動 TC 清單（格式見 templates/SMOKE-manual.example.md）；沒有就寫 null",
+  "manual_tc_file": "tests/Project_Detail/SMOKE-manual.md",
+  "_issues_log": "FAIL 依日期區段追加到這裡（同一天接在該區段表尾）",
+  "issues_log": "tests/Project_Detail/smoke-issues.md",
+  "_report_dir": "junit、本輪手動結果檔、報告、服務 log、狀態檔（.smoke-state.json）的落點",
+  "report_dir": "tests/e2e/reports/smoke"
+}

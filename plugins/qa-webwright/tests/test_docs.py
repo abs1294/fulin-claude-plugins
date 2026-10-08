@@ -8,7 +8,7 @@ import pytest
 
 from conftest import PLUGIN, SKILL
 
-VERSION = "0.9.1"
+VERSION = "0.10.0"
 # 來源專案禁字：與 test_review_fixes.H3_BANNED 同一份（不分大小寫、ASCII 縮寫用字界；拆開寫免得本檔自己命中）
 from test_review_fixes import H3_BANNED  # noqa: E402
 

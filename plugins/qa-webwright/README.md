@@ -17,6 +17,8 @@
 - **內建 hook 他律強制**：光靠 SKILL 裡寫「必須落地」擋不住 AI 用通用 Playwright MCP 手動測完就口頭回報。本 plugin 用 hook 兜底（裝即生效，不需改 settings.json），見下方「hook 一覽」。
 - **驗真證據**：用 API 回傳碼 / 頁面讀回值 / 資料來源比對來判定通過，不靠人眼看截圖。
 - **覆蓋容易漏的細節**：內建必測 checklist、測試資料規範，特別處理日期欄位的「畫面 / 送出 payload / 資料來源 / 重新整理後」四點一致性。
+- **上線前健檢（0.10.0 起）**：`/qa-webwright:smoke P0` 照專案設定起服務（先試起、通過才 codify；port 被別人佔著且不健康一律不殺）、
+  依等級跑自動套件＋手動 TC，全部跑完、全部填完才出報告；FAIL 記進 issues、由你決定修不修。見下方「上線前健檢」節。
 - **跨專案、跨平台**：方法論不綁特定網站或技術棧；腳本與工具同時支援 Windows（Git Bash）與 macOS（內建 bash 3.2＋BSD 工具＋python3），Linux 順帶。
 
 > **載體中立**：本 plugin 的價值在「測試設計方法論」，**不綁特定執行工具**。沉澱端用專案既有的 runner
@@ -51,12 +53,13 @@ qa-webwright/
 │   └─ test-gate-fixes.mjs      送審修正的回歸案例（每案例帶審查 ID；由 test-gate.mjs 匯入，也可單獨依 ID 篩選）
 ├─ commands/
 │   ├─ qa-plan.md               /qa-webwright:qa-plan — 設計測試計畫
-│   └─ qa-run.md                /qa-webwright:qa-run — 派 qa-engineer agent：預擬草稿 → 首跑 → 定向探索補值 → 驗證
+│   ├─ qa-run.md                /qa-webwright:qa-run — 派 qa-engineer agent：預擬草稿 → 首跑 → 定向探索補值 → 驗證
+│   └─ smoke.md                 /qa-webwright:smoke — 上線前健檢：試起 → preflight → 分級跑 → 手動 TC 派工 → 報告 → 停服務
 ├─ tests/                       plugin 自測（pytest；在暫存目錄建假專案實跑）
 └─ skills/
     └─ browser-qa/
         ├─ SKILL.md             方法論：兩階段流程、critical-point 對映、報告格式
-        ├─ qa-flow.sh           流程腳本：bootstrap / scaffold / run / catalog / audit / tools-sync / migrate
+        ├─ qa-flow.sh           流程腳本：bootstrap / scaffold / run / catalog / audit / tools-sync / migrate / smoke-*
         ├─ tools/               測試資產工具（scaffold 時複製進專案 tests/e2e/tools/，第一行帶版本標記）
         │   ├─ qa_config.py          讀專案參數檔 tests/e2e/qa-webwright.json（缺檔走預設、壞檔明確報錯）
         │   ├─ baseline.py           所有稽核工具共用的存量豁免（--baseline / --write-baseline --why）
@@ -74,16 +77,21 @@ qa-webwright/
         │   ├─ i18n_locator_check.py 顯示文字定位器檢查（字元類可參數化）
         │   ├─ env_gates.py          port 歸屬閘／fixture 圖環境檢查／探測覆寫約定
         │   ├─ sweep_residue.py      測試殘留清掃（前綴標記、dry-run 預設、DB 連線可插拔）
-        │   └─ run_by_folder.py      逐資料夾跑 pytest、以 junit 逐筆計數
+        │   ├─ run_by_folder.py      逐資料夾跑 pytest、以 junit 逐筆計數
+        │   └─ smoke.py              上線前健檢（qa-flow.sh smoke-* 直接跑 plugin 本體這支）
         ├─ lib/install_tools.py 工具複製／版本比對（scaffold、tools-sync 用）
         ├─ templates/
         │   ├─ qa-webwright.example.json  專案參數檔範例
-        │   └─ conftest_snippet.py        conftest 掛點片段
+        │   ├─ conftest_snippet.py        conftest 掛點片段
+        │   ├─ SMOKE.example.json         上線前健檢設定範例（放專案 tests/Project_Detail/SMOKE.json）
+        │   ├─ SMOKE.example.md           服務起法與坑的說明範例（tests/Project_Detail/SMOKE.md）
+        │   └─ SMOKE-manual.example.md    手動 TC 清單範例
         ├─ methodology/         方法論（穩定、不綁技術棧）
         │   ├─ test-plan-design.md   覆蓋矩陣 / 必測 checklist / TC 格式 / 測試資料原則 / 探索七類 / 失敗注入
         │   ├─ critical-points.md    TC 預期 → critical point → assert 對映；五條硬規則
         │   ├─ test-discipline.md    核心鐵則（選單導航、mock 在就不准 skip、測試庫可破壞）、不打斷、副作用邊界
-        │   └─ test-asset-hygiene.md 三層登記與 drift、skip 四分類紀律、xfail 鎖定、G 類五種 safe 性質、直寫 DB 判準框架
+        │   ├─ test-asset-hygiene.md 三層登記與 drift、skip 四分類紀律、xfail 鎖定、G 類五種 safe 性質、直寫 DB 判準框架
+        │   └─ smoke-run.md          上線前健檢：分級、起服務決策樹、執行規則四條、報告閘、FAIL 不自動修
         └─ knowledge/           知識庫（踩過的雷與領域知識，持續 append）
             └─ pitfalls.md           A～N 段（後端驗證、日期時區、壞值、Windows 啟動、元件、state、webwright、H2 指紋、
                                      長流程 context、定位與多語系、等待時序、斷言盲區、種子與共用狀態、多實例環境）
@@ -314,12 +322,56 @@ python3 -m pytest qa-webwright/tests -q        # plugin 自測（暫存目錄建
 
 # 依計畫探索 → 沉澱成 runner assert + 結構化證據驗證 + 出報告
 /qa-webwright:qa-run <貼上計畫，或直接給功能描述>
+
+# 上線前健檢（等級省略會先問）
+/qa-webwright:smoke P0
 ```
 
 或直接用自然語言（skill / agent 會依描述自動觸發）：「請 QA 測試這個新增流程」。
 
 已有測試專案接上三層：`qa-flow.sh scaffold <feature> pytest`（只補缺的、不覆寫既有檔；既有 conftest 會提示貼上掛點片段），
 舊版單一 catalog 專案：`qa-flow.sh migrate`。工具更新：`qa-flow.sh tools-sync`（專案端改過的工具只警告不覆蓋，參數檔永不覆寫）。
+
+## 上線前健檢（smoke test）
+
+入口 `/qa-webwright:smoke [等級]`；流程與規則見 `skills/browser-qa/methodology/smoke-run.md`。
+專案設定全部放 `tests/Project_Detail/`：機器讀的 `SMOKE.json`、給人看的起法與坑 `SMOKE.md`、手動 TC 清單（檔名由 `manual_tc_file` 指定）。
+
+**子命令**（`qa-flow.sh`，每次呼叫帶 `CLAUDE_PROJECT_DIR=<session 起始目錄>`）：
+
+| 子命令 | 做什麼 | 拒絕／失敗時 |
+|--------|--------|--------------|
+| `smoke-try <服務名>` | 照設定背景起服務（log 落 `report_dir/logs/`）→ 等 port LISTEN → 健康檢查 → 起後檢查；通過才把該服務的 `verified` 原子寫回 `SMOKE.json`，服務保持運行 | 失敗：印原因與 log 尾段、停掉剛起的程序、不寫 verified（exit 1）；port 已被佔：印佔用者、不殺（exit 4） |
+| `smoke-preflight` | 依 `order` 逐一：port 空→用 verified 設定代起；有人用→健康檢查，過了沿用 | 有服務未 verified（或驗證後設定改過）→ exit 3；port 被別人佔且不健康→印佔用者 PID 與遮罩後命令列、不殺、exit 4 |
+| `smoke-run <等級>` | 健康檢查全過才跑；`levels` 的 `-m` 篩選式跑 `test_paths`（排除 `always_run`），再另跑 `always_run`；junit 與本輪手動結果檔落 `report_dir`，本輪紀錄寫狀態檔 | 等級不在 `levels` → exit 2；服務不健康 → exit 3；沒產出 junit → exit 1 |
+| `smoke-report` | junit 逐筆計數（`run_by_folder.counts_from_junit`）＋本輪手動結果出報告 `report_dir/smoke-report-<本輪>.md`；FAIL 依日期區段追加到 `issues_log`（同日接表尾、同一輪不重複追加） | junit 不存在、自動案例 0 筆、手動 TC 有一列沒填結果或證據、結果值不合法 → 逐條列出、exit 3 |
+| `smoke-stop` | 只停狀態檔記錄的、本腳本起的 PID（含其子程序）；建立時間對不上（PID 被重用）、沿用的、別人起的一律不碰 | 有停不掉的 → exit 1 |
+
+exit 碼總表：0 完成／1 服務起不來、健康檢查失敗、沒產出 junit／2 設定或參數錯（含等級不存在）／3 前置條件不符而拒絕／4 port 被別的程序佔且不健康（不殺）。
+
+**`tests/Project_Detail/SMOKE.json` 欄位**（範例 `skills/browser-qa/templates/SMOKE.example.json`；以底線開頭的 key 是註解；型別不對 exit 2 並指出哪個欄位）：
+
+| 欄位 | 型別 | 必填 | 說明 |
+|------|------|------|------|
+| `levels` | `{等級名: 字串}` | ✔ | 等級名 → pytest `-m` 篩選式（名稱、and／or／not、括號）；空字串＝不加 `-m` |
+| `always_run` | `[字串]` | | 不分等級固定加跑（檔案、資料夾或 `path::test`）；從等級套件排除、另跑一次 |
+| `test_paths` | `[字串]` | | 等級套件範圍，預設 `["tests/e2e"]` |
+| `pytest_args` | `[字串]` | | 兩次 pytest 都加的參數（例 `["-n","3"]`） |
+| `services[].name` | 字串 | ✔ | 英數字、`_`、`-`、`.`；不得重複 |
+| `services[].port` | 整數 | ✔ | 1–65535 |
+| `services[].scheme` | `http`／`https` | ✔ | 與 `health.url` 不一致時警告 |
+| `services[].cwd` | 字串 | | 啟動目錄（相對專案根），預設 `.` |
+| `services[].start` | `{cmd, args, env}` | ✔ | `cmd` 必填；`args` 字串清單；`env` 為 `{名稱: 字串}`，疊在目前環境上。Windows 的 `npm`／`npx` 會解析成 `.cmd` |
+| `services[].health` | `{url, expect_status, expect_text}` | ✔ | `url` 必填（http／https）；`expect_status` 預設 200；`expect_text` 選填，回應內容要含這段字（擋「200 但其實是無權限頁」） |
+| `services[].order` | 整數 | | 由小到大處理，預設為陣列位置 |
+| `services[].timeout_s` | 數字 | | 等 LISTEN＋健康檢查的上限秒數，預設 120 |
+| `services[].post_start_checks` | `[{type, …}]` | | `log_absent`／`log_present`（`pattern` regex，查本腳本起的服務 log）、`http`（`url`、`expect_status`、`expect_text`） |
+| `services[].verified` | `{at, start_ok, health_ok, config_sha}`／null | | 由 `smoke-try` 寫入，不要手填；`config_sha` 綁設定指紋，驗證後改過設定即失效 |
+| `manual_tc_file` | 字串／null | | 手動 TC 清單（範例 `templates/SMOKE-manual.example.md`）；`smoke-run` 依等級篩出、結果欄清空另存本輪副本，結果填在副本 |
+| `issues_log` | 字串 | ✔ | FAIL 紀錄檔 |
+| `report_dir` | 字串 | ✔ | junit、手動結果副本、報告、服務 log、狀態檔 `.smoke-state.json` 的落點 |
+
+路徑欄位（`report_dir`、`issues_log`、`manual_tc_file`、`always_run`、`test_paths`）一律相對專案根、不得含 `..`。
 
 ## ⚠️ 測試會落在哪：你**在哪個資料夾啟動 claude**，就落在哪
 
@@ -336,7 +388,7 @@ python3 -m pytest qa-webwright/tests -q        # plugin 自測（暫存目錄建
 
 本 plugin 的方法論是通用的；專案專屬的有兩類：
 1. **啟動服務**：在目標專案的 `CLAUDE.md` 或 README 補上前後端各自的 port、啟動指令、健康檢查 URL、登入方式
-   （Windows 背景啟動的 `npm.cmd` 雷見 `knowledge/pitfalls.md` D 段）。
+   （Windows 背景啟動的 `npm.cmd` 雷見 `knowledge/pitfalls.md` D 段）。要跑上線前健檢時，起法改寫進 `tests/Project_Detail/SMOKE.json` 並逐一 `smoke-try` 驗證。
 2. **測試資產參數**：`tests/e2e/qa-webwright.json` 的業務表清單、外部系統邊界關鍵字、殘留清掃登錄表、port 清單。
 
 ## 作者

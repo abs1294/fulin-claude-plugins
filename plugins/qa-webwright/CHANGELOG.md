@@ -2,6 +2,24 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.10.0] - 2026-10-08
+### Added
+- **上線前健檢（smoke test）**：新命令 `/qa-webwright:smoke [等級]`，方法論 `methodology/smoke-run.md`（分級、起服務決策樹、自動套件優先再手動、執行規則四條、報告閘、FAIL 不自動修）。
+- `qa-flow.sh` 新子命令 `smoke-try <服務名>`／`smoke-preflight`／`smoke-run <等級>`／`smoke-report`／`smoke-stop`，邏輯在新工具 `tools/smoke.py`（直接跑 plugin 本體）：
+  - 專案設定放 `tests/Project_Detail/SMOKE.json`（欄位型別檢查，壞檔 exit 2 指出欄位）；服務要先 `smoke-try` 試起＋健康檢查通過才寫 `verified`（原子寫檔、綁設定指紋），`smoke-preflight` 只代起 verified 的服務。
+  - port 被別的程序佔且健康檢查失敗：**不殺**，印佔用者 PID 與遮罩後命令列，exit 4。
+  - 背景起服務脫離外層 shell 存活（Windows：不開視窗、自成 process group、能脫離外層 job 就脫離；POSIX：新 session），npm／npx 解析成 `.cmd`。
+  - `smoke-run`：等級不在 `levels` exit 2；等級套件與 `always_run` 分兩次跑、不重複計數；手動 TC 依等級篩出另存本輪副本（避免沿用上一輪的結果）。
+  - `smoke-report`：junit 不存在、自動案例 0 筆、手動 TC 有一列沒填結果或證據 → 拒絕產出（exit 3）；摘要由 junit 逐筆計數；FAIL 依日期區段追加到 `issues_log`（同日接表尾、同一輪不重複追加）。
+  - `smoke-stop`：只停狀態檔記錄、且建立時間仍相符的本腳本起的 PID（含子程序）。
+  - `smoke-report` 結論：有 FAIL →「需修正後重測」；沒有 FAIL 但 PASS 為 0（整個等級被 skip、手動全填 N.A.／Env Limit）→「未驗證」，不判上板就緒；其餘才是「上板就緒」。
+- 範本 `templates/SMOKE.example.json`、`templates/SMOKE.example.md`、`templates/SMOKE-manual.example.md`。
+- `knowledge/pitfalls.md` D 段：啟動設定檔名稱打錯靜默改聽預設 port、`--no-launch-profile` 時環境名要明帶、前端建置工具 mode 漏帶讀不到環境檔；N 段：http／https 打錯回 200 但其實是無權限頁。
+
+### Changed
+- `tools/env_gates.py` 的 `owners_of()` 加 `with_pid` 參數（預設行為不變），供健檢回報佔用者 PID。
+- `tests/test_docs.py` 版本常數改 0.10.0。
+
 ## [0.9.2] - 2026-10-07
 ### Fixed
 - 專案詞彙表兼容：優先讀 GLOSSARY.md，沒有才讀 CONTEXT.md

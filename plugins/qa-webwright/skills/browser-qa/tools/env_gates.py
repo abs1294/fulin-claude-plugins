@@ -115,8 +115,11 @@ def owner_backend():
     return "lsof" if shutil.which("lsof") else None
 
 
-def owners_of(port, backend=None):
+def owners_of(port, backend=None, with_pid=False):
     """佔用該 port 的**所有** listener 命令列（同一 port 可能有多個，例如 IPv4／IPv6 各一）。
+
+    with_pid=True 時每筆改回 (pid 字串, 命令列)；命令列讀不到時為空字串
+    （smoke.py 要 PID 才能回報佔用者、判斷是不是自己起的）。
 
     沒有人 listen → []；查詢指令本身失敗（逾時、OS 錯誤）→ 丟 OwnerQueryError（呼叫端 fail-open，
     不可當成「服務沒起」去擋）。
@@ -150,7 +153,7 @@ def owners_of(port, backend=None):
                 if not ln.strip():
                     continue
                 pid, _sep, cmd = ln.partition("\t")
-                owners.append(cmd.strip() or unreadable % pid.strip())
+                owners.append((pid.strip(), cmd.strip()) if with_pid else (cmd.strip() or unreadable % pid.strip()))
             return owners
         if backend == "lsof":
             q = subprocess.run(["lsof", "-nP", "-iTCP:%d" % int(port), "-sTCP:LISTEN", "-t"], **run)
@@ -172,7 +175,7 @@ def owners_of(port, backend=None):
                     cwd = _process_cwd(pid, run)
                     if cwd:
                         cmd += "  [cwd %s/]" % cwd.rstrip("/")
-                owners.append(cmd or unreadable % pid)
+                owners.append((pid, cmd) if with_pid else (cmd or unreadable % pid))
             return owners
     except (OSError, subprocess.SubprocessError) as exc:
         raise OwnerQueryError("%s: %s" % (type(exc).__name__, exc))

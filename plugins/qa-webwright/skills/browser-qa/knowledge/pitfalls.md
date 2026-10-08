@@ -75,6 +75,20 @@ UTC 當天和本地當天同日，**踩不到偏移**。所以 curl 全綠 ≠ �
   別只靠回傳的 PID 當作起來了。
 - 某些 dev server 對 `npm run dev -- --port 5182` 的 `--` token 處理會吃掉 flag（PowerShell 5.1）→
   改用底層工具直接帶參數（如 `npx vite --port 5182`）繞過 npm script 包裝。
+- **啟動設定檔（launch profile）名稱打錯不會報錯**（2026-10-08，.NET 類）
+  - **現象**：`dotnet run --launch-profile <名>` 起來了、程序也活著，但預期的 port 上沒有任何 listener。
+  - **原因**：名稱不存在時靜默回退預設 profile，改聽預設 port（log 的 `Now listening on:` 行才看得出）。環境名與 profile 名常被混用。
+  - **正確做法**：用設定檔裡真的存在的 profile 名；或改 `--no-launch-profile --urls <網址>`。確認起來了要看「目標 port 有 LISTEN」，不是看程序還在。
+- **`--no-launch-profile` 時環境名要明帶**
+  - **現象**：服務起得來、首頁也回 200，但依環境名切換的行為（本機檔案儲存、本機設定檔、mock 開關）全部沒生效。
+  - **原因**：環境名平常由 launch profile 帶入；不讀 profile 就退回預設的 Production。
+  - **正確做法**：在啟動環境變數明帶環境名（`ASPNETCORE_ENVIRONMENT` 等），起完 grep log 的環境名行確認（`SMOKE.json` 用 `post_start_checks` 的 `log_present` 固定檢查）。
+- **前端建置工具的 mode 漏帶，讀不到環境檔**（vite 類）
+  - **現象**：前端頁面打開正常，但所有 API 呼叫 404 或打到相對路徑。
+  - **原因**：環境檔（`.env.<mode>`）依 `--mode` 載入。npm script 裡有帶，繞過 npm script 直接呼叫建置工具時漏帶 → 走預設 mode → API base URL 變空。
+    反過來，帶對 mode 但環境檔裡的 API base URL 指向遠端環境時，本機前端會打到遠端後端。
+  - **正確做法**：直接呼叫時照抄 npm script 的 mode；API base URL 要指本機時用環境變數覆寫，起完 grep 前端 log 確認沒有遠端主機名（`post_start_checks` 的 `log_absent`）。
+- **背景起服務交給 `qa-flow.sh smoke-try／smoke-preflight`**：腳本已處理 `.cmd` 解析、脫離外層 shell 存活、等 LISTEN 與健康檢查、只記錄與停止自己起的程序（`methodology/smoke-run.md`）。
 
 ## D2. Windows 跑 pytest 的兩個雷（2026-07-02）
 
@@ -320,6 +334,12 @@ UTC 當天和本地當天同日，**踩不到偏移**。所以 curl 全綠 ≠ �
     不要看註解或別的設定檔）；② 對那台載入的產物直接 grep / `strings` 本次新增的類別名，命中 0 就是舊版。
     解法是用本輪的產出另起一個 port、前端另建一份環境設定指過去，**不要改共用的本機設定檔、不要殺別人的 process**；
     起完用瀏覽器網路紀錄實測畫面真的打到新 port。
+- **http／https 打錯：回 200 但其實是無權限頁**（2026-10-08）
+  - **現象**：健康檢查或首頁 curl 回 200，測試一跑全部被導到「無權限／請登入」頁。
+  - **原因**：前端設定的 API 網址或打開的網址 scheme 錯了（應為 https 寫成 http，或反過來），驗證流程失敗後前端路由把人導到無權限頁——
+    那一頁本身是 200。
+  - **正確做法**：健康檢查除了狀態碼，再比對一段只有正常頁才有的字樣（`SMOKE.json` 的 `health.expect_text`），並看最終網址有沒有被導走；
+    scheme 以服務實際聽的為準，`SMOKE.json` 的 `scheme` 欄與 `health.url` 不一致時 `smoke-try` 會警告。
 - **port 歸屬以實測為準，不信註解**：環境腳本裡「某 port = 某服務」的註解會隨其他 session 起停而過期；
   跑之前用 `netstat -ano` ＋查 process 命令列確認歸屬——驗錯工作目錄的碼全程不會報錯。
 - **單一 process 連跑全套會讓寫入型測試 flaky**：連跑數十支後 dev server 尾段降速，寫入型互動偶發逾時。
