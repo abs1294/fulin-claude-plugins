@@ -154,6 +154,7 @@ hooks/
     restore-local-hacks.js                救回腳本（上面三支的訊息會叫使用者跑它）
     ── 有只給本機用的設定檔、而且有多個工作樹（git worktree）才裝 ──
     remind-worktree-overrides.js          從別的工作樹起服務時，只查指令提到的那一個工作樹，本機覆寫沒帶齊或帶到舊版 → 提醒（不擋）
+    ── 有多個工作樹（git worktree）而且會起本機服務才裝（不需要本機覆寫檔）──
     check-worktree-ports.js               起好服務後手動跑（不是 hook）：設定檔指的 port、port 上跑的是哪個工作樹與分支、是不是舊產物、健康檢查 → 唯讀回報
     ── 專案有了自己的測試檢查工具才裝 ──
     guard-test-asset-hygiene.js           寫測試檔後跑專案自己的稽核工具（每支工具可設成擋或只提醒）

@@ -13,7 +13,7 @@ All notable changes to this plugin will be documented in this file.
   - ②**執行層**：每個 port 有沒有服務在聽、那個 process 跑的是哪個工作樹與分支（對 `git worktree list` 比對目前目錄、命令列、已載入模組、執行檔路徑），以及啟動時間早於最新建置產物時標「跑的是舊產物」。Windows 用 PowerShell，Linux／macOS 用 `ss`／`lsof` 與 `/proc`；判不出時標「?」不當成通過也不當成失敗。
   - ③**HTTP 探測（選填）**：服務有設健康檢查網址才打，比對狀態碼與須包含的字樣。
   - 結束碼：沒有不符 0、有不符 1、參數或填空區錯誤 2。只讀、不砍任何 process。
-  - 已知限制：Linux／macOS 路徑只寫好、未在該平台實測；Windows 讀不到別的 process 的目前目錄，用相對路徑起的服務會判「?」。
+  - 已知限制：Linux／macOS 路徑只寫好、未在該平台實測；Windows 讀不到別的 process 的目前目錄，用相對路徑起的服務會判「?」；工作樹借用主要工作目錄的依賴目錄時（例：在工作樹裡 `npm run dev`、`npx`、venv 的 python），命令列只剩依賴目錄的路徑，也會判「?」而不判對錯——這是 Windows 上最常見的起法，第②層在這類專案多半拿不到結論，要照 03 B13 手動確認。
 - **`remind-worktree-overrides.js` 新增選填 `PORT_CHECK_CMD`**：起服務的指令命中時，附上「起好服務之後跑這支驗 port」。只提醒、不執行、不擋；不在 hook 裡直接跑檢查，因為 hook 跑在起服務之前，那一刻量到的是舊 process。
 - init：Phase 1 判斷要不要裝（多個工作樹而且有起本機服務）、Q5 選單、Phase 4 填空、Phase 5 三次實跑驗收；hook-catalog 新增第 30 列；03 A9 與本機覆寫說明骨架指向這支腳本。
 
