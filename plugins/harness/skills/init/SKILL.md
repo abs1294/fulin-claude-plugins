@@ -72,7 +72,7 @@ node <本 plugin>/skills/init/scripts/check-version.js
 ```
 
 - **exit 0**（已是最新）：把它印的「正在用／遠端最新」兩行放進 Phase 2 核對表與收尾回報，繼續。判定寫「正在用的比遠端新」時（維護者在原始碼 repo 開發中），照樣繼續，核對表照實寫兩個版本號。
-- **exit 2**（落後）：**停下，不開始 init**。把腳本輸出原文貼給使用者，請他在提示列依序輸入下面三行（一行一行貼；`/plugin` 是互動指令，Claude 不能代執行，也沒有 `/plugin update` 這個子指令）：`/plugin marketplace update <marketplace 名稱>`、`/plugin uninstall harness@<marketplace 名稱>`、`/plugin install harness@<marketplace 名稱>`（marketplace 名稱照腳本印的填），然後重開 session 再跑 `/harness:init`。理由照實講：舊版少的步驟裝完才發現，就得整輪重做（實際發生過：裝到一半才冒出新版，舊版少了最後畫流程圖那一步，使用者裝完才發現，整輪重裝）。使用者明確說「就用這版裝」才繼續，收尾回報寫「用的是 <版本>，遠端已有 <版本>，你選擇不更新」。
+- **exit 2**（落後）：**停下，不開始 init**。把腳本輸出原文貼給使用者，問他要不要現在更新。**使用者同意後由 Claude 直接跑非互動 CLI**：先跑 `claude plugin list --json` 找 `id` 是 `harness@<marketplace 名稱>` 的安裝紀錄、取它的 `scope`（有 `projectPath` 等於目標專案的那筆優先，沒有就取 `scope` 為 `user` 的那筆），再在目標專案目錄下跑 `claude plugin marketplace update <marketplace 名稱>` → `claude plugin update harness@<marketplace 名稱> --scope <那筆的 scope> --json`（marketplace 名稱照腳本印的填；回傳 `"outcome":"ok"` 才算成功，失敗就把錯誤原文貼給使用者、改請他自己更新）。**更新完要請使用者重開 session 再跑 `/harness:init`**——CLI 更新要重開才生效，這步 Claude 做不到。互動 slash UI `/plugin` 沒有 `update` 子指令，所以走 CLI。理由照實講：舊版少的步驟裝完才發現，就得整輪重做（實際發生過：裝到一半才冒出新版，舊版少了最後畫流程圖那一步，使用者裝完才發現，整輪重裝）。使用者明確說「就用這版裝」才繼續，收尾回報寫「用的是 <版本>，遠端已有 <版本>，你選擇不更新」。
 - **exit 3**（查不到：沒網路、沒 git、marketplace 不是 git clone）：不擋，繼續；收尾回報寫「沒有比對到遠端版本」並附腳本印的原因。
 
 先確認目標 workspace 路徑（預設＝當前工作目錄；使用者指定別的路徑就用那個）。
@@ -93,7 +93,7 @@ node <本 plugin>/skills/init/scripts/check-flow-diagram.js snapshot <目標>
 | 0-2 | 有沒有既有的 Claude Code 設定 | 對 workspace 根與每個子 repo 各查一次：`ls <目標>/CLAUDE.md <目標>/.claude/ 2>/dev/null`；`.claude/` 底下列 `agents/`、`hooks/`、`commands/`、`skills/`、`harness/`，讀 `settings.json`／`settings.local.json` 看有沒有 `hooks`、`permissions`；`CLAUDE.md` 是否含「Harness 路由表」（＝之前裝過 harness） | **不停下**。判定規則：只有 `settings*.json` 且裡面只有 `enabledPlugins`＝**沒有既有設定**，照一般流程走（settings 照 Phase 4 合併）。其餘任何一項存在＝**有既有設定，進入參考模式**：①動 Phase 1 之前先整份備份——`CLAUDE.md`、`.claude/`（排除 `node_modules/`）、`GLOSSARY.md`（舊檔名 `CONTEXT.md` 也認）、`FLOWS.md`、`tests/Project_Detail/PROJECT.md` 原樣複製到 `<目標>/.harness-backup/<YYYYMMDD-HHMM>/`（保持相對路徑）；是 git repo 就把 `.harness-backup/` 加進 `.gitignore`；備份完用 `diff -r` 或逐檔 hash 比對確認一致，比對不過就停 ②Phase 1 第 12 項盤點原有設定 ③Phase 3 第 0 題問原本哪裡不好用。之前裝過 harness 也一樣走參考模式（重裝），不另外停 |
 | 0-3 | Codex CLI 裝了沒（0-1 是非 git 專案、或 0-5 使用者選不裝 git-commit 時不適用，標「不適用」；**跟 0-5 一起問、排在 0-5 後面**——沒有 git-commit 就用不到 Codex） | `codex --version` | **沒裝 → 問使用者要不要裝，不是停下**：照下方「Codex 裝不裝」範本給對照與安裝三步，等他回答。選裝 → 他裝好後 **Claude 自己重跑 `codex --version`** 確認，把輸出貼出來再繼續。選不裝 → 照一位審查員繼續：①Phase 2 核對表與收尾回報「你還沒有的」寫「commit 前只有一位審查員（Claude），因為你選擇先不裝 Codex」②05 健檢清單加一列「Codex 還沒裝：commit 前只有同一家模型審查」，`/harness:review` 會追蹤 ③P4 照跑。為什麼要問：git-commit 的三軌審查裡，Codex 是與 code-reviewer 不同源的那一軌，少了它審查只剩同一家模型看自己的東西（03 B23）；但裝不裝是使用者的決定，不自己略過也不擋著不讓他往下。實際回饋：原本寫成「沒裝就停下」，使用者要自己說「Codex 這步先跳過」才能繼續，並指出「git-commit 會問要不要裝，Codex 為什麼不問」 |
 | 0-4 | Playwright MCP 在不在 `permissions.allow` | 讀 `<目標>/.claude/settings.json`、`<目標>/.claude/settings.local.json`、`~/.claude/settings.json` 的 `permissions.allow`，找 `mcp__playwright` 開頭的項 | 不在 → 不擋，記下來：Phase 1 判定為「瀏覽器可驅動前端」時，Phase 4 settings 層要補（經 Phase 2 核對）；非瀏覽器或無前端時此項不適用 |
-| 0-5 | git-commit plugin 裝了沒（0-1 是非 git 專案時不適用） | 照設定的優先序讀 `enabledPlugins` 裡 `git-commit@` 開頭的項：`<目標>/.claude/settings.local.json` ＞ `<目標>/.claude/settings.json` ＞ `~/.claude/settings.json`，**以最高一層有寫這一項的值為準**（高層寫 `false` 就是停用，就算低層寫 `true`）；三層都沒寫＝沒裝。判定為 `true` 後，再確認 `~/.claude/plugins/cache/*/git-commit/` 底下有版本資料夾；**並讀出這個專案實際用的版本**：`~/.claude/plugins/installed_plugins.json` 裡 `git-commit@…` 的紀錄，取 `projectPath` 是目標的那筆（沒有就取 `scope` 為 `user` 的那筆）的 `version` | **沒裝 → 在這一步就講清楚，不要等到訪談中途才冒出來**：照下方「git-commit 裝不裝」範本給對照表與一行安裝指令，等使用者決定（與 0-3 同一則訊息問，見範本上方「0-5 與 0-3 怎麼問」）。使用者裝好後，**Claude 自己重跑本項的兩個檢查**確認生效，把結果貼出來，不要先叫使用者重開 session（要不要重開以實際檢查為準；hook 有沒有真的生效由 Phase 5 的 P4 冷啟探針驗）。使用者選不裝 → git-commit 相關的閘與 P4 不裝不測、沉澱閘改綁 Stop hook，0-3 標「不適用」，收尾回報寫明。**裝了但版本低於 0.11.0**（QA 閘要 0.11.0 以上：`flow.sh review-record` 才會讀 `.claude/qa-gate.conf`、自己檢查 staged 有行為類檔時有沒有帶 `--qa`）→ 同一則訊息照「git-commit 裝不裝」的方式問要不要更新，講清楚影響：不更新的話「改了程式有沒有測過」只剩呼叫 git-commit skill 時的提早提醒（`guard-qa-before-commit`），直接用 Bash 跑 flow.sh 就不會被查；更新要在提示列依序輸入 `/plugin marketplace update <marketplace 名稱>`、`/plugin uninstall git-commit@<marketplace 名稱>`、`/plugin install git-commit@<marketplace 名稱>`（Claude 不能代執行）。選更新 → 他做完後 Claude 自己重讀版本確認；選不更新 → 照裝（`qa-gate.conf` 照樣產生，舊版 flow.sh 不讀它，之後更新就自動生效），Phase 2 核對表與收尾回報寫「git-commit 是 <版本>，QA 閘只有提早提醒，你選擇先不更新」，Phase 5 的 qa-gate 實跑標「不適用：git-commit 版本低於 0.11.0」。實際回饋：使用者在訪談中途才被告知需要它，還得自己問「裝和不裝差在哪」、裝完再問「然後裝好了嗎」 |
+| 0-5 | git-commit plugin 裝了沒（0-1 是非 git 專案時不適用） | 照設定的優先序讀 `enabledPlugins` 裡 `git-commit@` 開頭的項：`<目標>/.claude/settings.local.json` ＞ `<目標>/.claude/settings.json` ＞ `~/.claude/settings.json`，**以最高一層有寫這一項的值為準**（高層寫 `false` 就是停用，就算低層寫 `true`）；三層都沒寫＝沒裝。判定為 `true` 後，再確認 `~/.claude/plugins/cache/*/git-commit/` 底下有版本資料夾；**並讀出這個專案實際用的版本**：`~/.claude/plugins/installed_plugins.json` 裡 `git-commit@…` 的紀錄，取 `projectPath` 是目標的那筆（沒有就取 `scope` 為 `user` 的那筆）的 `version` | **沒裝 → 在這一步就講清楚，不要等到訪談中途才冒出來**：照下方「git-commit 裝不裝」範本給對照表與一行安裝指令，等使用者決定（與 0-3 同一則訊息問，見範本上方「0-5 與 0-3 怎麼問」）。使用者裝好後，**Claude 自己重跑本項的兩個檢查**確認生效，把結果貼出來，不要先叫使用者重開 session（要不要重開以實際檢查為準；hook 有沒有真的生效由 Phase 5 的 P4 冷啟探針驗）。使用者選不裝 → git-commit 相關的閘與 P4 不裝不測、沉澱閘改綁 Stop hook，0-3 標「不適用」，收尾回報寫明。**裝了但版本低於 0.11.0**（QA 閘要 0.11.0 以上：`flow.sh review-record` 才會讀 `.claude/qa-gate.conf`、自己檢查 staged 有行為類檔時有沒有帶 `--qa`）→ 同一則訊息照「git-commit 裝不裝」的方式問要不要更新，講清楚影響：不更新的話「改了程式有沒有測過」只剩呼叫 git-commit skill 時的提早提醒（`guard-qa-before-commit`），直接用 Bash 跑 flow.sh 就不會被查；更新由 Claude 經使用者同意後直接跑非互動 CLI：`claude plugin marketplace update <marketplace 名稱>` → `claude plugin update git-commit@<marketplace 名稱> --scope <實際 scope>`（scope 用 `claude plugin list --json` 查，取法同上方 harness 落後那段），跑完請使用者重開 session。選更新 → 更新完 Claude 自己重讀版本確認；選不更新 → 照裝（`qa-gate.conf` 照樣產生，舊版 flow.sh 不讀它，之後更新就自動生效），Phase 2 核對表與收尾回報寫「git-commit 是 <版本>，QA 閘只有提早提醒，你選擇先不更新」，Phase 5 的 qa-gate 實跑標「不適用：git-commit 版本低於 0.11.0」。實際回饋：使用者在訪談中途才被告知需要它，還得自己問「裝和不裝差在哪」、裝完再問「然後裝好了嗎」 |
 
 **0-5 與 0-3 怎麼問**：兩項都沒裝時放在**同一則訊息**，先貼「git-commit 裝不裝」、再貼「Codex 裝不裝」，請使用者兩題一起回答；使用者選不裝 git-commit，Codex 那題就作廢（標「不適用」）。只有一項沒裝就只貼那一份。表格裡 0-3 排在 0-5 前面只是編號沿用，問的順序以這裡為準。
 
@@ -109,9 +109,7 @@ node <本 plugin>/skills/init/scripts/check-flow-diagram.js snapshot <目標>
 | 「改了程式有沒有測過」「這次學到什麼」 | 改成每個回合結束時問 | 在 commit 時問                     |
 | 代價               | 沒有                         | 每次 commit 多跑一位審查員，慢一點、多花一點用量 |
 
-要裝的話，在提示列輸入（`/` 和 plugin 中間不要有空格）：
-  /plugin install git-commit@fulin-plugins
-裝好跟我說一聲，我會自己確認它有沒有生效。不裝也可以，跟我說「不裝」。
+要裝的話跟我說「裝」，我會直接幫你裝在這個專案（claude plugin install git-commit@fulin-plugins --scope project），裝完自己確認它有沒有生效。不裝也可以，跟我說「不裝」。
 ```
 
 **「Codex 裝不裝」範本**（0-3 沒裝時照填輸出，等使用者回答）：
@@ -459,7 +457,7 @@ Q5 攤給使用者的格式（每項一列；不列 A～E 分類，第一欄是�
 - 起服務後驗 port 跑的是哪個工作樹（check-worktree-ports）：`git worktree list` 只有一筆，沒有別的工作樹會搶 port
 ```
 
-使用者只能**取消**（「不要 X」），不能從空清單挑——預設是全裝，取消的在收尾回報記「使用者取消：X」。**推導清單一律在 Phase 4 生成前完整印出**，即使使用者已預先給了「全裝」之類的答案、或無人值守執行——清單本身是使用者能否決的依據，不能只在收尾回報裡事後補。外部 plugin 的安裝是互動 UI（`/plugin install`），Claude 不能代裝——列出安裝指令請使用者執行，並在收尾回報標註「未裝則對應探針跳過」。
+使用者只能**取消**（「不要 X」），不能從空清單挑——預設是全裝，取消的在收尾回報記「使用者取消：X」。**推導清單一律在 Phase 4 生成前完整印出**，即使使用者已預先給了「全裝」之類的答案、或無人值守執行——清單本身是使用者能否決的依據，不能只在收尾回報裡事後補。外部 plugin 要裝的話，列出安裝指令問使用者，**同意後由 Claude 直接跑非互動 CLI** `claude plugin marketplace add <source>`（marketplace 還沒加才需要）＋ `claude plugin install <name>@<marketplace> --scope project`，裝完請使用者 `/reload-plugins`（或重開 session）；使用者不裝或 CLI 失敗，在收尾回報標註「未裝則對應探針跳過」。
 
 ---
 
@@ -709,7 +707,7 @@ node <本 plugin>/skills/init/scripts/check-flow-diagram.js check <落點> <落�
 node <本 plugin>/skills/init/scripts/readability-check.js <落點> <落點>/.claude/harness/flow-1.json <落點>/.claude/harness/flow-2.json <落點>/.claude/harness/flow-3.json <落點>/.claude/harness/install-report.md
 ```
 
-- **exit 3＝這個專案看不到可用的 deliver-report**（沒裝，或被停用）：跳過這一步，照腳本印的那段話在收尾回報告訴使用者「這次沒做易讀性自檢，要裝的話輸入 `/plugin install deliver-report@fulin-plugins`」（Claude 不能代裝）。不准因為沒裝就卡住 init。
+- **exit 3＝這個專案看不到可用的 deliver-report**（沒裝，或被停用）：跳過這一步，照腳本印的那段話在收尾回報告訴使用者「這次沒做易讀性自檢，要裝的話跟我說，我可以幫你跑 `claude plugin install deliver-report@fulin-plugins --scope project`（在這個專案目錄下跑）」（裝新 plugin 要先經使用者同意；裝完要 `/reload-plugins` 或重開 session 才生效）。不准因為沒裝就卡住 init。
 - **exit 1**：逐項改。內部用語換成腳本給的說法；節點小字放不下說明就改寫整句，不准用「（見圖二）」這類叫讀者去別處找的寫法。改完**整份重跑**，不是只重跑被點到的那一處。
 - **exit 0 之後還沒完**：腳本會印出它判不準的幾條（兩邊對照、資訊放一起、重複、做完寫成做完…）。**先把它印出的規則檔全文讀完**，再對三張圖與收尾回報逐條自檢，改到的地方重跑第 3 步的 deliver。
 - 內部用語清單在 `plain-language-terms.json`，是本檔「對使用者講話的寫法」對照表的機械可讀版；使用者再指出看不懂的詞，兩邊一起加。

@@ -62,6 +62,7 @@ setup 做**偵測 + 推薦 + 核可後代裝**，**不手寫 settings**：
    # ② 逐個裝（project scope；只自己用、不想進 git 時改 --scope local）
    claude plugin install <name>@<marketplace> --scope project
    ```
+   - `<source>` 會進 Bash 指令：只有符合 `^[A-Za-z0-9./~][A-Za-z0-9._~+@:/\\-]*$`（與 register-external.js、restore-env.js 同一條；owner/repo、https 網址、git@ 位址、本機路徑；首字不可為 `-`；含反斜線的 Windows 路徑要用單引號包住；不含空白，也不含分號、管線、`&`、`$`、反引號、括號、角括號等 shell 特殊字元）才執行。不符的（例如 recommends.json 裡寫成中文說明的）**不跑**，先問使用者實際的 marketplace 來源。
    - `enable` 值為 **false** 的項目是「刻意停用」，跳過不裝。
    - 已啟用的（步驟 3 讀到的）不重複裝。
    - 逐個回報結果（✓ 裝好 / ✗ 失敗＋stderr）；**CLI 失敗的項目**退回舊模式：列出指令請使用者自貼（互動 UI `/plugin` → Discover 也行）。
@@ -92,7 +93,7 @@ setup 做**偵測 + 推薦 + 核可後代裝**，**不手寫 settings**：
    node "${CLAUDE_PLUGIN_ROOT}/scripts/upgrade-check.js" [projectDir]
    ```
    - projectDir 省略時用當前目錄。
-   - 腳本會：讀本專案 `.claude/settings.json` 的 enabledPlugins → 篩出屬於本 marketplace（`fulin-plugins`）的自製 plugin → 對照 registry `selfMade` 最新版 → 印出版本、dirty 狀態、與建議自貼的指令。
+   - 腳本會：讀本專案 `.claude/settings.json` 的 enabledPlugins → 篩出屬於本 marketplace（`fulin-plugins`）的自製 plugin → 對照 registry `selfMade` 最新版 → 印出版本、dirty 狀態、與 Claude 可直接執行的 `claude plugin` 更新指令。
 
 2. **呈現結果給使用者**：
    - 列出本專案啟用了哪些自製 plugin、各自 registry 最新版。
@@ -101,9 +102,10 @@ setup 做**偵測 + 推薦 + 核可後代裝**，**不手寫 settings**：
 3. **代跑更新**（CLI 非互動，Claude 直接執行；舊說法「不能代執行 /plugin」只適用互動 slash UI）：
    ```
    claude plugin marketplace update fulin-plugins
-   claude plugin update <name>@fulin-plugins    # 每個落後的自製 plugin 各跑一次
+   claude plugin update <name>@fulin-plugins --scope <scope>    # 每個自製 plugin 各跑一次（在專案目錄下）
    ```
-   - 跑完提醒使用者 `/reload-plugins`（或重開 session）才生效——這步 CLI 做不到。
+   - `<scope>` 照 upgrade-check.js 印的填：它以 `claude plugin list --json` 的實際安裝紀錄為準（註解寫「安裝紀錄」）；標「推定」的是查不到紀錄、依啟用宣告所在檔猜的，跑之前先確認。回報找不到安裝紀錄時，用 `claude plugin list --json` 查該專案的 `projectPath`／`scope` 再跑。
+   - 跑完請使用者**重開 session** 才生效（`claude plugin update --help` 註明 restart required）——這步 Claude 做不到。
    - CLI 失敗的項目退回列指令請使用者自貼（互動 UI `/plugin` 也行）。
    - 亦可建議：在 `/plugin` 互動 UI 的 Marketplaces tab 對 `fulin-plugins` 開 **Enable auto-update**，下次啟動自動更新。
 
@@ -114,10 +116,10 @@ setup 做**偵測 + 推薦 + 核可後代裝**，**不手寫 settings**：
 當使用者說「推薦外部 plugin」、「登記外部 plugin」、「把別人的 plugin 加進推薦」時走這條。把「別人做的 plugin」的**來源 + 用途 + tag** 登記進**推薦清單** `plugins/plugin-manager/recommends.json`（在 plugin 內、隨 monorepo 進 git）——**會被 publish 推廣，別人裝你的 repo 就看得到你精選的清單**。**不複製別人的程式碼進 monorepo**（尊重它住在別人的 repo）。
 
 1. **收集資訊**：
-   - `name@marketplace`、取得來源 `source`（`/plugin marketplace add` 的參數，如 `owner/repo`、GitHub URL）。
+   - `name@marketplace`、取得來源 `source`（`claude plugin marketplace add` 的參數，如 `owner/repo`、GitHub URL）。
    - **note（必填）**：一句話說明這 plugin 做什麼——之後翻清單 / setup 挑裝時靠它認出來。
    - tag（建議）：面向標籤（如 `backend`、`frontend`、`ai`、`test`），供 setup 按面向分組挑，清單多時不必一長串勾。
-   - **先驗明正身**：來源 repo 有 `.claude-plugin/marketplace.json` 才是 marketplace plugin；沒有的（裸 skill 合集，如 GitHub 上一堆 skill 目錄的 repo）是 **skill-copy 型**——登記時要帶 `--install-method skill-copy`，key 用 `skill名@合集名` 佔位，source 填該 skill 目錄的 URL。**不驗就登記會讓之後挑裝的人照 /plugin install 裝而失敗。**
+   - **先驗明正身**：來源 repo 有 `.claude-plugin/marketplace.json` 才是 marketplace plugin；沒有的（裸 skill 合集，如 GitHub 上一堆 skill 目錄的 repo）是 **skill-copy 型**——登記時要帶 `--install-method skill-copy`，key 用 `skill名@合集名` 佔位，source 填該 skill 目錄的 URL。**不驗就登記會讓之後挑裝時照 `claude plugin install` 裝而失敗。**
 
 2. **跑登記腳本**（純檔案操作，recommends 一律由腳本寫、不手編 JSON）：
    ```
@@ -129,11 +131,11 @@ setup 做**偵測 + 推薦 + 核可後代裝**，**不手寫 settings**：
 
 3. **提示兩件事**：
    - 推薦寫進 recommends.json 後**要 `/plugin-manager:publish`** 才會推上去讓別人看到。
-   - 登記/推薦只是進清單，**不會自動安裝**。要實際裝需自貼 `/plugin marketplace add <source>` + `/plugin install <name@marketplace>`（選 scope）+ `/reload-plugins`，或下次 `/setup-plugins` 看推薦挑裝。
+   - 登記/推薦只是進清單，**不會自動安裝**。要實際裝：使用者核可後 Claude 跑 `claude plugin marketplace add <source>` + `claude plugin install <name@marketplace> --scope project`，使用者再 `/reload-plugins`；或下次 `/setup-plugins` 看推薦挑裝。
 
 ## 重要限制（要誠實告知）
 
-- Claude **不能**代為執行 `/plugin install` / `/plugin marketplace add` / `/reload-plugins`——這些是互動指令，必須使用者自己在輸入框打。
-- **setup 不寫 enabledPlugins**——啟用宣告由 `/plugin install` 選 scope（project/local）時自己寫進對應 settings.json。setup 只負責偵測、推薦、給要貼的指令。
+- install／uninstall／update／enable／disable／marketplace add|update 由 Claude 直接跑 `claude plugin …` 非互動 CLI（裝新東西照本 skill 的核可流程）；**只有 `/reload-plugins`（沒有 CLI 對應）與「update 後重開 session」要使用者自己做**。互動 slash UI `/plugin …` 是互動畫面，Claude 不操作。
+- **setup 不手寫 enabledPlugins**——啟用宣告由 `claude plugin install --scope project|local` 自己寫進對應 settings.json。setup 負責偵測、推薦、核可後跑 CLI。
 - 寫進 project settings 的是「啟用宣告」；plugin 本體仍需已 install 過（在 cache 裡）。未 install 的會在 reload 時報錯。
 - project scope（`.claude/settings.json`）會被 git 追蹤、影響協作者；只想自己用選 local scope（`settings.local.json`，不進 git）。

@@ -2,6 +2,12 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.15.1] - 2026-10-08
+### Fixed
+- readability-check 印的 deliver-report 安裝指令補 `--scope project`（`claude plugin install` 不帶 scope 預設裝到 user 全域層）。
+- check-version 落後時印的更新指令，marketplace 名與 plugin 名只接受英數與 . _ -，不符就印佔位或不印指令（這段指令會由 Claude 用 Bash 執行）。
+- init 的 harness 落後（check-version exit 2）、git-commit 未裝／版本過舊、外部 plugin 安裝、deliver-report 未裝四處，改為使用者同意後由 Claude 直接跑 `claude plugin` 非互動 CLI：更新走 `claude plugin marketplace update <mkt>` → `claude plugin update harness@<mkt> --scope <實際 scope>`（scope 用 `claude plugin list --json` 查），之後請使用者重開 session；裝新 plugin 走 `claude plugin install … --scope project`，之後請使用者 `/reload-plugins`。check-version.js 與 readability-check.js 的輸出文字同步，不再寫「Claude 不能代裝／代執行」
+
 ## [0.15.0] - 2026-10-08
 ### Changed
 - 派工範本鐵則 2 改為回報指示只寫開頭、各模板第一行統一；模板六 b 改封閉例外（上游系統推送／產品無建立入口，成本過高等不是理由）並同步 03 B16；check-review-discipline 選 b 要點名例外類別（DATA_SOURCE_B_CATEGORIES）；新增 guard-full-disk-scan 範本（擋全碟搜尋，可設定、fail-open，138 案）；專案詞彙表兼容 GLOSSARY.md（優先）與 CONTEXT.md（hook、健檢收集、compact-snapshot、範本、init）

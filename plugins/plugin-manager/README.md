@@ -21,13 +21,15 @@
 
 ## 2. 安裝（一次性）
 
-在 Claude Code 輸入框依序貼這三行（Claude 不能代你執行 `/plugin` 指令，要你自己貼）：
+請 Claude 幫你跑（或自己在終端機跑）這兩行非互動 CLI：
 
 ```
-/plugin marketplace add abs1294/fulin-claude-plugins
-/plugin install plugin-manager@fulin-plugins
-/reload-plugins
+claude plugin marketplace add abs1294/fulin-claude-plugins
+claude plugin install plugin-manager@fulin-plugins
 ```
+
+裝完在 Claude Code 輸入框打 `/reload-plugins`（或重開 session）才會生效——這一步沒有 CLI 對應，要你自己做。
+（`install` 不帶 `--scope` 時預設裝在 user 層＝全域；只想裝在某專案就加 `--scope project`。在輸入框用互動指令 `/plugin marketplace add …`、`/plugin install …` 也可以。）
 
 ### 首次初始化（只做一次）
 
@@ -83,30 +85,30 @@ Claude 先給你看「改了什麼 + 建議 commit 訊息」確認，確認後�
 1. **要哪個 profile**？minimal / dotnet / frontend / supplier / full / 自訂（定義在 `~/.claude/plugin-profiles.json`，可自編）
 2. **要不要從推薦清單挑外部 plugin 裝**？（清單多會按 tag 分組讓你勾）
 
-選完 Claude 列出「要裝什麼 + 怎麼裝」，給你要自己貼的 `/plugin install` 指令——**setup 本身不寫 settings**，啟用宣告由 `/plugin install` 選 scope（Project / Local）時自己寫進對應 `.claude/settings.json`（只影響這專案，不污染別的）。
+選完、你核可後，Claude 直接跑 `claude plugin install <name>@<marketplace> --scope project` 幫你裝好——**setup 本身不手寫 settings**，啟用宣告由 install CLI 依 scope 自己寫進對應 `.claude/settings.json`（只影響這專案，不污染別的）。裝完你只要打 `/reload-plugins`（或重開 session）。
 
 ### 推薦外部 plugin（會推廣）
 GitHub 看到別人的好 plugin，想精選收進推薦清單——之後 `/setup-plugins` 能挑著裝，**且別人裝你的 repo 也看得到你推薦了什麼**。
 只記「來源 + 用途 + 標籤」，**不複製別人程式碼**（別人的 plugin 永遠住他們 repo、跟著他們更新，你只做精選書籤）。
-推薦寫進 `plugins/plugin-manager/recommends.json`（進 git、會推廣）。**登記 ≠ 安裝**——真正裝要 `/setup-plugins` 勾選後自己貼指令。
+推薦寫進 `plugins/plugin-manager/recommends.json`（進 git、會推廣）。**登記 ≠ 安裝**——真正裝要 `/setup-plugins` 勾選、你核可後由 Claude 跑 CLI 裝。
 
 ### `:clone-env` — 整套環境複製到新機器
 舊機器說「擷取我的環境快照」→ 存成 `env-snapshot.json`（進 git）。複製的是**清單**（marketplaces / 各 plugin 版本 scope / 各專案啟用哪些），**不複製程式碼與憑證**。
-新機器：裝 plugin-manager + clone monorepo + init → 說「復現環境」→ Claude 產出安裝清單，逐行自己貼。
+新機器：裝 plugin-manager + clone monorepo + init → 說「復現環境」→ Claude 產出安裝清單，你核可後 Claude 直接跑那串 `claude plugin` 指令，最後你打 `/reload-plugins`（或重開 session）。
 
 ## 5. 常見問題
 
-**Q：為什麼 Claude 不直接幫我裝 plugin？** `/plugin install`、`marketplace add`、`/reload-plugins` 都是 Claude Code 互動指令，只能你親自打。plugin-manager 只負責「把設定寫好 + 把要貼的指令給你」。
+**Q：Claude 能直接幫我裝 plugin 嗎？** 能。`claude plugin install`／`uninstall`／`update`／`enable`／`disable`／`marketplace add|update` 都是非互動 CLI，Claude 經你核可後直接跑（裝新東西、動別的專案前會先問你）。只有 `/reload-plugins`（沒有 CLI 對應）和「更新後重開 session 讓新版生效」要你自己做。輸入框的 `/plugin …` 是互動畫面，Claude 不去操作它。
 
-**Q：更新已裝的 plugin 是 `/plugin update` 嗎？** 沒有 `/plugin update`。正確做法：`/plugin marketplace update fulin-plugins` 刷新 → `/plugin uninstall <name>@fulin-plugins` 再 `install` 重裝（或在 `/plugin` 介面開 auto-update）。
+**Q：更新已裝的 plugin 是 `/plugin update` 嗎？** 輸入框的 slash 版沒有 `update` 子指令；要用 CLI：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（Claude 可以直接跑；scope 用 `claude plugin list --json` 查），跑完**重開 session** 才生效。也可以在 `/plugin` 介面開 auto-update。
 
 **Q：adopt 後在原專案改 skill 要重新 adopt 嗎？** 不用。原專案那份和受管那份是同一份檔，改哪邊都一樣，改完直接 `:publish`。
 
-**Q：改完 skill 但別的專案沒拿到更新？** publish 只推 GitHub、不自動更新已裝專案。要其他專案拿到新版，在那專案刷新 + 重裝，或開 auto-update。
+**Q：改完 skill 但別的專案沒拿到更新？** publish 只推 GitHub、不自動更新已裝專案。要其他專案拿到新版，請 Claude 在那專案跑 `claude plugin marketplace update fulin-plugins` + `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`，再重開 session；或開 auto-update。
 
 ## 6. 進階：背後怎麼運作
 
 - **move+symlink**：adopt 把 skill 真身搬進 monorepo，原位用 symlink/junction 指回——永遠一份真身，原專案與受管處同步。
 - **集中 registry**：`~/.claude/plugin-manager/registry.json` 追蹤所有自製 plugin 與版本（本機狀態、不進 git）。
-- **per-project 隔離**：`/setup-plugins` 不直接寫 settings，只給指令；實際啟用由 `/plugin install` 選 Project / Local scope 時寫進該專案 `.claude/settings.json`，不動 user 全域。
+- **per-project 隔離**：`/setup-plugins` 不手寫 settings；實際啟用由 `claude plugin install --scope project`（或 local）寫進該專案 `.claude/settings.json`，不動 user 全域。
 - **推薦清單 vs 自製狀態**：推薦（recommends.json）進 git、會推廣；自製 plugin 本機狀態存家目錄、不進 git、別人看不到。

@@ -9,7 +9,7 @@
  * 寫去哪：plugins/plugin-manager/recommends.json（在 plugin 內、隨 monorepo 進 git）。
  *   ⭐ 這是刻意的——recommends 會被 publish 推廣，別人裝你的 repo 就看到你精選的外部 plugin。
  *   （對比 registry.json 在家目錄、不進 git、只存你個人本機狀態 selfMade。）
- *   之後 /setup-plugins 會列出這份推薦清單讓你挑、產生要自貼的安裝指令。
+ *   之後 /setup-plugins 會列出這份推薦清單讓你挑，核可後由 Claude 跑 claude plugin CLI 安裝。
  *
  * 用法：node register-external.js <name@marketplace> <source> <note> [--tags a,b,c] [--install-method skill-copy]
  *   name@marketplace : plugin 名 + marketplace 名（與 enabledPlugins key 同格式）
@@ -18,10 +18,10 @@
  *                      skill-copy 型填 skill 目錄的 URL（如 github .../tree/master/<skill>）
  *   note             : 【必填】一句用途描述（之後翻清單時靠它認出這 plugin 是幹嘛的）
  *   --tags a,b,c     : （可選）面向標籤，供 /setup-plugins 按面向分組挑裝（清單多時免一長串勾選）
- *   --install-method : （可選）安裝型態。省略 = marketplace（走 /plugin install）；
+ *   --install-method : （可選）安裝型態。省略 = marketplace（走 claude plugin install）；
  *                      skill-copy = 非 marketplace 的裸 skill 合集，安裝是「複製 skill 目錄」
  *                      （/install-skill、skill-fetch、或手動放進 .claude/skills/），
- *                      /setup-plugins 與本腳本會依此顯示正確安裝方式，不再誤導 /plugin install
+ *                      /setup-plugins 與本腳本會依此顯示正確安裝方式，不再誤導成 plugin install
  *
  * 移除：node register-external.js --remove <name@marketplace>
  * 改完記得 /plugin-manager:publish，recommends 才會推上去讓別人看到。
@@ -100,14 +100,13 @@ if (!['marketplace', 'skill-copy'].includes(installMethod)) {
 if (!key || !source) die('用法：node register-external.js <name@marketplace> <source> [note] [--tags a,b,c]');
 
 // 驗證 key 格式 name@marketplace（限 plugin/marketplace 名的合法字元，避免把
-// /、;、<、> 等寫進 registry 並出現在給使用者貼的 /plugin install 指令裡）。
+// /、;、<、> 等寫進 registry 並出現在 Claude 會用 Bash 執行的 claude plugin install 指令裡）。
 const m = key.match(/^([A-Za-z0-9._-]+)@([A-Za-z0-9._-]+)$/);
 if (!m) die('<name@marketplace> 格式錯誤（只允許英數與 . _ -，格式 plugin名@marketplace名，如 dotnet-skills@dotnet-skills）：' + key);
 const marketplace = m[2];
 
-// source / note 會被原樣印進「請使用者複製貼上」的指令區塊、並寫進 registry。
-// 拒絕換行與控制字元，否則攻擊者可在 source 塞 "\n/plugin install evil@x" 多出一行
-// 可被連同正常輸出一起貼進 Claude Code 的惡意 slash 指令（與 key 驗證同樣的注入面）。
+// source / note 會寫進 recommends.json（隨 publish 推廣）並印在下方；拒絕換行與控制字元，
+// 免得一筆紀錄在輸出裡偽造出多一行指令。
 function hasControlChar(s) {
   for (let i = 0; i < s.length; i++) { if (s.charCodeAt(i) < 0x20) return true; } // < 空格 = 控制字元（含 CR LF TAB）
   return false;
@@ -117,6 +116,12 @@ if (!note) die('note（用途描述）必填——請一句話說明這個 plugi
 for (const [label, v] of [['source', source], ['note', note]]) {
   if (v && hasControlChar(v)) die(label + ' 不可含換行或控制字元：' + JSON.stringify(v));
 }
+// source 會被組進 Claude 用 Bash 執行的 `claude plugin marketplace add <source>`：只有符合白名單
+// （owner/repo、https 網址、本機路徑；不含空白與 shell 特殊字元）才印成可執行指令。
+// 不符的（例如寫成中文說明）照樣登記，但不印指令，免得 `owner/repo; 其他指令` 這類值被當成兩條指令執行。
+const SAFE_SOURCE = /^[A-Za-z0-9.\/~][A-Za-z0-9._~+@:\/\\-]*$/;
+function shArg(s) { return s.includes('\\') ? "'" + s + "'" : s; }
+const sourceRunnable = SAFE_SOURCE.test(source);
 // tag 限合法字元（會用於分組顯示，且避免控制字元注入）。
 for (const t of tags) {
   if (!/^[A-Za-z0-9._-]+$/.test(t)) die('tag 只允許英數與 . _ -：' + JSON.stringify(t));
@@ -147,12 +152,15 @@ console.log('\n下一步：');
 console.log('  - /plugin-manager:publish 把 recommends.json 推上去，別人裝你 repo 才看得到此推薦。');
 console.log('  - /setup-plugins 會列出推薦清單讓你（或別人）挑裝。');
 if (installMethod === 'skill-copy') {
-  console.log('  - 這是 skill-copy 型（非 marketplace plugin）——安裝是「複製 skill 目錄」，不能 /plugin install：');
+  console.log('  - 這是 skill-copy 型（非 marketplace plugin）——安裝是「複製 skill 目錄」，不能用 claude plugin install：');
   console.log('      /install-skill ' + source);
   console.log('      （或 skill-fetch、或手動把該 skill 目錄放進 ~/.claude/skills/ 或 <專案>/.claude/skills/）');
+} else if (!sourceRunnable) {
+  console.log('  - ⚠ source 不是可直接執行的格式（只接受 owner/repo、https 網址、本機路徑，不含空白與 shell 特殊字元），不印安裝指令。');
+  console.log('    要裝時先向使用者確認實際的 marketplace 來源，再手動組指令。');
 } else {
-  console.log('  - 要實際安裝需自貼（Claude 不能代執行 /plugin）：');
-  console.log('      /plugin marketplace add ' + source);
-  console.log('      /plugin install ' + key);
-  console.log('      /reload-plugins');
+  console.log('  - 要實際安裝：使用者核可後 Claude 直接跑（非互動 CLI；裝到專案用 --scope project）：');
+  console.log('      claude plugin marketplace add ' + shArg(source));
+  console.log('      claude plugin install ' + key + ' --scope project');
+  console.log('    裝完使用者自己在輸入框打 /reload-plugins（或重開 session）——這步沒有 CLI 對應。');
 }

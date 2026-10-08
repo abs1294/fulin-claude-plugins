@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * restore-env.js — 吃 export-env.js 產的快照，產生「在新環境復現」要貼的指令鏈。
+ * restore-env.js — 吃 export-env.js 產的快照，產生「在新環境復現」的 claude plugin CLI 指令鏈。
  *
- * 重要：Claude 不能代執行 /plugin（marketplace add / install / reload 都是互動指令），
- *   所以本腳本只「讀快照 + 印出你要自己貼的指令」，不實際安裝任何東西。
+ * 分工：`claude plugin marketplace add` / `install` / `disable` 是非互動 CLI，
+ *   經使用者核可後由 Claude 直接執行（Bash）；只有最後的 /reload-plugins（沒有 CLI 對應）或重開 session
+ *   要使用者自己做。本腳本本身只「讀快照 + 印出指令」，不實際安裝任何東西。
  *
  * 兩種復現情境都涵蓋：
  *   - 新機器全複製：跑下面整串 marketplace add + install。
@@ -63,7 +64,7 @@ for (const [key] of entries) {
 }
 
 console.log('== restore-env：在新環境復現的指令 ==');
-console.log('（Claude 不能代執行 /plugin，請逐行自己貼到輸入框）');
+console.log('（以下 claude plugin 指令是非互動 CLI：使用者核可後 Claude 直接執行；只有第 3 步 /reload-plugins 要使用者自己在輸入框打）');
 console.log('（' + (enabledOnly ? '只含啟用中的 plugin' : '含全部 plugin，未啟用的也裝起來') + '）\n');
 
 // 自製 marketplace 特別前置——用 export 時標的 isCustom 旗標（精確比對 config.repo），不靠名字猜
@@ -77,25 +78,51 @@ if (selfMkt.length) {
   console.log('');
 }
 
+// 印出的指令會由 Claude 用 Bash 執行：來源與 key 都要過白名單，不符的只印警告註解。
+const SAFE_ARG = /^[A-Za-z0-9.\/~][A-Za-z0-9._~+@:\/\\-]*$/;
+function shArg(s) { return s.includes('\\') ? "'" + s + "'" : s; }
+function scopeFor(v) {
+  const scopes = Array.isArray(v.scopes) && v.scopes.length ? v.scopes : ['user'];
+  if (scopes.includes('user')) return { sc: 'user', scopes };
+  return { sc: scopes.includes('local') && !scopes.includes('project') ? 'local' : 'project', scopes };
+}
+
 console.log('# 1. 加 marketplace');
 for (const name of neededMkts) {
   const m = marketplaces[name];
   if (!m) { console.log('# ⚠ 快照缺 marketplace「' + name + '」來源，需手動處理'); continue; }
-  if (m.source === 'github' && m.repo) console.log('/plugin marketplace add ' + m.repo);
-  else console.log('/plugin marketplace add ' + (m.repo || '(unknown source for ' + name + ')'));
+  if (!m.repo) { console.log('# ⚠ marketplace「' + name + '」快照裡沒有來源，需手動處理'); continue; }
+  if (!SAFE_ARG.test(m.repo)) { console.log('# ⚠ marketplace「' + name + '」的來源含空白或 shell 特殊字元，不印成可執行指令：' + JSON.stringify(m.repo)); continue; }
+  console.log('claude plugin marketplace add ' + shArg(m.repo));
 }
 
+// install 不帶 --scope 時預設 user；原環境只裝在專案層的，要到該專案目錄下用 --scope project/local 裝。
 console.log('\n# 2. 安裝 plugin');
-for (const [key] of entries) console.log('/plugin install ' + key);
+for (const [key, v] of entries) {
+  if (!SAFE_ARG.test(key)) { console.log('# ⚠ plugin key 含空白或 shell 特殊字元，跳過：' + JSON.stringify(key)); continue; }
+  const { sc, scopes } = scopeFor(v);
+  if (sc === 'user') console.log('claude plugin install ' + key + ' --scope user');
+  else {
+    console.log('# ' + key + '：原環境只裝在 ' + scopes.join('/') + ' 層 → 到對應專案目錄下跑：claude plugin install ' + key + ' --scope ' + sc);
+  }
+}
 
-console.log('\n# 3. 套用');
+console.log('\n# 3. 套用（沒有 CLI 對應：使用者自己在輸入框打，或重開 session）');
 console.log('/reload-plugins');
 
-console.log('\n# 4. 啟用狀態（install 後預設啟用；如需精確還原停用狀態，於 /plugin UI 或專案 settings 調整）');
+// 快照的 enabled 只反映 user 層 ~/.claude/settings.json（export-env.js），專案層安裝在快照裡一律是 false，
+// 所以只對 user 層安裝印 disable；專案層的啟用狀態看第 5 段，不能從這裡推。
+console.log('\n# 4. user 層啟用狀態（install 後預設啟用；要精確還原，對 user 層「快照中停用」的跑下面的 disable。專案層安裝的啟用狀態看第 5 段）');
 const enabledList = entries.filter(([, v]) => v.enabled).map(([k]) => k);
 const disabledList = entries.filter(([, v]) => !v.enabled).map(([k]) => k);
 console.log('  啟用：' + (enabledList.join(', ') || '(無)'));
-if (!enabledOnly && disabledList.length) console.log('  快照中停用：' + disabledList.join(', '));
+if (!enabledOnly && disabledList.length) {
+  console.log('  快照中停用：' + disabledList.join(', '));
+  for (const [key, v] of entries) {
+    if (v.enabled || !SAFE_ARG.test(key)) continue;
+    if (scopeFor(v).sc === 'user') console.log('claude plugin disable ' + key + ' --scope user');
+  }
+}
 
 // 5. per-project 啟用（各專案 .claude/settings.json 的 enabledPlugins）
 const projects = snap.projects || {};

@@ -8,7 +8,7 @@
  *   - ~/.claude/settings.json：user 層 enabledPlugins（哪些啟用）
  *
  * 產出：env-snapshot.json（預設寫到 plugin 內 plugins/plugin-manager/，隨 git/publish；可用參數改路徑）。
- *   放 plugin 內的用意：新機 /plugin install plugin-manager 時快照進 cache，restore 從 CLAUDE_PLUGIN_ROOT 讀得到。
+ *   放 plugin 內的用意：新機 claude plugin install plugin-manager@<marketplace> 時快照進 cache，restore 從 CLAUDE_PLUGIN_ROOT 讀得到。
  *   內含：marketplaces[name→repo]、plugins[name@mkt→{version,enabled,scopes}]。
  *   restore-env.js 吃這份快照產生 marketplace add / install 指令鏈。
  *
@@ -106,7 +106,7 @@ const snapshot = {
 };
 
 // 輸出路徑：參數優先，否則寫進「plugin 內」plugins/plugin-manager/env-snapshot.json。
-// 為什麼放 plugin 內：它隨 git/publish 走，新機 /plugin install plugin-manager 時快照就進 cache，
+// 為什麼放 plugin 內：它隨 git/publish 走，新機 claude plugin install plugin-manager@<marketplace> 時快照就進 cache，
 // clone-env skill 從 CLAUDE_PLUGIN_ROOT 讀得到——免手動帶檔。
 // （快照 export 完即 publish，權威版本就是 git 那版；cache 被 install/update 更新成 git 版正是要的。）
 let outPath = process.argv[2];

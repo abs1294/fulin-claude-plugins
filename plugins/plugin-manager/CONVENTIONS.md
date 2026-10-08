@@ -52,10 +52,13 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 - 改 repo 根層級文件（README / 本檔 / .gitignore 等，在 `plugins/` 之外）→ **不綁任何 plugin 版本**，不 bump。
 - **bump plugin-manager 後，務必同步 `docs/使用教學.html` 的版本號**（header 的 `<span class="pill">vX.Y.Z</span>` 與 footer 的 `plugin-manager vX.Y.Z`）——HTML 是靜態檔、不會自動帶版號，漏改就會脫節（紅藍稽核已抓過此坑）。
 
-## 互動指令邊界（誠實限制）
+## plugin 指令分工（誰來跑）
 
-- Claude **不能**代執行 `/plugin install`、`/plugin uninstall`、`/plugin marketplace add/update`、`/reload-plugins`——這些是互動指令，一律「產生指令讓使用者貼」。只有 git 與檔案操作用 Bash 直接做。
-- **Claude Code 沒有 `/plugin update` 子指令**。更新已裝 plugin 的正解：`/plugin marketplace update fulin-plugins` 刷新 → `/plugin uninstall <name>@fulin-plugins` + `/plugin install <name>@fulin-plugins` 重裝（或在 `/plugin` UI 開 Enable auto-update）。
+- **Claude 直接跑 `claude plugin …` 非互動 CLI（Bash）**：`install`、`uninstall`、`update`、`enable`、`disable`、`list --json`、`marketplace add|update|list|remove`。核可規則照各 skill 原本的流程：裝新東西、動別的專案前先問使用者；CLI 失敗才退回列指令請使用者自己做。
+  - 更新已裝 plugin：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（`--scope` 可選 user|project|local|managed，省略時依目前目錄自動判斷；project/local scope 要在該專案目錄下跑）。scope 用 `claude plugin list --json` 查（欄位含 `id`、`version`、`scope`、`enabled`、`projectPath`）。
+  - `claude plugin install` 不帶 `--scope` 時預設是 **user**（全域），裝到專案要明寫 `--scope project`。
+- **只有這兩件要使用者自己做**：`/reload-plugins`（沒有 CLI 對應），以及 `claude plugin update` 之後**重開 session** 讓新版生效。
+- 互動 slash UI（`/plugin …`）仍是互動畫面，Claude 不去操作它；slash 版沒有 `update` 子指令（Claude Code 2.1.294 的 `/plugin help` 只列 install／uninstall／enable／disable／marketplace／manage 等），更新要走上面的 CLI `claude plugin update`，或在 `/plugin` UI 開 Enable auto-update。
 - registry 存家目錄 `~/.claude/plugin-manager/`，不存 plugin 內（plugin 更新會覆蓋）。
 
 ## 外部 plugin 推薦清單（recommends.json）
@@ -76,7 +79,7 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 ## 環境快照 / 復現（export-env / restore-env）
 
 - `scripts/export-env.js`：讀 Claude Code 官方記錄（`known_marketplaces.json` + `installed_plugins.json` + settings 的 enabledPlugins）產出 `env-snapshot.json`，含三類：`marketplaces`（來源 repo）、`plugins`（版本/scope/user 層 enabled）、`projects`（各專案 per-project enabledPlugins，專案來源取自 installed 的 project scope projectPath，**key 存 basename 脫敏**）。**預設寫進 plugin 內** `plugins/plugin-manager/env-snapshot.json`（隨 git/publish）。
-- **為什麼快照放 plugin 內（與 registry 相反）**：registry 是「本機未推的變動狀態」，被 cache 覆蓋會丟資料故存家目錄；快照則是「export 完即 publish、權威版本就是 git 那版」，放 plugin 內隨 git 走——新機 `/plugin install plugin-manager` 時快照進 cache，restore 從 `CLAUDE_PLUGIN_ROOT` 讀得到，免手動帶檔。cache 被 install/update 更新成 git 版正是要的（不是 bug）。
-- `scripts/restore-env.js`：吃快照產生「在新環境要自己貼的」`marketplace add` + `install` 指令鏈（Claude 不能代執行 /plugin）。`--enabled-only` 只列啟用中的（同機換專案用）。找快照順序：參數 > `CLAUDE_PLUGIN_ROOT` > monorepo 內 plugin 目錄 > cwd。
+- **為什麼快照放 plugin 內（與 registry 相反）**：registry 是「本機未推的變動狀態」，被 cache 覆蓋會丟資料故存家目錄；快照則是「export 完即 publish、權威版本就是 git 那版」，放 plugin 內隨 git 走——新機裝 plugin-manager（`claude plugin install plugin-manager@fulin-plugins`）時快照進 cache，restore 從 `CLAUDE_PLUGIN_ROOT` 讀得到，免手動帶檔。cache 被 install/update 更新成 git 版正是要的（不是 bug）。
+- `scripts/restore-env.js`：吃快照產生 `claude plugin marketplace add` + `claude plugin install` 指令鏈，**經使用者核可後由 Claude 直接執行**（CLI 非互動）；最後的 `/reload-plugins`（或重開 session）由使用者自己做。`--enabled-only` 只列啟用中的（同機換專案用）。找快照順序：參數 > `CLAUDE_PLUGIN_ROOT` > monorepo 內 plugin 目錄 > cwd。
 - 涵蓋自製 + 第三方 plugin（真正的「一模一樣」）；但第三方能否裝起來取決於其上游 marketplace 是否可及，自製的（在本 repo）一定可裝。
 - env-snapshot.json 含「你啟用了哪些 plugin」且隨 repo 進 git——repo 是 PRIVATE 故只自己看得到（換新機自用的場景合理）。若要散佈給別人或不想入 git，export 時用參數指定 monorepo 外的路徑。

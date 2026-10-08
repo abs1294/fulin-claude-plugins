@@ -150,9 +150,15 @@ console.log(`正在用：${own.name} ${own.version}（${where}）`);
 console.log(`遠端最新：${remoteVersion}（${branch} 分支）`);
 if (cached.length) console.log(`本機已下載但沒啟用的較新版本：${cached.join('、')}`);
 if (cmp(own.version, remoteVersion) < 0) {
-  const mk = m ? m[1] : '<marketplace 名稱>';
-  console.log('判定：落後，停下來請使用者更新後重開 session 再跑 /harness:init');
-  console.log(`更新方式（一行一行貼到提示列）：/plugin marketplace update ${mk}　→　/plugin uninstall ${own.name}@${mk}　→　/plugin install ${own.name}@${mk}`);
+  // 下面的指令會由 Claude 用 Bash 執行：名稱只接受英數與 . _ -，不符就印佔位、不組成可執行指令。
+  const SAFE_NAME = /^[A-Za-z0-9._-]+$/;
+  const mk = m && SAFE_NAME.test(m[1]) ? m[1] : '<marketplace 名稱>';
+  if (!SAFE_NAME.test(String(own.name))) {
+    console.log('判定：落後，但 plugin.json 的 name 含不允許的字元，不印更新指令：' + JSON.stringify(own.name));
+    process.exit(2);
+  }
+  console.log('判定：落後，停下來；經使用者同意後更新，再請使用者重開 session 重跑 /harness:init');
+  console.log(`更新方式（非互動 CLI，使用者同意後 Claude 可直接執行；scope 用 claude plugin list --json 查這筆安裝紀錄）：claude plugin marketplace update ${mk}　→　claude plugin update ${own.name}@${mk} --scope <實際 scope>　→　使用者重開 session`);
   process.exit(2);
 }
 if (cmp(own.version, remoteVersion) > 0) {

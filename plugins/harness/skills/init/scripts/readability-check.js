@@ -17,7 +17,7 @@
  * 其餘鐵則（兩邊對照、資訊放一起、能查的自己查、長度重複、做完寫成做完…）機器判不準，
  * 由模型讀完那份文件後逐條自檢——本腳本最後會列出來提醒。
  *
- * 沒裝 deliver-report：不掃，exit 3，並印出請使用者安裝的指令（Claude 不能代裝 plugin）。
+ * 沒裝 deliver-report：不掃，exit 3，並印出安裝指令（非互動 CLI，使用者同意後 Claude 可直接執行）。
  *
  * 用法：node readability-check.js <落點目錄> <檔案…>
  *   檔案：flow-1.json…（archify 圖）、install-report.md（收尾回報）
@@ -75,8 +75,9 @@ if (!dr) {
     '沒有找到可用的 deliver-report plugin（這個專案看得到、且沒被停用的安裝紀錄），跳過交付前易讀性自檢。',
     '請在收尾回報告訴使用者：',
     '  「交給你看的流程圖與這份回報，原本會用 deliver-report 的易讀性規則自檢（避免內部用語、沒解釋的代號）。',
-    '   這台機器沒裝，這次跳過了。要裝的話在 Claude Code 輸入：/plugin install deliver-report@fulin-plugins」',
-    '（外部 plugin 的安裝是互動畫面，Claude 不能代裝。）',
+    '   這台機器沒裝，這次跳過了。要裝的話跟我說，我可以幫你裝。」',
+    '（安裝指令：claude plugin install deliver-report@fulin-plugins --scope project（在這個專案目錄下跑）——非互動 CLI，使用者同意後 Claude 可直接執行；',
+    '  裝完要使用者自己 /reload-plugins 或重開 session 才生效。）',
   ].join('\n'));
   process.exit(3);
 }

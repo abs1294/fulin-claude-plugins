@@ -36,6 +36,6 @@ description: 把當前專案資料夾裡的一個自製 skill「納管」進 ful
 > **規則 1（真身單一份 / C 折衷）**：adopt 一律 move 真身 + 原位 symlink，真身只有 monorepo 一份；開發期靠 symlink 即時迭代、段落完成就 publish。若發現兩份獨立實體則收斂（diff → 刪實體 → 改 symlink）。完整規範見 `../../CONVENTIONS.md`。
 
 ## 重要限制（誠實告知）
-- 這只是把真身搬家 + 連結，**不會自動 install/enable 該 plugin**（install 是互動指令 /plugin，Claude 不能代執行）。
+- 這只是把真身搬家 + 連結，**不會自動 install/enable 該 plugin**——要裝的話先問使用者，核可後 Claude 跑非互動 CLI `claude plugin install <name>@fulin-plugins --scope <scope>`（裝新東西照核可流程），裝完使用者自己 `/reload-plugins`（或重開 session）。
 - Windows symlink 可能需權限；腳本會試 junction → dir symlink，皆失敗則回報。
 - adopt 後該 skill 的 `dirty: true`（已改未推），publish 後才清。

@@ -37,5 +37,5 @@ description: 維護一個既有自製 plugin 並 bump 版本號。當使用者�
 ## 重要限制（誠實告知）
 - **version 只設在 plugin.json**，不在 marketplace.json 加 version 欄。兩處都設會衝突，Claude Code 以 plugin.json 為準。
 - bump 後該 plugin `dirty:true`（已改未推），publish 後才清。
-- publish 只推 monorepo，**不會自動讓已安裝該 plugin 的專案更新**——各專案需自己刷新：`/plugin marketplace update fulin-plugins` 後 `/plugin uninstall <name>@fulin-plugins`、再 `/plugin install <name>@fulin-plugins`（兩行各自貼，/plugin 不是 shell 不能 && 串接；或開 auto-update）。**Claude Code 沒有 `/plugin update` 子指令**，且 `/plugin` 系列是互動指令 Claude 不能代執行。
+- publish 只推 monorepo，**不會自動讓已安裝該 plugin 的專案更新**——各專案要刷新：Claude 可直接跑非互動 CLI `claude plugin marketplace update fulin-plugins` → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（scope 用 `claude plugin list --json` 查；project/local scope 要在該專案目錄下跑；動別的專案前先問使用者），跑完請使用者**重開 session** 才生效；或開 auto-update。互動 slash UI 的 `/plugin` 沒有 `update` 子指令，所以走 CLI。
 - 改的是 monorepo 真身；若不慎改到 cache，那份會在下次重裝（uninstall + install）時被覆蓋。

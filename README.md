@@ -17,12 +17,12 @@ fulin 的自製 Claude Code plugin monorepo。核心是 **plugin-manager**——
 | **`/plugin-manager:adopt`** | 把你在某專案 `.claude/skills/` 隨手寫的自製 skill，**搬進 monorepo**（move + 原位 symlink，真身永遠一份，零不同步）。agent 整包納管見 `scripts/adopt-agents.js` |
 | **`/plugin-manager:update`** | 改既有自製 plugin 後 **bump 版本號**（plugin.json + registry 同步），讓更新能被偵測 |
 | **`/plugin-manager:publish`** | **一鍵 commit + push 整個 monorepo**。不管改了 1 個還是 50 個 plugin，只推一次 |
-| **`/setup-plugins`** | **偵測當前專案**（讀 CLAUDE.md 為主訊號）→ **推薦該裝哪些 plugin**（profile / 自訂）→ 給要貼的 install 指令（venv 概念，per-project 隔離）。**不代寫 settings**——啟用宣告由 `/plugin install` 選 scope 時自己寫。含 `upgrade`（偵測落後版本）與**外部 plugin 推薦**（recommends.json，會推廣）/挑裝 |
+| **`/setup-plugins`** | **偵測當前專案**（讀 CLAUDE.md 為主訊號）→ **推薦該裝哪些 plugin**（profile / 自訂）→ 核可後由 Claude 直接跑 `claude plugin install --scope project` 裝好（venv 概念，per-project 隔離）。**不手寫 settings**——啟用宣告由 install CLI 依 scope 自己寫。含 `upgrade`（偵測落後版本）與**外部 plugin 推薦**（recommends.json，會推廣）/挑裝 |
 | **`/plugin-manager:clone-env`** | 把整套環境（marketplace + plugin + 啟用狀態，含自製與第三方）**擷取快照、在新機器/新專案復現**。說「複製我的環境」即觸發 |
 
 ### 環境快照 / 復現（`/plugin-manager:clone-env`）
 
-跟 Claude 說「複製我的環境」「環境復現」即觸發。Claude 幫你擷取快照（`export-env.js` → `env-snapshot.json`）並產生復現指令鏈（`restore-env.js`，`--enabled-only` 只列啟用中的）；最後實際安裝那幾步 `/plugin marketplace add` + `install` 由你自己貼（Claude 不能代執行 /plugin）。自製 monorepo 在新機器會提示先 clone + init。
+跟 Claude 說「複製我的環境」「環境復現」即觸發。Claude 幫你擷取快照（`export-env.js` → `env-snapshot.json`）並產生復現指令鏈（`restore-env.js`，`--enabled-only` 只列啟用中的）；實際安裝那幾步 `claude plugin marketplace add` + `claude plugin install` 是非互動 CLI，你核可後由 Claude 直接跑；最後的 `/reload-plugins`（或重開 session）由你自己做。自製 monorepo 在新機器會提示先 clone + init。
 
 ### 核心概念
 
@@ -33,7 +33,7 @@ fulin 的自製 Claude Code plugin monorepo。核心是 **plugin-manager**——
    - **recommends.json**（plugin 內、**進 git、會推廣**）：你精選的**別人做的**外部 plugin（只記來源/用途/tag，不複製別人程式碼）。別人裝你的 repo 就看到，`/setup-plugins` 時可挑裝。
 
 詳細教學（含完整實例）：**`plugins/plugin-manager/docs/使用教學.html`**
-工作規範（真身單一份、改 skill 必發布、commit message 註明 skill、版本號慣例、互動指令邊界）：**`plugins/plugin-manager/CONVENTIONS.md`**
+工作規範（真身單一份、改 skill 必發布、commit message 註明 skill、版本號慣例、plugin 指令分工）：**`plugins/plugin-manager/CONVENTIONS.md`**
 
 ---
 
@@ -55,7 +55,7 @@ node "<你 clone 的 repo>/plugins/plugin-manager/scripts/init.js" <owner> <gith
 
 monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建好 `config.json` + `registry.json`（已存在不覆蓋）。這個固定路徑的 config 就是「任何 session、任何專案」都能定位 monorepo 的錨點。
 
-> Claude Code **沒有** `/plugin update` 子指令。更新已裝 plugin 的正解：`/plugin marketplace update fulin-plugins` 刷新 → `/plugin uninstall <name>@fulin-plugins` + `/plugin install <name>@fulin-plugins` 重裝（或在 `/plugin` UI 開 Enable auto-update）。
+> 輸入框的互動指令 `/plugin` **沒有** `update` 子指令；更新已裝 plugin 用非互動 CLI（Claude 可直接跑）：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（scope 用 `claude plugin list --json` 查），跑完重開 session 才生效（或在 `/plugin` UI 開 Enable auto-update）。上面的安裝三行也可改成請 Claude 跑 `claude plugin marketplace add …` + `claude plugin install …`，`/reload-plugins` 仍要你自己打。
 
 **前置依賴**：plugin-manager 需 Node.js；狀態存本機 `~/.claude/plugin-manager/`（`config.json` + `registry.json`，不進 plugin、不進 git）。
 

@@ -2,6 +2,12 @@
 
 本檔記錄 plugin-manager 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.19.1] - 2026-10-08
+### Fixed
+- 會交給 Bash 執行的來源與 key 加白名單（owner/repo、https 網址、git@ 位址、本機路徑；不含空白與 shell 特殊字元；Windows 反斜線路徑印成單引號包住）：register-external、restore-env 不符時只印警告不印指令；upgrade-check 的 marketplace 名與 plugin 名只接受英數與 . _ -，不符就中止或略過，setup-plugins 規定不符的不跑、先問使用者。
+- scope 不再寫死：upgrade-check 以 `claude plugin list --json` 的實際安裝紀錄決定 `--scope`（本專案的 local／project 優先，否則 user），CLI 跑不起來或查不到紀錄時才依啟用宣告所在檔推定並標「推定」；restore-env 的 install 依原環境的 scope 印 user／到專案目錄下 project|local；disable 只對 user 層印（快照的啟用狀態只記 user 層，專案層的看各專案 settings）。
+- 「Claude 不能代執行 /plugin」改為正確分工：install／uninstall／update／enable／disable／marketplace add|update 由 Claude 經核可後直接跑 `claude plugin …` 非互動 CLI，只有 `/reload-plugins` 與 update 後重開 session 要使用者自己做（實測 2026-10-08：`claude plugin update` 存在、`--scope user|project|local|managed`，預設依目前目錄判斷；Claude Code 2.1.294 的 slash `/plugin` 沒有 update 子指令）。改 CONVENTIONS「互動指令邊界」節為「plugin 指令分工」、README 安裝與 Q&A、update／publish／adopt／clone-env／setup-plugins 五支 skill；upgrade-check.js 改印 `claude plugin marketplace update` + `claude plugin update <name>@<mkt> --scope <scope>`；restore-env.js 改印 `claude plugin marketplace add`／`claude plugin install … --scope <原環境的 scope>`（scope 規則見上兩條）；register-external.js、bump-version.js、export-env.js 註解與輸出同步
+
 ## [0.19.0] - 2026-09-20
 ### Changed
 - publish 步驟 4 改走 git-commit skill 的 flow.sh，不再裸下 git commit。起因：裸 git commit 會被 PreToolUse hook block-bare-git-commit.sh 擋下——那道閘攔全部 repo 不限供應商平台，且沒有旁路，2026-09-20 實際撞過一次；而本 monorepo CLAUDE.md 第 2 條本來就要求「commit/push 一律走 git-commit skill」，舊寫法等於違反自己 repo 的規矩。實測 flow.sh 沒有 repo 白名單（resolve_repo_path 只組路徑不查清單），從供應商平台工作目錄用相對路徑 ../../fulin-claude-plugins 直接可用。同批修正型別慣例：步驟 3 原寫「動作詞 Add/Update/Fix」，但 Add/Update 不在 flow.sh 允許清單內會 exit 1，改為直接用 flow.sh 的十個值並附對照（Add→Feat、Update→Modify）。另修掉指向不存在檔案的連結：CONVENTIONS.md 在 monorepo 根不存在（實查），規範實際在 CLAUDE.md。

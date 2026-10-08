@@ -4,7 +4,8 @@
  *
  * 為什麼要 bump：Claude Code 靠 plugin.json 的 version 判斷有無更新。
  *   改了 skill/hook 內容卻不 bump version，其他專案刷新 marketplace 後仍抓不到新版
- *   （Claude Code 沒有 /plugin update 子指令，更新靠 marketplace update + uninstall/install 或 auto-update）。
+ *   （其他專案更新靠 `claude plugin marketplace update` + `claude plugin update <name>@<mkt>` CLI 或 auto-update；
+ *    互動 slash UI 的 /plugin 沒有 update 子指令）。
  *
  * 做法（純檔案操作，不呼叫 claude CLI）：
  *   1. 讀 monorepo/plugins/<name>/.claude-plugin/plugin.json 的現行 version。
