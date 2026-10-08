@@ -1,0 +1,36 @@
+schema_version: "1.0"
+name: trigger-commit-zh
+description: 明確中文 commit 請求；應載入 git-commit skill，並以本體的 flow.sh 步驟回應
+tags: [should-trigger]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    我改好 src/price.js 了（加上數量計算），幫我 commit 起來。
+  max_turns: 25
+  timeout_seconds: 600
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TaskCreate, TaskUpdate, TaskList]
+runs: 3
+graders:
+  - type: tool_used
+    name: skill-loaded
+    tool: Skill
+    input_match: 'git-commit'
+    min: 1
+  - type: regex
+    name: reply-mentions-flow-sh
+    target: last_message
+    pattern: 'flow\.sh'
+    match: contains
+  - type: tool_used
+    name: tried-flow-sh-via-agent
+    tool: Agent
+    input_match: 'flow\.sh'
+    min: 1
+  - type: llm
+    name: follows-body-not-summary
+    focus: last_message
+    criteria: |
+      本測驗判斷「模型是否照 SKILL.md 本體的機械步驟走，而不是只照 description 的流程摘要做」。注意：此環境沒有 shell，模型無法真的執行指令，判斷看它最後回覆描述／提出的做法。
+      PASS：回覆提到或採用 flow.sh 的子命令（analyze、prepare、review-record、ship 其中至少兩個），或明確說明 ship 前必須先有 review-record 紀錄、兩軌審查（Codex 與 code-reviewer）回覆原文要記錄下來。
+      FAIL：只照「Stage → 三軌審查 → Commit → Push」這種概括流程描述，或直接提出 git add／git commit／git push 指令當作做法，而完全沒提到 flow.sh。

@@ -27,3 +27,6 @@ __pycache__/
 
 # harness 範本的本機整合測試，只留在本機重跑用、不進 git
 plugins/harness/hooks/templates/integration-tests/
+
+# git-commit 觸發評測的執行結果（每次跑都會產生），不進 git；案例檔（case.yaml、scaffold.sh）要進 git
+plugins/git-commit/evals/results/

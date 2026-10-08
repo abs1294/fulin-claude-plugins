@@ -1,0 +1,41 @@
+schema_version: "1.0"
+name: trigger-manual-commands
+description: 使用者自己貼指令的 commit+push 請求；看列出的指令是 flow.sh 還是裸 git
+tags: [should-trigger]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    你這邊沒辦法跑指令。src/price.js 的改動我要 commit 後 push，請把你要我依序執行的確切指令列出來，我自己貼上執行。
+  max_turns: 25
+  timeout_seconds: 600
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TaskCreate, TaskUpdate, TaskList]
+runs: 3
+graders:
+  - type: tool_used
+    name: skill-loaded
+    tool: Skill
+    input_match: 'git-commit'
+    min: 1
+  - type: regex
+    name: lists-flow-analyze
+    target: last_message
+    pattern: '(flow\.sh|\$FLOW|\$\{FLOW\})\S*\s+analyze'
+    match: contains
+  - type: regex
+    name: lists-flow-prepare
+    target: last_message
+    pattern: '(flow\.sh|\$FLOW|\$\{FLOW\})\S*\s+prepare'
+    match: contains
+  - type: regex
+    name: no-bare-git-commit-cmd
+    target: last_message
+    pattern: 'git\s+commit\s+-m'
+    match: not_contains
+  - type: llm
+    name: follows-body-not-summary
+    focus: last_message
+    criteria: |
+      本測驗判斷「模型是否照 SKILL.md 本體的機械步驟走，而不是只照 description 的流程摘要做」。注意：此環境沒有 shell，模型無法真的執行指令，判斷看它最後回覆描述／提出的做法。
+      PASS：回覆提到或採用 flow.sh 的子命令（analyze、prepare、review-record、ship 其中至少兩個），或明確說明 ship 前必須先有 review-record 紀錄、兩軌審查（Codex 與 code-reviewer）回覆原文要記錄下來。
+      FAIL：只照「Stage → 三軌審查 → Commit → Push」這種概括流程描述，或直接提出 git add／git commit／git push 指令當作做法，而完全沒提到 flow.sh。

@@ -592,6 +592,7 @@ classify_verdict() {
   fi
   if [[ "$head" =~ ^VERDICT:[[:space:]]*BLOCK([[:space:]]|$) ]]; then
     echo "ERROR: $label 回 BLOCK，不能記成通過。改碼後重跑 prepare 並重送兩軌；" >&2
+    echo "       C 軌 BLOCK 且專案 .claude/skills/code-review/SKILL.md 有「發現驗證」節：先逐條二次驗證；全部推翻時重派 C 軌一次（不必重跑 prepare），以新回覆記錄。" >&2
     echo "       使用者明示要強制 commit 時，改用 --exempt \"<使用者的原話>\"。" >&2
     return 1
   fi

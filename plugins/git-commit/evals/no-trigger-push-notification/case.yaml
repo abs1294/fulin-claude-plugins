@@ -1,0 +1,18 @@
+schema_version: "1.0"
+name: no-trigger-push-notification
+description: 含觸發字「push」但與 git 無關；不應載入 git-commit skill
+tags: [should-not-trigger]
+execution:
+  prompt: |
+    iOS 的 push notification 要怎麼實作？簡單講重點就好。
+  max_turns: 10
+  timeout_seconds: 300
+  allowed_tools: [Read, Glob, Grep, Skill]
+runs: 3
+graders:
+  - type: tool_used
+    name: skill-not-loaded
+    tool: Skill
+    input_match: 'git-commit'
+    min: 0
+    max: 0

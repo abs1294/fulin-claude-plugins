@@ -1,0 +1,18 @@
+schema_version: "1.0"
+name: no-trigger-git-log
+description: git 相關但不是要提交的問題；不應載入 git-commit skill
+tags: [should-not-trigger]
+execution:
+  prompt: |
+    git log 要怎麼只看某一個檔案的修改歷史？告訴我指令就好。
+  max_turns: 10
+  timeout_seconds: 300
+  allowed_tools: [Read, Glob, Grep, Skill]
+runs: 3
+graders:
+  - type: tool_used
+    name: skill-not-loaded
+    tool: Skill
+    input_match: 'git-commit'
+    min: 0
+    max: 0

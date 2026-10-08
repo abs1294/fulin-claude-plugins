@@ -27,6 +27,10 @@
 - 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
 - 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
 
+## [0.12.0] - 2026-10-07
+### Changed
+- C 軌 BLOCK 時，專案 code-review skill 有「發現驗證」節就先逐條二次驗證，全推翻重派 C 軌一次；C 軌判準加 Critical 報出前開全檔核對；flow.sh BLOCK 提示同步；必讀改 GLOSSARY.md（沒有就讀 CONTEXT.md）；新增 evals/ 觸發與遵循本體評測 5 案
+
 ## [0.11.1] - 2026-10-05
 ### Fixed
 - flow.sh 沒設 CLAUDE_PROJECT_DIR 時，cd 進 repo 或 worktree 執行不再把審查紀錄與流程暫存檔寫進該 repo、不再在 repo 內自動建空的 local-overrides 範本；改寫到上層工作區（linked worktree，或工作區清單有 repo: <相對路徑>），檔名與流水帳 repo 欄改用相對工作區的路徑

@@ -222,7 +222,7 @@ C 軌的 skipped **只收一種**：第三層 general-purpose 也試過且失敗
 
 【開工前必讀】（專案有這些檔就讀，沒有就略過）
 - CLAUDE.md（有「專案概要」一節就先讀那節）
-- CONTEXT.md（專案用語）
+- GLOSSARY.md（專案用語；沒有就讀 CONTEXT.md）
 - FLOWS.md（改動觸及已收錄鏈路時，確認鏈路其他層有沒有同步；沒觸及就略過）
 【產出路徑】staged diff：<DIFF_PATH>
 【驗證方式】cat 讀 diff；需要上下文時 Read 對應檔案全檔，不只看 diff 行
@@ -232,6 +232,7 @@ C 軌的 skipped **只收一種**：第三層 general-purpose 也試過且失敗
 【驗收條件】（判準）
 - BLOCK：🔴 Critical（違反架構原則、資安洞、破壞 DDD 分層、必錯邏輯）
 - PASS：無 Critical 即放行；🟡 Important／🟢 Minor 列清單供使用者決定。
+- Critical 報出前開全檔核對（不只看 diff 行），並在描述尾端註明核對範圍。
 
 【重點檢查】架構規範（DDD/CQRS/Repository/Section component）／規則違反／資安／i18n 完整性／測試覆蓋
 
@@ -255,6 +256,7 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 
 - 自動 commit 前輸出：兩軌狀態＋「使用者回覆：尚未（視為默許）」＋套用的 message；PASS 附清單時**清單先列給使用者**再告知已開始自動 commit。
 - 匯流判定可 commit 後，**先跑 `flow.sh review-record <repo> --codex "<Codex 回覆原文>" --reviewer "<code-reviewer 回覆原文>"`** 再 ship。回覆原文多行時用 `"$(cat <<'EOF' … EOF)"` 帶入。多 repo 各記各的。
+- **C 軌 BLOCK 先二次驗證（專案有定義才做）**：C 軌回 `VERDICT: BLOCK` 時，先看專案的 code-review skill（通常在 `<workspace>/.claude/skills/code-review/SKILL.md`，`<workspace>` 為工作目錄；多 repo 時該 repo 根目錄下的同路徑也看）有沒有「發現驗證」節。有 → 照該節對每條 `[Critical]` 逐條二次驗證，驗完再走下一條的 BLOCK 處理；被推翻的條目在預覽標「經驗證為假陽性」並附推翻它的那一行（`檔:行`＋原文）。全部被推翻時，**主對話不得自行把 BLOCK 改成 PASS**（也不得自組 `VERDICT: PASS` 送進 `review-record`），改為重派 C 軌一次（prompt 末尾附驗證證據、請它重新裁決），`--reviewer` 以新回覆的原文記錄；新回覆仍是 BLOCK 就照該節後續規定處理，該節沒寫就走 BLOCK 處理。重派以一次為限。staged 沒變，prepare 的 diff hash 仍有效，重派前不要重跑 prepare，B 軌結果沿用。專案沒有這一節 → 行為不變，直接走 BLOCK 處理。B 軌（Codex）的 BLOCK 不適用本條。與核心原則 6 的關係：專案有這一節時，C 軌 BLOCK 一律照本條處理，不適用原則 6 由主 agent 實跑後改判；專案沒有這一節時，原則 6 照舊。
 - BLOCK 處理：列必修項 → 使用者決定修或強制 commit（需明示）→ 修的話改碼、重 `prepare`、兩軌重送，直到全非 BLOCK。無 revert、無歷史噪音。使用者明示強制 commit → `review-record --exempt "<使用者的原話>"`（BLOCK 的回覆原文不會被 `--codex`／`--reviewer` 收下）。
 
 ## Step 2：`flow.sh ship`
