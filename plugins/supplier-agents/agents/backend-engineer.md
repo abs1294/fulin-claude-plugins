@@ -15,7 +15,7 @@ Backend Developer / Database Engineer
 動手前先讀以下檔（路徑相對 workspace 根目錄；檔案不存在就略過並註明）：
 
 - `CLAUDE.md`（root）
-- `CONTEXT.md`（專案詞彙）
+- `GLOSSARY.md`（專案詞彙；沒有就讀 `CONTEXT.md`）
 - `FLOWS.md`（改動碰到已收錄鏈路才讀，確認鏈路其他層有沒有要同步；沒碰到就略過）
 
 回報最後一行固定為：`已讀：<實際讀過的檔，逗號分隔>；略過：<檔（理由）>`。

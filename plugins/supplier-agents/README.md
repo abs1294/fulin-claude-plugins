@@ -48,7 +48,7 @@ backend-architect  ──設計文件──▶  backend-engineer ─┐
 - **主對話 → qa-engineer**（行為類）：本功能涉及的 engineer 皆實作完成並回報後，QA 設計測試計畫、親自執行 Playwright MCP 並 codify；不需等審查通過。
 - **qa-engineer → code-reviewer**：QA 完成後由主對話送審；分流例外則 engineer 回報後直接送審。未通過審查不視為完成。
 - **主 Agent 的角色**：只派工與收結論，不親跑瀏覽器、不自行設計案例。
-- **開工前必讀**：五支 agent 開工前都讀 `CLAUDE.md`（root）、`CONTEXT.md`、`FLOWS.md`（碰到已收錄鏈路才讀）；qa-engineer 另讀 `tests/Project_Detail/PROJECT.md` 與 `tests/e2e/README.md`。回報最後一行是「已讀：…；略過：…（理由）」。
+- **開工前必讀**：五支 agent 開工前都讀 `CLAUDE.md`（root）、`GLOSSARY.md`（專案詞彙；沒有就讀 `CONTEXT.md`）、`FLOWS.md`（碰到已收錄鏈路才讀）；qa-engineer 另讀 `tests/Project_Detail/PROJECT.md` 與 `tests/e2e/README.md`。回報最後一行是「已讀：…；略過：…（理由）」。
 
 ## 搭配 git-commit 時的專案設定
 

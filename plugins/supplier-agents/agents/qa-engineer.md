@@ -42,7 +42,7 @@ description: 當使用者說「請QA」、「qa協助」、「qa測試」、「�
 動手前先讀以下檔（路徑相對 workspace 根目錄；檔案不存在就略過並註明）：
 
 - `CLAUDE.md`（root）
-- `CONTEXT.md`（專案詞彙）
+- `GLOSSARY.md`（專案詞彙；沒有就讀 `CONTEXT.md`）
 - `FLOWS.md`（改動碰到已收錄鏈路才讀；沒碰到就略過）
 - `tests/Project_Detail/PROJECT.md`（QA 知識層路由中心）
 - `tests/e2e/README.md`

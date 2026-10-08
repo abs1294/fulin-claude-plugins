@@ -1022,7 +1022,7 @@ def check(lines, term):     # 送出前必跑：太寬會折行，太窄是版�
 **依序查，查到就停：**
 
 1. **memory**（`~/.claude/projects/<專案>/memory/`＋`MEMORY.md` 索引）——這裡是最可靠的，因為它記的是實際踩過的事
-2. **專案詞彙表**——`CONTEXT.md`、`GLOSSARY.md`、`docs/` 底下的詞彙檔，**有才讀，沒有就跳過**
+2. **專案詞彙表**——`GLOSSARY.md`（沒有就讀 `CONTEXT.md`）、`docs/` 底下的詞彙檔，**有才讀，沒有就跳過**
 3. **`CLAUDE.md`**——根目錄與各子專案那份
 4. **制度層文件**——`.claude/harness/`、`.claude/skills/`、`FLOWS.md`、`README.md`
 5. **原始碼本身**——`grep` 那個東西的變數名、函式名、i18n key、資料庫欄位名、註解

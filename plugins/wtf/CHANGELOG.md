@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.17.1] - 2026-10-07
+### Fixed
+- 專案詞彙表兼容：優先讀 GLOSSARY.md，沒有才讀 CONTEXT.md
+
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
 ## 0.17.0 — 2026-09-15

@@ -67,7 +67,7 @@ description: >
 ```text
 完成後把測試報告（含「範圍外發現」節）回報給主對話。本任務由你親自執行，不得再轉派給其他 agent。
 【任務】<要測的功能／變更範圍；使用者原話照貼>
-【開工前必讀】<照 tests/e2e/qa-webwright.json 的 dispatch_gate.required_reading 逐條列路徑；另外一律寫出 CLAUDE.md（專案概要）、CONTEXT.md（專案用語）、tests/Project_Detail/PROJECT.md，專案沒有的寫「<檔名>：專案沒有這個檔」>
+【開工前必讀】<照 tests/e2e/qa-webwright.json 的 dispatch_gate.required_reading 逐條列路徑；另外一律寫出 CLAUDE.md（專案概要）、GLOSSARY.md（專案用語；沒有就讀 CONTEXT.md）、tests/Project_Detail/PROJECT.md，專案沒有的寫「<檔名>：專案沒有這個檔」>
 【增量分流】<reuse 或 新TC 擇一寫在最前面>：<reuse 寫要改的既有 test 檔路徑；新TC 寫一句為何既有案例接不住>
 【目標環境】<前端網址；後端 API／登入身分來源與預設不同時一併寫>
 【測試資料來源】<a、b、c 三選一，寫成「選 X」；a＝走真實業務流程長出來（常態，不論成本）；b＝封閉例外，只限產品外部系統產生、產品端沒有入口的前置（外部簽核回呼／上游推送／外部主檔 mock／目錄服務），理由寫出是哪一類，並附產品端守門或寫入點的「檔名:行號」當證據；c＝依賴既有字典／設定類，附理由；理由與證據寫在同一段，空行之後的內容不算>
@@ -87,7 +87,7 @@ description: >
 ```text
 完成後把測試報告（含「範圍外發現」節）回報給主對話。本任務由你親自執行，不得再轉派給其他 agent。
 【任務】測 https://shop.example.test 的購物車：加入商品、移除商品、購物車徽章數量、結帳前明細
-【開工前必讀】CLAUDE.md（專案概要）、CONTEXT.md、tests/Project_Detail/PROJECT.md
+【開工前必讀】CLAUDE.md（專案概要）、GLOSSARY.md（專案用語；沒有就讀 CONTEXT.md）、tests/Project_Detail/PROJECT.md
 【增量分流】新TC：tests/e2e 還沒有購物車的既有案例（CATALOG 查無），既有案例接不住
 【目標環境】https://shop.example.test（公開測試站；帳號用站方公開的測試帳號）
 【測試資料來源】選 a，理由：購物車內容由 UI 加入商品自然產生，走真實流程即可

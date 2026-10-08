@@ -2,6 +2,10 @@
 
 本檔記錄 qa-webwright 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.9.2] - 2026-10-07
+### Fixed
+- 專案詞彙表兼容：優先讀 GLOSSARY.md，沒有才讀 CONTEXT.md
+
 ## [0.9.1] - 2026-09-27
 
 ### Fixed
