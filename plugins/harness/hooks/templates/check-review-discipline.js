@@ -118,7 +118,7 @@ const REQUIRED_MARKERS = {
     {
       name: '必讀：專案用語',
       pattern: 'GLOSSARY\\.md|CONTEXT\\.md',
-      hint: '【開工前必讀】要列 GLOSSARY.md（專案用語的定義；需求裡的詞以它為準；專案沒有 GLOSSARY.md 就列舊檔名 CONTEXT.md，寫成「GLOSSARY.md（沒有就讀 CONTEXT.md）」兩個都認）；兩個都沒有就寫「GLOSSARY.md：專案沒有這個檔」。',
+      hint: '【開工前必讀】要列專案的詞彙表（專案用語的定義；需求裡的詞以它為準）：只寫專案實際用的那一個檔名——GLOSSARY.md，或沿用舊檔名的專案寫 CONTEXT.md；兩個都沒有就寫「GLOSSARY.md：專案沒有這個檔」。',
     },
   ],
   'backend-architect': [

@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.15.2] - 2026-10-08
+### Fixed
+- init 產生專案檔時詞彙表檔名只寫實際使用的那一個（新建 GLOSSARY.md、沿用 CONTEXT.md），Phase 5 加機械檢查另一個檔名 0 命中；派工檢查擋下提示同步改為只寫實際檔名
+
 ## [0.15.1] - 2026-10-08
 ### Fixed
 - readability-check 印的 deliver-report 安裝指令補 `--scope project`（`claude plugin install` 不帶 scope 預設裝到 user 全域層）。
