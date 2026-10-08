@@ -2,6 +2,17 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.14.1] - 2026-10-08
+### Added
+- **工作樹的 port／process 驗證（`check-worktree-ports.js`，選裝、唯讀）**：本機覆寫全綠也可能整條鏈路不通——設定檔裡「要打誰」的 port 跟這次拓撲對不上、port 上跑的是別的工作樹或主線、建置後沒重啟。這支腳本手動執行（或照提醒在起好服務後執行），三層各可單獨跑（`--layers config,runtime,http`）：
+  - ①**設定一致性**：本次要起的拓撲由 `--ports <服務>[@<工作樹>][=<port>]` 指定，驗填空區 `POINTERS` 指向的設定檔裡寫的目標 port 與這次拓撲一致；參數錯誤時列出可填的服務與每個 repo 的工作樹、附可直接複製的範例指令。
+  - ②**執行層**：每個 port 有沒有服務在聽、那個 process 跑的是哪個工作樹與分支（對 `git worktree list` 比對目前目錄、命令列、已載入模組、執行檔路徑），以及啟動時間早於最新建置產物時標「跑的是舊產物」。Windows 用 PowerShell，Linux／macOS 用 `ss`／`lsof` 與 `/proc`；判不出時標「?」不當成通過也不當成失敗。
+  - ③**HTTP 探測（選填）**：服務有設健康檢查網址才打，比對狀態碼與須包含的字樣。
+  - 結束碼：沒有不符 0、有不符 1、參數或填空區錯誤 2。只讀、不砍任何 process。
+  - 已知限制：Linux／macOS 路徑只寫好、未在該平台實測；Windows 讀不到別的 process 的目前目錄，用相對路徑起的服務會判「?」。
+- **`remind-worktree-overrides.js` 新增選填 `PORT_CHECK_CMD`**：起服務的指令命中時，附上「起好服務之後跑這支驗 port」。只提醒、不執行、不擋；不在 hook 裡直接跑檢查，因為 hook 跑在起服務之前，那一刻量到的是舊 process。
+- init：Phase 1 判斷要不要裝（多個工作樹而且有起本機服務）、Q5 選單、Phase 4 填空、Phase 5 三次實跑驗收；hook-catalog 新增第 30 列；03 A9 與本機覆寫說明骨架指向這支腳本。
+
 ## [0.14.0] - 2026-10-07
 ### Added
 - **選裝 skill 骨架（init 訪談第 12 題）**：三支可選的專案 skill，都照 05 §4.1 的寫法（description 寫觸發與排除、狀態檔住 skill 目錄、同目錄 CHANGELOG.md）。

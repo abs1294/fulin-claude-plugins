@@ -1,0 +1,328 @@
+{
+  "hook": "check-worktree-ports.js",
+  "_note": "不是 hook：CLI 檢查腳本，參數由各 variant 的 DEFAULT_ARGS 帶入（探針不傳命令列參數）。結束碼 2＝參數或填空區錯誤（探針判成 BLOCK）、1＝有不符、0＝沒有不符。第②層「有 listener、跑對／跑錯工作樹、產物比 process 新」與第③層的實打需要真的起服務，探針做不到，只做了手動實跑（見範本檔頭的用法）。",
+  "variants": {
+    "bad-port": {
+      "replace": [
+        [
+          "const SERVICES = [];",
+          "const SERVICES = [\n  { name: 'api', repo: '.', port: 4710 },\n  { name: 'web', repo: '.', port: 4720, health: null },\n];"
+        ],
+        [
+          "const POINTERS = [];",
+          "const POINTERS = [\n  { from: 'web', file: 'web/.env', pattern: '^API_BASE_URL *= *https?://localhost:([0-9]+)', target: 'api', label: 'API_BASE_URL' },\n];"
+        ],
+        [
+          "const DEFAULT_ARGS = '';",
+          "const DEFAULT_ARGS = '--ports api=abc';"
+        ]
+      ]
+    },
+    "unknown-service": {
+      "replace": [
+        [
+          "const SERVICES = [];",
+          "const SERVICES = [\n  { name: 'api', repo: '.', port: 4710 },\n  { name: 'web', repo: '.', port: 4720, health: null },\n];"
+        ],
+        [
+          "const POINTERS = [];",
+          "const POINTERS = [\n  { from: 'web', file: 'web/.env', pattern: '^API_BASE_URL *= *https?://localhost:([0-9]+)', target: 'api', label: 'API_BASE_URL' },\n];"
+        ],
+        [
+          "const DEFAULT_ARGS = '';",
+          "const DEFAULT_ARGS = '--ports db=4710';"
+        ]
+      ]
+    },
+    "bad-layer": {
+      "replace": [
+        [
+          "const SERVICES = [];",
+          "const SERVICES = [\n  { name: 'api', repo: '.', port: 4710 },\n  { name: 'web', repo: '.', port: 4720, health: null },\n];"
+        ],
+        [
+          "const POINTERS = [];",
+          "const POINTERS = [\n  { from: 'web', file: 'web/.env', pattern: '^API_BASE_URL *= *https?://localhost:([0-9]+)', target: 'api', label: 'API_BASE_URL' },\n];"
+        ],
+        [
+          "const DEFAULT_ARGS = '';",
+          "const DEFAULT_ARGS = '--ports api=4710 --layers config,runtimes';"
+        ]
+      ]
+    },
+    "no-such-worktree": {
+      "replace": [
+        [
+          "const SERVICES = [];",
+          "const SERVICES = [\n  { name: 'api', repo: '.', port: 4710 },\n  { name: 'web', repo: '.', port: 4720, health: null },\n];"
+        ],
+        [
+          "const POINTERS = [];",
+          "const POINTERS = [\n  { from: 'web', file: 'web/.env', pattern: '^API_BASE_URL *= *https?://localhost:([0-9]+)', target: 'api', label: 'API_BASE_URL' },\n];"
+        ],
+        [
+          "const DEFAULT_ARGS = '';",
+          "const DEFAULT_ARGS = '--ports api@wt/nope=4710';"
+        ]
+      ]
+    },
+    "config": {
+      "replace": [
+        [
+          "const SERVICES = [];",
+          "const SERVICES = [\n  { name: 'api', repo: '.', port: 4710 },\n  { name: 'web', repo: '.', port: 4720, health: null },\n];"
+        ],
+        [
+          "const POINTERS = [];",
+          "const POINTERS = [\n  { from: 'web', file: 'web/.env', pattern: '^API_BASE_URL *= *https?://localhost:([0-9]+)', target: 'api', label: 'API_BASE_URL' },\n];"
+        ],
+        [
+          "const DEFAULT_ARGS = '';",
+          "const DEFAULT_ARGS = '--ports api=4710,web=4720 --layers config';"
+        ]
+      ]
+    },
+    "config-one-side": {
+      "replace": [
+        [
+          "const SERVICES = [];",
+          "const SERVICES = [\n  { name: 'api', repo: '.', port: 4710 },\n  { name: 'web', repo: '.', port: 4720, health: null },\n];"
+        ],
+        [
+          "const POINTERS = [];",
+          "const POINTERS = [\n  { from: 'web', file: 'web/.env', pattern: '^API_BASE_URL *= *https?://localhost:([0-9]+)', target: 'api', label: 'API_BASE_URL' },\n];"
+        ],
+        [
+          "const DEFAULT_ARGS = '';",
+          "const DEFAULT_ARGS = '--ports web=4720 --layers config';"
+        ]
+      ]
+    },
+    "config-wt": {
+      "replace": [
+        [
+          "const SERVICES = [];",
+          "const SERVICES = [\n  { name: 'api', repo: '.', port: 4710 },\n  { name: 'web', repo: '.', port: 4720, health: null },\n];"
+        ],
+        [
+          "const POINTERS = [];",
+          "const POINTERS = [\n  { from: 'web', file: 'web/.env', pattern: '^API_BASE_URL *= *https?://localhost:([0-9]+)', target: 'api', label: 'API_BASE_URL' },\n];"
+        ],
+        [
+          "const DEFAULT_ARGS = '';",
+          "const DEFAULT_ARGS = '--ports api@wt/feat=4710,web@wt/feat=4720 --layers config';"
+        ]
+      ]
+    },
+    "runtime-nobody": {
+      "replace": [
+        [
+          "const SERVICES = [];",
+          "const SERVICES = [\n  { name: 'api', repo: '.', port: 4710 },\n  { name: 'web', repo: '.', port: 4720, health: null },\n];"
+        ],
+        [
+          "const POINTERS = [];",
+          "const POINTERS = [\n  { from: 'web', file: 'web/.env', pattern: '^API_BASE_URL *= *https?://localhost:([0-9]+)', target: 'api', label: 'API_BASE_URL' },\n];"
+        ],
+        [
+          "const DEFAULT_ARGS = '';",
+          "const DEFAULT_ARGS = '--ports api=1 --layers runtime';"
+        ]
+      ]
+    },
+    "http-none": {
+      "replace": [
+        [
+          "const SERVICES = [];",
+          "const SERVICES = [\n  { name: 'api', repo: '.', port: 4710 },\n  { name: 'web', repo: '.', port: 4720, health: null },\n];"
+        ],
+        [
+          "const POINTERS = [];",
+          "const POINTERS = [\n  { from: 'web', file: 'web/.env', pattern: '^API_BASE_URL *= *https?://localhost:([0-9]+)', target: 'api', label: 'API_BASE_URL' },\n];"
+        ],
+        [
+          "const DEFAULT_ARGS = '';",
+          "const DEFAULT_ARGS = '--ports api=4710 --layers http';"
+        ]
+      ]
+    }
+  },
+  "cases": [
+    {
+      "label": "填空區 SERVICES 沒填、沒給參數 → 印用法，exit 2",
+      "setup": {},
+      "payload": {},
+      "expect": "BLOCK",
+      "exit": 2
+    },
+    {
+      "label": "參數錯誤：port 不是數字 → exit 2",
+      "variant": "bad-port",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        }
+      },
+      "payload": {},
+      "expect": "BLOCK",
+      "exit": 2
+    },
+    {
+      "label": "參數錯誤：服務表沒有這個名字 → exit 2",
+      "variant": "unknown-service",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        }
+      },
+      "payload": {},
+      "expect": "BLOCK",
+      "exit": 2
+    },
+    {
+      "label": "參數錯誤：--layers 拼錯 → exit 2",
+      "variant": "bad-layer",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        }
+      },
+      "payload": {},
+      "expect": "BLOCK",
+      "exit": 2
+    },
+    {
+      "label": "參數錯誤：repo 沒有這個工作樹 → exit 2",
+      "variant": "no-such-worktree",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "BLOCK",
+      "exit": 2
+    },
+    {
+      "label": "① 設定指標相符 → exit 0",
+      "variant": "config",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        }
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 0
+    },
+    {
+      "label": "① 設定指標不符（註解掉的那行才是對的值，不算生效）→ exit 1",
+      "variant": "config",
+      "setup": {
+        "files": {
+          "web/.env": "# API_BASE_URL=http://localhost:4710\nAPI_BASE_URL=http://localhost:4799\n"
+        }
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 1
+    },
+    {
+      "label": "① 設定檔讀不到 → exit 1",
+      "variant": "config",
+      "setup": {
+        "files": {
+          "README.md": "x\n"
+        }
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 1
+    },
+    {
+      "label": "① 檔案在、但沒有一行對得上 pattern → exit 1",
+      "variant": "config",
+      "setup": {
+        "files": {
+          "web/.env": "OTHER=1\n"
+        }
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 1
+    },
+    {
+      "label": "① 指標另一端這次沒列 → 標 ? 略過，exit 0",
+      "variant": "config-one-side",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        }
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 0
+    },
+    {
+      "label": "① 從工作樹起：讀工作樹裡那份設定（主要工作目錄對、工作樹錯）→ exit 1",
+      "variant": "config-wt",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        },
+        "commit": true,
+        "worktrees": {
+          "wt/feat": "."
+        },
+        "files_after_worktrees": {
+          "wt/feat/web/.env": "API_BASE_URL=http://localhost:4799\n"
+        }
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 1
+    },
+    {
+      "label": "① 從工作樹起：工作樹那份相符 → exit 0",
+      "variant": "config-wt",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        },
+        "commit": true,
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 0
+    },
+    {
+      "label": "② 沒有服務在聽 → 標「沒有服務在聽」，exit 1",
+      "variant": "runtime-nobody",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        },
+        "commit": true
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 1
+    },
+    {
+      "label": "③ 沒設 health → 略過，exit 0",
+      "variant": "http-none",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        }
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 0
+    }
+  ]
+}

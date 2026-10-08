@@ -8,6 +8,14 @@
           "const ALWAYS_REMIND = '先確認埠號指向這個工作樹的服務、建置後有重啟。';"
         ]
       ]
+    },
+    "portcheck": {
+      "replace": [
+        [
+          "const PORT_CHECK_CMD = '';",
+          "const PORT_CHECK_CMD = 'node .claude/hooks/check-worktree-ports.js --ports <服務>[@<工作樹>]=<port>,...';"
+        ]
+      ]
     }
   },
   "cases": [
@@ -425,6 +433,108 @@
         "tool_input": {
           "file_path": "wt/feat/a.txt",
           "content": "npm run dev"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "PORT_CHECK_CMD 有填：在主要工作目錄起服務（沒提到工作樹）→ 照樣提醒起好後驗 port",
+      "variant": "portcheck",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "PORT_CHECK_CMD 有填：工作樹覆寫沒帶 → 覆寫提醒＋驗 port 提醒",
+      "variant": "portcheck",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "PORT_CHECK_CMD 有填：沒有覆寫清單也提醒驗 port",
+      "variant": "portcheck",
+      "setup": {
+        "files": {
+          "config/local.json": "{}\n"
+        },
+        "commit": true,
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && npm run dev"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "PORT_CHECK_CMD 有填：不是起服務的指令 → 安靜",
+      "variant": "portcheck",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd wt/feat && git status"
         }
       },
       "expect": "SILENT"

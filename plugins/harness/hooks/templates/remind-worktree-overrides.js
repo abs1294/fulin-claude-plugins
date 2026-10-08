@@ -26,6 +26,9 @@
 //       檔案被清空（0 bytes）→「被清空」；檔案還在、但缺清單 requires 宣告的字串 →「帶到舊版」。
 //     判準與 check-local-hacks-alive.js 相同（同一份清單解析），只是對象換成那個工作樹。
 //   · 有缺漏就印 additionalContext 提醒；沒缺漏時安靜（ALWAYS_REMIND 有填時改成照樣提醒那段話）。
+//   · 選填開關 PORT_CHECK_CMD：有填時，起服務的指令一命中就另附「起好之後跑 check-worktree-ports.js 驗 port」的提醒
+//     （上面幾條判定不成立、甚至沒有覆寫清單時也附；只提醒，不在 hook 裡執行——hook 跑在起服務之前，那一刻量到的是舊 process，
+//     而且 Windows 冷啟 PowerShell 查 process 要數秒）。
 // 只提醒不擋：該不該帶是人的判斷——那個工作樹的 HEAD 可能本來就含正確值、不需要覆寫。
 // 輸出走 hookSpecificOutput.additionalContext：PreToolUse 的 exit 0 純文字 stdout／stderr 模型看不到（官方 hooks 文件）。
 //
@@ -33,7 +36,8 @@
 //   · 只認指令字面上的路徑：路徑放在變數裡（cd "$WT"）、或由腳本切目錄後再起服務，認不出是哪個工作樹，不提醒。
 //   · 路徑比對是字串比對：指令裡剛好出現某個工作樹的路徑、但其實沒在那裡起服務（例：起服務前先 ls 過它），也會查那一個。
 //   · 只查覆寫在不在、內容是不是舊版，不查服務實際連到哪裡——覆寫全帶齊，整條鏈路照樣可能不通（埠號指錯、
-//     跑的是主要工作目錄的服務、建置後沒重啟），那幾件要另外驗（03 的 A9）。
+//     跑的是主要工作目錄的服務、建置後沒重啟），那幾件要另外驗（03 的 A9；有裝 check-worktree-ports.js 時就是跑它，
+//     PORT_CHECK_CMD 填了會在起服務時提醒）。
 // fail-open：任何例外一律靜默放行（exit 0）。
 
 const fs = require('fs');
@@ -51,6 +55,11 @@ const SETUP_DOC = '';
 // 從工作樹起服務時「不論有沒有缺漏都要講」的提醒（例：先驗埠號、確認跑的是這個工作樹的建置、建置後有沒有重啟）。
 // 留空字串＝沒缺漏就安靜。
 const ALWAYS_REMIND = '';
+// 起好服務之後要跑的 port 驗證指令（有裝 check-worktree-ports.js——形狀目錄第 30 列——時填，例：
+// 'node .claude/hooks/check-worktree-ports.js --ports <服務>[@<工作樹>]=<port>,...'）。有填時，起服務的指令一命中就附上
+// 「起好之後跑這支」的提醒——不論覆寫有沒有缺漏、指令有沒有提到工作樹、有沒有覆寫清單（從主要工作目錄起服務時，
+// port 上也可能還是某個工作樹的舊 process）。只提醒、不在 hook 裡執行它（理由見該腳本檔頭）。留空字串＝不提這件事。
+const PORT_CHECK_CMD = '';
 // 最多列幾筆（其餘只算數量）。
 const MAX_LIST = 16;
 // ────────────────────────────────────────────────────────────────────────────
@@ -389,6 +398,18 @@ function mentions(cmd, form, isRel) {
   }
 }
 
+// 起服務的指令命中之後的出口：PORT_CHECK_CMD 有填時，不論覆寫有沒有缺漏、有沒有提到工作樹，都附上「起好之後驗 port」那一句
+function emit(L) {
+  if (PORT_CHECK_CMD) {
+    if (L.length) L.push('');
+    L.push('[起好服務之後驗 port] 服務起好後跑 `' + PORT_CHECK_CMD + '`' +
+      (PORT_CHECK_CMD.indexOf('<') >= 0 ? '（<…> 換成這次的服務、工作樹與 port；只帶 --help 跑會列出可填的名字）' : '（服務、工作樹或 port 跟這次不同時照實改）') + '，' +
+      '確認每個 port 上跑的是這次要的工作樹、不是建置後沒重啟的舊產物、設定檔指向的 port 跟這次的拓撲一致。只是提醒，不會自動執行。');
+  }
+  if (L.length) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: L.join('\n') } }) + '\n');
+  process.exit(0);
+}
+
 try {
   let raw = '';
   try { raw = fs.readFileSync(0, 'utf8'); } catch (e) { process.exit(0); }
@@ -398,9 +419,9 @@ try {
   if (!cmd || !new RegExp(START_COMMAND, 'i').test(cmd)) process.exit(0);
 
   const ROOT = findRoot();
-  if (!ROOT) process.exit(0);
+  if (!ROOT) emit([]);
   const entries = loadEntries(ROOT);
-  if (!entries.length) process.exit(0);
+  if (!entries.length) emit([]);
 
   // 覆寫清單上每個 repo 的其他工作樹
   const cache = {};
@@ -419,7 +440,7 @@ try {
     const mainDir = list[0];
     for (const wt of list.slice(1)) candidates.push({ wt: wt, mainDir: mainDir, repo: r });
   }
-  if (!candidates.length) process.exit(0);
+  if (!candidates.length) emit([]);
 
   // 指令提到的那一個（取路徑最長的）；都沒提到時，看 session 目前目錄在不在某個工作樹裡
   const cwd = path.resolve(input.cwd || ROOT);
@@ -443,7 +464,7 @@ try {
       if (inside(c.wt, cwd) && c.wt.length > pickLen) { pick = c; pickLen = c.wt.length; }
     }
   }
-  if (!pick) process.exit(0);
+  if (!pick) emit([]);
 
   const wt = pick.wt;
   const issues = [];
@@ -457,7 +478,7 @@ try {
     const lack = missingRequires(wt, ent);
     if (lack.length) issues.push({ tag: '[帶到舊版]', file: ent.file, note: '缺 ' + lack.map((x) => '「' + x + '」').join('、') });
   }
-  if (!issues.length && !ALWAYS_REMIND) process.exit(0);
+  if (!issues.length && !ALWAYS_REMIND) emit([]);
 
   const shown = path.relative(ROOT, wt).split('\\').join('/') || wt;
   const L = [];
@@ -476,6 +497,6 @@ try {
     if (L.length) L.push('');
     L.push('[從工作樹起服務] ' + ALWAYS_REMIND);
   }
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: L.join('\n') } }) + '\n');
+  emit(L);
 } catch (e) {}
 process.exit(0);
