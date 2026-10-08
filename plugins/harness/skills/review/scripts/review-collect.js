@@ -41,7 +41,7 @@ const claudeMd = read(path.join(root, 'CLAUDE.md')) || '';
 // ── changelog 讀取（harness 0.10.0 起 changelog 從指令檔與知識容器拆出去）──
 // 一份檔的異動紀錄可能在三個地方，三處都讀、合併（同一個出處不重複）：
 //   ① 舊格式：檔案本體的 `## Changelog` 節（到下一個 `## ` 標題或檔尾）——0.9.x 以前安裝的實例
-//   ② 同目錄的 `<主檔名>.changelog.md`（根目錄知識容器：CONTEXT.changelog.md、FLOWS.changelog.md…）——整份的日期行都算
+//   ② 同目錄的 `<主檔名>.changelog.md`（根目錄知識容器：GLOSSARY.changelog.md（舊檔名 CONTEXT.changelog.md）、FLOWS.changelog.md…）——整份的日期行都算
 //   ③ 同目錄的 `CHANGELOG.md` 裡 `## <檔名>` 那一節（.claude/harness/CHANGELOG.md 的 `## 05-knowledge-protocol.md`、
 //      .claude/agents/CHANGELOG.md 的 `## qa-engineer.md`；來源專案的 tests/Project_Detail/CHANGELOG.md 也是這個形狀）
 // 只認 `- YYYY-MM-DD` 開頭的行；輸出只記日期與出處（檔名:行號），不抄內容（筆記可能寫了帳密）。
@@ -132,8 +132,11 @@ const agentName = (t) => (!t || managed.includes(t) || instanceAgents.includes(t
 // 模型：別名，或「claude-家族-純數字版本」（版本段只准數字，帶不進任意字）
 const modelName = (m) => m ? (/^(?:sonnet|opus|haiku|fable|inherit|claude-(?:opus|sonnet|haiku|fable)-\d{1,2}(?:-\d{1,2})?(?:-\d{8})?)(?:\[1m\])?$/i.test(m) ? m : '（其他模型）') : null;
 // 必讀檔：實例的表有「必讀：…」規則就照實例（連專案自加的必讀一起查）；沒有才用 harness 0.5.1 的標準對照
+// 專案詞彙表新舊兩個檔名都認：GLOSSARY.md（新）或 CONTEXT.md（舊）；讀過或列過任一個都算
+const GLOSSARY_LABEL = 'GLOSSARY.md/CONTEXT.md';
+const GLOSSARY_RE = /GLOSSARY\.md|CONTEXT\.md/i;
 const STANDARD_READS = {
-  '*': [['CLAUDE.md', /CLAUDE\.md/i], ['CONTEXT.md', /CONTEXT\.md/i]],
+  '*': [['CLAUDE.md', /CLAUDE\.md/i], [GLOSSARY_LABEL, GLOSSARY_RE]],
   'backend-architect': [['FLOWS.md', /FLOWS\.md/i]],
   'backend-engineer': [['FLOWS.md', /FLOWS\.md/i]],
   'frontend-engineer': [['FLOWS.md', /FLOWS\.md/i]],
@@ -146,12 +149,13 @@ function requiredReadsFor(type) {
   const rs = [...(markers['*'] || []), ...(markers[type] || [])].filter((r) => /^必讀：/.test(r.name));
   const outRs = [];
   // 輸出的名稱用標準檔名（拿樣本路徑測這條規則的正則），對不上就寫第幾條——不抄規則名與正則原文
-  const samples = [['CLAUDE.md', 'CLAUDE.md'], ['CONTEXT.md', 'CONTEXT.md'], ['FLOWS.md', 'FLOWS.md'], ['PROJECT.md', path.join('tests', 'Project_Detail', 'PROJECT.md')]];
+  const samples = [['CLAUDE.md', 'CLAUDE.md'], [GLOSSARY_LABEL, 'GLOSSARY.md'], [GLOSSARY_LABEL, 'CONTEXT.md'], ['FLOWS.md', 'FLOWS.md'], ['PROJECT.md', path.join('tests', 'Project_Detail', 'PROJECT.md')]];
   rs.forEach((r, i) => { try {
     const re = new RegExp(r.pattern, 'i');
     let label = (samples.find(([, p]) => re.test(path.join(root, p))) || [])[0] || ((type || '*') + ' 適用的第 ' + (i + 1) + ' 條必讀規則');
     while (outRs.some(([k]) => k === label)) label += '＊';
-    outRs.push([label, re]); } catch { out.notes.push('實例的必讀規則正則寫壞了，略過：' + (type || '*') + ' 的第 ' + (i + 1) + ' 條必讀規則（內容回派工檢查表看）'); } });
+    // 詞彙表規則：實例的表若只認舊檔名 CONTEXT.md，專案改名後讀 GLOSSARY.md 也要算讀到
+    outRs.push([label, label === GLOSSARY_LABEL ? new RegExp(re.source + '|' + GLOSSARY_RE.source, 'i') : re]); } catch { out.notes.push('實例的必讀規則正則寫壞了，略過：' + (type || '*') + ' 的第 ' + (i + 1) + ' 條必讀規則（內容回派工檢查表看）'); } });
   return outRs;
 }
 out.D.mustReadSource = hookHasMustRead ? '實例的派工檢查表（含專案自加的必讀規則）' : 'harness 0.5.1 標準（實例的派工檢查表沒有必讀檔名規則——版本落後）';
@@ -284,9 +288,9 @@ function cmdShape(c) {
   for (const m of c.matchAll(/\b(?:mysql|psql|mongosh|sqlcmd)\b[^\n;|&]*?\s(?:-h|-S|--host)[\s=]*['"]?([\w.-]+)/g)) addHost(m[1]);
   return { programs, hosts: [...hosts], unknownHosts };
 }
-// 已知主機：本機位址，或在專案知識文件（CLAUDE.md、CONTEXT.md、FLOWS.md、PROJECT.md、.claude/harness/*.md）裡以完整詞出現過的主機名
+// 已知主機：本機位址，或在專案知識文件（CLAUDE.md、GLOSSARY.md／CONTEXT.md、FLOWS.md、PROJECT.md、.claude/harness/*.md）裡以完整詞出現過的主機名
 let docText = '';
-for (const p of ['CLAUDE.md', 'CONTEXT.md', 'FLOWS.md', path.join('tests', 'Project_Detail', 'PROJECT.md')]) docText += '\n' + (read(path.join(root, p)) || '');
+for (const p of ['CLAUDE.md', 'GLOSSARY.md', 'CONTEXT.md', 'FLOWS.md', path.join('tests', 'Project_Detail', 'PROJECT.md')]) docText += '\n' + (read(path.join(root, p)) || '');
 try { for (const n of fs.readdirSync(path.join(root, '.claude', 'harness')).filter((x) => x.endsWith('.md'))) docText += '\n' + (read(path.join(root, '.claude', 'harness', n)) || ''); } catch {}
 docText = docText.toLowerCase();
 function knownHost(h) {
@@ -457,7 +461,7 @@ for (const f of files) {
           const d = {
             at: where(f, o), id: b.id, type, model: modelName(inp.model), managed: managed.includes(type),
             hasMustRead: /【開工前必讀】/.test(p),
-            mentions: { 'CLAUDE.md': /CLAUDE\.md/.test(p), 'CONTEXT.md': /CONTEXT\.md/.test(p), 'FLOWS.md': /FLOWS\.md/.test(p), 'PROJECT.md': /Project_Detail[\\/]PROJECT\.md/i.test(p) },
+            mentions: { 'CLAUDE.md': /CLAUDE\.md/.test(p), [GLOSSARY_LABEL]: /GLOSSARY\.md|CONTEXT\.md/.test(p), 'FLOWS.md': /FLOWS\.md/.test(p), 'PROJECT.md': /Project_Detail[\\/]PROJECT\.md/i.test(p) },
             alignedBefore: sawAlign, blocked: deniedIds.has(b.id),
           };
           agg.dispatch.push(d); if (!d.blocked) sess.dispatches++;
@@ -636,7 +640,9 @@ function knowledge(file) {
     changelogSince: cl.filter((e) => (!since || e.date >= since) && !INIT_LINE.test(e.line)).map((e) => ({ date: e.date, at: e.at })),
   };
 }
-out.E.knowledge = ['CONTEXT.md', 'FLOWS.md', 'tests/Project_Detail/PROJECT.md'].map(knowledge);
+// 詞彙表：GLOSSARY.md 優先，沒有才看舊檔名 CONTEXT.md；兩個都沒有時記 GLOSSARY.md（exists: false）
+const glossaryFile = ['GLOSSARY.md', 'CONTEXT.md'].find((f) => read(path.join(root, f)) != null) || 'GLOSSARY.md';
+out.E.knowledge = [glossaryFile, 'FLOWS.md', 'tests/Project_Detail/PROJECT.md'].map(knowledge);
 // 上次健檢：05 的紀錄裡帶【健檢執行】標記、日期最大的一筆，讀法與 health-check-reminder.js 一致——
 // .claude/harness/CHANGELOG.md 有 05 那一節就只讀那一節，沒有才讀 05 本體（兩處都讀的話，升級到一半的實例
 // 會跟提醒 hook 算出不同的「上次健檢」）
@@ -660,7 +666,7 @@ const riskyLabel = ((read(path.join(root, '.claude', 'hooks', 'guard-risky-comma
 out.F.guardDenials = agg.denials.filter((d) => d.tag === riskyLabel);
 out.F.riskyLookingCommands = agg.riskyCmds;
 out.F.secretsInCommands = agg.secretCmds;
-out.F.note = 'riskyLookingCommands 的 hosts 只列專案文件（CLAUDE.md、CONTEXT.md、FLOWS.md、PROJECT.md、.claude/harness）裡寫過的主機；unknownHosts 是文件沒寫過的主機數，不列名稱（避免把指令裡的值當主機抄出來），逐條照出處回原文看是連到哪裡、該不該擋。';
+out.F.note = 'riskyLookingCommands 的 hosts 只列專案文件（CLAUDE.md、GLOSSARY.md／CONTEXT.md、FLOWS.md、PROJECT.md、.claude/harness）裡寫過的主機；unknownHosts 是文件沒寫過的主機數，不列名稱（避免把指令裡的值當主機抄出來），逐條照出處回原文看是連到哪裡、該不該擋。';
 
 // ── G 使用者介入 ──
 out.G.userTurns = agg.userTurns;

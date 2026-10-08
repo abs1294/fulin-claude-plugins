@@ -31,7 +31,7 @@ description: 本專案工作流地圖：使用者問「現在該怎麼做」「�
 
 ## 底層（Claude 自己會用，人不用記）
 
-專案用語＝workspace 根 `CONTEXT.md`；派工規則＝harness 02、04；判斷規則＝harness 03；踩坑與健檢＝harness 05{{；有註解規範時加：；註解規範＝<路徑>}}。
+專案用語＝workspace 根 `GLOSSARY.md`（沒有就讀 `CONTEXT.md`）；派工規則＝harness 02、04；判斷規則＝harness 03；踩坑與健檢＝harness 05{{；有註解規範時加：；註解規範＝<路徑>}}。
 
 ## 已停用（別找它們）
 

@@ -17,7 +17,8 @@
 // 幾十處寫死業務代碼、上百處直接 INSERT 業務主體表造狀態，而那些派工單多半都「有寫這格」；
 // 【驗收條件】同理，整段範本貼上、只留佔位 <…> 也能過閘。所以這兩格改為驗作答：
 //   【測試資料來源】（DATA_SOURCE_AGENTS）：①這格第一行要寫「選 a／選 b／選 c」（固定格式）
-//     ②選 b 要附產品端證據「檔名:行號」 ③選 c 要附理由（為何屬字典／設定類）
+//     ②選 b 要理由點名例外類別（關鍵詞判定，見填空區 DATA_SOURCE_B_CATEGORIES；成本、麻煩、慢都不算）
+//       且附產品端證據「檔名:行號」，兩件都要 ③選 c 要附理由（為何屬字典／設定類）
 //   【驗收條件】（ACCEPTANCE_BODY_AGENTS）：剝掉範本佔位 <…>、標題後的括號說明、條列符號後不能是空的
 // 仍不判「選得對不對」「條件寫得好不好」——那要看程式碼與需求，是審查與 QA 的事。
 //
@@ -45,7 +46,7 @@
 // 派一個要連過多道閘的 agent 會被連續擋很多次，而且每次 deny 都燒一輪 context。
 //
 // 通用化說明：本範本的 REQUIRED_MARKERS 表格對齊 04-delegation-templates.md 的欄位標題——
-// 共用四項（回報鏈鐵則、【驗收條件】、【回報格式】、【開工前必讀】，且必讀要寫到 CLAUDE.md、CONTEXT.md）＋依 agent 角色加碼的欄位
+// 共用四項（回報鏈鐵則、【驗收條件】、【回報格式】、【開工前必讀】，且必讀要寫到 CLAUDE.md、GLOSSARY.md（舊檔名 CONTEXT.md 也認））＋依 agent 角色加碼的欄位
 // （實作與 QA 驗【開工前對齊】、QA 另驗【目標環境】【既有測試分流】，見填空區註解）。這是通用骨架的預設表，**不含**任何特定專案自訂的紀律標記（例如某種靜態掃描
 // 工具名、某種分流判準、某個環境的 port 對照）——專案要加自己的紀律時，直接在表裡
 // 用同樣的形狀加一條（見填空區範例的「如何自加一條」）。
@@ -67,7 +68,7 @@ const path = require('path');
 //
 // 表格對齊 04-delegation-templates.md 的模板欄位標題：
 //   共用（'*'）：回報鏈鐵則（「不得轉派」或「親自執行」）、【驗收條件】、【回報格式】、【開工前必讀】，
-//     且必讀清單一定要寫到 CLAUDE.md（專案概要）與 CONTEXT.md（專案用語）——所有角色都要讀
+//     且必讀清單一定要寫到 CLAUDE.md（專案概要）與 GLOSSARY.md（專案用語；舊檔名 CONTEXT.md 也認）——所有角色都要讀
 //   架構、實作、審查（backend-architect／backend-engineer／frontend-engineer／code-reviewer）另要寫到 FLOWS.md
 //     （觸及已收錄鏈路就列入；沒觸及也寫一句，逼派工的人判斷一次——「有沒有觸及」機械判不了）
 //   實作與 QA（backend-engineer／frontend-engineer／qa-engineer）另加【開工前對齊】（04 模板二、三、六；三選一表態，判準見模板五配套 1）
@@ -116,8 +117,8 @@ const REQUIRED_MARKERS = {
     },
     {
       name: '必讀：專案用語',
-      pattern: 'CONTEXT\\.md',
-      hint: '【開工前必讀】要列 CONTEXT.md（專案用語的定義；需求裡的詞以它為準）；專案沒有這個檔就寫「CONTEXT.md：專案沒有這個檔」。',
+      pattern: 'GLOSSARY\\.md|CONTEXT\\.md',
+      hint: '【開工前必讀】要列 GLOSSARY.md（專案用語的定義；需求裡的詞以它為準；專案沒有 GLOSSARY.md 就列舊檔名 CONTEXT.md，寫成「GLOSSARY.md（沒有就讀 CONTEXT.md）」兩個都認）；兩個都沒有就寫「GLOSSARY.md：專案沒有這個檔」。',
     },
   ],
   'backend-architect': [
@@ -169,7 +170,7 @@ const REQUIRED_MARKERS = {
     {
       name: '測試資料來源',
       pattern: '【測試資料來源】',
-      hint: '派 QA agent 的 prompt 必須含【測試資料來源】：表明測試資料怎麼來（走真實業務流程／自種自清／'
+      hint: '派 QA agent 的 prompt 必須含【測試資料來源】：表明測試資料怎麼來（走真實業務流程／封閉例外／'
         + '依賴既有字典資料），並說明理由；禁止硬編業務 Id 或使用者身分當輸入。',
     },
     {
@@ -204,6 +205,26 @@ const REQUIRED_MARKERS = {
 const ACCEPTANCE_BODY_AGENTS = ['*'];
 // 【測試資料來源】要驗作答的 agent（通常只有 QA agent；Q1 裁掉 QA 時清空）。
 const DATA_SOURCE_AGENTS = ['qa-engineer'];
+// 【測試資料來源】選 b 時，理由要點名的例外類別（04 模板六 b：封閉例外，類別增減只能由使用者裁定）。
+// 每條是字串形式的 regex（大小寫不拘），作答段命中任一條即算「點名了例外類別」；一條都沒命中 → 擋。
+// 預設對齊 04 模板六 b 的「上游系統推送的資料、產品本身沒有建立入口」。init 時照專案 04 模板六 b 實際列的類別改，
+// 專案另有類別（例：某外部系統回呼才產生的資料）就照同樣的形狀加一條；04 的類別改了，這張表要同步改，否則照新類別寫的 b 會被擋。
+// 判準是白名單：只認點名例外類別，不靠列舉推託詞——推託講法列不完（來源專案黑名單連三輪審查每修一種句型就漏另一種）。
+// 只驗「有沒有點名類別」，不驗那筆資料是不是真的屬於該類別——真假靠同時要附的「檔名:行號」證據與審查。
+const DATA_SOURCE_B_CATEGORIES = [
+  '上游[^，,。；;\\n]{0,20}推送',
+  '外部系統[^，,。；;\\n]{0,20}推送',
+  '(?:沒有|沒|無|没有)[^，,。；;\\n]{0,8}建立入口',
+];
+// 常見的非理由（04 模板六 b 列明不是理由）：只用來讓擋下訊息說得更準，**不參與放行判定**——
+// 沒點名例外類別一律擋，有沒有命中這張表都一樣；同時點名了例外類別則放行（類別成立與否由證據與審查判）。
+const DATA_SOURCE_B_NON_REASONS = [
+  '成本',
+  '麻煩',
+  '慢|耗時|比較快|較快|省時|省事',
+  '精確控制|資料形狀',
+  '歷史相容',
+];
 
 // 打開引用的檔驗章節（見檔頭）。每條規則：
 //   name     — 識別名（訊息用）
@@ -292,7 +313,7 @@ function dataSourceProblems(prompt) {
   if (raw === null) return [];      // 沒有這格由標記表報
   const seg = stripPlaceholders(dropHeadingNote(raw));
   const COMMON = '（04-delegation-templates.md 模板六）該格**第一行開頭**寫「選 a」「選 b」或「選 c」，後面接理由：'
-    + 'a 走真實業務流程長出來（首選）；b 自種自清（寫入後取回自己建的 Id＋teardown 自刪），要附為何不走 a 所根據的產品端證據「檔名:行號」'
+    + 'a 走真實業務流程長出來（首選）；b 封閉例外（只限 04 模板六 b 列的例外類別，例：上游系統推送的資料；成本過高不是理由），要附為何不走 a 所根據的產品端證據「檔名:行號」'
     + '（例：上游推送的唯一寫入點、擋住入口的守門）；c 依賴既有資料，僅限字典／設定類，要說明為何屬這類。'
     + '範本裡 a./b./c. 的說明與 ⛔ 清單可以留著，但作答要寫在它們前面。請在 prompt 補上後重發同一個 agent。';
 
@@ -343,6 +364,18 @@ function dataSourceProblems(prompt) {
   if (picked === 'b') {
     // 只認作答段裡的「檔名:行號」（或 檔名#L行號）；推託詞不列舉，改要求看過產品程式碼的證據
     const EVIDENCE = /[\w\u4e00-\u9fff./\\@\[\]+~-]+\.(?:cs|js|mjs|cjs|ts|tsx|jsx|vue|svelte|py|java|kt|go|rb|php|sql|rs|swift|dart|scala|sh|ps1|json|ya?ml|xml|c|h|cc|cpp|hpp|m|ex|exs|html|cshtml|razor)(?:[:：]|#L)\d+/;
+    // 兩件事都要過、各自獨立報（一次列完）：①理由點名例外類別（DATA_SOURCE_B_CATEGORIES）②附「檔名:行號」證據。
+    // 只驗證據的話，「選 b，理由：真流程成本過高，證據 src/x.cs:88」會放行——證據隨便指一行程式就湊得出來，理由才是 04 b 封閉的那一半。
+    const hit = (list) => list.find((p) => new RegExp(p, 'i').test(answer));
+    if (!hit(DATA_SOURCE_B_CATEGORIES)) {
+      const nonReason = hit(DATA_SOURCE_B_NON_REASONS);
+      const said = nonReason ? (new RegExp(nonReason, 'i').exec(answer) || [''])[0] : '';
+      out.push('[測試資料來源·非例外] （只讀作答段：第一行起到空行，或到以 a./b./c.／（／⛔ 開頭的說明行為止）選了 b，'
+        + '但理由沒有點名是哪一類例外。04 模板六 b 是封閉例外：只限例外類別（預設：上游系統推送的資料、產品本身沒有建立入口），'
+        + (said ? '理由裡的「' + said + '」不屬於例外類別——' : '')
+        + '成本過高、跨模組麻煩、跑一輪很慢、要精確控制資料形狀、歷史相容性都不是理由，一律走 a，不論成本。'
+        + '確實屬於例外類別的話，在理由裡點名是哪一類（本閘以關鍵詞判類別，例：「上游系統推送」「產品沒有建立入口」）。' + COMMON);
+    }
     if (!EVIDENCE.test(answer)) {
       out.push('[測試資料來源·缺證據] （只讀作答段：第一行起到空行，或到以 a./b./c.／（／⛔ 開頭的說明行為止）選了 b，'
         + '但沒附產品端證據：寫出「為何不走真實流程」所根據的程式位置「檔名:行號」（上游推送的唯一寫入點、擋住入口的守門、'

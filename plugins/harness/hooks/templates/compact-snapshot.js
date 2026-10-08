@@ -31,7 +31,7 @@ const KEEP = 20;
 // 「任務規範文件」：只讀過、壓縮後不會自動重讀的文件。預設涵蓋 harness 制度層、skill 本文與
 // 三份知識容器；專案另有規格或測試知識目錄（例如 openspec/、docs/specs/）就加進來。
 // CLAUDE.md 不列：壓縮後會自動重新載入。
-const DOC_RE = /[\\/]\.claude[\\/]harness[\\/]|[\\/]skills[\\/][^\\/]+[\\/](SKILL|references)|(CONTEXT|FLOWS|PROJECT)\.md$/i;
+const DOC_RE = /[\\/]\.claude[\\/]harness[\\/]|[\\/]skills[\\/][^\\/]+[\\/](SKILL|references)|(GLOSSARY|CONTEXT|FLOWS|PROJECT)\.md$/i;
 // 不算「改過的檔」的路徑：工具暫存與依賴目錄
 const NOISE_RE = /[\\/](tool-results|scratchpad|subagents|node_modules)[\\/]/i;
 // ─────────────────────────────────────────────────────────────────────────────

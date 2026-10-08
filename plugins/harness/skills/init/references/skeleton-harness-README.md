@@ -24,11 +24,11 @@
 |------|------|----------------|
 | `.claude/agents/` | 開發流程各角色的 agent 定義（{{本專案用到的 agent 名單，名稱加中文職稱}}） | 派工時由 Agent tool 載入；改職責前先讀 |
 | `.claude/hooks/` ＋ `.claude/settings.json` | 自動檢查：Claude 每次執行指令或派工前自動跑，命中就擋下（{{已安裝的每項檢查，各一句講它擋什麼}}） | 被擋時看擋下訊息；健檢時拿來試跑 |
-| workspace 根 `CONTEXT.md` | 本專案特有詞彙表（詞是什麼，不是怎麼做） | 每個角色開工前必讀（派工檢查會擋漏列的）；詞義不清、詞義衝突時當場查與補 |
+| workspace 根 `GLOSSARY.md`（沒有就讀 `CONTEXT.md`） | 本專案特有詞彙表（詞是什麼，不是怎麼做） | 每個角色開工前必讀（派工檢查會擋漏列的）；詞義不清、詞義衝突時當場查與補 |
 | workspace 根 `FLOWS.md` | 跨模組流程圖（只收出過問題、或橫跨兩個以上模組的流程） | 要改到已收錄流程的任何一段之前必讀 |
 | `tests/Project_Detail/PROJECT.md` | 測試時踩過的坑與測試設計知識 | 測試用的 agent（qa-engineer）開工前必讀 |
 {{選裝 skill 那一題有選、或有產生本機覆寫說明時加這一列，否則刪本行：| `.claude/skills/<每支實際建立的 skill>/` | 選裝的專案 skill（{{逐支列：名稱＋一句做什麼＋什麼時候會被叫到}}）；每支的變更紀錄在同目錄 `CHANGELOG.md` | 碰到它 description 寫的情境時，Claude 自動叫用；架構保養這類高成本的只有你明說才跑 |}}
-| 變更紀錄檔：`.claude/agents/CHANGELOG.md`、workspace 根 `CLAUDE.changelog.md`／`CONTEXT.changelog.md`／`FLOWS.changelog.md`、`tests/Project_Detail/CHANGELOG.md` | 上面各檔的變更紀錄（規則見 05 §4） | 改了上面任一檔時補一行；想查某段何時改的時候 |
+| 變更紀錄檔：`.claude/agents/CHANGELOG.md`、workspace 根 `CLAUDE.changelog.md`／`GLOSSARY.changelog.md`（沿用舊檔名時 `CONTEXT.changelog.md`）／`FLOWS.changelog.md`、`tests/Project_Detail/CHANGELOG.md` | 上面各檔的變更紀錄（規則見 05 §4） | 改了上面任一檔時補一行；想查某段何時改的時候 |
 
 （沒有 `01-diagnosis.md`（專案痛點診斷）與 `06-handover-letter.md`（交接信）：這兩份要等本專案累積出自己的問題才寫得出來。何時該建、照什麼結構建，見 `05-knowledge-protocol.md` §7。）
 
@@ -40,7 +40,7 @@
 4. 宣稱完成前 → 對照 `03` 矩陣 B 逐條打勾。
 5. 踩坑 → 依 `05` 格式寫 memory；想改制度檔 → 先查 `05` §1 分級。
 6. 講需求要開發 → 照 `04` 模板五的 pipeline 走（先對齊回合、再計畫確認、再一路推進）。
-7. 碰到不確定的專案詞 → 查 `CONTEXT.md`；動到跨模組的東西 → 查 `FLOWS.md`。
+7. 碰到不確定的專案詞 → 查 `GLOSSARY.md`（沒有就讀 `CONTEXT.md`）；動到跨模組的東西 → 查 `FLOWS.md`。
 
 ## 生效範圍限制（實話）
 

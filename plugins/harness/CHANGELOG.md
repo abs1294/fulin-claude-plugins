@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.15.0] - 2026-10-08
+### Changed
+- 派工範本鐵則 2 改為回報指示只寫開頭、各模板第一行統一；模板六 b 改封閉例外（上游系統推送／產品無建立入口，成本過高等不是理由）並同步 03 B16；check-review-discipline 選 b 要點名例外類別（DATA_SOURCE_B_CATEGORIES）；新增 guard-full-disk-scan 範本（擋全碟搜尋，可設定、fail-open，138 案）；專案詞彙表兼容 GLOSSARY.md（優先）與 CONTEXT.md（hook、健檢收集、compact-snapshot、範本、init）
+
 ## [0.14.1] - 2026-10-08
 ### Added
 - **工作樹的 port／process 驗證（`check-worktree-ports.js`，選裝、唯讀）**：本機覆寫全綠也可能整條鏈路不通——設定檔裡「要打誰」的 port 跟這次拓撲對不上、port 上跑的是別的工作樹或主線、建置後沒重啟。這支腳本手動執行（或照提醒在起好服務後執行），三層各可單獨跑（`--layers config,runtime,http`）：

@@ -35,7 +35,9 @@ const os = require('os');
 // ── init 填空區 ──────────────────────────────────────────────────────────────
 const TRIGGER_MODE = 'skill'; // 'skill' | 'stop'
 // 三個知識容器的路徑（相對於專案根；訊息用）。落點改了就同步改這裡。
-const CONTEXT_PATH = 'CONTEXT.md';
+// 詞彙表有新舊兩個檔名，依優先序列出：先找 GLOSSARY.md，沒有才用舊檔名 CONTEXT.md；兩個都沒有時訊息寫 GLOSSARY.md（新建用新檔名）。
+// 實際用哪個在執行時看專案根有哪個檔決定（見 resolveGlossaryPath）。
+const GLOSSARY_CANDIDATES = ['GLOSSARY.md', 'CONTEXT.md'];
 const FLOWS_PATH = 'FLOWS.md';
 const QA_KNOWLEDGE_PATH = 'tests/Project_Detail/PROJECT.md';
 // 本專案的正式代號舉例（第 4 題訊息用；讓模型分得出「正式代號」與「自創代號」）。沒有就留空字串。
@@ -44,6 +46,21 @@ const OFFICIAL_CODE_EXAMPLES = '';
 
 const KEYS = ['詞', '鏈', 'QA', '代號'];
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+
+// 訊息裡的詞彙表檔名（主程式依專案根實際有哪個檔改寫）
+let GLOSSARY_PATH = GLOSSARY_CANDIDATES[0];
+
+// 專案根依序看 CLAUDE_PROJECT_DIR（Claude Code 不保證設）與 payload 的 cwd；
+// 在第一個找得到詞彙表的根，照 GLOSSARY_CANDIDATES 的優先序取第一個存在的檔名，都找不到就用新檔名。
+function resolveGlossaryPath(input) {
+  const roots = [process.env.CLAUDE_PROJECT_DIR, input && input.cwd].filter(Boolean);
+  for (const root of roots) {
+    for (const name of GLOSSARY_CANDIDATES) {
+      try { if (fs.existsSync(path.join(root, name))) return name; } catch {}
+    }
+  }
+  return GLOSSARY_CANDIDATES[0];
+}
 
 // 在一段文字裡找四題表態，回傳缺哪幾題。形狀：詞=<答案> 鏈=<答案> QA=<答案> 代號=<答案>
 function missingAnswers(text) {
@@ -59,12 +76,12 @@ function missingAnswers(text) {
 
 function questionLines(whereToAnswer) {
   return [
-    '1. 本輪有無「新專案詞」（本專案特有、IS-not-DOES、≤2 句可定義）？有 → 補進 ' + CONTEXT_PATH + '（同時在它的變更紀錄檔補一行，落點見 05 §4）。',
+    '1. 本輪有無「新專案詞」（本專案特有、IS-not-DOES、≤2 句可定義）？有 → 補進 ' + GLOSSARY_PATH + '（同時在它的變更紀錄檔補一行，落點見 05 §4）。',
     '2. 本輪有無「新跨模組鏈路」或既有鏈路變更？有 → 補進 ' + FLOWS_PATH + '（掛事故收據）。',
     '3. 本輪有無「新 QA 操作坑／測試設計知識」？有 → 補進 ' + QA_KNOWLEDGE_PATH,
     '   （**寫入時必須同時在該檔的變更紀錄補一行**，落點見 05 §4，否則事後查不到這題有沒有被執行過）。',
     '4. 本輪的註解／文件有無「自創代號」（態 A、模式 B、階段一這類讀者查不到定義的簡稱）？',
-    '   有 → 換成 ' + CONTEXT_PATH + ' 已定義的詞，或直接寫白話；沒有既有詞又非講不可 → 先進 ' + CONTEXT_PATH + ' 再用。',
+    '   有 → 換成 ' + GLOSSARY_PATH + ' 已定義的詞，或直接寫白話；沒有既有詞又非講不可 → 先進 ' + GLOSSARY_PATH + ' 再用。',
     '   判準：讀者不必問你就知道那是什麼嗎？' + (OFFICIAL_CODE_EXAMPLES ? '專案正式代號（' + OFFICIAL_CODE_EXAMPLES + '）不算自創，照用。' : '專案正式代號不算自創，照用。'),
     '',
     whereToAnswer,
@@ -161,6 +178,7 @@ try {
   let raw = '';
   try { raw = fs.readFileSync(0, 'utf8'); } catch { process.exit(0); }
   const input = JSON.parse(raw || '{}');
+  GLOSSARY_PATH = resolveGlossaryPath(input);
   if (TRIGGER_MODE === 'stop') runStopMode(input);
   else runSkillMode(input);
 } catch (e) {

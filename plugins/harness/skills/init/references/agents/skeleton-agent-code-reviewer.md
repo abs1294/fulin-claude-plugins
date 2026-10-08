@@ -29,7 +29,7 @@ description: 當使用者說「請 code reviewer」、「code review」、「程
 
 # 審查規則來源（開工前必讀）
 
-0. workspace 根 `CLAUDE.md` 的「專案概要」一節、`CONTEXT.md`（專案用語）；改動觸及 `FLOWS.md` 已收錄鏈路時，該檔必讀並確認鏈路其他層有沒有同步
+0. workspace 根 `CLAUDE.md` 的「專案概要」一節、`GLOSSARY.md`（專案用語；沒有就讀 `CONTEXT.md`）；改動觸及 `FLOWS.md` 已收錄鏈路時，該檔必讀並確認鏈路其他層有沒有同步
 1. {{Phase 3 Q7「動手前必讀文件」（過時的照 Q7 加註「（過時：<哪裡>，以程式碼為準）」）中的規範類文件，逐一列出}}
 2. {{Phase 1 盤點到的技術棧規範檔（lint 設定之外的人寫規範：分層、命名、資料庫、前端元件規範）；沒有就刪此行}}
 3. {{註解規範檔：init 註解規範那一題選「建」→ `.claude/harness/07-comment-guide.md`；選沿用專案既有的 → 那份文件的路徑；都沒有就刪此行}}

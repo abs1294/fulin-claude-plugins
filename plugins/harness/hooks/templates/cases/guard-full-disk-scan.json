@@ -1,0 +1,1814 @@
+{
+  "hook": "guard-full-disk-scan.js",
+  "variants": {
+    "project-at-drive-root": {
+      "replace": [
+        [
+          "const PROJECT_ROOT = path.resolve(__dirname, '..', '..');",
+          "const PROJECT_ROOT = path.parse(path.resolve(__dirname)).root;"
+        ]
+      ]
+    },
+    "project-at-drive-root-off": {
+      "replace": [
+        [
+          "const PROJECT_ROOT = path.resolve(__dirname, '..', '..');",
+          "const PROJECT_ROOT = path.parse(path.resolve(__dirname)).root;"
+        ],
+        [
+          "const ALLOW_PROJECT_ROOT = true;",
+          "const ALLOW_PROJECT_ROOT = false;"
+        ]
+      ]
+    },
+    "scope-project": {
+      "replace": [
+        [
+          "const SCOPE = 'roots';",
+          "const SCOPE = 'project';"
+        ]
+      ]
+    },
+    "scope-project-allowed": {
+      "replace": [
+        [
+          "const SCOPE = 'roots';",
+          "const SCOPE = 'project';"
+        ],
+        [
+          "const ALLOWED_OUTSIDE = [];",
+          "const ALLOWED_OUTSIDE = [path.join(os.homedir(), 'shared-data')];"
+        ]
+      ]
+    },
+    "extra-protected": {
+      "replace": [
+        [
+          "const EXTRA_PROTECTED = [];",
+          "const EXTRA_PROTECTED = [path.join(os.homedir(), 'big-share')];"
+        ]
+      ]
+    },
+    "exempt-root": {
+      "replace": [
+        [
+          "const EXEMPT_ROOTS = [];",
+          "const EXEMPT_ROOTS = [path.parse(path.resolve(__dirname)).root];"
+        ]
+      ]
+    },
+    "shallow-0": {
+      "replace": [
+        [
+          "const SHALLOW = 2;",
+          "const SHALLOW = 0;"
+        ]
+      ]
+    },
+    "no-shell-model": {
+      "replace": [
+        [
+          "require('./shell-model.js')",
+          "require('./shell-model-not-installed.js')"
+        ]
+      ]
+    },
+    "throw": {
+      "replace": [
+        [
+          "function classify(raw, dir) {",
+          "function classify(raw, dir) { throw new Error('probe-injected-failure');"
+        ]
+      ]
+    }
+  },
+  "cases": [
+    {
+      "label": "find / -name",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -name \"*.log\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find / 不帶條件",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find /"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find C:/",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find C:/ -name x.txt"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find /c/（磁碟根）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find /c/ -name x.txt"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find /c（不帶尾斜線）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find /c -type f"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "grep -r … /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -r foo /"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "grep -R … /c/",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -R foo /c/"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "rg … /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo /"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "rg … C:\\",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "rg foo C:\\"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Get-ChildItem C:\\ -Recurse",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem C:\\ -Recurse -Filter *.log"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Get-ChildItem -Path C:/ -Recurse",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem -Path C:/ -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "gci / -r",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "gci / -r"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Get-ChildItem D:\\ -Recurse",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem D:\\ -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Get-ChildItem ~ -Recurse",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem ~ -Recurse -Include *.md"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Get-ChildItem $HOME -Recurse",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem $HOME -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Get-ChildItem <家目錄字面路徑> -Recurse（家目錄根；家目錄指到假路徑）",
+      "setup": {
+        "env": {
+          "HOME": "{PROJECT_DIR}/home/tester",
+          "USERPROFILE": "{PROJECT_DIR}/home/tester"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem {PROJECT_DIR}/home/tester -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cmd /c dir /s C:\\",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd /c dir /s C:\\\\"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "dir /s C:\\*.log",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "cmd /c \"dir /s /b C:\\*.log\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "where /r C:\\",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "where.exe /r C:\\ node.exe"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find -L / （find 全域選項）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find -L / -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find ~",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find ~ -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find \"$HOME\"",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find \"$HOME\" -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "grep -rn … /c/",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -rn foo /c/"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "grep --recursive … C:/",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep --recursive foo C:/"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "grep -inr … ~（叢集旗標）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -inr \"x\" ~"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "rg … 'C:\\'（bash 單引號）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo 'C:\\'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "rg --files 家目錄（Git Bash 寫法的字面路徑；家目錄指到假路徑）",
+      "setup": {
+        "env": {
+          "HOME": "{PROJECT_DIR}/home/tester",
+          "USERPROFILE": "{PROJECT_DIR}/home/tester"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg --files {PROJECT_DIR_POSIX}/home/tester"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "rg … 所有使用者目錄（家目錄的上一層；家目錄指到假路徑）",
+      "setup": {
+        "env": {
+          "HOME": "{PROJECT_DIR}/home/tester",
+          "USERPROFILE": "{PROJECT_DIR}/home/tester"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo {PROJECT_DIR_POSIX}/home"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Set-Location C:\\ 後 Get-ChildItem -Recurse（不寫路徑）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Set-Location C:\\; Get-ChildItem -Recurse -Filter x.txt"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cd / 後 find .",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd / && find . -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "cd ~ 後 grep -r … .",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd ~ && grep -r foo ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "相對路徑一路 .. 到磁碟根",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find ../../../../../../../../../../../../../../../.. -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "bash -c 包 find /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c \"find / -name x\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "powershell -Command 包 Get-ChildItem C:\\ -Recurse",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "powershell -Command \"Get-ChildItem C:\\ -Recurse\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "命令替換裡的 find /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo $(find / -name x)"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "sudo／timeout／nohup 前綴",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "timeout 60 nohup find / -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "ls -R /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ls -R /"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "du 整顆磁碟",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "du -sh /c/"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find / -maxdepth 5（深度超過 2）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -maxdepth 5 -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Get-ChildItem C:\\ -Depth 5",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem C:\\ -Depth 5"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "python -c os.walk 磁碟根",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "python -c \"import os; [print(r) for r,d,f in os.walk('C:\\\\')]\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "python heredoc os.walk(\"/\")",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "python - <<'EOF'\nimport os\nfor r, d, f in os.walk('/'):\n    pass\nEOF"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": ".NET GetFiles AllDirectories 磁碟根",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "[IO.Directory]::GetFiles('C:\\', '*', 'AllDirectories')"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "findstr /s 磁碟根",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "findstr /s /i foo C:\\*.txt"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "tree C:\\ /f",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "tree C:\\ /f"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "fd … /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "fd -e log . /"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "xargs 前綴後接 grep -r /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo x | xargs grep -r foo /"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "find -exec 裡的 grep -r /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . -name a.txt -exec grep -r foo / \\;"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：-ErrorAction 的值不可吃掉後面的 C:\\",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem -ErrorAction SilentlyContinue C:\\ -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：Push-Location C:\\ 後 gci -r",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Push-Location C:\\; gci -r -Filter *.log"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：-Recurse:$true 寫法",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem C:\\ -Recurse:$true"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：PowerShell 的 dir 別名＋-Recurse",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "dir C:\\ -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：ls 別名＋-Recurse",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "ls -Recurse C:\\"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：逗號列多個起點",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem C:\\tmp,D:\\ -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：-LiteralPath 單引號",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem -LiteralPath 'C:\\' -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：script block 內（Start-Job { gci C:\\ -r }）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Start-Job { gci C:\\ -r }"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：路徑用 .. 回到所有使用者目錄（家目錄指到假路徑）",
+      "setup": {
+        "env": {
+          "HOME": "{PROJECT_DIR}/home/tester",
+          "USERPROFILE": "{PROJECT_DIR}/home/tester"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem -Recurse -Path {PROJECT_DIR}/home/tester/projects/../.."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：$env:USERPROFILE",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem $env:USERPROFILE -Recurse -Filter *.md"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：find 多個起點其中一個是 /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . / -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：cd /c 後 grep -r .",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd /c && grep -r foo ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：grep -rf 檔（叢集帶值）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -rf patterns.txt /"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：rg 用 -- 分隔",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo -- /"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：grep --include=… 與 2>/dev/null",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -rl --include=*.js foo / 2>/dev/null"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：背景執行 &",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -name x &"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：rg 起點 ~/",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo ~/"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：bash 未加引號的 C:\\ 後接空白",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo C:\\ "
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "紅隊：find / -maxdepth 2",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -maxdepth 2 -type d"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "紅隊：Get-ChildItem C:\\ -Depth 1",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem C:\\ -Depth 1"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "紅隊：rg 起點 $HOME 底下的子目錄",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo \"$HOME/projects/app\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "紅隊：$env:USERPROFILE 底下的子目錄",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem \"$env:USERPROFILE\\projects\\app\" -Recurse"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "紅隊：tree . /f（/f 不是 F 槽）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "tree . /f"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "紅隊：Get-ChildItem -ErrorAction SilentlyContinue -Recurse（cwd＝專案）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem -ErrorAction SilentlyContinue -Recurse"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "紅隊：find /tmp（不是磁碟根）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find /tmp -name x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "紅隊：grep 的樣式剛好是 ~",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -r \"~\" src"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "find . -name",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . -name \"*.js\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "grep -r x src/",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -r x src/"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "rg x <專案原生絕對路徑>",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "rg x {PROJECT_DIR}"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "rg x <專案 Git Bash 寫法路徑>",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg x {PROJECT_DIR_POSIX}"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "find <專案>/tests",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find {PROJECT_DIR_POSIX}/tests -name x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "find ~/projects/app（家目錄底下的子目錄）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find ~/projects/app -name x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "echo \"find /\"",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"find /\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "grep \"find /\" 檔",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep \"find /\" notes.md"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "grep -r \"find /\" .claude/",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -r \"find /\" .claude/"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "grep -r / src/（樣式是斜線）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -r / src/"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "grep -e / -r src（樣式用 -e 給）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep -e / -r src"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "rg / src（樣式是斜線）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg / src"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "ls /（不遞迴）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ls /"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "ls -la /c/",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ls -la /c/"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "find / -maxdepth 1（只列一層）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -maxdepth 1 -type d"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Get-ChildItem C:\\（不遞迴）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem C:\\"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Get-ChildItem -Recurse（cwd＝專案）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem -Recurse -Filter *.md"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Get-ChildItem <專案> -Recurse",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem {PROJECT_DIR} -Recurse -Filter *.md"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "heredoc 寫文件提到 find /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat > note.md <<'EOF'\nfind / -name x\nEOF"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "git grep",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git grep foo"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "rg -g 帶值選項",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg -g '*.js' foo ."
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "殘留搜尋程序檢查指令",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-Process | Where-Object { $_.ProcessName -match 'find|rg|grep' }"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "grep 不遞迴、路徑是單一檔",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep foo /etc/hosts"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "where node（不遞迴）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "where.exe node"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "cmd /c dir /s（cwd＝專案）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cmd /c dir /s /b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Write-Host 字串提到 Get-ChildItem C:\\ -Recurse",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Write-Host \"Get-ChildItem C:\\ -Recurse\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "# 註解裡的 find /",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "# find / -name x\nls"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "python -c 走專案",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "python -c \"import os; print(len(list(os.walk('.'))))\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "du 單一資料夾",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "du -sh node_modules"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "跨平台：WSL 的 /mnt/c 是整顆 C 槽",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find /mnt/c -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "跨平台：Cygwin 的 /cygdrive/d",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo /cygdrive/d"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "跨平台：tree -L 3 /（深度超過 SHALLOW）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "tree -L 3 /"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "跨平台：tree -L 2 /（深度在 SHALLOW 內）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "tree -L 2 /"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "跨平台：node readdirSync 遞迴磁碟根",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "node -e \"require('fs').readdirSync('/', { recursive: true })\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "家目錄字面路徑帶尾斜線（家目錄指到假路徑）",
+      "setup": {
+        "env": {
+          "HOME": "{PROJECT_DIR}/home/tester",
+          "USERPROFILE": "{PROJECT_DIR}/home/tester"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find {PROJECT_DIR_POSIX}/home/tester/ -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "家目錄字面路徑底下的子目錄（家目錄指到假路徑）",
+      "setup": {
+        "env": {
+          "HOME": "{PROJECT_DIR}/home/tester",
+          "USERPROFILE": "{PROJECT_DIR}/home/tester"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find {PROJECT_DIR_POSIX}/home/tester/projects/app -name x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "專案根就是家目錄：掃「專案」＝掃整個家目錄，照擋（rg 不帶路徑）",
+      "setup": {
+        "env": {
+          "HOME": "{PROJECT_DIR}",
+          "USERPROFILE": "{PROJECT_DIR}"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "專案根就是家目錄：find ~ 照擋",
+      "setup": {
+        "env": {
+          "HOME": "{PROJECT_DIR}",
+          "USERPROFILE": "{PROJECT_DIR}"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find ~ -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "專案根就是家目錄：底下的子目錄照常放行",
+      "setup": {
+        "env": {
+          "HOME": "{PROJECT_DIR}",
+          "USERPROFILE": "{PROJECT_DIR}"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo src"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "專案放在磁碟根：find / 就是掃專案，放行",
+      "variant": "project-at-drive-root",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -name x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "專案放在磁碟根：cd / 後 rg .，放行",
+      "variant": "project-at-drive-root",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd / && rg foo ."
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "專案放在磁碟根：家目錄根照擋",
+      "variant": "project-at-drive-root",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find ~ -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "專案放在磁碟根但關掉 ALLOW_PROJECT_ROOT：find / 照擋",
+      "variant": "project-at-drive-root-off",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "SCOPE='project'：find /tmp（專案目錄外）擋",
+      "variant": "scope-project",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find /tmp -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "SCOPE='project'：cd .. 後 find .（專案的上一層）擋",
+      "variant": "scope-project",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd .. && find . -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "SCOPE='project'：Get-ChildItem 專案的兄弟目錄 -Recurse 擋",
+      "variant": "scope-project",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem {PROJECT_DIR}-sibling -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "SCOPE='project'：find . 放行",
+      "variant": "scope-project",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . -name x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "SCOPE='project'：rg 專案底下的子目錄放行",
+      "variant": "scope-project",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo {PROJECT_DIR_POSIX}/src"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "SCOPE='project'：不遞迴的 grep 讀專案外的單一檔放行",
+      "variant": "scope-project",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "grep foo /etc/hosts"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "SCOPE='project'：起點是變數判不出，放行",
+      "variant": "scope-project",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find \"$TARGET\" -name x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "SCOPE='project'＋ALLOWED_OUTSIDE：清單內目錄底下放行",
+      "variant": "scope-project-allowed",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo ~/shared-data/sub"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "SCOPE='project'＋ALLOWED_OUTSIDE：清單外的目錄照擋",
+      "variant": "scope-project-allowed",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo ~/other-data"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "EXTRA_PROTECTED：以受保護目錄本身為起點擋",
+      "variant": "extra-protected",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo ~/big-share"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "EXTRA_PROTECTED：PowerShell 寫法同樣擋",
+      "variant": "extra-protected",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem $HOME\\big-share -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "EXTRA_PROTECTED：受保護目錄底下的子目錄放行",
+      "variant": "extra-protected",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rg foo ~/big-share/sub"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "EXEMPT_ROOTS：列為不保護的磁碟根放行",
+      "variant": "exempt-root",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -name x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "EXEMPT_ROOTS：沒列的家目錄根照擋",
+      "variant": "exempt-root",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find ~ -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "SHALLOW=0：find / -maxdepth 1 也擋",
+      "variant": "shallow-0",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -maxdepth 1 -type d"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "shell-model 模組不在：斷詞層照擋 find /",
+      "variant": "no-shell-model",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -name x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "shell-model 模組不在：find . 照常放行",
+      "variant": "no-shell-model",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find . -name x"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "shell-model 模組不在：PowerShell 也照擋",
+      "variant": "no-shell-model",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem C:\\ -Recurse"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "fail-open：判讀時丟例外 → 放行並以 additionalContext 告知（find /）",
+      "variant": "throw",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "find / -name x"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "fail-open：判讀時丟例外 → 放行並以 additionalContext 告知（PowerShell）",
+      "variant": "throw",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem C:\\ -Recurse"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "沒有指令內容 → 安靜放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": ""
+        }
+      },
+      "expect": "SILENT"
+    }
+  ]
+}

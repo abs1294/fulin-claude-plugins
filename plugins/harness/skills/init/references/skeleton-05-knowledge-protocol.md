@@ -7,7 +7,7 @@
 
 | 分級 | 規則 | 涵蓋檔案 |
 |------|------|----------|
-| 🟢 綠區（可自行更新，事後在交付訊息提一句即可） | 新增/更新單一事實，不改結構 | 本專案 auto-memory 全部檔案與 `MEMORY.md` 索引行；知識容器的**新增條目**：workspace 根 `CONTEXT.md`（詞條）、`FLOWS.md`（鏈路）、`tests/Project_Detail/PROJECT.md`（QA 坑）——新增時同步在該檔的變更紀錄補一行（落點見 §4）{{；其他綠區檔照專案現況補}} |
+| 🟢 綠區（可自行更新，事後在交付訊息提一句即可） | 新增/更新單一事實，不改結構 | 本專案 auto-memory 全部檔案與 `MEMORY.md` 索引行；知識容器的**新增條目**：workspace 根 `GLOSSARY.md`（詞條；舊專案沿用 `CONTEXT.md`）、`FLOWS.md`（鏈路）、`tests/Project_Detail/PROJECT.md`（QA 坑）——新增時同步在該檔的變更紀錄補一行（落點見 §4）{{；其他綠區檔照專案現況補}} |
 | 🟡 黃區（可更新，但必須在當次回覆中明確聲明「我改了 X，原因 Y」，讓使用者有機會否決） | 改既有內容或新增章節 | `04-delegation-templates.md` 的**新增**模板；`06-handover-letter.md`（建立後）附錄「未完成事項交接區」；知識容器的**既有條目修改或刪除**、檔頭收錄原則以外的結構調整；workspace 根 `CLAUDE.md` §0 專案概要的**業務流程狀態與目前進度**{{；其他黃區檔照專案現況補}} |
 | 🔴 紅區（改前必須徵得使用者同意：說明原因＋位置＋建議內容，確認後才動） | 一切修改 | workspace 根 `CLAUDE.md`（§0 的流程狀態與進度屬黃區；§0 外部系統的正式／測試分類屬紅區，只有使用者能改）；harness `README`、`01`（建立後）、`02`、`03`、`05`、`06`（建立後，附錄除外）{{、`07`（init 選裝註解規範時；第四節「真人範本」新增範例屬黃區）}}；`04` 的既有模板內文；`.claude/settings.json`；`.claude/hooks/`（機械閘本體——放寬或拆除等於拆掉他律）；`.claude/agents/`（agent 定義）；知識容器的**檔頭收錄原則**；{{既有治理層檔案（已版控＝共用資源）}}；`~/.claude/` 全域層 |
 
@@ -36,7 +36,7 @@
 |---|---|
 | commands／skills／hooks／agents／scripts／settings | `.claude/`（Claude Code 機制） |
 | harness 制度層與它的變更紀錄 | `.claude/harness/` |
-| 知識容器 | workspace 根 `CONTEXT.md`、`FLOWS.md`；`tests/Project_Detail/PROJECT.md` |
+| 知識容器 | workspace 根 `GLOSSARY.md`（舊專案沿用 `CONTEXT.md`）、`FLOWS.md`；`tests/Project_Detail/PROJECT.md` |
 | 設計文件、規格、架構決策 | {{本專案的設計文件目錄；Phase 1 沒查到就請使用者指定一個}} |
 | 交接文件、測試計畫、QA 報告（還有人在用的） | {{本專案的產物目錄}} |
 | 已無人引用的歷史產物 | {{本專案的歸檔目錄，例：<產物目錄>/archive/}} |
@@ -100,7 +100,7 @@ metadata:
 | `.claude/harness/` 底下的檔（README、01～07） | `.claude/harness/CHANGELOG.md` | 依檔名分節，例：`## 05-knowledge-protocol.md` |
 | `.claude/agents/` 底下的 agent 定義 | `.claude/agents/CHANGELOG.md` | 依檔名分節，例：`## qa-engineer.md` |
 | `.claude/skills/<skill>/` 底下的專案 skill | 該 skill 同目錄的 `CHANGELOG.md` | 不分節（一個 skill 一份）；`SKILL.md` 正文最後一行寫 `變更紀錄見同目錄 CHANGELOG.md` |
-| workspace 根的檔（`CLAUDE.md`、`CONTEXT.md`、`FLOWS.md`） | 同目錄的 `<主檔名>.changelog.md`（例：`CONTEXT.changelog.md`） | 不分節 |
+| workspace 根的檔（`CLAUDE.md`、`GLOSSARY.md`（舊專案沿用 `CONTEXT.md`）、`FLOWS.md`） | 同目錄的 `<主檔名>.changelog.md`（例：`GLOSSARY.changelog.md`；沿用舊檔名的是 `CONTEXT.changelog.md`） | 不分節 |
 | 其他目錄的知識容器（`tests/Project_Detail/PROJECT.md`） | 同目錄的 `CHANGELOG.md` | 依檔名分節，例：`## PROJECT.md` |
 
 格式（一行一筆，新的寫在該節最上面或最下面照檔案原本的慣例，不混用）：
@@ -166,8 +166,8 @@ review 會把修正分兩批：可逆的（重建索引、memory 退場、更新
 {{動手前必讀那一題有規則檔選「精煉成自有正本」時加：□ 被精煉的原檔改版了沒？比對 `.claude/harness/review-rules.md` 開頭記的原檔版本（commit 或修改日期）跟原檔現況，有差就重新精煉、更新已知矛盾表（精煉的代價：原檔改版時自有正本不會跟著變）}}
 □ 機械閘還活著嗎？在 `.claude/hooks/` 跑 `node probe-hooks.js`（用 `/harness:review` 時，這項要使用者同意才會跑）：每支 hook 的 cases 兩個方向都要全數符合預期（該擋的擋、該放的放——只驗「會擋」會漏掉「解析壞掉、全部誤擋」這種失效；機械保證的機械也會鏽）。有 hook 缺 cases 會被列為失敗——新加的 hook 要一併補 cases。本期若改過某支 hook 的填空區常數，先確認對應 cases 同步改了。有裝規則引擎（`guard-risky-command`／`guard-test-preconditions`）時，probe 開頭那行要是「語法樹路徑（Bash 與 PowerShell 解析器都已載入）」；出現「⚠ 語法解析器沒有完整載入」＝解析器沒裝或載入失敗，引擎正退回正則判法——在 `.claude/hooks/` 跑 `npm ci` 補回
 □ 熔斷清單與機械閘對得上嗎？CLAUDE.md 熔斷清單（與 03 C2）的每一項，在 `guard-risky-command.js`／`guard-test-preconditions.js` 都找得到對應規則，或寫明為什麼只能停在文字；本期新增的熔斷項有沒有補規則
-□ CONTEXT.md 斷鏈與新詞補課（①詞條內引用的詞是否都已定義 ②本期新敲定的詞有沒有進來——對照近期 memory 新增條目抽查）
-□ CONTEXT.md 與 memory 分工有無漂移？（詞彙表混入實作事實／memory 混入純詞彙）
+□ 詞彙表（`GLOSSARY.md`；舊專案沿用 `CONTEXT.md`）斷鏈與新詞補課（①詞條內引用的詞是否都已定義 ②本期新敲定的詞有沒有進來——對照近期 memory 新增條目抽查）
+□ 詞彙表與 memory 分工有無漂移？（詞彙表混入實作事實／memory 混入純詞彙）
 □ FLOWS.md 新鏈補課（對照本期 memory 新增的事故條目：涉及跨模組鏈路者，有無進 FLOWS.md——收錄原則見該檔檔頭）
 □ tests/Project_Detail/PROJECT.md 反映實況嗎？（對照本期 QA 類 memory 新增條目：新操作坑／測試設計知識有無進來）
 □ 03 條款中「本專案不適用」的條款，前提是否已改變？（例：當初無 UI、現在有了——該條要改回適用）
@@ -175,7 +175,7 @@ review 會把修正分兩批：可逆的（重建索引、memory 退場、更新
 □ 會說謊的東西還新鮮嗎？索引、快取、產生物、外部資料快照這類「過期了也不會報錯、只會給舊答案」的東西，逐一比對它的時間跟來源的時間（例：程式碼索引 vs repo HEAD）{{有裝 cbm-guard plugin 時加：；程式碼索引跑 `python ~/.claude/plugins/cache/<marketplace>/cbm-guard/*/scripts/cbm_index_freshness.py`，exit 0＝全部新鮮}}。§5.1 表上「會說謊」欄打勾的都要比
 □ 健檢到期提醒算得對嗎？在專案根目錄跑 `node .claude/hooks/health-check-reminder.js`：`.claude/harness/CHANGELOG.md` 的 `## 05-knowledge-protocol.md` 節裡帶【健檢執行】標記、日期最大的那筆距今沒超過門檻就要沒有輸出（一筆帶標記的都沒有時，它會退到備援日期或該節最早的日期）；有輸出就看它印的基準日是不是那一筆——提醒自己算錯，健檢就會被永遠催、或永遠不催
 □ 系統提示的工具來源有沒有新出現的大宗？新裝的 plugin、MCP、claude.ai 帳號層的連接器、skill 清單暴增——對照軌二 `/doctor` 的使用次數，沒在用又沒被制度點名的提案關掉
-□ 指令檔有沒有長回 changelog 節？`grep -n "^## Changelog" .claude/harness/*.md .claude/agents/*.md .claude/skills/*/SKILL.md CLAUDE.md CONTEXT.md FLOWS.md tests/Project_Detail/PROJECT.md` 要 0 筆（紀錄檔本身不在這個範圍；還沒有專案 skill 時 grep 會報那個樣式找不到檔，不算異常）；有就把那幾行搬進 §4 規定的紀錄檔。專案 skill 另查兩件：`SKILL.md` 最後一行指向同目錄 `CHANGELOG.md`、description 有寫排除條件（§4.1）
+□ 指令檔有沒有長回 changelog 節？`grep -n "^## Changelog" .claude/harness/*.md .claude/agents/*.md .claude/skills/*/SKILL.md CLAUDE.md GLOSSARY.md CONTEXT.md FLOWS.md tests/Project_Detail/PROJECT.md` 要 0 筆（紀錄檔本身不在這個範圍；還沒有專案 skill 時 grep 會報那個樣式找不到檔，詞彙表 GLOSSARY.md／CONTEXT.md 通常只有一個、另一個報找不到檔，都不算異常）；有就把那幾行搬進 §4 規定的紀錄檔。專案 skill 另查兩件：`SKILL.md` 最後一行指向同目錄 `CHANGELOG.md`、description 有寫排除條件（§4.1）
 □ 本清單的描述還對嗎？（review 會自動做：寫了預期結果的項目照描述實跑一次；對不上時查證是哪一邊錯——有「行為是刻意改的」證據（changelog、commit、檔頭說明）才更新描述，沒有就當自動檢查故障處理；兩種都不准用放寬檢查來消除不符）
 {{若有既有治理層加：□ {{治理層入口檔}}是否改版？（其載入規則／門檻流程變動時，04 的必讀清單規則與流程編排節要重對齊）}}
 ```

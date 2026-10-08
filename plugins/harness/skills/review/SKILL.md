@@ -54,7 +54,7 @@ node <本 plugin>/skills/review/scripts/review-collect.js <落點> --since <日�
 | C | 派工品質 | 每次真的派出去的派工：model、有沒有【開工前必讀】、寫到哪些必讀檔；被擋下沒派出去的嘗試另列；每次被擋的出處與標籤 |
 | D | 必讀真的有讀 | 每個 subagent 實際讀成功了哪些必讀檔（Read 失敗的不算，另記 failedReads；CLAUDE.md 會被自動載入，標「自動載入」）、回報有沒有已讀清單 |
 | E | 知識有長出來 | 主對話有改檔的回合（turnsWithEdits）、沉澱提醒次數與回答、三份知識筆記安裝後的異動、剩多少示範條目 |
-| F | 危險動作 | 危險指令檢查擋下的次數、所有看起來有風險的指令（連線、部署、資料庫；只記出處與指令名。主機只列專案文件——CLAUDE.md、CONTEXT.md、FLOWS.md、PROJECT.md、.claude/harness——寫過的，沒寫過的只計 unknownHosts）、指令裡直接寫了金鑰／密碼／權杖的出處（只記出處與種類，不抄值） |
+| F | 危險動作 | 危險指令檢查擋下的次數、所有看起來有風險的指令（連線、部署、資料庫；只記出處與指令名。主機只列專案文件——CLAUDE.md、GLOSSARY.md／CONTEXT.md、FLOWS.md、PROJECT.md、.claude/harness——寫過的，沒寫過的只計 unknownHosts）、指令裡直接寫了金鑰／密碼／權杖的出處（只記出處與種類，不抄值） |
 | G | 使用者介入 | 使用者發言數、打斷次數、帶糾正語氣的發言（出處與命中的詞） |
 | H | 專案概要 | CLAUDE.md 有沒有專案概要、進度日期距今幾天、是否還標「未經使用者確認」 |
 | I | 版本差距 | 目前 plugin 版本有、這個實例還沒有的功能；hook 引擎與目前範本不同的檔 |

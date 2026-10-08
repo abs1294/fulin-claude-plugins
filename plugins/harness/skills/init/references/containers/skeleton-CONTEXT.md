@@ -1,7 +1,7 @@
-# CONTEXT — {{專案名}} 專案詞彙表
+# GLOSSARY — {{專案名}} 專案詞彙表
 
 <!-- init 填空紀律（實例化後整段刪除）：
-  - 落點＝workspace 根 `CONTEXT.md`。
+  - 落點＝workspace 根 `GLOSSARY.md`。既有專案已有 `CONTEXT.md`（詞彙表舊檔名）就沿用、不改名：直接在它上面整理，標題的 GLOSSARY 換成 CONTEXT，變更紀錄檔也沿用 `CONTEXT.changelog.md`。
   - init 只寫 Phase 3 U3 使用者確認過的詞（照詞條格式），寫了就刪示範詞條；沒確認的詞不寫——不替使用者編詞條。
     參考模式原有的真實詞條照常搬（U3 裁決刪除的除外）。搬完、加上 U3 新詞之後一條真詞條都沒有時，才只保留下方示範詞條（標明是示範），第一個真詞條寫進來時刪掉示範。
   - `{{...}}` 填本專案事實；分工段指向的檔名以 init 實際建立的為準。
@@ -46,4 +46,4 @@ _避免_：<容易混淆的近義詞或另一個子域的同名詞>——混了�
 使用者填到一半、尚未送出的單據，只有建立者本人看得到，不進任何審核流程。
 _避免_：草稿（本專案「草稿」另指範本庫裡的預設內容）——混了會把「清掉過期草稿」的需求做成刪掉使用者還沒送出的單
 
-變更紀錄見同目錄 `CONTEXT.changelog.md`（新增、修改詞條時同步補一行，規格見 `.claude/harness/05-knowledge-protocol.md` §4）
+變更紀錄見同目錄 `GLOSSARY.changelog.md`（沿用舊檔名 CONTEXT.md 的專案是 `CONTEXT.changelog.md`）（新增、修改詞條時同步補一行，規格見 `.claude/harness/05-knowledge-protocol.md` §4）

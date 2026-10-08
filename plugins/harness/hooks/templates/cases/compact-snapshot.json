@@ -43,6 +43,21 @@
       "setup": {},
       "payload": { "hook_event_name": "PreCompact", "session_id": "s1", "trigger": "auto" },
       "expect": "ALLOW"
+    },
+    {
+      "label": "讀過 GLOSSARY.md（專案用語容器）→ 列進快照的「只讀過的規範文件」（docs 欄；本案只驗靜默放行，docs 內容 probe 驗不到）",
+      "setup": {
+        "env": { "COMPACT_HANDOFF_OFF": "1" },
+        "transcript": [
+          { "type": "user", "message": { "role": "user", "content": "照專案用語改訂單頁的欄位名" } },
+          { "type": "assistant", "message": { "role": "assistant", "content": [
+            { "type": "tool_use", "id": "t1", "name": "Read", "input": { "file_path": "/proj/GLOSSARY.md" } },
+            { "type": "tool_use", "id": "t2", "name": "Edit", "input": { "file_path": "/proj/src/order.js" } }
+          ] } }
+        ]
+      },
+      "payload": { "hook_event_name": "PreCompact", "session_id": "s1", "trigger": "manual", "custom_instructions": null },
+      "expect": "SILENT"
     }
   ]
 }
