@@ -31,7 +31,7 @@ description: 當使用者要「先定一條可測量完成條件、再讓 Claude
 ## 前置設定
 
 - **需要 Node.js**，且 `claude` 在 PATH（子程序就是它；不在 PATH 時設環境變數 `GOAL2_CLAUDE_BIN` 指到可執行檔）。
-- **每個 JSON 輸出都帶 `plugin_version` 與 `plugin_root`**。回報「已啟動」時要講版本；若 `plugin_root` 是 `~/.claude/plugins/cache/...` 而 repo 工作樹版本更新，代表安裝版落後，提醒使用者 `/plugin update goal2@fulin-plugins`（2026-09-12 兩個 session 都在跑 0.3.1、審的卻是 0.3.3）。
+- **每個 JSON 輸出都帶 `plugin_version` 與 `plugin_root`**。回報「已啟動」時要講版本；若 `plugin_root` 是 `~/.claude/plugins/cache/...` 而 repo 工作樹版本更新，代表安裝版落後：問使用者要不要更新，同意後由 Claude 跑非互動 CLI `claude plugin marketplace update fulin-plugins` → `claude plugin update goal2@fulin-plugins --scope <scope>`（scope 用 `claude plugin list --json` 查這筆安裝紀錄；輸入框的 slash 版 `/plugin` 沒有 update 子指令），跑完請使用者重開 session（2026-09-12 兩個 session 都在跑 0.3.1、審的卻是 0.3.3）。
 - 安裝：`/plugin install goal2@fulin-plugins` → `/reload-plugins`。
 - ⚠️ **不要**把本 skill symlink 成 `~/.claude/skills/goal`——user-level 名字會與內建 `/goal` 撞名。plugin 安裝後的觸發名是 `/goal2:goal`。
 - **設定檔（選用）**：`~/.claude/goal2/config.json`（家目錄，重裝 plugin 不會被清掉；範本在 plugin 根層 `config.example.json`）。本 skill 用的欄位：

@@ -2,6 +2,10 @@
 
 本檔記錄 plugin-manager 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.19.2] - 2026-10-08
+### Fixed
+- 移除指向已刪除的 docs/使用教學.html 的規則（教學已併入 README）
+
 ## [0.19.1] - 2026-10-08
 ### Fixed
 - 會交給 Bash 執行的來源與 key 加白名單（owner/repo、https 網址、git@ 位址、本機路徑；不含空白與 shell 特殊字元；Windows 反斜線路徑印成單引號包住）：register-external、restore-env 不符時只印警告不印指令；upgrade-check 的 marketplace 名與 plugin 名只接受英數與 . _ -，不符就中止或略過，setup-plugins 規定不符的不跑、先問使用者。

@@ -32,7 +32,7 @@ fulin 的自製 Claude Code plugin monorepo。核心是 **plugin-manager**——
    - **registry**（`~/.claude/plugin-manager/`，家目錄、**不進 git**）的 `selfMade`：你自製 plugin 的版本 / dirty（個人本機狀態，由 adopt/bump/publish-finalize 維護）。
    - **recommends.json**（plugin 內、**進 git、會推廣**）：你精選的**別人做的**外部 plugin（只記來源/用途/tag，不複製別人程式碼）。別人裝你的 repo 就看到，`/setup-plugins` 時可挑裝。
 
-詳細教學（含完整實例）：**`plugins/plugin-manager/docs/使用教學.html`**
+詳細教學（含完整實例）：**`plugins/plugin-manager/README.md`**
 工作規範（真身單一份、改 skill 必發布、commit message 註明 skill、版本號慣例、plugin 指令分工）：**`plugins/plugin-manager/CONVENTIONS.md`**
 
 ---
@@ -91,7 +91,6 @@ plugins/
 │   ├─ skills/      adopt · update · publish · setup-plugins
 │   ├─ profiles.json  可推廣的 plugin 套餐 + 偵測規則（detect）
 │   ├─ scripts/     init · adopt · adopt-agents · bump-version · upgrade-check · publish-status · publish-finalize · register-external · export-env · restore-env
-│   ├─ docs/        使用教學.html
 │   └─ CONVENTIONS.md
 ├─ git-commit/                       並行審查 Git Commit 流程（含通用版 code-reviewer agent）
 ├─ qa-webwright/                     QA 測試框架 plugin

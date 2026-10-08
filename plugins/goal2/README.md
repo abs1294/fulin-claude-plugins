@@ -95,7 +95,7 @@
 
 檔案不存在就全用預設；存在但 JSON 壞掉、值型別錯、或有打錯的欄位名，工具會直接報錯而不是靜默用預設。`node <skill_dir>/goal.js --show-config` 或 `delaylocal.js --show-config` 可看生效值。`claude` 不在 PATH 時設環境變數 `GOAL2_CLAUDE_BIN`。
 
-所有 JSON 輸出都帶 `plugin_version` 與 `plugin_root`：安裝版（`~/.claude/plugins/cache/...`）落後 repo 時以安裝版行為為準，先 `/plugin update goal2@fulin-plugins` 再看文件。
+所有 JSON 輸出都帶 `plugin_version` 與 `plugin_root`：安裝版（`~/.claude/plugins/cache/...`）落後 repo 時以安裝版行為為準，先更新再看文件：`claude plugin marketplace update fulin-plugins` → `claude plugin update goal2@fulin-plugins --scope <該安裝的 scope>`（scope 用 `claude plugin list --json` 查；輸入框的 slash 版 `/plugin` 沒有 update 子指令）→ 重開 session。
 
 ## 安裝
 
