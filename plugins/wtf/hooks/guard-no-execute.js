@@ -24,7 +24,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const CONFIG_DIR = path.join(__dirname, '..', 'skills', 'wtf');
+// 寬度設定檔（0.18.0 起存使用者層，見 skills/wtf/width.js）
+const WIDTH_CONFIG = (process.env.WTF_CONFIG && process.env.WTF_CONFIG.trim())
+  ? path.resolve(process.env.WTF_CONFIG.trim())
+  : path.join(os.homedir(), '.claude', 'wtf', 'config.json');
 
 function readStdin() {
   try { return fs.readFileSync(0, 'utf8'); } catch (e) { return ''; }
@@ -48,14 +51,33 @@ const toolName = typeof input.tool_name === 'string' ? input.tool_name : '';
 const ti = (input.tool_input && typeof input.tool_input === 'object' && !Array.isArray(input.tool_input))
   ? input.tool_input : {};
 
+function raiseFlag(skill) {
+  try {
+    fs.writeFileSync(FLAG, JSON.stringify({ at: Date.now(), skill }), 'utf8');
+  } catch (e) { /* 立旗失敗就算了，fail-open */ }
+}
+
+// ── 分支零：使用者自己打 /wtf（UserPromptSubmit）→ 立旗 ──────────────
+// 0.18.0 修正：斜線指令是直接展開成 skill 內容，**不經過 Skill 工具**，
+// 所以只掛在 PreToolUse(Skill) 的話，使用者手打 /wtf 時本閘從來沒立過旗。
+// 實際紀錄（2026-10-09，Redcap session）：手打 /wtf 之後模型用 python 改設定檔，沒被擋。
+// 實測 UserPromptSubmit 收到的 prompt 就是原文（例如 "/wtf:wtf 測試"）。
+if (input.hook_event_name === 'UserPromptSubmit') {
+  const prompt = typeof input.prompt === 'string' ? input.prompt : '';
+  if (/^\s*\/(wtf:)?wtf(\s|$)/.test(prompt)) {
+    raiseFlag('prompt:/wtf');
+  } else {
+    // 使用者在 /wtf 之外送出新訊息＝重新交代工作，閘就該收掉。
+    // 以前沒有這個時機點，只能等 30 分鐘過期，期間他的正常指令也會被擋。
+    try { fs.unlinkSync(FLAG); } catch (e) {}
+  }
+  process.exit(0); // 永遠不擋使用者送出的訊息
+}
+
 // ── 分支一：Skill 呼叫 → 判斷是不是 wtf，是就立旗 ────────────────────
 if (toolName === 'Skill') {
   const skill = typeof ti.skill === 'string' ? ti.skill : '';
-  if (/(^|:)wtf$/.test(skill)) {
-    try {
-      fs.writeFileSync(FLAG, JSON.stringify({ at: Date.now(), skill }), 'utf8');
-    } catch (e) { /* 立旗失敗就算了，fail-open */ }
-  }
+  if (/(^|:)wtf$/.test(skill)) raiseFlag(skill);
   process.exit(0); // Skill 呼叫本身永遠放行，寬度閘那支才管擋不擋
 }
 
@@ -88,8 +110,8 @@ const WRITE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit']);
 
 if (WRITE_TOOLS.has(toolName)) {
   const fp = typeof ti.file_path === 'string' ? ti.file_path : '';
-  // (1) wtf 自己的 config.json（記終端機寬度）
-  if (fp && isWithin(fp, CONFIG_DIR) && path.basename(fp) === 'config.json') process.exit(0);
+  // (1) wtf 自己的寬度設定檔（正常走 width.js；模型直接寫檔也放行）
+  if (fp && path.resolve(fp).toLowerCase() === WIDTH_CONFIG.toLowerCase()) process.exit(0);
   // (2) 產給使用者看的 HTML 圖表，放在 OS 暫存目錄
   if (fp && isWithin(fp, os.tmpdir()) && /\.html?$/i.test(fp)) process.exit(0);
   block(toolName, fp);
@@ -106,6 +128,8 @@ if (toolName === 'Bash' || toolName === 'PowerShell') {
     // 量終端機寬度的標尺腳本。寬度閘擋下調用後會叫模型跑它，
     // 不放行的話兩個閘會互鎖：寬度閘要它量寬度，本閘不准它跑量寬度的東西。
     /\bruler\.js["']?(\s|$)/,
+    // 讀寫寬度設定。整行只能是這一個指令（不准串 ; && | 接別的東西）。
+    /^\s*node\s+["']?[^"'\n;&|]*width\.js["']?\s+(get|decline|set\s+\d{1,3})\s*$/,
   ];
   if (ALLOWED.some((re) => re.test(cmd))) process.exit(0);
   block('Bash', cmd.slice(0, 120));
@@ -130,7 +154,7 @@ function block(what, detail) {
     '   如果你判斷他真的要你動手做事，**先把事情解釋清楚，然後問他一句「要我現在動手嗎？」**\n' +
     '   等他在 /wtf 以外明確說要，才動手。\n' +
     '\n' +
-    '（本閘 30 分鐘後自動失效；使用者在 /wtf 之外重新交代的工作不受影響。）\n'
+    '（使用者送出下一則非 /wtf 的訊息時本閘就失效，最晚 30 分鐘後自動失效。）\n'
   );
   process.exit(2);
 }

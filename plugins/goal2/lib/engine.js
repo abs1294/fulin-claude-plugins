@@ -794,6 +794,7 @@ function runStatus(runDir) {
 function detectWtf() {
   const base = path.join(os.homedir(), '.claude', 'plugins', 'cache');
   let best = null;
+  let bestWithWidth = null; // 版本最高、且自己資料夾裡有寬度的那份（wtf 0.17.x 以前的存法）
   try {
     for (const mp of fs.readdirSync(base)) {
       const wtfDir = path.join(base, mp, 'wtf');
@@ -806,9 +807,22 @@ function detectWtf() {
         try { width = JSON.parse(fs.readFileSync(cfg, 'utf8')).terminalWidth ?? null; } catch (_) {}
         const cand = { installed: true, version: ver, skill_md: skill, config_json: fs.existsSync(cfg) ? cfg : null, terminal_width: width };
         if (!best || ver.localeCompare(best.version, undefined, { numeric: true }) > 0) best = cand;
+        if (typeof width === 'number' && width > 0 &&
+            (!bestWithWidth || ver.localeCompare(bestWithWidth.version, undefined, { numeric: true }) > 0)) bestWithWidth = cand;
       }
     }
   } catch (_) {}
+  // wtf 0.18.0 起寬度改存使用者層（升版不再清空）；有值就以它為準，
+  // 沒有就退回舊版資料夾裡最近一次填過的值（與 wtf 的 width.js 搬遷規則相同）
+  if (best) {
+    const userCfg = path.join(os.homedir(), '.claude', 'wtf', 'config.json');
+    let w = null;
+    try { w = JSON.parse(fs.readFileSync(userCfg, 'utf8')).terminalWidth; } catch (_) {}
+    if (typeof w === 'number' && w > 0) { best.terminal_width = w; best.config_json = userCfg; }
+    else if (!(typeof best.terminal_width === 'number' && best.terminal_width > 0) && bestWithWidth) {
+      best.terminal_width = bestWithWidth.terminal_width; best.config_json = bestWithWidth.config_json;
+    }
+  }
   return best || { installed: false };
 }
 

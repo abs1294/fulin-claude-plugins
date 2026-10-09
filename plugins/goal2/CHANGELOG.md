@@ -2,6 +2,10 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.7] - 2026-10-09
+### Fixed
+- detectWtf() 改先讀 wtf 0.18.0 起的使用者層寬度設定 ~/.claude/wtf/config.json，沒有才退回舊版資料夾裡最近一次填過的值（新版 wtf 資料夾不再帶 config.json）
+
 ## [0.5.6] - 2026-10-08
 ### Fixed
 - 安裝版落後時的更新指引改為非互動 CLI（claude plugin update --scope），slash 版 /plugin 沒有 update 子指令

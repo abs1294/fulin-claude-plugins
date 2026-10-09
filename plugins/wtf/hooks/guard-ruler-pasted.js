@@ -62,11 +62,30 @@ const alreadyBlockedOnce = input.stop_hook_active === true;
 const tpath = typeof input.transcript_path === 'string' ? input.transcript_path : '';
 if (!tpath) process.exit(0);
 
-let lines;
-try {
-  lines = fs.readFileSync(tpath, 'utf8').split('\n');
-} catch (e) {
-  process.exit(0); // 讀不到就放行
+// 0.18.0 修正（誤擋）：Stop hook 觸發時，最後那則回覆可能還沒寫進 transcript。
+// 實際紀錄（2026-10-09，Redcap session）：模型兩次都有貼標尺，閘兩次都報「標尺行數 = 0」；
+// 把該 transcript 截到「回覆那行之前」重跑本閘 → exit 2 且行數 = 0，含那行 → exit 0，
+// 回覆寫入與被擋只差 0.4~0.7 秒。所以最後那則回覆改以 hook 輸入的 last_assistant_message 為準
+// （Claude Code 2.1.295 的 Stop 輸入欄位，官方說明「Avoids the need to read and parse the transcript file」）；
+// 舊版沒有這個欄位時，改成隔一下重讀 transcript，最多三次。
+const lastMsg = typeof input.last_assistant_message === 'string' ? input.last_assistant_message : null;
+
+function countRulerLines(text) {
+  let n = 0;
+  for (const tl of String(text).split(NL)) if (RULER_LINE_RE.test(tl)) n++;
+  return n;
+}
+
+function sleepMs(ms) {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch (e) { /* 睡不了就不睡 */ }
+}
+
+function readLines() {
+  try {
+    return fs.readFileSync(tpath, 'utf8').split('\n');
+  } catch (e) {
+    return null;
+  }
 }
 
 // ── 只看「最後一個真實使用者回合」之後的訊息 ────────────────────────
@@ -92,19 +111,6 @@ function isHumanTurn(o) {
   if (/^Another Claude session sent a message/.test(c)) return false; // teammate
   return true;
 }
-let startIdx = 0;
-const parsed = [];
-for (let i = 0; i < lines.length; i++) {
-  const l = lines[i];
-  if (!l.trim()) { parsed.push(null); continue; }
-  let o = null;
-  try { o = JSON.parse(l); } catch (e) { o = null; }
-  parsed.push(o);
-  if (isHumanTurn(o)) {
-    startIdx = i;
-  }
-}
-
 // S2 修正：原本用 /ruler.js/ 比對，會把 `cat .../ruler.js`、`grep ruler.js`
 // 也當成「跑過標尺」——而用 /wtf 解釋 wtf plugin 自己時正好會做這種事，
 // 於是模型被要求貼一份它根本沒產生的標尺。改為必須是 node 實際執行它。
@@ -114,40 +120,77 @@ const RUN_RULER_RE = new RegExp('\\bnode\\b[^\\n|;&]*\\bruler\\.js\\b');
 // 原本用「整回合跑過沒／整回合貼過沒」兩個總量判斷，第一輪貼了就會
 // 替第二輪的漏貼背書——而第二輪漏貼正是使用者看到的症狀。
 // 改為依時序記錄：每次執行後，看它「之後」有沒有出現足夠的標尺行。
-let pendingSinceRun = null; // 非 null＝有一次執行還沒被貼滿
-let ranAny = false;
-
-for (let i = startIdx; i < parsed.length; i++) {
-  const o = parsed[i];
-  if (!o || o.type !== 'assistant' || !o.message) continue;
-  const content = o.message.content;
-  if (!Array.isArray(content)) continue;
-  for (const b of content) {
-    if (!b || typeof b !== 'object') continue;
-
-    // ① 有沒有「執行」ruler.js（Bash / PowerShell 的 command 欄位）
-    if (b.type === 'tool_use') {
-      const ti = (b.input && typeof b.input === 'object' && !Array.isArray(b.input)) ? b.input : {};
-      const cmd = typeof ti.command === 'string' ? ti.command : '';
-      if (RUN_RULER_RE.test(cmd)) {
-        pendingSinceRun = 0; // 這次執行開始重新計數：之後貼的才算這次的
-        ranAny = true;
-      }
-    }
-
-    // ② 標尺有沒有貼進回覆正文（text 區塊＝使用者螢幕上看到的）
-    // thinking 區塊刻意不算——使用者看不到它。
-    if (b.type === 'text' && typeof b.text === 'string' && pendingSinceRun !== null) {
-      for (const tl of b.text.split(String.fromCharCode(10))) {
-        if (RULER_LINE_RE.test(tl)) pendingSinceRun++;
-      }
-      if (pendingSinceRun >= MIN_RULER_LINES) pendingSinceRun = null; // 這次補齊了
+// 回傳 { ranAny, pending }：pending 非 null＝有一次執行之後還沒被貼滿（值＝之後貼了幾行）
+function scan(lines) {
+  let startIdx = 0;
+  const parsed = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l.trim()) { parsed.push(null); continue; }
+    let o = null;
+    try { o = JSON.parse(l); } catch (e) { o = null; }
+    parsed.push(o);
+    if (isHumanTurn(o)) {
+      startIdx = i;
     }
   }
+
+  let pendingSinceRun = null; // 非 null＝有一次執行還沒被貼滿
+  let ranAny = false;
+
+  for (let i = startIdx; i < parsed.length; i++) {
+    const o = parsed[i];
+    if (!o || o.type !== 'assistant' || !o.message) continue;
+    const content = o.message.content;
+    if (!Array.isArray(content)) continue;
+    for (const b of content) {
+      if (!b || typeof b !== 'object') continue;
+
+      // ① 有沒有「執行」ruler.js（Bash / PowerShell 的 command 欄位）
+      if (b.type === 'tool_use') {
+        const ti = (b.input && typeof b.input === 'object' && !Array.isArray(b.input)) ? b.input : {};
+        const cmd = typeof ti.command === 'string' ? ti.command : '';
+        if (RUN_RULER_RE.test(cmd)) {
+          pendingSinceRun = 0; // 這次執行開始重新計數：之後貼的才算這次的
+          ranAny = true;
+        }
+      }
+
+      // ② 標尺有沒有貼進回覆正文（text 區塊＝使用者螢幕上看到的）
+      // thinking 區塊刻意不算——使用者看不到它。
+      if (b.type === 'text' && typeof b.text === 'string' && pendingSinceRun !== null) {
+        for (const tl of b.text.split(String.fromCharCode(10))) {
+          if (RULER_LINE_RE.test(tl)) pendingSinceRun++;
+        }
+        if (pendingSinceRun >= MIN_RULER_LINES) pendingSinceRun = null; // 這次補齊了
+      }
+    }
+  }
+  return { ranAny, pending: pendingSinceRun };
 }
 
-if (!ranAny) process.exit(0);            // 這回合沒真的跑標尺 → 不關本閘的事
-if (pendingSinceRun === null) process.exit(0); // 每次執行都補貼了 → 放行
+let lines = readLines();
+if (!lines) process.exit(0); // 讀不到就放行
+let res = scan(lines);
+
+if (!res.ranAny) process.exit(0);           // 這回合沒真的跑標尺 → 不關本閘的事
+if (res.pending === null) process.exit(0);  // 每次執行都補貼了 → 放行
+
+// 還差標尺：可能只是最後那則回覆還沒寫進 transcript（見上方 0.18.0 修正）。
+// last_assistant_message 是停止前的最後一則回覆，必定在本回合所有工具呼叫之後，
+// 它裡面貼滿了就代表最後一次執行之後有貼。
+if (lastMsg !== null) {
+  if (res.pending + countRulerLines(lastMsg) >= MIN_RULER_LINES) process.exit(0);
+} else {
+  for (let attempt = 0; attempt < 3 && res.pending !== null; attempt++) {
+    sleepMs(400);
+    const again = readLines();
+    if (!again) process.exit(0);
+    res = scan(again);
+  }
+  if (res.pending === null) process.exit(0);
+}
+const pendingSinceRun = res.pending;
 
 // S3：真的該擋，但這次停止已經是「被擋過又續跑」的——放行以免無限迴圈。
 // 與原本的差別：原本在讀 transcript 前就無條件放行（等於閘只有一次性效力），
