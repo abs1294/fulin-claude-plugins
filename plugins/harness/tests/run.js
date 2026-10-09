@@ -8,7 +8,7 @@
  * 結束碼：0＝全數通過；1＝有失敗。最後一行「合計 PASS n / FAIL n」。
  *
  * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、plugin-hooks、learn-offline、probe
- * 不在這裡的：真實端到端（claude -p 跑一次完整 /harness:init），只跑一次當驗收證據，紀錄在 docs/e2e-*.md。
+ * 不在這裡的：真實端到端（claude -p 跑一次完整 /harness:init），只跑一次當驗收證據，結論記在 docs/learning-loop-design.md §11。
  */
 const fs = require('fs');
 const os = require('os');
@@ -130,6 +130,18 @@ if (want('fixtures')) {
     check('fixtures', !same(isRepo(ng).stdout || 'x:/none', ng) && !fs.existsSync(path.join(ng, '.git')), 'non-git：不是 git 專案');
     const rf = makeFixture('reference', path.join(root, 'reference'));
     check('fixtures', fs.existsSync(path.join(rf, 'CLAUDE.md')) && fs.existsSync(path.join(rf, '.claude', 'agents', 'reviewer.md')) && fs.existsSync(path.join(rf, '.claude', 'hooks', 'block-prod-db.js')) && fs.existsSync(path.join(rf, 'CONTEXT.md')), 'reference：有 CLAUDE.md、自己的 agent 與 hook、舊檔名詞彙表（參考模式）');
+    // 範例專案自己的測試指令要跑得起來：init 盤點會實跑它，壞掉的指令會被當成專案本身的問題回報
+    for (const dir of [sw, path.join(mr, 'web'), path.join(mr, 'api'), rf]) {
+      const pkg = path.join(dir, 'package.json');
+      const label = path.relative(root, dir).replace(/\\/g, '/');
+      const script = fs.existsSync(pkg) ? (JSON.parse(read(pkg)).scripts || {}).test : undefined;
+      const argv = typeof script === 'string' ? script.trim().split(/\s+/) : [];
+      if (argv[0] !== 'node') { check('fixtures', false, `${label}：package.json 的 test 指令不是 node 開頭，測試不知道怎麼跑：${script}`); continue; }
+      const r = spawnSync(process.execPath, argv.slice(1), { cwd: dir, encoding: 'utf8', timeout: 60000 });
+      // node --test 一個測試檔都沒找到時也 exit 0，所以另外要求至少跑到 1 個測試
+      const ran = Number((/^# tests (\d+)/m.exec(r.stdout || '') || [])[1] || 0);
+      check('fixtures', r.status === 0 && ran > 0, `${label}：npm test（${script}）exit ${r.status}、跑了 ${ran} 個測試${r.error ? '、' + r.error.message : ''}`);
+    }
   } finally { rm(root); }
 }
 

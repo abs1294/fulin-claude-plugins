@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.16.1] - 2026-10-09
+### Fixed
+- 修 fixture 的 npm test 在 Node v22 把資料夾當模組載入而失敗（改成 node --test）；移除不隨 plugin 發布的 e2e 證據檔 docs/e2e-20261009.md，結論與已知問題（含學習迴路未經真實 claude 實測、計數偏少、引號內文字誤擋、端到端 prompt 要禁裝 plugin）改記在 docs/learning-loop-design.md §11
+
 ## [0.16.0] - 2026-10-09
 ### Added
 - **學習迴路（新必裝 hook，`hooks/templates/learn-*.js`）**：確定性觸發、隔離反思、確定性落地，接在 05 §1 分級核可之前。

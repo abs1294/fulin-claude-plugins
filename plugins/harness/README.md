@@ -201,8 +201,7 @@ tests/
                                           階段狀態機、Stop 閘、學習迴路離線測試（假模型）、probe-hooks 兩條路徑
   lib/                                    範例專案產生器、標準實例產生器、拆分對帳、學習迴路離線測試
 docs/
-  learning-loop-design.md                 0.16.0 設計稿與紅藍審查紀錄
-  e2e-<日期>.md                           真實 claude -p 端到端跑一次 /harness:init 的紀錄
+  learning-loop-design.md                 0.16.0 設計稿與紅藍審查紀錄；第 11 節是端到端結果與已知問題（待辦）
 ```
 
 ## 骨架不帶什麼（同樣是設計）

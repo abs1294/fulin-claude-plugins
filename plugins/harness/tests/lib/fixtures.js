@@ -28,7 +28,7 @@ function gitInit(dir) {
 const WEB_APP = {
   'package.json': JSON.stringify({
     name: 'shipping-portal', private: true, type: 'module',
-    scripts: { dev: 'vite', build: 'vite build', test: 'node --test tests/' },
+    scripts: { dev: 'vite', build: 'vite build', test: 'node --test' },
     dependencies: { react: '^18.3.1', 'react-dom': '^18.3.1', nodemailer: '^6.9.0' },
     devDependencies: { vite: '^5.4.0' },
   }, null, 2) + '\n',
@@ -51,7 +51,7 @@ const KINDS = {
     for (const [k, v] of Object.entries(WEB_APP)) if (!k.startsWith('src/api') && !k.startsWith('src/mail')) web[k] = v;
     write(path.join(root, 'web'), web);
     write(path.join(root, 'api'), {
-      'package.json': JSON.stringify({ name: 'shipping-api', private: true, scripts: { start: 'node server.js', test: 'node --test test/' }, dependencies: { express: '^4.19.0', pg: '^8.12.0' } }, null, 2) + '\n',
+      'package.json': JSON.stringify({ name: 'shipping-api', private: true, scripts: { start: 'node server.js', test: 'node --test' }, dependencies: { express: '^4.19.0', pg: '^8.12.0' } }, null, 2) + '\n',
       'server.js': "const express = require('express');\nconst app = express();\n// 物流商狀態回呼（對方打進來）\napp.post('/webhook/carrier', (req, res) => res.sendStatus(204));\napp.listen(process.env.PORT || 3000);\n",
       'db.js': "const { Pool } = require('pg');\nmodule.exports = new Pool({ connectionString: process.env.DATABASE_URL });\n",
       'migrations/001_init.sql': 'CREATE TABLE shipment (id serial primary key, no text not null);\n',

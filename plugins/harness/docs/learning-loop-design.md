@@ -63,7 +63,7 @@
 | `hooks/templates/health-check-reminder.js` | hook（改） | 天數或 request 數先到者提醒 | C10 |
 | `hooks/templates/guard-risky-command.js`、`guard-test-preconditions.js` | hook（改） | 擋下時把規則 id 記一筆（不改擋不擋） | C8 |
 | `tests/run.js` 與 `tests/lib/*.js` | 測試 | 回歸測試入口 | B6 |
-| `docs/e2e-<YYYYMMDD>.md` | 證據 | 一次真實端到端 | B6 |
+| （已移除）`docs/e2e-<YYYYMMDD>.md` | 證據 | 一次真實端到端；0.16.1 起不隨 plugin 發布，結論與發現改記在本檔 §11 | B6 |
 
 **非 hook 檔的單一來源（審查 R8）**：每支不是 hook 的範本在檔頭寫一行 `// harness-kind: module`（被 require 的模組）或 `// harness-kind: cli`（手動或背景執行的腳本，有自己的 cases 或測試）。probe-hooks.js 的 `MODULES` 改由 `harness-kind: module` 推出（不再手寫清單），並把同目錄的 module 一起複製進暫存專案；`init-verify.js` 的 V17（已裝 hook 都有接線）跳過 `module`／`cli` 兩種。`learn-lib.js` 是 module；`learn-reflect.js`、`learn-promote.js`、`learn-pending.js` 是 cli，它們的行為由 `tests/run.js` 的學習迴路離線測試覆蓋（probe 也把 cli 當 module 跳過，因為它們不吃 hook payload）。既有的 `restore-local-hacks.js`、`check-worktree-ports.js` 標 `cli` 但保留原本的 cases（probe 對「有 cases 的 cli」照跑）。
 
@@ -469,9 +469,23 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 11. **learn-offline**：假 claude（node 腳本）＋假 transcript，跑 trigger（Stop 達門檻真的起背景反思並等它完成；SessionEnd 剩餘門檻；`EVERY_N=0` 關閉）、reflect（水位線只到最後一個換行、失敗不前進、預篩、暫停、每日上限、補跑）、promote 分級（綠寫入、黃寫入並待看、紅只待核、破壞性升紅、帳密／注入／外洩／抄原文／超量／路徑逃逸被拒）、第 2 次升格提案（不同出處才算）、pending approve／reject 還原與 CLAUDECODE 下拒絕、learn-approve 讀使用者原話、usage 計數與鎖、淘汰候選（⭐⭐ 以上排除）、開場回報一行、health-check 天數與 request 兩門檻、`learn-reflect.js --self-test`。
 12. **probe-hooks**：在 `hooks/templates` 跑 `probe-hooks.js` 與 `--parser=off`，FAIL＝0、缺 cases＝0（可用 `--skip-probe` 跳過，供快速迭代；完成驗收一律不跳）。
 
-真實端到端（一次，不進 run.js）：把 fixture「單一 repo＋網頁前端」複製到系統暫存目錄，`claude -p "/harness:init"`＋`--plugin-dir`、`--permission-mode bypassPermissions`、`--max-budget-usd` 上限，清 `CLAUDECODE`、設 `MSYS_NO_PATHCONV=1`；跑完 `init-verify` exit 0；指令、耗時、花費、原始輸出、與預期不符處寫進 `docs/e2e-<日期>.md`。
+真實端到端（一次，不進 run.js；2026-10-09 已執行，結果見 §11.1）：把 fixture「單一 repo＋網頁前端」複製到系統暫存目錄，`claude -p "/harness:init"`＋`--plugin-dir`、`--permission-mode bypassPermissions`、`--max-budget-usd` 上限，清 `CLAUDECODE`、設 `MSYS_NO_PATHCONV=1`；跑完 `init-verify` exit 0；結論與預期不符處記在本檔 §11（逐次的原始紀錄不放進 plugin，因為會隨 plugin 發給安裝者）。
 
-學習迴路的真實端到端（e2e-learn，審查 R2；同一份 e2e 文件另一節）：在 init 產出的實例裡用真的 `claude -p` 跑一段含使用者糾正與工具錯誤的對話（`HARNESS_REFLECT_EVERY_N=5`），等背景反思寫出 `last-run.json`，記錄：子程序 ok／花費／耗時、提案與落地結果、SessionEnd 路徑有沒有跑、subagent 的工具呼叫 payload 有沒有 `agent_id`（3 節的 HYPOTHESIS）、沙箱外讀取被拒。
+學習迴路的真實端到端（e2e-learn，審查 R2；**未執行**，見 §11.2）：在 init 產出的實例裡用真的 `claude -p` 跑一段含使用者糾正與工具錯誤的對話（`HARNESS_REFLECT_EVERY_N=5`），等背景反思寫出 `last-run.json`，記錄：子程序 ok／花費／耗時、提案與落地結果、SessionEnd 路徑有沒有跑、subagent 的工具呼叫 payload 有沒有 `agent_id`（3 節的 HYPOTHESIS）、沙箱外讀取被拒。
+
+## 11. 端到端結果與已知問題（待辦）
+
+### 11.1 init 真實端到端（2026-10-09，已執行）
+
+以 `claude -p` 無人值守對 fixture「單一 repo＋網頁前端」跑完整 `/harness:init`（`--plugin-dir` 載入開發版）：exit 0、`terminal_reason: completed`、七個 Phase 都經 `init-flow.js advance` 走過、`init-flow.js done` exit 0；`init-verify` V01～V18 全 PASS；耗時 2549 秒、花費 23.10 USD。原始紀錄未保留（暫存目錄已刪）。
+
+### 11.2 已知問題（待辦）
+
+1. **學習迴路沒有用真的 claude 跑過（審查 R2 未落實）**：R2 的處置是加 e2e-learn，但沒有執行；上面那次 init 端到端裡 learn-trigger 只數到 45、沒達門檻，反思子程序一次都沒起。所以 R2 列的風險仍然開著：subagent 的工具呼叫 payload 帶不帶 `agent_id`、detached 子程序在 Windows 活不活得過 session 結束、反思輸出形狀、找 claude 執行檔。目前只有離線測試（假 claude）覆蓋。待辦：照 §10 的 e2e-learn 跑一次。
+2. **learn-trigger 計數偏少**：同一次端到端，主對話 108 次工具呼叫，learn-trigger 只數到 45。HYPOTHESIS：hook 在 Phase 4 寫好 settings.local.json 之後才生效，之前的呼叫沒被數到；未實驗確認。
+3. **guard-risky-command 會比對引號內的文字**：`claude -p "<含 curl 與 src/mail.js 的文字>"` 被擋，改從檔案餵 stdin 才過。規則刻意寧可多擋，但屬誤擋；待評估是否排除引號內的 prompt 參數。
+4. **端到端的 prompt 要禁止安裝外部 plugin**：上次 prompt 允許 git-commit，子程序在暫存專案裝了 project scope 的 git-commit，`~/.claude/plugins/installed_plugins.json` 多一筆紀錄（已於 2026-10-09 用 `uninstall --scope project --keep-data` 清掉）。下次 prompt 寫「所有外部 plugin 一律不裝」。
+5. （已修，0.16.1）fixture 的 `npm test` 寫成 `node --test tests/`／`node --test test/`，Node v22 把資料夾當模組載入而 MODULE_NOT_FOUND；改成 `node --test`（自動找測試檔）。
 
 ## 審查紀錄
 
