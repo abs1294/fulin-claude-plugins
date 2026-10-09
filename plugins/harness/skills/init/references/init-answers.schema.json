@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness/init-answers.schema.json",
+  "title": "harness init 訪談答案檔（<落點>/.claude/harness/init-answers.json）",
+  "description": "由 init-flow.js answer／catalog 寫入，不手改。Phase 4 生成、init-verify.js、重裝（參考模式的預設答案）都讀這份。",
+  "type": "object",
+  "required": ["version", "harnessVersion", "target", "landing", "mode", "headless", "answers"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "enum": [1] },
+    "runId": { "type": "string", "description": "init-flow.js start 產生的這一次 init 的編號；上一次 init 留下的答案檔 runId 不同，不沿用" },
+    "harnessVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "target": { "type": "string", "minLength": 1, "description": "跑 init 的 workspace 根（絕對路徑）" },
+    "landing": { "type": "string", "minLength": 1, "description": "落點：單人＝workspace 根、團隊＝repo 根；Q4 答完前等於 target" },
+    "mode": { "type": "string", "enum": ["normal", "reference"] },
+    "headless": { "type": "boolean" },
+    "glossaryFile": { "type": "string", "enum": ["GLOSSARY.md", "CONTEXT.md"] },
+    "updatedAt": { "type": "string" },
+    "answers": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(Q0|U1|U2|U3|Q1|Q2|Q3|Q4|Q5|Q6|Q7|Q8|Q9|Q10|Q11|Q12)$": { "$ref": "#/$defs/answer" }
+      }
+    },
+    "verifyWaivers": {
+      "type": "array",
+      "description": "init-verify.js 誤判的豁免（init-flow.js waive 寫入）；V09、V10、V12 不可豁免",
+      "items": {
+        "type": "object",
+        "required": ["id", "match", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^V\\d\\d-" },
+          "match": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 },
+          "date": { "type": "string" }
+        }
+      }
+    },
+    "hookCatalog": {
+      "type": "array",
+      "description": "形狀目錄逐列的去向；列數必須等於 references/hook-catalog.md 目錄表的列數",
+      "items": {
+        "type": "object",
+        "required": ["row", "name", "decision", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "row": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "decision": { "type": "string", "enum": ["installed", "not-installed", "plugin"] },
+          "reason": { "type": "string", "minLength": 1 },
+          "files": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "answer": {
+      "type": "object",
+      "required": ["asked", "date", "delegated"],
+      "additionalProperties": false,
+      "properties": {
+        "asked": { "type": "string", "minLength": 1, "description": "問了什麼（一句話摘要）" },
+        "answer": { "description": "使用者的答案（文字或結構化）" },
+        "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "delegated": { "type": "boolean", "description": "true＝無人值守或使用者沒答時 Claude 代決" },
+        "skipped": {
+          "type": ["object", "null"],
+          "required": ["reason"],
+          "additionalProperties": false,
+          "properties": { "reason": { "type": "string", "minLength": 1 } }
+        },
+        "data": { "type": "object", "description": "給機械驗收讀的結構化欄位（U3、Q1、Q4、Q10、Q11 必填，見 phase-3-interview.md）" }
+      }
+    }
+  }
+}

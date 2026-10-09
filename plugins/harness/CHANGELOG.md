@@ -2,6 +2,36 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.16.0] - 2026-10-09
+### Added
+- **學習迴路（新必裝 hook，`hooks/templates/learn-*.js`）**：確定性觸發、隔離反思、確定性落地，接在 05 §1 分級核可之前。
+  - `learn-trigger.js`：PreToolUse 累加主 session 工具呼叫數，Stop 達門檻（`HARNESS_REFLECT_EVERY_N`，預設 80，0＝關閉）、SessionEnd 剩餘 ≥10 次時 detached 背景起反思，hook 立即返回；記 transcript 位元組水位線，下次只讀新段；遞迴防護用 `HARNESS_LEARN_CHILD`；`HARNESS_LEARN_DRYRUN=1` 只寫標記不起子程序。
+  - `learn-reflect.js`＋`learn-reflector-prompt.md`：`claude -p --model sonnet`，工具只給 Read／Grep／Glob（沒有任何寫檔工具），權限模式 default、只讀設定 local、cwd 是暫存沙箱（讀沙箱外被 Claude Code 權限擋下）；輸入水位線起的 transcript 片段（每筆截斷、總量上限、只讀到最後一個換行）、MEMORY.md 索引、03 條款標題、知識筆記節標題、05 §2 格式；回一個 JSON 提案陣列（最多 5 筆，證據只存出處與線索、不存原文）；解析失敗記 run 帳本；連續 2 次失敗暫停到隔天、每日上限；`--self-test` 18 項。
+  - `learn-promote.js`（無 LLM）：格式驗證（05 §2）＋安全掃描＋帳密樣式＋出處存在（行號在本次讀取範圍、且指到有內容的紀錄行）＋路徑白名單（以解開 symlink／junction 後的實際路徑比對，指到專案外的不寫、不複製進反思沙箱）→ 綠區（memory 新檔、知識筆記新條目）原子寫入（索引、變更紀錄、ledger 或待處理清單任一步寫失敗就回復到寫入前）、黃區（改既有）寫入並列「待你看」、紅區（03、hook、agent、CLAUDE.md、settings）只進待核；寫 ledger.jsonl、runs/<run>.json、last-run.json；同主題第 2 次自動產生紅區升格提案（附兩次出處）。
+  - `learn-session-report.js`（SessionStart）：一行回報上次寫入、待你看、待核（含升格）、被拒與原因類別、淘汰候選；沒有東西不印；清 90 天前的 runs／備份。
+  - `learn-pending.js` list／approve／reject／revert：approve 紅區只標記「使用者已核可」，不改規則檔；黃區 reject 還原寫入前版本（只動專案與 memory 目錄內、以實際路徑比對）；在 Claude 的工具裡（`CLAUDECODE`）執行會拒絕。`learn-approve.js`（UserPromptSubmit）只認使用者在提示列打的「核可／駁回 <編號>」。
+  - `learn-usage.js`（PreToolUse）：Read 到 memory、知識筆記、`.claude/harness/*.md`、專案 skill 記 view，Skill 記 use，反思子程序的讀取不計；Stop 累加 request 數；`learning/usage.json` 加鎖讀改寫。`guard-risky-command.js`、`guard-test-preconditions.js` 擋下時記規則 id（擋不擋的行為不變）。
+  - 淘汰候選：request 數過試用期（預設 200）且 use＋view 皆 0 的 memory／專案 skill（⭐⭐ 以上排除）、從未觸發的規則 id 列「候選降級」；只列出、不自動歸檔。
+  - 共用模組 `learn-lib.js`；四份 cases（learn-trigger、learn-usage、learn-session-report、learn-approve）。
+- **init 階段閘**：`skills/init/scripts/init-flow.js`（start／answer／catalog／waive／advance／status／abort／done），狀態檔 `<目標>/.claude/harness/.init-state.json`，answer／catalog 要到 Phase 3、waive 要到 Phase 4 以後才收，mode 在訪談開始後、abort 在 done／aborted 後拒收，advance 只能依序前進並由腳本檢查出關條件（Phase 4 前必答題齊、Phase 6 前 init-verify 通過、done 前重跑 init-verify 且 check-flow-diagram 通過）；plugin 層 Stop hook `hooks/init-stop-gate.js`（Phase ≥4、未 done／aborted、最後一則回覆宣稱裝完才擋，24 小時過期，fail-open）與 PreToolUse `hooks/init-state-guard.js`（擋直接改狀態檔；答案檔只在 init 進行中擋，落點在子目錄時往上找狀態檔）；session-reminder 提醒未完成的 init。
+- **`init-verify.js`**：Phase 5 靜態檢查機械化成 V01～V18（`{{` 殘留、changelog 位置與建立行、05 節標題、污染詞、詞彙表單一檔名、引用路徑、驗證指令本體、hook 語法、settings JSON、檔尾完整、帳密樣式、專案概要四塊、詞條數對答案檔、answers schema、形狀目錄去向、hook 接線、學習迴路），每項印 id／PASS／FAIL／證據，任一 FAIL exit 1；可帶理由豁免（V09／V10／V12 不可豁免）。
+- **`init-answers.json`**：`references/init-answers.schema.json`，訪談每答一題由 `init-flow.js answer` 寫入（題目 id、問的內容、答案、日期、是否代決）；Phase 4 生成、init-verify、重裝的預設答案都從這份讀。
+- **回歸測試 `tests/run.js`**：四種範例專案（單 repo＋前端、多 repo、非 git、已有設定）由腳本在暫存目錄生成；golden 實例 init-verify exit 0、18 個刻意弄壞的變體各報對應 id；SKILL 大小、事故敘述 grep、訪談合併、description 長度與形狀目錄列數、拆分對帳（split-audit）、init-flow、schema、plugin hook cases、學習迴路整段離線測試（假 claude 執行檔）、probe-hooks 兩條路徑。
+- `docs/learning-loop-design.md`（設計稿＋紅藍審查紀錄 R1～R22）、`docs/e2e-20261009.md`（真實 claude -p 跑完整 /harness:init 的驗收證據，init-verify 18/18）。
+### Changed
+- **init SKILL.md 拆分**：主檔改成路由＋硬規則＋階段清單（119 行），各 Phase 細節搬到 `references/phases/`（phase-0～6、phase-4-hooks、questions/how-to-ask），每份 ≤20,000 字元；每個 Phase 寫明「進入本階段先讀 <檔>」；拆分以腳本逐條對帳 0 條遺失。
+- 事故經過搬到 `references/rationale.md`（依 Phase 分節、標原出處），SKILL 與 phases 只留一句理由。
+- 訪談 Q4（單人／團隊）、Q10（用語表自動載入）、Q11（註解規範）合成一則問，其餘維持一次一題。
+- Phase 5 改成先跑 init-verify 貼原始輸出、腳本做不到的語意項才由模型判；冷啟探針加學習迴路自我測試（假 transcript＋假 claude，驗綠區寫入、紅區只進待核、ledger 與 last-run 有紀錄）。
+- hook-catalog 新增學習迴路各列（必裝），不再寫死 hook 數量；Phase 4 加學習迴路複製與 settings 接線，寫明它與 sediment 四題閘的分工。
+- Phase 6 第三張流程圖（`example-flow-3.json`）加學習迴路的節點與讀寫線。
+- `health-check-reminder.js`：距上次健檢 ≥30 天或 ≥300 個 request（先到者）提醒，兩個門檻在填空區可調；usage.json 或基準檔壞掉時退回只看天數。
+- 05 骨架 §1 加學習迴路分級、§5 健檢節奏改天數或 request 數、§6 升格改引用自動計數；CLAUDE-md、harness-README 骨架同步；修骨架寫死 `.claude/settings.json`（單人模式實際是 settings.local.json）。
+- `/harness:review`：版本差距能報「實例沒有學習迴路」，報告加學習迴路面向（待核提案、淘汰候選、用量統計）。
+- probe-hooks 的模組／腳本清單改由檔頭 `// harness-kind:` 推導。
+- init 的 description 第一句寫觸發詞；plugin.json description 精簡到 400 字元內、觸發與用途放前面。
+- 既有實例不自動遷移，`/harness:review` 的版本差距會列出缺的學習迴路。
+
 ## [0.15.2] - 2026-10-08
 ### Fixed
 - init 產生專案檔時詞彙表檔名只寫實際使用的那一個（新建 GLOSSARY.md、沿用 CONTEXT.md），Phase 5 加機械檢查另一個檔名 0 命中；派工檢查擋下提示同步改為只寫實際檔名

@@ -84,11 +84,12 @@
 | 踩坑紀錄／制度檔修改權限／健檢／升格 | `.claude/harness/05-knowledge-protocol.md` |
 {{註解規範那一題選「建」時加：| 程式註解怎麼寫、哪些註解算缺陷 | `.claude/harness/07-comment-guide.md` |；選沿用專案既有的註解規範文件時，右欄改寫那份文件的路徑；不建就刪本行}}
 | 各 agent 的職責、觸發時機、交接契約 | `.claude/agents/`（{{裁切後實際建立的 agent 檔名逐一列出}}） |
-| 哪些規則有程式擋（他律） | `.claude/settings.json` 的 hooks 區＋`.claude/hooks/`（{{Phase 3 Q5 確認安裝的 hook 逐一列出}}） |
+| 哪些規則有程式擋（他律） | `{{settings 檔：單人＝.claude/settings.local.json、團隊＝.claude/settings.json，照 Phase 3 Q4 只寫實際那一個}}` 的 hooks 區＋`.claude/hooks/`（{{Phase 3 Q5 確認安裝的 hook 逐一列出}}） |
 {{有產生 `.claude/git-commit-reviewer-addendum.md` 時加：| commit 前審查（git-commit 的程式碼審查那一軌）要多做的專案步驟 | `.claude/git-commit-reviewer-addendum.md` |；沒產生就刪本行}}
 {{有產生本機覆寫說明時加：| 本機覆寫每個檔該填什麼值、漏補時的症狀（哪些檔是覆寫見覆寫清單） | `.claude/harness/local-overrides-guide.md` |；沒產生就刪本行}}
 {{動手前必讀那一題有規則檔選「精煉成自有正本」時加：| 精煉自 <原檔路徑> 的規則與已知矛盾（原檔給別的 AI 工具讀，Claude 不直接讀） | `.claude/harness/review-rules.md` |；沒有就刪本行}}
 {{選裝 skill 那一題有選、或有產生本機覆寫導向 skill 時加：| 專案 skill（碰到什麼情況自動叫用）{{有工作流地圖時加：；不確定該走哪條路時看工作流地圖}} | `.claude/skills/`（{{這次建的 skill 逐一列出}}） |；都沒有就刪本行}}
+{{有裝學習迴路（形狀目錄第 31～35 列）時加：| 背景整理學到的東西、等你核可的提案 | `.claude/harness/learning/`（清單：`node .claude/hooks/learn-pending.js list`；核可或駁回在提示列打「核可 <編號>」「駁回 <編號>」；整理怎麼分級見 05 §1） |；沒裝就刪本行}}
 | 本專案特有詞彙（這個詞是什麼意思） | `GLOSSARY.md`（workspace 根；沒有就讀 `CONTEXT.md`） |
 | 跨模組鏈路（動 A 層要不要同步 B 層） | `FLOWS.md`（workspace 根） |
 | QA 操作坑與測試設計知識 | `tests/Project_Detail/PROJECT.md` |

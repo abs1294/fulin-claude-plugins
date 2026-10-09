@@ -1,0 +1,319 @@
+{
+  "hook": "learn-session-report.js",
+  "cases": [
+    {
+      "label": "上次反思寫入 1 筆、被拒 1 筆、還沒回報 → 印一行",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/last-run.json": "{\"run\":\"r-20261009-101500-ab12\",\"startedAt\":\"2026-10-09T02:00:00.000Z\",\"endedAt\":\"2026-10-09T02:01:00.000Z\",\"trigger\":\"stop-threshold\",\"skipped\":null,\"child\":{\"called\":true,\"ok\":true,\"ms\":1000,\"costUsd\":0.01,\"error\":null},\"parse\":{\"ok\":true,\"error\":null,\"proposals\":2},\"results\":{\"written\":1,\"pendingReview\":0,\"pendingApproval\":0,\"rejected\":1,\"promotions\":0},\"rejectReasons\":{\"format\":1},\"greenWrites\":[{\"topic\":\"db-login-lockout\",\"summary\":\"連庫前先確認帳號\"}],\"notes\":[],\"reported\":false}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "什麼都沒有（新專案）→ 不印",
+      "setup": {
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "上次反思已回報過、沒有待處理 → 不印",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/last-run.json": "{\"run\":\"r-20261009-101500-ab12\",\"startedAt\":\"2026-10-09T02:00:00.000Z\",\"endedAt\":\"2026-10-09T02:01:00.000Z\",\"trigger\":\"stop-threshold\",\"skipped\":null,\"child\":{\"called\":true,\"ok\":true,\"ms\":1000,\"costUsd\":0.01,\"error\":null},\"parse\":{\"ok\":true,\"error\":null,\"proposals\":2},\"results\":{\"written\":1,\"pendingReview\":0,\"pendingApproval\":0,\"rejected\":1,\"promotions\":0},\"rejectReasons\":{\"format\":1},\"greenWrites\":[{\"topic\":\"db-login-lockout\",\"summary\":\"連庫前先確認帳號\"}],\"notes\":[],\"reported\":true}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "上次反思已回報過，但還有 1 筆待核 → 每次都印",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/last-run.json": "{\"run\":\"r-20261009-101500-ab12\",\"startedAt\":\"2026-10-09T02:00:00.000Z\",\"endedAt\":\"2026-10-09T02:01:00.000Z\",\"trigger\":\"stop-threshold\",\"skipped\":null,\"child\":{\"called\":true,\"ok\":true,\"ms\":1000,\"costUsd\":0.01,\"error\":null},\"parse\":{\"ok\":true,\"error\":null,\"proposals\":2},\"results\":{\"written\":1,\"pendingReview\":0,\"pendingApproval\":0,\"rejected\":1,\"promotions\":0},\"rejectReasons\":{\"format\":1},\"greenWrites\":[{\"topic\":\"db-login-lockout\",\"summary\":\"連庫前先確認帳號\"}],\"notes\":[],\"reported\":true}",
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "待處理都已處理完（approved／reverted／綠區 accepted）→ 不印",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"approved\"},{\"id\":\"p-20261009-02\",\"level\":\"green\",\"type\":\"write\",\"status\":\"accepted\"},{\"id\":\"p-20261009-03\",\"level\":\"yellow\",\"type\":\"write-review\",\"status\":\"reverted\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "上次反思子程序失敗 → 印失敗（反沉默）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/last-run.json": "{\"run\":\"r-20261009-101500-ab12\",\"startedAt\":\"2026-10-09T02:00:00.000Z\",\"endedAt\":\"2026-10-09T02:01:00.000Z\",\"trigger\":\"stop-threshold\",\"skipped\":null,\"child\":{\"called\":true,\"ok\":false,\"error\":\"exit 1 not logged in\"},\"parse\":{\"ok\":null},\"results\":{\"written\":1,\"pendingReview\":0,\"pendingApproval\":0,\"rejected\":1,\"promotions\":0},\"rejectReasons\":{\"format\":1},\"greenWrites\":[{\"topic\":\"db-login-lockout\",\"summary\":\"連庫前先確認帳號\"}],\"notes\":[],\"reported\":false}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "上次反思解析失敗 → 印失敗",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/last-run.json": "{\"run\":\"r-20261009-101500-ab12\",\"startedAt\":\"2026-10-09T02:00:00.000Z\",\"endedAt\":\"2026-10-09T02:01:00.000Z\",\"trigger\":\"stop-threshold\",\"skipped\":null,\"child\":{\"called\":true,\"ok\":true,\"ms\":1000,\"costUsd\":0.01,\"error\":null},\"parse\":{\"ok\":false,\"error\":\"x\",\"proposals\":0},\"results\":{\"written\":1,\"pendingReview\":0,\"pendingApproval\":0,\"rejected\":1,\"promotions\":0},\"rejectReasons\":{\"format\":1},\"greenWrites\":[{\"topic\":\"db-login-lockout\",\"summary\":\"連庫前先確認帳號\"}],\"notes\":[],\"reported\":false}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "反思暫停中、還沒講過 → 印「反思暫停到」",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pause.json": "{\"failures\":2,\"until\":\"2026-10-10\",\"lastError\":\"子程序失敗\",\"reported\":false}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "反思暫停中、已經講過一次 → 不再印",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pause.json": "{\"failures\":2,\"until\":\"2026-10-10\",\"lastError\":\"子程序失敗\",\"reported\":true}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "淘汰候選：memory 登記後過了 200 個 request 零讀取、索引行無星 → 印「淘汰候選」",
+      "setup": {
+        "files": {
+          "mem/MEMORY.md": "# M\n- [舊坑](old-pit.md) — x\n",
+          "mem/old-pit.md": "x",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"requests\":300,\"items\":{\"memory:old-pit.md\":{\"kind\":\"memory\",\"view\":0,\"use\":0,\"registeredAtRequest\":0}},\"rules\":{}}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "淘汰候選排除：同樣零讀取，但索引行標 ⭐⭐ → 不列、不印",
+      "setup": {
+        "files": {
+          "mem/MEMORY.md": "# M\n- ⭐⭐ [舊坑](old-pit.md) — x\n",
+          "mem/old-pit.md": "x",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"requests\":300,\"items\":{\"memory:old-pit.md\":{\"kind\":\"memory\",\"view\":0,\"use\":0,\"registeredAtRequest\":0}},\"rules\":{}}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "淘汰候選：有讀過（view 1）→ 不列、不印",
+      "setup": {
+        "files": {
+          "mem/MEMORY.md": "# M\n- [舊坑](old-pit.md) — x\n",
+          "mem/old-pit.md": "x",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"requests\":300,\"items\":{\"memory:old-pit.md\":{\"kind\":\"memory\",\"view\":1,\"use\":0,\"registeredAtRequest\":0}},\"rules\":{}}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "淘汰候選：試用期未滿（request 199）→ 不列、不印",
+      "setup": {
+        "files": {
+          "mem/MEMORY.md": "# M\n- [舊坑](old-pit.md) — x\n",
+          "mem/old-pit.md": "x",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"requests\":199,\"items\":{\"memory:old-pit.md\":{\"kind\":\"memory\",\"view\":0,\"use\":0,\"registeredAtRequest\":0}},\"rules\":{}}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "新登記不會馬上被判淘汰：memory 目錄有沒登記過的舊檔、request 已 500 → 登記於 500，不印",
+      "setup": {
+        "files": {
+          "mem/MEMORY.md": "# M\n- [舊坑](old-pit.md) — x\n",
+          "mem/old-pit.md": "x",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"requests\":500,\"items\":{},\"rules\":{}}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "規則候選降級：規則 id 登記後過了試用期一次都沒擋 → 印",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"requests\":300,\"items\":{},\"rules\":{\"guard-risky-command:db-x\":{\"hits\":0,\"registeredAtRequest\":0}}}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "反思子程序裡（HARNESS_LEARN_CHILD=1）→ 不印",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/last-run.json": "{\"run\":\"r-20261009-101500-ab12\",\"startedAt\":\"2026-10-09T02:00:00.000Z\",\"endedAt\":\"2026-10-09T02:01:00.000Z\",\"trigger\":\"stop-threshold\",\"skipped\":null,\"child\":{\"called\":true,\"ok\":true,\"ms\":1000,\"costUsd\":0.01,\"error\":null},\"parse\":{\"ok\":true,\"error\":null,\"proposals\":2},\"results\":{\"written\":1,\"pendingReview\":0,\"pendingApproval\":0,\"rejected\":1,\"promotions\":0},\"rejectReasons\":{\"format\":1},\"greenWrites\":[{\"topic\":\"db-login-lockout\",\"summary\":\"連庫前先確認帳號\"}],\"notes\":[],\"reported\":false}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": "1",
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "last-run.json 壞掉 → stdout 印一行 ERROR（exit 0）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/last-run.json": "{壞"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    }
+  ]
+}

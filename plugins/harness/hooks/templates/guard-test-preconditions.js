@@ -816,6 +816,7 @@ let raw = '';
 process.stdin.on('data', (c) => { raw += c; });
 process.stdin.on('end', () => {
   const problems = [];
+  const problemIds = []; // 與 problems 平行：每個不符的檢查的 id（給學習迴路的規則觸發計數；沒有 id 記 '未命名'）
   let fileProblem = false; // 有「設定檔類」檢查不符時，結尾才提醒重啟跑中的服務
   try {
     const input = JSON.parse(raw);
@@ -924,6 +925,7 @@ process.stdin.on('end', () => {
         if (bad.length) {
           // env-file 不符時兩邊都可能是錯的那一邊：改的若是服務讀的設定檔，要重啟才生效
           if (c.kind === 'file' || c.kind === 'env-file') fileProblem = true;
+          problemIds.push(c.id || '未命名');
           problems.push('  - ' + tag + bad.join('；') +
             (c.reason ? '\n      為什麼：' + c.reason : '') +
             '\n      放行方式：' + (c.fix || '修正後再跑。'));
@@ -940,7 +942,11 @@ process.stdin.on('end', () => {
   }
   if (!problems.length) { emitFaultsOnly(); process.exit(0); }
 
-  const reason = '[' + LABEL + '] 要跑測試，但前置條件不符：\n\n' + problems.join('\n\n') +
+  // 學習迴路的規則觸發計數（淘汰「候選降級」的依據）：同目錄沒有 learn-lib.js 時 require 丟例外被吞掉；
+  // 只記數、不輸出，不影響擋不擋與擋下訊息。
+  try { require('./learn-lib.js').recordRuleHits('guard-test-preconditions', problemIds, path.resolve(__dirname, '..', '..')); } catch {}
+
+  const reason ='[' + LABEL + '] 要跑測試，但前置條件不符：\n\n' + problems.join('\n\n') +
     '\n\n這類問題不會報「環境不對」，只會讓測試紅在很遠的斷言上，或產生真實副作用（例如寄信給真人）。' +
     (fileProblem ? '\n改的若是跑中服務讀的設定檔，改完要重啟該服務才會生效——本守門只驗檔案內容，驗不到跑中的程序。' : '') +
     '\n檢查表在 .claude/hooks/guard-test-preconditions.js 的 CHECKS；判斷是檢查錯擋就回報使用者改檢查，不要繞過。' +

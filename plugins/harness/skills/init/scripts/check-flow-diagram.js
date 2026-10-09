@@ -29,7 +29,7 @@
  *     這是給同一種用途的一批檔（測試案例、相依套件）用的；每支有各自作用的檔不要用目錄節點帶過。
  *
  * 不列入比對：.git/、快照本身、.harness-backup/（參考模式的備份）、流程圖本身
- *   （.claude/harness/flow.html、flow-N.json／html、flow.md）與收尾回報檔 install-report.md、執行測試產生的快取
+ *   （.claude/harness/flow.html、flow-N.json／html、flow.md）與收尾回報檔 install-report.md、init 階段狀態檔 .init-state.json、執行測試產生的快取
  *   （__pycache__、.pytest_cache、.mypy_cache、.ruff_cache）——排除的數量照實印出。
  *   node_modules 底下的變動收成一項「<那層>/node_modules/」，要用目錄節點畫。
  *
@@ -43,8 +43,9 @@ const crypto = require('crypto');
 
 const SKIP_DIRS = new Set(['.git', '.harness-backup']);
 const CACHE_DIRS = new Set(['__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache']);
-// 流程圖本身（flow.html、flow-1.json、flow-2.html、flow.md…）與收尾回報檔，是畫圖這一步自己的產出
-const isSelfOutput = r => /^\.claude\/harness\/(flow(-\d+)?\.(json|html|md)|install-report\.md)$/.test(r);
+// 流程圖本身（flow.html、flow-1.json、flow-2.html、flow.md…）與收尾回報檔，是畫圖這一步自己的產出；
+// .init-state.json 是 init-flow.js 的階段狀態檔（init 的過程檔，不畫圖）
+const isSelfOutput = r => /^\.claude\/harness\/(flow(-\d+)?\.(json|html|md)|install-report\.md|\.init-state\.json)$/.test(r);
 
 const die = (msg, code = 2) => { console.error(msg); process.exit(code); };
 const [, , cmd, rootArg, ...diagramArgs] = process.argv;

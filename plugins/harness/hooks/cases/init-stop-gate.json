@@ -1,0 +1,754 @@
+{
+  "hook": "init-stop-gate.js",
+  "cases": [
+    {
+      "label": "(a) 沒有狀態檔：說裝好了也放行",
+      "setup": {
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "/harness:init"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "harness 安裝完成，以下是收尾回報"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(b) 訪談中一般的回合結束（問完一題等回答）放行",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":3,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "繼續"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "第三題：要不要建註解規範？建議：建——你們的編譯設定會對缺說明的成員發警告。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(c) 還在 Phase 4 卻宣稱安裝完成 → 擋",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":4,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "harness 安裝完成！自動檢查都裝好了。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "(d) init-flow done 之後說裝好了放行",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":6,\"status\":\"done\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "全部裝好了，流程圖已在瀏覽器打開。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(e) abort 之後說完成放行",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":2,\"status\":\"aborted\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "先停"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "init 已結束，已依你的指示中止。harness 安裝完成的部分只有備份。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(f) 狀態檔壞掉 → 放行並印錯（fail-open）",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{壞掉"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "harness 安裝完成"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "(g) 否定句「還沒裝好」放行",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":4,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "裝好了嗎"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "還沒裝好，現在在生成 hook。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(h) 未來式「安裝完成後你會看到」放行（Phase 5）",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":5,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "會怎樣"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "安裝完成後你會看到三張流程圖。以上事實有錯請直接指出。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(i) 階段性完成「核對完成」放行（Phase 5）",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":5,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "沒問題"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "核對完成，開始逐題訪談（共 11 題）。第一題：…"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(j) 只看本回合：上一回合宣稱過、這回合在問問題 → 放行",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":4,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "a"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "harness 安裝完成"
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "你確定？"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "我再檢查一次 Phase 5 的項目，請稍等回答第五題。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(k) payload 帶 last_assistant_message 時以它為準 → 擋",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":5,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        }
+      },
+      "payload": {
+        "last_assistant_message": "init 完成。",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "(l) 同一 Phase 已連擋 3 次 → 放行並警告（防無限迴圈）",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":5,\"status\":\"running\",\"history\":[],\"gateBlocks\":3}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "harness 安裝完成"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": true
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "(m) 狀態檔在上層目錄（cwd 是子資料夾）也找得到 → 擋",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":4,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}",
+          "sub/a.txt": "x"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "裝好了"
+                }
+              ]
+            }
+          }
+        ],
+        "env": {
+          "CLAUDE_PROJECT_DIR": null
+        }
+      },
+      "payload": {
+        "cwd": "{PROJECT_DIR}/sub",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "(n) Phase 3 以前不判：訪談中說「安裝完成」也放行（生成前沒有東西可裝好）",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":3,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "harness 安裝完成"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(o) Phase 1 跑 npm ci 後說「npm 依賴安裝完成」放行",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":1,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "npm 依賴安裝完成，接著跑測試。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(p) Phase 4 講依賴套件安裝完成放行（不是在講 init）",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":4,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "語法解析器的依賴安裝完成，接著跑 probe-hooks。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(q) 「安裝完成度 60%」「安裝完成前還有 Phase 6」放行",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":5,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "進度？"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "制度檔已經寫完，安裝完成度 60%\n安裝完成前還有 Phase 6 要跑"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(r) 英文宣稱「Setup is complete.」在 Phase 6 被擋",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":6,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "ok"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Setup is complete. Enjoy!"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "(s) 24 小時沒動的舊狀態檔（做到一半關掉）不再擋",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":5,\"status\":\"running\",\"history\":[{\"at\":\"2026-01-01T00:00:00.000Z\",\"event\":\"advance\",\"phase\":5,\"note\":\"\"}],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "harness 安裝完成"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "(t) 英文否定「setup is not complete yet」放行",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":6,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "ok"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "The setup is not complete yet; running Phase 6."
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Phase 4 進度句「Phase 4 的 hook 安裝完成，接著進 Phase 5」→ 放行（點名 Phase 的是階段性進度）",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":4,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Phase 4 的 hook 安裝完成，接著進 Phase 5 驗收。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "過期判斷不算 gate-block：最後一筆實際動作在 24 小時前、之後只有 gate-block → 放行",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":4,\"status\":\"running\",\"history\":[{\"at\":\"2000-01-01T00:00:00.000Z\",\"event\":\"advance\",\"phase\":4},{\"at\":\"2099-01-01T00:00:00.000Z\",\"event\":\"gate-block\",\"phase\":4}],\"gateBlocks\":0}"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "好"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "harness 安裝完成！"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "stop_hook_active": false
+      },
+      "expect": "SILENT"
+    }
+  ]
+}

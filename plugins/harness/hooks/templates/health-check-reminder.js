@@ -33,6 +33,15 @@
 //
 // 測試專用：環境變數 HARNESS_TODAY（格式 YYYY-MM-DD）可覆寫「今天」，只供 probe-hooks.js 與健檢實測使用；
 // 正常執行不設這個變數，一律用系統當下時間。
+//
+// 第二個門檻（harness 0.16.0，學習迴路）：距上次健檢的 request 數 ≥ REQUEST_THRESHOLD 也提醒——天數或 request 數，先到者。
+//   request 數讀 `.claude/harness/learning/usage.json` 的 requests（learn-usage.js 在每次 Stop 時 +1）；
+//   基準存 `.claude/harness/learning/health-baseline.json`：`{ "baseDate": "YYYY-MM-DD", "requestsAtBase": n }`——
+//   本次算出的基準日（上面那套規則取的日期）跟檔內 baseDate 不同時（剛跑過健檢、或第一次），把當下 request 數記成新基準。
+//   距上次健檢的 request 數＝requests - requestsAtBase（變成負數＝usage.json 被重建過，重設基準）。
+//   usage.json 不存在（沒裝學習迴路）時只看天數，行為與 0.15.x 相同、也不建 health-baseline.json。
+//   讀改寫基準檔經同目錄 learn-lib.js 的鎖（有的話；沒有就直接原子寫）；取不到鎖就這次只看天數。
+//   提醒訊息寫明是哪個門檻到了（兩個都到就兩個都寫）。
 
 const fs = require('fs');
 const path = require('path');
@@ -40,6 +49,10 @@ const path = require('path');
 // ── init 填空區 ──────────────────────────────────────────────────────────────
 // 提醒門檻（天）。對應 Phase 3 使用者答的健檢週期（沒特別要求就用預設 30）。
 const THRESHOLD_DAYS = 30;
+// 提醒門檻（request 數，距上次健檢）。與天數先到者提醒；學習迴路沒裝（沒有 usage.json）時不生效。
+const REQUEST_THRESHOLD = 300;
+// 學習迴路資料夾（相對於本檔所在的 .claude/hooks/）：讀 usage.json、讀寫 health-baseline.json。
+const LEARN_DIR = path.join(__dirname, '..', 'harness', 'learning');
 // 健檢紀錄檔（新格式，相對於本檔所在的 .claude/hooks/）與它裡面記健檢的那一節的標題（`## ` 後面的字）。
 const LOG_FILE = path.join(__dirname, '..', 'harness', 'CHANGELOG.md');
 const LOG_SECTION = '05-knowledge-protocol.md';
@@ -73,6 +86,32 @@ function sectionOf(text, title) {
 
 function readIfExists(p) {
   try { return fs.readFileSync(p, 'utf8'); } catch (e) { if (e && e.code === 'ENOENT') return null; throw e; }
+}
+
+// 距上次健檢的 request 數；usage.json 不存在（沒裝學習迴路）或取不到鎖回 null。
+function requestsSinceBase(base) {
+  const usageText = readIfExists(path.join(LEARN_DIR, 'usage.json'));
+  if (usageText === null) return null;
+  let requests;
+  try { requests = Number(JSON.parse(usageText.replace(/^\uFEFF/, '')).requests) || 0; }
+  catch (e) { process.stderr.write(`[health-check] usage.json 讀不懂，這次只看天數（${e && e.message}）\n`); return null; }
+  const blPath = path.join(LEARN_DIR, 'health-baseline.json');
+  const update = () => {
+    const t = readIfExists(blPath);
+    let bl = null;
+    if (t !== null) { try { bl = JSON.parse(t.replace(/^\uFEFF/, '')); } catch { bl = null; } }   // 壞掉就當沒有、下面重建
+    if (!bl || bl.baseDate !== base || typeof bl.requestsAtBase !== 'number' || bl.requestsAtBase > requests) {
+      bl = { baseDate: base, requestsAtBase: requests };
+      const tmp = blPath + '.' + process.pid + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(bl, null, 2) + '\n', 'utf8');
+      fs.renameSync(tmp, blPath);
+    }
+    return { requests, atBase: bl.requestsAtBase, since: requests - bl.requestsAtBase };
+  };
+  let lib = null;
+  try { lib = require('./learn-lib.js'); } catch {}
+  if (!lib) return update();
+  try { return lib.withLock(LEARN_DIR, 'health-baseline.json', update); } catch (e) { if (e && e.code === 'ELOCKED') return null; throw e; }
 }
 
 try {
@@ -116,10 +155,19 @@ try {
   const now = todayOverride ? new Date(todayOverride + 'T00:00:00') : new Date();
   const days = Math.floor((now - new Date(base + 'T00:00:00')) / 86400000);
 
-  if (days > THRESHOLD_DAYS) {
+  let req = null;
+  try { req = requestsSinceBase(base); }
+  catch (e) { process.stderr.write(`[health-check] request 數基準讀寫失敗，這次只看天數（${e && e.message}）\n`); }
+  const byDays = days > THRESHOLD_DAYS;
+  const byReq = !!req && req.since >= REQUEST_THRESHOLD;
+  if (byDays || byReq) {
     const relp = (p) => path.relative(process.cwd(), p) || p;
+    const why = [];
+    if (byDays) why.push(`已 ${days} 天（門檻 ${THRESHOLD_DAYS} 天）`);
+    if (byReq) why.push(`已 ${req.since} 個 request（門檻 ${REQUEST_THRESHOLD} 個；基準日當時 ${req.atBase}、現在 ${req.requests}）`);
     console.log(
-      `[health-check] 距上次制度健檢已 ${days} 天（基準 ${base}，門檻 ${THRESHOLD_DAYS} 天；紀錄來源 ${relp(source.file)}`
+      `[health-check] 距上次制度健檢${why.join('、')}——${byDays && byReq ? '天數與 request 數兩個門檻都到了' : (byDays ? '天數門檻到了' : 'request 數門檻先到了')}`
+      + `（基準 ${base}；紀錄來源 ${relp(source.file)}`
       + (source.section ? ` 的「## ${source.section}」節` : '') + '）——'
       + `應主動向使用者提議一輪健檢（檢查清單見 ${relp(LEGACY_LOG_FILE)}；跑法 /harness:review）。`
     );

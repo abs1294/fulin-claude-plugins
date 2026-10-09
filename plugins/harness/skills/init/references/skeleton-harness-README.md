@@ -23,8 +23,10 @@
 | 位置 | 用途 | 誰在什麼時候讀 |
 |------|------|----------------|
 | `.claude/agents/` | 開發流程各角色的 agent 定義（{{本專案用到的 agent 名單，名稱加中文職稱}}） | 派工時由 Agent tool 載入；改職責前先讀 |
-| `.claude/hooks/` ＋ `.claude/settings.json` | 自動檢查：Claude 每次執行指令或派工前自動跑，命中就擋下（{{已安裝的每項檢查，各一句講它擋什麼}}） | 被擋時看擋下訊息；健檢時拿來試跑 |
+| `.claude/hooks/` ＋ `{{settings 檔：單人＝.claude/settings.local.json、團隊＝.claude/settings.json，照 Phase 3 Q4 只寫實際那一個}}` | 自動檢查：Claude 每次執行指令或派工前自動跑，命中就擋下（{{已安裝的每項檢查，各一句講它擋什麼}}） | 被擋時看擋下訊息；健檢時拿來試跑 |
 | workspace 根 `GLOSSARY.md`（沒有就讀 `CONTEXT.md`） | 本專案特有詞彙表（詞是什麼，不是怎麼做） | 每個角色開工前必讀（派工檢查會擋漏列的）；詞義不清、詞義衝突時當場查與補 |
+{{有裝學習迴路（形狀目錄第 31～35 列）時加這一列，否則刪本行：| `.claude/harness/learning/`（不進版控，第一次背景整理時才建立） | 學習迴路的紀錄：每次背景整理的帳本、待你看與待核清單、用量計數。整理是背景另開一個只能讀檔的 Claude 讀這段對話提建議，由 `.claude/hooks/learn-promote.js` 照 05 §1 分級寫入 | 開對話第一行的回報讀它；`node .claude/hooks/learn-pending.js list` 看清單；核可或駁回要你在提示列打「核可 <編號>」「駁回 <編號>」 |}}
+| `.claude/harness/init-answers.json` | init 時每一題的答案（問了什麼、答了什麼、哪天、是不是我先替你決定的） | 重裝 harness 時當每一題的預設答案；想知道當初某個設定為什麼這樣選時查 |
 | workspace 根 `FLOWS.md` | 跨模組流程圖（只收出過問題、或橫跨兩個以上模組的流程） | 要改到已收錄流程的任何一段之前必讀 |
 | `tests/Project_Detail/PROJECT.md` | 測試時踩過的坑與測試設計知識 | 測試用的 agent（qa-engineer）開工前必讀 |
 {{選裝 skill 那一題有選、或有產生本機覆寫說明時加這一列，否則刪本行：| `.claude/skills/<每支實際建立的 skill>/` | 選裝的專案 skill（{{逐支列：名稱＋一句做什麼＋什麼時候會被叫到}}）；每支的變更紀錄在同目錄 `CHANGELOG.md` | 碰到它 description 寫的情境時，Claude 自動叫用；架構保養這類高成本的只有你明說才跑 |}}

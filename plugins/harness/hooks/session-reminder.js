@@ -27,6 +27,22 @@ try {
       '沒裝時 guard-risky-command／guard-test-preconditions 退回正則判法，準確度較低。'
     );
   }
+  // /harness:init 做到一半（狀態檔還是 running）：提醒續跑或中止。Stop 閘對 24 小時沒動的狀態檔不再擋，改由這裡提醒。
+  const statePath = path.join(projectDir, '.claude', 'harness', '.init-state.json');
+  if (fs.existsSync(statePath)) {
+    let st = null;
+    try { st = JSON.parse(fs.readFileSync(statePath, 'utf8')); } catch {}
+    if (st && st.status === 'running') {
+      const hist = Array.isArray(st.history) ? st.history : [];
+      const last = hist.length ? String(hist[hist.length - 1].at || '').slice(0, 10) : '?';
+      const flow = path.join(__dirname, '..', 'skills', 'init', 'scripts', 'init-flow.js');
+      console.log(
+        '[harness] 這個專案有一次沒做完的 /harness:init（停在 Phase ' + st.phase + '，最後動作 ' + last + '）。' +
+        '要續跑就照 init 的 SKILL 從這個 Phase 接著做（先跑 node "' + flow + '" status "' + projectDir + '" 看缺什麼）；' +
+        '使用者要放棄就跑 node "' + flow + '" abort "' + projectDir + '" --reason "<理由>"。'
+      );
+    }
+  }
 } catch (e) {
   // 提醒 hook 失敗不得阻斷 session
 }

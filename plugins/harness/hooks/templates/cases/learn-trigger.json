@@ -1,0 +1,497 @@
+{
+  "hook": "learn-trigger.js",
+  "cases": [
+    {
+      "label": "Stop：累積 80 次（上次觸發點 0）＝達門檻 → dryrun 記下會觸發反思",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":80,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "session_id": "s1"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "Stop：累積 79 次（差 1 次）→ 不觸發、不輸出",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":79,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "session_id": "s1"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Stop：計數 160、上次觸發點 80（剛好又累積 80）→ 觸發",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":160,\"lastTriggerCount\":80,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "session_id": "s1"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "Stop：計數 150、上次觸發點 80（只累積 70）→ 不觸發",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":150,\"lastTriggerCount\":80,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "session_id": "s1"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Stop：還沒有任何計數檔（新 session）→ 不觸發",
+      "setup": {
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "session_id": "s1"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "SessionEnd：剩餘 10 次（＝MIN_REMAINDER）→ 觸發",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":90,\"lastTriggerCount\":80,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "SessionEnd",
+        "session_id": "s1"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "SessionEnd：剩餘 9 次 → 不觸發",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":89,\"lastTriggerCount\":80,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "SessionEnd",
+        "session_id": "s1"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "HARNESS_REFLECT_EVERY_N=5 優先於填空區：累積 5 次就觸發",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":5,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": "5",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "session_id": "s1"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "HARNESS_REFLECT_EVERY_N=0＝關閉：累積 200 次也不觸發",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":200,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": "0",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "session_id": "s1"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "HARNESS_REFLECT_EVERY_N=0：SessionEnd 也不觸發",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":200,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": "0",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "SessionEnd",
+        "session_id": "s1"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "反思子程序裡（HARNESS_LEARN_CHILD=1）：達門檻也不觸發、不印",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":80,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": "1",
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "session_id": "s1"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "交接信子程序裡（COMPACT_HANDOFF_CHILD=1）：達門檻也不觸發、不印",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":80,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": "1",
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "session_id": "s1"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "PreToolUse：主 session 的工具呼叫有計數（debug 印計數）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":79,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": "1"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "session_id": "s1",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ls"
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "PreToolUse：不開 debug 時計數不輸出",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":79,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "session_id": "s1",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ls"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "PreToolUse：payload 帶 agent_id（subagent 內的呼叫）不計（debug 也不印）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":79,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": "1"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "session_id": "s1",
+        "agent_id": "a1",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "x"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "PreToolUse：子程序裡不計（debug 也不印）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":79,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": "1",
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": "1"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "session_id": "s1",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ls"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "計數檔壞掉（不是 JSON）→ 故障放行：exit 0、stderr 印 ERROR",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{壞掉"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "測試"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "session_id": "s1"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "其他事件（UserPromptSubmit）→ 不理",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/session-s1.json": "{\"count\":80,\"lastTriggerCount\":0,\"transcript\":null,\"updatedAt\":null}"
+        },
+        "env": {
+          "HARNESS_LEARN_DRYRUN": "1",
+          "HARNESS_REFLECT_EVERY_N": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_LEARN_DEBUG": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "s1",
+        "prompt": "hi"
+      },
+      "expect": "SILENT"
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+// harness-kind: module（被 compact-snapshot.js 與 resume-stale-reminder.js require 的模組，不是 hook、不接線）
 /**
  * 由 compact-snapshot.js（PreCompact）呼叫：壓縮前讓模型讀過對話骨架，寫一份交接信。
  * 本檔不是 hook，不必接線；compact-snapshot.js 與 resume-stale-reminder.js 都會 require 它，放在同一個目錄。

@@ -1,0 +1,204 @@
+{
+  "hook": "init-state-guard.js",
+  "cases": [
+    {
+      "label": "Write 狀態檔 → 擋",
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/.init-state.json",
+          "content": "{}"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Edit 狀態檔（相對路徑）→ 擋",
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": ".claude/harness/.init-state.json",
+          "old_string": "running",
+          "new_string": "done"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Write 答案檔（init 進行中） → 擋",
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/init-answers.json",
+          "content": "{}"
+        }
+      },
+      "expect": "BLOCK",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":3,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        }
+      }
+    },
+    {
+      "label": "MultiEdit 答案檔（init 進行中）（Windows 反斜線）→ 擋",
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "MultiEdit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}\\.claude\\harness\\init-answers.json",
+          "edits": []
+        }
+      },
+      "expect": "BLOCK",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":3,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        }
+      }
+    },
+    {
+      "label": "Write 其他 harness 檔放行",
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/03-judgment-matrix.md",
+          "content": "x"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Write 名字相近的別的檔放行（my-init-answers.json）",
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/my-init-answers.json",
+          "content": "x"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Read 狀態檔放行（只擋寫）",
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/.init-state.json"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "壞掉的 payload 放行（fail-open）",
+      "payload": {
+        "hook_event_name": "PreToolUse"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "init 已 done：Write 答案檔放行（init-flow 不再收答案）",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":6,\"status\":\"done\",\"history\":[],\"gateBlocks\":0}"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/init-answers.json",
+          "content": "{}"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "init 已 done：Write 狀態檔照擋",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":6,\"status\":\"done\",\"history\":[],\"gateBlocks\":0}"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/.init-state.json",
+          "content": "{}"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "init 進行中：Write 答案檔照擋",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\".\",\"mode\":\"normal\",\"headless\":false,\"phase\":3,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/init-answers.json",
+          "content": "{}"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "落點在子目錄、init 已 done：Write 子目錄的答案檔放行",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\"sub\",\"mode\":\"normal\",\"headless\":false,\"phase\":6,\"status\":\"done\",\"history\":[],\"gateBlocks\":0}"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/sub/.claude/harness/init-answers.json",
+          "content": "{}"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "落點在子目錄、init 進行中：Write 子目錄的答案檔照擋",
+      "setup": {
+        "files": {
+          ".claude/harness/.init-state.json": "{\"version\":1,\"runId\":\"i-x\",\"target\":\".\",\"landing\":\"sub\",\"mode\":\"normal\",\"headless\":false,\"phase\":3,\"status\":\"running\",\"history\":[],\"gateBlocks\":0}"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/sub/.claude/harness/init-answers.json",
+          "content": "{}"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "沒有狀態檔（隊友 clone 下來）：Edit 答案檔放行",
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/init-answers.json",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "SILENT"
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+// harness-kind: module（被兩支規則引擎 require 的模組，不是 hook、不接線；probe-hooks 與 init-verify 據此跳過）
 // shell-model：用真正的 shell 語法解析器（tree-sitter）把一條指令拆成「實際會執行的程式」與「它們各自拿到的環境」。
 // guard-risky-command.js 與 guard-test-preconditions.js 共用；解析器沒裝或載入失敗時 analyze() 回 null，
 // 呼叫端退回原本的正則路徑（準確度較低，但不會整個失效）。

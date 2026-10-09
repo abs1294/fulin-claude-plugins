@@ -97,7 +97,7 @@ if (opt('--since') && !/^\d{4}-\d{2}-\d{2}$/.test(opt('--since'))) {
 
 const out = {
   root, transcriptsDir: tdir, installDate, since, generatedAt: new Date().toISOString(),
-  sessions: [], A: {}, B: {}, C: {}, D: {}, E: {}, F: {}, G: {}, H: {}, I: {}, notes: [],
+  sessions: [], A: {}, B: {}, C: {}, D: {}, E: {}, F: {}, G: {}, H: {}, I: {}, J: {}, notes: [],
 };
 
 // ── 規則來源：實例的派工檢查表（沒有必讀規則時，用 harness 0.5.1 的標準當對照）──
@@ -693,6 +693,11 @@ out.I.features = {
   '流程圖 flow.html（0.4.0）': fs.existsSync(path.join(root, '.claude', 'harness', 'flow.html')),
   '派工檢查擋漏寫必讀檔名（0.5.1）': hookHasMustRead,
   'backend-architect 納管（0.5.1）': !!(markers && (markers['backend-architect'] || !fs.existsSync(path.join(root, '.claude', 'agents', 'backend-architect.md')))),
+  // 學習迴路：檔在、而且 settings 有接上觸發 hook 才算有（只複製沒接線等於沒裝）
+  '學習迴路（0.16.0）': fs.existsSync(path.join(root, '.claude', 'hooks', 'learn-trigger.js'))
+    && ['settings.json', 'settings.local.json'].some((f) => /learn-trigger\.js/.test(read(path.join(root, '.claude', f)) || '')),
+  'init 答案檔 init-answers.json（0.16.0）': fs.existsSync(path.join(root, '.claude', 'harness', 'init-answers.json')),
+  '健檢提醒看 request 數（0.16.0）': /REQUEST_THRESHOLD/.test(read(path.join(root, '.claude', 'hooks', 'health-check-reminder.js')) || ''),
 };
 const tplDir = path.join(pluginRoot, 'hooks', 'templates');
 const hookDiff = [];
@@ -705,6 +710,52 @@ try {
   }
 } catch {}
 out.I.hooksDifferentFromCurrentTemplate = hookDiff;
+
+// ── J 學習迴路（0.16.0 起）：待核提案、淘汰候選、用量統計、反思有沒有在跑 ──
+// 只讀 .claude/harness/learning/ 底下的帳本，不執行學習迴路的任何程式；提案只列主題與出處，不列內容
+{
+  const ld = path.join(root, '.claude', 'harness', 'learning');
+  const rj = (p) => { try { return JSON.parse(read(p)); } catch { return null; } };
+  out.J.installed = out.I.features['學習迴路（0.16.0）'];
+  if (!fs.existsSync(ld)) out.J.note = out.J.installed ? '學習迴路裝了，但還沒有任何紀錄（learning/ 不存在：還沒觸發過）' : '沒有裝學習迴路';
+  else {
+    const pending = (rj(path.join(ld, 'pending.json')) || {}).items || [];
+    const open = pending.filter((x) => x.status === 'pending');
+    out.J.pendingReview = open.filter((x) => x.level === 'yellow').map((x) => ({ id: x.id, topic: x.topic, target: x.target, createdAt: x.createdAt }));
+    out.J.pendingApproval = open.filter((x) => x.level === 'red').map((x) => ({ id: x.id, type: x.type, topic: x.topic, target: x.target, evidence: x.evidence, createdAt: x.createdAt }));
+    out.J.promotions = out.J.pendingApproval.filter((x) => x.type === 'promotion');
+    const runsDir = path.join(ld, 'runs');
+    const runs = (fs.existsSync(runsDir) ? fs.readdirSync(runsDir).filter((f) => f.endsWith('.json')) : []).map((f) => rj(path.join(runsDir, f))).filter(Boolean);
+    const inRange = runs.filter((r) => !since || String(r.startedAt || '').slice(0, 10) >= since);
+    out.J.runs = {
+      total: inRange.length,
+      calledModel: inRange.filter((r) => !r.skipped).length,
+      childFailed: inRange.filter((r) => r.child && r.child.ok === false).length,
+      parseFailed: inRange.filter((r) => r.parse && r.parse.ok === false).length,
+      landingFailed: inRange.filter((r) => r.landing && r.landing.ok === false).length,
+      skipped: inRange.filter((r) => r.skipped).reduce((m, r) => { m[r.skipped] = (m[r.skipped] || 0) + 1; return m; }, {}),
+      costUsd: +inRange.reduce((s, r) => s + ((r.child && r.child.costUsd) || 0), 0).toFixed(4),
+      written: inRange.reduce((s, r) => s + ((r.results && r.results.written) || 0), 0),
+      rejected: inRange.reduce((s, r) => s + ((r.results && r.results.rejected) || 0), 0),
+    };
+    const usage = rj(path.join(ld, 'usage.json'));
+    if (usage) {
+      const trialM = (read(path.join(root, '.claude', 'hooks', 'learn-session-report.js')) || '').match(/TRIAL_REQUESTS\s*=\s*(\d+)/);
+      const trial = trialM ? Number(trialM[1]) : 200;
+      const items = Object.entries(usage.items || {}).map(([k, v]) => ({ key: k, kind: v.kind, view: v.view || 0, use: v.use || 0, since: v.registeredAtRequest || 0 }));
+      // ⭐⭐ 以上的 memory 靠自動載入的索引行起作用、不會有 Read，不列淘汰候選
+      const memIndex = read(path.join(tdir, 'memory', 'MEMORY.md')) || '';
+      const starred = (k) => { const f = k.replace(/^memory:/, ''); return memIndex.split('\n').some((l) => l.includes('(' + f + ')') && /⭐⭐/.test(l)); };
+      out.J.usage = {
+        requests: usage.requests || 0, trialRequests: trial,
+        top: items.sort((a, b) => (b.view + b.use) - (a.view + a.use)).slice(0, 10),
+        retireCandidates: items.filter((x) => (x.kind === 'memory' || x.kind === 'skill') && x.view + x.use === 0 && (usage.requests || 0) - x.since >= trial && !(x.kind === 'memory' && starred(x.key))).map((x) => x.key),
+        rulesNeverHit: Object.entries(usage.rules || {}).filter(([, v]) => !(v.hits > 0) && (usage.requests || 0) - (v.registeredAtRequest || 0) >= trial).map(([k]) => k),
+        ruleHits: Object.entries(usage.rules || {}).filter(([, v]) => v.hits > 0).map(([k, v]) => ({ rule: k, hits: v.hits })),
+      };
+    }
+  }
+}
 
 // ── 摘要（給人看；細節在 JSON）──
 out.summary = {
@@ -719,6 +770,8 @@ out.summary = {
   secrets: `指令裡直接寫了金鑰、密碼或權杖 ${agg.secretCmds.length} 處`,
   userSignals: `糾正 ${agg.corrections.length} 次、打斷 ${agg.interrupts} 次`,
   versionGap: Object.entries(out.I.features).filter(([, v]) => !v).map(([k]) => k),
+  learning: out.J.note || `反思 ${out.J.runs.total} 次（叫模型 ${out.J.runs.calledModel}、子程序失敗 ${out.J.runs.childFailed}、解析失敗 ${out.J.runs.parseFailed}、花費 ${out.J.runs.costUsd} 美元）；寫入 ${out.J.runs.written} 筆、拒收 ${out.J.runs.rejected} 筆；待你看 ${out.J.pendingReview.length} 筆、待核 ${out.J.pendingApproval.length} 筆（升格提案 ${out.J.promotions.length}）`
+    + (out.J.usage ? `；淘汰候選 ${out.J.usage.retireCandidates.length} 筆、從未觸發的規則 ${out.J.usage.rulesNeverHit.length} 條（request 數 ${out.J.usage.requests}，試用期 ${out.J.usage.trialRequests}）` : '；沒有用量紀錄'),
 };
 
 out.notes = [...new Set(out.notes)];   // 同一條提醒（例如壞掉的必讀規則）每個 subagent 都會觸發一次

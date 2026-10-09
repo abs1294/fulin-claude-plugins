@@ -1,0 +1,229 @@
+{
+  "hook": "learn-approve.js",
+  "cases": [
+    {
+      "label": "使用者打「核可 p-…」（紅區待核）→ 標 approved，additionalContext 告訴 Claude 建議內容",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "核可 p-20261009-01"
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "使用者打「approve p-…」（英文、大小寫不分）→ 動作",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "Approve p-20261009-01"
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "使用者打「駁回 p-…」（紅區）→ 標 rejected",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "駁回 p-20261009-01"
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "多行訊息裡有一行是「駁回 p-…」→ 動作",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "看過清單了\n駁回 p-20261009-01\n其他照舊"
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "id 不存在 → 告訴 Claude 找不到（仍有 additionalContext）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "核可 p-20991231-99"
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "一般訊息 → 不輸出",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "幫我看一下這個測試為什麼紅"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "「不要核可 p-…」不是整行指令 → 不動作、不輸出",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "不要核可 p-20261009-01"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "「核可 p-… 之前先讓我看內容」→ 不動作、不輸出",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "核可 p-20261009-01 之前先讓我看內容"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "只說「核可」沒帶 id → 不輸出",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "核可"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "反思子程序裡（HARNESS_LEARN_CHILD=1）→ 不動作、不輸出",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": "1",
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "核可 p-20261009-01"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "黃區寫入「還原 p-…」：目標檔 hash 相符 → 刪掉新建檔並回報",
+      "setup": {
+        "files": {
+          "mem/db-login.md": "---\nname: db-login\ndescription: d\nmetadata:\n  type: feedback\n---\n\n新內容\n**Why:** w\n**How to apply:** h\n",
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-02\",\"run\":\"r-1\",\"level\":\"yellow\",\"type\":\"write-review\",\"status\":\"pending\",\"target\":\"memory/db-login.md\",\"targetPath\":\"mem/db-login.md\",\"summary\":\"s\",\"backup\":null,\"afterHash\":\"5b5f504ec738defd3b8e5bb6c427b76b2142b6fb\",\"addedLines\":[],\"evidence\":[]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "還原 p-20261009-02"
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "pending.json 壞掉 → 故障放行，additionalContext 說沒處理",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{壞"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "核可 p-20261009-01"
+      },
+      "expect": "NOTE",
+      "visible": true
+    }
+  ]
+}

@@ -1,0 +1,320 @@
+{
+  "hook": "learn-usage.js",
+  "cases": [
+    {
+      "label": "Read memory 目錄的 .md → view +1（debug 印計數）",
+      "setup": {
+        "files": {
+          "mem/MEMORY.md": "# Memory Index\n- ⭐ [x](db-login.md) — x\n",
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/mem/db-login.md"
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "Read MEMORY.md 本身 → 不計",
+      "setup": {
+        "files": {
+          "mem/MEMORY.md": "# Memory Index\n- ⭐ [x](db-login.md) — x\n",
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/mem/MEMORY.md"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Read 一般原始碼 → 不計",
+      "setup": {
+        "files": {
+          "src/a.js": "x",
+          "mem/MEMORY.md": "# Memory Index\n- ⭐ [x](db-login.md) — x\n",
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/a.js"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Read 知識筆記 FLOWS.md（相對路徑，以 cwd 解析）→ view +1",
+      "setup": {
+        "files": {
+          "FLOWS.md": "# F\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "FLOWS.md"
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "Read .claude/harness/03-judgment-matrix.md → view +1",
+      "setup": {
+        "files": {
+          ".claude/harness/03-judgment-matrix.md": "# 03\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/03-judgment-matrix.md"
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "Read .claude/harness/learning/ 底下的 JSON → 不計（只計 harness 那一層的 .md）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"requests\":0,\"items\":{},\"rules\":{}}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/harness/learning/usage.json"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Read 專案 skill 底下的檔 → 該 skill view +1",
+      "setup": {
+        "files": {
+          ".claude/skills/bug-hunt/SKILL.md": "# s\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/.claude/skills/bug-hunt/SKILL.md"
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "Skill 叫專案 skill → use +1",
+      "setup": {
+        "files": {
+          ".claude/skills/bug-hunt/SKILL.md": "# s\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "bug-hunt"
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "Skill 叫 plugin skill（名稱帶 :）→ 不計",
+      "setup": {
+        "files": {
+          ".claude/skills/bug-hunt/SKILL.md": "# s\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "harness:review"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Skill 叫專案裡沒有的 skill → 不計",
+      "setup": {
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Skill",
+        "tool_input": {
+          "skill": "bug-hunt"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Stop → requests +1",
+      "setup": {
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "Stop"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "反思子程序裡（HARNESS_LEARN_CHILD=1）Read memory → 不計、不印",
+      "setup": {
+        "files": {
+          "mem/MEMORY.md": "# Memory Index\n- ⭐ [x](db-login.md) — x\n",
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": "1",
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/mem/db-login.md"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "交接信子程序裡（COMPACT_HANDOFF_CHILD=1）Stop → 不計、不印",
+      "setup": {
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": "1"
+        }
+      },
+      "payload": {
+        "hook_event_name": "Stop"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "不開 debug：計數照做但不輸出",
+      "setup": {
+        "files": {
+          "mem/MEMORY.md": "# Memory Index\n- ⭐ [x](db-login.md) — x\n",
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": null,
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/mem/db-login.md"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "usage.json 壞掉 → 故障放行：exit 0、stderr 印 ERROR",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/usage.json": "{壞"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "Stop"
+      },
+      "expect": "NOTE"
+    }
+  ]
+}

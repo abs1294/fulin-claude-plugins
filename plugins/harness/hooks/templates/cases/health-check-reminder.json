@@ -450,6 +450,138 @@
         "hook_event_name": "SessionStart"
       },
       "expect": "SILENT"
+    },
+    {
+      "label": "request 門檻：天數未到（5 天）但距上次健檢已 300 個 request（基準 100、現在 400）→ 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-09-24 【健檢執行】/harness:review：正常\n",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"since\":\"2026-09-01\",\"requests\":400,\"items\":{},\"rules\":{}}",
+          ".claude/harness/learning/health-baseline.json": "{\"baseDate\":\"2026-09-24\",\"requestsAtBase\":100}"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "request 門檻：天數未到、request 299 個（差 1 個）→ 靜默",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-09-24 【健檢執行】/harness:review：正常\n",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"since\":\"2026-09-01\",\"requests\":399,\"items\":{},\"rules\":{}}",
+          ".claude/harness/learning/health-baseline.json": "{\"baseDate\":\"2026-09-24\",\"requestsAtBase\":100}"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "基準日改變（剛跑過健檢 09-24，基準檔還是 08-01 的 0）→ 以當下 500 重設基準，request 歸零 → 靜默",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-09-24 【健檢執行】/harness:review：正常\n",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"since\":\"2026-09-01\",\"requests\":500,\"items\":{},\"rules\":{}}",
+          ".claude/harness/learning/health-baseline.json": "{\"baseDate\":\"2026-08-01\",\"requestsAtBase\":0}"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "第一次（沒有基準檔）：以當下 request 數建基準 → 靜默",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-09-24 【健檢執行】/harness:review：正常\n",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"since\":\"2026-09-01\",\"requests\":500,\"items\":{},\"rules\":{}}"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "usage.json 被重建（requests 比基準小）→ 重設基準 → 靜默",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-09-24 【健檢執行】/harness:review：正常\n",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"since\":\"2026-09-01\",\"requests\":10,\"items\":{},\"rules\":{}}",
+          ".claude/harness/learning/health-baseline.json": "{\"baseDate\":\"2026-09-24\",\"requestsAtBase\":400}"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "沒裝學習迴路（沒有 usage.json）→ 只看天數：5 天 → 靜默",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-09-24 【健檢執行】/harness:review：正常\n"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "兩個門檻都到（40 天、request 300）→ 提醒",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-08-20 【健檢執行】/harness:review：正常\n",
+          ".claude/harness/learning/usage.json": "{\"version\":1,\"since\":\"2026-09-01\",\"requests\":300,\"items\":{},\"rules\":{}}",
+          ".claude/harness/learning/health-baseline.json": "{\"baseDate\":\"2026-08-20\",\"requestsAtBase\":0}"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "usage.json 壞掉 → 印 ERROR（hook 鏽蝕要修）",
+      "setup": {
+        "files": {
+          ".claude/harness/CHANGELOG.md": "## 05-knowledge-protocol.md\n- 2026-09-24 【健檢執行】/harness:review：正常\n",
+          ".claude/harness/learning/usage.json": "{壞"
+        },
+        "env": {
+          "HARNESS_TODAY": "2026-09-29"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE"
     }
   ],
   "variants": {

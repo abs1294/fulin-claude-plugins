@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// harness-kind: cli（手動執行的救回腳本，不是 hook、不接線；有自己的 cases，probe-hooks 照樣測）
 // 救回腳本：把備份目錄裡的本機覆寫套回工作區（三環防線的「救」）。
 //
 // 【範本】由 /harness:init 與 backup-local-hacks.js／guard-local-hack-destroy.js／check-local-hacks-alive.js

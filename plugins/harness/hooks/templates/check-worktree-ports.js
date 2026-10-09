@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// harness-kind: cli（手動執行的 port 驗證腳本，不是 hook、不接線；有自己的 cases，probe-hooks 照樣測）
 // 唯讀檢查：每個 port 上跑的是不是**對的工作樹**（git worktree）、是不是**最新的建置產物**；設定檔裡「誰該打誰」寫的 port
 // 跟這次要起的拓撲一不一致；（選填）實際打一次健康檢查網址。只讀不改、不砍任何 process。
 //

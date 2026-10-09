@@ -1375,6 +1375,10 @@ process.stdin.on('end', () => {
   }
   if (!hits.length) { emitFaultsOnly(); process.exit(0); }
 
+  // 學習迴路的規則觸發計數（淘汰「候選降級」的依據）：同目錄沒有 learn-lib.js 時 require 丟例外被吞掉；
+  // 只記數、不輸出，不影響擋不擋與擋下訊息。
+  try { require('./learn-lib.js').recordRuleHits('guard-risky-command', hits.map(({ r }) => (r && r.id) || '未命名'), path.resolve(__dirname, '..', '..')); } catch {}
+
   const reason = '[' + LABEL + '] 這條指令命中 ' + hits.length + ' 條規則：\n\n' +
     hits.map(({ r, envProblems }) =>
       '  - [' + (r.id || '未命名') + '] ' + (r.reason || '') +

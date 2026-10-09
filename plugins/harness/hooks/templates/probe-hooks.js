@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// harness-kind: cli（hook 行為探針本身，不是 hook、不接線）
 // hook 行為探針：對同目錄的每支 hook，照 cases/<hook 檔名去 .js>.json 的案例餵真實 payload，
 // 判定它該擋的有沒有擋、該放的有沒有放。兩個方向都要測——只測「會擋」會漏掉「把正常操作也擋死」。
 //
@@ -92,14 +93,26 @@ function parserStatus() {
 }
 const PARSER = parserStatus();
 
-const MODULES = ['probe-hooks.js', 'shell-model.js', 'compact-handoff.js'];
-function listHooks() {
-  // shell-model.js 是兩支規則引擎共用的模組、compact-handoff.js 是 compact-snapshot.js 呼叫的模組，都不是 hook
-  return fs.readdirSync(HERE).filter((f) => f.endsWith('.js') && !MODULES.includes(f));
+// 每支範本檔頭前幾行的 `// harness-kind: module｜cli` 標記決定它是不是 hook（單一來源，init-verify.js 的接線檢查也讀它）：
+//   module＝被別的 hook require 的模組（shell-model.js、compact-handoff.js、learn-lib.js…）——不測，但一律複製進暫存專案；
+//   cli＝手動或背景執行的腳本——有 cases 就照樣測（restore-local-hacks.js、check-worktree-ports.js），沒有 cases 就跳過
+//   （learn-reflect.js 這類不吃 hook payload 的腳本，行為由 plugin 的 tests/run.js 測）。
+// 沒有標記的 .js 一律當 hook：沒有 cases 就報「缺 cases」。
+function kindOf(f) {
+  try {
+    const head = fs.readFileSync(path.join(HERE, f), 'utf8').split('\n').slice(0, 5).join('\n');
+    const m = head.match(/^\/\/ harness-kind: (module|cli)/m);
+    return m ? m[1] : 'hook';
+  } catch { return 'hook'; }
 }
+const ALL_JS = fs.readdirSync(HERE).filter((f) => f.endsWith('.js'));
+const MODULE_FILES = ALL_JS.filter((f) => kindOf(f) === 'module');
 function casesFor(hook) {
   const p = path.join(CASES_DIR, hook.replace(/\.js$/, '.json'));
   return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null;
+}
+function listHooks() {
+  return ALL_JS.filter((f) => { const k = kindOf(f); return k === 'hook' || (k === 'cli' && casesFor(f)); });
 }
 
 if (args.includes('--list')) {
@@ -133,10 +146,8 @@ function mkProject(setup, hookFile, variant) {
     }
   }
   fs.writeFileSync(path.join(hdir, hookFile), src);
-  // 規則引擎共用的語法模組一起帶過去（沒有就算了：其他 hook 用不到）
-  if (fs.existsSync(path.join(HERE, 'shell-model.js'))) fs.copyFileSync(path.join(HERE, 'shell-model.js'), path.join(hdir, 'shell-model.js'));
-  // 壓縮交接的快照 hook 會 require 同目錄的交接信模組
-  if (fs.existsSync(path.join(HERE, 'compact-handoff.js'))) fs.copyFileSync(path.join(HERE, 'compact-handoff.js'), path.join(hdir, 'compact-handoff.js'));
+  // 同目錄標 harness-kind: module 的模組一起帶過去（規則引擎的語法模組、交接信模組、學習迴路共用模組…；沒用到的 hook 不受影響）
+  for (const m of MODULE_FILES) if (m !== hookFile) fs.copyFileSync(path.join(HERE, m), path.join(hdir, m));
   // 專案根與 setup.repos 的每個子 repo 用同一套步驟造狀態；force＝不看 git／stage／commit 欄位也一定 git init
   const buildRepo = (base, spec, force) => {
     for (const [rel, content] of Object.entries(spec.files || {})) {

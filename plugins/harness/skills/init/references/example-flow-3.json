@@ -3,7 +3,7 @@
   "diagram_type": "workflow",
   "meta": {
     "title": "圖三：背景自動做的事與定期檢查",
-    "subtitle": "結構範例（只抄結構）：這些不會擋你，只在特定時機自動提醒或存檔；虛線＝讀，粗線＝寫",
+    "subtitle": "結構範例（只抄結構）：這些不會擋你，只在特定時機自動提醒、存檔，或在背景整理這段對話學到的東西；虛線＝讀，粗線＝寫",
     "locale": "zh-CN",
     "quality_profile": "showcase"
   },
@@ -27,6 +27,18 @@
     {
       "id": "mt",
       "label": "每 30 天的檢查"
+    },
+    {
+      "id": "lt",
+      "label": "學習迴路：什麼時候"
+    },
+    {
+      "id": "lr",
+      "label": "學習迴路：背景做的事"
+    },
+    {
+      "id": "ld",
+      "label": "學到的東西放哪"
     }
   ],
   "nodes": [
@@ -171,6 +183,123 @@
       "label": "hooks/cases/（N 份）",
       "sublabel": "每個檢查該擋與該放的例子",
       "width": 168
+    },
+    {
+      "id": "t_tool",
+      "lane": "lt",
+      "col": 0,
+      "type": "frontend",
+      "label": "每次用工具",
+      "sublabel": "數到 80 次",
+      "width": 130
+    },
+    {
+      "id": "t_open",
+      "lane": "lt",
+      "col": 3,
+      "type": "frontend",
+      "label": "開新對話時",
+      "sublabel": "報上次結果",
+      "width": 120
+    },
+    {
+      "id": "t_turn",
+      "lane": "lt",
+      "col": 4,
+      "type": "frontend",
+      "label": "讀檔、用 skill、每回合",
+      "sublabel": "記用量",
+      "width": 160
+    },
+    {
+      "id": "t_msg",
+      "lane": "lt",
+      "col": 5,
+      "type": "frontend",
+      "label": "你送出訊息",
+      "sublabel": "例：核可 p-01",
+      "width": 120
+    },
+    {
+      "id": "l_trig",
+      "lane": "lr",
+      "col": 0,
+      "type": "messagebus",
+      "label": "learn-trigger",
+      "sublabel": "到次數就背景整理",
+      "width": 150
+    },
+    {
+      "id": "l_reflect",
+      "lane": "lr",
+      "col": 1,
+      "type": "messagebus",
+      "label": "learn-reflect",
+      "sublabel": "另開 Claude 只讀、提建議",
+      "width": 160
+    },
+    {
+      "id": "l_promote",
+      "lane": "lr",
+      "col": 2,
+      "type": "messagebus",
+      "label": "learn-promote",
+      "sublabel": "照等級寫入或待核",
+      "width": 140
+    },
+    {
+      "id": "l_report",
+      "lane": "lr",
+      "col": 3,
+      "type": "messagebus",
+      "label": "learn-session-report",
+      "sublabel": "開場報上次結果",
+      "width": 150
+    },
+    {
+      "id": "l_usage",
+      "lane": "lr",
+      "col": 4,
+      "type": "messagebus",
+      "label": "learn-usage",
+      "sublabel": "記筆記被讀過幾次",
+      "width": 140
+    },
+    {
+      "id": "l_approve",
+      "lane": "lr",
+      "col": 5,
+      "type": "messagebus",
+      "label": "learn-approve",
+      "sublabel": "你核可才算數",
+      "width": 130
+    },
+    {
+      "id": "d_prompt",
+      "lane": "ld",
+      "col": 0,
+      "type": "database",
+      "label": "learn-reflector-prompt.md",
+      "sublabel": "整理時照這份指示",
+      "width": 196
+    },
+    {
+      "id": "d_mem",
+      "lane": "ld",
+      "col": 2,
+      "type": "database",
+      "label": "memory 與知識筆記",
+      "sublabel": "綠區直接寫",
+      "width": 150
+    },
+    {
+      "id": "d_learn",
+      "lane": "ld",
+      "col": 3,
+      "type": "database",
+      "label": ".claude/harness/learning/",
+      "sublabel": "紀錄、待核、用量",
+      "width": 196
     }
   ],
   "edges": [
@@ -262,6 +391,66 @@
       "to": "h_reinject",
       "label": "讀",
       "variant": "dashed"
+    },
+    {
+      "from": "t_tool",
+      "to": "l_trig",
+      "label": "觸發"
+    },
+    {
+      "from": "l_trig",
+      "to": "l_reflect",
+      "label": "背景啟動"
+    },
+    {
+      "from": "d_prompt",
+      "to": "l_reflect",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "l_reflect",
+      "to": "l_promote",
+      "label": "交給"
+    },
+    {
+      "from": "l_promote",
+      "to": "d_mem",
+      "label": "寫",
+      "variant": "emphasis"
+    },
+    {
+      "from": "t_open",
+      "to": "l_report",
+      "label": "觸發"
+    },
+    {
+      "from": "t_turn",
+      "to": "l_usage",
+      "label": "觸發"
+    },
+    {
+      "from": "l_usage",
+      "to": "d_learn",
+      "label": "寫",
+      "variant": "emphasis"
+    },
+    {
+      "from": "d_learn",
+      "to": "l_report",
+      "label": "讀",
+      "variant": "dashed"
+    },
+    {
+      "from": "t_msg",
+      "to": "l_approve",
+      "label": "觸發"
+    },
+    {
+      "from": "l_approve",
+      "to": "d_learn",
+      "label": "寫",
+      "variant": "emphasis"
     }
   ]
 }
