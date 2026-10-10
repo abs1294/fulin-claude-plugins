@@ -492,11 +492,28 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 - `~/.claude/plugins/installed_plugins.json` 前後相同；兩個 session 共 0.70 USD，反思共 0.11 USD。
 - 沒有驗到的：反思子程序讀沙箱外被拒（這次反思沒有嘗試讀沙箱外；2026-10-09 以同一組參數單獨實測過，見 learn-reflect.js 檔頭）。
 
+### 11.1c 從專案子目錄開的 session 不會載入專案根的 hook（2026-10-10，已實測）
+
+Claude Code 2.1.296。在專案根 `.claude/` 放一支 PreToolUse(Bash) 探針 hook（每次觸發寫一行 log，指令含 PROBE-MARK 就擋），從不同目錄起真的 `claude -p --model sonnet`，要它執行 `echo PROBE-MARK`：
+
+| 情境 | 從哪裡跑 | hook 觸發 | 結果 |
+|---|---|---|---|
+| git＋`settings.local.json` | 專案根（對照） | 1 次 | 被擋 |
+| git＋`settings.local.json` | `src/` | 0 次 | `PROBE-MARK` 照樣執行 |
+| git＋`settings.local.json` | `src/deep/` | 0 次 | 照樣執行 |
+| git＋`settings.json` | `src/` | 0 次 | 照樣執行 |
+| 非 git＋`settings.local.json` | 專案根（對照） | 1 次 | 被擋 |
+| 非 git＋`settings.local.json` | `src/` | 0 次 | 照樣執行 |
+
+每個子目錄在 `~/.claude/projects/` 底下也各自建了一個專案目錄：Claude Code 把當下的 cwd 當成專案，專案層設定只讀這一層的 `.claude/`，不往上找。影響：
+- guard-risky-command 的 `claude -p` 例外只在工作目錄就是專案根時成立（`isProjectRoot`），子目錄一律照擋。
+- 使用者在子目錄開 Claude Code 時，harness 的所有自動檢查（派工、commit 閘、危險指令、學習迴路）都不生效；init 收尾回報「在哪裡開 session 才有效」那一段（phases/phase-6-flow.md）講的就是這件事，現在有實測依據。
+
 ### 11.2 已知問題（待辦）
 
 1. （已處理，0.16.3）學習迴路已用真的 claude 跑過，見 §11.1b。審查 R2 列的風險：agent_id（確認不計 subagent）、detached 子程序活過 session 結束（確認）、反思輸出形狀（解析成功）、找 claude 執行檔（`~/.local/bin/claude.exe`，成功）。
 2. （已釐清）learn-trigger 計數：e2e-learn 兩個 session 的計數都恰好等於主對話工具呼叫數（9＝9、13＝13），subagent 內的呼叫不計。10-09 那次 init 端到端「108 對 45」的落差，HYPOTHESIS：init 派了 5 支 subagent，加上 hook 在 Phase 4 寫好 settings 之後才生效；原始 transcript 已刪、無法逐筆對，但這次實測沒有看到漏計。
-3. （已處理，0.16.3）guard-risky-command：整串指令就是一次 `claude -p "<prompt>"` 時，引號 prompt 在 matchQuoted 規則下不比對。用放行清單判（認不得一律照擋）：不准有其他指令、管線、重導、換行、`$(`、反引號，不准有任何前綴（env -C、sudo -D、pushd、變數賦值…），不准有反斜線緊貼引號（PowerShell 的 "a\"; 指令; #" 會跳出引號），不准有 PowerShell 認得的彎引號、引號外只收可列印 ASCII、不准有括號與大括號，這次呼叫的工作目錄要就是專案根（子目錄也不放行：子 session 從子目錄跑會不會載入專案根設定沒有實測），旗標只收 -p／--print／--verbose／--model／--output-format／--max-budget-usd／--effort。第一版是「排除幾個危險旗標與 cd」的列舉法，審查實跑找到 pushd、Push-Location、env -C、--worktree、--add-dir、`> a.sh; bash a.sh` 等繞法，改成放行清單後兩條路徑一致；第二、三輪審查再找到 PowerShell 的 \" 跳出、工作目錄在專案外、旗標值裡的括號運算式 (iex(…))、彎引號（”’）跳出，一併補上（旗標值改成只收簡單的字）；第四輪兩軌 PASS 後再把工作目錄收緊成「就是專案根」（子目錄下子 session 會不會載入專案根設定沒有實測）；cases 共加 55 個。已知、不處理的極端情境（第四輪審查實跑，HEAD 版結果相同、curl 都不會在本機執行）：`claude -p "${X:-curl …}"`、`claude -p "x"curl …`、`claude -p … "x" # curl …`；Bash 的 `${x@P}`、`$[x]` 要事先設好變數值才有作用。會多擋（安全方向）：prompt 裡有 Markdown 反引號、`\"`、PowerShell 的 `''` 雙寫跳脫。
+3. （已處理，0.16.3）guard-risky-command：整串指令就是一次 `claude -p "<prompt>"` 時，引號 prompt 在 matchQuoted 規則下不比對。用放行清單判（認不得一律照擋）：不准有其他指令、管線、重導、換行、`$(`、反引號，不准有任何前綴（env -C、sudo -D、pushd、變數賦值…），不准有反斜線緊貼引號（PowerShell 的 "a\"; 指令; #" 會跳出引號），不准有 PowerShell 認得的彎引號、引號外只收可列印 ASCII、不准有括號與大括號，這次呼叫的工作目錄要就是專案根（子目錄也不放行：實測從子目錄跑的子 session 不會載入專案根的 hook，見 §11.1c），旗標只收 -p／--print／--verbose／--model／--output-format／--max-budget-usd／--effort。第一版是「排除幾個危險旗標與 cd」的列舉法，審查實跑找到 pushd、Push-Location、env -C、--worktree、--add-dir、`> a.sh; bash a.sh` 等繞法，改成放行清單後兩條路徑一致；第二、三輪審查再找到 PowerShell 的 \" 跳出、工作目錄在專案外、旗標值裡的括號運算式 (iex(…))、彎引號（”’）跳出，一併補上（旗標值改成只收簡單的字）；第四輪兩軌 PASS 後再把工作目錄收緊成「就是專案根」（實測確認子目錄下的子 session 不會載入專案根的 hook，見 §11.1c）；cases 共加 55 個。已知、不處理的極端情境（第四輪審查實跑，HEAD 版結果相同、curl 都不會在本機執行）：`claude -p "${X:-curl …}"`、`claude -p "x"curl …`、`claude -p … "x" # curl …`；Bash 的 `${x@P}`、`$[x]` 要事先設好變數值才有作用。會多擋（安全方向）：prompt 裡有 Markdown 反引號、`\"`、PowerShell 的 `''` 雙寫跳脫。
 4. **端到端的 prompt 要禁止安裝外部 plugin**：上次 prompt 允許 git-commit，子程序在暫存專案裝了 project scope 的 git-commit，`~/.claude/plugins/installed_plugins.json` 多一筆紀錄（已於 2026-10-09 用 `uninstall --scope project --keep-data` 清掉）。（已處理，0.16.3：§10 的端到端做法已寫明 prompt 一律不裝外部 plugin，並在跑完比對安裝紀錄。）
 5. （已修，0.16.1）fixture 的 `npm test` 寫成 `node --test tests/`／`node --test test/`，Node v22 把資料夾當模組載入而 MODULE_NOT_FOUND；改成 `node --test`（自動找測試檔）。
 6. （已修，0.16.3）**專案根是 `"type": "module"` 時所有 hook 載入失敗**：e2e-learn 第一次跑抓到。init 原本只在裝了規則引擎時才把 package.json 複製進 `.claude/hooks/`；沒裝規則引擎的專案，hook 會沿用專案根的模組格式。修法：範本 package.json 明寫 `"type": "commonjs"`，只要裝了任何 .js hook 就一定複製；init-verify 加 V19（不可豁免）；golden 加兩個壞變體。**已裝的實例**（0.16.2 以前）若根目錄是 `"type": "module"` 且沒裝規則引擎，hook 目前是失效的，補一份 `.claude/hooks/package.json`（`{"type": "commonjs"}`）即可。

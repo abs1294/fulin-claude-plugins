@@ -1162,7 +1162,8 @@ function promptOnlyCommand(command) {
 function isProjectRoot(dir, root) {
   const real = (p) => { try { return fs.realpathSync(path.resolve(p)); } catch (e) { return path.resolve(p); } };
   const norm = (p) => (process.platform === 'win32' ? real(p).toLowerCase() : real(p));
-  // 只認「就是專案根」：從子目錄跑時子 session 會不會照樣載入專案根的設定沒有實測過，寧可多擋
+  // 只認「就是專案根」：實測（2026-10-10，Claude Code 2.1.296）從子目錄跑 claude -p，專案根 .claude/ 的 hook 一次都不會觸發
+  // （git 或非 git、settings.json 或 settings.local.json 都一樣），所以子目錄一定不放行
   return path.relative(norm(root), norm(dir)) === '';
 }
 // 主流程算一次，兩條判定路徑共用（只看整串原文與工作目錄，結果一致）

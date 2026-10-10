@@ -1,6 +1,6 @@
 {
   "name": "harness",
-  "version": "0.16.3",
+  "version": "0.16.4",
   "description": "/harness:init（「幫這個專案裝 harness」）在軟體開發專案裝上一套工作紀律：盤點→攤開核對→訪談→生成制度文件、可執行 hook、agent、知識筆記與學習迴路→腳本驗收＋冷啟探針→流程圖，階段順序由狀態檔與 Stop hook 把關。/harness:review（「harness 健檢」）從實際對話紀錄檢查裝好的流程有沒有起作用，列出待核提案、淘汰候選與版本差距，可逆的修正一次核可後當場修。引擎在 plugin、實例在專案（plugin 更新不覆蓋實例）；產出是骨架＋長出資產的路徑，不是成熟的 harness。",
   "author": {
     "name": "fulin"

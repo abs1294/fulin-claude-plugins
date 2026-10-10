@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.16.4] - 2026-10-10
+### Fixed
+- 實測從專案子目錄跑 claude -p 時子 session 不會載入專案根 .claude/ 的 hook（git／非 git、settings.json／settings.local.json 皆同；Claude Code 2.1.296），guard-risky-command 的註解與案例說明、設計稿 §11.1c 改成實測結論；claude -p 例外維持只在工作目錄就是專案根時成立（行為不變）
+
 ## [0.16.3] - 2026-10-10
 ### Fixed
 - 專案根 package.json 是 type: module 時所有 hook 載入失敗：範本 package.json 明寫 type: commonjs、只要裝了 .js hook 就一定複製，init-verify 新增 V19（不可豁免）；危險指令守門：整串指令就是一次 claude -p 時引號 prompt 在 matchQuoted 規則下不比對（放行清單：無其他指令／管線／重導／前綴／括號、無反斜線跳脫引號、無彎引號、引號外只收 ASCII、工作目錄就是專案根，旗標只收 -p、--print、--verbose、--model、--output-format、--max-budget-usd、--effort 且值只收簡單的字；cases 加 55 個）；學習迴路首次用真的 claude 實跑（Stop 與 SessionEnd 兩條路、subagent 呼叫不計、背景反思活過 session 結束、開場回報），結果寫進設計稿 §11.1b；fixture 測試逾時訊息分開寫；e2e 做法寫明不裝外部 plugin

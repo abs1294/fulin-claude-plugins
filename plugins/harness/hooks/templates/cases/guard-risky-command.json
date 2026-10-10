@@ -9336,7 +9336,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "claude -p 例外：工作目錄在專案的子目錄 → 照擋（子 session 會不會載入專案根設定沒實測）",
+      "label": "claude -p 例外：工作目錄在專案的子目錄 → 照擋（實測：子目錄的子 session 不會載入專案根的 hook）",
       "variant": "demo",
       "payload": {
         "tool_name": "Bash",
