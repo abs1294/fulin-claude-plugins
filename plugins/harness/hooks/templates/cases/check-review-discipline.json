@@ -620,7 +620,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 a：從訂單建立畫面實際下單產生資料\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在理由點名例外類別（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 a：從訂單建立畫面實際下單產生資料\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -632,7 +632,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 c：幣別屬設定類主檔，期望值由資料庫查出\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在理由點名例外類別（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 c：幣別屬設定類主檔，期望值由資料庫查出\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -644,7 +644,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\na. 走真實業務流程長出來\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在理由點名例外類別（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\na. 走真實業務流程長出來\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -737,7 +737,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2：backend-engineer 其他齊全、缺【開工前對齊】→ 擋（舊版不驗這格會放行）",
+      "label": "backend-engineer：其他齊全、缺【開工前對齊】→ 擋（舊版不驗這格會放行）",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -749,7 +749,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：frontend-engineer 其他齊全、缺【開工前對齊】→ 擋",
+      "label": "frontend-engineer：其他齊全、缺【開工前對齊】→ 擋",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -761,7 +761,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：backend-engineer 用 04 模板二原文標題寫「分流例外：<理由>」→ 放行",
+      "label": "backend-engineer：用 04 模板二原文標題寫「分流例外：<理由>」→ 放行",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -773,7 +773,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2：qa-engineer 有【目標環境】【既有測試分流】、缺【開工前對齊】→ 擋",
+      "label": "qa-engineer：有【目標環境】【既有測試分流】、缺【開工前對齊】→ 擋",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -785,7 +785,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：qa-engineer 缺【目標環境】→ 擋（舊版不驗這格會放行）",
+      "label": "qa-engineer：缺【目標環境】→ 擋（舊版不驗這格會放行）",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -797,7 +797,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：qa-engineer 缺【既有測試分流】→ 擋（舊版不驗這格會放行）",
+      "label": "qa-engineer：缺【既有測試分流】→ 擋（舊版不驗這格會放行）",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -809,7 +809,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：qa-engineer 三格齊全（reuse 寫既有 test 檔）→ 放行",
+      "label": "qa-engineer：三格齊全（reuse 寫既有 test 檔）→ 放行",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -821,7 +821,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2：code-reviewer 沒寫【開工前對齊】→ 放行（只有實作與 QA 要表態）",
+      "label": "code-reviewer：沒寫【開工前對齊】→ 放行（只有實作與 QA 要表態）",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -833,7 +833,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2：backend-engineer【計畫／設計文件】絕對路徑、文件有「## 測試情境表」與「待簽收」→ 放行",
+      "label": "backend-engineer：【計畫／設計文件】絕對路徑、文件有「## 測試情境表」與「待簽收」→ 放行",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## API Contract\n\n- GET /x\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -850,7 +850,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2：backend-engineer 設計文件沒有情境表標題（只在內文提到）→ 擋（舊版不開檔會放行）",
+      "label": "backend-engineer：設計文件沒有情境表標題（只在內文提到）→ 擋（舊版不開檔會放行）",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## API Contract\n\n- GET /x\n\n測試情境表之後補。\n"
@@ -867,7 +867,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：frontend-engineer 設計文件沒有簽收狀態句 → 擋（舊版不開檔會放行）",
+      "label": "frontend-engineer：設計文件沒有簽收狀態句 → 擋（舊版不開檔會放行）",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -884,7 +884,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：backend-engineer【計畫／設計文件】指向不存在的檔 → 擋（舊版不開檔會放行）",
+      "label": "backend-engineer：【計畫／設計文件】指向不存在的檔 → 擋（舊版不開檔會放行）",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -896,7 +896,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：backend-engineer 相對路徑（以專案根解析）指向完整文件 → 放行",
+      "label": "backend-engineer：相對路徑（以專案根解析）指向完整文件 → 放行",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## API Contract\n\n- GET /x\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -913,7 +913,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2：backend-engineer 相對路徑指向缺情境表的文件 → 擋（相對路徑不是繞過管道）",
+      "label": "backend-engineer：相對路徑指向缺情境表的文件 → 擋（相對路徑不是繞過管道）",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## API Contract\n\n- GET /x\n\n測試情境表之後補。\n"
@@ -930,7 +930,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：小案計畫檔有「## 驗證計畫」與「已簽收」→ 放行",
+      "label": "設計文件檢查：小案計畫檔有「## 驗證計畫」與「已簽收」→ 放行",
       "setup": {
         "files": {
           "docs/plan.md": "# 修正計畫\n\n狀態：已簽收（使用者確認）\n\n## 影響面清單\n\n- src/x.js\n\n## 驗證計畫\n\n- 跑 npm test\n"
@@ -947,7 +947,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2：【計畫／設計文件】只留範本佔位、沒寫 .md 路徑 → 不檢查、放行（已知取捨）",
+      "label": "設計文件檢查：【計畫／設計文件】只留範本佔位、沒寫 .md 路徑 → 不檢查、放行（已知取捨）",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -959,7 +959,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2：code-reviewer 帶【設計文件】指向缺章節的文件 → 擋",
+      "label": "code-reviewer：帶【設計文件】指向缺章節的文件 → 擋",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -976,7 +976,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：qa-engineer 帶【設計文件】指向缺章節的文件 → 放行（這條規則不適用 QA）",
+      "label": "qa-engineer：帶【設計文件】指向缺章節的文件 → 放行（這條規則不適用 QA）",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -993,7 +993,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2：設計文件有 BOM、第一行就是「# 測試情境表」且有待簽收 → 放行",
+      "label": "設計文件檢查：設計文件有 BOM、第一行就是「# 測試情境表」且有待簽收 → 放行",
       "setup": {
         "files": {
           "docs/design.md": "﻿# 測試情境表\n\n狀態：待簽收\n"
@@ -1010,7 +1010,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2R：markdown 連結 [design.md](絕對路徑) 取括號裡的路徑、文件完整 → 放行（舊版截到「[design.md」當成找不到檔而擋）",
+      "label": "設計文件路徑解析：markdown 連結 [design.md](絕對路徑) 取括號裡的路徑、文件完整 → 放行（舊版截到「[design.md」當成找不到檔而擋）",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -1027,7 +1027,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2R：markdown 連結指向缺章節的文件 → 照擋",
+      "label": "設計文件路徑解析：markdown 連結指向缺章節的文件 → 照擋",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
@@ -1044,7 +1044,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2R：路徑含空白、用引號包住、文件完整 → 放行（舊版截成後半段而擋）",
+      "label": "設計文件路徑解析：路徑含空白、用引號包住、文件完整 → 放行（舊版截成後半段而擋）",
       "setup": {
         "files": {
           "my docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -1061,7 +1061,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2R：路徑含空白、用引號包住、文件缺章節 → 照擋",
+      "label": "設計文件路徑解析：路徑含空白、用引號包住、文件缺章節 → 照擋",
       "setup": {
         "files": {
           "my docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
@@ -1078,7 +1078,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2R：路徑含空白、沒加引號、磁碟上有這個檔且章節齊 → 往前延伸找到實際的檔、照常驗、放行（舊版截錯而擋）",
+      "label": "設計文件路徑解析：路徑含空白、沒加引號、磁碟上有這個檔且章節齊 → 往前延伸找到實際的檔、照常驗、放行（舊版截錯而擋）",
       "setup": {
         "files": {
           "my docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -1095,7 +1095,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2R：Git Bash 寫法 /c/…（Windows 上轉成 C:/…）、文件完整 → 放行（舊版解析成 C:\\c\\… 而擋）",
+      "label": "設計文件路徑解析：Git Bash 寫法 /c/…（Windows 上轉成 C:/…）、文件完整 → 放行（舊版解析成 C:\\c\\… 而擋）",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -1112,7 +1112,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2R：Git Bash 寫法 /c/…、文件缺章節 → 照擋",
+      "label": "設計文件路徑解析：Git Bash 寫法 /c/…、文件缺章節 → 照擋",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
@@ -1129,7 +1129,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2R：沒設 CLAUDE_PROJECT_DIR、payload cwd 是子目錄，相對路徑以專案根解析、文件完整 → 放行（舊版用 cwd 解析而擋）",
+      "label": "設計文件路徑解析：沒設 CLAUDE_PROJECT_DIR、payload cwd 是子目錄，相對路徑以專案根解析、文件完整 → 放行（舊版用 cwd 解析而擋）",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n",
@@ -1151,7 +1151,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2R：沒設 CLAUDE_PROJECT_DIR、payload cwd 是子目錄，相對路徑指向缺章節的文件 → 照擋",
+      "label": "設計文件路徑解析：沒設 CLAUDE_PROJECT_DIR、payload cwd 是子目錄，相對路徑指向缺章節的文件 → 照擋",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n",
@@ -1173,7 +1173,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2R：【開工前對齊】寫「分流例外：…」→ 不驗設計文件，指向缺章節的文件也放行（舊版會擋）",
+      "label": "設計文件檢查：【開工前對齊】寫「分流例外：…」→ 不驗設計文件，指向缺章節的文件也放行（舊版會擋）",
       "setup": {
         "files": {
           "docs/plan.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
@@ -1190,7 +1190,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2R：【開工前對齊】整行範本照貼（開頭是「無分岔」）→ 不算分流例外，缺章節照擋",
+      "label": "設計文件檢查：【開工前對齊】整行範本照貼（開頭是「無分岔」）→ 不算分流例外，缺章節照擋",
       "setup": {
         "files": {
           "docs/plan.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
@@ -1207,7 +1207,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2R：【計畫／設計文件】寫「本次產出：<還不存在的路徑>」→ 不驗檔、放行（舊版當成找不到檔而擋）",
+      "label": "設計文件檢查：【計畫／設計文件】寫「本次產出：<還不存在的路徑>」→ 不驗檔、放行（舊版當成找不到檔而擋）",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -1219,7 +1219,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2R：沒寫「本次產出」、路徑指向不存在的檔 → 照擋",
+      "label": "設計文件檢查：沒寫「本次產出」、路徑指向不存在的檔 → 照擋",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -1231,7 +1231,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2S：專案在「OneDrive - 範例公司」這類含空白目錄、沒加引號、章節齊 → 往前延伸找到實際的檔、放行（舊版截錯而擋）",
+      "label": "設計文件路徑解析：專案在「OneDrive - 範例公司」這類含空白目錄、沒加引號、章節齊 → 往前延伸找到實際的檔、放行（舊版截錯而擋）",
       "setup": {
         "files": {
           "OneDrive - 範例公司/docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -1248,7 +1248,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2S：含空白目錄、沒加引號、文件缺章節 → 找到實際的檔、照擋（舊版也擋，但擋的理由是找不到檔）",
+      "label": "設計文件路徑解析：含空白目錄、沒加引號、文件缺章節 → 找到實際的檔、照擋（舊版也擋，但擋的理由是找不到檔）",
       "setup": {
         "files": {
           "OneDrive - 範例公司/docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
@@ -1265,7 +1265,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2S：含空白路徑、沒加引號、前面還有說明字 → 往前延伸跳過說明字找到實際的檔、缺章節照擋",
+      "label": "設計文件路徑解析：含空白路徑、沒加引號、前面還有說明字 → 往前延伸跳過說明字找到實際的檔、缺章節照擋",
       "setup": {
         "files": {
           "my docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
@@ -1282,7 +1282,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2S：含空白路徑、沒加引號、磁碟上找不到 → 判不準不擋，用 additionalContext 提醒沒驗到",
+      "label": "設計文件路徑解析：含空白路徑、沒加引號、磁碟上找不到 → 判不準不擋，用 additionalContext 提醒沒驗到",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -1295,7 +1295,7 @@
       "visible": true
     },
     {
-      "label": "B2S：~/ 開頭的家目錄寫法 → 判不準不擋、提醒（舊版接在專案根後面當成找不到檔而擋）",
+      "label": "設計文件路徑解析：~/ 開頭的家目錄寫法 → 判不準不擋、提醒（舊版接在專案根後面當成找不到檔而擋）",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -1308,7 +1308,7 @@
       "visible": true
     },
     {
-      "label": "B2S：https:// 網址 → 不是本機檔案，不擋、提醒（舊版當成找不到檔而擋）",
+      "label": "設計文件路徑解析：https:// 網址 → 不是本機檔案，不擋、提醒（舊版當成找不到檔而擋）",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -1321,7 +1321,7 @@
       "visible": true
     },
     {
-      "label": "B2S：http:// 網址 → 不擋、提醒",
+      "label": "設計文件路徑解析：http:// 網址 → 不擋、提醒",
       "payload": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Agent",
@@ -1334,7 +1334,7 @@
       "visible": true
     },
     {
-      "label": "B2S：markdown 連結 [x](<含空白路徑>)、章節齊 → 取角括號內的路徑、放行",
+      "label": "設計文件路徑解析：markdown 連結 [x](<含空白路徑>)、章節齊 → 取角括號內的路徑、放行",
       "setup": {
         "files": {
           "my docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -1351,7 +1351,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B2S：markdown 連結 [x](<含空白路徑>)、文件缺章節 → 照擋（舊版把角括號當範本佔位剝掉、沒驗就放行）",
+      "label": "設計文件路徑解析：markdown 連結 [x](<含空白路徑>)、文件缺章節 → 照擋（舊版把角括號當範本佔位剝掉、沒驗就放行）",
       "setup": {
         "files": {
           "my docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
@@ -1368,7 +1368,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B3：markdown 連結帶錨點 [design.md](路徑#測試情境表)、文件完整 → 去掉錨點找到檔、放行（舊版把它判成找不到檔而擋）",
+      "label": "設計文件路徑解析：markdown 連結帶錨點 [design.md](路徑#測試情境表)、文件完整 → 去掉錨點找到檔、放行（舊版把它判成找不到檔而擋）",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -1385,7 +1385,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B3：markdown 連結帶錨點、文件缺章節 → 照擋（錨點不代表章節存在，章節照整份文件驗）",
+      "label": "設計文件路徑解析：markdown 連結帶錨點、文件缺章節 → 照擋（錨點不代表章節存在，章節照整份文件驗）",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
@@ -1402,7 +1402,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B3：角括號連結帶錨點 [x](<含空白路徑#錨點>)、文件完整 → 放行",
+      "label": "設計文件路徑解析：角括號連結帶錨點 [x](<含空白路徑#錨點>)、文件完整 → 放行",
       "setup": {
         "files": {
           "my docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -1419,7 +1419,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B3：角括號連結帶錨點、文件缺章節 → 照擋",
+      "label": "設計文件路徑解析：角括號連結帶錨點、文件缺章節 → 照擋",
       "setup": {
         "files": {
           "my docs/design.md": "# 設計文件\n\n## API Contract\n\n- GET /x\n"
@@ -1436,7 +1436,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B3：相對路徑連結帶錨點 [design.md](docs/design.md#測試情境表)、文件完整 → 以專案根解析、放行",
+      "label": "設計文件路徑解析：相對路徑連結帶錨點 [design.md](docs/design.md#測試情境表)、文件完整 → 以專案根解析、放行",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"
@@ -1453,7 +1453,7 @@
       "expect": "ALLOW"
     },
     {
-      "label": "B3：引號包住的路徑帶錨點 \"路徑#錨點\"、文件完整 → 放行",
+      "label": "設計文件路徑解析：引號包住的路徑帶錨點 \"路徑#錨點\"、文件完整 → 放行",
       "setup": {
         "files": {
           "docs/design.md": "# 設計文件\n\n狀態：待簽收\n\n## 測試情境表\n\n| 情境 | 預期 |\n|---|---|\n| 正常查詢 | 回 200 |\n"

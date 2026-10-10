@@ -180,5 +180,19 @@
     "now": "   - 每 30 天或每 300 個 request（先到者）→ 跑 `/harness:review` 做一次制度健檢（開機時會提醒；兩個門檻在 `health-check-reminder.js` 的填空區可調）。三軌：它自己檢查制度有沒有被照做、逐項跑 05 健檢清單與本專案的稽核工具；另外會請你在提示列輸入 `/doctor`（看工具鏈）和 `/insights`（看使用習慣），三軌結果交叉比對。可逆的修正（重建過期索引、清過期 memory、修明顯的 hook 錯誤…）列成一批讓你一次核可，當場修完逐項驗證；改規則的仍一項一項問你",
     "where": "skills/init/references/phases/phase-6-flow.md:114",
     "reason": "C10：健檢節奏改成 30 天或 300 個 request（先到者）"
+  },
+  {
+    "line": 586,
+    "orig": "實際用 `CONTEXT.md` 時把樣式換成 `\"GLOSSARY\\.(cha",
+    "now": "實際用 `CONTEXT.md` 時把樣式換成 `\"GLOSSARY\\.(changelog\\.)?md\"`、清單裡的 `GLOSSARY.md`、`GLOSSARY.changelog.md` 換成 `CONTEXT.md`、`CONTEXT.changelog.md`（沒產生專案 skill 時不列 skill 路徑）。參考模式另把原檔不動的每個原檔路徑加進清單——Phase 1 預設處置判為「沿用」、Phase 2 使用者沒改成其他處置的原檔，以及使用者在 Phase 2 改成保留原檔不動的；其中 `.claude/hooks/` 底下的原有 hook 不加（理由見下方排除項的 hook 程式碼）。它們的命中照下方排除項處理。",
+    "where": "skills/init/references/phases/phase-5-verify.md:49",
+    "reason": "參考模式沿用原檔改寫：判準改成「Phase 1 預設沿用且 Phase 2 沒改處置、或 Phase 2 改成保留原檔不動」，並排除 .claude/hooks/ 底下原有 hook（審查 Minor：處置表沒有「沿用」字樣、與 hook 排除項字面衝突）"
+  },
+  {
+    "line": 587,
+    "orig": "流程圖（`flow-*.json`／`flow.md`）與收尾回報 `insta",
+    "now": "流程圖（`flow-*.json`／`flow.md`）與收尾回報 `install-report.md` 要到 Phase 6 才產生，不在這項的判定範圍內：重裝時 `.claude/harness/*.md` 會掃到上一次 init 留下的舊 `flow.md`、`install-report.md`，這兩份的命中不算（`install-report.md` Phase 6 一定重產；舊 `flow.md` 在這次沒有 archify 時重產，這次有 archify 時不會重產，由 Phase 6 第 4 步當上一次的舊流程圖刪掉），流程圖改在 Phase 6 第 4 步完整性檢查時照同一個判準查。排除項：hook 程式碼（`.claude/hooks/` 不在清單內，執行時判斷照原樣兩個都認）；變更紀錄的歷史條目（`--exclude=CHANGELOG.md` 排掉 harness 與 agents 的紀錄檔；詞彙表自己的變更紀錄檔**在清單內**——標題與內文只能有實際檔名，只有記錄「改名」的那一行可以出現另一個檔名）；",
+    "where": "skills/init/references/phases/phase-5-verify.md:50",
+    "reason": "重裝時舊 flow.md 只在這次沒有 archify 時重產；有 archify 時由 Phase 6 第 4 步當殘檔刪除（審查 Minor：舊 flow.md 會永遠查不到）"
   }
 ]

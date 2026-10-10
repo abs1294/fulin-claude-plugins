@@ -55,6 +55,8 @@ node <archify>/bin/archify.mjs visual-check <flow-N.html> --json
 
 ### 4. 完整性檢查（不同判準的兜底，這步沒過不准收尾）
 
+先清上一次 init 留下、這次不會重產的舊流程圖（重裝時才會有）：這次有 archify 時，舊的 `.claude/harness/flow.md` 是殘檔；這次沒有 archify 時，舊的 `flow.html`、`flow-1.json`～`flow-3.json`、`flow-1.html`～`flow-3.html` 是殘檔。都刪掉（原檔在 `.harness-backup/<時間>/`），收尾回報第 3 段備份位置那一行寫出刪了哪幾份。不刪的後果：舊圖畫的是上一次的安裝、可能還寫著另一個詞彙表檔名，而本步的檔名檢查只查這次產出的那一種；舊的 `flow-N.json` 還在時，`init-flow.js done` 會優先拿它做完整性檢查，不看這次的 `flow.md`。
+
 ```
 node <本 plugin>/skills/init/scripts/check-flow-diagram.js check <落點> <落點>/.claude/harness/flow-1.json <落點>/.claude/harness/flow-2.json <落點>/.claude/harness/flow-3.json
 ```

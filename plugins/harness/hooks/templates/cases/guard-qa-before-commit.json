@@ -289,7 +289,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "B2：有 qa-gate.conf、behavior_ext 只有 .vue，staged src/add.js → 以 conf 為準不算行為類（舊版照填空區會擋）",
+      "label": "qa-gate.conf 判準：有 qa-gate.conf、behavior_ext 只有 .vue，staged src/add.js → 以 conf 為準不算行為類（舊版照填空區會擋）",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.vue\nexclude=^tests?/\n",
@@ -308,7 +308,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "B2：有 qa-gate.conf、behavior_ext 有 .vue，staged src/App.vue → 擋（填空區沒有 vue，舊版會放行）",
+      "label": "qa-gate.conf 判準：有 qa-gate.conf、behavior_ext 有 .vue，staged src/App.vue → 擋（填空區沒有 vue，舊版會放行）",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.vue\nexclude=^tests?/\n",
@@ -327,7 +327,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：有 qa-gate.conf、exclude 有 ^legacy/，staged legacy/a.js → 以 conf 為準排除（舊版會擋）",
+      "label": "qa-gate.conf 判準：有 qa-gate.conf、exclude 有 ^legacy/，staged legacy/a.js → 以 conf 為準排除（舊版會擋）",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.js\nexclude=^legacy/\n",
@@ -346,7 +346,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "B2：init 預設 conf（exclude 用字元類寫不分大小寫），staged src/a.Spec.js → 排除、放行",
+      "label": "qa-gate.conf 判準：init 預設 conf（exclude 用字元類寫不分大小寫），staged src/a.Spec.js → 排除、放行",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.js .ts .vue\nexclude=^tests?/ (^|/)__tests__/ \\.([Tt][Ee][Ss][Tt]|[Ss][Pp][Ee][Cc])\\.[A-Za-z]+$\nblock_staged_overrides=0\n",
@@ -365,7 +365,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "B2：conf 的 exclude 區分大小寫（同 flow.sh），exclude 寫 \\.spec\\.js$、staged src/a.Spec.js → 不排除、擋（舊版填空區 /i 會放行）",
+      "label": "qa-gate.conf 判準：conf 的 exclude 區分大小寫（同 flow.sh），exclude 寫 \\.spec\\.js$、staged src/a.Spec.js → 不排除、擋（舊版填空區 /i 會放行）",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.js\nexclude=\\.spec\\.js$\n",
@@ -384,7 +384,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：conf 的 behavior_ext 比對不分大小寫（同 flow.sh），staged src/A.VUE → 擋",
+      "label": "qa-gate.conf 判準：conf 的 behavior_ext 比對不分大小寫（同 flow.sh），staged src/A.VUE → 擋",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.vue\n",
@@ -403,7 +403,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：conf 用 POSIX 字元類 [[:alpha:]] 與 [] 開頭的字面 ]，staged gen/abc/x.js → 排除、放行",
+      "label": "qa-gate.conf 判準：conf 用 POSIX 字元類 [[:alpha:]] 與 [] 開頭的字面 ]，staged gen/abc/x.js → 排除、放行",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.js\nexclude=^gen/[[:alpha:]]+/ ^[]]x/\n",
@@ -422,7 +422,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "B2：conf 有 BOM、CRLF、整行註解與行尾註解，staged src/App.vue → 認得 behavior_ext、擋",
+      "label": "qa-gate.conf 判準：conf 有 BOM、CRLF、整行註解與行尾註解，staged src/App.vue → 認得 behavior_ext、擋",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "﻿# 給 flow.sh 讀的 QA 閘設定\r\nbehavior_ext=.vue   # 前端單檔元件\r\nexclude=^legacy/\r\n",
@@ -441,7 +441,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：conf 有 BOM、CRLF、行尾註解，staged legacy/x.vue → exclude 生效、放行",
+      "label": "qa-gate.conf 判準：conf 有 BOM、CRLF、行尾註解，staged legacy/x.vue → exclude 生效、放行",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "﻿# 給 flow.sh 讀的 QA 閘設定\r\nbehavior_ext=.vue   # 前端單檔元件\r\nexclude=^legacy/\r\n",
@@ -460,7 +460,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "B2：conf 沒寫 behavior_ext（flow.sh 視為不做 QA 檢查），staged src/add.js → 同 flow.sh 不擋（舊版會擋）",
+      "label": "qa-gate.conf 判準：conf 沒寫 behavior_ext（flow.sh 視為不做 QA 檢查），staged src/add.js → 同 flow.sh 不擋（舊版會擋）",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "block_staged_overrides=0\n",
@@ -479,7 +479,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "B2：conf 放在子 repo 的上一層（專案根 .claude/），多 repo 時從 repo 目錄往上找得到 → 以 conf 為準",
+      "label": "qa-gate.conf 判準：conf 放在子 repo 的上一層（專案根 .claude/），多 repo 時從 repo 目錄往上找得到 → 以 conf 為準",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.vue\n"
@@ -505,7 +505,7 @@
       "variant": "multi-repo-svc"
     },
     {
-      "label": "B2：沒有 qa-gate.conf，staged src/App.vue → 退回填空區（沒有 vue）放行",
+      "label": "qa-gate.conf 判準：沒有 qa-gate.conf，staged src/App.vue → 退回填空區（沒有 vue）放行",
       "setup": {
         "files": {
           "src/App.vue": "x\n"
@@ -523,7 +523,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "B2：沒有 qa-gate.conf，staged src/add.js → 退回填空區擋",
+      "label": "qa-gate.conf 判準：沒有 qa-gate.conf，staged src/add.js → 退回填空區擋",
       "setup": {
         "files": {
           "src/add.js": "x\n"
@@ -541,7 +541,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：conf 的 exclude 括號不成對（寫壞），staged tests/add.test.js → 退回填空區（排除測試檔）放行，並用 additionalContext 提醒",
+      "label": "qa-gate.conf 判準：conf 的 exclude 括號不成對（寫壞），staged tests/add.test.js → 退回填空區（排除測試檔）放行，並用 additionalContext 提醒",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.js\nexclude=(tests\n",
@@ -561,7 +561,7 @@
       "visible": true
     },
     {
-      "label": "B2：conf 的 exclude 括號不成對（寫壞），staged src/add.js → 退回填空區照擋（提醒併進擋下訊息）",
+      "label": "qa-gate.conf 判準：conf 的 exclude 括號不成對（寫壞），staged src/add.js → 退回填空區照擋（提醒併進擋下訊息）",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.js\nexclude=(tests\n",
@@ -580,7 +580,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：conf 的 exclude 用 JS 才有的 \\d（ERE 沒有），staged legacy/a.js → 不猜、退回填空區並提醒（填空區不排除 legacy → 擋）",
+      "label": "qa-gate.conf 判準：conf 的 exclude 用 JS 才有的 \\d（ERE 沒有），staged legacy/a.js → 不猜、退回填空區並提醒（填空區不排除 legacy → 擋）",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.js\nexclude=^v\\d/\n",
@@ -599,7 +599,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2：conf 的 exclude 用 JS 的 (?:…)（ERE 沒有），只 staged 文件 → 放行，但用 additionalContext 提醒 conf 翻不了",
+      "label": "qa-gate.conf 判準：conf 的 exclude 用 JS 的 (?:…)（ERE 沒有），只 staged 文件 → 放行，但用 additionalContext 提醒 conf 翻不了",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.js\nexclude=^(?:gen)/\n",
@@ -619,7 +619,7 @@
       "visible": true
     },
     {
-      "label": "B2R：沒有 conf、staged 中文檔名 src/計算.js → 擋（舊版 git 把檔名包成 \"src/\\350…\" 而判成不是行為類）",
+      "label": "中文與含空白檔名：沒有 conf、staged 中文檔名 src/計算.js → 擋（舊版 git 把檔名包成 \"src/\\350…\" 而判成不是行為類）",
       "setup": {
         "files": {
           "src/計算.js": "x\n"
@@ -637,7 +637,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2R：conf 只列 .vue、staged 含空白與中文的 src/頁 面.vue → 擋",
+      "label": "中文與含空白檔名：conf 只列 .vue、staged 含空白與中文的 src/頁 面.vue → 擋",
       "setup": {
         "files": {
           ".claude/qa-gate.conf": "behavior_ext=.vue\n",
@@ -656,7 +656,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "B2R：中文檔名的測試檔 tests/計算.test.js → 照填空區排除、不出聲",
+      "label": "中文與含空白檔名：中文檔名的測試檔 tests/計算.test.js → 照填空區排除、不出聲",
       "setup": {
         "files": {
           "tests/計算.test.js": "x\n"

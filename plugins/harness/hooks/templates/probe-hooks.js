@@ -73,9 +73,15 @@ const args = process.argv.slice(2);
 const PARSER_OFF = args.includes('--parser=off');
 // 本輪實際走哪條路徑：語法解析器沒裝或載入失敗時，預設模式其實也是正則路徑——開頭就講清楚，不讓它靜默全綠
 const NODE_MODULES = path.join(HERE, 'node_modules');
+// hook 的暫存目錄改指到本輪探針自己建的臨時目錄，結束時整個刪掉：hook 會往系統 temp 寫標記檔
+// （例：guard-sediment-sweep.js 的 claude-sediment-sweep-<session_id>），探針每跑一次就留一批殘檔在系統 temp。
+// TEMP／TMP（Windows）與 TMPDIR（macOS／Linux）三個都設，os.tmpdir() 在各平台讀的變數不同。案例的 setup.env 照樣可覆寫。
+const PROBE_TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'hookprobe-tmp-'));
+process.on('exit', () => { try { fs.rmSync(PROBE_TMP, { recursive: true, force: true }); } catch {} });
 // 跑 hook 用的環境底：本目錄有 node_modules 就指向它，沒有就沿用外層的 NODE_PATH——判路徑與實際跑 hook 用同一個判準
 function hookEnvBase() {
   const env = Object.assign({}, process.env);
+  env.TEMP = PROBE_TMP; env.TMP = PROBE_TMP; env.TMPDIR = PROBE_TMP;
   if (PARSER_OFF) env.HARNESS_SHELL_PARSER = 'off';
   else if (fs.existsSync(NODE_MODULES)) env.NODE_PATH = NODE_MODULES;
   return env;

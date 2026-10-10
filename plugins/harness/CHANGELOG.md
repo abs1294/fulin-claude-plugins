@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.16.2] - 2026-10-09
+### Fixed
+- 全碟掃描：`-Recurse:$false`／`-Recurse:0` 明確關掉遞迴時不再誤擋（兩條判定路徑都修；路徑中段萬用字元的放寬試過後撤回，判法維持原樣）；init 第十三項與 Phase 6 補舊流程圖殘檔處理、沿用原檔判準；03 B14 列紅證據無效三情形、B15 寫明 hook 只驗表態、B16/B17 基線只降不升；04 子 agent 必答新專案詞（五個模板的回報格式同步列出）、作答段判讀規則；05 健檢加覆蓋登記檔抽查；PROJECT 拆檔指引留在實例；probe 隔離暫存目錄；cases 移除內部代號 label
+
 ## [0.16.1] - 2026-10-09
 ### Fixed
 - 修 fixture 的 npm test 在 Node v22 把資料夾當模組載入而失敗（改成 node --test）；移除不隨 plugin 發布的 e2e 證據檔 docs/e2e-20261009.md，結論與已知問題（含學習迴路未經真實 claude 實測、計數偏少、引號內文字誤擋、端到端 prompt 要禁裝 plugin）改記在 docs/learning-loop-design.md §11

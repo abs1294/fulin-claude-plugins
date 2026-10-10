@@ -4,13 +4,13 @@
   - 落點＝`tests/Project_Detail/PROJECT.md`（目標專案沒有 tests/ 也照建——這是 QA 知識的固定落點，
     qa-engineer 與 04 模板六都指向這個路徑）。
   - 「環境與執行」節填 Phase 1 查證過的事實，加上 U1 確認的測試環境位址（帳密只寫「取自 <環境變數或設定鍵名稱>」）；其餘三節 init 時只留示範條目，不要替專案編坑。
-  - 條目變多後可拆成同目錄的子檔（例：ui-operation-rules.md、test-design-knowledge.md），本檔改成路由中心。
 -->
 
 > **收錄原則**：只收「**QA 實測時才會撞到**」的知識——操作上的坑、測試寫法上的坑、測試設計上的判斷。
 > 一般開發的坑歸 memory、專案詞彙歸 `GLOSSARY.md`（舊專案沿用 `CONTEXT.md`）、跨模組鏈路歸 `FLOWS.md`。
 > **寫入紀律**：每寫一條，同時在同目錄 `CHANGELOG.md` 的 `## PROJECT.md` 節補一行——否則事後查不到「這次 QA 有沒有把學到的東西留下來」。
 > 讀者＝qa-engineer（開工前必讀本檔，見 `.claude/agents/qa-engineer.md`）。
+> **拆檔**：條目變多後可拆成同目錄的子檔（例：ui-operation-rules.md、test-design-knowledge.md），本檔改成路由中心。
 
 ## 環境與執行
 

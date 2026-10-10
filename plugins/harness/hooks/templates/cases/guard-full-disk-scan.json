@@ -1809,6 +1809,42 @@
         }
       },
       "expect": "SILENT"
+    },
+    {
+      "label": "紅隊：-Recurse:$false 是明確關掉遞迴（不是全碟掃描）",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem -Recurse:$false C:\\"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "紅隊：-Recurse:0 是明確關掉遞迴，大小寫不拘的 -Recurse:$FALSE 也是",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem C:\\ -Recurse:0; Get-ChildItem -Recurse:$FALSE D:\\"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "紅隊：-Recurse:$false 與真遞迴寫在同一行，後者照擋",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-ChildItem -Recurse:$false C:\\tmp; Get-ChildItem C:\\ -Recurse"
+        }
+      },
+      "expect": "BLOCK"
     }
   ]
 }

@@ -19,7 +19,7 @@
 // 相對路徑依同一條指令裡的 cd／Set-Location 追蹤工作目錄後再判（cd / && find . 也擋）；起點是變數、
 // 工作目錄推不出來時判不出，放行。
 // 涵蓋工具：find、grep/egrep/fgrep（-r／-R／--recursive／-d recurse）、rg、ag、ack、fd、ls -R、du、tree、
-//   Get-ChildItem／gci／ls／dir（PowerShell，-Recurse 或 -Depth）、cmd 的 dir /s、where /r、findstr /s、forfiles /s；
+//   Get-ChildItem／gci／ls／dir（PowerShell，-Recurse 或 -Depth；-Recurse:$false／-Recurse:0 是明確關掉，不算）、cmd 的 dir /s、where /r、findstr /s、forfiles /s；
 //   python／node／PowerShell 程式碼裡的 os.walk、Path(...).rglob、Path.home().rglob、
 //   [IO.Directory]::GetFiles/EnumerateFiles(…,'AllDirectories')、readdirSync(…, { recursive: true }) 以根目錄字面值為起點者。
 // 深度明確限制在 SHALLOW 層以內（find -maxdepth、rg/fd --max-depth、Get-ChildItem -Depth、tree -L）不算全碟掃描，放行。
@@ -346,7 +346,13 @@ function judgeCommand(words, dir, mode, depth) {
       const v = rest[k].v;
       if (/^-/.test(v) && !rest[k].q) {
         const lo = v.toLowerCase().replace(/:.*$/, '');
-        if (/^-r(?:e(?:c(?:u(?:r(?:s(?:e)?)?)?)?)?)?$/.test(lo)) { recurse = true; continue; }
+        if (/^-r(?:e(?:c(?:u(?:r(?:s(?:e)?)?)?)?)?)?$/.test(lo)) {
+          // 開關參數可用冒號給值：-Recurse:$false／-Recurse:0 是明確關掉遞迴（-Recurse: $false 冒號後空一格時值在下一個字）
+          let sw = null;
+          if (/:/.test(v)) { sw = v.slice(v.indexOf(':') + 1); if (sw === '' && rest[k + 1]) sw = rest[++k].v; }
+          recurse = !(sw !== null && /^(?:\$false|0)$/i.test(String(sw).trim()));
+          continue;
+        }
         if (GCI_VALUE.test(lo)) {
           const val = /:/.test(v) ? v.slice(v.indexOf(':') + 1) : (rest[++k] || {}).v;
           if (/^-de/.test(lo)) depthVal = val;
@@ -626,6 +632,16 @@ function scanText(text, mode, cwd, depth) {
 }
 
 // ── 語法樹層（選用）：shell-model 拆出的每個會執行的程式，用同一套判準再判一次 ──────
+// 語法樹節點後面緊接的那個字元（取不到回空字串）
+function afterChar(node) {
+  try {
+    const p = node.parent;
+    if (!p) return '';
+    const off = node.endIndex - p.startIndex;
+    return String(p.text).slice(off, off + 1);
+  } catch (e) { return ''; }
+}
+
 function parserHit(command, tool, cwd) {
   let sm;
   try { sm = require('./shell-model.js'); } catch (e) { return null; }
@@ -636,7 +652,19 @@ function parserHit(command, tool, cwd) {
   const mode = t === 'PowerShell' ? 'ps' : 'bash';
   for (let i = 0; i < a.execs.length; i++) {
     const e = a.execs[i];
-    const words = (e.words || []).map((w) => ({ v: String(w.value), q: !!w.quoted, lead: false }));
+    const words = [];
+    const src = e.words || [];
+    for (let j = 0; j < src.length; j++) {
+      const w = src[j];
+      // PowerShell 的 -Param:值 被語法樹拆成參數與值兩個字、冒號不見了；併回一個字，
+      // 讓 -Recurse:$false／-Recurse:0 與斷詞層同樣判成明確關掉（-Recurse 0 是另一個位置參數，不併）
+      if (mode === 'ps' && w.node && w.node.type === 'command_parameter' && src[j + 1] && afterChar(w.node) === ':') {
+        words.push({ v: String(w.value) + ':' + String(src[j + 1].value), q: false, lead: false });
+        j++;
+        continue;
+      }
+      words.push({ v: String(w.value), q: !!w.quoted, lead: false });
+    }
     if (!words.length) continue;
     let dir = null;
     try { const d = a.dirAt(i); if (d && !d.unsure && d.dir) dir = d.dir; } catch (err) { dir = null; }
