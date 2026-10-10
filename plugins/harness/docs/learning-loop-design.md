@@ -163,7 +163,7 @@
 - `data` 是給機械檢查用的結構化欄位，只規定 init-verify 會讀的幾個：`U3.data.confirmedTerms`（這次新增的詞，陣列）、`U3.data.originalCount`（參考模式沿用的原有條目數）、`U3.data.removedTerms`、`Q4.data.team`（布林）、`Q10.data.import`（布林）、`Q11.data.choice`（`build | reuse | none`）、`Q1.data.agents`（實際建的 agent 名單）。
 - `hookCatalog`：形狀目錄逐列的去向（Phase 5「形狀目錄逐列對帳」的機械版）；列數必須等於 `hook-catalog.md` 目錄表的列數。
 - 寫入時機：每答一題由 `init-flow.js answer <目標> <id>` 寫入（腳本負責合併、補日期、驗 schema），不讓模型手改整份 JSON（plugin 的 `init-state-guard.js` 擋 Write／Edit 直接改）。答案 JSON 從 `--file <檔>` 或 stdin（`--json -`）傳最穩；`--json '<字串>'` 在 PowerShell 5.1 會被剝掉雙引號、在 Bash 遇到單引號會截斷（審查 R9 實測）。腳本把解析後的結果印回來給模型核對。
-- `verifyWaivers`：`[{ "id": "V07-paths", "match": "<命中內容的一段>", "reason": "<為什麼這筆是誤判>" }]`，由 `init-flow.js waive <目標> <id> --match <字串> --reason <理由>` 寫入；V09（hook 語法）、V10（settings JSON）、V12（帳密）不可豁免（審查 R8）。豁免的每一筆在 init-verify 輸出與收尾回報都列出。
+- `verifyWaivers`：`[{ "id": "V07-paths", "match": "<命中內容的一段>", "reason": "<為什麼這筆是誤判>" }]`，由 `init-flow.js waive <目標> <id> --match <字串> --reason <理由>` 寫入；V09（hook 語法）、V10（settings JSON）、V12（帳密）、V19（hook 模組格式，0.16.3）不可豁免（審查 R8）。豁免的每一筆在 init-verify 輸出與收尾回報都列出。
 - 重裝（參考模式偵測到舊 `init-answers.json`）：舊檔先隨備份走，舊答案當這次每題的預設答案（推薦選項），新答案覆蓋。
 - schema 驗證：零相依，`init-flow.js` 與 `init-verify.js` 內建一個只支援本 schema 用到的關鍵字（type／required／enum／properties／patternProperties／items／additionalProperties）的小驗證器；tests 對它做正反兩向測試。
 
@@ -268,7 +268,7 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 ```
 
 - **N**：環境變數 `HARNESS_REFLECT_EVERY_N` 優先，否則填空區 `EVERY_N`（預設 80）；`0`＝整個學習迴路觸發關閉。SessionEnd 剩餘門檻 `MIN_REMAINDER = 10`。
-- **主 session 判定**：payload 帶 `agent_id`（subagent 內的工具呼叫）時不計。**HYPOTHESIS**：Claude Code 對 subagent 內的工具呼叫在 hook payload 帶 `agent_id`；若實測不帶，計數會含 subagent 的呼叫——只會讓反思提早觸發，不會漏觸發，方向安全。學習迴路的真實端到端（第 10 節 e2e-learn）實測記錄。
+- **主 session 判定**：payload 帶 `agent_id`（subagent 內的工具呼叫）時不計。實測確認（2026-10-10 e2e-learn，§11.1b）：session A 主對話 9 次工具呼叫、subagent 內 3 次，計數＝9，subagent 的呼叫確實沒被數到。
 - **計數的並行**：同一則訊息裡並行的工具呼叫會同時跑 PreToolUse，session 計數檔照 2.7 的鎖做讀改寫（審查 R12 指出的 lost update）；取不到鎖就少計一次，只會讓觸發稍晚，不會出錯。保留 PreToolUse 計數（任務書 C1 指定的觸發機制），不改成 Stop 時數 transcript。
 - **遞迴防護**：反思子程序以 `HARNESS_LEARN_CHILD=1` 啟動；`learn-trigger`、`learn-usage`、`learn-session-report` 看到這個變數一律直接 exit 0（子程序若載到專案 settings 的 hook，也不會再觸發反思、不會把它的 Read 記成 view）。不沿用 Claude Code 的 `CLAUDE_CODE_CHILD_SESSION`（那是別的語意，由 Claude Code 自己設，不歸我們控制）。另外帶 `--no-session-persistence`，子程序不留 transcript，不會變成下一輪反思的輸入。
 - **同時只跑一個反思**：`learning/reflect.lock`（`wx` 建立；超過 15 分鐘視為殘留）。拿不到鎖的觸發記一筆 run 帳本 `skipped: locked` 後退出，計數點照樣前進（下一輪會讀到這段，因為水位線沒動）。
@@ -418,6 +418,7 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 | V16-catalog | 形狀目錄逐列去向 | `hookCatalog` 列數＝`hook-catalog.md` 目錄表列數，每列有 decision 與 reason；`installed` 且有範本檔名的，`.claude/hooks/<檔>` 存在 |
 | V17-wiring | 已裝 hook 有接線 | `.claude/hooks/` 底下每支 hook（檔頭標 `harness-kind: module`／`cli` 的不算；與 probe-hooks 共用同一個判準，審查 R8）都出現在 settings 的某條 command 裡 |
 | V18-learning | 學習迴路完整 | `hookCatalog` 標學習迴路已裝時：五支 learn 檔＋prompt 檔存在、learn-trigger 接了 PreToolUse／Stop／SessionEnd、learn-usage 接了 PreToolUse（Read\|Skill）與 Stop、learn-session-report 接了 SessionStart；`.gitignore` 含 `.claude/harness/learning/`（團隊模式） |
+| V19-hooks-commonjs | hook 以 CommonJS 執行（0.16.3） | 有 `.js` hook 時，`.claude/hooks/package.json` 存在且寫明 `"type": "commonjs"`；專案根是 `"type": "module"` 時少了它每支 hook 載入就失敗（e2e-learn 實測抓到）。不可豁免 |
 
 仍由模型做的語意項（phase-5 文件列明）：經驗帶走審查（參考模式）、B 類規則放行方式在它說的位置實跑一次、專案概要內容與使用者改過的版本逐句一致、U1 每個外部系統的去向、Q7 過時註記內容、本機覆寫說明逐筆涵蓋、addendum 與 qa-gate 的 flow.sh 實跑、port 驗證實跑、`probe-hooks.js` 兩條路徑實跑（行為層，耗時長，不併進 init-verify）。
 
@@ -469,9 +470,9 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 11. **learn-offline**：假 claude（node 腳本）＋假 transcript，跑 trigger（Stop 達門檻真的起背景反思並等它完成；SessionEnd 剩餘門檻；`EVERY_N=0` 關閉）、reflect（水位線只到最後一個換行、失敗不前進、預篩、暫停、每日上限、補跑）、promote 分級（綠寫入、黃寫入並待看、紅只待核、破壞性升紅、帳密／注入／外洩／抄原文／超量／路徑逃逸被拒）、第 2 次升格提案（不同出處才算）、pending approve／reject 還原與 CLAUDECODE 下拒絕、learn-approve 讀使用者原話、usage 計數與鎖、淘汰候選（⭐⭐ 以上排除）、開場回報一行、health-check 天數與 request 兩門檻、`learn-reflect.js --self-test`。
 12. **probe-hooks**：在 `hooks/templates` 跑 `probe-hooks.js` 與 `--parser=off`，FAIL＝0、缺 cases＝0（可用 `--skip-probe` 跳過，供快速迭代；完成驗收一律不跳）。
 
-真實端到端（一次，不進 run.js；2026-10-09 已執行，結果見 §11.1）：把 fixture「單一 repo＋網頁前端」複製到系統暫存目錄，`claude -p "/harness:init"`＋`--plugin-dir`、`--permission-mode bypassPermissions`、`--max-budget-usd` 上限，清 `CLAUDECODE`、設 `MSYS_NO_PATHCONV=1`；跑完 `init-verify` exit 0；結論與預期不符處記在本檔 §11（逐次的原始紀錄不放進 plugin，因為會隨 plugin 發給安裝者）。
+真實端到端（一次，不進 run.js；2026-10-09 已執行，結果見 §11.1）：把 fixture「單一 repo＋網頁前端」複製到系統暫存目錄，`claude -p "/harness:init"`＋`--plugin-dir`、`--permission-mode bypassPermissions`、`--max-budget-usd` 上限，清 `CLAUDECODE`、設 `MSYS_NO_PATHCONV=1`；prompt 寫明「所有外部 plugin（含 git-commit）一律不裝，訪談選不裝」，跑完比對 `~/.claude/plugins/installed_plugins.json` 前後沒有新增紀錄；跑完 `init-verify` exit 0；結論與預期不符處記在本檔 §11（逐次的原始紀錄不放進 plugin，因為會隨 plugin 發給安裝者）。
 
-學習迴路的真實端到端（e2e-learn，審查 R2；**未執行**，見 §11.2）：在 init 產出的實例裡用真的 `claude -p` 跑一段含使用者糾正與工具錯誤的對話（`HARNESS_REFLECT_EVERY_N=5`），等背景反思寫出 `last-run.json`，記錄：子程序 ok／花費／耗時、提案與落地結果、SessionEnd 路徑有沒有跑、subagent 的工具呼叫 payload 有沒有 `agent_id`（3 節的 HYPOTHESIS）、沙箱外讀取被拒。
+學習迴路的真實端到端（e2e-learn，審查 R2；2026-10-10 已執行，結果見 §11.1b）：在 init 產出的實例裡用真的 `claude -p` 跑一段含使用者糾正與工具錯誤的對話（`HARNESS_REFLECT_EVERY_N=5`），等背景反思寫出 `last-run.json`，記錄：子程序 ok／花費／耗時、提案與落地結果、SessionEnd 路徑有沒有跑、subagent 的工具呼叫 payload 有沒有 `agent_id`（3 節原本的 HYPOTHESIS，已實測確認）、沙箱外讀取被拒。
 
 ## 11. 端到端結果與已知問題（待辦）
 
@@ -479,13 +480,26 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 
 以 `claude -p` 無人值守對 fixture「單一 repo＋網頁前端」跑完整 `/harness:init`（`--plugin-dir` 載入開發版）：exit 0、`terminal_reason: completed`、七個 Phase 都經 `init-flow.js advance` 走過、`init-flow.js done` exit 0；`init-verify` V01～V18 全 PASS；耗時 2549 秒、花費 23.10 USD。原始紀錄未保留（暫存目錄已刪）。
 
+### 11.1b 學習迴路真實端到端（2026-10-10，已執行）
+
+實例＝tests/lib 的 golden 實例疊在 fixture「單一 repo＋網頁前端」上（根 package.json 是 `"type": "module"`），用真的 `claude -p --model sonnet` 跑兩個 session：
+
+- **第一次跑，所有 hook 都沒作用**：每支 hook 載入就丟 `ReferenceError: require is not defined in ES module scope`（專案根是 `"type": "module"`，`.claude/hooks/` 沒有自己的 package.json，Node 把 .js 當 ES 模組）。錯在載入階段，hook 的 fail-open 接不到，連派工沒帶 model 都沒擋。修法見 §11.2 第 6 項；以下是修好後重跑的結果。
+- **Stop 達門檻**（session A，`HARNESS_REFLECT_EVERY_N=5`；prompt 含一個會失敗的指令、一次 subagent 派工、一句使用者更正「單號是 SH- 加 4 位數，不是 6 位」）：計數 9＝主對話工具呼叫 9 次（subagent 內 3 次不計）；背景反思 run 7.9 秒、0.074 USD、1 筆提案，綠區寫進 GLOSSARY.md「出貨單號」詞條與變更紀錄一行，ledger 證據指到 transcript 第 4、56 行。
+- **SessionEnd 收尾**（session B，門檻 100、主對話 13 次工具呼叫）：計數 13，SessionEnd 剩餘 ≥10 觸發反思，3.4 秒、0.037 USD、0 筆提案（只是讀檔盤點，沒有值得記的事）。
+- **背景反思活過 `-p` 結束**：session B 的 `claude -p` 在 02:12:12.9 結束，反思在 02:12:15.7 才寫完 run 帳本（Windows，detached 子程序）。
+- **開場回報**：session B 開始時 SessionStart 印出「[learn] 上次反思（10/10 10:11）寫入 1 筆（shipment-no-format：…）」，使用者看得到上一輪寫了什麼。
+- `~/.claude/plugins/installed_plugins.json` 前後相同；兩個 session 共 0.70 USD，反思共 0.11 USD。
+- 沒有驗到的：反思子程序讀沙箱外被拒（這次反思沒有嘗試讀沙箱外；2026-10-09 以同一組參數單獨實測過，見 learn-reflect.js 檔頭）。
+
 ### 11.2 已知問題（待辦）
 
-1. **學習迴路沒有用真的 claude 跑過（審查 R2 未落實）**：R2 的處置是加 e2e-learn，但沒有執行；上面那次 init 端到端裡 learn-trigger 只數到 45、沒達門檻，反思子程序一次都沒起。所以 R2 列的風險仍然開著：subagent 的工具呼叫 payload 帶不帶 `agent_id`、detached 子程序在 Windows 活不活得過 session 結束、反思輸出形狀、找 claude 執行檔。目前只有離線測試（假 claude）覆蓋。待辦：照 §10 的 e2e-learn 跑一次。
-2. **learn-trigger 計數偏少**：同一次端到端，主對話 108 次工具呼叫，learn-trigger 只數到 45。HYPOTHESIS：hook 在 Phase 4 寫好 settings.local.json 之後才生效，之前的呼叫沒被數到；未實驗確認。
-3. **guard-risky-command 會比對引號內的文字**：`claude -p "<含 curl 與 src/mail.js 的文字>"` 被擋，改從檔案餵 stdin 才過。規則刻意寧可多擋，但屬誤擋；待評估是否排除引號內的 prompt 參數。
-4. **端到端的 prompt 要禁止安裝外部 plugin**：上次 prompt 允許 git-commit，子程序在暫存專案裝了 project scope 的 git-commit，`~/.claude/plugins/installed_plugins.json` 多一筆紀錄（已於 2026-10-09 用 `uninstall --scope project --keep-data` 清掉）。下次 prompt 寫「所有外部 plugin 一律不裝」。
+1. （已處理，0.16.3）學習迴路已用真的 claude 跑過，見 §11.1b。審查 R2 列的風險：agent_id（確認不計 subagent）、detached 子程序活過 session 結束（確認）、反思輸出形狀（解析成功）、找 claude 執行檔（`~/.local/bin/claude.exe`，成功）。
+2. （已釐清）learn-trigger 計數：e2e-learn 兩個 session 的計數都恰好等於主對話工具呼叫數（9＝9、13＝13），subagent 內的呼叫不計。10-09 那次 init 端到端「108 對 45」的落差，HYPOTHESIS：init 派了 5 支 subagent，加上 hook 在 Phase 4 寫好 settings 之後才生效；原始 transcript 已刪、無法逐筆對，但這次實測沒有看到漏計。
+3. （已處理，0.16.3）guard-risky-command：整串指令就是一次 `claude -p "<prompt>"` 時，引號 prompt 在 matchQuoted 規則下不比對。用放行清單判（認不得一律照擋）：不准有其他指令、管線、重導、換行、`$(`、反引號，不准有任何前綴（env -C、sudo -D、pushd、變數賦值…），不准有反斜線緊貼引號（PowerShell 的 "a\"; 指令; #" 會跳出引號），不准有 PowerShell 認得的彎引號、引號外只收可列印 ASCII、不准有括號與大括號，這次呼叫的工作目錄要就是專案根（子目錄也不放行：子 session 從子目錄跑會不會載入專案根設定沒有實測），旗標只收 -p／--print／--verbose／--model／--output-format／--max-budget-usd／--effort。第一版是「排除幾個危險旗標與 cd」的列舉法，審查實跑找到 pushd、Push-Location、env -C、--worktree、--add-dir、`> a.sh; bash a.sh` 等繞法，改成放行清單後兩條路徑一致；第二、三輪審查再找到 PowerShell 的 \" 跳出、工作目錄在專案外、旗標值裡的括號運算式 (iex(…))、彎引號（”’）跳出，一併補上（旗標值改成只收簡單的字）；第四輪兩軌 PASS 後再把工作目錄收緊成「就是專案根」（子目錄下子 session 會不會載入專案根設定沒有實測）；cases 共加 55 個。已知、不處理的極端情境（第四輪審查實跑，HEAD 版結果相同、curl 都不會在本機執行）：`claude -p "${X:-curl …}"`、`claude -p "x"curl …`、`claude -p … "x" # curl …`；Bash 的 `${x@P}`、`$[x]` 要事先設好變數值才有作用。會多擋（安全方向）：prompt 裡有 Markdown 反引號、`\"`、PowerShell 的 `''` 雙寫跳脫。
+4. **端到端的 prompt 要禁止安裝外部 plugin**：上次 prompt 允許 git-commit，子程序在暫存專案裝了 project scope 的 git-commit，`~/.claude/plugins/installed_plugins.json` 多一筆紀錄（已於 2026-10-09 用 `uninstall --scope project --keep-data` 清掉）。（已處理，0.16.3：§10 的端到端做法已寫明 prompt 一律不裝外部 plugin，並在跑完比對安裝紀錄。）
 5. （已修，0.16.1）fixture 的 `npm test` 寫成 `node --test tests/`／`node --test test/`，Node v22 把資料夾當模組載入而 MODULE_NOT_FOUND；改成 `node --test`（自動找測試檔）。
+6. （已修，0.16.3）**專案根是 `"type": "module"` 時所有 hook 載入失敗**：e2e-learn 第一次跑抓到。init 原本只在裝了規則引擎時才把 package.json 複製進 `.claude/hooks/`；沒裝規則引擎的專案，hook 會沿用專案根的模組格式。修法：範本 package.json 明寫 `"type": "commonjs"`，只要裝了任何 .js hook 就一定複製；init-verify 加 V19（不可豁免）；golden 加兩個壞變體。**已裝的實例**（0.16.2 以前）若根目錄是 `"type": "module"` 且沒裝規則引擎，hook 目前是失效的，補一份 `.claude/hooks/package.json`（`{"type": "commonjs"}`）即可。
 
 ## 審查紀錄
 
@@ -550,4 +564,4 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 | `learn-pending.js` 在 `CLAUDECODE` 存在時拒絕 approve／reject／revert | R14 | learn-offline 段 |
 | `HARNESS_LEARN_DRYRUN=1`（觸發只寫標記檔、不起子程序，供 probe 案例用） | R21 | `cases/learn-trigger.json` |
 | 反思連續 2 次失敗暫停到隔天、每日上限 | R11（部分採納） | learn-offline 段 |
-| `init-flow.js waive`（init-verify 個別項目豁免，V09／V10／V12 不可豁免） | R8 | `tests/run.js` 的 init-flow 段 |
+| `init-flow.js waive`（init-verify 個別項目豁免，V09／V10／V12／V19 不可豁免） | R8 | `tests/run.js` 的 init-flow 段 |

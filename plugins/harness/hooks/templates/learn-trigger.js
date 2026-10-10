@@ -23,8 +23,8 @@
 // 測試用：HARNESS_LEARN_DEBUG=1 時 PreToolUse 計數後在 stderr 印一行計數結果（只供 cases 驗「真的計了」；正常執行不設）。
 // fail-open：任何例外 exit 0，stderr 印 `[learn-trigger] ERROR: …`；不得因學習迴路故障擋下使用者。
 //
-// **HYPOTHESIS**（設計稿 3 節）：Claude Code 對 subagent 內的工具呼叫在 payload 帶 agent_id；若實測不帶，
-// 計數會含 subagent 的呼叫——只會讓反思提早觸發，不會漏觸發。
+// 實測確認（2026-10-10，設計稿 §11.1b）：subagent 內的工具呼叫在 payload 帶 agent_id，計數只含主對話的呼叫
+// （主對話 9 次、subagent 內 3 次 → 計數 9）。
 //
 // 自行決定的細節：
 // - Stop／SessionEnd 沒有 transcript_path（或檔案不存在）時不觸發、觸發點不前進（試跑模式不看 transcript）。

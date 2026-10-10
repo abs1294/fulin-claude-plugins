@@ -106,6 +106,8 @@ function makeGolden(root) {
     const c = path.join(TPL, 'cases', f.replace(/\.js$/, '.json'));
     if (fs.existsSync(c)) write(root, `.claude/hooks/cases/${path.basename(c)}`, fs.readFileSync(c, 'utf8'));
   }
+  // 有 .js hook 就一定帶 package.json（"type": "commonjs"；init-verify V19）
+  write(root, '.claude/hooks/package.json', fs.readFileSync(path.join(TPL, 'package.json'), 'utf8'));
   const settings = { hooks: {} };
   const abs = root.split(path.sep).join('/');
   for (const [f, ev, matcher] of hooks) {
@@ -172,6 +174,8 @@ const BROKEN = [
   { name: '學習迴路沒接使用者核可（learn-approve）', expect: 'V18-learning', learnOnly: true, apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { j.hooks.UserPromptSubmit = (j.hooks.UserPromptSubmit || []).filter((g) => !JSON.stringify(g).includes('learn-approve.js')); }) },
   { name: '工具呼叫計數的 matcher 只接 Bash', expect: 'V18-learning', learnOnly: true, apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { for (const g of j.hooks.PreToolUse) if (JSON.stringify(g).includes('learn-trigger.js')) g.matcher = 'Bash'; }) },
   { name: '用量計數的 matcher 漏了 Skill', expect: 'V18-learning', learnOnly: true, apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { for (const g of j.hooks.PreToolUse) if (JSON.stringify(g).includes('learn-usage.js')) g.matcher = 'Read'; }) },
+  { name: '.claude/hooks 沒有 package.json（專案根是 type: module 時每支 hook 載入就失敗）', expect: 'V19-hooks-commonjs', apply: (r) => fs.unlinkSync(path.join(r, '.claude', 'hooks', 'package.json')) },
+  { name: '.claude/hooks/package.json 被改成 type: module', expect: 'V19-hooks-commonjs', apply: (r) => editJson(r, '.claude/hooks/package.json', (j) => { j.type = 'module'; }) },
 ];
 
 module.exports = { makeGolden, BROKEN, TODAY };

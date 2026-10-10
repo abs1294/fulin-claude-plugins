@@ -33,7 +33,7 @@ function isNonHook(f) {
   try { return /^\/\/ harness-kind: (module|cli)/m.test(fs.readFileSync(f, 'utf8').split('\n').slice(0, 5).join('\n')); } catch { return false; }
 }
 // 不可豁免的檢查：沒有誤判空間，要修檔
-const UNWAIVABLE = new Set(['V09-hook-syntax', 'V10-settings-json', 'V12-secrets']);
+const UNWAIVABLE = new Set(['V09-hook-syntax', 'V10-settings-json', 'V12-secrets', 'V19-hooks-commonjs']);
 // 學習迴路的檔與接線（事件 → 必須接的 hook）
 const LEARN_FILES = ['learn-lib.js', 'learn-trigger.js', 'learn-reflect.js', 'learn-promote.js', 'learn-session-report.js', 'learn-pending.js', 'learn-usage.js', 'learn-approve.js', 'learn-reflector-prompt.md'];
 // matcher 空字串、沒寫或 * 等於全部工具；否則以 | 切開逐一比對工具名
@@ -352,6 +352,25 @@ for (const { j } of settingsObjs) for (const [ev, arr] of Object.entries((j && j
       if (!/\.claude\/harness\/learning/.test(gi)) hits.push('團隊模式：.gitignore 沒有排除 .claude/harness/learning/');
     }
     report('V18-learning', hits, '學習迴路的檔與五個事件的接線都在');
+  }
+}
+
+// V19 hook 以 CommonJS 執行：Node 依最近的 package.json 決定 .js 的模組格式。專案根是 "type": "module"
+// （Vite 專案常見）而 .claude/hooks 沒有自己的 package.json 時，每一支 hook 載入就丟 `require is not defined`
+// ——錯在載入階段，hook 自己的 fail-open 接不到，等於全部靜默失效。所以 .claude/hooks 一定要有 "type": "commonjs" 的 package.json。
+{
+  if (!hookJs.length) report('V19-hooks-commonjs', [], '', { skip: '沒有 .js hook' });
+  else {
+    const hits = [];
+    const pj = P('.claude', 'hooks', 'package.json');
+    if (!exists(pj)) hits.push('.claude/hooks/package.json 不存在：hook 會沿用上層 package.json 的模組格式（上層是 "type": "module" 時全部 hook 載入失敗）');
+    else {
+      let type;
+      try { type = JSON.parse(read(pj)).type; } catch (e) { hits.push('.claude/hooks/package.json 不是合法 JSON：' + e.message); }
+      if (type !== undefined && type !== 'commonjs') hits.push(`.claude/hooks/package.json 的 type 是 ${JSON.stringify(type)}，要是 "commonjs"`);
+      else if (type === undefined && !hits.length) hits.push('.claude/hooks/package.json 沒寫 "type": "commonjs"（沒寫雖然預設是 CommonJS，但要明寫，免得被人改成 module 時沒人發現）');
+    }
+    report('V19-hooks-commonjs', hits, `.claude/hooks/package.json 寫明 "type": "commonjs"，${hookJs.length} 支 .js 以 CommonJS 載入`);
   }
 }
 

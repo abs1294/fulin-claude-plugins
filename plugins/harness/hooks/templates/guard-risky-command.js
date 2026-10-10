@@ -49,7 +49,10 @@
 //               （mysql 的 -P 是連接埠、-p 是密碼）；不分大小寫的部分要在 regex 裡自己寫成 [xX]。
 //   matchQuoted 選填，true＝這條規則連一般程式的引號引數也比對（例如要擋 `psql -U "postgres"` 這種
 //               把帳號包在引號裡的寫法）。代價是提到該字樣的 commit 訊息、給其他工具的提示字串也會被擋，
-//               只在確定需要時才開。
+//               只在確定需要時才開。唯一例外：整串指令就是一次 `claude -p "<prompt>"`（沒有前綴、沒有
+//               其他指令與重導、沒有括號、沒有反斜線跳脫引號、沒有彎引號、引號外只有 ASCII、旗標只在放行清單內且值是簡單的字、
+//               工作目錄就是專案根）時引號 prompt 不比對——子 session 真的執行時會再經過守門（完整條件見 promptOnlyCommand 上方註解）。
+//               whenCommand 比對整串原文，不適用這個例外。
 //   unlessWith  選填，[{ line: regex, command: regex }, …]——放行條件要同時看「命中的那條指令」與「整串原始指令」時用：
 //               任一組的 line 照 unless 的方式比對命中的指令、command 比對整串原始指令文字（兩條判定路徑相同），兩者都成立才放行。
 //               例：psql 這條沒帶密碼，但同一串前面有 `$env:PGPASSWORD = $env:<確認過的變數>`（語法樹路徑看不到那個賦值）。
@@ -1107,6 +1110,63 @@ function analyzeWithParser(command, tool, startDir, root) {
 
 // requireCwd：工作目錄相對專案根、正斜線（專案根＝.；專案外＝正斜線的絕對路徑）
 const HAS_LITERAL_CD = /(?:^|[\s;&|(])(?:cd|set-location|sl|chdir)(?=[\s;&|)]|$)/i;
+
+// matchQuoted 的唯一例外（放行清單，認不得一律照擋）：整串指令就是一次 `claude -p "<prompt>"`，
+// 引號裡是給模型讀的文字、不是要執行的指令；子 session 真的去執行時，它的工具呼叫會再經過同一份專案守門。
+// 「子 session 會再經過守門」只在它跑在同一個專案、照常載入專案設定時成立，所以形狀要窄到能保證這一點：
+//   - 整串只有這一條指令：不准有 ; & | < > 換行（引號外），也不准有 `$(`、反引號（引號內外都不准——雙引號裡的命令替換
+//     會先在本機執行；反引號在 PowerShell 是跳脫字元）。擋掉 `pushd /tmp && claude …`、`claude … > a.sh; bash a.sh`、`… | sh`
+//   - 第一個詞就是 claude：不准有任何前綴（env -C、sudo -D、變數賦值、Push-Location…都會換掉子 session 的環境或目錄）
+//   - 旗標只收 PROMPT_ONLY_FLAGS 裡的；其他旗標（--worktree、--add-dir、--allowedTools、--settings、--bare、-c、--resume、
+//     --plugin-dir、--agents、--dangerously-skip-permissions、--permission-mode…）一律不放行。旗標要和值分開寫，`--print=…` 不收
+//   - 帶值旗標的值只收簡單的字（英數字開頭，後面只有英數字與 . _ : -）；引號外不准有 ( ) { }
+//     （PowerShell 的 `--model (iex('…'))` 會在本機先執行括號裡的運算式）
+//   - 一定要有 -p 或 --print；引號 prompt 最多一個（也可以完全沒有、改從 stdin 餵）
+//   - 不准有反斜線緊貼引號（\" 或 \'）：bash 與 PowerShell 對它解讀不同，PowerShell 的 "a\"; 指令; #" 會跳出引號真的執行
+//   - 不准有 PowerShell 認得的彎引號（‘ ’ ‚ ‛ “ ” „，引號內外都不准）；引號外只收可列印的 ASCII
+//   - 這次呼叫的工作目錄（payload cwd）就是專案根（isProjectRoot）：前一次呼叫已 cd 到專案外或子目錄時不放行
+// 兩條判定路徑（正則／語法樹）都只看整串原文，結果一致。
+const PROMPT_ONLY_FLAGS = { '-p': 0, '--print': 0, '--verbose': 0, '--model': 1, '--output-format': 1, '--max-budget-usd': 1, '--effort': 1 };
+function promptOnlyCommand(command) {
+  const cmd = String(command || '').trim();
+  if (!cmd || /\$\(|`/.test(cmd)) return false;
+  // 反斜線緊貼引號：bash 雙引號裡 \" 是跳脫、PowerShell 不是（PowerShell 的 "a\"; 指令; #" 會跳出引號真的執行）。
+  // 兩種 shell 解讀不一致的寫法不判，一律不放行。
+  if (/\\["']/.test(cmd)) return false;
+  // PowerShell 也把彎引號當引號（‘ ’ ‚ ‛ “ ” „），maskQuoted 只認 ASCII 引號：`"a”; 指令; #"` 會在 PowerShell 跳出引號。
+  // 出現任何一個就不判，一律不放行。
+  if (/[‘’‚‛“”„]/.test(cmd)) return false;
+  const masked = maskQuoted(cmd);
+  // 引號外只收可列印的 ASCII（其他字元可能是別的 shell 認得、這裡認不得的分隔或引號）
+  if (/[^\x20-\x7E]/.test(masked)) return false;
+  // 引號外不准有 ; & | < > 換行，也不准有括號與大括號（PowerShell 的 (iex('…')) 括號運算式會在本機先執行）
+  if (/[;&|<>\r\n(){}]/.test(masked)) return false;
+  const tokens = masked.split(/\s+/);
+  if (!/^(?:claude|claude\.exe)$/i.test(tokens[0])) return false;
+  let print = false;
+  let prompts = 0;
+  for (let i = 1; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t === '""' || t === "''") { prompts++; continue; }
+    if (!Object.prototype.hasOwnProperty.call(PROMPT_ONLY_FLAGS, t)) return false;
+    if (t === '-p' || t === '--print') print = true;
+    if (PROMPT_ONLY_FLAGS[t]) {
+      const v = tokens[++i];
+      // 旗標值只收簡單的字（sonnet、json、1.5、claude-sonnet-4-5…）；其他形狀一律不放行
+      if (v === undefined || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(v)) return false;
+    }
+  }
+  return print && prompts <= 1;
+}
+// 例外的另一半前提：這次呼叫的工作目錄就是專案根（前一次呼叫已 cd 到專案外或子目錄時不放行：子 session 可能不會載入本專案的守門）。
+function isProjectRoot(dir, root) {
+  const real = (p) => { try { return fs.realpathSync(path.resolve(p)); } catch (e) { return path.resolve(p); } };
+  const norm = (p) => (process.platform === 'win32' ? real(p).toLowerCase() : real(p));
+  // 只認「就是專案根」：從子目錄跑時子 session 會不會照樣載入專案根的設定沒有實測過，寧可多擋
+  return path.relative(norm(root), norm(dir)) === '';
+}
+// 主流程算一次，兩條判定路徑共用（只看整串原文與工作目錄，結果一致）
+let PROMPT_ONLY = false;
 function cwdLabel(root, dir) {
   const rel = path.relative(root, dir);
   if (rel === '') return '.';
@@ -1150,7 +1210,7 @@ function regexHits(command, startDir, root, hits) {
       if (!r || !r.when || r.whenCommand) continue;   // 兩個都寫的規則當成寫錯，由 commandHits 提醒
       // unlessCommand 也可搭 when：整串原始指令命中就整條放行（例：整串只是一次 git commit，訊息裡提到的不算）
       if (r.unlessCommand && new RegExp(r.unlessCommand, r.unlessCase ? 'm' : 'im').test(command)) continue;
-      const lines = r.matchQuoted ? rawLines : maskedLines;
+      const lines = r.matchQuoted && !PROMPT_ONLY ? rawLines : maskedLines;
       // 逐條指令判：when／unless／環境都只看命中的那一條（環境另計前面已持續生效的設定）。
       let hit = false;
       let envProblems = null;
@@ -1292,7 +1352,7 @@ function astHits(a, hits, command, root) {
       // unlessCommand 也可搭 when：整串原始指令命中就整條放行（例：整串只是一次 git commit，訊息裡提到的不算）
       if (r.unlessCommand && new RegExp(r.unlessCommand, r.unlessCase ? 'm' : 'im').test(command)) continue;
       const whenRe = new RegExp(r.when, 'im');
-      const pick = (x) => (r.matchQuoted ? x.raw : x.masked);
+      const pick = (x) => (r.matchQuoted && !PROMPT_ONLY ? x.raw : x.masked);
       let hit = false;
       let envProblems = null;
       for (const line of a.lines) {
@@ -1360,6 +1420,7 @@ process.stdin.on('end', () => {
     if (!command || !RULES.length) process.exit(0);
     const root = process.env.CLAUDE_PROJECT_DIR || path.resolve(__dirname, '..', '..');
     const startDir = input.cwd || root;
+    PROMPT_ONLY = promptOnlyCommand(command) && isProjectRoot(startDir, root);
     envUnsure = psEnvUnsure(command, input.tool_name);
     TOOL_KEY = input.tool_name === 'PowerShell' ? 'PowerShell' : 'Bash';
     // 有語法解析器就用語法樹判；沒有才走正則路徑

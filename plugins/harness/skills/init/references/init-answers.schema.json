@@ -25,7 +25,7 @@
     },
     "verifyWaivers": {
       "type": "array",
-      "description": "init-verify.js 誤判的豁免（init-flow.js waive 寫入）；V09、V10、V12 不可豁免",
+      "description": "init-verify.js 誤判的豁免（init-flow.js waive 寫入）；V09、V10、V12、V19 不可豁免",
       "items": {
         "type": "object",
         "required": ["id", "match", "reason"],

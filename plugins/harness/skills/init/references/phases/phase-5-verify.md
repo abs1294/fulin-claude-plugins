@@ -8,7 +8,7 @@
 node <本 plugin>/skills/init/scripts/init-verify.js <落點>
 ```
 
-每項印一行 `<id> | PASS／FAIL／SKIP | <證據>`，任一 FAIL 就 exit 1。**原始輸出整段貼進收尾回報**。FAIL 回 Phase 4 修、修完整份重跑；確定是誤判（例：引用的是使用者說之後才會建的檔）才用 `init-flow.js waive <目標> <id> --match <命中內容> --reason <理由>` 登記豁免，豁免的每一筆收尾回報都要列出（V09 hook 語法、V10 settings、V12 帳密不可豁免）。
+每項印一行 `<id> | PASS／FAIL／SKIP | <證據>`，任一 FAIL 就 exit 1。**原始輸出整段貼進收尾回報**。FAIL 回 Phase 4 修、修完整份重跑；確定是誤判（例：引用的是使用者說之後才會建的檔）才用 `init-flow.js waive <目標> <id> --match <命中內容> --reason <理由>` 登記豁免，豁免的每一筆收尾回報都要列出（V09 hook 語法、V10 settings、V12 帳密、V19 hook 模組格式不可豁免）。
 
 腳本做的是下面十三項裡能機械化的部分：
 
@@ -29,6 +29,7 @@ node <本 plugin>/skills/init/scripts/init-verify.js <落點>
 | 13 參考模式 | — | 全部（含另派 subagent 的經驗帶走審查） |
 | （新）答案檔 | V15 init-answers.json 合法、必答題齊 | — |
 | （新）學習迴路 | V18 檔齊、五個事件都有接線、團隊模式 `.gitignore` 排除 learning/ | 冷啟探針 P6 |
+| （新）hook 以 CommonJS 執行 | V19 `.claude/hooks/package.json` 存在且寫明 `"type": "commonjs"`（專案根是 `"type": "module"` 時，少了它每支 hook 載入就失敗、fail-open 接不到） | — |
 
 下面是十三項的完整判準（腳本的檢查照這份寫；語意項照這份做）：
 

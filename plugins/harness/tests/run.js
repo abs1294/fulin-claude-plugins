@@ -131,16 +131,18 @@ if (want('fixtures')) {
     const rf = makeFixture('reference', path.join(root, 'reference'));
     check('fixtures', fs.existsSync(path.join(rf, 'CLAUDE.md')) && fs.existsSync(path.join(rf, '.claude', 'agents', 'reviewer.md')) && fs.existsSync(path.join(rf, '.claude', 'hooks', 'block-prod-db.js')) && fs.existsSync(path.join(rf, 'CONTEXT.md')), 'reference：有 CLAUDE.md、自己的 agent 與 hook、舊檔名詞彙表（參考模式）');
     // 範例專案自己的測試指令要跑得起來：init 盤點會實跑它，壞掉的指令會被當成專案本身的問題回報
+    const TEST_TIMEOUT_MS = 60000;
     for (const dir of [sw, path.join(mr, 'web'), path.join(mr, 'api'), rf]) {
       const pkg = path.join(dir, 'package.json');
       const label = path.relative(root, dir).replace(/\\/g, '/');
       const script = fs.existsSync(pkg) ? (JSON.parse(read(pkg)).scripts || {}).test : undefined;
       const argv = typeof script === 'string' ? script.trim().split(/\s+/) : [];
       if (argv[0] !== 'node') { check('fixtures', false, `${label}：package.json 的 test 指令不是 node 開頭，測試不知道怎麼跑：${script}`); continue; }
-      const r = spawnSync(process.execPath, argv.slice(1), { cwd: dir, encoding: 'utf8', timeout: 60000 });
+      const r = spawnSync(process.execPath, argv.slice(1), { cwd: dir, encoding: 'utf8', timeout: TEST_TIMEOUT_MS });
       // node --test 一個測試檔都沒找到時也 exit 0，所以另外要求至少跑到 1 個測試
       const ran = Number((/^# tests (\d+)/m.exec(r.stdout || '') || [])[1] || 0);
-      check('fixtures', r.status === 0 && ran > 0, `${label}：npm test（${script}）exit ${r.status}、跑了 ${ran} 個測試${r.error ? '、' + r.error.message : ''}`);
+      const result = r.error && r.error.code === 'ETIMEDOUT' ? `逾時（超過 ${TEST_TIMEOUT_MS / 1000} 秒被終止）` : `exit ${r.status}`;
+      check('fixtures', r.status === 0 && ran > 0, `${label}：npm test（${script}）${result}、跑了 ${ran} 個測試${r.error && r.error.code !== 'ETIMEDOUT' ? '、' + r.error.message : ''}`);
     }
   } finally { rm(root); }
 }
@@ -211,6 +213,7 @@ if (want('init-flow')) {
     check('init-flow', L.checkAnswers(a).length === 0 && a.answers.U2.date && a.answers.U2.delegated === false, '答案檔通過 schema、每題有日期與是否代決');
     check('init-flow', flow('advance', d, '5').status === 1, '沒生成就 advance 5 → exit 1');
     check('init-flow', flow('waive', d, 'V12-secrets', '--match', 'x', '--reason', 'y').status === 1, 'V12 帳密不可豁免 → exit 1');
+    check('init-flow', flow('waive', d, 'V19-hooks-commonjs', '--match', 'x', '--reason', 'y').status === 1, 'V19 hook 模組格式不可豁免 → exit 1');
     check('init-flow', flow('waive', d, 'V07-paths', '--match', 'docs/x.md', '--reason', '使用者說之後會建').status === 0, 'V07 可豁免（帶理由）→ exit 0');
     check('init-flow', flow('done', d).status === 1, '還在 Phase 4 就 done → exit 1');
     check('init-flow', flow('abort', d).status === 2, 'abort 沒帶理由 → exit 2');

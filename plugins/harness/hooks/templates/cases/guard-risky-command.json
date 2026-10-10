@@ -8849,6 +8849,614 @@
         }
       },
       "expect": "BLOCK"
+    },
+    {
+      "label": "交給 claude -p 的 prompt：引號裡提到沒確認的網址 → 放行（只是給模型讀的文字，子 session 真的執行時會再被擋）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"請用 curl 打 https://prod-api.example.com/orders 看回應\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "交給 claude --print 的 prompt（單引號、後面還有旗標）→ 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude --print '先 curl https://prod-api.example.com/orders' --model sonnet"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "PowerShell：claude -p 的 prompt 提到沒確認的網址 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "claude -p \"請用 curl 打 https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "對照：bash -c 的引號內容會被執行 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 的 prompt 裡有命令替換（會先在本機執行）→ 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"看這個：$(curl https://prod-api.example.com/orders)\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "同一串先 cd 到別處再 claude -p（子 session 不一定載入本專案的守門）→ 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd /tmp && claude -p \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude --bare -p（不載入 hook）→ 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude --bare -p \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p --setting-sources（可能排除本專案設定）→ 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"curl https://prod-api.example.com/orders\" --setting-sources user"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p --settings（換掉設定）→ 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude --settings x.json -p \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 的輸出接給 sh 執行 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"curl https://prod-api.example.com/orders\" | sh"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 之後同一串真的跑 curl → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"整理一下\" && curl https://prod-api.example.com/orders"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "沒有 -p 的 claude（不是一次性 prompt）→ 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "-p 只出現在 prompt 引號裡、不是旗標 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude \"請加 -p 參數再 curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 的輸出接給 sh、管線兩邊沒空白 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"curl https://prod-api.example.com/orders\"|sh"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 的輸出接給 bash、管線前後空白不對稱 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"curl https://prod-api.example.com/orders\" |bash"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "PowerShell：claude -p 的輸出接給 iex → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "claude -p \"curl https://prod-api.example.com/orders\" | iex"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：pushd 到別處再跑 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pushd /tmp && claude -p \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：PowerShell Push-Location 到別處再跑 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Push-Location $env:TEMP; claude -p \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：env -C 換目錄 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "env -C /tmp claude -p \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：env --chdir= 換目錄 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "env --chdir=/tmp claude -p \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：sudo -D 換目錄 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sudo -D /tmp claude -p \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：前面有變數賦值 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "HOME=/tmp claude -p \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：--worktree → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --worktree x \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：-w → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p -w x \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：--add-dir → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --add-dir /etc \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：--allowedTools → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --allowedTools Bash \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：--mcp-config → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --mcp-config x.json \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：-c 接續舊對話 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p -c \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：--resume → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --resume abc \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：--plugin-dir → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --plugin-dir ./x \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：--agents → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --agents x.json \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：--dangerously-skip-permissions → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --dangerously-skip-permissions \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：--permission-mode → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --permission-mode bypassPermissions \"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：--print= 寫法不收 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude --print=\"curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：輸出寫成檔再用 bash 跑 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"curl https://prod-api.example.com/orders\" > a.sh; bash a.sh"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：輸出寫成檔再 && sh → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"curl https://prod-api.example.com/orders\" > a.sh && sh a.sh"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：prompt 裡有反引號命令替換 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"看 `curl https://prod-api.example.com/orders`\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：放行清單內的旗標（--model、--output-format、--max-budget-usd）→ 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --model sonnet --output-format json --max-budget-usd 1 \"請 curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "claude -p 例外：prompt 引號裡有 | 字元 → 放行（兩條路徑一致）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"整理 a | b 之後 curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "claude -p 例外：沒有 prompt 引數（從 stdin 餵）也算 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --model sonnet"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "claude -p 例外：PowerShell 用 \\\" 跳出引號接真指令 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "claude -p \"a\\\"; curl https://prod-api.example.com/orders; #\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：Bash 的 prompt 裡有 \\\" → 不套用例外、照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"先\\\"確認\\\"再 curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：單引號前有反斜線 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p 'a\\'; curl https://prod-api.example.com/orders"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：這次呼叫的工作目錄在專案外 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"請 curl https://prod-api.example.com/orders\""
+        },
+        "cwd": "{PROJECT_DIR}/.."
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：工作目錄在專案的子目錄 → 照擋（子 session 會不會載入專案根設定沒實測）",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"請 curl https://prod-api.example.com/orders\""
+        },
+        "cwd": "{PROJECT_DIR}/src"
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：PowerShell 旗標值放括號運算式 (iex(…)) → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "claude -p --model (iex('curl https://prod-api.example.com/orders')) \"安全\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：PowerShell 旗標值放 $ 變數 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "claude -p --model $m \"請 curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：引號外有大括號 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "claude -p {curl https://prod-api.example.com/orders}"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：旗標值是一般模型名（含點與連字號）→ 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p --model claude-sonnet-4.5 --effort high \"請 curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "claude -p 例外：PowerShell 用彎雙引號（”）跳出引號接真指令 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "claude -p \"a”; curl https://prod-api.example.com/orders; #\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：PowerShell 用彎單引號（’）跳出引號接真指令 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "claude -p 'a’; curl https://prod-api.example.com/orders; #'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：整段用彎引號包 prompt → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "claude -p “請 curl https://prod-api.example.com/orders”"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：引號外有非 ASCII 字元 → 照擋",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"請 curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "claude -p 例外：prompt 引號裡有中文與全形標點（「」、；）→ 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "claude -p \"請「確認」；再 curl https://prod-api.example.com/orders\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "claude -p 例外：工作目錄就是專案根 → 放行",
+      "variant": "demo",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "claude -p \"請 curl https://prod-api.example.com/orders\""
+        },
+        "cwd": "{PROJECT_DIR}"
+      },
+      "expect": "ALLOW"
     }
   ]
 }

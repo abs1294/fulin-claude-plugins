@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.16.3] - 2026-10-10
+### Fixed
+- 專案根 package.json 是 type: module 時所有 hook 載入失敗：範本 package.json 明寫 type: commonjs、只要裝了 .js hook 就一定複製，init-verify 新增 V19（不可豁免）；危險指令守門：整串指令就是一次 claude -p 時引號 prompt 在 matchQuoted 規則下不比對（放行清單：無其他指令／管線／重導／前綴／括號、無反斜線跳脫引號、無彎引號、引號外只收 ASCII、工作目錄就是專案根，旗標只收 -p、--print、--verbose、--model、--output-format、--max-budget-usd、--effort 且值只收簡單的字；cases 加 55 個）；學習迴路首次用真的 claude 實跑（Stop 與 SessionEnd 兩條路、subagent 呼叫不計、背景反思活過 session 結束、開場回報），結果寫進設計稿 §11.1b；fixture 測試逾時訊息分開寫；e2e 做法寫明不裝外部 plugin
+
 ## [0.16.2] - 2026-10-09
 ### Fixed
 - 全碟掃描：`-Recurse:$false`／`-Recurse:0` 明確關掉遞迴時不再誤擋（兩條判定路徑都修；路徑中段萬用字元的放寬試過後撤回，判法維持原樣）；init 第十三項與 Phase 6 補舊流程圖殘檔處理、沿用原檔判準；03 B14 列紅證據無效三情形、B15 寫明 hook 只驗表態、B16/B17 基線只降不升；04 子 agent 必答新專案詞（五個模板的回報格式同步列出）、作答段判讀規則；05 健檢加覆蓋登記檔抽查；PROJECT 拆檔指引留在實例；probe 隔離暫存目錄；cases 移除內部代號 label

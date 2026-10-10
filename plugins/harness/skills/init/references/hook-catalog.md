@@ -69,8 +69,9 @@
    使用者只能**取消**，不能從空清單挑。
 4. 連同 `probe-hooks.js` 與 `cases/` 一起複製；填空區改了什麼，對應的 cases 同步改。
    接線照每支範本檔頭的「接線」註解寫進 settings，**每一筆都帶上檔頭的 `statusMessage`**（hook 執行時狀態列顯示的白話說明；見 init 的 phases/phase-4-hooks.md settings 層）。
-   裝了任一個 B 類規則引擎、或第 17 列本機覆寫銷毀閘時，連同 `shell-model.js`、`package.json`、`package-lock.json` 一起複製，並在 `.claude/hooks/` 跑 `npm ci`（見下表）。
-   只裝第 29 列全碟掃描守門時不必帶——它內建斷詞，有帶 `shell-model.js` 只是多一層判定。
+   **只要裝了任何一支 .js hook，一定連同 `package.json` 複製**（它寫明 `"type": "commonjs"`；專案根是 `"type": "module"` 時，少了它每支 hook 載入就失敗，init-verify V19 檢查、不可豁免）。
+   裝了任一個 B 類規則引擎、或第 17 列本機覆寫銷毀閘時，另外連同 `shell-model.js`、`package-lock.json` 一起複製，並在 `.claude/hooks/` 跑 `npm ci`（見下表）。
+   只裝第 29 列全碟掃描守門時不必帶 `shell-model.js` 與 lock 檔——它內建斷詞，有帶 `shell-model.js` 只是多一層判定。
 5. Phase 5 在目標專案跑 `node .claude/hooks/probe-hooks.js`，全數符合預期才算裝完；再加冷啟探針驗「Claude Code 真的會叫它」。
 
 ## 範本檔以外的配套
@@ -78,7 +79,8 @@
 | 檔 | 用途 | 何時複製 |
 |---|---|---|
 | `probe-hooks.js`＋`cases/` | hook 行為探針與兩向案例；Phase 5 驗收與 05 健檢都跑它 | 一律（只帶已裝 hook 對應的 cases） |
-| `shell-model.js`＋`package.json`＋`package-lock.json` | 兩個規則引擎共用的指令語法解析：用 tree-sitter（bash、PowerShell 各一套文法）照 shell 真實語意判「哪些指令會執行」「每個指令實際拿到的環境值」。在 `.claude/hooks/` 跑 `npm ci` 裝進 `node_modules/`（版本由 lock 檔釘住；三個套件皆 MIT、附預編譯檔，不需要編譯器）；`node_modules/` 要進 `.gitignore`。沒裝、載入失敗或解析出錯誤節點時，引擎整串退回正則判法——不會失效，但準確度較低（見兩支引擎檔頭的已知極限）。本機覆寫銷毀閘（第 17 列）的點名放寬也靠它：沒帶或載入失敗時，該閘照改動前的判法（同 repo 有改過的覆寫檔，`restore`／`checkout` 不論點名哪個檔都擋），不會變鬆。全碟掃描守門（第 29 列）有它時多判一層語法樹（只會多擋），沒有它照內建斷詞運作 | 裝了 `guard-risky-command`、`guard-test-preconditions` 或第 17 列 `guard-local-hack-destroy` 就一起帶（只裝本機覆寫保護的 C 類也帶，否則點名一般檔的 `restore`／`checkout` 會一直被擋）；只裝第 29 列時不必帶 |
+| `package.json` | 寫明 `"type": "commonjs"`，讓 `.claude/hooks` 的 .js 一律以 CommonJS 載入，不受專案根 `"type": "module"` 影響；也記規則引擎的語法解析器相依 | 只要裝了任何一支 .js hook 就一定帶（init-verify V19） |
+| `shell-model.js`＋`package-lock.json` | 兩個規則引擎共用的指令語法解析：用 tree-sitter（bash、PowerShell 各一套文法）照 shell 真實語意判「哪些指令會執行」「每個指令實際拿到的環境值」。在 `.claude/hooks/` 跑 `npm ci` 裝進 `node_modules/`（版本由 lock 檔釘住；三個套件皆 MIT、附預編譯檔，不需要編譯器）；`node_modules/` 要進 `.gitignore`。沒裝、載入失敗或解析出錯誤節點時，引擎整串退回正則判法——不會失效，但準確度較低（見兩支引擎檔頭的已知極限）。本機覆寫銷毀閘（第 17 列）的點名放寬也靠它：沒帶或載入失敗時，該閘照改動前的判法（同 repo 有改過的覆寫檔，`restore`／`checkout` 不論點名哪個檔都擋），不會變鬆。全碟掃描守門（第 29 列）有它時多判一層語法樹（只會多擋），沒有它照內建斷詞運作 | 裝了 `guard-risky-command`、`guard-test-preconditions` 或第 17 列 `guard-local-hack-destroy` 就一起帶（只裝本機覆寫保護的 C 類也帶，否則點名一般檔的 `restore`／`checkout` 會一直被擋）；只裝第 29 列時不必帶 |
 | `compact-handoff.js` | 交接信模組（不是 hook，由 `compact-snapshot.js` require；探針也把它當模組排除） | 裝了第 26 列就一起帶 |
 | `restore-local-hacks.js` | 本機覆寫救回腳本（不是 hook，但探針把它當一支來測：檢查模式有東西可救時 exit 2，cases 裡的 BLOCK 就是這個意思） | 裝了第 16–18 列任一支就一起帶 |
 | `check-worktree-ports.js` | 工作樹的 port／process 驗證腳本（第 30 列；不是 hook、不接線，探針照樣測它：參數錯誤 exit 2＝BLOCK） | 第 30 列成立時帶（連同它的 cases；填空區改了，cases 的 variant 取代字串與 `DEFAULT_ARGS` 跟著改） |

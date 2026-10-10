@@ -194,5 +194,12 @@
     "now": "流程圖（`flow-*.json`／`flow.md`）與收尾回報 `install-report.md` 要到 Phase 6 才產生，不在這項的判定範圍內：重裝時 `.claude/harness/*.md` 會掃到上一次 init 留下的舊 `flow.md`、`install-report.md`，這兩份的命中不算（`install-report.md` Phase 6 一定重產；舊 `flow.md` 在這次沒有 archify 時重產，這次有 archify 時不會重產，由 Phase 6 第 4 步當上一次的舊流程圖刪掉），流程圖改在 Phase 6 第 4 步完整性檢查時照同一個判準查。排除項：hook 程式碼（`.claude/hooks/` 不在清單內，執行時判斷照原樣兩個都認）；變更紀錄的歷史條目（`--exclude=CHANGELOG.md` 排掉 harness 與 agents 的紀錄檔；詞彙表自己的變更紀錄檔**在清單內**——標題與內文只能有實際檔名，只有記錄「改名」的那一行可以出現另一個檔名）；",
     "where": "skills/init/references/phases/phase-5-verify.md:50",
     "reason": "重裝時舊 flow.md 只在這次沒有 archify 時重產；有 archify 時由 Phase 6 第 4 步當殘檔刪除（審查 Minor：舊 flow.md 會永遠查不到）"
+  },
+  {
+    "line": 512,
+    "orig": "| `shell-model.js`＋`package.json`＋`package-lock.json`（裝了任一個規則引擎、或本機覆寫銷毀閘",
+    "now": "| `shell-model.js`＋`package-lock.json`，並跑 `npm ci`（裝了任一個規則引擎、或本機覆寫銷毀閘 `guard-local-hack-destroy` 時） | `<落點>/.claude/hooks/` | 不填空。複製後在 `.claude/hooks/` 跑 `npm ci`，把 `.claude/hooks/node_modules/` 加進 `.gitignore`（沒有就建）。`npm ci` 失敗（無網路、沒有 npm、平台沒有預編譯檔）**不擋 init**：兩支引擎會退回正則判法照樣運作，本機覆寫銷毀閘照改動前的判法（點名一般檔的 `restore`／`checkout` 也擋），在收尾回報寫明「語法解析器未裝、目前是正則判法」並附失敗原文。全碟掃描守門 `guard-full-disk-scan` 不需要它（內建斷詞）；同目錄有它時會多判一層，只裝全碟掃描守門時不必為它帶 shell-model.js 與 package-lock.json、也不必 npm ci（package.json 照樣要帶） |",
+    "where": "skills/init/references/phases/phase-4-hooks.md:8",
+    "reason": "package.json 改成只要裝了任何 .js hook 就一定複製（type: commonjs；專案根是 type: module 時 hook 會全部載入失敗，e2e-learn 實測抓到），獨立成上一列；本列只留 shell-model.js、lock 檔與 npm ci"
   }
 ]

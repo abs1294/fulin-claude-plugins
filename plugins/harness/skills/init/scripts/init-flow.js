@@ -221,7 +221,7 @@ if (cmd === 'waive') {
   requirePhase(4, '登記 init-verify 豁免');
   const id = argv[2]; const match = opt('--match'); const reason = opt('--reason');
   if (!/^V\d\d-/.test(id || '') || !match || !reason) die('用法：waive <目標> <檢查 id，例 V07-paths> --match <命中內容的一段> --reason <為什麼是誤判>');
-  if (/^V(09|10|12)-/.test(id)) die(`${id} 不可豁免（hook 語法、settings JSON、帳密樣式沒有誤判空間，要修檔）`, 1);
+  if (/^V(09|10|12|19)-/.test(id)) die(`${id} 不可豁免（hook 語法、settings JSON、帳密樣式、hook 模組格式沒有誤判空間，要修檔）`, 1);
   const ans = loadAnswers(s);
   ans.verifyWaivers = (ans.verifyWaivers || []).filter((w) => !(w.id === id && w.match === match));
   ans.verifyWaivers.push({ id, match, reason, date: L.today() });

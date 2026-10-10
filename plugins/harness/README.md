@@ -153,6 +153,7 @@ hooks/
   templates/                              init 複製到目標專案 .claude/hooks/ 的範本（檔頭「init 填空區」常數由 init 填）
     （裝哪幾支照 skills/init/references/hook-catalog.md 推導，沒有固定數量）
     ── 一定會裝 ──
+    package.json                          寫明 "type": "commonjs"，讓這裡的 .js 一律以 CommonJS 載入（專案根是 "type": "module" 時，少了它每支 hook 載入就失敗）
     check-agent-model.js                  交代工作給分工角色時沒指定模型、或未經你同意用最高階模型 → 擋下
     check-review-discipline.js            交代工作時沒寫該角色必填的內容（驗收標準、回報方式、測試範圍…）→ 擋下
     check-ask-discipline.js               問你問題時沒附建議答案 → 擋下
@@ -178,7 +179,7 @@ hooks/
     ── 盤點到你的專案有這類風險才裝（規則由 init 依盤點結果填）──
     guard-risky-command.js                執行前一定要先問你的指令（連資料庫——只准確認過的測試帳號、密碼只從環境變數帶；部署、連到或打到你沒確認為測試環境的主機與網址、刪資料的 SQL、起服務缺環境設定或不在指定的工作目錄）→ 擋下
     guard-test-preconditions.js           跑測試前驗前置條件（寄信收斂、測試環境對齊；可比對測試用的環境變數跟原始碼或設定檔裡的值是否一致）→ 不符就擋
-    shell-model.js＋package.json＋package-lock.json
+    shell-model.js＋package-lock.json
                                           上面兩個引擎共用的指令語法解析（tree-sitter，bash 與 PowerShell 各一套文法）；
                                           本機覆寫防銷毀閘「依點名路徑放寬」也靠它判目錄與呼叫，沒有它就照原本整條擋；
                                           init 在目標專案 .claude/hooks 跑 npm ci，沒裝或解析失敗時引擎退回正則判法
