@@ -98,8 +98,8 @@ skills/review/
   scripts/review-collect.js               從對話紀錄、分工角色紀錄、知識筆記、版本差距抽出數字與出處（只抽不判；加 --probe 才試跑自動檢查）
 skills/init/
   SKILL.md                                /harness:init 路由：硬規則、階段清單、每一步「先讀哪一份細節檔」
-  scripts/init-flow.js                    階段狀態機：start／answer／catalog／waive／advance（檢查前一步的出關條件）／status／abort／done
-  scripts/init-verify.js                  第 5 步驗收的機械項（18 項，每項 id＋PASS／FAIL＋證據；任一 FAIL exit 1）
+  scripts/init-flow.js                    階段狀態機：start／answer／catalog／rules／waive／advance（檢查前一步的出關條件）／status／abort／done
+  scripts/init-verify.js                  第 5 步驗收的機械項（22 項，每項 id＋PASS／FAIL＋證據；任一 FAIL exit 1）
   scripts/init-lib.js                     上面兩支共用：狀態檔與答案檔路徑、答案檔格式驗證、必答題、形狀目錄列數
   scripts/check-flow-diagram.js           流程圖完整性檢查：一開始記下每個檔案的狀態，收尾時比對出 init 新增／修改／刪除的每個檔案，確認都是圖上的節點、每個節點都有線
   scripts/flow-page.js                    把三張 archify 圖組成同一頁 flow.html
@@ -111,7 +111,7 @@ skills/init/
                                           各步驟的細節（每份都在 Read 單次上限內）
     rationale.md                          各條規則的理由與事故經過（改規則前讀；執行 init 時不必讀）
     init-answers.schema.json              訪談答案檔的格式（JSON Schema）
-    adaptation-guide.md                   改編原則（帶／不帶判準、何時沿用專案既有規範、外向邊界、詞表與其維護觸發、骨架維護、實例差異）
+    adaptation-guide.md                   改編原則，執行 init 時讀（帶／不帶判準、何時沿用專案既有規範、外向邊界、污染詞表的用法）
     skeleton-CLAUDE-md.md                 CLAUDE.md 的骨架（最前面是專案概要：用途、外部系統的正式與測試環境、業務流程、目前進度；含角色分工一節，以及指向知識筆記檔、分工角色、自動檢查的索引表）
     skeleton-harness-README.md            harness 導航頁骨架（五層清單、生效範圍、誠實揭露）
     skeleton-02-model-dispatch.md         哪種工作用哪個模型（各分工角色用什麼模型、最高階模型不下放、用量節流、跟你對話的 Claude 只分派不親做、另開一個 Claude 驗收）
@@ -121,6 +121,7 @@ skills/init/
     skeleton-comment-guide.md             程式註解規範（選裝，訪談選「建」才產生 → .claude/harness/07-comment-guide.md：禁止表、編譯器或 linter 強制要 doc 註解時的處理、真人範本、碰到才清與指紋 grep）
     skeleton-local-overrides-guide.md     本機覆寫說明（有只給本機用的設定檔才產生 → .claude/harness/local-overrides-guide.md：每個檔每個鍵的本機正確值、漏補時的症狀、類型、開新工作樹後的自檢）
     skeleton-refined-rules.md             給別的 AI 工具讀的規則檔精煉成 Claude 自有正本（訪談選「整理成 Claude 專用的版本」才產生 → .claude/harness/review-rules.md：依適用範圍分節、逐條附出處、已知矛盾表）
+    skeleton-rule.md                      依路徑載入的規則檔骨架（原本 CLAUDE.md 裡只跟某個程式區域有關的段落 → .claude/rules/<主題>.md，frontmatter 寫 paths，改到相符的檔才載入）
     skeleton-harness-CHANGELOG.md         harness 各規則檔的變更紀錄（依檔名分節；規則檔本體不放 changelog，免得每次載入都佔 context）
     skeleton-CLAUDE.changelog.md          CLAUDE.md 的變更紀錄
     example-flow-1.json～example-flow-3.json  第 6 步三張流程圖的 archify 結構範例（只抄結構，內容換成實際的檔案與查證過的關係）
@@ -160,6 +161,7 @@ hooks/
     guard-qa-before-commit.js             staged 含行為類檔但沒表態 QA 狀態 → 擋 git-commit
     guard-sediment-sweep.js               commit 前（不是 git 專案時改成每回合結束）要回答四個問題：有沒有新用語、新的跨模組連動、新的測試知識、自創代號
     guard-claude-dir-hygiene.js           .claude/ 底下只准在機制目錄新建檔
+    guard-required-skill.js               改到某支專案 skill 用 paths 宣告的檔之前沒先載入那支 skill → 擋下（沒有 skill 宣告 paths 時什麼都不擋）
     guard-full-disk-scan.js               對整顆磁碟、家目錄、所有使用者目錄做遞迴搜尋（find /、rg … C:\、Get-ChildItem C:\ -Recurse…）→ 擋下
     health-check-reminder.js              距上次制度健檢超過 30 天或 300 個 request（先到者）→ 開 session 提醒
     learn-trigger.js                      學習迴路：數主對話的工具呼叫，到 80 次（或對話結束時還剩 10 次以上）在背景啟動整理
@@ -202,6 +204,7 @@ tests/
                                           階段狀態機、Stop 閘、學習迴路離線測試（假模型）、probe-hooks 兩條路徑
   lib/                                    範例專案產生器、標準實例產生器、拆分對帳、學習迴路離線測試
 docs/
+  maintaining.md                          維護本 plugin 時讀，執行 init 時不讀（詞表維護觸發、發布前掃描、骨架條款回收門檻與改版規則）
   learning-loop-design.md                 0.16.0 設計稿與紅藍審查紀錄；第 11 節是端到端結果與已知問題（待辦）
 ```
 
@@ -211,11 +214,11 @@ docs/
 
 - **帶**：純行為紀律（原文照搬）、可參數化的判準（專案事實挖成填空）、開發流程骨架（角色分工、分工角色的定義檔、自動檢查、知識筆記檔）。
 - **綁定特定工作法的條款不預載**：本機覆寫檔管理、多工作樹並行、特定鏡像架構——判斷矩陣不帶這幾條。但對應的**保護用自動檢查**，在盤點時偵測到目標專案也有這種工作法（例如有只給本機用的設定檔）才裝。
-- **不帶事故型條款**：某個第三方套件的坑、某次事故的細則——由目標專案自己的 memory 長出來，或由 `/harness:review` 健檢時從該實例的紀錄列進提案，同一件事反覆出錯就提升格；要不要收進骨架給所有專案用，仍由維護者照 `adaptation-guide.md` 的回收門檻判斷。
+- **不帶事故型條款**：某個第三方套件的坑、某次事故的細則——由目標專案自己的 memory 長出來，或由 `/harness:review` 健檢時從該實例的紀錄列進提案，同一件事反覆出錯就提升格；要不要收進骨架給所有專案用，仍由維護者照 `docs/maintaining.md` 的回收門檻判斷。
 - **不帶 01 診斷書、06 交接信**——那是各專案自己的病歷與遺囑。
 - **不帶任何知識內容**：GLOSSARY（沿用舊名時 CONTEXT）／FLOWS／PROJECT 只帶結構與一個標明「示範」的條目，不替專案編詞條、畫鏈路、寫坑。
 - **自動檢查不從固定清單挑**：照 `references/hook-catalog.md` 推導——來源專案每支自動檢查都拆成「通用形狀＋觸發條件＋專案參數」。綁著來源專案事實的那些（資料庫登入守衛、服務啟動環境、寄信收斂、測試環境對齊）不是原檔照搬，而是收成兩個規則引擎（`guard-risky-command`、`guard-test-preconditions`），init 用目標專案盤點到的事實填規則。每支範本自帶正反兩向的 `cases/`，由 `probe-hooks.js` 實跑驗證。
 
 ## 骨架條款回收門檻
 
-某實例升格的條款要進骨架：須「≥2 個專案獨立踩過同類坑」、「與專案無關的純行為紀律」或「挖空專案事實後形狀仍成立」。單一專案的事故留在該實例。回收時事故只講機制不寫日期，改到骨架檔 commit 時會被 `wordlist-sweep.js` 要求回答詞表維護題。詳見 `references/adaptation-guide.md` 第 4、5 節。
+某實例升格的條款要進骨架：須「≥2 個專案獨立踩過同類坑」、「與專案無關的純行為紀律」或「挖空專案事實後形狀仍成立」。單一專案的事故留在該實例。回收時事故只講機制不寫日期，改到骨架檔 commit 時會被 `wordlist-sweep.js` 要求回答詞表維護題。詳見 `docs/maintaining.md`。

@@ -376,7 +376,7 @@ const posixOf = (p) => (process.platform === 'win32'
   ? norm(p).replace(/^([a-z]):/, (m, d) => '/' + d) : norm(p));
 const inside = (base, p) => {
   const rel = path.relative(base, p);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  return rel === '' || !(rel === '..' || rel.startsWith('..' + path.sep) || rel.startsWith('../') || path.isAbsolute(rel));
 };
 const SEP_BEFORE = /[\s"'=;&|(]/;
 const SEP_AFTER = /[\s"';&|)\/]/;

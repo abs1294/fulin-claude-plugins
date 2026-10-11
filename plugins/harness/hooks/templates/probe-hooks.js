@@ -39,6 +39,9 @@
 //       "files_after_worktrees": { "相對路徑": "內容" }, // 選填：worktree 建好之後才寫入（造出「worktree 裡有本機改動」的狀態）
 //       "env": { "KEY": "value" },               // 額外環境變數；值給 null＝刪掉該變數（不存在），"" 是存在但為空；值裡的 {PROJECT_DIR} 換成暫存專案路徑
 //       "transcript": [ {...}, ... ],              // 寫成 jsonl，路徑放進 payload.transcript_path
+//       "subagent_transcripts": { "<agent_id>": [ {...}, ... ] }, // 選填：subagent 自己的 transcript，寫到
+//                                                  // <transcript 所在目錄>/<payload.session_id>/subagents/agent-<agent_id>.jsonl
+//                                                  // （Claude Code 存 subagent transcript 的位置；payload 要寫死 session_id）
 //       "mtime_days_ago": { "相對路徑": 40 }       // 把檔案時間往回撥
 //     },
 //     "payload": { "hook_event_name": "PreToolUse", "tool_name": "...", "tool_input": {...} },
@@ -47,6 +50,7 @@
 //     "expect": "BLOCK" | "ALLOW" | "NOTE" | "SILENT", // NOTE＝不擋但要有輸出（提醒型 hook）；SILENT＝不擋而且不能有任何輸出
 //                                                  // （提醒型 hook「該安靜」的案例用它：ALLOW 不看輸出，誤報提醒也會判 ALLOW）
 //     "exit": 1,                                   // 選填：預期結束碼（刻意以 0／2 以外結束的 CLI 腳本用）
+//     "output_match": "正則", "output_not_match": "正則", // 選填：stdout＋stderr 要命中／不能命中（驗擋下訊息點名對的東西）
 //     "visible": true,                             // 選填，配 NOTE：提醒要是「模型看得到」的形狀——stdout 是 JSON 且
 //                                                  // hookSpecificOutput.additionalContext 非空。PostToolUse 等事件的 exit 0
 //                                                  // 純文字 stdout 只進紀錄、不進模型的 context（官方 hooks 文件與 claude -p 實測），
@@ -182,7 +186,8 @@ function mkProject(setup, hookFile, variant) {
   buildRepo(dir, setup, false);
   for (const [sub, spec] of Object.entries(setup.repos || {})) {
     const base = path.join(dir, sub);
-    if (path.relative(dir, base).startsWith('..') || path.isAbsolute(path.relative(dir, base))) {
+    const subRel = path.relative(dir, base);
+    if (subRel === '..' || subRel.startsWith('..' + path.sep) || subRel.startsWith('../') || path.isAbsolute(subRel)) {
       throw new Error(`repos 的子目錄必須在暫存專案內：${sub}`);
     }
     fs.mkdirSync(base, { recursive: true });
@@ -231,6 +236,11 @@ for (const hook of hooks) {
       fs.writeFileSync(tp, setup.transcript.map((e) => JSON.stringify(e)).join('\n') + '\n');
       payload.transcript_path = tp;
     }
+    for (const [aid, entries] of Object.entries(setup.subagent_transcripts || {})) {
+      const sp = path.join(dir, String(payload.session_id), 'subagents', `agent-${aid}.jsonl`);
+      fs.mkdirSync(path.dirname(sp), { recursive: true });
+      fs.writeFileSync(sp, entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    }
     // 語法解析器：預設用本目錄 node_modules 裡的（npm ci 過才有）；--parser=off 強制走退回的正則路徑
     const env = Object.assign(hookEnvBase(), { CLAUDE_PROJECT_DIR: dir }, setup.env || {});
     // setup.env 的值給 null＝這個變數不存在（刪掉）；空字串＝存在但值為空，兩者對環境判斷不同
@@ -258,6 +268,9 @@ for (const hook of hooks) {
       try { const j = JSON.parse(r.stdout); ctx = String((j.hookSpecificOutput || {}).additionalContext || ''); } catch {}
       if (!ctx.trim()) got = 'NOTE（純文字，模型看不到）';
     }
+    const out = (r.stdout || '') + (r.stderr || '');
+    if (got === c.expect && c.output_match && !new RegExp(c.output_match).test(out)) got += `（輸出沒有命中 /${c.output_match}/）`;
+    if (got === c.expect && c.output_not_match && new RegExp(c.output_not_match).test(out)) got += `（輸出不該命中 /${c.output_not_match}/）`;
     const ok = got === c.expect;
     ok ? pass++ : fail++;
     console.log(`${ok ? 'PASS' : 'FAIL'} | ${hook} | 期望 ${c.expect} 實得 ${got} (exit ${r.status}) | ${c.label}`);

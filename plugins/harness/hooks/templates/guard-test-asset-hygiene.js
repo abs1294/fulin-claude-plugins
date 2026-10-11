@@ -84,8 +84,11 @@ try {
 
   const root = process.env.CLAUDE_PROJECT_DIR || path.resolve(__dirname, '..', '..');
   const abs = path.resolve(input.cwd || root, given);
-  const rel = path.relative(root, abs).replace(/\\/g, '/');
-  if (rel.startsWith('../') || !new RegExp(TEST_FILE, 'i').test(rel)) process.exit(0);
+  const relRaw = path.relative(root, abs);
+  // 專案外＝'..' 本身、以 '..' 加分隔符開頭、或跨磁碟時回的絕對路徑（Windows 換斜線後不以 ../ 開頭，要另外判）
+  if (relRaw === '..' || relRaw.startsWith('..' + path.sep) || relRaw.startsWith('../') || path.isAbsolute(relRaw)) process.exit(0);
+  const rel = relRaw.replace(/\\/g, '/');
+  if (!new RegExp(TEST_FILE, 'i').test(rel)) process.exit(0);
 
   const failures = [];
   const notes = [];

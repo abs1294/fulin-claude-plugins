@@ -48,6 +48,12 @@ const HOOKS = [
   ['health-check-reminder.js', 'SessionStart', ''],
   ['memory-write-advisory.js', 'PostToolUse', 'Write|Edit|MultiEdit'],
   ['guard-claude-dir-hygiene.js', 'PreToolUse', 'Write'],
+  ['guard-required-skill.js', 'PreToolUse', 'Edit|Write|MultiEdit|NotebookEdit'],
+];
+// 搬進 .claude/rules/ 的段落（paths 要命中 single-web 範例專案的檔）
+const RULES = [
+  { file: '.claude/rules/frontend.md', topic: '前端元件寫法', paths: ['src/**/*.{jsx,tsx}'], body: '元件一律用 function component，狀態放在最近的共同父層。' },
+  { file: '.claude/rules/tests.md', topic: '測試慣例', paths: ['tests/**/*.test.js'], body: '測試只用 node:test 與 node:assert，不引入其他測試框架。' },
 ];
 const LEARN_HOOKS = [
   ['learn-trigger.js', 'PreToolUse', ''], ['learn-trigger.js', 'Stop', ''], ['learn-trigger.js', 'SessionEnd', ''],
@@ -97,6 +103,26 @@ function makeGolden(root) {
   g = g.replace(/\*\*（示範）[^\n]*\*\*\n[^\n]*\n_避免_：[^\n]*\n/, '**出貨單**\n倉管建立、送到物流商的一筆出貨。\n_避免_：訂單（客戶下的單，一張訂單可拆多張出貨單）——混了會把拆單當成重複建單\n');
   fs.writeFileSync(gp, g);
 
+  // 規則分層：原 CLAUDE.md 只跟前端、測試有關的段落搬進 .claude/rules/（帶 paths），路由表列出，建立記在 CLAUDE.changelog.md
+  const rule = fillAll(fs.readFileSync(path.join(REF, 'skeleton-rule.md'), 'utf8'));
+  for (const r of RULES) {
+    write(root, r.file, rule.replace('- "示範值"', r.paths.map((p) => `- "${p}"`).join('\n  ')).replace('# 示範值規範', `# ${r.topic}規範`).replace(/\n示範值\n$/, `\n${r.body}（出自原 CLAUDE.md「${r.topic}」）\n`));
+  }
+  const cp = path.join(root, 'CLAUDE.md');
+  const ROUTE = '| 本專案特有詞彙（這個詞是什麼意思） |';
+  let c = fs.readFileSync(cp, 'utf8');
+  if (!c.includes(ROUTE)) throw new Error('golden：CLAUDE.md 找不到路由表的詞彙表那一列');
+  c = c.replace(ROUTE, () => `| 只跟特定程式區域有關的規範（改到對應的檔時自動載入，不必先讀） | \`.claude/rules/\`（${RULES.map((r) => `\`${r.file}\`（paths：${r.paths.join('、')}）`).join('、')}） |\n` +
+    `| 改某些檔之前一定要先載入的 skill（沒載入就改會被擋） | \`.claude/skills/frontend-conventions/SKILL.md\`（paths：src/**/*.{jsx,tsx}） |\n${ROUTE}`);
+  fs.writeFileSync(cp, c);
+  fs.appendFileSync(path.join(root, 'CLAUDE.changelog.md'), RULES.map((r) => `- ${TODAY} 建立 ${r.file}（從原 CLAUDE.md「${r.topic}」搬來；harness plugin /harness:init 實例化）\n`).join(''));
+  // 參考模式沿用的既有 skill，Phase 2 使用者同意加上 paths；frontend-engineer 預載它
+  write(root, '.claude/skills/frontend-conventions/SKILL.md', '---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx 前讀）\npaths: "src/**/*.{jsx,tsx}"\n---\n\n元件檔名用 PascalCase，一個檔一個元件。\n');
+  const fe = path.join(root, '.claude', 'agents', 'frontend-engineer.md');
+  const fet = fs.readFileSync(fe, 'utf8');
+  if (!/^(description: .*\n)\n---/m.test(fet)) throw new Error('golden：frontend-engineer.md 的 frontmatter 沒有 skills 填空留下的空行');
+  fs.writeFileSync(fe, fet.replace(/^(description: .*\n)\n---/m, (m, d) => `${d}skills: [frontend-conventions]\n---`));
+
   // hook 與 cases
   const learn = fs.existsSync(path.join(TPL, 'learn-trigger.js'));
   const hooks = [...HOOKS, ...(learn ? LEARN_HOOKS : [])];
@@ -143,15 +169,38 @@ function makeGolden(root) {
       Q12: ans('選裝 skill', '都不要'),
     },
     hookCatalog: catalog,
+    rulesSplit: RULES.map((r) => ({ file: r.file, load: 'paths', topic: r.topic, moved: [{ from: `CLAUDE.md「${r.topic}」`, text: r.body }] })),
   };
   write(root, '.claude/harness/init-answers.json', JSON.stringify(answers, null, 2));
   return root;
 }
 
+// Phase 0 快照的模擬：run.js 在 makeGolden 之前對範例專案跑 check-flow-diagram.js snapshot（真的拍，格式與 init 相同），
+// 每份變體複本再用 seedSnapshot 把那份「init 之前」的快照搬到複本的路徑底下（快照以落點路徑區分，複本路徑不同就找不到）。
+// add：變體裡要當成「init 之前就在、內容沒變」的檔（相對路徑），以它現在的雜湊加進快照。
+function seedSnapshot(fromRoot, toRoot, add = []) {
+  const snap = L.readSnapshot(fromRoot);
+  if (!snap) throw new Error(`seedSnapshot：${fromRoot} 沒有快照（要先跑 check-flow-diagram.js snapshot）`);
+  const files = Object.assign(Object.create(null), snap.files);
+  for (const rel of add) files[rel] = L.fileSha1(path.join(toRoot, ...rel.split('/')));
+  const p = L.snapshotPath(toRoot);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify({ root: path.resolve(toRoot), takenAt: snap.takenAt, files, unreadable: snap.unreadable }));
+  return p;
+}
+function dropSnapshot(root) { try { fs.unlinkSync(L.snapshotPath(root)); } catch {} }
+
 // 壞變體：各弄壞一條，init-verify 要 exit 1 並報出 expect 這個 id
+// snap: true＝這個變體要有 Phase 0 快照（run.js 跑完 apply 後 seedSnapshot，snapAdd 列的檔算 init 之前就在）；
+// afterSnap：快照拍完之後再做的改動（模擬 init 期間改了既有檔）
 const app = (root, rel, s) => fs.appendFileSync(path.join(root, rel), s);
 const sub = (root, rel, a, b) => { const p = path.join(root, rel); const t = fs.readFileSync(p, 'utf8'); if (!t.includes(a)) throw new Error(`壞變體找不到要改的字：${rel}「${a}」`); fs.writeFileSync(p, t.replace(a, b)); };
 const editJson = (root, rel, fn) => { const p = path.join(root, rel); const j = JSON.parse(fs.readFileSync(p, 'utf8')); fn(j); fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n'); };
+// 一份合法的規則檔（paths 命中 single-web 的檔、列在 harness README），只差處置表有沒有記它
+const extraRule = (root, rel) => {
+  write(root, rel, '---\npaths:\n  - "src/**/*.{jsx,tsx}"\n---\n\n# 呼叫後端 API 規範\n\n呼叫後端一律經過共用的 fetch 包裝，不在元件裡直接寫網址。\n');
+  app(root, '.claude/harness/README.md', `\n- \`${rel}\`（paths：src/**/*.{jsx,tsx}）\n`);
+};
 const BROKEN = [
   { name: '03 留了 {{ 填空', expect: 'V01-placeholder', apply: (r) => app(r, '.claude/harness/03-judgment-matrix.md', '\n驗證指令：{{測試指令}}\n') },
   { name: 'CLAUDE.md 本體長回 ## Changelog', expect: 'V02-changelog-body', apply: (r) => app(r, 'CLAUDE.md', '\n## Changelog\n- 2026-10-09 建立\n') },
@@ -176,6 +225,46 @@ const BROKEN = [
   { name: '用量計數的 matcher 漏了 Skill', expect: 'V18-learning', learnOnly: true, apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { for (const g of j.hooks.PreToolUse) if (JSON.stringify(g).includes('learn-usage.js')) g.matcher = 'Read'; }) },
   { name: '.claude/hooks 沒有 package.json（專案根是 type: module 時每支 hook 載入就失敗）', expect: 'V19-hooks-commonjs', apply: (r) => fs.unlinkSync(path.join(r, '.claude', 'hooks', 'package.json')) },
   { name: '.claude/hooks/package.json 被改成 type: module', expect: 'V19-hooks-commonjs', apply: (r) => editJson(r, '.claude/hooks/package.json', (j) => { j.type = 'module'; }) },
+  { name: '規則檔的 glob 在專案裡命中 0 個檔', expect: 'V20-rules-paths', apply: (r) => sub(r, '.claude/rules/frontend.md', '- "src/**/*.{jsx,tsx}"', '- "web/**/*.vue"') },
+  { name: '規則檔的 paths 用 ./ 開頭（Claude Code 不認）', expect: 'V20-rules-paths', apply: (r) => sub(r, '.claude/rules/tests.md', '- "tests/**/*.test.js"', '- "./tests/**/*.test.js"') },
+  { name: 'CLAUDE.md 殘留已搬進規則檔的段落', expect: 'V21-rules-split', apply: (r) => app(r, 'CLAUDE.md', `\n- ${RULES[0].body}\n`) },
+  { name: '.claude/rules/ 裡放了沒有 paths 的 CHANGELOG（會在啟動時整份載入）', expect: 'V21-rules-split', apply: (r) => fs.writeFileSync(path.join(r, '.claude', 'rules', 'CHANGELOG.md'), `# 規則變更紀錄\n\n- ${TODAY} 建立\n`) },
+  { name: '規則檔沒列在路由表', expect: 'V21-rules-split', apply: (r) => { const p = path.join(r, 'CLAUDE.md'); const t = fs.readFileSync(p, 'utf8'); const n = t.split('\n').filter((l) => !l.includes('.claude/rules/tests.md')).join('\n'); if (n === t) throw new Error('找不到路由表的規則檔那一列'); fs.writeFileSync(p, n); } },
+  { name: '子目錄多一份規則檔、答案檔 rulesSplit 沒有它的紀錄（漏跑 init-flow.js rules）', expect: 'V21-rules-split', apply: (r) => extraRule(r, '.claude/rules/web/api.md') },
+  { name: '答案檔 rulesSplit 記了一份不存在的規則檔', expect: 'V21-rules-split', apply: (r) => editJson(r, '.claude/harness/init-answers.json', (j) => { j.rulesSplit.push({ file: '.claude/rules/ghost.md', load: 'paths', topic: '已刪掉的規則' }); }) },
+  { name: '新建的規則檔標成沿用（origin: kept），Phase 0 快照裡沒有它', expect: 'V21-rules-split', snap: true, apply: (r) => {
+    extraRule(r, '.claude/rules/web/fresh.md');
+    editJson(r, '.claude/harness/init-answers.json', (j) => { j.rulesSplit.push({ file: '.claude/rules/web/fresh.md', load: 'paths', origin: 'kept', topic: '呼叫後端 API' }); });
+  } },
+  { name: '沿用的既有規則檔在 init 期間被改寫，處置表仍記 origin: kept', expect: 'V21-rules-split', snap: true, snapAdd: ['.claude/rules/web/legacy.md'], apply: (r) => {
+    extraRule(r, '.claude/rules/web/legacy.md');
+    editJson(r, '.claude/harness/init-answers.json', (j) => { j.rulesSplit.push({ file: '.claude/rules/web/legacy.md', load: 'paths', origin: 'kept', topic: '既有 API 規範' }); });
+  }, afterSnap: (r) => app(r, '.claude/rules/web/legacy.md', '\n逾時一律 10 秒。\n') },
+  { name: '沒動過的既有規則檔記成新建（origin 沒寫）', expect: 'V21-rules-split', snap: true, snapAdd: ['.claude/rules/web/legacy.md'], apply: (r) => {
+    extraRule(r, '.claude/rules/web/legacy.md');
+    app(r, 'CLAUDE.changelog.md', `- ${TODAY} 建立 .claude/rules/web/legacy.md（harness plugin /harness:init 實例化）\n`);
+    editJson(r, '.claude/harness/init-answers.json', (j) => { j.rulesSplit.push({ file: '.claude/rules/web/legacy.md', load: 'paths', topic: '既有 API 規範' }); });
+  } },
+  { name: 'skill 的 paths 在專案裡命中 0 個檔', expect: 'V22-skill-paths', apply: (r) => sub(r, '.claude/skills/frontend-conventions/SKILL.md', 'paths: "src/**/*.{jsx,tsx}"', 'paths: "app/**/*.vue"') },
+  { name: 'agent 的 skills: 指到不存在的 skill', expect: 'V22-skill-paths', apply: (r) => sub(r, '.claude/agents/frontend-engineer.md', 'skills: [frontend-conventions]', 'skills: [frontend-conventions, ui-kit-rules]') },
 ];
 
-module.exports = { makeGolden, BROKEN, TODAY };
+// 合法變體：各改一處仍合規，init-verify 要 exit 0 且 expect 這個 id 是 PASS；evidence＝證據要含的字樣
+const keptLegacy = (r) => {
+  extraRule(r, '.claude/rules/web/legacy.md');
+  editJson(r, '.claude/harness/init-answers.json', (j) => { j.rulesSplit.push({ file: '.claude/rules/web/legacy.md', load: 'paths', origin: 'kept', topic: '既有 API 規範' }); });
+};
+const VALID = [
+  { name: '參考模式沿用既有規則檔（子目錄、沒有建立那一行），處置表記 origin: kept，Phase 0 快照裡有它且內容沒變', expect: 'V21-rules-split',
+    snap: true, snapAdd: ['.claude/rules/web/legacy.md'], evidence: /沿用 1 份對過 Phase 0 快照/, apply: keptLegacy },
+  { name: '沒有 Phase 0 快照（舊版 init 的實例）：origin: kept 照舊放行，證據寫明未核對', expect: 'V21-rules-split',
+    evidence: /無快照（.*），kept 未核對/, apply: keptLegacy },
+  { name: '改寫 Phase 0 之前就在的規則檔、記成新建並寫建立那一行', expect: 'V21-rules-split', snap: true, snapAdd: ['.claude/rules/web/legacy.md'],
+    evidence: /legacy\.md 在 Phase 0 之前就在、這次改寫過/, apply: (r) => {
+      extraRule(r, '.claude/rules/web/legacy.md');
+      app(r, 'CLAUDE.changelog.md', `- ${TODAY} 沿用 .claude/rules/web/legacy.md 並改寫（加上逾時規定；harness plugin /harness:init 實例化）\n`);
+      editJson(r, '.claude/harness/init-answers.json', (j) => { j.rulesSplit.push({ file: '.claude/rules/web/legacy.md', load: 'paths', origin: 'new', topic: '既有 API 規範' }); });
+    }, afterSnap: (r) => app(r, '.claude/rules/web/legacy.md', '\n逾時一律 10 秒。\n') },
+];
+
+module.exports = { makeGolden, BROKEN, VALID, TODAY, seedSnapshot, dropSnapshot };

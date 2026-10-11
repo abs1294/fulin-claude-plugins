@@ -38,6 +38,34 @@
         }
       }
     },
+    "rulesSplit": {
+      "type": "array",
+      "description": "依路徑載入的規則檔（.claude/rules/）的處置紀錄（init-flow.js rules 寫入）：落點 .claude/rules/ 底下（含子目錄）每份 .md 一筆，含沿用的既有檔；記每份檔是碰到 paths 才載入還是啟動就載入、這次新建還是沿用、從哪裡搬了哪些段落。paths 本身的正本是規則檔的 frontmatter，這裡不重複記。init-verify V21 照它查：每份規則檔都有一筆、每筆的檔都在、搬走的段落在規則檔裡、不在 CLAUDE.md 裡",
+      "items": {
+        "type": "object",
+        "required": ["file", "load"],
+        "additionalProperties": false,
+        "properties": {
+          "file": { "type": "string", "pattern": "^\\.claude/rules/.+\\.md$" },
+          "topic": { "type": "string" },
+          "load": { "type": "string", "enum": ["paths", "startup"] },
+          "origin": { "type": "string", "enum": ["new", "kept"], "description": "new＝這次 init 建的，或 init 期間改寫過的既有檔（沒寫時當 new，V03 要求 CLAUDE.changelog.md 有它的建立那一行）；kept＝原樣沿用的既有規則檔（參考模式備份裡原有的，不要求建立那一行；moved 可為空）。V21 拿 Phase 0 快照核對：kept 要在快照裡且內容沒變；new 在快照裡且內容沒變要改記 kept" },
+          "moved": {
+            "type": "array",
+            "description": "從原檔搬進這份規則檔的段落，每段記一句能代表它的原文（≥8 字，逐字）",
+            "items": {
+              "type": "object",
+              "required": ["from", "text"],
+              "additionalProperties": false,
+              "properties": {
+                "from": { "type": "string", "minLength": 1, "description": "出處：檔名＋節名（例：CLAUDE.md「前端規範」）" },
+                "text": { "type": "string", "minLength": 8 }
+              }
+            }
+          }
+        }
+      }
+    },
     "hookCatalog": {
       "type": "array",
       "description": "形狀目錄逐列的去向；列數必須等於 references/hook-catalog.md 目錄表的列數",

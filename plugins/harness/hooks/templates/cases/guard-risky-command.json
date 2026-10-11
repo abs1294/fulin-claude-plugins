@@ -80,6 +80,14 @@
           "const RULES = [\n  {\n    \"id\": \"start-in-api\",\n    \"when\": \"\\\\b(npm|pnpm|yarn)\\\\s+(run\\\\s+)?(start|dev)\\\\b\",\n    \"requireCwd\": \"^api$\",\n    \"reason\": \"服務把上傳檔寫在目前目錄底下的相對路徑；從別的目錄起，檔案會落到測試找不到的地方。\",\n    \"fix\": \"cd api && APP_ENV=local npm start\",\n    \"requireEnv\": {\n      \"APP_ENV\": \"^(local|development)$\"\n    }\n  }\n];"
         ]
       ]
+    },
+    "cwd-dotdir": {
+      "replace": [
+        [
+          "const RULES = [];",
+          "const RULES = [\n  {\n    \"id\": \"start-in-api\",\n    \"when\": \"\\\\b(npm|pnpm|yarn)\\\\s+(run\\\\s+)?(start|dev)\\\\b\",\n    \"requireCwd\": \"^\\\\.\\\\.api$\",\n    \"reason\": \"服務把上傳檔寫在目前目錄底下的相對路徑；從別的目錄起，檔案會落到測試找不到的地方。\",\n    \"fix\": \"cd ..api && npm start\"\n  }\n];"
+        ]
+      ]
     }
   },
   "cases": [
@@ -8847,6 +8855,47 @@
         "tool_input": {
           "command": "cd web; npm run start"
         }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "requireCwd 指定專案內 ..api：cd ..api 再起服務 → 工作目錄判成 ..api，放行",
+      "variant": "cwd-dotdir",
+      "setup": {
+        "files": {
+          "..api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd ..api && npm start"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "requireCwd 指定專案內 ..api：cd 到專案外（../..）起服務 → 擋",
+      "variant": "cwd-dotdir",
+      "setup": {
+        "files": {
+          "..api/package.json": "{}\n",
+          "web/package.json": "{}\n"
+        },
+        "env": {
+          "APP_ENV": null
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd ../.. && npm start"
+        },
+        "cwd": "{PROJECT_DIR}/web"
       },
       "expect": "BLOCK"
     },

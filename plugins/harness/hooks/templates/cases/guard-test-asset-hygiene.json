@@ -304,6 +304,53 @@
       },
       "expect": "NOTE",
       "visible": true
+    },
+    {
+      "label": "專案內名稱以 .. 開頭的目錄（..cache/login.test.js）照專案內處理：含違規 → 擋",
+      "variant": "demo",
+      "setup": {
+        "files": {
+          "..cache/login.test.js": "const id = 'HARDCODED';\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "..cache/login.test.js"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "專案外的測試檔（../outside/login.test.js）→ 不管",
+      "variant": "demo",
+      "setup": {
+        "files": {}
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/../outside/login.test.js"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "另一顆磁碟上的測試檔（Q:/…/login.test.js，path.relative 回絕對路徑）→ 專案外，不管",
+      "variant": "demo",
+      "setup": {
+        "files": {}
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "Q:/no-such-dir-p17/login.test.js"
+        }
+      },
+      "expect": "ALLOW"
     }
   ]
 }

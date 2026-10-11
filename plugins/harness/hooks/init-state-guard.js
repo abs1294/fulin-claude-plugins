@@ -44,7 +44,7 @@ try {
   }
   const flow = path.join(__dirname, '..', 'skills', 'init', 'scripts', 'init-flow.js');
   const which = /init-answers\.json$/i.test(abs)
-    ? `訪談答案要用 node "${flow}" answer <目標> <題號> --file <答案 JSON 檔> 寫入（形狀見 init 的 phase-3-interview.md），形狀目錄去向用 catalog、誤判豁免用 waive。`
+    ? `訪談答案要用 node "${flow}" answer <目標> <題號> --file <答案 JSON 檔> 寫入（形狀見 init 的 phase-3-interview.md），形狀目錄去向用 catalog、規則分層處置用 rules、誤判豁免用 waive。`
     : `Phase 前進用 node "${flow}" advance <目標> <N>，收尾用 done，中止用 abort；先跑 status 看下一步缺什麼。`;
   const reason = `[harness init] ${path.basename(abs)} 只能經 init-flow.js 改，不能直接寫——它會檢查前一個 Phase 的出關條件、驗答案格式、留紀錄。${which}`;
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }));

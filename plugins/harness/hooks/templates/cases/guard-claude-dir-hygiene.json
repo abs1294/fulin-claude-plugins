@@ -12,6 +12,16 @@
       "expect": "ALLOW"
     },
     {
+      "label": "新建依路徑載入的規則檔（.claude/rules/ 含子目錄）→ 放行",
+      "setup": {},
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": ".claude/rules/web/frontend.md" }
+      },
+      "expect": "ALLOW"
+    },
+    {
       "label": ".claude/ 根下新建隨手報告檔 → 擋下",
       "setup": {},
       "payload": {

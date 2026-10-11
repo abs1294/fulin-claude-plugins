@@ -614,7 +614,7 @@ function astNamedItems(cmd, tool, cwd, root, items, danger) {
     const inRepo = items.filter((it) => it.top === known.top);
     const relOf = (abs) => {
       const r = path.relative(realTop, abs);
-      if (r.startsWith('..') || path.isAbsolute(r)) return null;
+      if (r === '..' || r.startsWith('..' + path.sep) || r.startsWith('../') || path.isAbsolute(r)) return null;
       const s = r.split('\\').join('/');
       return process.platform === 'win32' ? s.toLowerCase() : s;
     };

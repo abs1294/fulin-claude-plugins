@@ -301,7 +301,7 @@ function overrideBlockMessage(groups, howToProceed) {
     '      該檔若「混有真改動」，用 `git diff` 切 hunk、`git apply --cached --recount` 只 stage 真改動那幾行，不要整檔 add。',
     '  (b) 確實要改團隊預設值 → 先跟使用者確認；' + howToProceed,
     '',
-    '收據：來源專案曾因 `git add -A` 把本機覆寫整檔混進 staged。一律逐檔 prepare，不用 `git add -A`／`git add .`。',
+    '之後逐檔 prepare，不用 `git add -A`／`git add .`：它們會把本機覆寫整檔一起 stage。',
   );
   return lines.join('\n');
 }
@@ -381,7 +381,7 @@ try {
       '請在回覆中三選一明答，讓使用者可否決：',
       '  (a) 已 QA：貼出 QA 報告路徑或 codify 的測試檔路徑＋實跑綠的輸出行；',
       '  (b) 分流例外：純結構／文案／死碼等「靜態可確定等價」——一句話說明為何正確性只靠讀 code 就能確定；',
-      `  (c) 尚未 QA：**不得走默許機制自動 commit** —— 依 04 模板六派 ${QA_AGENT} 實測，回來再 commit。`,
+      `  (c) 尚未 QA：先不 commit，依 04 模板六派 ${QA_AGENT} 實測，回來再 commit。`,
       '',
       '答完後重新呼叫 git-commit skill；判定是 (a) 或 (b) 時，args 帶 "--qa-verified" 即放行本次。',
       '（專案有 .claude/qa-gate.conf 時，flow.sh review-record 那一步要帶 --qa "已QA：…" 或 --qa "分流例外：…"，否則 flow.sh 拒絕記錄——直接用 Bash 跑 flow.sh 也一樣。）',

@@ -1,0 +1,1302 @@
+{
+  "hook": "guard-required-skill.js",
+  "cases": [
+    {
+      "label": "主對話沒載入就改 src/App.jsx → 擋，點名 frontend-conventions 與它的 paths",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改一下 App"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "frontend-conventions（paths：src/\\*\\*/\\*\\.\\{jsx,tsx\\}",
+      "output_not_match": "subagent"
+    },
+    {
+      "label": "用 Skill 工具載入後再改 → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改一下 App"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_s1",
+                  "name": "Skill",
+                  "input": {
+                    "skill": "frontend-conventions"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_s1",
+                  "content": "Launching skill: frontend-conventions"
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "isMeta": true,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Base directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+                }
+              ]
+            },
+            "sourceToolUseID": "toolu_s1"
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "使用者手打 /frontend-conventions 載入後再改 → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "<command-message>frontend-conventions</command-message>\n<command-name>/frontend-conventions</command-name>"
+            }
+          },
+          {
+            "type": "user",
+            "isMeta": true,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Base directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "subagent（帶 agent_id）在自己的 transcript 預載過 → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "派工"
+            }
+          }
+        ],
+        "subagent_transcripts": {
+          "a1b2c3": [
+            {
+              "type": "user",
+              "message": {
+                "role": "user",
+                "content": "subagent 的任務"
+              }
+            },
+            {
+              "type": "user",
+              "isMeta": true,
+              "message": {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<command-message>frontend-conventions</command-message>\n<command-name>frontend-conventions</command-name>\n<skill-format>true</skill-format>"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Base directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        },
+        "session_id": "s-probe",
+        "agent_id": "a1b2c3",
+        "agent_type": "frontend-engineer"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "主對話載入過、subagent 自己沒載 → 擋，提示加進 agent 定義檔的 skills:",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_s1",
+                  "name": "Skill",
+                  "input": {
+                    "skill": "frontend-conventions"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_s1",
+                  "content": "Launching skill: frontend-conventions"
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "isMeta": true,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Base directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+                }
+              ]
+            },
+            "sourceToolUseID": "toolu_s1"
+          }
+        ],
+        "subagent_transcripts": {
+          "a1b2c3": [
+            {
+              "type": "user",
+              "message": {
+                "role": "user",
+                "content": "subagent 的任務"
+              }
+            }
+          ]
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        },
+        "session_id": "s-probe",
+        "agent_id": "a1b2c3",
+        "agent_type": "frontend-engineer"
+      },
+      "expect": "BLOCK",
+      "output_match": "\\.claude/agents/frontend-engineer\\.md` frontmatter 的 `skills:`"
+    },
+    {
+      "label": "subagent 在執行中自己用 Skill 工具載入 → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "派工"
+            }
+          }
+        ],
+        "subagent_transcripts": {
+          "a1b2c3": [
+            {
+              "type": "user",
+              "message": {
+                "role": "user",
+                "content": "subagent 的任務"
+              }
+            },
+            {
+              "type": "assistant",
+              "message": {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_sub",
+                    "name": "Skill",
+                    "input": {
+                      "skill": "frontend-conventions"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "user",
+              "message": {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_sub",
+                    "content": "Launching skill: frontend-conventions"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "user",
+              "isMeta": true,
+              "message": {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Base directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+                  }
+                ]
+              },
+              "sourceToolUseID": "toolu_sub"
+            }
+          ]
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        },
+        "session_id": "s-probe",
+        "agent_id": "a1b2c3",
+        "agent_type": "frontend-engineer"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "paths 不命中（README.md）→ 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "README.md": "# x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改 README"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/README.md",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "src/main.js 不是 jsx／tsx → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改 main"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/main.js",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "同時命中兩支、只載入 frontend-conventions → 擋，只點名缺的 api-rules",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_s1",
+                  "name": "Skill",
+                  "input": {
+                    "skill": "frontend-conventions"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_s1",
+                  "content": "Launching skill: frontend-conventions"
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "isMeta": true,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Base directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+                }
+              ]
+            },
+            "sourceToolUseID": "toolu_s1"
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/api/Form.tsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "- api-rules（paths：src/api/\\*\\*、server/\\*\\*",
+      "output_not_match": "- frontend-conventions"
+    },
+    {
+      "label": "兩支都載入 → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_s1",
+                  "name": "Skill",
+                  "input": {
+                    "skill": "frontend-conventions"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_s1",
+                  "content": "Launching skill: frontend-conventions"
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "isMeta": true,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Base directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+                }
+              ]
+            },
+            "sourceToolUseID": "toolu_s1"
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_s2",
+                  "name": "Skill",
+                  "input": {
+                    "skill": "api-rules"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_s2",
+                  "content": "Launching skill: api-rules"
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "isMeta": true,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Base directory for this skill: C:\\proj\\.claude\\skills\\api-rules\n\n（skill 內文）"
+                }
+              ]
+            },
+            "sourceToolUseID": "toolu_s2"
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/api/Form.tsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "transcript 讀不到 → 放（fail-open）",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        },
+        "transcript_path": "{PROJECT_DIR}/no-such-transcript.jsonl"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "subagent 的 transcript 讀不到 → 放（fail-open）",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "派工"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        },
+        "session_id": "s-probe",
+        "agent_id": "a1b2c3",
+        "agent_type": "frontend-engineer"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Base directory 字樣只出現在 rule 的 rawContent、Read 的回傳、一般對話、isMeta 行的中間（都不是 isMeta 行開頭）→ 仍擋",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "attachment",
+            "attachment": {
+              "type": "nested_memory",
+              "path": "C:\\proj\\.claude\\rules\\x.md",
+              "content": "x",
+              "rawContent": "Base directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "Base directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_r",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "notes.md"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_r",
+                  "content": "Base directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "isMeta": true,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "前言\nBase directory for this skill: C:\\proj\\.claude\\skills\\frontend-conventions\n\n（skill 內文）"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "Skill 工具以 plugin:名稱 形式載入 → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_p",
+                  "name": "Skill",
+                  "input": {
+                    "skill": "myplug:frontend-conventions"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_p",
+                  "content": "Launching skill: myplug:frontend-conventions"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Skill 工具呼叫失敗（tool_result 是錯誤）→ 仍擋",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_e",
+                  "name": "Skill",
+                  "input": {
+                    "skill": "frontend-conventions"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_e",
+                  "content": "Unknown skill",
+                  "is_error": true
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "skill 目錄名（ui）與 name（ui-guide）不同：以 name 載入 → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "design/home.md": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "assistant",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_s1",
+                  "name": "Skill",
+                  "input": {
+                    "skill": "ui-guide"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_s1",
+                  "content": "Launching skill: ui-guide"
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "isMeta": true,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Base directory for this skill: C:\\proj\\.claude\\skills\\ui-guide\n\n（skill 內文）"
+                }
+              ]
+            },
+            "sourceToolUseID": "toolu_s1"
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/design/home.md",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "NotebookEdit 改 notebooks/ 底下（結尾斜線＝目錄）沒載入 → 擋",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改 notebook"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "NotebookEdit",
+        "tool_input": {
+          "notebook_path": "{PROJECT_DIR}/notebooks/eda/a.ipynb",
+          "new_source": "x"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "ui-guide"
+    },
+    {
+      "label": "Write 用相對路徑（以 cwd 解析）命中 → 擋",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "新增元件"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "src/components/New.tsx",
+          "content": "x"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "專案外的檔 → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改別的地方"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/../outside/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "專案內名稱以 .. 開頭的目錄（..cache/x.ts）照專案內處理 → 擋",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n",
+          ".claude/skills/ts-rules/SKILL.md": "---\nname: ts-rules\ndescription: TypeScript 寫法\npaths: \"**/*.ts\"\n---\n\n內文。\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改一下"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/..cache/x.ts",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "ts-rules"
+    },
+    {
+      "label": "專案外的檔（../outside/x.ts，命中 **/*.ts 的寫法）→ 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n",
+          ".claude/skills/ts-rules/SKILL.md": "---\nname: ts-rules\ndescription: TypeScript 寫法\npaths: \"**/*.ts\"\n---\n\n內文。\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改一下"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/../outside/x.ts",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "Read 不在範圍 → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "x"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "SubagentHandback（交回報告）不是寫檔工具 → 放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "x"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "SubagentHandback",
+        "tool_input": {
+          "report": "做完了"
+        },
+        "session_id": "s-probe",
+        "agent_id": "a1b2c3",
+        "agent_type": "frontend-engineer"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "沒有任何 skill 宣告 paths → 什麼都不擋",
+      "setup": {
+        "files": {
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "x"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "專案沒有 .claude/skills/ → 放",
+      "setup": {
+        "files": {
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "x"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "transcript 有壞行（非 JSON）照樣判 → 載入過的放",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n",
+          "bad.jsonl": "{壞掉的一行 Base directory for this skill:\n{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_s1\",\"name\":\"Skill\",\"input\":{\"skill\":\"frontend-conventions\"}}]}}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_s1\",\"content\":\"Launching skill: frontend-conventions\"}]}}\n{\"type\":\"user\",\"isMeta\":true,\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Base directory for this skill: C:\\\\proj\\\\.claude\\\\skills\\\\frontend-conventions\\n\\n（skill 內文）\"}]},\"sourceToolUseID\":\"toolu_s1\"}\n"
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        },
+        "transcript_path": "{PROJECT_DIR}/bad.jsonl"
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "要新建的檔還不存在 → 擋，指一個可以先 Read 的相符既有檔",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "新增元件"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/components/Brand.tsx",
+          "content": "x"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "先用 Read 讀一次 `src/App\\.jsx`"
+    },
+    {
+      "label": "要改的檔已存在 → 擋下訊息叫它先 Read 這個檔",
+      "setup": {
+        "files": {
+          ".claude/skills/frontend-conventions/SKILL.md": "---\nname: frontend-conventions\ndescription: 前端元件寫法（改 src 底下的 jsx／tsx 前讀）\npaths: \"src/**/*.{jsx,tsx}\"\n---\n\n元件一律用 function component。\n",
+          ".claude/skills/api-rules/SKILL.md": "---\nname: api-rules\ndescription: API 層規範\npaths:\n  - \"src/api/**\"\n  - server/**\n---\n\nAPI 錯誤一律回傳 problem+json。\n",
+          ".claude/skills/ui/SKILL.md": "---\nname: ui-guide\ndescription: 目錄名與 name 不同的 skill\npaths: [notebooks/, \"design/*.md\"]\n---\n\n內文。\n",
+          ".claude/skills/plain/SKILL.md": "---\nname: plain\ndescription: 沒有 paths 的 skill\n---\n\n內文。\n",
+          "src/App.jsx": "x\n"
+        },
+        "transcript": [
+          {
+            "type": "user",
+            "message": {
+              "role": "user",
+              "content": "改 App"
+            }
+          }
+        ]
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{PROJECT_DIR}/src/App.jsx",
+          "old_string": "a",
+          "new_string": "b"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "先用 Read 讀一次 `src/App\\.jsx`（帶 paths 的 skill 要讀過相符的檔"
+    }
+  ]
+}

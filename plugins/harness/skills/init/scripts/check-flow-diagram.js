@@ -37,9 +37,10 @@
  */
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+// 快照路徑、檔案雜湊、讀快照與 init-flow.js／init-verify.js 共用同一份（init-lib.js）
+const L = require('./init-lib.js');
 
 const SKIP_DIRS = new Set(['.git', '.harness-backup']);
 const CACHE_DIRS = new Set(['__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache']);
@@ -54,17 +55,18 @@ if (!rootArg || !['snapshot', 'check'].includes(cmd) || (cmd === 'check' && !dia
 
 const root = path.resolve(rootArg);
 if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) die(`落點不是目錄：${root}`);
-// Windows 路徑不分大小寫，其他平台要分
-const rootKey = process.platform === 'win32' ? root.toLowerCase() : root;
-const snapPath = path.join(os.tmpdir(), 'harness-init-snapshots',
-  crypto.createHash('sha1').update(rootKey).digest('hex').slice(0, 16) + '.json');
+// 快照放在系統暫存目錄，以落點路徑的雜湊區分（Windows 路徑不分大小寫，其他平台要分；算法在 L.snapshotPath）
+const snapPath = L.snapshotPath(root);
 
-// 走訪目錄，回傳 { 相對路徑: sha1 }；node_modules 整層收成一個 { 目錄/: 內容雜湊 }
+// 走訪目錄，回傳 { 相對路徑: sha1 }；node_modules 整層收成一個 { 目錄/: 內容雜湊 }。
+// 不跟符號連結（Dirent 的 isFile／isDirectory 對連結都是 false）：跟了會走進連到專案外的大目錄（例 node_modules 的連結）。
+// 另回傳走到的每個 .claude 目錄的上層（claudeParents），snapshot 用它補記 .claude/rules/ 底下經連結進來的規則檔。
 function scan() {
   const files = Object.create(null); // 不用一般物件：檔名 __proto__ 之類不會被原型吃掉
   const unreadable = [];
+  const claudeParents = [];
   let cacheCount = 0;
-  const hashFile = p => crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex');
+  const hashFile = L.fileSha1;
   const hashTree = (dir, treeRel) => {
     const h = crypto.createHash('sha1');
     (function walk(d, rel) {
@@ -88,20 +90,44 @@ function scan() {
         if (SKIP_DIRS.has(e.name)) continue;
         if (CACHE_DIRS.has(e.name)) { cacheCount++; continue; }
         if (e.name === 'node_modules') { files[`${r}/`] = hashTree(full, r); continue; }
+        if (e.name === '.claude') claudeParents.push(rel);
         walk(full, r);
+      } else if (e.name === '.claude' && e.isSymbolicLink()) {
+        // .claude 本身是連結（junction／symlink）：不走進去，但底下的規則檔要經 scanRuleLinks 記進 ruleLinks，否則沒動過的規則檔記 kept 會被誤判成快照裡沒有
+        try { if (fs.statSync(full).isDirectory()) claudeParents.push(rel); } catch {}
       } else if (e.isFile()) {
         if (isSelfOutput(r)) continue;
         try { files[r] = hashFile(full); } catch { unreadable.push(r); }
       }
     }
   })(root, '');
-  return { files, cacheCount, unreadable };
+  return { files, cacheCount, unreadable, claudeParents };
+}
+
+// .claude/rules/ 底下經符號連結才走得到的規則檔（連到檔案的連結、或連到目錄的連結底下的 .md），依連結路徑記內容雜湊。
+// 理由：Claude Code 會跟連結載入規則檔（L.listRuleFiles 的註解有官方出處），init-verify V21 要拿 Phase 0 的內容核對
+// 這些檔的 origin: kept；scan() 不跟連結，快照的 files 裡沒有它們。只走 .claude/rules/（用 L.listRuleFiles，與 V21 列檔同一支），
+// 不讓整棵走訪改成跟連結。記在獨立欄位 ruleLinks，不混進 files——check 拿 files 跟現況的 scan() 比，混進去會被當成刪除。
+// 連結指向專案外也照記（讀的是連結讀到的內容），所以專案外的連結一樣核對得到。
+function scanRuleLinks(files, claudeParents) {
+  const ruleLinks = Object.create(null);
+  const ruleLinkUnreadable = [];
+  for (const parent of claudeParents) {
+    const pre = parent ? `${parent}/` : '';
+    for (const r of L.listRuleFiles(parent ? path.join(root, ...parent.split('/')) : root)) {
+      const key = pre + r;
+      if (key in files) continue;
+      try { ruleLinks[key] = L.fileSha1(path.join(root, ...key.split('/'))); } catch { ruleLinkUnreadable.push(key); }
+    }
+  }
+  return { ruleLinks, ruleLinkUnreadable };
 }
 
 if (cmd === 'snapshot') {
-  const { files, unreadable } = scan();
+  const { files, unreadable, claudeParents } = scan();
+  const { ruleLinks, ruleLinkUnreadable } = scanRuleLinks(files, claudeParents);
   fs.mkdirSync(path.dirname(snapPath), { recursive: true });
-  fs.writeFileSync(snapPath, JSON.stringify({ root, takenAt: new Date().toISOString(), files, unreadable }));
+  fs.writeFileSync(snapPath, JSON.stringify({ root, takenAt: new Date().toISOString(), files, unreadable, ruleLinks, ruleLinkUnreadable }));
   if (unreadable.length) {
     console.log(`注意：有 ${unreadable.length} 個檔案或目錄讀不到，快照裡沒有它們，收尾比對時會被當成「無法判斷」列出：`);
     for (const u of unreadable) console.log(`  - ${u}`);
@@ -111,9 +137,8 @@ if (cmd === 'snapshot') {
 }
 
 // ---- check ----
-let snap;
-try { snap = JSON.parse(fs.readFileSync(snapPath, 'utf8')); }
-catch { die(`找不到這個落點的快照（${snapPath}）。快照要在 Phase 0 動任何檔案之前拍：\n  node check-flow-diagram.js snapshot "${root}"\n事後補拍沒有意義——那時 init 的改動已經在裡面了，比不出差異。`); }
+const snap = L.readSnapshot(root);
+if (!snap) { die(`找不到這個落點的快照（${snapPath}）。快照要在 Phase 0 動任何檔案之前拍：\n  node check-flow-diagram.js snapshot "${root}"\n事後補拍沒有意義——那時 init 的改動已經在裡面了，比不出差異。`); }
 
 const labels = [];
 const isolated = []; // { file, id, label }

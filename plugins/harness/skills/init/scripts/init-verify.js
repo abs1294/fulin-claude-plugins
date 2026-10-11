@@ -60,6 +60,12 @@ let answers = null;
 try { answers = L.readJson(ansPath); } catch {}
 const A = (answers && answers.answers) || {};
 const waivers = (answers && Array.isArray(answers.verifyWaivers)) ? answers.verifyWaivers : [];
+// 路徑換成 / 分隔（與 L.listRuleFiles 同一種寫法），V03 找建立那一行、V21 對檔都用這份
+const rulesSplit = (answers && Array.isArray(answers.rulesSplit)) ? answers.rulesSplit.filter((r) => r && r.file).map((r) => Object.assign({}, r, { file: L.normRulePath(r.file) })) : [];
+
+// 處置表的 origin 對 Phase 0 快照核對：判準在 L.checkRuleOrigins（init-flow.js rules 寫入時也跑同一支）。
+// keptOk＝核對過（或無快照可核對）的沿用檔：V03 才免建立那一行
+const { hits: originHits, notes: originNotes, keptOk } = L.checkRuleOrigins(root, answers && answers.target, rulesSplit);
 
 const results = [];
 function report(id, hits, okMsg, opts = {}) {
@@ -82,8 +88,11 @@ const initSkills = ls(P('.claude', 'skills')).filter((d) => {
   try { return /harness plugin \/harness:init/.test(read(path.join(d, 'CHANGELOG.md'))); } catch { return false; }
 });
 const hookJs = ls(P('.claude', 'hooks'), /\.js$/);
+// .claude/rules/ 遞迴（Claude Code 也載入子目錄裡的 .md）
+// 列檔與 init-flow.js rules 用同一支 L.listRuleFiles（跟符號連結、路徑 / 分隔、大小寫要相符）
+const rulesFiles = L.listRuleFiles(root).map((r) => P(...r.split('/')));
 const containers = [P(glossary), P('FLOWS.md'), P('tests', 'Project_Detail', 'PROJECT.md')].filter(exists);
-const instructionFiles = [P('CLAUDE.md'), ...harnessDocs, ...agentMd, ...containers, ...initSkills.map((d) => path.join(d, 'SKILL.md'))].filter(exists);
+const instructionFiles = [P('CLAUDE.md'), ...harnessDocs, ...agentMd, ...rulesFiles, ...containers, ...initSkills.map((d) => path.join(d, 'SKILL.md'))].filter(exists);
 const changelogFiles = [P('CLAUDE.changelog.md'), P('.claude', 'harness', 'CHANGELOG.md'), P('.claude', 'agents', 'CHANGELOG.md'),
   P(glossary.replace(/\.md$/, '.changelog.md')), P('FLOWS.changelog.md'), P('tests', 'Project_Detail', 'CHANGELOG.md'),
   ...initSkills.map((d) => path.join(d, 'CHANGELOG.md'))].filter(exists);
@@ -127,13 +136,20 @@ if (!exists(P('CLAUDE.md'))) { console.error(`落點沒有 CLAUDE.md，不像是
   if (exists(P(glossary))) needLine(P(glossary.replace(/\.md$/, '.changelog.md')), glossary);
   if (exists(P('FLOWS.md'))) needLine(P('FLOWS.changelog.md'), 'FLOWS.md');
   if (exists(P('tests', 'Project_Detail', 'PROJECT.md'))) need(P('tests', 'Project_Detail', 'CHANGELOG.md'), 'PROJECT.md', 'tests/Project_Detail/PROJECT.md');
+  // 依路徑載入的規則檔（.claude/rules/）記在 CLAUDE.changelog.md：它們是從 CLAUDE.md 拆出去的同一層，目錄裡不能放 CHANGELOG（會被當成規則載入）
+  // 沿用的既有規則檔（origin: kept）不是這次建的，不要求建立那一行——只限對得上 Phase 0 快照的（keptOk；無快照時照舊放行）
+  for (const r of rulesSplit) {
+    if (r.origin === 'kept' && keptOk.has(r.file)) continue;
+    if (!exists(P('CLAUDE.changelog.md'))) break;
+    if (!read(P('CLAUDE.changelog.md')).split('\n').some((l) => created.test(l) && l.includes(r.file))) hits.push(`${r.file}：CLAUDE.changelog.md 沒有提到它的建立那一行`);
+  }
   for (const d of initSkills) {
     const sk = path.join(d, 'SKILL.md');
     if (!exists(sk)) { hits.push(`${rel(d)}：缺 SKILL.md`); continue; }
     const lines = read(sk).replace(/\s+$/, '').split('\n');
     if (!/變更紀錄見同目錄 `?CHANGELOG\.md`?/.test(lines[lines.length - 1])) hits.push(`${rel(sk)}：最後一行不是「變更紀錄見同目錄 CHANGELOG.md」`);
   }
-  report('V03-changelog-created', hits, `${harnessDocs.length} 份 harness 檔、${agentMd.length} 支 agent、${containers.length} 份知識筆記、${initSkills.length} 支 skill 都有建立那一行`);
+  report('V03-changelog-created', hits, `${harnessDocs.length} 份 harness 檔、${agentMd.length} 支 agent、${containers.length} 份知識筆記、${initSkills.length} 支 skill、${rulesSplit.filter((r) => !(r.origin === 'kept' && keptOk.has(r.file))).length} 份新建規則檔都有建立那一行`);
 }
 
 // V04 05 節標題
@@ -371,6 +387,111 @@ for (const { j } of settingsObjs) for (const [ev, arr] of Object.entries((j && j
       else if (type === undefined && !hits.length) hits.push('.claude/hooks/package.json 沒寫 "type": "commonjs"（沒寫雖然預設是 CommonJS，但要明寫，免得被人改成 module 時沒人發現）');
     }
     report('V19-hooks-commonjs', hits, `.claude/hooks/package.json 寫明 "type": "commonjs"，${hookJs.length} 支 .js 以 CommonJS 載入`);
+  }
+}
+
+// ── V20～V22 共用：paths 的解析與比對用 guard-required-skill.js 匯出的同一份程式（實例有裝就用實例那支，跟 hook 實際判的一致）──
+const GUARD_LOCAL = P('.claude', 'hooks', 'guard-required-skill.js');
+const GUARD_TPL = path.join(L.PLUGIN_ROOT, 'hooks', 'templates', 'guard-required-skill.js');
+// 實例那支可能是缺匯出的舊版或載入失敗：缺任何一個用到的函式就退回 plugin 範本，證據寫明用了哪一份與退回原因
+const GUARD_FNS = ['walkFiles', 'validatePattern', 'matchPath', 'parsePaths', 'readSkills', 'fmValue', 'frontmatter', 'splitTopLevel'];
+let G = null; let guardSrc = ''; let guardFallback = '';
+for (const f of [GUARD_LOCAL, GUARD_TPL]) {
+  if (G || !exists(f)) continue;
+  const name = f === GUARD_LOCAL ? '.claude/hooks/guard-required-skill.js' : 'plugin 範本 hooks/templates/guard-required-skill.js';
+  let m;
+  try { m = require(f); } catch (e) { guardFallback = `${name} 載入失敗（${e.message.split('\n')[0]}）`; continue; }
+  const missing = GUARD_FNS.filter((k) => !m || typeof m[k] !== 'function');
+  if (missing.length) { guardFallback = `${name} 缺匯出 ${missing.join('、')}`; continue; }
+  G = m;
+  guardSrc = name + (f === GUARD_TPL && guardFallback ? `（${guardFallback}，退回範本）` : '');
+}
+const withGuardSrc = (hits) => { if (hits.length) hits[hits.length - 1] += `（判準：${guardSrc}）`; return hits; };
+let projectFiles = null;
+const filesOf = () => (projectFiles = projectFiles || G.walkFiles(root));
+// 每條 glob：寫法合法、在專案裡至少命中一個檔（命中 0 的規則或 skill 永遠不會因為碰到檔案而載入）
+function globProblems(label, globs) {
+  const out = [];
+  for (const g of globs) {
+    const bad = G.validatePattern(g);
+    if (bad) { out.push(`${label} 的 paths「${g}」${bad}`); continue; }
+    if (!filesOf().some((f) => G.matchPath(g, f))) out.push(`${label} 的 paths「${g}」在專案裡命中 0 個檔（永遠不會被觸發）`);
+  }
+  return out;
+}
+
+// V20 .claude/rules/ 每份檔的 paths 合法、每條 glob 至少命中一個檔
+{
+  if (!rulesFiles.length) report('V20-rules-paths', [], '', { skip: '沒有 .claude/rules/' });
+  else if (!G) report('V20-rules-paths', [guardFallback ? `guard-required-skill.js 不能用（${guardFallback}），無法比對 paths` : '找不到 guard-required-skill.js（實例與 plugin 範本都沒有），無法比對 paths'], '');
+  else {
+    const hits = []; let n = 0;
+    for (const f of rulesFiles) { const globs = G.parsePaths(read(f)); n += globs.length; hits.push(...globProblems(rel(f), globs)); }
+    report('V20-rules-paths', withGuardSrc(hits), `${rulesFiles.length} 份規則檔、${n} 條 glob 寫法合法且都命中檔案（判準：${guardSrc}）`);
+  }
+}
+
+// V21 規則分層落地：每份規則檔在處置表（答案檔 rulesSplit）有一筆、處置表每筆的檔都在；每份規則檔有 paths 或在處置表標成啟動載入、
+// 列在路由表或 harness README；處置表記下搬走的段落要在規則檔裡、不在 CLAUDE.md 裡（搬到沒人讀的地方等於刪除，留在 CLAUDE.md 等於沒搬）。
+// 規則檔沒有紀錄時，CLAUDE.md 有沒有殘留已搬段落、建立那一行都無從查，所以缺紀錄本身就算沒過
+{
+  if (!rulesFiles.length && !rulesSplit.length) report('V21-rules-split', [], '', { skip: '沒有 .claude/rules/，處置表也沒有搬進規則檔的項目' });
+  else {
+    const hits = [];
+    const norm = (s) => String(s).replace(/\s+/g, ' ').trim();
+    const claude = norm(read(P('CLAUDE.md')));
+    const routes = read(P('CLAUDE.md')) + '\n' + (exists(P('.claude', 'harness', 'README.md')) ? read(P('.claude', 'harness', 'README.md')) : '');
+    const bySplit = new Map(rulesSplit.map((r) => [r.file, r]));
+    const unrecorded = [];
+    for (const f of rulesFiles) {
+      const r = rel(f);
+      const hasPaths = G ? G.parsePaths(read(f)).length > 0 : /^paths\s*:/m.test(read(f));
+      const entry = bySplit.get(r);
+      if (!entry) unrecorded.push(r);
+      if (!hasPaths && !(entry && entry.load === 'startup')) hits.push(`${r} 沒有 paths，處置表也沒標成啟動載入（沒有 paths 的檔每個 session 都整份載入；CHANGELOG、README 這類非規則檔不能放在 .claude/rules/）`);
+      if (hasPaths && entry && entry.load === 'startup') hits.push(`${r} 處置表標成啟動載入，檔案卻有 paths`);
+      if (!routes.includes(r)) hits.push(`${r} 沒有列在 CLAUDE.md 路由表或 .claude/harness/README.md`);
+    }
+    const fixCmd = `node init-flow.js rules "${(answers && answers.target) || root}" --file <JSON>`;
+    if (unrecorded.length) hits.push(`${unrecorded.join('、')} 在答案檔 rulesSplit 沒有處置紀錄（漏跑 init-flow.js rules 時，CLAUDE.md 有沒有殘留已搬段落、建立那一行都查不到）：用 ${fixCmd} 重寫整份處置表，落點 .claude/rules/ 每份 .md 一筆，新建的記 load 與 moved，沿用的既有檔加 "origin":"kept"（moved 可為空）`);
+    for (const e of rulesSplit) {
+      if (!exists(P(e.file))) { hits.push(`處置表的 ${e.file} 不存在（檔被刪或改名了就同步處置表：用 ${fixCmd} 重寫，拿掉這筆或改成實際檔名）`); continue; }
+      const body = norm(read(P(e.file)));
+      for (const m of e.moved || []) {
+        const t = norm(m.text);
+        if (!body.includes(t)) hits.push(`${e.file} 找不到從 ${m.from} 搬來的「${t.slice(0, 30)}」`);
+        if (claude.includes(t)) hits.push(`CLAUDE.md 仍有已搬到 ${e.file} 的「${t.slice(0, 30)}」（出自 ${m.from}）`);
+      }
+    }
+    hits.push(...originHits);
+    const moved = rulesSplit.reduce((k, e) => k + (e.moved || []).length, 0);
+    const kept = rulesSplit.filter((e) => e.origin === 'kept').length;
+    report('V21-rules-split', hits, `${rulesFiles.length} 份規則檔都在處置表有紀錄（沿用 ${kept} 份）、都有 paths 或標成啟動載入、都列在路由表；處置表 ${moved} 段已搬走（CLAUDE.md 不再有）；origin：${originNotes.join('；') || '沒有沿用檔，新建檔都不在 Phase 0 快照裡'}${G ? `（paths 解析：${guardSrc}）` : ''}`);
+  }
+}
+
+// V22 skill 的 paths：合法、至少命中一個檔（判準與 guard-required-skill.js 同一份程式）；agent 定義檔 skills: 指到的專案 skill 存在
+{
+  const skills = G ? G.readSkills(root) : [];
+  const withPaths = skills.filter((s) => s.paths.length);
+  const agentRefs = [];
+  for (const f of agentMd) {
+    const v = G ? G.fmValue(G.frontmatter(read(f)), 'skills') : undefined;
+    const list = v === undefined ? [] : (Array.isArray(v) ? v : G.splitTopLevel(v));
+    for (const s of list) agentRefs.push({ f, s: String(s).trim() });
+  }
+  if (!G) report('V22-skill-paths', [guardFallback ? `guard-required-skill.js 不能用（${guardFallback}），無法比對 paths` : '找不到 guard-required-skill.js（實例與 plugin 範本都沒有），無法比對 paths'], '');
+  else if (!withPaths.length && !agentRefs.length) report('V22-skill-paths', [], '', { skip: '沒有 skill 宣告 paths，agent 定義檔也沒有 skills:' });
+  else {
+    const hits = [];
+    for (const s of withPaths) hits.push(...globProblems(`.claude/skills/${s.dir}/SKILL.md`, s.paths));
+    for (const { f, s } of agentRefs) {
+      if (s.includes(':')) continue;   // plugin 的 skill 不在專案裡
+      if (!skills.some((k) => k.dir === s || k.name === s)) hits.push(`${rel(f)} 的 skills: 列了 ${s}，但 .claude/skills/ 沒有這支`);
+    }
+    const wired = commands.some((c) => c.cmd.includes('guard-required-skill.js'));
+    const note = withPaths.length && !wired ? '；guard-required-skill 沒有接線：這些 paths 只會把 skill 名稱列進清單，不保證改檔前讀過' : '';
+    report('V22-skill-paths', withGuardSrc(hits), `${withPaths.length} 支 skill 的 paths 寫法合法且都命中檔案、${agentRefs.length} 筆 agent 預載都指得到（判準：${guardSrc}）${note}`);
   }
 }
 

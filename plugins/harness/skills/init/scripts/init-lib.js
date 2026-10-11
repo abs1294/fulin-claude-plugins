@@ -1,6 +1,6 @@
 'use strict';
-// init-flow.js 與 init-verify.js 共用：狀態檔／答案檔路徑、答案檔的 schema 驗證（零相依的小驗證器）、
-// 必答題規則、形狀目錄列數。不是 CLI。
+// init-flow.js、init-verify.js、check-flow-diagram.js 共用：狀態檔／答案檔路徑、答案檔的 schema 驗證（零相依的小驗證器）、
+// 必答題規則、形狀目錄列數、Phase 0 快照（路徑、檔案雜湊、讀取）、.claude/rules/ 規則檔清單與 origin 核對。不是 CLI。
 
 const fs = require('fs');
 const os = require('os');
@@ -131,6 +131,120 @@ function snapshotPath(root) {
   return path.join(os.tmpdir(), 'harness-init-snapshots', crypto.createHash('sha1').update(key).digest('hex').slice(0, 16) + '.json');
 }
 
+// 檔案內容的 sha1（快照記的就是這個；check-flow-diagram.js 拍快照與 init-verify.js 比對沿用檔都用這一支）
+function fileSha1(p) { return crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex'); }
+
+// 讀 Phase 0 的快照（check-flow-diagram.js snapshot 寫的
+// { root, takenAt, files: { 相對路徑: sha1 }, unreadable, ruleLinks: { 相對路徑: sha1 }, ruleLinkUnreadable }）。
+// files／unreadable 是不跟符號連結的整棵走訪（check 拿它跟現況比）；ruleLinks／ruleLinkUnreadable 是 .claude/rules/
+// 底下經符號連結才走得到的規則檔（依連結路徑記、內容是連結讀到的），只給 rulesSplit 的 origin 核對用。
+// 先找 root 自己的快照；找不到且給了 target（Q4 把落點改到 target 底下的子目錄時，快照是對 target 拍的），
+// 再找 target 的快照，只取落點底下的項目、路徑換成相對落點。都沒有回 null（舊版 init 的實例、或暫存目錄被清過）。
+// 前綴比對：Windows 路徑不分大小寫，落點字面（例 Sub）跟快照記的實際檔名（例 sub/）大小寫可能不同，所以不分大小寫比；
+// 其他平台照字面比。切掉前綴後留下的部分照快照原樣（實際檔名的大小寫）。
+function readSnapshot(root, target) {
+  const tries = [[path.resolve(root), '']];
+  if (target && path.resolve(target) !== path.resolve(root)) {
+    const pre = path.relative(path.resolve(target), path.resolve(root)).split(path.sep).join('/');
+    if (pre && pre !== '..' && !pre.startsWith('../') && !path.isAbsolute(pre)) tries.push([path.resolve(target), pre + '/']);
+  }
+  const fold = process.platform === 'win32' ? (x) => x.toLowerCase() : (x) => x;
+  for (const [r, prefix] of tries) {
+    const p = snapshotPath(r);
+    let snap;
+    try { snap = readJson(p); } catch { continue; }
+    if (!snap || !snap.files || typeof snap.files !== 'object') continue;
+    const pf = fold(prefix);
+    const under = (k) => fold(k).startsWith(pf);
+    const pickMap = (m) => {
+      const out = Object.create(null);
+      if (m && typeof m === 'object') for (const [k, v] of Object.entries(m)) if (under(k)) out[k.slice(prefix.length)] = v;
+      return out;
+    };
+    const pickList = (a) => (Array.isArray(a) ? a : []).filter(under).map((u) => u.slice(prefix.length));
+    return { path: p, root: snap.root, takenAt: snap.takenAt, files: pickMap(snap.files), unreadable: pickList(snap.unreadable),
+      ruleLinks: pickMap(snap.ruleLinks), ruleLinkUnreadable: pickList(snap.ruleLinkUnreadable) };
+  }
+  return null;
+}
+
+// 落點 .claude/rules/ 底下（含子目錄）的每份 .md，回傳相對落點、以 / 分隔的路徑，依字典序排好。
+// init-flow.js rules 與 init-verify.js V20／V21 都用這一支，兩邊列出的檔與路徑寫法才會一致。
+// - 副檔名與路徑的大小寫照實際檔名、比對時要完全相符（不做大小寫摺疊）。
+// - 符號連結跟著走（statSync）：連到檔案的當成規則檔、連到目錄的往下走。理由：官方文件
+//   （https://code.claude.com/docs/en/memory.md「Share rules across projects with symlinks」）寫
+//   「The .claude/rules/ directory supports symlinks … Circular symlinks are detected and handled gracefully」，
+//   連結進來的規則檔一樣會載入，所以一樣要在處置表有一筆；不跟的話它會躲過 V21。
+//   以 realpath 記走過的目錄，連結繞回上層不會無限遞迴（對應文件說的循環連結）。
+function listRuleFiles(root) {
+  const base = path.join(root, '.claude', 'rules');
+  const out = [];
+  const seenDirs = new Set();
+  (function walk(dir, rel) {
+    let real;
+    try { real = fs.realpathSync(dir); } catch { return; }
+    if (seenDirs.has(real)) return;
+    seenDirs.add(real);
+    let names;
+    try { names = fs.readdirSync(dir); } catch { return; }
+    for (const name of names) {
+      const full = path.join(dir, name);
+      const r = rel ? `${rel}/${name}` : name;
+      let st;
+      try { st = fs.statSync(full); } catch { continue; }   // 斷掉的連結：Claude Code 也載入不了，不列
+      if (st.isDirectory()) walk(full, r);
+      else if (st.isFile() && /\.md$/.test(name)) out.push(`.claude/rules/${r}`);
+    }
+  })(base, '');
+  return out.sort();
+}
+
+// 處置表（rulesSplit）裡記的路徑：反斜線換成 /，與 listRuleFiles 同一種寫法
+const normRulePath = (f) => String(f).replace(/\\/g, '/');
+
+// 處置表的 origin 對 Phase 0 快照核對。init-flow.js rules（寫入時）與 init-verify.js V21（驗收時）用同一支，判準只有一份。
+// root＝落點；target＝目標（落點在 target 底下時，快照是對 target 拍的）；list＝rulesSplit（file 已是 / 分隔）。
+// 規則檔在快照裡的雜湊：先查 files（實體檔），再查 ruleLinks（經符號連結進來的規則檔，依連結路徑記、內容是連結讀到的）。
+// - kept：快照裡要有這份、內容雜湊要沒變；不在快照＝init 之後才出現，不能記成沿用；雜湊變了＝init 期間改寫過，要記 new
+// - new（或沒寫）：快照裡有、雜湊也沒變＝沒動過的既有檔，要記 kept；快照裡有、雜湊變了＝改寫既有檔，合法，照新建檔檢查
+// - 找不到快照（舊版 init 的實例、暫存目錄被清過）：kept 照舊放行，證據寫明未核對
+// 回傳 { snapshot, hits: 不合的項目, notes: 證據說明, keptOk: 核對過（或無快照可核對）的沿用檔 }
+function checkRuleOrigins(root, target, list) {
+  const snapshot = readSnapshot(root, target);
+  const hits = [];
+  const notes = [];
+  const keptOk = new Set();
+  const rewritten = [];
+  let keptChecked = 0;
+  let keptViaLink = 0;
+  const has = (m, k) => Object.prototype.hasOwnProperty.call(m, k);
+  for (const e of list) {
+    const full = path.join(root, ...e.file.split('/'));
+    if (!fs.existsSync(full)) { if (e.origin === 'kept' && !snapshot) keptOk.add(e.file); continue; }   // 檔不在由呼叫端另報
+    const viaLink = snapshot ? !has(snapshot.files, e.file) && has(snapshot.ruleLinks, e.file) : false;
+    const inSnap = snapshot ? has(snapshot.files, e.file) || viaLink : false;
+    const want = inSnap ? (viaLink ? snapshot.ruleLinks[e.file] : snapshot.files[e.file]) : null;
+    const unreadable = snapshot ? snapshot.unreadable.includes(e.file) || snapshot.ruleLinkUnreadable.includes(e.file) : false;
+    let same = null;
+    if (inSnap) { try { same = fileSha1(full) === want; } catch { same = null; } }
+    if (e.origin === 'kept') {
+      if (!snapshot) { keptOk.add(e.file); continue; }
+      if (unreadable) { keptOk.add(e.file); notes.push(`${e.file} 在快照裡讀不到內容，只核對了存在`); continue; }
+      if (!inSnap) { hits.push(`${e.file} 記成沿用（origin: kept），但 Phase 0 快照裡沒有這份：這份是 init 之後才出現的，不能記成沿用；是這次建的就拿掉 origin（或寫 "new"），並在 CLAUDE.changelog.md 補建立那一行`); continue; }
+      if (same === false) { hits.push(`${e.file} 記成沿用（origin: kept），但內容跟 Phase 0 快照不同（init 期間改寫過）：改寫過的既有檔記 "new"，CLAUDE.changelog.md 寫一行說改了什麼`); continue; }
+      keptOk.add(e.file); keptChecked++; if (viaLink) keptViaLink++;
+    } else if (inSnap && same === true) {
+      hits.push(`${e.file} 記成新建（origin 沒寫或寫 new），但 Phase 0 之前就在、內容也沒變：沒動過的既有檔記 "origin":"kept"`);
+    } else if (inSnap || unreadable) rewritten.push(e.file);
+  }
+  if (!snapshot) notes.push(`無快照（${snapshotPath(root)}），kept 未核對`);
+  else {
+    if (keptChecked) notes.push(`沿用 ${keptChecked} 份對過 Phase 0 快照（${snapshot.takenAt}）：存在且內容未變${keptViaLink ? `（其中 ${keptViaLink} 份是符號連結，比的是連結在 Phase 0 讀到的內容）` : ''}`);
+    if (rewritten.length) notes.push(`${rewritten.join('、')} 在 Phase 0 之前就在、這次改寫過，記 new 照新建檔檢查`);
+  }
+  return { snapshot, hits, notes, keptOk };
+}
+
 function pluginVersion() {
   try { return readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json')).version; } catch { return '0.0.0'; }
 }
@@ -138,4 +252,5 @@ function pluginVersion() {
 module.exports = {
   SKILL_DIR, PLUGIN_ROOT, SCHEMA_PATH, CATALOG_PATH, REQUIRED, DATA_REQUIRED,
   today, statePath, answersPath, readJson, writeJsonAtomic, validate, loadSchema, catalogRows, checkAnswers, snapshotPath, pluginVersion,
+  fileSha1, readSnapshot, listRuleFiles, normRulePath, checkRuleOrigins,
 };

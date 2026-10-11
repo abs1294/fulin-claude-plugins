@@ -145,6 +145,22 @@
           "const DEFAULT_ARGS = '--ports api=4710 --layers http';"
         ]
       ]
+    },
+    "config-dotwt": {
+      "replace": [
+        [
+          "const SERVICES = [];",
+          "const SERVICES = [\n  { name: 'api', repo: '.', port: 4710 },\n  { name: 'web', repo: '.', port: 4720, health: null },\n];"
+        ],
+        [
+          "const POINTERS = [];",
+          "const POINTERS = [\n  { from: 'web', file: 'web/.env', pattern: '^API_BASE_URL *= *https?://localhost:([0-9]+)', target: 'api', label: 'API_BASE_URL' },\n];"
+        ],
+        [
+          "const DEFAULT_ARGS = '';",
+          "const DEFAULT_ARGS = '--ports api@..wt=4710,web@..wt=4720 --layers config';"
+        ]
+      ]
     }
   },
   "cases": [
@@ -298,6 +314,24 @@
       "payload": {},
       "expect": "NOTE",
       "exit": 0
+    },
+    {
+      "label": "① 工作樹名稱以 .. 開頭（..wt，在專案內）：檔案欄顯示相對路徑 ..wt/web/.env → exit 0",
+      "variant": "config-dotwt",
+      "setup": {
+        "files": {
+          "web/.env": "API_BASE_URL=http://localhost:4710\n"
+        },
+        "commit": true,
+        "worktrees": {
+          "..wt": "."
+        }
+      },
+      "payload": {},
+      "expect": "NOTE",
+      "exit": 0,
+      "output_match": "\\.\\.wt/web/\\.env:1",
+      "output_not_match": "/\\.\\.wt/web/\\.env"
     },
     {
       "label": "② 沒有服務在聽 → 標「沒有服務在聽」，exit 1",

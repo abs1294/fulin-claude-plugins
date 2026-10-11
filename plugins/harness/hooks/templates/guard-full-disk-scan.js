@@ -710,8 +710,8 @@ function failOpenNote(msg) {
       permissionDecision: 'deny',
       permissionDecisionReason:
         LABEL + ' 偵測到對' + hit.kind + '的遞迴搜尋：' + hit.tool + '（起點：' + hit.path + '）。\n' +
-        '理由：這類搜尋要走完整顆磁碟或整個家目錄，耗時以小時計；而且程序不隨 agent 結束而終止，會變成殭屍程序長時間燒 CPU' +
-        '（實際發生過 `find /` 跑 7 小時）。規則見' + RULE_REF + '：檔案／內容搜尋一律限定在專案目錄內。\n' +
+        '理由：這類搜尋要走完整顆磁碟或整個家目錄，耗時以小時計；而且程序不隨 agent 結束而終止，會變成殭屍程序長時間燒 CPU。' +
+        '規則見' + RULE_REF + '：檔案／內容搜尋一律限定在專案目錄內。\n' +
         '改法：把搜尋起點限定到專案目錄，例如\n' +
         '  find ' + fwd + ' -name …\n' +
         '  rg <樣式> ' + PROJECT_ROOT + '\n' +

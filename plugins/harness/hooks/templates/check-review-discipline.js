@@ -564,9 +564,8 @@ process.stdin.on('end', () => {
   if (reasons.length) {
     const head = reasons.length === 1
       ? '[派工紀律] 派工 prompt 有 1 項未過閘，補齊後重發同一個 agent（不得改派其他 agent type 繞過）：'
-      : '[派工紀律] 派工 prompt 有 ' + reasons.length + ' 項未過閘，'
-        + '**以下全部補齊後一次重發**同一個 agent（不得改派其他 agent type 繞過）。'
-        + '⚠ 這是本次的完整清單，不會再有第二批——逐項對照補完再送：';
+      : '[派工紀律] 派工 prompt 有 ' + reasons.length + ' 項未過閘（這是完整清單），'
+        + '全部補齊後一次重發同一個 agent（不得改派其他 agent type 繞過）：';
     const body = reasons.map((r, i) => '\n\n' + (i + 1) + '. ' + r).join('');
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: {

@@ -13,6 +13,8 @@
  * 使用者最後幾則指示的原文、超過 5 個以外的改動檔。本檔只抓這四類。
  * 另由 compact-handoff.js 讓模型寫一份交接信（未完成的完整保留、已完成只留結果），
  * 注入時交接信優先；它失敗時才退回這份 regex 快照。
+ * 「使用者已裁決」（AskUserQuestion 的題目與答案）與「任務清單最後狀態」也由本檔從紀錄抽出，
+ * 交接信有沒有寫成都由 compact-reinject.js 原樣附上：這兩樣是事實，程式抽比讓模型自己記進度可靠，也不經寫信模型改寫。
  *
  * 快照放在 session 資料夾（與 subagents/、tool-results/ 同層），不進 workspace 的 .claude/。
  * 由 compact-reinject.js（SessionStart matcher=compact）讀回注入，
@@ -55,7 +57,118 @@ function userText(content) {
 
 // compact-handoff.js 壞掉時快照仍要寫得出來（它正是交接信失敗時的退路），退回只擋系統標籤的最小判準
 let isRealUserPrompt = t => !!t && !!t.trim() && !t.trim().startsWith('<');
-try { isRealUserPrompt = require('./compact-handoff.js').isHumanPrompt; } catch {}
+// 裁決時間：沿用交接信模組的時區設定；模組壞掉時退回 UTC
+let stampOf = ts => { const d = new Date(ts); return isNaN(d) ? '' : d.toISOString().slice(5, 16).replace('T', ' '); };
+let tzLabel = 'UTC';
+try {
+  const h = require('./compact-handoff.js');
+  isRealUserPrompt = h.isHumanPrompt;
+  if (h.localStamp) { stampOf = h.localStamp; tzLabel = h.TZ_LABEL || tzLabel; }
+} catch {}
+
+// ── 使用者已裁決 ──
+// 格式依真實 transcript 確認（本機 235 份紀錄、2,819 筆 AskUserQuestion 回傳）：
+//   tool_use.input.questions[]＝{ question, header, options[], multiSelect }；
+//   回傳那一行的 toolUseResult＝{ questions, answers: {題目原文: 答案原文}, annotations: {題目原文: { notes?, preview? }} }。
+//   多選的答案是以「, 」串起的一個字串；只寫附註沒選選項時答案是「(notes only)」，附註在 annotations[題目].notes。
+// 不算裁決的回傳：is_error（使用者按拒絕、hook 擋下、參數錯）、60 秒沒回應（answers 是空物件，內文 No response after 60s）。
+// 範圍是整份紀錄，不比照關鍵值清單在上一次壓縮摘要處歸零（buildDigest 的 keys.length = 0）：
+// - 關鍵值是會被新值取代的狀態（新的測試數字蓋掉舊的），壓縮前的舊值丟了無妨；裁決是持續有效的約束，丟了接手者會重問或做反。
+// - 上一次壓縮前的裁決雖已由上一次注入原樣帶過，但那段注入在下一次壓縮時又會被摘要模型改寫或略掉；
+//   若只收上次壓縮之後的，連續壓縮兩次後最早的裁決就沒有任何原樣副本。
+// - transcript 是 append-only，壓縮後前段原文仍在檔裡（實測 3 份壓縮過的紀錄，摘要行之前都還留著 AskUserQuestion 原行），
+//   掃整份即可，不必依賴上一份快照檔（快照會被 prune，交接信也可能失敗）。
+// 上一次壓縮前的筆數標 before，注入時註明，讓接手者知道它比較舊、可能已被後來的對話推翻。
+const DECISION_KEEP = 50;   // 快照檔保留的筆數（較新的優先）；注入時另有字數上限，見 compact-reinject.js
+const ANSWERED_RE = /^(?:The user answered:|Your questions have been answered:)\s*/;
+const ANSWER_TAIL_RE = /\.\s*(?:Read the answers carefully|You can now continue)[\s\S]*$/;
+function decisionsOf(input, o, c) {
+  if (c.is_error) return [];
+  const qs = Array.isArray(input && input.questions) ? input.questions : [];
+  const at = stampOf(o.timestamp);
+  const t = o.toolUseResult;
+  if (t && typeof t === 'object' && t.answers && typeof t.answers === 'object') {
+    const ann = t.annotations || {};
+    // 依題目順序配對；回傳裡有、題目清單裡沒有的題目（理論上不會發生）也收，不漏
+    const order = qs.map(q => q && q.question).filter(Boolean);
+    for (const k of Object.keys(t.answers)) if (!order.includes(k)) order.push(k);
+    for (const k of Object.keys(ann)) if (!order.includes(k)) order.push(k);
+    const out = [];
+    for (const q of order) {
+      const a = t.answers[q];
+      const notes = ann[q] && ann[q].notes;
+      if (a === undefined && !notes) continue;   // 沒回答的題（逾時、只答了其中幾題）不算裁決
+      out.push({ at, q, a: a === undefined ? '' : String(a), notes: notes ? String(notes) : '' });
+    }
+    return out;
+  }
+  // 沒有 toolUseResult 的舊格式：無法逐題拆，整段答覆原文當一筆（題目合併），寧可粗也不漏
+  const body = textOf(c.content);
+  if (!ANSWERED_RE.test(body)) return [];
+  return [{ at, q: qs.map(q => q && q.question).filter(Boolean).join(' ／ '), a: body.replace(ANSWERED_RE, '').replace(ANSWER_TAIL_RE, '').trim(), notes: '' }];
+}
+
+// ── 任務清單最後狀態 ──
+// 實際工具名與格式依真實 transcript 確認（本機 78 份紀錄用過）：TaskCreate／TaskUpdate／TaskList；
+//   TaskCreate 回傳 toolUseResult.task＝{ id, subject }（內文 Task #N created successfully: 標題）；
+//   TaskUpdate input＝{ taskId, status?, subject?, … }，status 有 pending／in_progress／completed／deleted，回傳 toolUseResult.success；
+//   TaskList 回傳 toolUseResult.tasks＝[{ id, subject, status, blockedBy }]。
+// TodoWrite（input.todos＝[{ content, status, activeForm }]，每次整份覆蓋）本機紀錄一筆都沒有，照官方工具 schema 寫，未經真實紀錄驗證。
+// 範圍是整份紀錄（清單跨壓縮延續，要的是最後狀態），以「重播」重建：
+// - TaskCreate 拿到已存在的 id＝清單被重置過（實測 50 次，多在隔天續跑時；當時常有未完成項），丟掉舊的重新累積。
+// - TaskList 的回傳是當下實際清單，見到就整份換掉再往下重播。實測重播與 TaskList 仍有約兩成對不上
+//   （112 次比對 25 次不同，多為跨日續跑或別的 agent 動過清單），所以注入時註明「依紀錄重建」，要接續前先跑 TaskList。
+const TASK_KEEP = 60;
+function textOf(content) {
+  return typeof content === 'string' ? content
+    : Array.isArray(content) ? content.filter(x => x && x.type === 'text').map(x => x.text).join('\n') : '';
+}
+function applyTask(tasks, u, o, c) {
+  if (c.is_error) return;
+  const t = o.toolUseResult && typeof o.toolUseResult === 'object' ? o.toolUseResult : null;
+  const body = textOf(c.content);
+  const i = u.input || {};
+  if (u.name === 'TodoWrite') {
+    if (!Array.isArray(i.todos)) return;
+    tasks.clear();
+    i.todos.forEach((td, n) => { if (td && td.content) tasks.set('todo' + n, { subject: String(td.content), status: String(td.status || '') }); });
+    return;
+  }
+  if (u.name === 'TaskCreate') {
+    // 沒有 toolUseResult 時 t 是 null，id 會是 null 不是 undefined，一律用 == null 判
+    let id = t && t.task ? t.task.id : null, subject = t && t.task ? t.task.subject : null;
+    if (id == null) { const m = body.match(/^Task #(\S+) created successfully: ([\s\S]*)$/); if (m) { id = m[1]; subject = m[2]; } }
+    if (id == null) return;
+    id = String(id);
+    if (tasks.has(id)) tasks.clear();
+    tasks.set(id, { subject: String(subject || i.subject || ''), status: 'pending' });
+    return;
+  }
+  if (u.name === 'TaskUpdate') {
+    if (t ? t.success !== true : !/^Updated task #/.test(body)) return;
+    const id = String(i.taskId != null ? i.taskId : (t && t.taskId));
+    if (i.status === 'deleted') { tasks.delete(id); return; }
+    const cur = tasks.get(id);
+    if (!cur) return;   // 清單外的 id（重置前的、別的 agent 建的）沒有標題可列，不憑空造一項
+    if (i.status) cur.status = String(i.status);
+    if (i.subject) cur.subject = String(i.subject);
+    return;
+  }
+  if (u.name === 'TaskList') {
+    let list = t && Array.isArray(t.tasks) ? t.tasks : null;
+    if (!list) {
+      if (body.trim() === 'No tasks found') list = [];
+      else {
+        const rows = [...body.matchAll(/^#(\S+) \[(\w+)\] (.*)$/gm)];
+        if (rows.length) list = rows.map(m => ({ id: m[1], status: m[2], subject: m[3] }));
+      }
+    }
+    if (!list) return;
+    tasks.clear();
+    for (const x of list) if (x && x.id != null) tasks.set(String(x.id), { subject: String(x.subject || ''), status: String(x.status || '') });
+  }
+}
+const TASK_TOOLS = /^(TodoWrite|TaskCreate|TaskUpdate|TaskList)$/;
 
 function scan(transcriptPath) {
   const launched = new Map();   // agentId 或背景指令 ID -> description
@@ -63,6 +176,10 @@ function scan(transcriptPath) {
   const resulted = new Set();    // 已有 tool_result 的 tool_use id
   const finished = new Set();
   const reads = [], edits = [], prompts = [], skills = [];
+  const asks = new Map();        // AskUserQuestion 的 tool_use id -> input
+  const taskUses = new Map();    // 任務清單工具的 tool_use id -> tool_use
+  const tasks = new Map();       // 任務 id -> { subject, status }，Map 保留建立順序
+  const decisions = [];
   const lines = fs.readFileSync(transcriptPath, 'utf8').split('\n');
   for (const line of lines) {
     if (!line) continue;
@@ -86,9 +203,15 @@ function scan(transcriptPath) {
     }
     const m = o.message; if (!m) continue;
     const content = m.content;
+    // 先前收的裁決都在這次摘要之前（注入時標「上次壓縮前」）；之後收到的才是上次壓縮之後的
+    if (o.type === 'user' && o.isCompactSummary) for (const d of decisions) d.before = true;
+    // 裁決與任務清單只認主對話；子 agent 的提問與清單不是使用者對本 session 的裁決
+    const main = !o.isSidechain;
     if (o.type === 'assistant' && Array.isArray(content)) {
       for (const c of content) {
         if (!c || c.type !== 'tool_use' || !c.input) continue;
+        if (main && c.name === 'AskUserQuestion') asks.set(c.id, c.input);
+        if (main && TASK_TOOLS.test(c.name)) taskUses.set(c.id, c);
         if (c.name === 'Agent') toolUseDesc.set(c.id, c.input.description || c.input.subagent_type || '(agent)');
         // 背景指令（例如 Codex 審查）也會在壓縮後才回報完成，只認 Agent 時快照會寫成沒有東西在跑
         if ((c.name === 'Bash' || c.name === 'PowerShell') && c.input.run_in_background)
@@ -105,6 +228,8 @@ function scan(transcriptPath) {
     if (o.type === 'user') {
       if (Array.isArray(content)) {
         for (const c of content) {
+          if (c && c.type === 'tool_result' && asks.has(c.tool_use_id)) decisions.push(...decisionsOf(asks.get(c.tool_use_id), o, c));
+          if (c && c.type === 'tool_result' && taskUses.has(c.tool_use_id)) applyTask(tasks, taskUses.get(c.tool_use_id), o, c);
           if (c && c.type === 'tool_result' && toolUseDesc.has(c.tool_use_id)) {
             resulted.add(c.tool_use_id);
             const txt = typeof c.content === 'string' ? c.content : JSON.stringify(c.content || '');
@@ -140,6 +265,11 @@ function scan(transcriptPath) {
     edits: uniqLast(edits, 20),
     skills: uniqLast(skills, 10),
     prompts: prompts.slice(-3).map(p => (p.length > 600 ? p.slice(0, 600) + '…' : p)),
+    // 原文不截斷（注入端另有字數上限）；只限筆數，保留較新的
+    decisions: decisions.slice(-DECISION_KEEP),
+    decisionsTz: tzLabel,
+    // 沒用過任務清單工具、或最後全部刪光＝空陣列，注入端不輸出
+    tasks: [...tasks].slice(-TASK_KEEP).map(([id, t]) => ({ id, subject: t.subject, status: t.status })),
   };
 }
 

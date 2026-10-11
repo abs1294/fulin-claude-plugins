@@ -15,7 +15,7 @@ description: 當使用者說 /harness:init、「幫這個專案裝 harness」、
    - **既有的 Claude Code 設定（`.claude/`、`CLAUDE.md`，含之前裝過的 harness）是參考來源，不是權威**。使用者會在已經有設定的專案跑 init，代表他覺得原本的流程有問題，想換這套試試。所以不停下、不讓位：先整份備份，再把它當成盤點證據（裡面的指令、邊界、保護動作、agent 分工都是這個專案的事實），逐項決定沿用、併入或取代，並問出原本哪裡不好用（見 Phase 0-2、Phase 1 第 12 項、第 0 題）。
    - **其他工具共用的治理層（AGENTS.md／.agents/／.cursor/ 這類多工具規範）讓位**：harness 只補 Claude Code 特有行為層，開發流程正本讓給它（adaptation-guide §2）。這些檔不只 Claude 在用，改掉會影響別的工具與別的人。
 5. **誠實**：init 給的是骨架＋長出資產的路徑，不是一套成熟的 harness。收尾回報必須講清楚「你已經有的」與「你還沒有的」。
-6. **先懂這個專案在做什麼，再裝流程**：技術事實（指令、目錄、相依）讀檔可以查證；業務事實（系統給誰用、做什麼、哪個環境是正式、專案詞是什麼意思、現在做到哪）讀檔只能推，**一定要問使用者**。只查技術面就裝，裝出來的規則沒有業務依據，知識筆記是空的，之後每個 agent 都得從可能過時的文件自己拼湊專案理解。只問技術面就裝，曾把測試環境判成正式、詞彙表裝完只有示範條目（事故經過見 `references/rationale.md` §核心原則-1）。所以 Phase 1 第 13 項推專案輪廓、Phase 2 先攤專案概要草稿、Phase 3 先問專案理解三題（U1～U3），答案寫進 CLAUDE.md「專案概要」與 GLOSSARY.md（既有專案沿用 CONTEXT.md）。
+6. **先懂這個專案在做什麼，再裝流程**：技術事實（指令、目錄、相依）讀檔可以查證；業務事實（系統給誰用、做什麼、哪個環境是正式、專案詞是什麼意思、現在做到哪）讀檔只能推，**一定要問使用者**。只查技術面就裝，裝出來的規則沒有業務依據，知識筆記是空的，之後每個 agent 都得從可能過時的文件自己拼湊專案理解。事故經過見 `references/rationale.md` §核心原則-1，各 Phase 怎麼落實見「流程總覽」。
 
 ## 對使用者講話的寫法（Phase 0、Phase 2、每一題訪談、Q5 清單、收尾回報都適用）
 
@@ -100,7 +100,7 @@ Phase 0 前置檢查 ─→ Phase 1 盤點（唯讀） ─→ Phase 2 攤開核�
 
 ## Phase 4 — 生成（五層）
 
-進入本階段先讀 `references/phases/phase-4-generate.md` 與 `references/phases/phase-4-hooks.md`。從 `init-answers.json` 讀答案生成；所有 `{{...}}` 填掉或整段刪除；hook 由形狀目錄（`references/hook-catalog.md`）推導，學習迴路是必裝類；每支 hook 的 cases 跟著填空區改，`probe-hooks.js` 全綠才往下。
+進入本階段先讀 `references/phases/phase-4-generate.md` 與 `references/phases/phase-4-hooks.md`。從 `init-answers.json` 讀答案生成；所有 `{{...}}` 填掉或整段刪除；hook 由形狀目錄（`references/hook-catalog.md`）推導，學習迴路是必裝類；每支 hook 的 cases 跟著填空區改，`probe-hooks.js` 全綠才往下。只跟特定程式區域有關的規範照 Phase 2 定案拆進 `.claude/rules/`（帶 `paths:`，改到相符的檔才載入），CLAUDE.md 只留每輪都要的內容。
 
 ## Phase 5 — 驗收
 

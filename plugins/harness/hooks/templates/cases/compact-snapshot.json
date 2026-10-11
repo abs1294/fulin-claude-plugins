@@ -58,6 +58,60 @@
       },
       "payload": { "hook_event_name": "PreCompact", "session_id": "s1", "trigger": "manual", "custom_instructions": null },
       "expect": "SILENT"
+    },
+    {
+      "label": "有 AskUserQuestion 裁決（含多選、只寫附註）與 TaskCreate／TaskUpdate → 存進快照的 decisions／tasks 欄、不擋不輸出（probe 只驗不擋不輸出；欄位內容由 plugin 開發端的整合測試驗，該測試不隨 plugin 發布）",
+      "setup": {
+        "env": {"COMPACT_HANDOFF_OFF": "1"},
+        "transcript": [
+          {"type": "user", "message": {"role": "user", "content": "開始改登入頁"}},
+          {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "a1", "name": "AskUserQuestion", "input": {"questions": [{"question": "要不要現在 push？", "header": "h", "multiSelect": false, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]},{"question": "附註要寫什麼？", "header": "h", "multiSelect": true, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]}]}}]}},
+          {"type": "user", "timestamp": "2026-10-07T10:41:10.718Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "a1", "content": "Your questions have been answered: \"要不要現在 push？\"=\"甲 (Recommended)\", \"附註要寫什麼？\"=\"(notes only)\". You can now continue with these answers in mind."}]}, "toolUseResult": {"questions": [{"question": "要不要現在 push？", "header": "h", "multiSelect": false, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]},{"question": "附註要寫什麼？", "header": "h", "multiSelect": true, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]}], "answers": {"要不要現在 push？": "甲 (Recommended)", "附註要寫什麼？": "(notes only)"}, "annotations": {"附註要寫什麼？": {"notes": "只攔 commit 就好"}}}},
+          {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "c1", "name": "TaskCreate", "input": {"subject": "改登入頁", "description": "x"}}]}},
+          {"type": "user", "timestamp": "2026-10-07T10:41:10.718Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": "Task #1 created successfully: 改登入頁"}]}, "toolUseResult": {"task": {"id": "1", "subject": "改登入頁"}}},
+          {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "u1", "name": "TaskUpdate", "input": {"taskId": "1", "status": "in_progress"}}]}},
+          {"type": "user", "timestamp": "2026-10-07T10:41:10.718Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "u1", "content": "Updated task #1 status"}]}, "toolUseResult": {"success": true, "taskId": "1", "updatedFields": ["status"]}}
+        ]
+      },
+      "payload": {"hook_event_name": "PreCompact", "session_id": "s1", "trigger": "manual", "custom_instructions": null},
+      "expect": "SILENT"
+    },
+    {
+      "label": "連續兩次壓縮：兩段摘要前後都有裁決 → 整份紀錄都收、摘要前的標 before（內容由 plugin 開發端的整合測試驗，該測試不隨 plugin 發布），不擋不輸出",
+      "setup": {
+        "env": {"COMPACT_HANDOFF_OFF": "1"},
+        "transcript": [
+          {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "a1", "name": "AskUserQuestion", "input": {"questions": [{"question": "要不要現在 push？", "header": "h", "multiSelect": false, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]}]}}]}},
+          {"type": "user", "timestamp": "2026-10-07T10:41:10.718Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "a1", "content": "Your questions have been answered: x"}]}, "toolUseResult": {"questions": [{"question": "要不要現在 push？", "header": "h", "multiSelect": false, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]}], "answers": {"要不要現在 push？": "甲 (Recommended)"}, "annotations": {}}},
+          {"type": "user", "isCompactSummary": true, "message": {"role": "user", "content": "第一次壓縮摘要"}},
+          {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "a2", "name": "AskUserQuestion", "input": {"questions": [{"question": "附註要寫什麼？", "header": "h", "multiSelect": false, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]}]}}]}},
+          {"type": "user", "timestamp": "2026-10-07T10:41:10.718Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "a2", "content": "Your questions have been answered: y"}]}, "toolUseResult": {"questions": [{"question": "附註要寫什麼？", "header": "h", "multiSelect": false, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]}], "answers": {"附註要寫什麼？": "乙"}, "annotations": {}}},
+          {"type": "user", "isCompactSummary": true, "message": {"role": "user", "content": "第二次壓縮摘要"}},
+          {"type": "user", "message": {"role": "user", "content": "繼續"}}
+        ]
+      },
+      "payload": {"hook_event_name": "PreCompact", "session_id": "s1", "trigger": "manual", "custom_instructions": null},
+      "expect": "SILENT"
+    },
+    {
+      "label": "反向：AskUserQuestion 只有拒答（is_error）與 60 秒逾時（answers 空）、TaskUpdate 指向不存在的 id、回傳缺 toolUseResult → 不當成裁決或任務、不崩潰不輸出",
+      "setup": {
+        "env": {"COMPACT_HANDOFF_OFF": "1"},
+        "transcript": [
+          {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "a1", "name": "AskUserQuestion", "input": {"questions": [{"question": "要不要現在 push？", "header": "h", "multiSelect": false, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]}]}}]}},
+          {"type": "user", "timestamp": "2026-10-07T10:41:10.718Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "a1", "content": "The user doesn't want to proceed with this tool use. The tool use was rejected.", "is_error": true}]}, "toolUseResult": "Error: rejected"},
+          {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "a2", "name": "AskUserQuestion", "input": {"questions": [{"question": "要不要現在 push？", "header": "h", "multiSelect": false, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]}]}}]}},
+          {"type": "user", "timestamp": "2026-10-07T10:41:10.718Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "a2", "content": "No response after 60s — the user may be away from keyboard."}]}, "toolUseResult": {"questions": [{"question": "要不要現在 push？", "header": "h", "multiSelect": false, "options": [{"label": "甲 (Recommended)", "description": "d"},{"label": "乙", "description": "d"}]}], "answers": {}, "annotations": {}, "afkTimeoutMs": 60000}},
+          {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "u1", "name": "TaskUpdate", "input": {"taskId": "9", "status": "completed"}}]}},
+          {"type": "user", "timestamp": "2026-10-07T10:41:10.718Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "u1", "content": "Task not found"}]}, "toolUseResult": {"success": false, "taskId": "9"}},
+          {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "c1", "name": "TaskCreate", "input": {"subject": "沒有 toolUseResult"}}]}},
+          {"type": "user", "timestamp": "2026-10-07T10:41:10.718Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": "Task #2 created successfully: 沒有 toolUseResult"}]}},
+          {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "l1", "name": "TaskList", "input": {}}]}},
+          {"type": "user", "timestamp": "2026-10-07T10:41:10.718Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "l1", "content": "No tasks found"}]}, "toolUseResult": {"tasks": []}}
+        ]
+      },
+      "payload": {"hook_event_name": "PreCompact", "session_id": "s1", "trigger": "manual", "custom_instructions": null},
+      "expect": "SILENT"
     }
   ]
 }

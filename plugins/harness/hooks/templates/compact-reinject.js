@@ -11,6 +11,7 @@
  * SessionStart 的純文字 stdout 才會進模型 context。
  * 有交接信就注入交接信（整段 ≤ HANDOFF_MAX）；沒有才退回快照的「指標＋清單」（≤ MAX），
  * 不貼文件內容，需要細節時由模型自行重讀。
+ * 兩條路都由程式附上快照裡的「使用者已裁決」與「任務清單（壓縮前最後狀態）」，原文照列、不經模型改寫；沒有就不輸出該節。
  */
 'use strict';
 const fs = require('fs');
@@ -27,6 +28,11 @@ const MAX = 3500;           // 沒有交接信、退回快照清單時的輸出�
 // - 黑箱實測（來源實例，隔離 claude -p）：9,000／9,990 全文送達；10,010／10,050／10,300／12,000 只剩預覽。
 // 升級後複查：壓縮後的變數名會變，搜 claude.exe 裡「Output too large」附近的 threshold 常數，不要只搜 SRo。
 const HANDOFF_MAX = 9800;
+// 「使用者已裁決」與「任務清單」兩節各自的字數上限。兩節由程式附在交接信或快照清單之後、不經模型改寫；
+// 交接信路徑扣在 HANDOFF_MAX 內（交接信本體讓出空間），快照清單路徑另外加在 MAX 之外（3500＋2400＋1200 仍在平台上限內）
+const DECISION_MAX = 2400;
+const TASK_MAX = 1200;
+const FIELD_MAX = 400;      // 單一題目、答案、附註超過就截斷（全文在快照檔）
 // ─────────────────────────────────────────────────────────────────────────────
 
 // 切點往前退到不會落在 surrogate pair 中間，否則輸出半個字元；下限 0（slice 收到負數會從尾端倒數）
@@ -50,6 +56,56 @@ function shrinkDone(text, budget) {
   if (keep <= 0) return text.slice(0, start) + note + text.slice(end);
   return text.slice(0, safeCut(text, start + keep)) + '\n' + note + text.slice(end);
 }
+
+// 單一欄位過長時截斷並註明。換行照留：要的是原文，改成別的分隔符就不是原樣了
+function field(s) {
+  s = String(s || '');
+  return s.length > FIELD_MAX ? s.slice(0, safeCut(s, FIELD_MAX)) + '…（截斷，全文見快照檔）' : s;
+}
+
+// 使用者已裁決：快照從 transcript 抽出的 AskUserQuestion 題目與答案原文，原樣列出。
+// 超過 DECISION_MAX 時丟最舊的（保留較新的裁決，較新的較可能仍有效），並註明略了幾筆
+function decisionLines(snap) {
+  const ds = Array.isArray(snap.decisions) ? snap.decisions : [];
+  if (!ds.length) return [];
+  const head = `■ 使用者已裁決（程式從對話紀錄抽出的提問與答案原文，時間為${snap.decisionsTz || '台北時間'}；照此執行，不要重問）：`;
+  const items = ds.map(d => [
+    `  - [${d.at || '?'}]${d.before ? '〔上次壓縮前〕' : ''} 問：${field(d.q)}`,
+    `    答：${field(d.a)}`,
+    ...(d.notes ? [`    附註：${field(d.notes)}`] : []),
+  ].join('\n'));
+  let total = head.length + 1;
+  let keep = items.length;
+  // 從最新的往回收，收到放不下為止
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (total + items[i].length + 1 > DECISION_MAX - 40) { keep = items.length - 1 - i; break; }
+    total += items[i].length + 1;
+  }
+  const dropped = items.length - keep;
+  return [head, ...(dropped ? [`  （較早的 ${dropped} 筆放不下，見快照檔 decisions 欄）`] : []), ...items.slice(items.length - keep)];
+}
+
+// 任務清單（壓縮前最後狀態）：由程式重播 TaskCreate／TaskUpdate／TaskList 重建，沒用過就不輸出。
+// 未完成的排前面；超過 TASK_MAX 時先略掉已完成的
+function taskLines(snap) {
+  const ts = Array.isArray(snap.tasks) ? snap.tasks : [];
+  if (!ts.length) return [];
+  const head = '■ 任務清單（壓縮前最後狀態；依對話紀錄重建，可能與實際清單有出入，接續前先跑 TaskList 對一次）：';
+  const open = ts.filter(t => t.status !== 'completed');
+  const done = ts.filter(t => t.status === 'completed');
+  const line = t => `  - [${t.status || '?'}] ${field(t.subject)}`;
+  const out = [head];
+  let total = head.length + 1;
+  let skipped = 0;
+  for (const t of [...open, ...done]) {
+    const l = line(t);
+    if (total + l.length + 1 > TASK_MAX - 40) { skipped++; continue; }
+    out.push(l); total += l.length + 1;
+  }
+  if (skipped) out.push(`  （另有 ${skipped} 項放不下，見快照檔 tasks 欄）`);
+  return out;
+}
+
 if (process.env.COMPACT_HANDOFF_CHILD) process.exit(0);
 let input = null;
 try { input = JSON.parse(fs.readFileSync(0, 'utf8')); } catch { process.exit(0); }
@@ -74,8 +130,13 @@ try {
     ].join('\n') + '\n';
     // 背景任務清單由程式從 transcript 算出，不靠寫信模型記得；它漏寫時完成通知送來會被當成陌生事件
     const running = (snap.running || []).map(a => `  - ${a.desc}（${a.id}）`);
+    // 裁決與任務清單同理：由程式附在信後原樣注入，不交給寫信模型抄（它會改寫或漏抄，見 compact-handoff.js 的 keysMangled）
+    const decided = decisionLines(snap);
+    const taskList = taskLines(snap);
     const tail = '\n\n' + [
       ...(running.length ? ['■ 壓縮前仍在背景執行、尚未回報的任務（完成通知會照常送來，勿重複派工）：', ...running] : []),
+      ...(decided.length ? [...(running.length ? [''] : []), ...decided] : []),
+      ...(taskList.length ? [...(running.length || decided.length ? [''] : []), ...taskList] : []),
       `交接信全文：${path.join(dir, snap.stamp + '.handoff.md')}`,
       '⚠ 交接信與壓縮摘要都是二手紀錄：「已完成／已驗證／不存在」這類主張，據以行動前先對回原始證據。',
     ].join('\n') + '\n';
@@ -121,6 +182,11 @@ try {
   // 截斷提示與結尾換行都算在 MAX 裡
   const cutMark = '\n…（已截斷，完整內容見快照檔）';
   if (out.length + 1 > MAX) out = out.slice(0, safeCut(out, MAX - 1 - cutMark.length)) + cutMark;
+  // 裁決與任務清單接在清單之後、不算在 MAX 裡：放進去會被上面的整段截斷從尾端砍掉，兩節各有自己的上限
+  const decided = snap ? decisionLines(snap) : [];
+  const taskList = snap ? taskLines(snap) : [];
+  const extra = [...decided, ...(decided.length && taskList.length ? [''] : []), ...taskList];
+  if (extra.length) out += '\n\n' + extra.join('\n');
   process.stdout.write(out + '\n');
 } catch (e) {
   try { process.stdout.write(`[compact-reinject] 讀取壓縮前快照失敗：${e.message}。若有進行中任務，先重讀其規範文件再繼續。\n`); } catch {}

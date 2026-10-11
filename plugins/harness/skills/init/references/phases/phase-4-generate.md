@@ -14,13 +14,13 @@
 - **例外**：hook 程式碼（`.claude/hooks/` 底下的 `.js` 與 `cases/`）裡的執行時判斷照原樣保留兩個都認，不換——例如 `check-review-discipline.js` 必讀檢查的 `pattern`、`guard-sediment-sweep.js` 的 `resolveGlossaryPath`、`compact-snapshot.js` 的 `DOC_RE`。程式在執行時才判斷，不會在規則檔留下另一個檔名；派工單只寫實際那一個，必讀檢查照樣放行。
 - **代價**：專案日後把詞彙表改名（例：`CONTEXT.md` 改成 `GLOSSARY.md`）時，這些產出檔裡的檔名要同步改：`CLAUDE.md`、`.claude/harness/README.md`、`.claude/harness/03-judgment-matrix.md`、`.claude/harness/04-delegation-templates.md`、`.claude/harness/05-knowledge-protocol.md`、`.claude/agents/backend-architect.md`、`.claude/agents/backend-engineer.md`、`.claude/agents/frontend-engineer.md`、`.claude/agents/qa-engineer.md`、`.claude/agents/code-reviewer.md`、`tests/Project_Detail/PROJECT.md`、`.claude/skills/workflow-map/SKILL.md`（有建才有）、`.claude/harness/flow-2.json`（流程圖二的節點名；改完重產 `flow-2.html` 與 `flow.html`；沒有 archify 時是 `.claude/harness/flow.md`），以及詞彙表本檔（內文寫了變更紀錄檔名）與它的變更紀錄檔（跟著改名，標題與內文的檔名也改）；CLAUDE.md 有 `@` 匯入時那一行也要改。漏改的檔會指向不存在的詞彙表，讀那份檔的 agent 會略過詞彙表、照自己的理解解讀專案詞。
 
-### 文件層（6 份 md＋2 份變更紀錄；Q11 選「建」時多 1 份註解規範；Q7 有規則檔選精煉時多 1 份自有正本；Q5 保留本機覆寫保護時多 1 份本機覆寫說明）
+### 文件層（6 份 md＋2 份變更紀錄；Q11 選「建」時多 1 份註解規範；Q7 有規則檔選精煉時多 1 份自有正本；Q5 保留本機覆寫保護時多 1 份本機覆寫說明；Phase 2 定案要拆規則時多 N 份規則檔）
 
-**變更紀錄一律不寫在指令檔本體**（0.10.0 起）：CLAUDE.md 與 harness 各檔每次載入都整份進 context，紀錄放在檔裡只會越長越胖。harness 目錄的檔記在 `.claude/harness/CHANGELOG.md`、依檔名分節（`## 05-knowledge-protocol.md`）；CLAUDE.md 記在同目錄的 `CLAUDE.changelog.md`；agent 檔與知識容器見各自那一層的表。每份實際建立的檔都要在它的紀錄檔留一行「建立（harness plugin /harness:init 實例化）」——`/harness:review` 的收集腳本用這行判安裝日、略過 init 那一筆。
+**變更紀錄一律不寫在指令檔本體**：CLAUDE.md 與 harness 各檔每次載入都整份進 context，紀錄放在檔裡只會越長越胖。harness 目錄的檔記在 `.claude/harness/CHANGELOG.md`、依檔名分節（`## 05-knowledge-protocol.md`）；CLAUDE.md 記在同目錄的 `CLAUDE.changelog.md`；agent 檔與知識容器見各自那一層的表。每份實際建立的檔都要在它的紀錄檔留一行「建立（harness plugin /harness:init 實例化）」——`/harness:review` 的收集腳本用這行判安裝日、略過 init 那一筆。
 
 | 來源（`references/`） | 落點 | 填空重點 |
 |------|------|----------|
-| `skeleton-CLAUDE-md.md` | `<落點>/CLAUDE.md` | 專案概要（Phase 2 草稿經使用者改過的版本＋U1 環境表＋U2 進度，附確認日期；環境表「方向」欄照 U1 答案寫出向／入向，裝了本機覆寫保護時加「本機」欄，每格附正本出處；位址只寫主機與路徑，帳密一律寫「取自 <環境變數或設定鍵名稱>」，連線字串裡帶帳密的要拆掉）、workspace 對照、治理分層、絕對邊界（含 Q2 熔斷清單、敏感物）、pipeline 圖（Q1）、路由表（含容器、agents、hooks、Q7 必讀；有產生時加本機覆寫說明、`review-rules.md`、專案 skill 那幾列）；Q10 選匯入時加 `@<實際檔名>`（`@GLOSSARY.md`，沿用舊檔名時 `@CONTEXT.md`）那一行並改路由表那一列（寫法見 Q10 那一列）；詞彙表檔名換成實際檔名（見本 Phase 開頭的通用規則） |
+| `skeleton-CLAUDE-md.md` | `<落點>/CLAUDE.md` | 專案概要（Phase 2 草稿經使用者改過的版本＋U1 環境表＋U2 進度，附確認日期；環境表「方向」欄照 U1 答案寫出向／入向，裝了本機覆寫保護時加「本機」欄，每格附正本出處；位址只寫主機與路徑，帳密一律寫「取自 <環境變數或設定鍵名稱>」，連線字串裡帶帳密的要拆掉）、workspace 對照、治理分層、絕對邊界（含 Q2 熔斷清單、敏感物）、pipeline 圖（Q1）、路由表（含容器、agents、hooks、Q7 必讀；有產生時加本機覆寫說明、`review-rules.md`、專案 skill、規則檔（`.claude/rules/`）、帶 paths 的 skill 那幾列；已搬進規則檔的段落不留）；Q10 選匯入時加 `@<實際檔名>`（`@GLOSSARY.md`，沿用舊檔名時 `@CONTEXT.md`）那一行並改路由表那一列（寫法見 Q10 那一列）；詞彙表檔名換成實際檔名（見本 Phase 開頭的通用規則） |
 | `skeleton-CLAUDE.changelog.md` | `<落點>/CLAUDE.changelog.md`（與 CLAUDE.md 同目錄） | 建立日。CLAUDE.md 本體不留 changelog 節 |
 | `skeleton-harness-CHANGELOG.md` | `<落點>/.claude/harness/CHANGELOG.md` | 每份實際建立的 harness 檔一節（`## <檔名>`），各記一行「建立」；沒建的檔不留節（07 那一節：Q11 選「建」照常留；選「沿用」也留，改填既有文件的路徑，寫法見 Q11 那一列；只有選「不建」才刪）。**`## 05-knowledge-protocol.md` 這個節標題一個字都不能改**——健檢到期提醒（`health-check-reminder.js`）與 `/harness:review` 只從這一節找【健檢執行】紀錄 |
 | `skeleton-harness-README.md` | `<落點>/.claude/harness/README.md` | 五層清單、生效範圍限制照實寫、誠實揭露；詞彙表與它的變更紀錄檔名換成實際檔名（見本 Phase 開頭的通用規則） |
@@ -29,7 +29,20 @@
 | `skeleton-04-delegation-templates.md` | `<落點>/.claude/harness/04-delegation-templates.md` | 必讀清單（Q7；過時文件加「（過時：…，以程式碼為準）」）、模板五 pipeline（Q1；有既有治理層走 (A) 讓位版）、模板六參數、Q6 豁免行；詞彙表檔名換成實際檔名（見本 Phase 開頭的通用規則；必讀清單與各模板【開工前必讀】每一處都換） |
 | `skeleton-05-knowledge-protocol.md` | `<落點>/.claude/harness/05-knowledge-protocol.md` | 紅區清單（含既有治理層檔案、Q4 紅區語義）、健檢清單列出實際裝的 hook 與其 dry-run 輸入、§5.1 稽核工具表（Phase 1 第 2 項記下的掃描／稽核腳本與會說謊的東西；一支都沒有就寫「目前沒有」）；有裝 cbm-guard plugin 時保留「會說謊的東西」那一項的 cbm 新鮮度指令；參考模式原本健檢清單裡專案專屬的項目（跑某支掃描、看某個指標），照「原有設定的預設處置」搬進新清單，使用者要求「健檢時提醒我看」的項目標【使用者親自看】；詞彙表與它的變更紀錄檔名換成實際檔名（見本 Phase 開頭的通用規則；含健檢清單的 `grep -n "^## Changelog"` 指令） |
 | `skeleton-comment-guide.md`（僅 Q11 選「建」） | `<落點>/.claude/harness/07-comment-guide.md` | 適用範圍（Phase 1 第 1、3 項的語言與 repo）；第三節「編譯器或 linter 要求一定要寫 doc 註解時」的設定表照 Phase 1 第 6 項②盤點到的設定逐列填（檔:行、管哪些成員、本專案語言的局部關閉寫法；使用者同意過的整專案關閉也寫在這一欄），一個都沒有時保留設定表表頭（空表）、刪範例列，表下加一行「目前沒有強制寫 doc 註解的編譯器或 linter 設定；之後出現時補進本表」，「改完怎麼確認」那一行刪掉；第三節標題、說明、三種做法與表頭保留（N1、N6 與審查 agent 引用這一節，整專案關閉要記進這張表）；第四節真人範本只寫 Q11 使用者確認過的，一個都沒有時保留節標題與最後「共同特徵」那一段（第一節引用「第四節」），只把引言與範例列換成一行「尚未收錄；審查時看到好例子就補進來（黃區）」；第五節指紋樣式只留本專案用得到的語言，每條在本專案實跑過一次（命中數不寫進檔）；git-commit 沒裝就刪掉 N9 機械閘那一段 |
+| `skeleton-rule.md`（Phase 2 定案有要搬進規則檔的段落時） | `<落點>/.claude/rules/<主題>.md`（一個主題一份，可分子目錄） | 見下方「規則分層」 |
 | `skeleton-refined-rules.md`（僅 Q7 有規則檔選「精煉成自有正本」） | `<落點>/.claude/harness/review-rules.md` | 原檔路徑與精煉當下的版本（commit 或修改日期）；規則依適用範圍分節，節標題的 glob 與 code-reviewer「改到哪類檔就照哪份規則審」表一致，每條附出處；已知矛盾表只寫 Q7 使用者確認過或程式碼查證過的（Phase 1 第 6 項記的對不上的地方），一列都沒有時照骨架留表頭與那一行說明 |
+
+### 規則分層（`.claude/rules/`）
+
+CLAUDE.md 每個 session 都整份載入，只留每輪都要的：專案概要、絕對邊界、開發流程、路由表、硬規則。只有改到某些檔才用得到的規範（某個框架的寫法、後端分層、測試慣例、資料庫遷移、e2e…）照 Phase 2 定案的處置表搬進 `.claude/rules/<主題>.md`，frontmatter 寫 `paths:`，Claude 讀、寫、改到相符的檔時才整份載入。
+
+- **paths**：照處置表定案的 glob，YAML 清單一條一行；寫法照 gitignore（骨架填空紀律有細節），每條在專案裡至少命中一個檔（命中 0 的規則永遠不會載入，V20 擋）。
+- **內文**：原文照搬、每段標出處；骨架的維護說明（區塊級 HTML 註解，載入時被剝掉）照留。不寫 changelog 節，建立記在 `CLAUDE.changelog.md`（一份一行、寫出檔案路徑）。
+- **目錄裡只放規則檔**：`.claude/rules/` 連子目錄一起載入，沒寫 paths 的檔在啟動時整份進 context，所以 README、CHANGELOG 不放這裡。沒有 paths 的規則檔只在使用者要它啟動就載入時建（處置表標 startup）。
+- **CLAUDE.md 那一側**：刪掉已搬走的段落，路由表那一列（骨架「只跟特定程式區域有關的規範」）逐份列出規則檔與它的 paths；harness README 的清單同步。
+- **不加 paths 的**：harness 制度檔（02～05、07）照舊由路由表指向——它們依情境讀（派工、卡關、記錄），不是依檔案路徑。
+- **寫進答案檔**：搬完、沿用的既有檔也到位後跑 `init-flow.js rules <目標> --file <JSON>`，落點 `.claude/rules/` 底下（含子目錄）每份 .md 一筆，沿用的也記。新建的寫 `{"file":".claude/rules/<主題>.md","load":"paths|startup","topic":"<主題>","moved":[{"from":"CLAUDE.md「<節名>」","text":"<那段裡一句逐字原文>"}]}`；沿用的既有檔（參考模式備份裡原有的）加 `"origin":"kept"`，moved 可為空，load 照檔案現況（有 paths 寫 paths，沒有寫 startup），它不是這次建的，不寫建立那一行。V21 拿 Phase 0 的快照核對 origin：記 kept 的檔要在快照裡、內容跟快照一樣（不在快照＝init 之後才出現，不能記沿用）；init 期間改寫過的既有檔（例：Phase 2 使用者決定改寫命中 0 的 glob）記 new，`CLAUDE.changelog.md` 寫一行說改了什麼；記 new 的檔若在快照裡且內容沒變，表示根本沒動過，要改記 kept。經符號連結進來的規則檔（連結本身或連結的目錄在 `.claude/rules/` 底下）照連結路徑記，kept 比的是連結在 Phase 0 讀到的內容，連到專案外也一樣核對。`init-flow.js rules` 寫入時就照這套判準核對（與 V21 同一支 `checkRuleOrigins`），不合的不寫入並逐項點名。paths 只寫在規則檔的 frontmatter，答案檔不重複記。init-flow 會核對處置表跟落點的檔一一對上，少記或記了不存在的檔都不寫入；init-verify V21 再查一次，並查搬走的段落在規則檔裡、不在 CLAUDE.md 裡。理由：沒有紀錄的規則檔，CLAUDE.md 有沒有殘留已搬段落、建立那一行都無從查。一般模式沒有要搬的就不建規則檔、不跑這一步。
+- **重裝**：上一次 init 建的規則檔照處置表沿用或改寫（paths 換成這次盤點的實際目錄）；上一版答案檔的 rulesSplit 是這次處置表的預設，整份重寫時沿用不改的檔照樣要有一筆。origin 照這次的 Phase 0 快照定，不照上一版：這次沒改寫的檔記 `"origin":"kept"`（上一版那筆沒寫 origin 也一樣，它在這次快照裡、內容沒變），這次改寫過的記 new 並在 `CLAUDE.changelog.md` 寫一行說改了什麼。理由：kept／new 講的是「這次 init 有沒有動它」，上一版的建立紀錄已在 changelog，這次沒動就不再寫建立那一行；漏改的話 `init-flow.js rules` 會點名要改記 kept。
 
 ### 選裝 skill 與本機覆寫說明（文件層的一部分）
 
@@ -44,7 +57,9 @@
 | `skills/skeleton-skill-workflow-map.md` | `<落點>/.claude/skills/workflow-map/SKILL.md` | Q12 選② | 「匝道」列出這次建的每支 skill（本 skill 自己不列）與專案原有的 `.claude/commands/`、`.claude/skills/`；「已停用」列參考模式被取代的原有指令或 skill；05 §4.1 第 5 條與 §5 的地圖檢查那一項保留；詞彙表檔名換成實際檔名（見本 Phase 開頭的通用規則） |
 | `skills/skeleton-skill-CHANGELOG.md` | 上面每支 skill 的同目錄 `CHANGELOG.md` | 每產生一支 skill 就放一份 | 標題填 skill 名、建立日 |
 
-skill 名稱可以依專案慣例改；改了就同步工作流地圖、CHANGELOG 標題與 harness README 那一列。參考模式原本就有同名的 skill 時不覆蓋：照「原有設定的預設處置」的 `commands/`、`skills/` 那一列沿用原檔，選裝的那支換一個名字或不建，在 Phase 2 核對表講明。
+skill 名稱可以依專案慣例改；改了就同步工作流地圖、CHANGELOG 標題與 harness README 那一列。
+
+**skill 的 `paths:`**：上表四支都不加——它們由情境觸發（出 bug、問流程、明說保養、環境異常），不是改到某些檔才需要；加了反而平常不在可用清單上，改那些檔時還會被 `guard-required-skill` 擋下要求先載入。參考模式原有的 skill 照 Phase 2 處置表：使用者同意加 paths 的，只在 frontmatter 加 `paths:` 那幾行、內文不動（原檔在 Phase 0 的整份備份裡）；每條 glob 至少命中一個檔（V22）。參考模式原本就有同名的 skill 時不覆蓋：照「原有設定的預設處置」的 `commands/`、`skills/` 那一列沿用原檔，選裝的那支換一個名字或不建，在 Phase 2 核對表講明。
 
 ### agent 層（5 份＋變更紀錄）
 
@@ -56,6 +71,8 @@ skill 名稱可以依專案慣例改；改了就同步工作流地圖、CHANGELO
 | `skeleton-agent-frontend-engineer.md` | `<落點>/.claude/agents/frontend-engineer.md` | 技術棧、規範、i18n；無前端不建；詞彙表檔名換成實際檔名（見本 Phase 開頭的通用規則） |
 | `skeleton-agent-qa-engineer.md` | `<落點>/.claude/agents/qa-engineer.md` | 依前端分類保留 (A)／(B)／(C) 其一；測試目錄與指令；詞彙表檔名換成實際檔名（見本 Phase 開頭的通用規則） |
 | `skeleton-agent-code-reviewer.md` | `<落點>/.claude/agents/code-reviewer.md` | 規範來源、靜態掃描工具；**VERDICT 輸出格式不得改**（git-commit C 軌依賴它）；詞彙表檔名換成實際檔名（見本 Phase 開頭的通用規則） |
+
+**`skills:` 預載**：專案有 skill 宣告 paths、而某支 agent 平常會改到那些檔（例：前端規範 skill 對 frontend-engineer），在它 frontmatter 的 `skills:` 列出那支 skill（骨架 frontmatter 的填空行；沒有就刪掉那行）。預載只在這個 session 已讀過一個相符的檔時生效，沒生效時第一次改檔會被擋下、照訊息先讀檔再載入，多一次來回、不會卡住；不帶 paths 的 skill 預載照常生效（Claude Code 2.1.296 實測，見 `guard-required-skill.js` 檔頭）。V22 查 `skills:` 列的專案 skill 都存在。
 
 參考模式照 Phase 2 定案的處置表做：「併入」的用骨架建、把原 agent 的專案專屬內容搬進硬性規則（每條註明出自原檔哪一節）；「沿用」的原檔不動。AGENTS.md 這類多工具治理層已定義角色時不建同名檔，只把 harness 需要的段落（交接契約、回報格式）以建議形式列在收尾回報，由使用者決定要不要合併。
 

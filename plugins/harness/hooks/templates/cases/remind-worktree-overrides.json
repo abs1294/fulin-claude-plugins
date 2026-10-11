@@ -151,6 +151,34 @@
       "visible": true
     },
     {
+      "label": "session 停在工作樹裡名稱以 .. 開頭的子目錄（wt/feat/..tools）→ 仍算在工作樹裡，提醒",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: config/local.json\n      reason: 本機連線指向本機資料庫\n",
+          "config/local.json": "{\"db\":\"shared\"}\n",
+          "src/main.js": "start();\n",
+          "..tools/run.js": "x\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "config/local.json": "{\"db\":\"local\"}\n"
+        },
+        "worktrees": {
+          "wt/feat": "."
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm start"
+        },
+        "cwd": "{PROJECT_DIR}/wt/feat/..tools"
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
       "label": "PowerShell 反斜線路徑 → 提醒",
       "setup": {
         "files": {

@@ -4,9 +4,9 @@
 # 誰在用：
 #   - /harness:init Phase 5 靜態驗收：對實例目錄逐詞 grep（命中逐筆判斷，changelog 出處標註除外）
 #   - hooks/wordlist-sweep.js：改到骨架檔要 commit 時，列出 staged 骨架檔的已知詞命中
-#   - 引擎維護：發布前對 references/ 與 hooks/templates/ 全掃
-# 限制（改之前先讀 adaptation-guide.md §4）：
-#   - 只擋「已知」的詞。新回收一批條款時，新的來源專案詞不會自動進來——那是 §4.2「詞表維護觸發」要管的事。
+#   - 引擎維護：發布前對 references/ 與 hooks/templates/ 全掃（docs/maintaining.md §2）
+# 限制（改之前先讀 adaptation-guide.md §4.1）：
+#   - 只擋「已知」的詞。新回收一批條款時，新的來源專案詞不會自動進來——那是 docs/maintaining.md §1「詞表維護觸發」要管的事。
 #   - 目標專案自己的技術棧可能正好含表中某詞（例：目標也用同一種資料庫）。實例驗收時命中要逐筆判斷
 #     「這是目標專案查證過的事實，還是從骨架漏進來的來源專案事實」，不要一律刪。
 #

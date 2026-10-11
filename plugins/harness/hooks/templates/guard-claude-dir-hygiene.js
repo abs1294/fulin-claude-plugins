@@ -32,7 +32,7 @@ const path = require('path');
 // 通用預設涵蓋 Claude Code 自身機制＋常見的工作流制度層目錄；專案若另有自己的
 // 制度層目錄（例：本專案的 harness 之外還有一份 xxx-guide/），在此加上去。
 const ALLOWED_DIRS = new Set([
-  'agents', 'commands', 'hooks', 'skills', 'scripts',
+  'agents', 'commands', 'hooks', 'skills', 'scripts', 'rules',
   'harness',
   'plugins', 'statsig', 'projects', 'todos', 'shell-snapshots', 'ide',
   'plans',
@@ -116,7 +116,7 @@ function main() {
   const msg = [
     `[.claude 純度閘] 擋下：${absNorm}`,
     '',
-    '`.claude/` 只放 Claude Code 機制（commands / skills / hooks / agents / scripts）',
+    '`.claude/` 只放 Claude Code 機制（commands / skills / hooks / agents / rules / scripts）',
     '與工作流制度層。**一次性產物不放這裡。**',
     '',
     `建議落點：\`${dest}\``,

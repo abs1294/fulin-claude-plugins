@@ -10828,6 +10828,150 @@
           "command": "/usr/bin/git restore plain.js"
         }
       }
+    },
+    {
+      "label": "多 repo［覆寫含 ..cache/ 目錄］點名 repo 內 ..cache/ 底下的一般檔：git -C app checkout -- ..cache/plain.js［語法樹路徑：放寬］",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app-block:\n  repo: app\n  files:\n    - path: conf.txt\n      reason: test\n    - path: lib/user.js\n      reason: test\n    - path: ..cache/conf.txt\n      reason: test\n"
+        },
+        "repos": {
+          "app": {
+            "files": {
+              ".gitignore": "*.log\n",
+              ".env.example": "X=1\n",
+              "conf.txt": "line1\n",
+              "plain.js": "p\n",
+              "lib/user.js": "u\n",
+              "..cache/plain.js": "p\n",
+              "..cache/conf.txt": "c\n"
+            },
+            "commit": true,
+            "files_after_commit": {
+              "conf.txt": "line1 LOCAL\n",
+              "lib/user.js": "u LOCAL\n",
+              "mock.log": "mock\n",
+              "new.txt": "new\n",
+              "..cache/conf.txt": "c LOCAL\n"
+            }
+          },
+          "wt/x": {},
+          "my app": {
+            "files": {
+              "conf.txt": "a\n"
+            },
+            "commit": true,
+            "files_after_commit": {
+              "conf.txt": "a LOCAL\n"
+            }
+          },
+          "other": {}
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git -C app checkout -- ..cache/plain.js"
+        }
+      },
+      "expect": "ALLOW",
+      "parser": "only"
+    },
+    {
+      "label": "多 repo［覆寫含 ..cache/ 目錄］點名 repo 內 ..cache/ 底下帶改動的覆寫檔：git -C app checkout -- ..cache/conf.txt［語法樹路徑］",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app-block:\n  repo: app\n  files:\n    - path: conf.txt\n      reason: test\n    - path: lib/user.js\n      reason: test\n    - path: ..cache/conf.txt\n      reason: test\n"
+        },
+        "repos": {
+          "app": {
+            "files": {
+              ".gitignore": "*.log\n",
+              ".env.example": "X=1\n",
+              "conf.txt": "line1\n",
+              "plain.js": "p\n",
+              "lib/user.js": "u\n",
+              "..cache/plain.js": "p\n",
+              "..cache/conf.txt": "c\n"
+            },
+            "commit": true,
+            "files_after_commit": {
+              "conf.txt": "line1 LOCAL\n",
+              "lib/user.js": "u LOCAL\n",
+              "mock.log": "mock\n",
+              "new.txt": "new\n",
+              "..cache/conf.txt": "c LOCAL\n"
+            }
+          },
+          "wt/x": {},
+          "my app": {
+            "files": {
+              "conf.txt": "a\n"
+            },
+            "commit": true,
+            "files_after_commit": {
+              "conf.txt": "a LOCAL\n"
+            }
+          },
+          "other": {}
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git -C app checkout -- ..cache/conf.txt"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
+    },
+    {
+      "label": "多 repo［覆寫含 ..cache/ 目錄］點名跑出 repo 外的路徑：git -C app checkout -- ../other/x［語法樹路徑：判不準照擋］",
+      "setup": {
+        "files": {
+          ".claude/local-overrides.yml": "app-block:\n  repo: app\n  files:\n    - path: conf.txt\n      reason: test\n    - path: lib/user.js\n      reason: test\n    - path: ..cache/conf.txt\n      reason: test\n"
+        },
+        "repos": {
+          "app": {
+            "files": {
+              ".gitignore": "*.log\n",
+              ".env.example": "X=1\n",
+              "conf.txt": "line1\n",
+              "plain.js": "p\n",
+              "lib/user.js": "u\n",
+              "..cache/plain.js": "p\n",
+              "..cache/conf.txt": "c\n"
+            },
+            "commit": true,
+            "files_after_commit": {
+              "conf.txt": "line1 LOCAL\n",
+              "lib/user.js": "u LOCAL\n",
+              "mock.log": "mock\n",
+              "new.txt": "new\n",
+              "..cache/conf.txt": "c LOCAL\n"
+            }
+          },
+          "wt/x": {},
+          "my app": {
+            "files": {
+              "conf.txt": "a\n"
+            },
+            "commit": true,
+            "files_after_commit": {
+              "conf.txt": "a LOCAL\n"
+            }
+          },
+          "other": {}
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git -C app checkout -- ../other/x"
+        }
+      },
+      "expect": "BLOCK",
+      "parser": "only"
     }
   ],
   "variants": {

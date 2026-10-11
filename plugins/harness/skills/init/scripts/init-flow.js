@@ -12,6 +12,7 @@
  *   node init-flow.js mode    <目標> normal|reference                        Phase 0-2 判定後跑
  *   node init-flow.js answer  <目標> <題號> (--file <檔> | --json - | --json '<JSON>')   每答一題跑一次
  *   node init-flow.js catalog <目標> (--file <檔> | --json - | --json '<JSON 陣列>')    形狀目錄逐列去向（Phase 4 推導完）
+ *   node init-flow.js rules   <目標> (--file <檔> | --json - | --json '<JSON 陣列>')    規則分層處置（.claude/rules/ 每份檔的載入方式與搬來的段落；Phase 4）
  *   node init-flow.js waive   <目標> <檢查 id> --match <命中內容的一段> --reason <理由>   init-verify 誤判的豁免
  *   node init-flow.js advance <目標> <N>                                      進入 Phase N 前跑（只能 +1）
  *   node init-flow.js status  <目標>                                          現在在哪、下一步缺什麼
@@ -33,7 +34,7 @@ const argv = process.argv.slice(2);
 const [cmd, targetArg] = argv;
 const flag = (n) => argv.includes(n);
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
-const USAGE = '用法見檔頭：node init-flow.js <start|mode|answer|catalog|advance|status|abort|done> <目標> …';
+const USAGE = '用法見檔頭：node init-flow.js <start|mode|answer|catalog|rules|waive|advance|status|abort|done> <目標> …';
 if (!cmd || !targetArg) die(USAGE);
 const target = path.resolve(targetArg);
 const SP = L.statePath(target);
@@ -214,6 +215,34 @@ if (cmd === 'catalog') {
   saveAnswers(s, ans);
   log(s, 'catalog', `${list.length} 列`); saveState(s);
   console.log(`[init-flow] 已寫入形狀目錄逐列去向 ${list.length} 列`);
+  process.exit(0);
+}
+
+if (cmd === 'rules') {
+  requirePhase(4, '寫規則分層的處置');
+  const list = readPayload();
+  // 路徑一律存成 / 分隔（與 init-verify V21 同一種寫法：L.normRulePath）；先換再驗 schema，反斜線寫法不會被 file 的樣式擋掉
+  if (Array.isArray(list)) for (const x of list) if (x && typeof x.file === 'string') x.file = L.normRulePath(x.file);
+  const schema = L.loadSchema();
+  const errs = L.validate(schema.properties.rulesSplit, list, schema, 'rulesSplit');
+  if (Array.isArray(list)) {
+    const seen = new Set();
+    for (const x of list) { if (x && seen.has(x.file)) errs.push(`${x.file} 重複`); if (x) seen.add(x.file); }
+    // 處置表要跟落點實際的規則檔一一對上（含子目錄、含沿用的既有檔）：搬完或決定沿用之後才跑這一步。
+    // 列檔與 init-verify V20／V21 用同一支 L.listRuleFiles（跟符號連結、大小寫要相符）
+    const onDisk = L.listRuleFiles(s.landing);
+    for (const x of list) if (x && typeof x.file === 'string' && !onDisk.includes(x.file)) errs.push(`${x.file} 不在落點（${s.landing}）：先建好或沿用到位再記`);
+    for (const f of onDisk) if (!seen.has(f)) errs.push(`${f} 在落點但處置表沒有它：每份規則檔一筆，沿用的既有檔寫 "origin":"kept"`);
+    // origin 對 Phase 0 快照核對，與 init-verify V21 同一支（L.checkRuleOrigins）：寫入時就擋，不留到 Phase 5 才發現。
+    // 重裝時拿上一版 rulesSplit 當預設，那些項目沒寫 origin（等同 new），沒動過的檔會在這裡被點名改記 kept
+    if (!errs.length) errs.push(...L.checkRuleOrigins(s.landing, s.target, list.filter((x) => x && typeof x.file === 'string')).hits);
+  }
+  if (errs.length) { console.log('[init-flow] rulesSplit 沒寫入：'); printMiss(errs); process.exit(1); }
+  const ans = loadAnswers(s);
+  ans.rulesSplit = list;
+  saveAnswers(s, ans);
+  log(s, 'rules', `${list.length} 份`); saveState(s);
+  console.log(`[init-flow] 已寫入規則分層處置 ${list.length} 份：` + list.map((x) => `${x.file}（${x.origin === 'kept' ? '沿用，' : ''}${x.load === 'startup' ? '啟動載入' : '碰到 paths 才載入'}，搬來 ${(x.moved || []).length} 段）`).join('、'));
   process.exit(0);
 }
 

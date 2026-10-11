@@ -2,8 +2,7 @@
 
 > 建立：{{YYYY-MM-DD}}，由 harness plugin 的 `/harness:init` 產生。
 > 用途：讓 Claude（不論用哪一級模型）照同一套規則穩定地自己把事做完。workspace 根的 `CLAUDE.md` 會指引 Claude 來讀這個目錄。
-> 這裡放的是**開發流程的基本規則**（做事紀律、依本專案調整過的判斷標準、各角色的分工、會自動擋下危險動作的檢查）加上 init 時查證過的本專案事實；**不含任何因為特定事故而定的規則**——那些要從本專案自己踩過的坑累積，方法見 `05-knowledge-protocol.md` 的「升格協議」一節。
-> ⚠ 先說清楚：這是一套基本架構，加上讓它越用越完整的方法，不是一套成熟的 harness。成熟的 harness 還包括數十到上百條踩坑紀錄、數百支自動測試、每個模組測到哪裡的登記（形狀見 `05-knowledge-protocol.md` §5.1）——那些要靠本專案自己累積，init 給不了。
+> 這裡放的是開發流程的基本規則（做事紀律、依本專案調整過的判斷標準、各角色的分工、會自動擋下危險動作的檢查）加上 init 時查證過的本專案事實。它是基本架構加上讓它越用越完整的方法，還不是成熟的 harness：因特定事故而定的規則、踩坑紀錄、自動測試、每個模組測到哪裡的登記（形狀見 `05-knowledge-protocol.md` §5.1），要從本專案自己踩過的坑累積，方法見 `05-knowledge-protocol.md` 的「升格協議」一節。
 
 ## 檔案清單與用途
 
@@ -26,6 +25,8 @@
 | `.claude/hooks/` ＋ `{{settings 檔：單人＝.claude/settings.local.json、團隊＝.claude/settings.json，照 Phase 3 Q4 只寫實際那一個}}` | 自動檢查：Claude 每次執行指令或派工前自動跑，命中就擋下（{{已安裝的每項檢查，各一句講它擋什麼}}） | 被擋時看擋下訊息；健檢時拿來試跑 |
 | workspace 根 `GLOSSARY.md`（沒有就讀 `CONTEXT.md`） | 本專案特有詞彙表（詞是什麼，不是怎麼做） | 每個角色開工前必讀（派工檢查會擋漏列的）；詞義不清、詞義衝突時當場查與補 |
 {{有裝學習迴路（形狀目錄第 31～35 列）時加這一列，否則刪本行：| `.claude/harness/learning/`（不進版控，第一次背景整理時才建立） | 學習迴路的紀錄：每次背景整理的帳本、待你看與待核清單、用量計數。整理是背景另開一個只能讀檔的 Claude 讀這段對話提建議，由 `.claude/hooks/learn-promote.js` 照 05 §1 分級寫入 | 開對話第一行的回報讀它；`node .claude/hooks/learn-pending.js list` 看清單；核可或駁回要你在提示列打「核可 <編號>」「駁回 <編號>」 |}}
+{{有產生 `.claude/rules/` 時加這一列，否則刪本行：| `.claude/rules/`（{{逐份列：檔名＋paths}}） | 只跟特定程式區域有關的規範：Claude 讀、寫、改到 paths 相符的檔時才整份載入（沒寫 paths 的每個 session 都載入）；目錄裡只放規則檔 | 自動載入，不必先讀；改規範直接改對應的檔，新增或刪掉一份時同步 CLAUDE.md 路由表與本表 |}}
+{{有 skill 宣告 `paths:` 時加這一列，否則刪本行：| 宣告 `paths:` 的專案 skill（{{逐支列：名稱＋paths}}） | 改到 paths 涵蓋的檔之前要先載入的規範；{{裝了 guard-required-skill 時寫：沒載入就改會被擋下，擋下訊息會說先讀哪個檔、再載入哪支；沒裝時寫：只會把名稱列進可用清單，不保證被讀}} | 改相符的檔之前；要讓某支 agent 啟動就帶著，寫進它定義檔的 `skills:`（只在這個 session 已讀過相符的檔時生效） |}}
 | `.claude/harness/init-answers.json` | init 時每一題的答案（問了什麼、答了什麼、哪天、是不是我先替你決定的） | 重裝 harness 時當每一題的預設答案；想知道當初某個設定為什麼這樣選時查 |
 | workspace 根 `FLOWS.md` | 跨模組流程圖（只收出過問題、或橫跨兩個以上模組的流程） | 要改到已收錄流程的任何一段之前必讀 |
 | `tests/Project_Detail/PROJECT.md` | 測試時踩過的坑與測試設計知識 | 測試用的 agent（qa-engineer）開工前必讀 |
@@ -34,21 +35,11 @@
 
 （沒有 `01-diagnosis.md`（專案痛點診斷）與 `06-handover-letter.md`（交接信）：這兩份要等本專案累積出自己的問題才寫得出來。何時該建、照什麼結構建，見 `05-knowledge-protocol.md` §7。）
 
-## 快速啟動（給未來的主對話模型）
-
-1. 先讀 workspace 根 `CLAUDE.md`——治理分層與絕對邊界在那裡。
-2. 要派工 → 讀 `02` 決定模型與模式，用 `04` 填空。
-3. 卡關（同一錯誤重複出現）→ 讀 `03` 矩陣 A 對照信號。
-4. 宣稱完成前 → 對照 `03` 矩陣 B 逐條打勾。
-5. 踩坑 → 依 `05` 格式寫 memory；想改制度檔 → 先查 `05` §1 分級。
-6. 講需求要開發 → 照 `04` 模板五的 pipeline 走（先對齊回合、再計畫確認、再一路推進）。
-7. 碰到不確定的專案詞 → 查 `GLOSSARY.md`（沒有就讀 `CONTEXT.md`）；動到跨模組的東西 → 查 `FLOWS.md`。
-
 ## 生效範圍限制（實話）
 
 {{照實填，用白話寫兩件事：①開 session 時那段「本專案有制度層」的提醒從哪裡來——由 harness plugin 提供（要在本專案啟用 harness plugin），或寫在本專案 .claude/settings.json 裡；②自動檢查只在 workspace 根（{{路徑}}）開 session 時才會跑，在子 repo 裡開 session 時，CLAUDE.md 仍會被讀到（上層目錄的也會讀），但自動檢查不會跑。}}
 
-`.claude/hooks/` 裡的自動檢查是 init 當下**從 harness plugin 複製過來的**，之後屬於本專案：可以自己改，代價是 plugin 更新時不會自動同步過來（要同步就對照 plugin 的 `hooks/templates/` 手動合併）。自動檢查本身出錯時一律放行並印出錯誤，不會把工作卡死；但這也代表**它壞掉時不會主動告訴你規則已經失效**，所以定期健檢要拿它試跑一次（見 `05-knowledge-protocol.md` 的「定期健檢」一節）。
+`.claude/hooks/` 裡的自動檢查是 init 當下**從 harness plugin 複製過來的**，之後屬於本專案：可以自己改，代價是 plugin 更新時不會自動同步過來（要同步就對照 plugin 的 `hooks/templates/` 手動合併）。自動檢查本身出錯時放行並印出錯誤，不會把工作卡死；代價是它壞掉時不會主動告訴你規則已經失效，所以定期健檢要拿它試跑一次（見 `05-knowledge-protocol.md` 的「定期健檢」一節）。
 
 ## 修改權限
 

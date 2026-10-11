@@ -27,9 +27,11 @@ node <本 plugin>/skills/init/scripts/init-verify.js <落點>
 | 11 專案理解落地 | V13 概要四塊、V14 詞條數＝答案檔、V12 帳密樣式 | 概要內容與使用者改過的版本逐句一致、U1 每個外部系統的去向、Q7 過時註記 |
 | 12 形狀目錄逐列對帳 | V16 每列有去向、V17 每支 hook 有接線 | B 類每個 Q2 勾選項對得到規則、Q9 欄位、restore／port 驗證實跑 |
 | 13 參考模式 | — | 全部（含另派 subagent 的經驗帶走審查） |
-| （新）答案檔 | V15 init-answers.json 合法、必答題齊 | — |
-| （新）學習迴路 | V18 檔齊、五個事件都有接線、團隊模式 `.gitignore` 排除 learning/ | 冷啟探針 P6 |
-| （新）hook 以 CommonJS 執行 | V19 `.claude/hooks/package.json` 存在且寫明 `"type": "commonjs"`（專案根是 `"type": "module"` 時，少了它每支 hook 載入就失敗、fail-open 接不到） | — |
+| （十三項外）答案檔 | V15 init-answers.json 合法、必答題齊 | — |
+| （十三項外）學習迴路 | V18 檔齊、五個事件都有接線、團隊模式 `.gitignore` 排除 learning/ | 冷啟探針 P6 |
+| （十三項外）規則分層 | V20 `.claude/rules/`（含子目錄）每份檔的 paths 寫法合法、每條 glob 在專案裡至少命中一個檔；V21 每份規則檔（含沿用的既有檔）在答案檔 `rulesSplit` 有一筆、每筆記的檔都存在，每份規則檔有 paths 或在處置表標成啟動載入、列在 CLAUDE.md 路由表或 harness README，答案檔 `rulesSplit` 記的每段搬走的原文在規則檔裡、不在 CLAUDE.md 裡，`origin` 對得上 Phase 0 快照（記 kept 的要在快照裡且內容沒變；記 new 的若在快照裡且內容沒變要改記 kept；找不到快照時 kept 不核對、證據寫明）；V03 新建規則檔的建立記在 `CLAUDE.changelog.md`（核對過的沿用檔不要求） | 處置表每一列都照做了（該搬的整段搬了、沒多搬每輪都要的內容），規則檔內容跟原文逐段一致 |
+| （十三項外）skill 的 paths | V22 宣告 paths 的 skill 每條 glob 合法且命中檔案（比對函式取自實例的 `guard-required-skill.js`，跟 hook 同一份程式；實例那支缺匯出或載入失敗時退回 plugin 範本，證據寫明用了哪一份）；agent 定義檔 `skills:` 列的專案 skill 都存在 | 冷啟探針 P7 |
+| （十三項外）hook 以 CommonJS 執行 | V19 `.claude/hooks/package.json` 存在且寫明 `"type": "commonjs"`（專案根是 `"type": "module"` 時，少了它每支 hook 載入就失敗、fail-open 接不到） | — |
 
 下面是十三項的完整判準（腳本的檢查照這份寫；語意項照這份做）：
 
@@ -61,7 +63,7 @@ node <本 plugin>/skills/init/scripts/init-verify.js <落點>
   probe-hooks 只測得到 hook，權威檢查在 flow.sh，要在它身上證明。用暫存目錄（scratchpad 底下，不污染目標專案的審查紀錄）：
   **暫存目錄的形狀要跟 hook 填空區的 `REPOS` 一致**——`REPOS` 是 `['.']`（單一 repo）就在暫存目錄本身 `git init`；是 `['web', 'api']` 這類多 repo 就在暫存目錄底下照名字各建一個子 repo（都要 `git init`），下面「那個檔」放進其中一個子 repo。以下用 `<暫存根>` 指暫存目錄本身、`<R>` 指 flow.sh 的 repo 參數：單一 repo 時 `<R>` 是 `.`；多 repo 時 `<R>` 是放了那個檔的子目錄名（例 `web`），檔案路徑一律寫成相對 `<R>` 的路徑（例 `a.js`，不是 `web/a.js`）。形狀不一致的話 hook 會去查不存在的子 repo、看不到 staged，驗收必然失敗，那不是 hook 壞了。
   複製目標的 qa-gate.conf 到暫存目錄的 `.claude/`，在（子）repo 裡建一個符合 behavior_ext 的檔並 `git add`，
-  設 `CLAUDE_PROJECT_DIR=<暫存根>`（多 repo 時也是暫存根，不是子 repo——設成子 repo 的話 hook 找不到 REPOS 裡的子目錄而放行，flow.sh 也會找錯路徑）後依序跑 `bash <flow.sh> prepare <R> <該檔>`（Windows 上的 `bash` 要用 Git Bash：PATH 上的 bash 可能是 WSL，flow.sh 在 WSL 裡讀不到 Windows 路徑；用 `"<Git 安裝目錄>/bin/bash.exe"`，或在 Claude Code 的 Bash 工具裡跑——它本身就是 Git Bash）、`bash <flow.sh> review-record <R> --exempt "harness-probe"`
+  設 `CLAUDE_PROJECT_DIR=<暫存根>`（多 repo 時也是暫存根，不是子 repo——設成子 repo 的話 hook 找不到 REPOS 裡的子目錄而放行，flow.sh 也會找錯路徑）後依序跑 `bash <flow.sh> prepare <R> <該檔>`（Windows 的 `bash` 照上面 addendum 那一項用 Git Bash）、`bash <flow.sh> review-record <R> --exempt "harness-probe"`
   ——要被拒（exit 非 0，訊息是「必須帶有效的 --qa 表態」）；同一行加 `--qa "已QA：harness-probe"` 再跑——要寫入紀錄（exit 0）。
   同一個暫存目錄（那個檔仍在 staged）再對 `guard-qa-before-commit.js` 餵一次 Skill payload（`{"tool_name":"Skill","tool_input":{"skill":"git-commit"}}`，不帶 --qa-verified），
   **同樣要設 `CLAUDE_PROJECT_DIR=<暫存根>`**（hook 從它找專案根與 repo；沒設的話 hook 在目標專案的 `.claude/hooks/` 底下，會把目標專案當成專案根、看的是目標專案的 staged）：
@@ -84,7 +86,7 @@ node <本 plugin>/skills/init/scripts/init-verify.js <落點>
   (3) 設定指標不符——挑一筆 POINTERS，`--ports <寫設定的服務>=<它的 port>,<目標服務>=<設定檔寫的值以外的 port> --layers config`：exit 1，那一列是「不一致」且說明指到正確的檔:行（不必改設定檔）；
   再用設定檔實際寫的值跑一次 `--layers config`：要 exit 0——不然就是 POINTERS 的正則跟實際寫法對不上（但書：有 POINTERS 指到建置輸出目錄裡的複本、而目前還沒建置過時，那一筆會是「讀不到檔案」——先建置一次再跑；不能建置的，那一筆標「不適用（尚未建置）」並寫明原因，其餘筆照樣要 OK，不得因此把整項算通過）。服務當下有在跑的話，另跑一次不帶 `--layers` 的完整檢查貼輸出（判「?」的項目照實寫進收尾回報，不算通過）；沒在跑就寫「未起服務，執行層的實際 listener 與 HTTP 探測未實測」。
   有裝第 19 列且填了 `PORT_CHECK_CMD`：對 `remind-worktree-overrides.js` 餵一次起服務指令的 payload，輸出要出現「起好服務之後驗 port」那一句
-□ 參考模式（非參考模式標「不適用」）：①備份與原檔逐檔 hash 一致（在 Phase 4 動檔之前比，Phase 5 再比一次備份本身沒被動過）②Phase 2 處置表逐列對帳：「併入」與取代時搬過去的專案事實，內容在新檔找得到（grep 原句的關鍵詞）；「沿用」的原檔 hash 未變、接線還在；「取代」的原接線已拿掉 ③知識筆記檔條目數：新檔＝原有真實條目數＋U3 新增數－U3 裁決刪除數（`GLOSSARY.md`／`CONTEXT.md` 這份詞彙表以外的檔新增與刪除都是 0），原有條目逐條找得到（U3 裁決改寫過的找改寫後的版本；裁決刪除的在收尾回報列得出來） ④原有 CLAUDE.md 的每條規則都在處置表上有去向（逐節對，不抽樣） ⑤Q8：03 矩陣 D 的列數＝Q8 選的條數，每列有出處；標了自動檢查的，對得到一條規則且 `probe-hooks.js` 有它一擋一放的案例；原本在 CLAUDE.md、升格進 D 的條款，新 CLAUDE.md 對應的節留一行指向 `03 D<n>`（Q8 沒問時標「不適用」） ⑥**經驗帶走審查**（不同判準的兜底）：另派一支 fresh-context subagent（`opus`），**不給它第 12 項的清單**，只給備份路徑、路由表指到的原文件路徑、這次新產生與修改的檔案清單；prompt 要帶「搜尋限定目標目錄、禁止全碟掃描」。它從舊文件那一側逐段讀，用第 12 項同一個語意判準認出每條經驗，再到新設定裡找它還在不在：在→寫出新檔名與行號（沿用原位的文件也算，要在新 CLAUDE.md 路由表或必讀清單上找得到）；不在→列為「沒帶到」。回報格式：一條一列「經驗原文｜出處｜新設定裡在哪／沒帶到」，全部附出處，不准只給數字。主對話拿它的清單跟第 12 項清單互比：只有一邊有的逐條回原文判斷。**Q8 使用者明確選了不帶的經驗，出現在「沒帶到」裡是預期結果**：標「你選了不帶」，不重問、不算缺漏、不擋 init 完成。其餘「沒帶到」的每一條：屬於專案事實的回 Phase 4 補進新檔；屬於要不要升格的，攤給使用者決定（等同補問 Q8）。補完再派一支新的 subagent 重審，最多兩輪，第二輪仍有沒帶到的就停下，把清單交給使用者。審查的原始回報貼進收尾回報
+□ 參考模式（非參考模式標「不適用」）：①備份與原檔逐檔 hash 一致（在 Phase 4 動檔之前比，Phase 5 再比一次備份本身沒被動過）②Phase 2 處置表逐列對帳：「併入」與取代時搬過去的專案事實，內容在新檔找得到（grep 原句的關鍵詞）；「沿用」的原檔 hash 未變、接線還在（處置表同意加 paths 的既有 skill：除了 frontmatter 新增的 `paths:` 那幾行，與備份逐字相同）；「取代」的原接線已拿掉 ③知識筆記檔條目數：新檔＝原有真實條目數＋U3 新增數－U3 裁決刪除數（`GLOSSARY.md`／`CONTEXT.md` 這份詞彙表以外的檔新增與刪除都是 0），原有條目逐條找得到（U3 裁決改寫過的找改寫後的版本；裁決刪除的在收尾回報列得出來） ④原有 CLAUDE.md 的每條規則都在處置表上有去向（逐節對，不抽樣） ⑤Q8：03 矩陣 D 的列數＝Q8 選的條數，每列有出處；標了自動檢查的，對得到一條規則且 `probe-hooks.js` 有它一擋一放的案例；原本在 CLAUDE.md、升格進 D 的條款，新 CLAUDE.md 對應的節留一行指向 `03 D<n>`（Q8 沒問時標「不適用」） ⑥**經驗帶走審查**（不同判準的兜底）：另派一支 fresh-context subagent（`opus`），**不給它第 12 項的清單**，只給備份路徑、路由表指到的原文件路徑、這次新產生與修改的檔案清單；prompt 要帶「搜尋限定目標目錄、禁止全碟掃描」。它從舊文件那一側逐段讀，用第 12 項同一個語意判準認出每條經驗，再到新設定裡找它還在不在：在→寫出新檔名與行號（沿用原位的文件也算，要在新 CLAUDE.md 路由表或必讀清單上找得到）；不在→列為「沒帶到」。回報格式：一條一列「經驗原文｜出處｜新設定裡在哪／沒帶到」，全部附出處，不准只給數字。主對話拿它的清單跟第 12 項清單互比：只有一邊有的逐條回原文判斷。**Q8 使用者明確選了不帶的經驗，出現在「沒帶到」裡是預期結果**：標「你選了不帶」，不重問、不算缺漏、不擋 init 完成。其餘「沒帶到」的每一條：屬於專案事實的回 Phase 4 補進新檔；屬於要不要升格的，攤給使用者決定（等同補問 Q8）。補完再派一支新的 subagent 重審，最多兩輪，第二輪仍有沒帶到的就停下，把清單交給使用者。審查的原始回報貼進收尾回報
 ```
 
 ### 第二層：冷啟探針（新開 session 實測，不是讀設定檔推論）
@@ -104,6 +106,7 @@ cd <目標> && claude -p "<探針 prompt>" --output-format text
 | P3 | **SessionStart 提醒有沒有出來** | 「你這個 session 開始時，context 裡有沒有一段以 `[harness]` 開頭的提醒？有的話逐字貼出，沒有就回答『沒有』。」 | 回覆逐字貼出 `[harness] 本專案有制度層 .claude/harness/…` | 無 |
 | P4 | **git-commit 攔不攔得住裸 git commit（兩種殼都要）** | 探針前先記 `git -C <repo> rev-parse HEAD`。prompt：「先用 Bash、再用 PowerShell 各執行一次 `git commit --dry-run --allow-empty -m harness-probe`，把兩次工具回傳原文完整貼出。」（沒有 PowerShell 工具的環境只跑 Bash） | 兩次回傳原文都是 hook 擋下的訊息（非 git 自己的輸出），且探針後 `rev-parse HEAD` 與探針前相同。**多 repo 工作區**：對每個子 repo 各跑一次，指令改成 `git -C <子 repo> commit --dry-run --allow-empty -m harness-probe`，每個子 repo 各記前後 HEAD | 0-1 是單一 repo 或多 repo 工作區，且有裝 git-commit plugin |
 | P5 | **B 類規則的接線是真的**（Claude Code 真的會對 Bash／PowerShell 叫 `guard-risky-command`） | 每條規則造一條**就算沒被擋也無害**的觸發指令：在命中規則樣式的前提下加 `--help`／`--version`／`--dry-run`，或指向不存在的主機、不存在的檔案。prompt：「用 Bash 執行 `<無害觸發指令>`，把工具回傳原文完整貼出。」 | 回傳原文為 guard-risky-command 的擋下訊息 | 有裝 guard-risky-command 且至少一條規則造得出無害形式；**造不出無害形式的規則不准拿來冷啟**（只靠 probe-hooks 驗行為），在回報裡寫明 |
+| P7 | **改到 skill 宣告的路徑前，沒載入會不會被擋** | 挑一支宣告 paths 的 skill 與一個相符的既有檔。prompt：「不要載入任何 skill、不要先讀檔。用 Edit 把 `<相符檔>` 裡的 `HARNESS-PROBE-不存在的字串` 改成 `x`，把工具回傳原文完整貼出。」（舊字串不存在，就算沒被擋，Edit 也只會回找不到字串，不會改到檔）。不用先讀檔：PreToolUse 在 Claude Code 的「檔案未讀過」檢查之前觸發，未讀過的檔照樣送進 hook | 回傳原文是 `[必讀 skill]` 開頭的擋下訊息、點名那支 skill；回的是找不到字串或「檔案未讀過」的錯誤＝hook 沒接上 | 裝了 guard-required-skill 且至少一支 skill 宣告 paths |
 
 - **探針基底 prompt**（P1／P2 共用）：「只回覆 PROBE-OK」加上該 agent 在 `check-review-discipline.js` 的 `REQUIRED_MARKERS` 裡要求的每個標記（共用的回報鏈鐵則、【驗收條件】、【回報格式】、【開工前必讀】與它要寫到的必讀檔名，加上該 agent 自己的欄位），每欄寫一句最小內容即可——【驗收條件】要寫一條實際條件（例：「回覆是 PROBE-OK」），只放標題會被擋；QA agent 的【測試資料來源】第一行寫「選 a：探針不造資料」（該格會驗有沒有明選）；實作與 QA agent 的【開工前對齊】寫「無分岔：探針」，QA 的【目標環境】【既有測試分流】各寫一句（例：「本機」「新 TC：探針不跑測試」）；不要帶【計畫／設計文件】（帶了會打開那份檔驗章節）。P1 與 P2 之間**唯一的差別是有沒有帶 model**——一次只變一個變因，否則 P1 被擋時分不出是哪支閘擋的。沒裝 check-review-discipline 時基底就是「只回覆 PROBE-OK」。
 - 用 `--dry-run` 是為了**探針失敗時也不會真的建 commit**。
@@ -113,4 +116,4 @@ cd <目標> && claude -p "<探針 prompt>" --output-format text
 
 **P6（學習迴路，有裝時做；不用開新 session）**：在 `<落點>/.claude/hooks/` 跑 `node learn-reflect.js --self-test`。它在系統暫存目錄建一個假專案（複製這裡的學習迴路檔、寫一份假對話紀錄、建暫存 memory 目錄），自己產生一支假的 claude 執行檔（回固定的一筆綠區、一筆紅區、一筆該被拒收的提案），照正式流程跑一次反思與落地，逐項印 PASS／FAIL：綠區的 memory 寫進暫存 memory 目錄且 MEMORY.md 多一行、紅區的沒有寫入只進待核清單（pending.json）、拒收那筆有理由、ledger 有三筆、last-run.json 存在。全部 PASS 且 exit 0 才算過；不碰落點本身、不叫真的模型、不花用量。原始輸出貼進收尾回報。
 
-**出關**：`init-verify.js` exit 0、語意項都做完、P1～P6 前提成立的都 PASS，跑 `init-flow.js advance <目標> 6`（腳本會再跑一次 `init-verify.js`，沒過就不讓進 Phase 6）。
+**出關**：`init-verify.js` exit 0、語意項都做完、P1～P7 前提成立的都 PASS，跑 `init-flow.js advance <目標> 6`（腳本會再跑一次 `init-verify.js`，沒過就不讓進 Phase 6）。

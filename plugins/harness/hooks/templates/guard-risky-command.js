@@ -1171,7 +1171,7 @@ let PROMPT_ONLY = false;
 function cwdLabel(root, dir) {
   const rel = path.relative(root, dir);
   if (rel === '') return '.';
-  if (rel.startsWith('..') || path.isAbsolute(rel)) return dir.split('\\').join('/');
+  if (rel === '..' || rel.startsWith('..' + path.sep) || rel.startsWith('../') || path.isAbsolute(rel)) return dir.split('\\').join('/');
   return rel.split('\\').join('/');
 }
 function cwdMsg(r, label) {

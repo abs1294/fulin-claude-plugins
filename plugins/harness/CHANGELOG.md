@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.17.0] - 2026-10-11
+### Changed
+- init 產出規則分層：特定路徑的規範拆進 .claude/rules/<主題>.md（paths 碰到才載入），init-verify V20～V22 驗 glob 命中與殘留段落；新增必裝 hook guard-required-skill：skill frontmatter 宣告 paths 的檔案，改之前要先在當前 context（含 subagent 自己的）載入該 skill，判準與 init-verify 共用；壓縮快照由程式抽出 AskUserQuestion 裁決與任務清單最後狀態，注入時原文附上；/harness:review 新增第 2.7 步指令帳本（留／改寫／搬／自動化／刪，搬到沒人讀的檔＝刪）；bug-hunt 第 1 步改為紅指令門檻；學習迴路反思加反事實檢驗；依 prompt-audit 精簡 init 流程、制度骨架、派工模板、agent 骨架、review 與 hook 訊息（以 Opus／Sonnet 5.5 為讀者，刪強調堆疊、跨檔重述、事故沿革）；adaptation-guide 的維護章節移到 docs/maintaining.md；修模板六說明文字讓派工閘把作答判成未明選，並加 delegation-gate 契約測試；05 補可升格機械閘清單、修 §3 斷鏈引用；code-reviewer 骨架建議須附依據；七支 hook 的「專案外」判斷改為 `..` 加分隔符或絕對路徑才算（原寫法把專案內 `..` 開頭目錄當專案外，guard-required-skill 可被繞過），guard-test-asset-hygiene 不再稽核跨磁碟的專案外檔；init-verify 遇到實例 hook 缺匯出時退回範本，不再崩潰；V21 要求 .claude/rules/ 每份規則檔都在答案檔 rulesSplit 有處置紀錄（沿用的既有檔記 origin: kept，V03 不要求建立行），init-flow rules 寫入前核對處置表與實際檔一一對上；origin: kept 對 Phase 0 快照核對（不在快照或內容改過不得記沿用，沒動過的既有檔不得記新建；經符號連結的規則檔比對 Phase 0 時連結讀到的內容；init-flow rules 寫入時即核對），快照讀取與列規則檔抽成 init-lib 共用函式；/harness:review 指令帳本在第 2.7 步只寫系統暫存目錄、第 4 步才存進 reviews/（守住只讀階段）
+
 ## [0.16.4] - 2026-10-10
 ### Fixed
 - 實測從專案子目錄跑 claude -p 時子 session 不會載入專案根 .claude/ 的 hook（git／非 git、settings.json／settings.local.json 皆同；Claude Code 2.1.296），guard-risky-command 的註解與案例說明、設計稿 §11.1c 改成實測結論；claude -p 例外維持只在工作目錄就是專案根時成立（行為不變）

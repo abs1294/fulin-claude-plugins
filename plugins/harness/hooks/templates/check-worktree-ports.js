@@ -132,7 +132,7 @@ function inside(base, p) {
 }
 function shown(dir) {
   const rel = slash(path.relative(ROOT, dir));
-  return !rel ? '.' : (rel.startsWith('..') || path.isAbsolute(rel) ? slash(dir) : rel);
+  return !rel ? '.' : (rel === '..' || rel.startsWith('../') || path.isAbsolute(rel) ? slash(dir) : rel);
 }
 
 // ── git ──

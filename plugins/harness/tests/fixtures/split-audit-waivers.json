@@ -30,7 +30,7 @@
   {
     "line": 96,
     "orig": "| 0-5 | git-commit plugin 裝了沒（0-1 是非 git",
-    "now": "| 0-5 | git-commit plugin 裝了沒（0-1 是非 git 專案時不適用） | 照設定的優先序讀 `enabledPlugins` 裡 `git-commit@` 開頭的項：`<目標>/.claude/settings.local.json` ＞ `<目標>/.claude/settings.json` ＞ `~/.claude/settings.json`，**以最高一層有寫這一項的值為準**（高層寫 `false` 就是停用，就算低層寫 `true`）；三層都沒寫＝沒裝。判定為 `true` 後，再確認 `~/.claude/plugins/cache/*/git-commit/` 底下有版本資料夾；**並讀出這個專案實際用的版本**：`~/.claude/plugins/installed_plugins.json` 裡 `git-commit@…` 的紀錄，取 `projectPath` 是目標的那筆（沒有就取 `scope` 為 `user` 的那筆）的 `version` | **沒裝 → 在這一步就講清楚，不要等到訪談中途才冒出來**：照下方「git-commit 裝不裝」範本給對照表與一行安裝指令，等使用者決定（與 0-3 同一則訊息問，見範本上方「0-5 與 0-3 怎麼問」）。使用者裝好後，**Claude 自己重跑本項的兩個檢查**確認生效，把結果貼出來，不要先叫使用者重開 session（要不要重開以實際檢查為準；hook 有沒有真的生效由 Phase 5 的 P4 冷啟探針驗）。使用者選不裝 → git-commit 相關的閘與 P4 不裝不測、沉澱閘改綁 Stop hook，0-3 標「不適用」，收尾回報寫明。**裝了但版本低於 0.11.0**（QA 閘要 0.11.0 以上：`flow.sh review-record` 才會讀 `.claude/qa-gate.conf`、自己檢查 staged 有行為類檔時有沒有帶 `--qa`）→ 同一則訊息照「git-commit 裝不裝」的方式問要不要更新，講清楚影響：不更新的話「改了程式有沒有測過」只剩呼叫 git-commit skill 時的提早提醒（`guard-qa-before-commit`），直接用 Bash 跑 flow.sh 就不會被查；更新由 Claude 經使用者同意後直接跑非互動 CLI：`claude plugin marketplace update <marketplace 名稱>` → `claude plugin update git-commit@<marketplace 名稱> --scope <實際 scope>`（scope 用 `claude plugin list --json` 查，取法同上方 harness 落後那段），跑完請使用者重開 session。選更新 → 更新完 Claude 自己重讀版本確認；選不更新 → 照裝（`qa-gate.conf` 照樣產生，舊版 flow.sh 不讀它，之後更新就自動生效），Phase 2 核對表與收尾回報寫「git-commit 是 <版本>，QA 閘只有提早提醒，你選擇先不更新」，Phase 5 的 qa-gate 實跑標「不適用：git-commit 版本低於 0.11.0」。理由：缺的相依要在一開始一次講清楚，不要等到訪談中途（經過見 `../rationale.md` §Phase 0-4） |",
+    "now": "| 0-5 | git-commit plugin 裝了沒（0-1 是非 git 專案時不適用） | 照設定的優先序讀 `enabledPlugins` 裡 `git-commit@` 開頭的項：`<目標>/.claude/settings.local.json` ＞ `<目標>/.claude/settings.json` ＞ `~/.claude/settings.json`，**以最高一層有寫這一項的值為準**（高層寫 `false` 就是停用，就算低層寫 `true`）；三層都沒寫＝沒裝。判定為 `true` 後，再確認 `~/.claude/plugins/cache/*/git-commit/` 底下有版本資料夾；**並讀出這個專案實際用的版本**：`~/.claude/plugins/installed_plugins.json` 裡 `git-commit@…` 的紀錄，取 `projectPath` 是目標的那筆（沒有就取 `scope` 為 `user` 的那筆）的 `version` | **沒裝 →** 照下方「git-commit 裝不裝」範本給對照表與一行安裝指令，等使用者決定（與 0-3 同一則訊息問，見範本上方「0-5 與 0-3 怎麼問」）。使用者裝好後，**Claude 自己重跑本項的兩個檢查**確認生效，把結果貼出來，不要先叫使用者重開 session（要不要重開以實際檢查為準；hook 有沒有真的生效由 Phase 5 的 P4 冷啟探針驗）。使用者選不裝 → git-commit 相關的閘與 P4 不裝不測、沉澱閘改綁 Stop hook，0-3 標「不適用」，收尾回報寫明。**裝了但版本低於 0.11.0**（QA 閘要 0.11.0 以上：`flow.sh review-record` 才會讀 `.claude/qa-gate.conf`、自己檢查 staged 有行為類檔時有沒有帶 `--qa`）→ 同一則訊息照「git-commit 裝不裝」的方式問要不要更新，講清楚影響：不更新的話「改了程式有沒有測過」只剩呼叫 git-commit skill 時的提早提醒（`guard-qa-before-commit`），直接用 Bash 跑 flow.sh 就不會被查；更新由 Claude 經使用者同意後直接跑非互動 CLI：`claude plugin marketplace update <marketplace 名稱>` → `claude plugin update git-commit@<marketplace 名稱> --scope <實際 scope>`（scope 用 `claude plugin list --json` 查，取法同上方 harness 落後那段），跑完請使用者重開 session。選更新 → 更新完 Claude 自己重讀版本確認；選不更新 → 照裝（`qa-gate.conf` 照樣產生，舊版 flow.sh 不讀它，之後更新就自動生效），Phase 2 核對表與收尾回報寫「git-commit 是 <版本>，QA 閘只有提早提醒，你選擇先不更新」，Phase 5 的 qa-gate 實跑標「不適用：git-commit 版本低於 0.11.0」。理由：缺的相依要在一開始一次講清楚，不要等到訪談中途（經過見 `../rationale.md` §Phase 0-4） |",
     "where": "skills/init/references/phases/phase-0-precheck.md:42",
     "reason": "B5：事故經過搬到 rationale.md §Phase 0-4，原處留一句理由"
   },
@@ -44,21 +44,21 @@
   {
     "line": 167,
     "orig": "| 之前裝過的 harness（重裝） | 制度文件與 hook 用新版骨架重生",
-    "now": "| 之前裝過的 harness（重裝） | 制度文件與 hook 用新版骨架重生，**上一版填進去的專案參數與規則（B 類規則、agent 名單、Q 的答案）當成這次訪談的預設答案**；知識筆記檔與 05 健檢紀錄的真實條目**原樣保留**，只換結構（0.10.0 起變更紀錄拆出本體：舊實例本體的 `## Changelog` 節整節搬進新的紀錄檔，見 Phase 4 知識容器層表下的參考模式說明（`phase-4-generate.md`））（唯一例外：`GLOSSARY.md`（既有專案沿用 `CONTEXT.md`）裡 U3 裁決改寫或刪除的詞，見 Phase 4 知識容器層）；memory 不動 | 知識是專案自己長出來的資產，重裝不能歸零 |",
+    "now": "| 之前裝過的 harness（重裝） | 制度文件與 hook 用新版骨架重生，**上一版填進去的專案參數與規則（B 類規則、agent 名單、Q 的答案）當成這次訪談的預設答案**；知識筆記檔與 05 健檢紀錄的真實條目**原樣保留**，只換結構（舊實例本體的 `## Changelog` 節整節搬進新的紀錄檔，見 `phase-4-generate.md` 知識容器層表下的參考模式說明）（唯一例外：`GLOSSARY.md`（既有專案沿用 `CONTEXT.md`）裡 U3 裁決改寫或刪除的詞，見 Phase 4 知識容器層）；memory 不動 | 知識是專案自己長出來的資產，重裝不能歸零 |",
     "where": "skills/init/references/phases/phase-1-inventory.md:33",
     "reason": "拆檔：跨檔引用補上檔名（phase-4-generate.md），規則內容不變"
   },
   {
     "line": 247,
     "orig": "順序：Q0（參考模式）→ U1 環境 → U2 進度 → U3 專案詞 → Q1",
-    "now": "順序：Q0（參考模式）→ U1 環境 → U2 進度 → U3 專案詞 →〔Q4 單人／團隊＋Q10 用語表匯入＋Q11 註解規範，合成一則訊息〕→ Q1 → Q2 → Q8（參考模式）→ Q3、Q5～Q7 → Q12 選裝 skill → Q9（有本機覆寫候選）。Q11 在 0.15.2 以前排在 Q7 後（它問的是要不要多一份動手前必讀的註解規範，緊接在必讀文件那一題後面最好懂）；0.16.0 起併進 U3 後面那一則合併訊息，因為它的推薦只看 Phase 1 第 6 項盤點到的註解三件，不看 Q7 的答案。Q12 排在 Q11 後：選裝的工作流地圖要列出這次建的每支 skill，前面的題目都定了才列得完整；它也要知道 Q5 有沒有保留本機覆寫保護（決定要不要一併產生本機覆寫說明）。Q9 排在 Q5 後：本機覆寫保護三件組在 Q5 被取消時就不問。Q8 排在 Q2 後、Q5 前：它選出來的條款要跟 Q2 的危險動作一起推導 Q5 的自動檢查。Q10 緊接 U3：剛確認完詞條，使用者對這份表多大、多常用最有感。**先問專案、再問流程**：U1 的答案決定 Q2 有哪些危險動作，U2 的答案決定 Q7 推薦哪些文件，流程設定要建立在確認過的專案事實上。",
+    "now": "順序：Q0（參考模式）→ U1 環境 → U2 進度 → U3 專案詞 →〔Q4 單人／團隊＋Q10 用語表匯入＋Q11 註解規範，合成一則訊息〕→ Q1 → Q2 → Q8（參考模式）→ Q3、Q5～Q7 → Q12 選裝 skill → Q9（有本機覆寫候選）。Q11 併進 U3 後面那一則合併訊息：它的推薦只看 Phase 1 第 6 項盤點到的註解三件，不看 Q7 的答案。Q12 排在 Q11 後：選裝的工作流地圖要列出這次建的每支 skill，前面的題目都定了才列得完整；它也要知道 Q5 有沒有保留本機覆寫保護（決定要不要一併產生本機覆寫說明）。Q9 排在 Q5 後：本機覆寫保護三件組在 Q5 被取消時就不問。Q8 排在 Q2 後、Q5 前：它選出來的條款要跟 Q2 的危險動作一起推導 Q5 的自動檢查。Q10 緊接 U3：剛確認完詞條，使用者對這份表多大、多常用最有感。**先問專案、再問流程**：U1 的答案決定 Q2 有哪些危險動作，U2 的答案決定 Q7 推薦哪些文件，流程設定要建立在確認過的專案事實上。",
     "where": "skills/init/references/phases/phase-3-interview.md:3",
     "reason": "B8：訪談順序改成 U3 後合併 Q4＋Q10＋Q11；Q11 原排序理由改寫為「推薦只看盤點的註解三件、不看 Q7」"
   },
   {
     "line": 247,
     "orig": "Q11 排在 Q7 後：它問的是要不要多一份動手前必讀的註解規範，緊接在必讀文件",
-    "now": "順序：Q0（參考模式）→ U1 環境 → U2 進度 → U3 專案詞 →〔Q4 單人／團隊＋Q10 用語表匯入＋Q11 註解規範，合成一則訊息〕→ Q1 → Q2 → Q8（參考模式）→ Q3、Q5～Q7 → Q12 選裝 skill → Q9（有本機覆寫候選）。Q11 在 0.15.2 以前排在 Q7 後（它問的是要不要多一份動手前必讀的註解規範，緊接在必讀文件那一題後面最好懂）；0.16.0 起併進 U3 後面那一則合併訊息，因為它的推薦只看 Phase 1 第 6 項盤點到的註解三件，不看 Q7 的答案。Q12 排在 Q11 後：選裝的工作流地圖要列出這次建的每支 skill，前面的題目都定了才列得完整；它也要知道 Q5 有沒有保留本機覆寫保護（決定要不要一併產生本機覆寫說明）。Q9 排在 Q5 後：本機覆寫保護三件組在 Q5 被取消時就不問。Q8 排在 Q2 後、Q5 前：它選出來的條款要跟 Q2 的危險動作一起推導 Q5 的自動檢查。Q10 緊接 U3：剛確認完詞條，使用者對這份表多大、多常用最有感。**先問專案、再問流程**：U1 的答案決定 Q2 有哪些危險動作，U2 的答案決定 Q7 推薦哪些文件，流程設定要建立在確認過的專案事實上。",
+    "now": "順序：Q0（參考模式）→ U1 環境 → U2 進度 → U3 專案詞 →〔Q4 單人／團隊＋Q10 用語表匯入＋Q11 註解規範，合成一則訊息〕→ Q1 → Q2 → Q8（參考模式）→ Q3、Q5～Q7 → Q12 選裝 skill → Q9（有本機覆寫候選）。Q11 併進 U3 後面那一則合併訊息：它的推薦只看 Phase 1 第 6 項盤點到的註解三件，不看 Q7 的答案。Q12 排在 Q11 後：選裝的工作流地圖要列出這次建的每支 skill，前面的題目都定了才列得完整；它也要知道 Q5 有沒有保留本機覆寫保護（決定要不要一併產生本機覆寫說明）。Q9 排在 Q5 後：本機覆寫保護三件組在 Q5 被取消時就不問。Q8 排在 Q2 後、Q5 前：它選出來的條款要跟 Q2 的危險動作一起推導 Q5 的自動檢查。Q10 緊接 U3：剛確認完詞條，使用者對這份表多大、多常用最有感。**先問專案、再問流程**：U1 的答案決定 Q2 有哪些危險動作，U2 的答案決定 Q7 推薦哪些文件，流程設定要建立在確認過的專案事實上。",
     "where": "skills/init/references/phases/phase-3-interview.md:3",
     "reason": "B8：訪談順序改成 U3 後合併 Q4＋Q10＋Q11；Q11 原排序理由改寫為「推薦只看盤點的註解三件、不看 Q7」"
   },
@@ -201,5 +201,61 @@
     "now": "| `shell-model.js`＋`package-lock.json`，並跑 `npm ci`（裝了任一個規則引擎、或本機覆寫銷毀閘 `guard-local-hack-destroy` 時） | `<落點>/.claude/hooks/` | 不填空。複製後在 `.claude/hooks/` 跑 `npm ci`，把 `.claude/hooks/node_modules/` 加進 `.gitignore`（沒有就建）。`npm ci` 失敗（無網路、沒有 npm、平台沒有預編譯檔）**不擋 init**：兩支引擎會退回正則判法照樣運作，本機覆寫銷毀閘照改動前的判法（點名一般檔的 `restore`／`checkout` 也擋），在收尾回報寫明「語法解析器未裝、目前是正則判法」並附失敗原文。全碟掃描守門 `guard-full-disk-scan` 不需要它（內建斷詞）；同目錄有它時會多判一層，只裝全碟掃描守門時不必為它帶 shell-model.js 與 package-lock.json、也不必 npm ci（package.json 照樣要帶） |",
     "where": "skills/init/references/phases/phase-4-hooks.md:8",
     "reason": "package.json 改成只要裝了任何 .js hook 就一定複製（type: commonjs；專案根是 type: module 時 hook 會全部載入失敗，e2e-learn 實測抓到），獨立成上一列；本列只留 shell-model.js、lock 檔與 npm ci"
+  },
+  {
+    "line": 480,
+    "orig": "| `skeleton-CLAUDE-md.md` | `<落點>/CLAUDE.md` | 專案概要（Phase 2 草稿經使用者改過的版本＋U1 環境表",
+    "now": "有產生時加本機覆寫說明、`review-rules.md`、專案 skill、規則檔（`.claude/rules/`）、帶 paths 的 skill 那幾列；已搬進規則檔的段落不留）",
+    "where": "skills/init/references/phases/phase-4-generate.md:23",
+    "reason": "規則分層：CLAUDE.md 只留每輪都要的內容，路由表多規則檔與帶 paths 的 skill 兩列、已搬進 .claude/rules/ 的段落不留（使用者需求：規則分層）"
+  },
+  {
+    "line": 623,
+    "orig": "□ 參考模式（非參考模式標「不適用」）：①備份與原檔逐檔 hash 一致",
+    "now": "「沿用」的原檔 hash 未變、接線還在（處置表同意加 paths 的既有 skill：除了 frontmatter 新增的 `paths:` 那幾行，與備份逐字相同）；",
+    "where": "skills/init/references/phases/phase-5-verify.md:89",
+    "reason": "參考模式可經使用者同意在既有 skill 的 frontmatter 加 paths（guard-required-skill 的設定來源，使用者需求：必要 skill 閘），hash 比對要排除新增的 paths 那幾行"
+  },
+  {
+    "line": 19,
+    "orig": "所以 Phase 1 第 13 項推專案輪廓、Phase 2 先攤專案概要草稿",
+    "now": "Phase 1 第 13 項從文件與程式碼推專案輪廓",
+    "where": "skills/init/SKILL.md:58",
+    "reason": "prompt audit：核心原則 6 的這句與同檔「流程總覽」下一段重述同一條流程，刪掉核心原則裡的這句，改指向「流程總覽」；流程仍在 SKILL.md:58 與 rationale.md §核心原則-1"
+  },
+  {
+    "line": 476,
+    "orig": "**變更紀錄一律不寫在指令檔本體**（0.10.0 起）",
+    "now": "**變更紀錄一律不寫在指令檔本體**：CLAUDE.md 與 harness 各檔每次載入都整份進 context",
+    "where": "skills/init/references/phases/phase-4-generate.md:19",
+    "reason": "prompt audit：拿掉版本沿革「（0.10.0 起）」，規則與理由不變"
+  },
+  {
+    "line": 513,
+    "orig": "| QA 閘設定檔（裝了 `guard-qa-before-commit` 時；它的前提就是有 git-commit）",
+    "now": "已有這個檔（參考模式、重裝）時先用 `cp` 備份成 `qa-gate.conf.bak`，只補缺的 key",
+    "where": "skills/init/references/phases/phase-4-hooks.md:11",
+    "reason": "prompt audit：同檔三處重複的「用 cp 建 .bak（根層整潔檢查會擋 Write 新建 .bak）」理由收成表格上方一句（phase-4-hooks.md:3），本列只留「先用 cp 備份」；其餘內容不變"
+  },
+  {
+    "line": 514,
+    "orig": "| git-commit 審查附加要求檔（0-5 判定有裝 git-commit 時；使用者選不裝就不產生）",
+    "now": "①～④**任何一段**有內容就要產生（只有第④段也算）；四段都沒有內容才不產生",
+    "where": "skills/init/references/phases/phase-4-hooks.md:12",
+    "reason": "prompt audit：第④段的理由在同一格已寫過一次（少了標記會被派工檢查擋下），刪掉重述；cp 備份理由收到表格上方一句（phase-4-hooks.md:3）"
+  },
+  {
+    "line": 517,
+    "orig": "| Q9 選的覆寫清單欄位（裝了本機覆寫保護、Q9 有選時）",
+    "now": "先用 `cp` 備份成 `local-overrides.yml.bak`；在該筆",
+    "where": "skills/init/references/phases/phase-4-hooks.md:15",
+    "reason": "prompt audit：cp 備份理由收到表格上方一句（phase-4-hooks.md:3）；Q9 在 phase-3-interview.md 的同一句理由仍在（另一時機載入）"
+  },
+  {
+    "line": 600,
+    "orig": "設 `CLAUDE_PROJECT_DIR=<暫存根>`（多 repo 時也是暫存根，不是子 repo",
+    "now": "（Windows 的 `bash` 照上面 addendum 那一項用 Git Bash）",
+    "where": "skills/init/references/phases/phase-5-verify.md:66",
+    "reason": "prompt audit：Windows 要用 Git Bash 的完整說明在同檔 addendum 那一項（phase-5-verify.md:58）已寫過，這裡改成指向它"
   }
 ]
