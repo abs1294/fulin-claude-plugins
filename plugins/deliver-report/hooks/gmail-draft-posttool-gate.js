@@ -33,8 +33,11 @@
  *   (D) 佔位符外流
  *   (E) Markdown 語法外流
  *   (E2) htmlBody 標籤白名單（<p> 就是被這項抓到的）
+ *   (E3) htmlBody 手打序號／列點（「1.」「・」）→ 提醒改用 <ol>／<ul><li>
  *   (F) 機敏內容（憑證／個資，共用 banned-patterns.json）
  *   (F2) 公文式敬稱（advisory，會誤判，措辭寫成「請確認」）
+ *   (H) 內文說有附檔（附上／附件／attached），這次寫入卻沒帶 attachments
+ *       （2026-10-11 實案：寫了「附上三份檔案」卻叫使用者自己拖）→ 提醒用工具附上
  *   (G) reply 附件帶入（2026-10-06 實案：replyToMessageId 建草稿，原信 9 張截圖
  *       被整批複製進草稿附件區，使用者自己打開才發現）→ 寫入時記帳，
  *       get_draft 讀回時：有附件→提醒清除；無附件→銷帳
@@ -237,7 +240,8 @@ function main(raw) {
         once(draftId ? 'md:' + draftId : null, () =>
           `■ 草稿裡有 Markdown 語法：${md.join('、')}\n` +
           '  實測 Gmail 純文字會原樣顯示成星號與井號，不會渲染成粗體或標題。\n' +
-          '  排版改用空行與「項目：值」一行一條。（SKILL.md 第三步之三 格式）'
+          '  粗體改用 <b>、條列改用 <ol>／<ul><li>，寫在 htmlBody（純文字 body 只當退路）。\n' +
+          '  （SKILL.md 第三步之三 格式）'
         );
       }
 
@@ -272,6 +276,31 @@ function main(raw) {
         '  只用：<br> <b> <i> <u> <ul> <ol> <li> <a> <pre> <table> <tr> <td> <th>\n' +
         '  換行一律用 <br>（空一行就是 <br><br>），禁用 <p>；外層只允許一個 <div dir="ltr">。\n' +
         '  （SKILL.md 第三步之三 格式）'
+      );
+    }
+
+    // (E3) 手打序號／列點——該用 <ol>／<ul><li>
+    const lists = C.handTypedLists(html);
+    if (lists.length) {
+      once(draftId ? 'list:' + draftId : null, () =>
+        '□ htmlBody 裡有手打的序號或列點：' + lists.join('、') + '\n' +
+        '  有順序的用 <ol><li>，沒順序的用 <ul><li>；同一點的補充行用 <br> 接在同一個 <li> 裡。\n' +
+        '  手打的「1.」「・」在 Gmail 編輯器裡只是文字，使用者增刪一項就得自己重編號、子行也對不齊。\n' +
+        '  （SKILL.md 第三步之三 格式）'
+      );
+    }
+
+    // (H) 內文說有附檔，這次卻沒帶 attachments——不要留給使用者自己拖
+    const claim = C.attachmentClaimWithoutFiles(toolInput);
+    if (claim) {
+      once(draftId ? 'claim:' + draftId : null, () =>
+        '■ 內文寫了「' + claim + '」，這次 ' + (/update_draft$/.test(toolName) ? 'update_draft' : 'create_draft') + ' 卻沒帶 attachments。\n' +
+        (/update_draft$/.test(toolName)
+          ? '  update_draft 不帶 attachments 會把草稿既有附件整批清掉——要保留就全部重附。\n'
+          : '') +
+        '  附檔由我方完成，不要叫使用者自己拖：≤25MB 用 attachments（base64）；\n' +
+        '  或用瀏覽器開草稿 viewUrl，對附件的 file input 用 file_upload 上傳後按「儲存並關閉」。\n' +
+        '  （SKILL.md 第三步之三 要點 5）'
       );
     }
 

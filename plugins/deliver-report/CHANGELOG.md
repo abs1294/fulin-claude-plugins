@@ -2,6 +2,11 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.8.0] - 2026-10-11
+### Changed
+- Gmail 草稿格式改為預設給 htmlBody（白名單標籤）並附 body 當純文字退路；序號一律 <ol><li>、列點一律 <ul><li>，禁止手打，子行用 <br> 接在同一個 <li> 裡；移除「排版靠空行與破折號／項目：值一行一條」；網址改寫改列為走 htmlBody 的理由之一。兩支草稿閘新增手打序號提醒（handTypedLists，附 22 例測試與兩份副本漂移比對），Markdown 提醒的改法同步改成 <b>／清單標籤。
+- 附檔不丟回：新增 Stop hook attach-handback-gate（收尾回覆叫使用者自己拖／附檔就擋，同回合第二次改提醒）；posttool 閘新增 (H) 內文說有附檔卻沒帶 attachments 的提醒（update_draft 另提醒會清掉既有附件）；SKILL.md 要點 5 補瀏覽器上傳做法（viewUrl 切帳號、file_upload、儲存並關閉後從草稿匣確認）。
+
 ## [1.7.0] - 2026-10-06
 ### Changed
 - 建草稿要點5：reply 附件帶入清除＋附件 25MB 上限與替代路徑；gmail-draft-posttool-gate 新增 (G) reply 附件帶入檢查（寫入記帳、讀回提醒/銷帳）；新增 PreToolUse 閘 gmail-draft-attachment-gate（附件合計 >25MB 直接擋下並列三條替代路徑）

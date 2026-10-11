@@ -11,7 +11,7 @@
  * 4 封 <p> 結構與 1 封掉串缺陷，檢查器本身完全正常卻一次都沒被呼叫。
  *
  * ⚠ **現況是兩份副本，不是單一來源。** Stop hook 刻意本次不動（保留回歸基準），
- * 所以 disallowedTags 等判準在本檔與 gmail-draft-link-gate.js 各有一份。
+ * 所以 disallowedTags、handTypedLists 等判準在本檔與 gmail-draft-link-gate.js 各有一份。
  * 兩份是否一致由 tests/disallowed-tags.test.js 的「漂移偵測」段機械比對
  * （同一批輸入餵兩份、逐例比對輸出，不一致就 exit 1）。
  * 把 Stop hook 改成 require 本檔之後，那段比對即可移除。
@@ -443,6 +443,87 @@ function disallowedTags(html) {
   return merged;
 }
 
+/**
+ * htmlBody 裡手打的序號與列點（「1.」「2、」「(1)」「①」「・」「- 」）。
+ *
+ * ★ 為什麼要擋：手打的序號在 Gmail 富文本編輯器裡只是文字，不是清單——
+ *   使用者增刪一項就得自己重編號，子行縮排也對不齊；改用 <ol>／<ul><li>，
+ *   編輯器會自動編號、按 Tab 就能縮排。2026-09-11 使用者把草稿手動改成 ul/li
+ *   後要求「序號或是列點要用 ol li」；但該規則只寫進快取版而遺失，
+ *   2026-10-11 回信草稿又在 htmlBody 裡手打 1. 2. 3.，才補這道機械檢查。
+ *
+ * 判準：把內文按「行首」切開（<br>、<div>、<li>、清單與表格結束標籤、換行），
+ * 行首（略過空白、&nbsp; 與 <b>/<i>/<u> 這類行內標籤）是序號或列點符號的才算。
+ * 同一類至少兩處才報——單獨一行「1. 」可能只是引用某條規定，報了只會吵。
+ * - <pre> 整段排除：指令與設定檔本來就可能以「- 」開頭，那是要對方原樣貼上的內容。
+ * - HTML 註解排除。
+ * - 引用的原信排除（<blockquote> 與 gmail_quote 之後）：那是對方寫的，不歸我們改。
+ * - 「1.5 小時」「2.0 版」不算：序號後面緊接數字就是小數。
+ * - ※ 不算：那是附註記號，不是列點。
+ * 只看 htmlBody；純文字 body 是退路，本來就只能手打。
+ */
+function handTypedLists(html) {
+  if (!html) return [];
+  try {
+    let s = String(html);
+    if (s.length > 200000) s = s.slice(0, 200000);
+    const q = s.indexOf('gmail_quote');
+    if (q !== -1) {
+      const lt = s.lastIndexOf('<', q);
+      s = s.slice(0, lt === -1 ? q : lt);
+    }
+    s = s.replace(/<!--[\s\S]*?-->/g, '')
+         .replace(/<pre\b[\s\S]*?<\/pre\s*>/gi, '')
+         .replace(/<blockquote\b[\s\S]*?<\/blockquote\s*>/gi, '');
+    const segs = s.split(/<br\s*\/?>|<div\b[^>]*>|<li\b[^>]*>|<\/(?:ul|ol|li|table|div)\s*>|\n/i);
+    const NUM = /^(?:\d{1,2}[.．、)）](?!\d)|[（(]\d{1,2}[)）]|[①-⑳])/;
+    const BUL = /^(?:[・•●▪◦‧]|[-－*]\s)/;
+    const num = [], bul = [];
+    for (const seg of segs) {
+      const t = seg.replace(/^(?:\s|&nbsp;|<\/?(?:b|i|u|strong|em)\s*>)+/i, '');
+      const isNum = NUM.test(t);
+      if (!isNum && !BUL.test(t)) continue;
+      const sample = t.replace(/<[^>]*>/g, '').slice(0, 12);
+      if (isNum) num.push(sample); else bul.push(sample);
+    }
+    const out = [];
+    if (num.length >= 2) out.push('手打序號 ' + num.length + ' 處（例：「' + num[0] + '」）');
+    if (bul.length >= 2) out.push('手打列點 ' + bul.length + ' 處（例：「' + bul[0] + '」）');
+    return out;
+  } catch (_) { return []; }
+}
+
+/**
+ * 信裡說有附檔，這次寫入卻沒帶 attachments。
+ *
+ * 2026-10-11 實案：回信內文寫「附上三份檔案」，create_draft 沒帶 attachments，
+ * 回覆改叫使用者自己拖。這裡在草稿寫入當下就提醒，免得事後才發現。
+ * update_draft 尤其要注意：不帶 attachments 會把草稿既有附件整批清掉（工具說明明載）。
+ *
+ * 只看我方自己寫的內文：htmlBody 切掉 gmail_quote／<blockquote> 之後的引用原信，
+ * body 去掉「> 」開頭的引用行與「On … wrote:」之後——原信寫「如附件」不歸這封信負責。
+ * 回傳 '' 表示沒問題，否則回傳命中的那個詞。
+ */
+function attachmentClaimWithoutFiles(input) {
+  if (!input || typeof input !== 'object') return '';
+  if (Array.isArray(input.attachments) && input.attachments.length > 0) return '';
+  try {
+    let html = typeof input.htmlBody === 'string' ? input.htmlBody : '';
+    const q = html.indexOf('gmail_quote');
+    if (q !== -1) {
+      const lt = html.lastIndexOf('<', q);
+      html = html.slice(0, lt === -1 ? q : lt);
+    }
+    html = html.replace(/<blockquote\b[\s\S]*?<\/blockquote\s*>/gi, '').replace(/<[^>]*>/g, ' ');
+    let body = typeof input.body === 'string' ? input.body : '';
+    const w = body.search(/\nOn [^\n]{0,200}wrote:|\n-{2,}\s*Original Message|\n寄件者[:：]/i);
+    if (w !== -1) body = body.slice(0, w);
+    body = body.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n');
+    const m = /附上|附件|附檔|請詳附|如附|attached|attachment|enclosed/i.exec(html + '\n' + body);
+    return m ? m[0] : '';
+  } catch (_) { return ''; }
+}
+
 function findMarkdown(text) {
   const out = [];
   // 三條都要求「像 Markdown 而不像算式/編號」——2026-09-15 對抗審查實測，
@@ -703,12 +784,12 @@ module.exports = {
   isGmailTool, draftText, hasUrl, safeStr,
   // 七項判準
   detachedThreads, detachedReplyDrafts,
-  findPlaceholders, disallowedTags, findMarkdown, scanBanned,
+  findPlaceholders, disallowedTags, handTypedLists, findMarkdown, scanBanned,
   inspectDraftResult, resultHasBody, resultDraftId, resultText, visibleTextHasMark,
   // 狀態
   statePath, readState, writeState,
   // transcript
   isUserPromptLine,
   // 附件
-  resultAttachmentCount, attachmentsTotalBytes,
+  resultAttachmentCount, attachmentsTotalBytes, attachmentClaimWithoutFiles,
 };

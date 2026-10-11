@@ -51,6 +51,10 @@
  *   補不完（見 disallowedTags 上方的四輪演進註解）。
  *   實測這組送進去讀回來一個位元組都沒變。
  *
+ * 【手打序號】(E3) htmlBody 裡手打「1.」「2、」「・」「- 」當清單
+ *   Gmail 編輯器裡那只是文字，增刪一項要自己重編號；改用 <ol>／<ul><li>。
+ *   <pre>、引用原信、小數（1.5）不算；同類兩處以上才報（判準見函式註解）。
+ *
  * 【機敏內容】(F) 憑證／個資 命中 references/banned-patterns.json
  *   與 doc-readability-gate、content_guard 共用同一份樣式（改一次三邊生效）。
  *   草稿是對外的，這類東西外流比寫進內部文件嚴重。
@@ -273,7 +277,8 @@ function main(raw) {
       once(id ? 'md:' + id : null, () =>
         `■ 草稿裡有 Markdown 語法：${md.join('、')}\n` +
         '  實測 Gmail 純文字會原樣顯示成星號與井號，不會渲染成粗體或標題。\n' +
-        '  排版改用空行與「項目：值」一行一條。（SKILL.md 第三步之三 格式）'
+        '  粗體改用 <b>、條列改用 <ol>／<ul><li>，寫在 htmlBody（純文字 body 只當退路）。\n' +
+        '  （SKILL.md 第三步之三 格式）'
       );
     }
 
@@ -287,6 +292,19 @@ function main(raw) {
         '  \u5c6c\u6027\u53ea\u5141\u8a31\uff1ahref dir title target rel alt lang name id role aria-* \u8207\u8868\u683c\u7684 cellspacing/cellpadding/colspan/rowspan/align/valign/border/width/height/bgcolor/scope/headers\uff08style= \u50c5\u8868\u683c\u985e\u6a19\u7c64\u53ef\u5e36\uff1bclass=\u3001data-*\u3001on\u2026= \u4e00\u5f8b\u7981\u7528\uff09\n' +
         '  \uff08SKILL.md \u7b2c\u4e09\u6b65\u4e4b\u4e09 \u683c\u5f0f\uff09'
       );
+    }
+
+    {
+      const html = safeStr(b.input && b.input.htmlBody);
+      const lists = handTypedLists(html);
+      if (lists.length) {
+        once(id ? 'list:' + id : null, () =>
+          '□ htmlBody 裡有手打的序號或列點：' + lists.join('、') + '\n' +
+          '  有順序的用 <ol><li>，沒順序的用 <ul><li>；同一點的補充行用 <br> 接在同一個 <li> 裡。\n' +
+          '  手打的「1.」「・」在 Gmail 編輯器裡只是文字，使用者增刪一項就得自己重編號、子行也對不齊。\n' +
+          '  （SKILL.md 第三步之三 格式）'
+        );
+      }
     }
 
     const hits = scanBanned(text, BANNED.hard, true);      // 憑證／個資一律遮蔽
@@ -616,6 +634,56 @@ function disallowedTags(html) {
   const merged = danger.concat(tags, out, minor);
   if (over.length > 0) merged.push('另有 ' + over.length + ' 項未列出');
   return merged;
+}
+
+/**
+ * htmlBody 裡手打的序號與列點（「1.」「2、」「(1)」「①」「・」「- 」）。
+ *
+ * ★ 為什麼要擋：手打的序號在 Gmail 富文本編輯器裡只是文字，不是清單——
+ *   使用者增刪一項就得自己重編號，子行縮排也對不齊；改用 <ol>／<ul><li>，
+ *   編輯器會自動編號、按 Tab 就能縮排。2026-09-11 使用者把草稿手動改成 ul/li
+ *   後要求「序號或是列點要用 ol li」；但該規則只寫進快取版而遺失，
+ *   2026-10-11 回信草稿又在 htmlBody 裡手打 1. 2. 3.，才補這道機械檢查。
+ *
+ * 判準：把內文按「行首」切開（<br>、<div>、<li>、清單與表格結束標籤、換行），
+ * 行首（略過空白、&nbsp; 與 <b>/<i>/<u> 這類行內標籤）是序號或列點符號的才算。
+ * 同一類至少兩處才報——單獨一行「1. 」可能只是引用某條規定，報了只會吵。
+ * - <pre> 整段排除：指令與設定檔本來就可能以「- 」開頭，那是要對方原樣貼上的內容。
+ * - HTML 註解排除。
+ * - 引用的原信排除（<blockquote> 與 gmail_quote 之後）：那是對方寫的，不歸我們改。
+ * - 「1.5 小時」「2.0 版」不算：序號後面緊接數字就是小數。
+ * - ※ 不算：那是附註記號，不是列點。
+ * 只看 htmlBody；純文字 body 是退路，本來就只能手打。
+ */
+function handTypedLists(html) {
+  if (!html) return [];
+  try {
+    let s = String(html);
+    if (s.length > 200000) s = s.slice(0, 200000);
+    const q = s.indexOf('gmail_quote');
+    if (q !== -1) {
+      const lt = s.lastIndexOf('<', q);
+      s = s.slice(0, lt === -1 ? q : lt);
+    }
+    s = s.replace(/<!--[\s\S]*?-->/g, '')
+         .replace(/<pre\b[\s\S]*?<\/pre\s*>/gi, '')
+         .replace(/<blockquote\b[\s\S]*?<\/blockquote\s*>/gi, '');
+    const segs = s.split(/<br\s*\/?>|<div\b[^>]*>|<li\b[^>]*>|<\/(?:ul|ol|li|table|div)\s*>|\n/i);
+    const NUM = /^(?:\d{1,2}[.．、)）](?!\d)|[（(]\d{1,2}[)）]|[①-⑳])/;
+    const BUL = /^(?:[・•●▪◦‧]|[-－*]\s)/;
+    const num = [], bul = [];
+    for (const seg of segs) {
+      const t = seg.replace(/^(?:\s|&nbsp;|<\/?(?:b|i|u|strong|em)\s*>)+/i, '');
+      const isNum = NUM.test(t);
+      if (!isNum && !BUL.test(t)) continue;
+      const sample = t.replace(/<[^>]*>/g, '').slice(0, 12);
+      if (isNum) num.push(sample); else bul.push(sample);
+    }
+    const out = [];
+    if (num.length >= 2) out.push('手打序號 ' + num.length + ' 處（例：「' + num[0] + '」）');
+    if (bul.length >= 2) out.push('手打列點 ' + bul.length + ' 處（例：「' + bul[0] + '」）');
+    return out;
+  } catch (_) { return []; }
 }
 
 function findMarkdown(text) {
