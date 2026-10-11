@@ -60,7 +60,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "有 AskUserQuestion 裁決（含多選、只寫附註）與 TaskCreate／TaskUpdate → 存進快照的 decisions／tasks 欄、不擋不輸出（probe 只驗不擋不輸出；欄位內容由 plugin 開發端的整合測試驗，該測試不隨 plugin 發布）",
+      "label": "有 AskUserQuestion 裁決（含多選、只寫附註）與 TaskCreate／TaskUpdate → 存進快照的 decisions／tasks 欄、不擋不輸出（probe 只驗不擋不輸出；欄位內容由 tests/integration 的整合測試驗）",
       "setup": {
         "env": {"COMPACT_HANDOFF_OFF": "1"},
         "transcript": [
@@ -77,7 +77,7 @@
       "expect": "SILENT"
     },
     {
-      "label": "連續兩次壓縮：兩段摘要前後都有裁決 → 整份紀錄都收、摘要前的標 before（內容由 plugin 開發端的整合測試驗，該測試不隨 plugin 發布），不擋不輸出",
+      "label": "連續兩次壓縮：兩段摘要前後都有裁決 → 整份紀錄都收、摘要前的標 before（內容由 tests/integration 的整合測試驗），不擋不輸出",
       "setup": {
         "env": {"COMPACT_HANDOFF_OFF": "1"},
         "transcript": [

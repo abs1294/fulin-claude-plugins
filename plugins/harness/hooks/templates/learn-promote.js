@@ -14,11 +14,11 @@
  *   黃＝memory correction、memory update 或目標已存在、知識筆記 update、團隊模式的知識筆記 append → 寫入（先備份），進「待你看」
  *   紅＝kind 是 rule／hook／agent／claude-md／settings、目標落在 CLAUDE.md／.claude/harness/0*.md／.claude/hooks/／
  *       .claude/agents/／.claude/settings*.json、或內容命中破壞性指令樣式 → 不寫入，保存 content 進「待核」
- *   拒收＝格式、帳密、注入、外洩、出處、抄原文、矛盾未調和、超量、目標不合法、寫入失敗
+ *   拒收＝格式、帳密、注入、外洩、出處、線索、抄原文、矛盾未調和、超量、目標不合法、寫入失敗
  *
  * 自行決定的細節（設計稿沒寫到，選風險最小的做法）：
- * - 檢查順序：超量 → 欄位形狀 → 帳密 → 注入 → 外洩 → 出處 → 抄原文 → 矛盾 → 紅區判定 → 目標 → 各類格式 → 寫入。
- *   帳密／注入／外洩／出處／抄原文／矛盾對紅區一樣拒收（這幾項關乎安全與隱私，不能進 pending.json 存著）；
+ * - 檢查順序：超量 → 欄位形狀 → 帳密 → 注入 → 外洩 → 出處 → 線索 → 抄原文 → 矛盾 → 紅區判定 → 目標 → 各類格式 → 寫入。
+ *   帳密／注入／外洩／出處／線索／抄原文／矛盾對紅區一樣拒收（這幾項關乎安全與隱私，不能進 pending.json 存著）；
  *   紅區的「各類格式」不拒收，結果附在待核項目的 checks 欄。
  * - 知識筆記 action=create 當成 append（條目只會附加；學習迴路不建知識筆記檔本身）；memory 的 append 拒收 format。
  * - 知識筆記 update 不跑條目格式檢查（content 是替換片段，不一定是完整條目）；memory update 對替換後的整份檔跑格式檢查。
@@ -50,7 +50,7 @@ const RED_KINDS = new Set(['rule', 'hook', 'agent', 'claude-md', 'settings']);
 const KNOWLEDGE = new Set(['glossary', 'flows', 'qa-knowledge']);
 const QA_SECTIONS = ['操作規則', '測試坑', '設計知識'];
 const STARS = { correction: '⭐⭐⭐', 'tool-pitfall': '⭐⭐', workaround: '⭐⭐', fact: '⭐' };
-const REASONS = ['format', 'secret', 'injection', 'exfil', 'evidence', 'verbatim', 'conflict', 'over-limit', 'target', 'io'];
+const REASONS = ['format', 'secret', 'injection', 'exfil', 'evidence', 'clue', 'verbatim', 'conflict', 'over-limit', 'target', 'io'];
 
 function redPath(t) {
   const s = String(t || '').replace(/\\/g, '/').replace(/^\.\//, '');
@@ -151,7 +151,8 @@ function promote(o) {
   let backupSeq = 0;
   const runRollbacks = [];   // 這次已寫入且登錄的每一筆：pending.json 最後寫不進去時整批回復
 
-  const sources = (p) => (p && Array.isArray(p.evidence) ? p.evidence.map((e) => e && e.source).filter((s) => typeof s === 'string') : []);
+  // 出處存成 <檔名>:<行號>（去掉 L 前綴），升格計數比對出處重疊時同一行不會因寫法不同算兩次
+  const sources = (p) => (p && Array.isArray(p.evidence) ? p.evidence.map((e) => e && e.source).filter((s) => typeof s === 'string').map((s) => s.replace(/(\.jsonl):L(\d+)$/, '$1:$2')) : []);
   const memName = (p) => String((p && p.target) || '');
   const display = (p) => {
     if (!p || typeof p !== 'object') return '';
@@ -239,12 +240,13 @@ function promote(o) {
           // 6. 出處
           if (!ev.length) return reject(p, 'evidence', '沒有出處');
           for (const e of ev) {
-            const m = e && typeof e.source === 'string' && e.source.match(/^(.+\.jsonl):(\d+)$/);
+            // 行號前可帶 L（輸入片段每筆前綴 L<行號>，模型常照抄）
+            const m = e && typeof e.source === 'string' && e.source.match(/^(.+\.jsonl):L?(\d+)$/);
             if (!m || m[1] !== o.transcriptName) return reject(p, 'evidence', '出處要是 <本次 transcript 檔名>:<行號>');
             const ln = Number(m[2]);
             if (!(ln >= from && ln <= to)) return reject(p, 'evidence', '出處行號 ' + ln + ' 不在本次讀取範圍 ' + from + '-' + to);
             if (entryLines && !entryLines.has(ln)) return reject(p, 'evidence', '出處第 ' + ln + ' 行不是使用者／助理文字、工具呼叫或工具錯誤（沒有可引用的內容）');
-            if (typeof e.clue !== 'string' || !e.clue.trim() || [...e.clue].length > CLUE_MAX) return reject(p, 'evidence', 'clue 要是 1～' + CLUE_MAX + ' 字');
+            if (typeof e.clue !== 'string' || !e.clue.trim() || [...e.clue].length > CLUE_MAX) return reject(p, 'clue', 'clue 要是 1～' + CLUE_MAX + ' 字');
           }
           // 7. 抄原文
           for (const s of [p.content, p.summary].concat(clues)) {

@@ -36,7 +36,7 @@ const TRIAL_REQUESTS = 200;
 const SHOW_WRITES = 3;
 // ────────────────────────────────────────────────────────────────────────────
 
-const REASON_TEXT = { format: '格式', secret: '帳密', injection: '注入', exfil: '外洩', evidence: '出處', verbatim: '抄原文',
+const REASON_TEXT = { format: '格式', secret: '帳密', injection: '注入', exfil: '外洩', evidence: '出處', clue: '線索', verbatim: '抄原文',
   conflict: '矛盾未調和', 'over-limit': '超量', target: '目標不合法', io: '寫入失敗' };
 
 try {

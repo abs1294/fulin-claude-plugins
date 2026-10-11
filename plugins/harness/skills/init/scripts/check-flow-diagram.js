@@ -33,6 +33,15 @@
  *   （__pycache__、.pytest_cache、.mypy_cache、.ruff_cache）——排除的數量照實印出。
  *   node_modules 底下的變動收成一項「<那層>/node_modules/」，要用目錄節點畫。
  *
+ * 符號連結（junction／symlink）：
+ *   - 指向專案內、或指向專案上層（含專案根本身）：不跟（真身已照實際路徑掃過；指上層會把專案與旁邊目錄全掃一遍）。
+ *   - 指向專案外：跟進去，路徑記連結路徑；check 在這類變動後標註「經連結 <連結> → <真身>」——init 經連結寫入，改到的是專案外的真身。
+ *     以 realpath 記經連結走過的目錄，循環連結與兩個連結指同一真身都只走一次。
+ *   - 指向檔案系統根（磁碟根 D:\、分享根 \\server\share）：不跟，只記一項「<連結>/」（值是 link:<真身>，連結改指別處才算變動）。
+ *   - 跟進的連結底下超過 LINK_MAX_FILES 項（檔與目錄都算）：停在那裡，該連結改成只記一項「<連結>/」（同上），snapshot 與 check 各印一行提示。
+ *   - 指向專案外的 node_modules 連結、以及經專案外連結走到的 node_modules 目錄，都不展開，只記一項「<那層>/node_modules/」（值是 link:<真身>，改指別處才算變動）。
+ *   - 斷掉的連結：不列入。
+ *
  * exit 0＝每一項都是節點；exit 1＝有漏（逐項列出）；exit 2＝參數、快照或檔案錯誤。
  */
 
@@ -44,6 +53,12 @@ const L = require('./init-lib.js');
 
 const SKIP_DIRS = new Set(['.git', '.harness-backup']);
 const CACHE_DIRS = new Set(['__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache']);
+// 每個跟進的專案外連結最多逐檔記這麼多個：連到大型共用目錄時，快照不會變成整片磁碟的走訪。
+// 環境變數 HARNESS_FLOW_LINK_MAX_FILES 可調（測試用小數字）
+const LINK_MAX_FILES = Number(process.env.HARNESS_FLOW_LINK_MAX_FILES) > 0 ? Math.floor(Number(process.env.HARNESS_FLOW_LINK_MAX_FILES)) : 2000;
+// 只給測試用：把這個路徑也當成檔案系統根（測「連到磁碟根」不必真的連到磁碟根）
+const TEST_FS_ROOT = process.env.HARNESS_FLOW_TEST_FS_ROOT || '';
+const isFsRootTarget = real => L.isFsRoot(real) || (TEST_FS_ROOT !== '' && path.resolve(TEST_FS_ROOT) === real);
 // 流程圖本身（flow.html、flow-1.json、flow-2.html、flow.md…）與收尾回報檔，是畫圖這一步自己的產出；
 // .init-state.json 是 init-flow.js 的階段狀態檔（init 的過程檔，不畫圖）
 const isSelfOutput = r => /^\.claude\/harness\/(flow(-\d+)?\.(json|html|md)|install-report\.md|\.init-state\.json)$/.test(r);
@@ -58,13 +73,24 @@ if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) die(`落點不是�
 // 快照放在系統暫存目錄，以落點路徑的雜湊區分（Windows 路徑不分大小寫，其他平台要分；算法在 L.snapshotPath）
 const snapPath = L.snapshotPath(root);
 
-// 走訪目錄，回傳 { 相對路徑: sha1 }；node_modules 整層收成一個 { 目錄/: 內容雜湊 }。
-// 不跟符號連結（Dirent 的 isFile／isDirectory 對連結都是 false）：跟了會走進連到專案外的大目錄（例 node_modules 的連結）。
-// 另回傳走到的每個 .claude 目錄的上層（claudeParents），snapshot 用它補記 .claude/rules/ 底下經連結進來的規則檔。
+// 走訪目錄，回傳 { 相對路徑: sha1 }；node_modules 整層收成一個 { 目錄/: 內容雜湊 }。符號連結的處理見檔頭。
+// 另回傳走到的每個 .claude 目錄的上層（claudeParents），snapshot 用它補記 .claude/rules/ 底下經連結進來的規則檔；
+// viaLink＝經專案外連結走到的路徑，links＝跟進去的連結 { rel, real }（check 標註用），tooLarge＝超過檔數上限、只記連結本身的 { rel, real }。
 function scan() {
   const files = Object.create(null); // 不用一般物件：檔名 __proto__ 之類不會被原型吃掉
   const unreadable = [];
   const claudeParents = [];
+  const viaLink = new Set();
+  const links = [];
+  const tooLarge = [];
+  const seenReal = new Set();
+  let rootReal;
+  try { rootReal = fs.realpathSync(root); } catch { rootReal = root; }
+  const isUnder = (child, parent) => {
+    const r = path.relative(parent, child);
+    return !(r === '..' || r.startsWith('..' + path.sep) || r.startsWith('../') || path.isAbsolute(r));
+  };
+  const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   let cacheCount = 0;
   const hashFile = L.fileSha1;
   const hashTree = (dir, treeRel) => {
@@ -80,58 +106,110 @@ function scan() {
     })(dir, '');
     return h.digest('hex');
   };
-  (function walk(dir, rel) {
+  // ctx＝目前所在的專案外目錄連結 { rel, real, n, over, up }（n＝底下已記的檔數，up＝外層連結）；不在連結底下為 null
+  const isOver = c => { for (; c; c = c.up) if (c.over) return true; return false; };
+  const countFile = c => { for (; c; c = c.up) if (++c.n > LINK_MAX_FILES) c.over = true; };
+  (function walk(dir, rel, ctx) {
     let ents;
     try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { unreadable.push((rel || '.') + '/'); return; }
-    for (const e of ents) {
+    // 排序：兩個連結指同一真身、或連結底下超過上限時，快照與 check 走的是同一批
+    for (const e of ents.sort(byName)) {
+      if (isOver(ctx)) return;
       const r = rel ? `${rel}/${e.name}` : e.name;
       const full = path.join(dir, e.name);
-      if (e.isDirectory()) {
+      let isDir = e.isDirectory(), isFile = e.isFile(), via = !!ctx, linkCtx = null;
+      if (e.isSymbolicLink()) {
+        let st, real;
+        try { st = fs.statSync(full); real = fs.realpathSync(full); } catch { continue; }
+        if (isUnder(real, rootReal) || isUnder(rootReal, real)) {
+          // .claude 本身是連到專案內的連結：不走進去，但底下的規則檔要經 scanRuleLinks 記進 ruleLinks，沒動過的規則檔記 kept 才核對得過
+          if (e.name === '.claude' && st.isDirectory()) claudeParents.push(rel);
+          continue;
+        }
+        if (st.isDirectory()) {
+          if (e.name === 'node_modules' || isFsRootTarget(real)) {
+            files[`${r}/`] = `link:${real}`; viaLink.add(`${r}/`); links.push({ rel: r, real }); countFile(ctx);
+            continue;
+          }
+          isDir = true;
+          linkCtx = { rel: r, real, n: 0, over: false, up: ctx };
+        } else if (st.isFile()) isFile = true;
+        else continue;
+        via = true;
+        links.push({ rel: r, real });
+      }
+      if (isDir) {
         if (SKIP_DIRS.has(e.name)) continue;
         if (CACHE_DIRS.has(e.name)) { cacheCount++; continue; }
-        if (e.name === 'node_modules') { files[`${r}/`] = hashTree(full, r); continue; }
+        if (e.name === 'node_modules') {
+          // 經專案外連結走到的 node_modules 不展開（整棵算雜湊不受 LINK_MAX_FILES 限制）
+          if (via) { let real; try { real = fs.realpathSync(full); } catch { real = full; } files[`${r}/`] = `link:${real}`; viaLink.add(`${r}/`); countFile(ctx); }
+          else files[`${r}/`] = hashTree(full, r);
+          continue;
+        }
+        if (via) {
+          let real;
+          try { real = fs.realpathSync(full); } catch { unreadable.push(`${r}/`); continue; }
+          if (seenReal.has(real)) continue;
+          seenReal.add(real);
+        }
         if (e.name === '.claude') claudeParents.push(rel);
-        walk(full, r);
-      } else if (e.name === '.claude' && e.isSymbolicLink()) {
-        // .claude 本身是連結（junction／symlink）：不走進去，但底下的規則檔要經 scanRuleLinks 記進 ruleLinks，否則沒動過的規則檔記 kept 會被誤判成快照裡沒有
-        try { if (fs.statSync(full).isDirectory()) claudeParents.push(rel); } catch {}
-      } else if (e.isFile()) {
+        countFile(ctx); // 目錄也算一項：只有空目錄的大樹同樣要停
+        walk(full, r, linkCtx || ctx);
+        if (linkCtx && linkCtx.over) {
+          // 超過上限：拿掉這個連結底下已記的項目，只記連結本身
+          const pre = `${r}/`;
+          const under = p => p === r || p.startsWith(pre);
+          for (const k of Object.keys(files)) if (under(k)) { delete files[k]; viaLink.delete(k); }
+          for (let i = links.length - 1; i >= 0; i--) if (links[i].rel !== r && under(links[i].rel)) links.splice(i, 1);
+          for (let i = claudeParents.length - 1; i >= 0; i--) if (under(claudeParents[i])) claudeParents.splice(i, 1);
+          for (let i = tooLarge.length - 1; i >= 0; i--) if (under(tooLarge[i].rel)) tooLarge.splice(i, 1);
+          for (let i = unreadable.length - 1; i >= 0; i--) if (under(unreadable[i])) unreadable.splice(i, 1);
+          files[pre] = `link:${linkCtx.real}`;
+          tooLarge.push({ rel: r, real: linkCtx.real });
+        }
+      } else if (isFile) {
         if (isSelfOutput(r)) continue;
-        try { files[r] = hashFile(full); } catch { unreadable.push(r); }
+        try { files[r] = hashFile(full); if (via) viaLink.add(r); } catch { unreadable.push(r); }
+        countFile(ctx);
       }
     }
-  })(root, '');
-  return { files, cacheCount, unreadable, claudeParents };
+  })(root, '', null);
+  return { files, cacheCount, unreadable, claudeParents, viaLink, links, tooLarge };
 }
 
 // .claude/rules/ 底下經符號連結才走得到的規則檔（連到檔案的連結、或連到目錄的連結底下的 .md），依連結路徑記內容雜湊。
 // 理由：Claude Code 會跟連結載入規則檔（L.listRuleFiles 的註解有官方出處），init-verify V21 要拿 Phase 0 的內容核對
-// 這些檔的 origin: kept；scan() 不跟連結，快照的 files 裡沒有它們。只走 .claude/rules/（用 L.listRuleFiles，與 V21 列檔同一支），
-// 不讓整棵走訪改成跟連結。記在獨立欄位 ruleLinks，不混進 files——check 拿 files 跟現況的 scan() 比，混進去會被當成刪除。
-// 連結指向專案外也照記（讀的是連結讀到的內容），所以專案外的連結一樣核對得到。
-function scanRuleLinks(files, claudeParents) {
+// 這些檔的 origin: kept。scan() 不跟指向專案內的連結，那類規則檔快照的 files 裡沒有；指向專案外的連結 scan() 會跟，
+// 規則檔 files 與 ruleLinks 兩邊都記（viaLink 標出），V21 憑 ruleLinks 判斷它是經連結進來的。只走 .claude/rules/
+// （用 L.listRuleFiles，與 V21 列檔同一支）。記在獨立欄位 ruleLinks——check 拿 files 跟現況的 scan() 比，
+// 指向專案內的連結底下的檔混進 files 會被當成刪除。
+function scanRuleLinks(files, claudeParents, viaLink) {
   const ruleLinks = Object.create(null);
   const ruleLinkUnreadable = [];
   for (const parent of claudeParents) {
     const pre = parent ? `${parent}/` : '';
     for (const r of L.listRuleFiles(parent ? path.join(root, ...parent.split('/')) : root)) {
       const key = pre + r;
-      if (key in files) continue;
+      if (key in files && !viaLink.has(key)) continue;
       try { ruleLinks[key] = L.fileSha1(path.join(root, ...key.split('/'))); } catch { ruleLinkUnreadable.push(key); }
     }
   }
   return { ruleLinks, ruleLinkUnreadable };
 }
 
+const tooLargeNote = l => `連結 ${l.rel} → ${l.real} 底下超過 ${LINK_MAX_FILES} 項（檔與目錄），只記連結本身、不逐檔比對`;
+
 if (cmd === 'snapshot') {
-  const { files, unreadable, claudeParents } = scan();
-  const { ruleLinks, ruleLinkUnreadable } = scanRuleLinks(files, claudeParents);
+  const { files, unreadable, claudeParents, viaLink, tooLarge } = scan();
+  const { ruleLinks, ruleLinkUnreadable } = scanRuleLinks(files, claudeParents, viaLink);
   fs.mkdirSync(path.dirname(snapPath), { recursive: true });
   fs.writeFileSync(snapPath, JSON.stringify({ root, takenAt: new Date().toISOString(), files, unreadable, ruleLinks, ruleLinkUnreadable }));
   if (unreadable.length) {
     console.log(`注意：有 ${unreadable.length} 個檔案或目錄讀不到，快照裡沒有它們，收尾比對時會被當成「無法判斷」列出：`);
     for (const u of unreadable) console.log(`  - ${u}`);
   }
+  for (const l of tooLarge) console.log(`注意：${tooLargeNote(l)}`);
   console.log(`已拍快照：${root}（${Object.keys(files).length} 個檔）\n存在：${snapPath}`);
   process.exit(0);
 }
@@ -178,7 +256,9 @@ for (const f of diagramArgs) {
   }
 }
 
-const { files: now, cacheCount, unreadable: nowUnreadable } = scan();
+const { files: now, cacheCount, unreadable: nowUnreadable, links, tooLarge } = scan();
+// 經哪個專案外連結走到（巢狀連結取最長的那段）
+const viaWhich = p => links.filter(l => p === l.rel || p.startsWith(`${l.rel}/`)).sort((a, b) => b.rel.length - a.rel.length)[0];
 const before = snap.files;
 // 兩次掃描任一次讀不到的路徑（含目錄底下所有檔）都無法判斷，不列為新增或刪除，另外列出
 const unreadable = [...new Set([...(snap.unreadable || []), ...nowUnreadable])];
@@ -186,14 +266,28 @@ const isUnknown = p => unreadable.some(u =>
   p === u ||
   (u.endsWith('/') && (u === './' || p.startsWith(u))) ||   // 讀不到的目錄底下的檔
   (p.endsWith('/') && u.startsWith(p)));                    // node_modules/ 這類彙總項，其下有讀不到的
+const has = (o, p) => Object.prototype.hasOwnProperty.call(o, p);
+// 任一次只記連結本身（值 link:…）的目錄：底下逐檔項目不比，整個目錄算一項——跨過檔數上限時，
+// 另一次逐檔記的那些檔不是真的被刪或新增
+const isLinkOnly = v => typeof v === 'string' && v.startsWith('link:');
+const collapsed = [...new Set([...Object.keys(before), ...Object.keys(now)])]
+  .filter(k => k.endsWith('/') && (isLinkOnly(before[k]) || isLinkOnly(now[k])));
+const underCollapsed = p => collapsed.some(d => p !== d && p.startsWith(d));
+const seenSide = (o, d) => has(o, d) || Object.keys(o).some(k => k.startsWith(d));
 const changes = [];
+for (const d of collapsed) {
+  if (isUnknown(d) || underCollapsed(d)) continue; // 外層已收成一項，裡層不另報
+  const b = seenSide(before, d), n = seenSide(now, d);
+  if (b && n) { if (!has(before, d) || !has(now, d) || before[d] !== now[d]) changes.push({ p: d, kind: '修改' }); }
+  else changes.push({ p: d, kind: n ? '新增' : '刪除' });
+}
 for (const [p, h] of Object.entries(now)) {
-  if (isUnknown(p)) continue;
-  if (!Object.prototype.hasOwnProperty.call(before, p)) changes.push({ p, kind: '新增' });
+  if (isUnknown(p) || collapsed.includes(p) || underCollapsed(p)) continue;
+  if (!has(before, p)) changes.push({ p, kind: '新增' });
   else if (before[p] !== h) changes.push({ p, kind: '修改' });
 }
 for (const p of Object.keys(before))
-  if (!Object.prototype.hasOwnProperty.call(now, p) && !isUnknown(p)) changes.push({ p, kind: '刪除' });
+  if (!has(now, p) && !isUnknown(p) && !collapsed.includes(p) && !underCollapsed(p)) changes.push({ p, kind: '刪除' });
 changes.sort((a, b) => a.p.localeCompare(b.p));
 
 // 目錄節點：label 裡以 / 結尾的路徑片段
@@ -228,8 +322,10 @@ console.log(`落點：${root}\n快照時間：${snap.takenAt}`);
 console.log(`init 之後的變動：新增 ${count('新增')}、修改 ${count('修改')}、刪除 ${count('刪除')}，共 ${changes.length} 項${cacheCount ? `（另排除執行測試產生的快取目錄 ${cacheCount} 個）` : ''}`);
 for (const c of changes) {
   const d = coveredByDir(c);
-  console.log(`  ${c.kind}  ${c.p}${d ? `　← 目錄節點 ${d}` : ''}`);
+  const lk = viaWhich(c.p);
+  console.log(`  ${c.kind}  ${c.p}${d ? `　← 目錄節點 ${d}` : ''}${lk ? `（經連結 ${lk.rel} → ${lk.real}，改到的是專案外的真身）` : ''}`);
 }
+for (const l of tooLarge) console.log(`注意：${tooLargeNote(l)}`);
 if (unreadable.length) {
   console.log(`\n有 ${unreadable.length} 個檔案或目錄讀不到（被鎖住或沒權限），這次沒比對到，請確認後重跑：`);
   for (const u of unreadable) console.log(`  - ${u}`);

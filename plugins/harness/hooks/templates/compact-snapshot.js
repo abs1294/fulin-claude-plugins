@@ -110,49 +110,53 @@ function decisionsOf(input, o, c) {
 
 // ── 任務清單最後狀態 ──
 // 實際工具名與格式依真實 transcript 確認（本機 78 份紀錄用過）：TaskCreate／TaskUpdate／TaskList；
+//   2026-10-11 掃描：Task 系列 Claude Code 2.1.268 之後零使用，保留以防工具回來或別的版本仍提供。
 //   TaskCreate 回傳 toolUseResult.task＝{ id, subject }（內文 Task #N created successfully: 標題）；
 //   TaskUpdate input＝{ taskId, status?, subject?, … }，status 有 pending／in_progress／completed／deleted，回傳 toolUseResult.success；
 //   TaskList 回傳 toolUseResult.tasks＝[{ id, subject, status, blockedBy }]。
-// TodoWrite（input.todos＝[{ content, status, activeForm }]，每次整份覆蓋）本機紀錄一筆都沒有，照官方工具 schema 寫，未經真實紀錄驗證。
+// TodoWrite（input.todos＝[{ content, status, activeForm }]，每次整份覆蓋）至 2026-10-11 掃描本機紀錄仍一筆都沒有，照官方工具 schema 寫，未經真實紀錄驗證；
+//   只換掉自己那份（key 以 todo 開頭），不動 Task 系列建的項目。
 // 範圍是整份紀錄（清單跨壓縮延續，要的是最後狀態），以「重播」重建：
-// - TaskCreate 拿到已存在的 id＝清單被重置過（實測 50 次，多在隔天續跑時；當時常有未完成項），丟掉舊的重新累積。
-// - TaskList 的回傳是當下實際清單，見到就整份換掉再往下重播。實測重播與 TaskList 仍有約兩成對不上
+// - TaskCreate 拿到已存在的 id＝清單被重置過（實測 50 次，多在隔天續跑時；當時常有未完成項），丟掉舊的 Task 項目重新累積。
+// - TaskList 的回傳是當下實際清單，見到就把 Task 項目整份換掉再往下重播。兩者都只換 Task 項目，TodoWrite 的 todo* 留著（與 TodoWrite 只換 todo* 對稱）。實測重播與 TaskList 仍有約兩成對不上
 //   （112 次比對 25 次不同，多為跨日續跑或別的 agent 動過清單），所以注入時註明「依紀錄重建」，要接續前先跑 TaskList。
 const TASK_KEEP = 60;
 function textOf(content) {
   return typeof content === 'string' ? content
     : Array.isArray(content) ? content.filter(x => x && x.type === 'text').map(x => x.text).join('\n') : '';
 }
+// 回傳這次呼叫有沒有套用到清單（失敗、格式認不得、清單外的 id 回 false），呼叫端據此決定 tasksSource
 function applyTask(tasks, u, o, c) {
-  if (c.is_error) return;
+  if (c.is_error) return false;
+  const clearTaskItems = () => { for (const k of [...tasks.keys()]) if (!k.startsWith('todo')) tasks.delete(k); };
   const t = o.toolUseResult && typeof o.toolUseResult === 'object' ? o.toolUseResult : null;
   const body = textOf(c.content);
   const i = u.input || {};
   if (u.name === 'TodoWrite') {
-    if (!Array.isArray(i.todos)) return;
-    tasks.clear();
+    if (!Array.isArray(i.todos)) return false;
+    for (const k of [...tasks.keys()]) if (k.startsWith('todo')) tasks.delete(k);
     i.todos.forEach((td, n) => { if (td && td.content) tasks.set('todo' + n, { subject: String(td.content), status: String(td.status || '') }); });
-    return;
+    return true;
   }
   if (u.name === 'TaskCreate') {
     // 沒有 toolUseResult 時 t 是 null，id 會是 null 不是 undefined，一律用 == null 判
     let id = t && t.task ? t.task.id : null, subject = t && t.task ? t.task.subject : null;
     if (id == null) { const m = body.match(/^Task #(\S+) created successfully: ([\s\S]*)$/); if (m) { id = m[1]; subject = m[2]; } }
-    if (id == null) return;
+    if (id == null) return false;
     id = String(id);
-    if (tasks.has(id)) tasks.clear();
+    if (tasks.has(id)) clearTaskItems();
     tasks.set(id, { subject: String(subject || i.subject || ''), status: 'pending' });
-    return;
+    return true;
   }
   if (u.name === 'TaskUpdate') {
-    if (t ? t.success !== true : !/^Updated task #/.test(body)) return;
+    if (t ? t.success !== true : !/^Updated task #/.test(body)) return false;
     const id = String(i.taskId != null ? i.taskId : (t && t.taskId));
-    if (i.status === 'deleted') { tasks.delete(id); return; }
+    if (i.status === 'deleted') { tasks.delete(id); return true; }
     const cur = tasks.get(id);
-    if (!cur) return;   // 清單外的 id（重置前的、別的 agent 建的）沒有標題可列，不憑空造一項
+    if (!cur) return false;   // 清單外的 id（重置前的、別的 agent 建的）沒有標題可列，不憑空造一項
     if (i.status) cur.status = String(i.status);
     if (i.subject) cur.subject = String(i.subject);
-    return;
+    return true;
   }
   if (u.name === 'TaskList') {
     let list = t && Array.isArray(t.tasks) ? t.tasks : null;
@@ -163,10 +167,12 @@ function applyTask(tasks, u, o, c) {
         if (rows.length) list = rows.map(m => ({ id: m[1], status: m[2], subject: m[3] }));
       }
     }
-    if (!list) return;
-    tasks.clear();
+    if (!list) return false;
+    clearTaskItems();
     for (const x of list) if (x && x.id != null) tasks.set(String(x.id), { subject: String(x.subject || ''), status: String(x.status || '') });
+    return true;
   }
+  return false;
 }
 const TASK_TOOLS = /^(TodoWrite|TaskCreate|TaskUpdate|TaskList)$/;
 
@@ -179,6 +185,7 @@ function scan(transcriptPath) {
   const asks = new Map();        // AskUserQuestion 的 tool_use id -> input
   const taskUses = new Map();    // 任務清單工具的 tool_use id -> tool_use
   const tasks = new Map();       // 任務 id -> { subject, status }，Map 保留建立順序
+  let tasksSource = '';          // 最後一次成功的任務清單工具：TodoWrite 或 Task（系列），決定注入時要 AI 怎麼對回清單
   const decisions = [];
   const lines = fs.readFileSync(transcriptPath, 'utf8').split('\n');
   for (const line of lines) {
@@ -229,7 +236,10 @@ function scan(transcriptPath) {
       if (Array.isArray(content)) {
         for (const c of content) {
           if (c && c.type === 'tool_result' && asks.has(c.tool_use_id)) decisions.push(...decisionsOf(asks.get(c.tool_use_id), o, c));
-          if (c && c.type === 'tool_result' && taskUses.has(c.tool_use_id)) applyTask(tasks, taskUses.get(c.tool_use_id), o, c);
+          if (c && c.type === 'tool_result' && taskUses.has(c.tool_use_id)) {
+            const u = taskUses.get(c.tool_use_id);
+            if (applyTask(tasks, u, o, c)) tasksSource = u.name === 'TodoWrite' ? 'TodoWrite' : 'Task';
+          }
           if (c && c.type === 'tool_result' && toolUseDesc.has(c.tool_use_id)) {
             resulted.add(c.tool_use_id);
             const txt = typeof c.content === 'string' ? c.content : JSON.stringify(c.content || '');
@@ -270,6 +280,7 @@ function scan(transcriptPath) {
     decisionsTz: tzLabel,
     // 沒用過任務清單工具、或最後全部刪光＝空陣列，注入端不輸出
     tasks: [...tasks].slice(-TASK_KEEP).map(([id, t]) => ({ id, subject: t.subject, status: t.status })),
+    tasksSource,
   };
 }
 

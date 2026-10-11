@@ -307,6 +307,9 @@ module.exports = function run() {
       rej('抄原文（24 字以上相同）', [memP('vb', { over: { summary: '跑整合測試之前一定要先確認連線的是測試資料庫主機' } })], 'verbatim');
       rej('出處檔名不是本次 transcript', [memP('ev1', { t: 'other.jsonl' })], 'evidence');
       rej('出處行號不在讀取範圍', [memP('ev2', { line: 99 })], 'evidence');
+      ({ out } = promote(p, [memP('ev-l', { line: 'L3' })]));
+      const evl = ledger(p).filter((x) => x.target === 'memory/ev-l.md').pop();
+      ok('promote：出處寫成 t1.jsonl:L3 → 照常寫入，ledger 存成 t1.jsonl:3', out.written === 1 && evl && JSON.stringify(evl.evidence) === '["t1.jsonl:3"]', JSON.stringify({ rr: out.rejectReasons, ev: evl && evl.evidence }));
       rej('紅區提案的 replaces 夾帶帳密', [{ kind: 'rule', action: 'update', target: '.claude/harness/03-judgment-matrix.md', summary: '改條款', content: '新條款', replaces: '舊條款 password = Sup3rS3cretValue', evidence: [{ source: 't1.jsonl:1', clue: 'x' }] }], 'secret');
       {
         const rr = nodeRun(p, 'learn-promote.js', ['--proposals', propFile(p, [memP('run-esc')]), '--transcript', path.join(p.tdir, 't1.jsonl'), '--range', '1-4', '--run', '../../../escape']);
@@ -446,6 +449,9 @@ module.exports = function run() {
       promote(p, [pr('lockout-b', 't1.jsonl')], 't1.jsonl');
       const n1 = pending(p).filter((x) => x.type === 'promotion').length;
       ok('promotion：同一出處重讀（t1.jsonl:3 兩次）不算第 2 次', n1 === 0, 'promotions=' + n1);
+      promote(p, [memP('lockout-l', { line: 'L3', over: { topic: 'db-lockout' } })]);
+      const nl = pending(p).filter((x) => x.type === 'promotion').length;
+      ok('promotion：同一行寫成 t1.jsonl:L3 也不算第 2 次', nl === 0, 'promotions=' + nl);
       promote(p, [memP('two-lines', { over: { evidence: [{ source: 't1.jsonl:1', clue: 'a' }, { source: 't1.jsonl:3', clue: 'b' }] } })]);
       ok('promotion：一筆提案同時引兩行也不算第 2 次', pending(p).filter((x) => x.type === 'promotion').length === 0, '');
       promote(p, [pr('lockout-c', 't2.jsonl')], 't2.jsonl');

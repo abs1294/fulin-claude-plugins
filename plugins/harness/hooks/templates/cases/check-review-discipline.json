@@ -374,7 +374,7 @@
       "expect": "BLOCK"
     },
     {
-      "label": "qa-engineer：選 b 理由沒寫禁用詞也沒點名類別（只有證據）→ 擋（白名單：沒點名例外類別一律擋）",
+      "label": "qa-engineer：選 b 理由沒寫禁用詞也沒宣告例外類別（只有證據）→ 擋（白名單：沒宣告例外類別一律擋）",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
@@ -386,49 +386,123 @@
       "expect": "BLOCK"
     },
     {
-      "label": "qa-engineer：選 b 點名例外類別「上游系統推送」附 檔名:行號 → 放行",
+      "label": "qa-engineer：選 b 寫「例外類別：上游系統推送」附 檔名:行號 → 放行",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：出貨單由上游系統推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送，出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
     },
     {
-      "label": "qa-engineer：選 b 點名例外類別「產品沒有建立入口」附 檔名:行號 → 放行",
+      "label": "qa-engineer：選 b「例外類別：上游系統推送 唯一寫入點 …」（類別名後接半形空白）附 檔名:行號 → 放行",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：產品本身沒有建立入口，守門 src/Auth/Guard.cs:31\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送 唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
     },
     {
-      "label": "qa-engineer：選 b 點名例外類別但沒附 檔名:行號 → 擋（類別與證據兩件都要）",
+      "label": "qa-engineer：選 b「例外類別：上游系統推送、唯一寫入點 …」（類別名後接頓號）附 檔名:行號 → 放行",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：出貨單由上游系統推送，產品沒有建立入口\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送、唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
-      "expect": "BLOCK"
+      "expect": "ALLOW"
     },
     {
-      "label": "qa-engineer：選 b 同時寫成本與例外類別（上游系統推送）附 檔名:行號 → 放行（判準：有點名例外類別即算，禁用詞只影響擋下訊息；類別真假由證據與審查判）",
+      "label": "qa-engineer：選 b「例外類別：上游系統推送. 唯一寫入點 …」（類別名後接半形句點）附 檔名:行號 → 放行",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：出貨單由上游系統推送（真流程成本也高），唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送. 唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b「例外類別：上游系統推送　唯一寫入點 …」（類別名後接全形空白）附 檔名:行號 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送　唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b「例外類別：上游系統推送<tab>唯一寫入點 …」（類別名後接tab）附 檔名:行號 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送\t唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b「例外類別：「產品沒有建立入口」」（類別名用「」包起來）附 檔名:行號 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：「產品沒有建立入口」，守門 src/Auth/Guard.cs:31\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b 寫「例外類別：產品沒有建立入口」附 檔名:行號 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：產品沒有建立入口，守門 src/Auth/Guard.cs:31\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b 寫「例外類別：上游系統推送」但沒附 檔名:行號 → 擋缺證據（類別與證據兩件都要）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送，出貨單由上游系統推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "測試資料來源·缺證據",
+      "output_not_match": "測試資料來源·非例外"
+    },
+    {
+      "label": "qa-engineer：選 b 寫「例外類別：上游系統推送（真流程成本也高）」附 檔名:行號 → 放行（類別名取到「（」為止；禁用詞只影響擋下訊息，類別真假由證據與審查判）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送（真流程成本也高），唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -458,13 +532,13 @@
       "expect": "BLOCK"
     },
     {
-      "label": "qa-engineer：選 b 並附產品端證據 檔名:行號 → 放行",
+      "label": "qa-engineer：選 b 寫例外類別並附產品端證據 檔名:行號 → 放行",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：訂單只由上游 ERP 推送，產品端唯一寫入點 src/sync/erp_import.py:88，畫面沒有建立入口\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送，訂單只由上游 ERP 推送，產品端唯一寫入點 src/sync/erp_import.py:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -620,7 +694,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在理由點名例外類別（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 a：從訂單建立畫面實際下單產生資料\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在作答段寫「例外類別：<類別名>」（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 a：從訂單建立畫面實際下單產生資料\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -632,7 +706,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在理由點名例外類別（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 c：幣別屬設定類主檔，期望值由資料庫查出\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在作答段寫「例外類別：<類別名>」（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 c：幣別屬設定類主檔，期望值由資料庫查出\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -644,7 +718,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在理由點名例外類別（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\na. 走真實業務流程長出來\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在作答段寫「例外類別：<類別名>」（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\na. 走真實業務流程長出來\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -695,7 +769,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b：見【規格】src/sync/erp_import.py:88，訂單只由上游 ERP 推送，畫面沒有建立入口\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b：見【規格】src/sync/erp_import.py:88，例外類別：上游系統推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -1480,6 +1554,133 @@
         }
       },
       "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：選 b 自由文字否定句「這不是上游系統推送的資料」附 檔名:行號 → 擋（關鍵詞判法會放行）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：這不是上游系統推送的資料，走畫面太慢，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "測試資料來源·非例外"
+    },
+    {
+      "label": "qa-engineer：選 b 雙重否定「並非沒有建立入口」附 檔名:行號 → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：並非沒有建立入口，只是走畫面太慢，見 src/Order/OrderController.cs:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "測試資料來源·非例外"
+    },
+    {
+      "label": "qa-engineer：選 b 讓步句「雖然上游系統推送…但走畫面太慢」附 檔名:行號 → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：雖然上游系統推送也會產生這筆資料，但走畫面太慢，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "測試資料來源·非例外"
+    },
+    {
+      "label": "qa-engineer：選 b「例外類別：不是上游系統推送」附 檔名:行號 → 擋（類別名須完全相等）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：不是上游系統推送，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "測試資料來源·非例外"
+    },
+    {
+      "label": "qa-engineer：選 b 照貼「例外類別：上游系統推送｜產品沒有建立入口」附 檔名:行號 → 擋（沒選定一類）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送｜產品沒有建立入口，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "測試資料來源·非例外"
+    },
+    {
+      "label": "qa-engineer：選 b「例外類別：成本過高」附 檔名:行號 → 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：成本過高，見 src/Order/OrderController.cs:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "測試資料來源·非例外"
+    },
+    {
+      "label": "qa-engineer：選 b「例外類別：外部系統推送」附 檔名:行號 → 擋（不在預設類別清單）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：外部系統推送，回呼寫入點 src/Hooks/Callback.cs:15\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "測試資料來源·非例外"
+    },
+    {
+      "label": "qa-engineer：選 b「例外類別：產品沒有建立入口（後台不提供新增）」附 檔名:行號 → 放行（類別名取到「（」為止）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：產品沒有建立入口（後台不提供新增），守門 src/Auth/Guard.cs:31\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b「例外類別:上游系統推送」半形冒號附 檔名:行號 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別:上游系統推送，唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b 理由寫在前、句尾才寫「例外類別：上游系統推送」附 檔名:行號 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，出貨單只由上游 ERP 推送、畫面不提供新增，唯一寫入點 src/Sync/ShipmentImport.cs:120，例外類別：上游系統推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
     }
   ],
   "variants": {

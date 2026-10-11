@@ -267,4 +267,225 @@ const VALID = [
     }, afterSnap: (r) => app(r, '.claude/rules/web/legacy.md', '\n逾時一律 10 秒。\n') },
 ];
 
-module.exports = { makeGolden, BROKEN, VALID, TODAY, seedSnapshot, dropSnapshot };
+// check-flow-diagram.js 對符號連結的處理（規則見該檔檔頭）：每個案例在系統暫存目錄建專案與專案外目錄、用 junction 連起來，
+// 跑 snapshot／check。script＝要測的 check-flow-diagram.js（可換成舊版當對照組）；ok(cond, detail) 記結果，
+// skip(detail) 在建不了 junction 時呼叫（只顯示、不算失敗）。移除時只刪連結本身。
+function linkScanCases({ script, node, ok, skip, only }) {
+  const os = require('os');
+  const put = (p, s) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s); };
+  const keys = (root) => Object.keys((L.readSnapshot(root) || { files: {} }).files).sort();
+  const snap = (root) => node([script, 'snapshot', root]);
+  const emptyDiagram = (t) => { const f = path.join(t.dir('h-lk-diagram-'), 'empty.json'); fs.writeFileSync(f, '{"nodes":[],"edges":[]}'); return f; };
+  const cases = [];
+  const def = (id, fn) => { if (!only || only.includes(id)) cases.push([id, fn]); };
+  def(1, (t) => {
+    const P = t.dir('h-lk1-'), O = t.dir('h-lk1-out-');
+    put(path.join(O, 'agents', 'old.md'), '# old\n');
+    put(path.join(P, 'a.txt'), 'x\n');
+    fs.mkdirSync(path.join(P, '.claude'));
+    t.link(path.join(O, 'agents'), path.join(P, '.claude', 'agents'));
+    const s0 = snap(P);
+    put(path.join(P, '.claude', 'agents', 'new.md'), '# new\n');
+    const r = node([script, 'check', P, emptyDiagram(t)]);
+    const out = r.stdout || '';
+    const line = (out.match(/^ {2}新增 {2}\.claude\/agents\/new\.md.*$/m) || [''])[0];
+    const missing = out.includes('不是圖上的節點') ? out.slice(out.indexOf('不是圖上的節點')) : '';
+    ok(s0.status === 0 && r.status === 1 && /（經連結 \.claude\/agents → .+，改到的是專案外的真身）/.test(line) && /\.claude\/agents\/new\.md/.test(missing),
+      `.claude/agents 是專案外 junction，經連結新增 agent → 空白圖 check exit ${r.status}；${line.trim() || '（沒列出 .claude/agents/new.md）'}`);
+  });
+  def(2, (t) => {
+    const P = t.dir('h-lk2-'), O = t.dir('h-lk2-out-');
+    put(path.join(O, 'foo', 'SKILL.md'), '# foo\n');
+    fs.mkdirSync(path.join(P, '.claude', 'skills'), { recursive: true });
+    t.link(path.join(O, 'foo'), path.join(P, '.claude', 'skills', 'foo'));
+    const s0 = snap(P);
+    fs.appendFileSync(path.join(P, '.claude', 'skills', 'foo', 'SKILL.md'), '改過\n');
+    const r = node([script, 'check', P, emptyDiagram(t)]);
+    const line = ((r.stdout || '').match(/^ {2}修改 {2}\.claude\/skills\/foo\/SKILL\.md.*$/m) || [''])[0];
+    ok(s0.status === 0 && r.status === 1 && /（經連結 \.claude\/skills\/foo → /.test(line),
+      `.claude/skills/foo 是 junction，經連結改 SKILL.md → exit ${r.status}；${line.trim() || '（沒列成修改）'}`);
+  });
+  def(3, (t) => {
+    const P = t.dir('h-lk3-'), O = t.dir('h-lk3-out-');
+    put(path.join(P, 'a.txt'), 'x\n');
+    put(path.join(O, 'x.md'), 'x\n');
+    put(path.join(O, 'sub', 'y.md'), 'y\n');
+    t.link(O, path.join(P, 'ext'));
+    snap(P);
+    const n0 = keys(P);
+    t.link(P, path.join(O, 'back'));
+    t.link(O, path.join(O, 'sub', 'self'));
+    const t0 = Date.now();
+    const s1 = snap(P);
+    const ms = Date.now() - t0;
+    const n1 = keys(P);
+    ok(s1.status === 0 && n1.length > 1 && n1.join('|') === n0.join('|') && ms < 20000,
+      `循環 junction（專案外目錄連回專案、連回自己）→ 快照 ${n1.length} 筆（無循環時 ${n0.length} 筆）、${ms} ms`);
+  });
+  def(4, (t) => {
+    const B = t.dir('h-lk4-');
+    const P = path.join(B, 'proj');
+    put(path.join(P, 'a.txt'), 'x\n');
+    put(path.join(B, 'side', 's.md'), 's\n');
+    snap(P);
+    const n0 = keys(P);
+    t.link(B, path.join(P, 'up'));
+    t.link(P, path.join(P, 'self'));
+    const s1 = snap(P);
+    const n1 = keys(P);
+    ok(s1.status === 0 && n1.join('|') === n0.join('|') && !n1.some((k) => /side/.test(k)),
+      `junction 指向專案上層與專案根本身 → 快照 ${n1.length} 筆（加連結前 ${n0.length} 筆），不含旁邊目錄`);
+  });
+  def(5, (t) => {
+    const P = t.dir('h-lk5-'), O = t.dir('h-lk5-out-');
+    put(path.join(P, 'a.txt'), 'x\n');
+    put(path.join(O, 'x.md'), 'x\n');
+    put(path.join(O, 'd', 'y.md'), 'y\n');
+    t.link(O, path.join(P, 'l2'));
+    t.link(O, path.join(P, 'l1'));
+    snap(P);
+    const a = JSON.stringify(L.readSnapshot(P).files);
+    snap(P);
+    const b = JSON.stringify(L.readSnapshot(P).files);
+    const k = keys(P);
+    ok(a === b && k.join('|') === 'a.txt|l1/d/y.md|l1/x.md',
+      `兩個 junction 指同一真身 → 快照 ${k.join('、')}；兩次快照一致=${a === b}`);
+  });
+  def(6, (t) => {
+    const P = t.dir('h-lk6-'), O = t.dir('h-lk6-out-');
+    put(path.join(P, 'a.txt'), 'x\n');
+    const gone = path.join(O, 'gone');
+    fs.mkdirSync(gone);
+    t.link(gone, path.join(P, 'broken'));
+    fs.rmdirSync(gone);
+    const s1 = snap(P);
+    const k = keys(P);
+    const r = node([script, 'check', P, emptyDiagram(t)]);
+    ok(s1.status === 0 && r.status === 0 && k.join('|') === 'a.txt',
+      `斷掉的連結 → 快照 exit ${s1.status}、${k.join('、')}；check exit ${r.status}${s1.stderr ? '；stderr：' + s1.stderr.slice(0, 200) : ''}`);
+  });
+  def(7, (t) => {
+    const P = t.dir('h-lk7-'), O = t.dir('h-lk7-out-');
+    put(path.join(P, 'package.json'), '{}\n');
+    put(path.join(O, 'nm', 'pkg', 'index.js'), 'x\n');
+    t.link(path.join(O, 'nm'), path.join(P, 'node_modules'));
+    const s1 = snap(P);
+    const f = (L.readSnapshot(P) || { files: {} }).files;
+    const nm = Object.keys(f).filter((k) => k.startsWith('node_modules'));
+    ok(s1.status === 0 && nm.length === 1 && nm[0] === 'node_modules/' && String(f['node_modules/']).startsWith('link:'),
+      `專案外 node_modules 連結 → 記 ${nm.length} 筆：${nm.map((k) => `${k}=${String(f[k]).slice(0, 5)}…`).join('、') || '（無）'}`);
+  });
+  // 上限調成 5、外部目錄放 6 個檔：只記連結本身，snapshot 與 check 都印提示；兩次快照一致
+  def(8, (t) => {
+    const P = t.dir('h-lk8-'), O = t.dir('h-lk8-out-');
+    put(path.join(P, 'a.txt'), 'x\n');
+    for (let i = 1; i <= 6; i++) put(path.join(O, i <= 3 ? 'd' : 'e', `f${i}.md`), `${i}\n`);
+    t.link(O, path.join(P, 'ext'));
+    const env = { env: Object.assign({}, process.env, { HARNESS_FLOW_LINK_MAX_FILES: '5' }) };
+    const s1 = node([script, 'snapshot', P], env);
+    const f1 = JSON.stringify((L.readSnapshot(P) || { files: {} }).files);
+    const k = keys(P);
+    const v = String(((L.readSnapshot(P) || { files: {} }).files)['ext/'] || '');
+    node([script, 'snapshot', P], env);
+    const f2 = JSON.stringify((L.readSnapshot(P) || { files: {} }).files);
+    const r = node([script, 'check', P, emptyDiagram(t)], env);
+    const note = /連結 ext → .+ 底下超過 5 項（檔與目錄），只記連結本身、不逐檔比對/;
+    ok(s1.status === 0 && k.join('|') === 'a.txt|ext/' && v.startsWith('link:') && note.test(s1.stdout || '') && note.test(r.stdout || '') && r.status === 0 && f1 === f2,
+      `專案外連結底下 6 個檔、上限 5 → 快照 ${k.join('、')}（ext/=${v.slice(0, 5)}…）；snapshot 提示=${note.test(s1.stdout || '')}、check 提示=${note.test(r.stdout || '')}、check exit ${r.status}；兩次快照一致=${f1 === f2}`);
+  });
+  // 連到檔案系統根只記連結本身：用 HARNESS_FLOW_TEST_FS_ROOT 把一個專案外暫存目錄當成根，不真的連到磁碟根
+  def(9, (t) => {
+    const P = t.dir('h-lk9-'), O = t.dir('h-lk9-out-');
+    put(path.join(P, 'a.txt'), 'x\n');
+    put(path.join(O, 'x.md'), 'x\n');
+    t.link(O, path.join(P, 'drive'));
+    const env = { env: Object.assign({}, process.env, { HARNESS_FLOW_TEST_FS_ROOT: fs.realpathSync(O) }) };
+    const s1 = node([script, 'snapshot', P], env);
+    const f = (L.readSnapshot(P) || { files: {} }).files;
+    const k = keys(P);
+    ok(s1.status === 0 && k.join('|') === 'a.txt|drive/' && f['drive/'] === `link:${fs.realpathSync(O)}`,
+      `連結指向（模擬的）檔案系統根 → 快照 ${k.join('、')}，drive/=${String(f['drive/'] || '（無）').slice(0, 5)}…`);
+  });
+  // 經專案外連結走到的 node_modules 目錄（本身不是連結）：只記一項，不整棵算雜湊
+  def(10, (t) => {
+    const P = t.dir('h-lk10-'), O = t.dir('h-lk10-out-');
+    put(path.join(P, 'a.txt'), 'x\n');
+    put(path.join(O, 'x.md'), 'x\n');
+    put(path.join(O, 'node_modules', 'pkg', 'index.js'), 'x\n');
+    t.link(O, path.join(P, 'ext'));
+    const s1 = snap(P);
+    const f = (L.readSnapshot(P) || { files: {} }).files;
+    const k = keys(P);
+    const v = String(f['ext/node_modules/'] || '');
+    ok(s1.status === 0 && k.join('|') === 'a.txt|ext/node_modules/|ext/x.md' && v === `link:${fs.realpathSync(path.join(O, 'node_modules'))}`,
+      `專案外連結底下的 node_modules 目錄 → 快照 ${k.join('、')}，ext/node_modules/=${v.slice(0, 5) || '（無）'}…`);
+  });
+  // 快照時剛好在上限內（逐檔記），之後多一個檔跨過上限：check 只報「ext/」一項修改，原本逐檔記的檔不列成刪除
+  def(11, (t) => {
+    const P = t.dir('h-lk11-'), O = t.dir('h-lk11-out-');
+    put(path.join(P, 'a.txt'), 'x\n');
+    for (let i = 1; i <= 5; i++) put(path.join(O, `f${i}.md`), `${i}\n`);
+    t.link(O, path.join(P, 'ext'));
+    const env = { env: Object.assign({}, process.env, { HARNESS_FLOW_LINK_MAX_FILES: '5' }) };
+    const s0 = node([script, 'snapshot', P], env);
+    const k0 = keys(P);
+    put(path.join(O, 'f6.md'), '6\n');
+    const r = node([script, 'check', P, emptyDiagram(t)], env);
+    const out = r.stdout || '';
+    const lines = out.split(/\r?\n/).filter((l) => /^ {2}(新增|修改|刪除) {2}/.test(l)).map((l) => l.trim());
+    ok(s0.status === 0 && k0.length === 6 && r.status === 1 && lines.length === 1 && /^修改 {2}ext\/($|[（　])/.test(lines[0]),
+      `跨過檔數上限（快照 ${k0.length} 筆逐檔、之後超過）→ check exit ${r.status}，變動 ${lines.length} 項：${lines.join('；') || '（無）'}`);
+  });
+  // 外層連結跨過上限時，裡面原本收成一項的 node_modules 不另報：只報「ext/」一項
+  def(13, (t) => {
+    const P = t.dir('h-lk13-'), O = t.dir('h-lk13-out-');
+    put(path.join(P, 'a.txt'), 'x\n');
+    put(path.join(O, 'node_modules', 'pkg', 'index.js'), 'x\n');
+    for (let i = 1; i <= 3; i++) put(path.join(O, `f${i}.md`), `${i}\n`);
+    t.link(O, path.join(P, 'ext'));
+    const env = { env: Object.assign({}, process.env, { HARNESS_FLOW_LINK_MAX_FILES: '5' }) };
+    const s0 = node([script, 'snapshot', P], env);
+    const k0 = keys(P);
+    put(path.join(O, 'f4.md'), '4\n');
+    put(path.join(O, 'f5.md'), '5\n');
+    const r = node([script, 'check', P, emptyDiagram(t)], env);
+    const lines = (r.stdout || '').split(/\r?\n/).filter((l) => /^ {2}(新增|修改|刪除) {2}/.test(l)).map((l) => l.trim());
+    ok(s0.status === 0 && k0.includes('ext/node_modules/') && r.status === 1 && lines.length === 1 && /^修改 {2}ext\/($|[（　])/.test(lines[0]),
+      `外層連結跨過上限、裡面有收成一項的 node_modules → check exit ${r.status}，變動 ${lines.length} 項：${lines.join('；') || '（無）'}`);
+  });
+  // 只有空目錄的外部樹也受上限：目錄算一項
+  def(12, (t) => {
+    const P = t.dir('h-lk12-'), O = t.dir('h-lk12-out-');
+    put(path.join(P, 'a.txt'), 'x\n');
+    for (let i = 1; i <= 6; i++) fs.mkdirSync(path.join(O, `d${i}`));
+    t.link(O, path.join(P, 'ext'));
+    const env = { env: Object.assign({}, process.env, { HARNESS_FLOW_LINK_MAX_FILES: '5' }) };
+    const s1 = node([script, 'snapshot', P], env);
+    const k = keys(P);
+    ok(s1.status === 0 && k.join('|') === 'a.txt|ext/' && /連結 ext → .+ 底下超過 5 項/.test(s1.stdout || ''),
+      `外部樹只有 6 個空目錄、上限 5 → 快照 ${k.join('、')}`);
+  });
+  for (const [id, fn] of cases) {
+    const t = { dirs: [], links: [], linked: true };
+    t.dir = (p) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), p)); t.dirs.push(d); return d; };
+    t.link = (target, at) => {
+      try { fs.symlinkSync(target, at, 'junction'); } catch { t.linked = false; throw new Error('建不了 junction'); }
+      t.links.push(at);
+    };
+    try { fn(t); } catch (e) {
+      if (!t.linked) skip(`符號連結案例 ${id}：這台建不了目錄連結（junction／symlink），測不到`);
+      else ok(false, `符號連結案例 ${id} 拋錯：${e.message}`);
+    } finally {
+      // 只刪連結本身；還刪不掉的連結所在的暫存目錄整個留著，不遞迴刪（免得刪到連結的目標）
+      for (const at of t.links.reverse()) { try { fs.unlinkSync(at); } catch {} }
+      const left = t.links.filter((at) => { try { fs.lstatSync(at); return true; } catch { return false; } });
+      if (left.length) ok(false, `符號連結案例 ${id}：連結沒移除：${left.join('、')}`);
+      for (const d of t.dirs) {
+        if (!left.some((at) => at.startsWith(d + path.sep))) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} }
+        dropSnapshot(d); dropSnapshot(path.join(d, 'proj'));
+      }
+    }
+  }
+}
+
+module.exports = { makeGolden, BROKEN, VALID, TODAY, seedSnapshot, dropSnapshot, linkScanCases };

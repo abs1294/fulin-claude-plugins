@@ -131,13 +131,23 @@ function snapshotPath(root) {
   return path.join(os.tmpdir(), 'harness-init-snapshots', crypto.createHash('sha1').update(key).digest('hex').slice(0, 16) + '.json');
 }
 
+// p 是不是檔案系統根（磁碟根 C:\、UNC 分享根 \\server\share、/）。check-flow-diagram.js 不跟指向這類位置的連結。
+// pm 給 path.win32／path.posix 可在任何平台用字串測；\\?\ 長路徑前綴先換回一般寫法再比。
+function isFsRoot(p, pm = path) {
+  let s = String(p || '');
+  if (pm.sep === '\\') s = s.replace(/^\\\\[?.]\\UNC\\/i, '\\\\').replace(/^\\\\[?.]\\(?=[A-Za-z]:)/, '');
+  if (!s) return false;
+  const trim = (x) => x.replace(/[\\/]+$/, '');
+  return trim(pm.parse(s).root) === trim(s);
+}
+
 // 檔案內容的 sha1（快照記的就是這個；check-flow-diagram.js 拍快照與 init-verify.js 比對沿用檔都用這一支）
 function fileSha1(p) { return crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex'); }
 
 // 讀 Phase 0 的快照（check-flow-diagram.js snapshot 寫的
 // { root, takenAt, files: { 相對路徑: sha1 }, unreadable, ruleLinks: { 相對路徑: sha1 }, ruleLinkUnreadable }）。
-// files／unreadable 是不跟符號連結的整棵走訪（check 拿它跟現況比）；ruleLinks／ruleLinkUnreadable 是 .claude/rules/
-// 底下經符號連結才走得到的規則檔（依連結路徑記、內容是連結讀到的），只給 rulesSplit 的 origin 核對用。
+// files／unreadable 是整棵走訪（跟指向專案外的符號連結、不跟指向專案內的；check 拿它跟現況比）；ruleLinks／ruleLinkUnreadable
+// 是 .claude/rules/ 底下經符號連結走到的規則檔（依連結路徑記、內容是連結讀到的；專案外的連結 files 也有），只給 rulesSplit 的 origin 核對用。
 // 先找 root 自己的快照；找不到且給了 target（Q4 把落點改到 target 底下的子目錄時，快照是對 target 拍的），
 // 再找 target 的快照，只取落點底下的項目、路徑換成相對落點。都沒有回 null（舊版 init 的實例、或暫存目錄被清過）。
 // 前綴比對：Windows 路徑不分大小寫，落點字面（例 Sub）跟快照記的實際檔名（例 sub/）大小寫可能不同，所以不分大小寫比；
@@ -204,7 +214,7 @@ const normRulePath = (f) => String(f).replace(/\\/g, '/');
 
 // 處置表的 origin 對 Phase 0 快照核對。init-flow.js rules（寫入時）與 init-verify.js V21（驗收時）用同一支，判準只有一份。
 // root＝落點；target＝目標（落點在 target 底下時，快照是對 target 拍的）；list＝rulesSplit（file 已是 / 分隔）。
-// 規則檔在快照裡的雜湊：先查 files（實體檔），再查 ruleLinks（經符號連結進來的規則檔，依連結路徑記、內容是連結讀到的）。
+// 規則檔在快照裡的雜湊：ruleLinks 有的算經符號連結進來（依連結路徑記、內容是連結讀到的），用 ruleLinks；其餘查 files。
 // - kept：快照裡要有這份、內容雜湊要沒變；不在快照＝init 之後才出現，不能記成沿用；雜湊變了＝init 期間改寫過，要記 new
 // - new（或沒寫）：快照裡有、雜湊也沒變＝沒動過的既有檔，要記 kept；快照裡有、雜湊變了＝改寫既有檔，合法，照新建檔檢查
 // - 找不到快照（舊版 init 的實例、暫存目錄被清過）：kept 照舊放行，證據寫明未核對
@@ -221,7 +231,7 @@ function checkRuleOrigins(root, target, list) {
   for (const e of list) {
     const full = path.join(root, ...e.file.split('/'));
     if (!fs.existsSync(full)) { if (e.origin === 'kept' && !snapshot) keptOk.add(e.file); continue; }   // 檔不在由呼叫端另報
-    const viaLink = snapshot ? !has(snapshot.files, e.file) && has(snapshot.ruleLinks, e.file) : false;
+    const viaLink = snapshot ? has(snapshot.ruleLinks, e.file) : false;
     const inSnap = snapshot ? has(snapshot.files, e.file) || viaLink : false;
     const want = inSnap ? (viaLink ? snapshot.ruleLinks[e.file] : snapshot.files[e.file]) : null;
     const unreadable = snapshot ? snapshot.unreadable.includes(e.file) || snapshot.ruleLinkUnreadable.includes(e.file) : false;
@@ -252,5 +262,5 @@ function pluginVersion() {
 module.exports = {
   SKILL_DIR, PLUGIN_ROOT, SCHEMA_PATH, CATALOG_PATH, REQUIRED, DATA_REQUIRED,
   today, statePath, answersPath, readJson, writeJsonAtomic, validate, loadSchema, catalogRows, checkAnswers, snapshotPath, pluginVersion,
-  fileSha1, readSnapshot, listRuleFiles, normRulePath, checkRuleOrigins,
+  fileSha1, isFsRoot, readSnapshot, listRuleFiles, normRulePath, checkRuleOrigins,
 };

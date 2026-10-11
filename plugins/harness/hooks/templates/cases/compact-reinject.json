@@ -41,7 +41,7 @@
       "expect": "NOTE"
     },
     {
-      "label": "有交接信＋快照有裁決與任務清單 → 注入交接信並由程式附上兩節原文（probe 只驗有沒有注入；兩節是否原樣由 plugin 開發端的整合測試驗，該測試不隨 plugin 發布）",
+      "label": "有交接信＋快照有裁決與任務清單 → 注入交接信並由程式附上兩節原文（probe 只驗有沒有注入；兩節是否原樣由 tests/integration 的整合測試驗）",
       "setup": {
         "files": {
           "s1/compact-snapshots/latest.txt": "20260101T000000",

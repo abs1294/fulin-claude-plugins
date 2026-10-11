@@ -21,7 +21,8 @@
  * 「Claude requested permissions to read from …, but you haven't granted it yet.」並列在 permission_denials。
  * 找執行檔：HARNESS_CLAUDE_BIN（.js 結尾用 node 跑）→ ~/.local/bin/claude(.exe) → Windows `where claude`（優先 .exe）→ claude。
  *
- * 失敗語義：子程序失敗或解析失敗 → 水位線不前進並標 failed；連續 2 次 → learning/pause.json 暫停到隔天；
+ * 失敗語義：子程序失敗、解析失敗、落地失敗、或提案全數因出處被拒（rejectReasons.evidence＝提案數；clue 品質問題記 clue，不算）→ 水位線不前進並標 failed；
+ * 連續 2 次 → learning/pause.json 暫停到隔天（失敗計數在落地成功後才歸零）；部分被拒或因其他原因被拒照常前進；
  * 每天最多 MAX_RUNS_PER_DAY 次叫模型；片段裡沒有使用者文字也沒有工具錯誤 → 不叫模型（prefilter），水位線照樣前進。
  * 每次先處理一份別的 transcript 留下的 failed 尾段（最舊的一份，trigger＝catch-up），再處理本次的。
  *
@@ -295,7 +296,6 @@ function runOne(P, t) {
   const arr = extractArray(c.result);
   if (!arr) { rec.parse = { ok: false, error: '回覆裡找不到能解析成陣列的 JSON', proposals: 0 }; markFailed('解析失敗'); return done(); }
   rec.parse = { ok: true, error: null, proposals: arr.length };
-  lib.updateJson(P.learn, 'pause.json', { failures: 0, until: null, lastError: null, reported: false }, (st) => { st.failures = 0; st.until = null; });
   let r;
   try {
     r = require('./learn-promote.js').promote({ root: P.root, run: rec.run, transcriptName: seg.name, fromLine: seg.fromLine, toLine: seg.toLine,
@@ -309,6 +309,14 @@ function runOne(P, t) {
   }
   rec.results = { written: r.written, pendingReview: r.pendingReview, pendingApproval: r.pendingApproval, rejected: r.rejected, promotions: r.promotions };
   rec.rejectReasons = r.rejectReasons; rec.greenWrites = r.greenWrites; rec.notes = rec.notes.concat(r.notes);
+  // 每一筆都因出處被拒（格式、檔名、行號範圍、行號沒有可引用內容）：這段沒學到東西；比照解析失敗，水位線不前進、下次重讀。
+  // clue 空白或超長記在 clue，重讀同一段也不會變好，照常前進
+  if (r.proposals > 0 && r.rejected === r.proposals && r.rejectReasons.evidence === r.proposals) {
+    rec.notes.push('出處格式全被拒：' + r.proposals + ' 筆提案都因出處被拒，水位線不前進，下次重讀這一段');
+    markFailed('出處格式全被拒');
+    return done();
+  }
+  lib.updateJson(P.learn, 'pause.json', { failures: 0, until: null, lastError: null, reported: false }, (st) => { st.failures = 0; st.until = null; });
   setWatermark(P, key, (w) => { w.byte = seg.toByte; w.line = seg.toLine; w.failed = false; w.session = t.session || w.session || null; });
   return done();
 }
@@ -367,7 +375,7 @@ function selfTest() {
     fs.writeFileSync(tp, T.map((x) => JSON.stringify(x)).join('\n') + '\n', 'utf8');
     const green = { kind: 'memory', action: 'create', target: 'selftest-db-target.md', topic: 'selftest-db-target', category: 'tool-pitfall',
       summary: '整合測試前核對資料庫主機', content: '---\nname: selftest-db-target\ndescription: 整合測試連庫被拒時先核對主機設定\nmetadata:\n  type: feedback\n---\n\n測試程式讀的主機設定可能指向沒啟動的本機服務。\n**Why:** 設定檔預設值是本機位址。\n**How to apply:** 跑之前先印出實際連線目標。\n',
-      evidence: [{ source: tname + ':3', clue: '測試時本機資料庫拒絕連線' }] };
+      evidence: [{ source: tname + ':L3', clue: '測試時本機資料庫拒絕連線' }] };   // 照抄片段前綴 L 的寫法也要收
     const red = { kind: 'rule', action: 'create', target: '.claude/hooks/guard-test-preconditions.js', topic: 'selftest-db-rule', category: 'correction',
       summary: '建議加一條測試前核對資料庫主機的檢查', content: '在 CHECKS 加一條 env 檢查：DB_HOST 要符合測試機樣式。',
       evidence: [{ source: tname + ':1', clue: '使用者要求先確認連到測試機' }] };
@@ -376,11 +384,17 @@ function selfTest() {
       evidence: [{ source: tname + ':3', clue: '連線失敗' }] };
     const fake = path.join(tmp, 'fake-claude.js');
     const log = path.join(tmp, 'fake-log.json');
+    // 假 claude 依輸入標頭的 transcript 檔名，從 propMap 取這次要回的提案
+    const propMap = path.join(tmp, 'fake-proposals.json');
+    const props = { [tname]: [green, red, bad] };
+    const writeProps = () => fs.writeFileSync(propMap, JSON.stringify(props), 'utf8');
+    writeProps();
     fs.writeFileSync(fake, [
       "const fs = require('fs');",
       "let input = ''; try { input = fs.readFileSync(0, 'utf8'); } catch {}",
       'fs.writeFileSync(' + JSON.stringify(log) + ', JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), child: process.env.HARNESS_LEARN_CHILD || null, claudecode: process.env.CLAUDECODE || null, inputHasSegment: input.includes(\'L3 [工具錯誤]\') }));',
-      'const proposals = ' + JSON.stringify([green, red, bad]) + ';',
+      "const name = (input.match(/檔名 (\\S+\\.jsonl)/) || [])[1];",
+      'const proposals = JSON.parse(fs.readFileSync(' + JSON.stringify(propMap) + ", 'utf8'))[name] || [];",
       "process.stdout.write(JSON.stringify({ result: '反思完成。\\n```json\\n' + JSON.stringify(proposals) + '\\n```', total_cost_usd: 0, is_error: false }));",
     ].join('\n') + '\n', 'utf8');
     const env = Object.assign({}, process.env, { HARNESS_CLAUDE_BIN: fake, HARNESS_MEMORY_DIR: mem });
@@ -417,6 +431,39 @@ function selfTest() {
     let lr = null; try { lr = JSON.parse(rd(path.join(learn, 'last-run.json'))); } catch {}
     check('last-run.json 存在且子程序與解析都成功', !!lr && lr.child.ok === true && lr.parse.ok === true && lr.results.written === 1 && lr.results.pendingApproval === 1 && lr.results.rejected === 1,
       lr ? JSON.stringify(lr.results) : '沒有 last-run.json');
+    check('出處寫成 <檔名>:L<行號> 被接受', !!lr && lr.rejectReasons.evidence === 0 && fs.existsSync(mfile), lr ? JSON.stringify(lr.rejectReasons) : '');
+
+    // 拒收原因對水位線的影響：各用一份 transcript（水位線各自獨立）。全數出處被拒的放最後，免得它留下的 failed 尾段被後面的 run 先補跑
+    const memP = (name, src) => ({ kind: 'memory', action: 'create', target: name + '.md', topic: name, category: 'tool-pitfall', summary: '核對 ' + name,
+      content: '---\nname: ' + name + '\ndescription: 自我檢查用的 ' + name + '\nmetadata:\n  type: feedback\n---\n\n自我檢查造的條目。\n**Why:** 驗水位線。\n**How to apply:** 無。\n',
+      evidence: [{ source: src, clue: '自我檢查線索' }] });
+    const wmOf = (name) => { let w = {}; try { w = JSON.parse(rd(path.join(learn, 'watermarks.json'))); } catch {} const k = Object.keys(w).find((x) => path.basename(x) === name); return k ? w[k] : null; };
+    const lastRunOf = (name) => { let out = null; try { for (const f of fs.readdirSync(path.join(learn, 'runs')).sort()) { const j = JSON.parse(rd(path.join(learn, 'runs', f))); if (j.transcript === name && j.child && j.child.called) out = j; } } catch {} return out; };
+    const scenario = (name, proposals) => {
+      fs.writeFileSync(path.join(tmp, name), T.map((x) => JSON.stringify(x)).join('\n') + '\n', 'utf8');
+      props[name] = proposals; writeProps();
+      spawnSync(process.execPath, [path.join(hooks, 'learn-reflect.js'), '--transcript', path.join(tmp, name), '--session', 'selftest', '--trigger', 'manual'],
+        { cwd: tmp, env, encoding: 'utf8', timeout: 120000, windowsHide: true });
+      return { w: wmOf(name), run: lastRunOf(name) };
+    };
+    const lineCount = T.length;
+    let s = scenario('part.jsonl', [memP('selftest-part-ok', 'part.jsonl:3'), memP('selftest-part-bad', 'part.jsonl#3')]);
+    check('部分因出處被拒（一筆過一筆錯）→ 水位線前進、failed=false', !!s.w && s.w.line === lineCount && s.w.failed === false && !!s.run && s.run.results.written === 1 && s.run.rejectReasons.evidence === 1,
+      JSON.stringify({ w: s.w, rr: s.run && s.run.rejectReasons }));
+    const secretP = (name) => Object.assign(memP(name, 'secret.jsonl:3'), { content: 'db_password = Hunter2Secret99' });
+    s = scenario('secret.jsonl', [secretP('selftest-sec-a'), secretP('selftest-sec-b')]);
+    check('全數因帳密樣式被拒 → 水位線前進、failed=false', !!s.w && s.w.line === lineCount && s.w.failed === false && !!s.run && s.run.rejectReasons.secret === 2,
+      JSON.stringify({ w: s.w, rr: s.run && s.run.rejectReasons }));
+    const clueP = (name) => Object.assign(memP(name, 'clue.jsonl:3'), { evidence: [{ source: 'clue.jsonl:3', clue: '線'.repeat(161) }] });
+    s = scenario('clue.jsonl', [clueP('selftest-clue-a'), clueP('selftest-clue-b')]);
+    check('全數因 clue 超長被拒 → 水位線前進、failed=false', !!s.w && s.w.line === lineCount && s.w.failed === false && !!s.run && s.run.rejectReasons.clue === 2 && !s.run.rejectReasons.evidence,
+      JSON.stringify({ w: s.w, rr: s.run && s.run.rejectReasons }));
+    s = scenario('evid.jsonl', [memP('selftest-evid-a', 'evid.jsonl#3'), memP('selftest-evid-b', 'other.jsonl:3')]);
+    let ps = null; try { ps = JSON.parse(rd(path.join(learn, 'pause.json'))); } catch {}
+    check('全數因出處格式被拒 → 水位線不前進、failed=true、計入連續失敗、run 帳本記原因',
+      !!s.w && s.w.line === 0 && s.w.failed === true && !!ps && ps.failures === 1 && ps.lastError === '出處格式全被拒'
+        && !!s.run && s.run.rejectReasons.evidence === 2 && s.run.notes.some((n) => /出處格式全被拒/.test(n)),
+      JSON.stringify({ w: s.w, pause: ps, notes: s.run && s.run.notes }));
   } catch (e) {
     check('自我檢查執行', false, e && e.message);
   } finally {

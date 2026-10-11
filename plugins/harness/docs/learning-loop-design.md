@@ -196,7 +196,7 @@
 
 ```json
 {"ts":"ISO","run":"r-20261009-101500-ab12","action":"write | pending-review | pending-approval | reject | promotion-proposal | revert | approve | user-reject",
- "target":"…","level":"green | yellow | red","result":"ok | fail","reason":"…","reasonClass":"format | secret | injection | exfil | destructive | evidence | verbatim | conflict | over-limit | target | io | -",
+ "target":"…","level":"green | yellow | red","result":"ok | fail","reason":"…","reasonClass":"format | secret | injection | exfil | destructive | evidence | clue | verbatim | conflict | over-limit | target | io | -",
  "evidence":["transcript.jsonl:812"],"topic":"db-login-lockout","item":"p-…"}
 ```
 
@@ -210,7 +210,7 @@
   "inputChars": 48211, "droppedLines": 0, "child": { "ok": true, "ms": 41000, "costUsd": 0.12, "error": null },
   "parse": { "ok": true, "error": null, "proposals": 4 },
   "results": { "written": 2, "pendingReview": 1, "pendingApproval": 1, "rejected": 0, "promotions": 0 },
-  "rejectReasons": { "format": 0, "secret": 0, "injection": 0, "exfil": 0, "evidence": 0, "verbatim": 0, "conflict": 0, "over-limit": 0, "target": 0, "io": 0 },
+  "rejectReasons": { "format": 0, "secret": 0, "injection": 0, "exfil": 0, "evidence": 0, "clue": 0, "verbatim": 0, "conflict": 0, "over-limit": 0, "target": 0, "io": 0 },
   "greenWrites": [{ "topic": "…", "summary": "…" }],
   "notes": ["MEMORY.md 已到上限的 82%"],
   "reported": false
@@ -272,12 +272,12 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 - **計數的並行**：同一則訊息裡並行的工具呼叫會同時跑 PreToolUse，session 計數檔照 2.7 的鎖做讀改寫（審查 R12 指出的 lost update）；取不到鎖就少計一次，只會讓觸發稍晚，不會出錯。保留 PreToolUse 計數（任務書 C1 指定的觸發機制），不改成 Stop 時數 transcript。
 - **遞迴防護**：反思子程序以 `HARNESS_LEARN_CHILD=1` 啟動；`learn-trigger`、`learn-usage`、`learn-session-report` 看到這個變數一律直接 exit 0（子程序若載到專案 settings 的 hook，也不會再觸發反思、不會把它的 Read 記成 view）。不沿用 Claude Code 的 `CLAUDE_CODE_CHILD_SESSION`（那是別的語意，由 Claude Code 自己設，不歸我們控制）。另外帶 `--no-session-persistence`，子程序不留 transcript，不會變成下一輪反思的輸入。
 - **同時只跑一個反思**：`learning/reflect.lock`（`wx` 建立；超過 15 分鐘視為殘留）。拿不到鎖的觸發記一筆 run 帳本 `skipped: locked` 後退出，計數點照樣前進（下一輪會讀到這段，因為水位線沒動）。
-- **失敗退避與每日上限（審查 R11）**：連續 2 次子程序失敗或解析失敗 → `learning/pause.json` 記到隔天 00:00 才再叫模型（期間觸發記 `skipped: paused`，開場回報只講一次「反思暫停到 <日期>：<最後的錯誤類別>」）；每天最多 `MAX_RUNS_PER_DAY = 6` 次叫模型（`skipped: daily-cap`）；每次子程序帶 `--max-budget-usd MAX_BUDGET_USD`（預設 0.5）。
+- **失敗退避與每日上限（審查 R11）**：連續 2 次失敗（子程序失敗、解析失敗、落地失敗、提案全數因出處被拒；失敗計數在落地成功後才歸零）→ `learning/pause.json` 記到隔天 00:00 才再叫模型（期間觸發記 `skipped: paused`，開場回報只講一次「反思暫停到 <日期>：<最後的錯誤類別>」）；每天最多 `MAX_RUNS_PER_DAY = 6` 次叫模型（`skipped: daily-cap`）；每次子程序帶 `--max-budget-usd MAX_BUDGET_USD`（預設 0.5）。
 - **確定性預篩（審查 R11）**：片段裡沒有任何使用者文字、也沒有任何工具錯誤結果 → 不叫模型，記 `skipped: prefilter`，水位線前進（沒有可學的東西）。
 - **補跑（審查 R11）**：水位線檔記每份 transcript 的 `failed`（上次失敗沒前進）；每次反思先處理一份別的 session 留下的 `failed` 尾段（最舊的一份，trigger＝`catch-up`），再處理本次的——session 結束後失敗的段落不會永遠沒人讀。
 - **試跑模式（審查 R21）**：`HARNESS_LEARN_DRYRUN=1` 時 trigger 不 spawn，只在 `learning/dryrun-trigger.json` 寫下「本來會觸發」（cases 與 Phase 5 探針用，避免在暫存目錄起真的背景反思、花真的用量）。
 - **水位線**：`watermarks.json` 以 transcript 絕對路徑為 key，存 `{ byte, line, failed }`。只讀到最後一個 `
-` 為止（主 session 可能正寫到一半，半行不讀、水位線不落在行中間；審查 R10）。成功解析（含解析出 0 筆、預篩跳過）才前進；子程序失敗或解析失敗不前進並標 `failed`，下次重讀（讀取量有總量上限，只取最新的部分，捨掉的行數記 `droppedLines`）。transcript 檔比水位線短（被輪替或截斷）時從頭讀。
+` 為止（主 session 可能正寫到一半，半行不讀、水位線不落在行中間；審查 R10）。成功解析並落地（含解析出 0 筆、預篩跳過、部分提案被拒、全數因帳密／注入等出處以外的原因被拒）才前進；子程序失敗、解析失敗、落地失敗，或提案數大於 0 且每一筆都因出處被拒（`rejectReasons.evidence`＝提案數；出處格式、檔名、行號範圍、行號沒有可引用內容算出處，clue 空白或超長另記 `clue`、不算；run 帳本 notes 記「出處格式全被拒」）不前進並標 `failed`，下次重讀（讀取量有總量上限，只取最新的部分，捨掉的行數記 `droppedLines`）。transcript 檔比水位線短（被輪替或截斷）時從頭讀。
 - **背景啟動**：`spawn(process.execPath, [learn-reflect.js, …], { detached: true, stdio: 'ignore', windowsHide: true, env: {..., HARNESS_LEARN_CHILD: '1'} }).unref()`——Stop hook 在 spawn 後立即 exit 0，不等子程序。
 
 ## 4. 變更等級分流（learn-promote）
@@ -311,7 +311,7 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 3. **安全掃描**（對 content、summary、clue）分兩種處置（審查 R4）：
    - 指令注入（「忽略(之前|以上|先前)的?(指示|規則)」「ignore (all )?(previous|prior) instructions」「你現在是」「system prompt」）、外洩（`curl|wget|Invoke-WebRequest|iwr|Invoke-RestMethod` 搭配 `-d|--data|-Body|-T|--upload-file|-F`、管線到 `nc|ncat`、`base64` 接管線到網路指令）→ **拒收**（`injection`／`exfil`）。
    - 破壞性指令（`rm -rf`、`Remove-Item … -Recurse`、`git push (-f|--force)`、`git reset --hard`、`git clean -f`、`DROP (TABLE|DATABASE)`、`TRUNCATE`、`mkfs`、`format [a-z]:`、`del /s`、`curl … | (ba)?sh`）→ **升紅區待核**，content 保留在 pending.json 給使用者看。
-4. **出處**：`evidence` 至少一筆；每筆 `source` 符合 `<檔名>.jsonl:<行號>`，檔名＝本次 transcript 的檔名，行號落在本次讀取範圍內，且那一行是實際抽出的紀錄（使用者／助理文字、工具呼叫、工具錯誤；指到空白或 meta 行拒收，commit 前 Codex 審查補上）；`clue` ≤160 字。那一行是否真的支持提案內容無法機械判斷（不存原文），由開場回報逐筆列出綠區寫入、`learn-pending revert` 可還原兜底。
+4. **出處**：`evidence` 至少一筆；每筆 `source` 符合 `<檔名>.jsonl:<行號>`（行號前帶 `L` 也收，存進 ledger 時去掉），檔名＝本次 transcript 的檔名，行號落在本次讀取範圍內，且那一行是實際抽出的紀錄（使用者／助理文字、工具呼叫、工具錯誤；指到空白或 meta 行拒收，commit 前 Codex 審查補上）；`clue` ≤160 字。那一行是否真的支持提案內容無法機械判斷（不存原文），由開場回報逐筆列出綠區寫入、`learn-pending revert` 可還原兜底。
 5. **不抄原文**（審查 R18）：`content`、`summary`、每個 `clue` 都和「本次抽出並正規化過的片段文字」（解開 JSON 跳脫、合併空白）比對，去掉反引號包住的程式識別字與路徑後，不得有連續 24 字以上相同 → 否則拒收 `verbatim`。
 6. **矛盾調和**：提案帶 `conflicts_with` 時，同一批必須另有一筆目標是那個既有條款的提案；沒有 → 拒收 `conflict`（新舊矛盾要同輪調和）。
 

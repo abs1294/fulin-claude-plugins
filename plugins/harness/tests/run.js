@@ -7,7 +7,7 @@
  *   --skip-probe：跳過 hooks/templates 的 probe-hooks 全量（兩輪約 10 分鐘），只供開發中快速迭代；完成驗收一律不跳。
  * 結束碼：0＝全數通過；1＝有失敗。最後一行「合計 PASS n / FAIL n」。
  *
- * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、probe
+ * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、integration、probe
  * 不在這裡的：真實端到端（claude -p 跑一次完整 /harness:init），只跑一次當驗收證據，結論記在 docs/learning-loop-design.md §11。
  */
 const fs = require('fs');
@@ -21,7 +21,7 @@ const PHASES = path.join(INIT, 'references', 'phases');
 const TPL = path.join(PLUGIN, 'hooks', 'templates');
 const L = require(path.join(INIT, 'scripts', 'init-lib.js'));
 const { makeFixture } = require('./lib/fixtures.js');
-const { makeGolden, BROKEN, VALID, seedSnapshot, dropSnapshot } = require('./lib/golden.js');
+const { makeGolden, BROKEN, VALID, seedSnapshot, dropSnapshot, linkScanCases } = require('./lib/golden.js');
 
 const args = process.argv.slice(2);
 const skipProbe = args.includes('--skip-probe');
@@ -315,6 +315,23 @@ if (want('golden')) {
         }
       } finally { try { fs.unlinkSync(lk); } catch {} rm(J); dropSnapshot(J); }
     }
+    // check-flow-diagram.js 跟指向專案外的連結（.claude/agents、.claude/skills/<名> 換成 junction）、不跟專案內與上層、防循環
+    linkScanCases({
+      script: path.join(INIT, 'scripts', 'check-flow-diagram.js'), node,
+      ok: (c, d) => check('golden', c, d),
+      skip: (d) => console.log(`SKIP | golden | ${d}`),
+    });
+    // 檔案系統根的判斷（check-flow-diagram.js 不跟指向根的連結）：用字串測，不真的連到磁碟根
+    {
+      const W = path.win32;
+      const roots = ['C:\\', 'D:\\', '\\\\server\\share', '\\\\server\\share\\', '\\\\?\\D:\\', '\\\\?\\UNC\\server\\share\\', '\\\\?\\Volume{0a1b}\\'];
+      const notRoots = ['C:\\Users', 'D:\\data\\x', '\\\\server\\share\\sub', '\\\\?\\UNC\\server\\share\\sub', ''];
+      const badRoot = roots.filter((s) => !L.isFsRoot(s, W));
+      const badNot = notRoots.filter((s) => L.isFsRoot(s, W));
+      const posixOk = L.isFsRoot('/', path.posix) && !L.isFsRoot('/home', path.posix);
+      check('golden', !badRoot.length && !badNot.length && posixOk,
+        `isFsRoot：${roots.length} 個根全判是、${notRoots.length} 個非根全判否、posix / 與 /home=${posixOk}${badRoot.length ? `；漏判根：${badRoot.join('、')}` : ''}${badNot.length ? `；誤判根：${badNot.join('、')}` : ''}`);
+    }
   } finally { rm(base); dropSnapshot(base); }
 }
 
@@ -548,7 +565,7 @@ if (want('delegation-gate')) {
         ['選 a', answer('選 a：從出貨單畫面實際建單產生資料。'), true],
         ['選 c＋理由', answer('選 c：幣別屬設定類主檔，期望值查資料庫推導。'), true],
         ['選 b 只寫成本', answer('選 b：走畫面太慢，成本過高。'), false, '測試資料來源·非例外'],
-        ['選 b＋例外類別＋檔名:行號', answer('選 b：上游系統推送的出貨回報，產品沒有建立入口，見 src/api/inbound.js:42。'), true],
+        ['選 b＋例外類別＋檔名:行號', answer('選 b，例外類別：上游系統推送，出貨回報的唯一寫入點 src/api/inbound.js:42。'), true],
       ];
       for (const [name, prompt, allow, tag] of cases) {
         const r = run(agent, prompt);
@@ -601,6 +618,17 @@ if (want('learn-offline')) {
     const r = node([lo], { env: Object.assign({}, process.env, { CLAUDECODE: '' }), timeout: 900000 });
     for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('learn-offline', m[1] === 'PASS', m[2]); }
     check('learn-offline', r.status === 0, `learn-offline.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
+  }
+}
+
+// ── integration：壓縮交接範本（compact-*）整合測試；compact_chain_test 的 --real 會呼叫 claude -p，維持手動 ──
+if (want('integration')) {
+  for (const f of ['compact_chain_test.js', 'compact_v031_test.js', 'compact_final_test.js', 'compact_decisions_test.js']) {
+    const r = node([path.join(__dirname, 'integration', f)], { timeout: 300000 });
+    const tot = (r.stdout || '').match(/合計 OK (\d+) \/ FAIL (\d+)/) || [];
+    // OK 0 / FAIL 0＝一個斷言都沒跑，不算通過
+    const none = tot[1] === '0' && tot[2] === '0';
+    check('integration', r.status === 0 && tot[2] === '0' && Number(tot[1]) > 0, `${f}：${tot[0] || '沒有合計行'}${none ? '（一個斷言都沒跑）' : ''}${r.status ? '\n' + String(r.stdout || '').split('\n').filter((l) => /^FAIL/.test(l)).slice(0, 20).join('\n') + String(r.stderr || '').slice(-800) : ''}`);
   }
 }
 

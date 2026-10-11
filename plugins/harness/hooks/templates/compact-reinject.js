@@ -85,12 +85,15 @@ function decisionLines(snap) {
   return [head, ...(dropped ? [`  （較早的 ${dropped} 筆放不下，見快照檔 decisions 欄）`] : []), ...items.slice(items.length - keep)];
 }
 
-// 任務清單（壓縮前最後狀態）：由程式重播 TaskCreate／TaskUpdate／TaskList 重建，沒用過就不輸出。
+// 任務清單（壓縮前最後狀態）：由程式重播 TodoWrite／TaskCreate／TaskUpdate／TaskList 重建，沒用過就不輸出。
+// 對回清單的方式依最後用的工具：TodoWrite 沒有查詢工具只能整份重寫，Task 系列用 TaskList 查。
 // 未完成的排前面；超過 TASK_MAX 時先略掉已完成的
 function taskLines(snap) {
   const ts = Array.isArray(snap.tasks) ? snap.tasks : [];
   if (!ts.length) return [];
-  const head = '■ 任務清單（壓縮前最後狀態；依對話紀錄重建，可能與實際清單有出入，接續前先跑 TaskList 對一次）：';
+  const head = snap.tasksSource === 'TodoWrite'
+    ? '■ 任務清單（壓縮前最後狀態；依對話紀錄重建，接續前以此為準用 TodoWrite 整份重寫一次）：'
+    : '■ 任務清單（壓縮前最後狀態；依對話紀錄重建，可能與實際清單有出入，接續前先跑 TaskList 對一次）：';
   const open = ts.filter(t => t.status !== 'completed');
   const done = ts.filter(t => t.status === 'completed');
   const line = t => `  - [${t.status || '?'}] ${field(t.subject)}`;
