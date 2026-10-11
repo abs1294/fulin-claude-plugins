@@ -84,7 +84,7 @@ if (!entry) {
 
 // 1. 先維護 CHANGELOG（風險最高的新邏輯先跑：若它失敗，plugin.json/registry 還沒動，無半完成）。
 // bump 等級對應區段：major/minor → ### Changed、patch → ### Fixed（粗略預設；使用者可事後手調區段為 Added/Removed）。
-// 摘要由第四參數帶入；沒給則留佔位讓 update 流程補。
+// 摘要由第四參數帶入；沒給則留佔位讓 bump 流程（/plugin-manager:bump）補。
 const changelogPath = path.join(pluginDir, 'CHANGELOG.md');
 const today = new Date().toISOString().slice(0, 10); // 一般腳本可用 Date（非 Workflow 環境）
 const section = bump === 'patch' ? 'Fixed' : 'Changed';

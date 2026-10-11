@@ -115,7 +115,7 @@ try {
   const pj = {
     name: pluginName,
     version: '0.1.0',
-    description: '（adopt-agents 自動建立，請用 /plugin-manager:update 補描述）agent 組：' + agentFiles.map(f => f.replace(/\.md$/, '')).join('、'),
+    description: '（adopt-agents 自動建立，請用 /plugin-manager:bump 補描述）agent 組：' + agentFiles.map(f => f.replace(/\.md$/, '')).join('、'),
     author: { name: config.owner || 'unknown' },
     keywords: [pluginName, 'agents']
   };

@@ -1,41 +1,72 @@
 ---
 name: plugin-manager-update
-description: 維護一個既有自製 plugin 並 bump 版本號。當使用者說 /plugin-manager:update、「改自製 plugin」、「更新某個 plugin」、「bump plugin 版本」、「plugin 改完要發版」時觸發。協助修改 plugin 的 skill/hook 內容後，bump plugin.json 的 version 並同步 registry，讓其他專案刷新 marketplace 後能抓到新版。
+description: （使用端）把這台電腦所有專案與 user 層已安裝的 fulin marketplace plugin 批次更新到最新版。當使用者說 /plugin-manager:update、「更新所有 plugin」、「把這台電腦的 plugin 全部更新」、「已裝的 plugin 更新到最新」、「各專案的 plugin 同步最新版」、「publish 完讓各專案拿到新版」時觸發。先 dry-run 列表給使用者看，核可後才套用。改完 plugin 要 bump 版號是開發端的 /plugin-manager:bump，不是本 skill。
 ---
 
-# plugin-manager:update — 維護既有自製 plugin + bump 版本
+# plugin-manager:update — 全機批次更新已裝的 plugin（使用端）
 
-維護 monorepo 裡既有的自製 plugin（與 `/plugin-manager:adopt`「搬既有 skill」相對）。核心是 **bump 版本號**——因為 Claude Code 靠 plugin.json 的 `version` 判斷有無更新，改了內容卻不 bump，其他專案就算刷新 marketplace 也抓不到新版。
+publish 只把新版推上 git，**已經裝好的專案不會自己變新版**。本 skill 掃這台電腦每一筆本 marketplace 的安裝紀錄（user 層＋各專案的 project／local 層），把落後的更新到 marketplace 最新版。
 
-## 何時用
-- 改了某個自製 plugin 的 skill/hook/script 內容，要正式發一版。
-- 只想 bump 版本（內容已改好）。
+## 分工
+| 端 | 指令 | 範圍 |
+|---|---|---|
+| 開發端 | `/plugin-manager:bump` | 在 monorepo 改完 plugin → bump 版號、寫 CHANGELOG |
+| 開發端 | `/plugin-manager:publish` | 把 monorepo 推上 git |
+| 使用端 | `/plugin-manager:update`（本 skill） | **整台電腦**所有已裝的本 marketplace plugin |
+| 使用端 | `/setup-plugins upgrade` | 只看**目前這個專案**啟用的自製 plugin，並對照 registry（含「還沒 publish」的提醒） |
 
-## 執行步驟
+順序：`bump` → `publish` → `update`。dirty（bump 了還沒 publish）的版本 marketplace 上還沒有，本 skill 看到的「最新版」是 marketplace clone 裡的版本，不是 monorepo 工作樹。
 
-1. **確認要更新哪個 plugin**：使用者指明 plugin 名（= monorepo `plugins/<name>`）。若沒指明，讀 `~/.claude/plugin-manager/registry.json` 的 `selfMade` 列出供選。
+## 流程
 
-2. **協助修改內容**（這部分是一般檔案編輯，主 AI 直接處理）：
-   - 真身在 monorepo `plugins/<name>/`（**不是** cache）。改 SKILL.md、hooks、scripts 都改這裡。
-   - 確認沒改錯到 cache（`~/.claude/plugins/cache/...`）——那是唯讀快取，publish + 重裝（uninstall + install）才會更新。
-
-3. **決定 bump 等級**：詢問使用者 patch / minor / major：
-   - `patch`：修字、修 bug、小調整（0.1.0 → 0.1.1）
-   - `minor`：加功能、加新指令但相容（0.1.0 → 0.2.0）
-   - `major`：破壞性變更（0.1.0 → 1.0.0）
-
-4. **跑 bump 腳本**（純檔案操作）。**務必帶第三參數＝這次的變更摘要**（會寫進 CHANGELOG）：
+1. **dry-run**（只列表，不改任何東西）：
    ```
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/bump-version.js" <name> <patch|minor|major> "<變更摘要>"
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/update-all.js"
    ```
-   - 腳本會：算新版號 → 寫回 `plugin.json` 的 version → 同步 registry（version + `dirty:true`）→ **在 `plugins/<name>/CHANGELOG.md` 追加一條 [Keep a Changelog](https://keepachangelog.com/) 條目**（patch→### Fixed、minor/major→### Changed，最新在上）。
-   - 摘要省略時 CHANGELOG 會留「（待補變更摘要）」佔位——**應補上**，別留佔位就 publish。
-   - 輸出會印 `舊版 → 新版`，呈現給使用者確認。
+   - 會先刷新 marketplace（`claude plugin marketplace update <mkt>`），再讀 marketplace clone 裡各 plugin 的 `plugin.json` 版號。刷新失敗時 dry-run 照樣列（標示可能過期），但 `--apply` 會拒絕執行；確定要用目前 clone 就明確加 `--no-refresh`。
+   - 列出每一筆落後的安裝：plugin、scope、專案路徑、舊版 → 新版、類別：
+     - **可更新**：user 層，或 project／local 且專案目錄存在。
+     - **失效**：project／local 的專案目錄已不存在（不論版本是否最新都列）。
+    - **比 marketplace 新（不動）**：已裝的版號比 marketplace 的新（例如本機開發版），不更新，避免降版。版號用 SemVer 比大小，不是比相不相等。
+     - **不處理**：managed、synced 等由系統管理的 scope。
+     - **無法判定**：marketplace 已沒有這個 plugin、或讀不到版號。
+   - 把表**原樣**給使用者看，問要不要套用。
 
-5. **提示發布**：bump 後內容與版本都已就緒但**尚未推上 git**。提示用 `/plugin-manager:publish` 發布。
+2. **使用者核可後套用**：
+   ```
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/update-all.js" --apply
+   ```
+   - 逐筆在該安裝的專案目錄下（user 層用家目錄）跑 `claude plugin update <id> --scope <scope> --json`。
+   - 跑完重新 `claude plugin list --json` 逐筆比對版本。
+   - **巢狀補救**：同一 plugin 在 `X` 與 `X` 底下的子目錄各有一筆 project 安裝時，在 `X` 跑 update 可能拿子目錄那筆比對、回 up_to_date，`X` 那筆沒動（2026-10-11 實測：`X` 是 git 根目錄、子目錄那筆排在前面時重現；兩層都是一般目錄時沒重現）。反過來（子目錄那筆沒動、`X` 那筆排在前面）也實測重現過。腳本偵測到「仍落後且同 plugin 另有 project 安裝在它底下或上層」→ 記下該專案的 `.claude/settings.json`、`settings.local.json` 的位元組 → `uninstall --keep-data` ＋ `install` → 再比對：
+     - 設定檔沒變、版本到最新 → `reinstalled`。
+     - 設定檔有變 → 印出差異、標「需人工確認」，**不自動還原**。常見原因：原本是 `false`（停用），重裝後變成 `true`。把差異給使用者看，由使用者決定要不要改回。
+   - 只更新部分 plugin：加 `--only <plugin名,...>`。
 
-## 重要限制（誠實告知）
-- **version 只設在 plugin.json**，不在 marketplace.json 加 version 欄。兩處都設會衝突，Claude Code 以 plugin.json 為準。
-- bump 後該 plugin `dirty:true`（已改未推），publish 後才清。
-- publish 只推 monorepo，**不會自動讓已安裝該 plugin 的專案更新**——各專案要刷新：Claude 可直接跑非互動 CLI `claude plugin marketplace update fulin-plugins` → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（scope 用 `claude plugin list --json` 查；project/local scope 要在該專案目錄下跑；動別的專案前先問使用者），跑完請使用者**重開 session** 才生效；或開 auto-update。互動 slash UI 的 `/plugin` 沒有 `update` 子指令，所以走 CLI。
-- 改的是 monorepo 真身；若不慎改到 cache，那份會在下次重裝（uninstall + install）時被覆蓋。
+3. **回報總表**：腳本最後印 `updated`／`up_to_date`／`reinstalled`／需人工確認／仍落後／失敗（附 CLI 原始輸出前 200 字）。原樣轉給使用者，並列出**要重開 session 的專案清單**（腳本最後一段）——新版要重開 Claude Code 才生效，這步 Claude 做不到。
+
+4. **失效紀錄逐筆問**：dry-run／apply 的輸出會列出失效紀錄與對應指令。逐筆問使用者要不要移除，**同意哪一筆才跑哪一筆**：
+   ```
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/update-all.js" --prune-missing <name@mkt>@<專案路徑>
+   ```
+   - 做法（2026-10-11 以 Claude Code 2.1.296 在暫存安裝實測）：在別的目錄跑 `claude plugin uninstall --scope project` **不會**作用到失效紀錄；在原路徑暫建空目錄、於其中跑 `uninstall --scope project --keep-data` 才會移除，跑完腳本刪掉暫建的目錄。
+   - 腳本會比對前後的安裝紀錄，若有**其他**紀錄一起消失會列出並給裝回指令、exit 1。
+   - 不要手改 `~/.claude/plugins/` 底下的 JSON。
+
+## 參數
+| 參數 | 作用 |
+|---|---|
+| （無） | dry-run，只列表 |
+| `--apply` | 真的更新 |
+| `--no-refresh` | 不刷新 marketplace，直接用目前 clone 的版本 |
+| `--only a,b` | 只處理這幾個 plugin |
+| `--json` | 輸出 JSON（dry-run 與 apply 都可） |
+| `--marketplace <名稱>` | 指定 marketplace（預設依 `~/.claude/plugin-manager/config.json` 的 `marketplace` → monorepo 的 marketplace.json → `fulin-plugins`） |
+| `--prune-missing <id>@<路徑>` | 逐筆移除一筆失效紀錄 |
+
+**`--apply` 結束碼**：0＝全部完成；1＝有失敗（CLI 報錯、重裝的 install 失敗）；3＝沒有失敗，但有「仍落後」或「需人工確認」的紀錄——看總表處理。
+
+## 限制（誠實告知）
+- `--apply` 會動到**別的專案**的安裝；一定先給使用者看 dry-run 表、拿到核可才跑。
+- 更新後要使用者自己重開該專案的 session。
+- 預設只處理本 marketplace。外部 marketplace 可用 `--marketplace <名稱>` 另跑，但 plugin 來源不在 clone 內（例如 github 來源）且條目沒寫 version 的，會列為「無法判定」不動；那些用 `/plugin` 介面開 auto-update。

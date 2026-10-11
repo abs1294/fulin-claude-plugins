@@ -100,4 +100,4 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 - push 是對外動作。執行前一定要讓使用者看過 status + commit message（採無人值守默許：呈現後 5 分鐘無拒絕/修改即自動採用，見步驟 3）。
 - 不做 force-push / rebase / amend，除非使用者明確要求。
 - 若 push 失敗（遠端有新 commit），回報並建議先 pull，不要自動 force。
-- publish 只推 monorepo，**不會自動讓已安裝該 plugin 的專案更新**——各專案要刷新：Claude 可直接跑非互動 CLI `claude plugin marketplace update fulin-plugins` → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（動別的專案前先問使用者），跑完請使用者**重開 session** 才生效；或開 auto-update。互動 slash UI 的 `/plugin` 沒有 `update` 子指令，所以走 CLI。
+- publish 只推 monorepo，**不會自動讓已安裝該 plugin 的專案更新**——publish 後用 `/plugin-manager:update`（使用端）一次把這台電腦所有專案與 user 層已裝的 fulin plugin 更新到最新；只更新單一專案也可直接跑非互動 CLI `claude plugin marketplace update fulin-plugins` → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（動別的專案前先問使用者），跑完請使用者**重開 session** 才生效；或開 auto-update。互動 slash UI 的 `/plugin` 沒有 `update` 子指令，所以走 CLI。

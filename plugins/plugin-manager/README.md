@@ -12,7 +12,8 @@
 |---|---|
 | 自製 skill 散在各專案資料夾，想集中管理 | `/plugin-manager:adopt` 收編進來 |
 | 改完 skill 要手動 git 推上去很煩 | `/plugin-manager:publish` 一鍵推 |
-| 改了 skill 想發新版本給別的專案用 | `/plugin-manager:update` 升版號 |
+| 改了 skill 想發新版本給別的專案用 | `/plugin-manager:bump` 升版號 |
+| 發了新版，想把這台電腦所有專案裝的 plugin 一次更新 | `/plugin-manager:update` |
 | 每個專案要用的 plugin 不一樣，不想全開 | `/setup-plugins` 按專案挑 |
 | 看到別人做的好 plugin，想推薦、之後挑裝 | 跟 Claude 說「推薦外部 plugin」+ `/setup-plugins` |
 | 換新機器，想重現整套環境 | `/plugin-manager:clone-env`（說「復現環境」） |
@@ -45,7 +46,7 @@ node "<你 clone 的 repo>/plugins/plugin-manager/scripts/init.js" <owner> <gith
 
 ### 前置依賴
 
-- **Node.js** — 所有 scripts（init / adopt / bump-version / publish-status / publish-finalize / export-env / restore-env）都是 node 腳本，缺 node 整套管理指令不能動。
+- **Node.js** — 所有 scripts（init / adopt / bump-version / update-all / publish-status / publish-finalize / export-env / restore-env）都是 node 腳本，缺 node 整套管理指令不能動。
 - **git CLI** — adopt 的 move+symlink 落版控、publish 的 stage/commit/push 都靠它。
 - **本機 clone 的 monorepo** — 這是「管理端」plugin：更新/發布操作的對象是你 clone 下來的 monorepo 工作目錄（不是 plugin cache）。
 
@@ -54,8 +55,9 @@ node "<你 clone 的 repo>/plugins/plugin-manager/scripts/init.js" <owner> <gith
 | 指令 | 何時用 | 怎麼下 |
 |---|---|---|
 | `/plugin-manager:adopt` | 某專案寫好一個 skill，想收進集中管理 | `/plugin-manager:adopt <skill名>` |
-| `/plugin-manager:update` | 改完某 plugin，要發新版本 | `/plugin-manager:update <plugin名> <patch｜minor｜major>` |
-| `/plugin-manager:publish` | 改了東西要推上 GitHub | `/plugin-manager:publish` |
+| `/plugin-manager:bump` | （開發端）改完某 plugin，要發新版本 | `/plugin-manager:bump <plugin名> <patch｜minor｜major>` |
+| `/plugin-manager:publish` | （開發端）改了東西要推上 GitHub | `/plugin-manager:publish` |
+| `/plugin-manager:update` | （使用端）把這台電腦所有專案＋user 層已裝的 fulin plugin 更新到最新 | `/plugin-manager:update`（可加 `--only <plugin名,...>`） |
 | `/setup-plugins` | 設定「這個專案」啟用哪些 plugin | `/setup-plugins` |
 | `/setup-plugins upgrade` | 這專案的自製 plugin 想同步最新版 | `/setup-plugins upgrade` |
 | `/plugin-manager:clone-env` | 整套環境複製到新機器/新專案 | 說「複製我的環境」「環境復現」 |
@@ -68,7 +70,15 @@ node "<你 clone 的 repo>/plugins/plugin-manager/scripts/init.js" <owner> <gith
 `/plugin-manager:adopt my-tool` → 該 skill 變成受管 plugin。**原專案那份照樣能用、改它就是改受管那份**（move+symlink，永遠一份真身，不會兩份打架）。只動你指定的那一個，不掃整個專案。
 agent 也能收：說「把這專案的 agents 納管成 `<plugin名>`」→ 整個 agents 目錄收進 `plugins/<名>/agents/`（一組 agent = 一個 plugin）。
 
-### `:update` — 改完發新版
+### 分工：開發端 vs 使用端
+
+```
+開發端（monorepo）                      使用端（每台電腦）
+改 plugin → :bump → :publish ──git──▶ :update（全機批次）
+                                       /setup-plugins upgrade（只看單一專案）
+```
+
+### `:bump` — 改完發新版
 | 等級 | 用於 | 例 |
 |---|---|---|
 | `patch` | 修字、修小 bug | 0.1.0 → 0.1.1 |
@@ -76,6 +86,17 @@ agent 也能收：說「把這專案的 agents 納管成 `<plugin名>`」→ 整
 | `major` | 破壞性變更 | 0.1.0 → 1.0.0 |
 
 升完版記得 `:publish` 推上去。
+
+### `:update` — 這台電腦已裝的 plugin 全部更新到最新
+publish 之後，別的專案不會自己變新版。`/plugin-manager:update` 會：
+1. 刷新 marketplace，讀 marketplace clone 裡各 plugin 的最新版號；
+2. 列出這台電腦每一筆落後的安裝（plugin、scope、專案路徑、舊版→新版），先給你看、**不改任何東西**；
+3. 你核可後逐筆更新；同一 plugin 在「專案」與「它的子目錄」各裝一筆時 CLI 會漏更新，腳本會偵測並用 uninstall（保留資料）＋install 補救，補救前後比對該專案的 `.claude/settings*.json`，有變就標「需人工確認」；
+4. 最後列總表與要重開 session 的專案清單。
+
+專案目錄已經不存在的安裝紀錄只列出、不動，要不要清掉逐筆問你。
+
+與 `/setup-plugins upgrade` 的差別：那個只看「目前這個專案」，`:update` 一次掃整台電腦。
 
 ### `:publish` — 推上去
 Claude 先給你看「改了什麼 + 建議 commit 訊息」確認，確認後一次 commit + push 整包。**不管改了 1 個還 50 個 plugin，只推一次。**
@@ -100,11 +121,11 @@ GitHub 看到別人的好 plugin，想精選收進推薦清單——之後 `/set
 
 **Q：Claude 能直接幫我裝 plugin 嗎？** 能。`claude plugin install`／`uninstall`／`update`／`enable`／`disable`／`marketplace add|update` 都是非互動 CLI，Claude 經你核可後直接跑（裝新東西、動別的專案前會先問你）。只有 `/reload-plugins`（沒有 CLI 對應）和「更新後重開 session 讓新版生效」要你自己做。輸入框的 `/plugin …` 是互動畫面，Claude 不去操作它。
 
-**Q：更新已裝的 plugin 是 `/plugin update` 嗎？** 輸入框的 slash 版沒有 `update` 子指令；要用 CLI：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（Claude 可以直接跑；scope 用 `claude plugin list --json` 查），跑完**重開 session** 才生效。也可以在 `/plugin` 介面開 auto-update。
+**Q：更新已裝的 plugin 是 `/plugin update` 嗎？** 輸入框的 slash 版沒有 `update` 子指令。整台電腦一次更新用 `/plugin-manager:update`；單一 plugin 也可直接用 CLI：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（Claude 可以直接跑；scope 用 `claude plugin list --json` 查），跑完**重開 session** 才生效。也可以在 `/plugin` 介面開 auto-update。
 
 **Q：adopt 後在原專案改 skill 要重新 adopt 嗎？** 不用。原專案那份和受管那份是同一份檔，改哪邊都一樣，改完直接 `:publish`。
 
-**Q：改完 skill 但別的專案沒拿到更新？** publish 只推 GitHub、不自動更新已裝專案。要其他專案拿到新版，請 Claude 在那專案跑 `claude plugin marketplace update fulin-plugins` + `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`，再重開 session；或開 auto-update。
+**Q：改完 skill 但別的專案沒拿到更新？** publish 只推 GitHub、不自動更新已裝專案。要其他專案拿到新版，跑 `/plugin-manager:update`（全機批次），或請 Claude 在那專案跑 `claude plugin marketplace update fulin-plugins` + `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`，再重開 session；或開 auto-update。
 
 ## 6. 進階：背後怎麼運作
 

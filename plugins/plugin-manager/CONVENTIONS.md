@@ -46,7 +46,8 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 
 ## 版本號慣例
 
-- bump 只設在各 plugin 的 `plugin.json` 的 `version`，**不在 marketplace.json 加 version 欄**（兩處衝突時 Claude Code 以 plugin.json 為準）。用 `scripts/bump-version.js`。
+- bump 只設在各 plugin 的 `plugin.json` 的 `version`，**不在 marketplace.json 加 version 欄**（兩處衝突時 Claude Code 以 plugin.json 為準）。用 `/plugin-manager:bump`（腳本 `scripts/bump-version.js`）。
+- 指令分工：開發端 `/plugin-manager:bump`（升版號）→ `/plugin-manager:publish`（推 git）；使用端 `/plugin-manager:update`（`scripts/update-all.js`，把這台電腦所有專案與 user 層已裝的本 marketplace plugin 更新到最新）。單一專案的落後檢查用 `/setup-plugins upgrade`。
 - **bump 時帶第三參數＝變更摘要**，`bump-version.js` 會在 `plugins/<name>/CHANGELOG.md` 追加 Keep a Changelog 條目（patch→Fixed、minor/major→Changed，最新在上）。摘要省略會留佔位，應補上。
 - 改了某 plugin 的內容（skill/hook/script）→ bump 該 plugin（patch/minor/major）。
 - 改 repo 根層級文件（README / 本檔 / .gitignore 等，在 `plugins/` 之外）→ **不綁任何 plugin 版本**，不 bump。
@@ -54,7 +55,7 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 ## plugin 指令分工（誰來跑）
 
 - **Claude 直接跑 `claude plugin …` 非互動 CLI（Bash）**：`install`、`uninstall`、`update`、`enable`、`disable`、`list --json`、`marketplace add|update|list|remove`。核可規則照各 skill 原本的流程：裝新東西、動別的專案前先問使用者；CLI 失敗才退回列指令請使用者自己做。
-  - 更新已裝 plugin：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（`--scope` 可選 user|project|local|managed，省略時依目前目錄自動判斷；project/local scope 要在該專案目錄下跑）。scope 用 `claude plugin list --json` 查（欄位含 `id`、`version`、`scope`、`enabled`、`projectPath`）。
+  - 更新已裝 plugin：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（`--scope` 可選 user|project|local|managed，省略時依目前目錄自動判斷；project/local scope 要在該專案目錄下跑）。scope 用 `claude plugin list --json` 查（欄位含 `id`、`version`、`scope`、`enabled`、`projectPath`）。整台電腦批次更新走 `/plugin-manager:update`：它處理巢狀 project 安裝漏更新（uninstall --keep-data ＋ install 補救並比對設定檔）與專案目錄已不存在的失效紀錄。
   - `claude plugin install` 不帶 `--scope` 時預設是 **user**（全域），裝到專案要明寫 `--scope project`。
 - **只有這兩件要使用者自己做**：`/reload-plugins`（沒有 CLI 對應），以及 `claude plugin update` 之後**重開 session** 讓新版生效。
 - 互動 slash UI（`/plugin …`）仍是互動畫面，Claude 不去操作它；slash 版沒有 `update` 子指令（Claude Code 2.1.294 的 `/plugin help` 只列 install／uninstall／enable／disable／marketplace／manage 等），更新要走上面的 CLI `claude plugin update`，或在 `/plugin` UI 開 Enable auto-update。

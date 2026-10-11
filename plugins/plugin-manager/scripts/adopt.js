@@ -129,7 +129,7 @@ try {
   const pluginJson = {
     name: pluginName,
     version: '0.1.0',
-    description: '（adopt 自動建立，請用 /plugin-manager:update 補描述）skill ' + skillName,
+    description: '（adopt 自動建立，請用 /plugin-manager:bump 補描述）skill ' + skillName,
     author: { name: config.owner || 'unknown' },
     keywords: [skillName]
   };

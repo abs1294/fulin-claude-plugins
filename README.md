@@ -15,8 +15,9 @@ fulin 的自製 Claude Code plugin monorepo。核心是 **plugin-manager**——
 | 指令 | 做什麼 |
 |------|--------|
 | **`/plugin-manager:adopt`** | 把你在某專案 `.claude/skills/` 隨手寫的自製 skill，**搬進 monorepo**（move + 原位 symlink，真身永遠一份，零不同步）。agent 整包納管見 `scripts/adopt-agents.js` |
-| **`/plugin-manager:update`** | 改既有自製 plugin 後 **bump 版本號**（plugin.json + registry 同步），讓更新能被偵測 |
+| **`/plugin-manager:bump`** | （開發端）改既有自製 plugin 後 **bump 版本號**（plugin.json + registry 同步 + CHANGELOG），讓更新能被偵測 |
 | **`/plugin-manager:publish`** | **一鍵 commit + push 整個 monorepo**。不管改了 1 個還是 50 個 plugin，只推一次 |
+| **`/plugin-manager:update`** | （使用端）把**這台電腦所有專案與 user 層**已裝的 fulin plugin 批次更新到 marketplace 最新版（先 dry-run 給你看，核可後才套用；巢狀專案漏更新會自動重裝補救） |
 | **`/setup-plugins`** | **偵測當前專案**（讀 CLAUDE.md 為主訊號）→ **推薦該裝哪些 plugin**（profile / 自訂）→ 核可後由 Claude 直接跑 `claude plugin install --scope project` 裝好（venv 概念，per-project 隔離）。**不手寫 settings**——啟用宣告由 install CLI 依 scope 自己寫。含 `upgrade`（偵測落後版本）與**外部 plugin 推薦**（recommends.json，會推廣）/挑裝 |
 | **`/plugin-manager:clone-env`** | 把整套環境（marketplace + plugin + 啟用狀態，含自製與第三方）**擷取快照、在新機器/新專案復現**。說「複製我的環境」即觸發 |
 
@@ -45,7 +46,7 @@ fulin 的自製 Claude Code plugin monorepo。核心是 **plugin-manager**——
 /reload-plugins
 ```
 
-裝好後 `/plugin-manager:adopt`、`:update`、`:publish`、`/setup-plugins` 就會出現。其他 plugin（見下）依需要再各自 `/plugin install`。
+裝好後 `/plugin-manager:adopt`、`:bump`、`:publish`、`:update`、`/setup-plugins` 就會出現。其他 plugin（見下）依需要再各自 `/plugin install`。
 
 **首次初始化（只做一次）**：所有指令靠 `~/.claude/plugin-manager/config.json` 定位你的 monorepo，第一次要先建好：
 
@@ -55,7 +56,7 @@ node "<你 clone 的 repo>/plugins/plugin-manager/scripts/init.js" <owner> <gith
 
 monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建好 `config.json` + `registry.json`（已存在不覆蓋）。這個固定路徑的 config 就是「任何 session、任何專案」都能定位 monorepo 的錨點。
 
-> 輸入框的互動指令 `/plugin` **沒有** `update` 子指令；更新已裝 plugin 用非互動 CLI（Claude 可直接跑）：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（scope 用 `claude plugin list --json` 查），跑完重開 session 才生效（或在 `/plugin` UI 開 Enable auto-update）。上面的安裝三行也可改成請 Claude 跑 `claude plugin marketplace add …` + `claude plugin install …`，`/reload-plugins` 仍要你自己打。
+> 輸入框的互動指令 `/plugin` **沒有** `update` 子指令；更新已裝 plugin 用非互動 CLI（Claude 可直接跑）：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（scope 用 `claude plugin list --json` 查），跑完重開 session 才生效（或在 `/plugin` UI 開 Enable auto-update）。整台電腦一次更新用 `/plugin-manager:update`。上面的安裝三行也可改成請 Claude 跑 `claude plugin marketplace add …` + `claude plugin install …`，`/reload-plugins` 仍要你自己打。
 
 **前置依賴**：plugin-manager 需 Node.js；狀態存本機 `~/.claude/plugin-manager/`（`config.json` + `registry.json`，不進 plugin、不進 git）。
 
@@ -88,9 +89,9 @@ monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建�
 .claude-plugin/marketplace.json     列出下列 plugin（source: ./plugins/<name>）
 plugins/
 ├─ plugin-manager/                   ⭐ 主角：自製 plugin 集中管理器
-│   ├─ skills/      adopt · update · publish · setup-plugins
+│   ├─ skills/      adopt · bump · publish · update · clone-env · setup-plugins
 │   ├─ profiles.json  可推廣的 plugin 套餐 + 偵測規則（detect）
-│   ├─ scripts/     init · adopt · adopt-agents · bump-version · upgrade-check · publish-status · publish-finalize · register-external · export-env · restore-env
+│   ├─ scripts/     init · adopt · adopt-agents · bump-version · upgrade-check · update-all · publish-status · publish-finalize · register-external · export-env · restore-env
 │   └─ CONVENTIONS.md
 ├─ git-commit/                       並行審查 Git Commit 流程（含通用版 code-reviewer agent）
 ├─ qa-webwright/                     QA 測試框架 plugin

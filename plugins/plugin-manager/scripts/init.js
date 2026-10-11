@@ -80,4 +80,4 @@ if (fs.existsSync(recommendsPath)) {
   console.log('✓ 已建空 recommends.json（外部 plugin 推薦清單，在 plugin 內、會推廣）。');
 }
 
-console.log('\n✅ 初始化完成。現在可以用 /plugin-manager:adopt、:update、:publish、/setup-plugins 了。');
+console.log('\n✅ 初始化完成。現在可以用 /plugin-manager:adopt、:bump、:publish、:update、/setup-plugins 了。');

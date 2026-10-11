@@ -88,6 +88,8 @@ setup 做**偵測 + 推薦 + 核可後代裝**，**不手寫 settings**：
 
 當使用者說 `/setup-plugins upgrade`、「把這專案的自製 plugin 更到最新」、「plugin 升版同步」時走這條，**不是**重選 profile，而是「偵測本專案啟用的自製 plugin 是否落後 registry 最新版 + 給更新指令」。
 
+> 範圍只有**目前這個專案**。要一次更新**整台電腦**所有專案與 user 層的安裝，改走 `/plugin-manager:update`（`scripts/update-all.js`，以 marketplace clone 的版本為準、含巢狀安裝補救與失效紀錄清單）。本子流程的特點是對照 registry，能提醒「最新版還沒 publish（dirty）」。
+
 1. **跑偵測腳本**（唯讀，不動檔案）：
    ```
    node "${CLAUDE_PLUGIN_ROOT}/scripts/upgrade-check.js" [projectDir]

@@ -2,6 +2,10 @@
 
 本檔記錄 plugin-manager 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.20.0] - 2026-10-11
+### Changed
+- 原 /plugin-manager:update（bump 版號）改名為 /plugin-manager:bump；/plugin-manager:update 改為使用端新功能：scripts/update-all.js 把這台電腦所有專案與 user 層已裝的本 marketplace plugin 批次更新到 marketplace clone 的最新版（預設 dry-run、--apply 才套用、巢狀 project 安裝漏更新以 uninstall --keep-data＋install 補救並比對 settings 位元組、專案目錄不存在的失效紀錄只列出並提供 --prune-missing 逐筆移除、--only／--json／--no-refresh／--marketplace）；README、CONVENTIONS、setup-plugins、publish 與 adopt／init 輸出同步改名
+
 ## [0.19.2] - 2026-10-08
 ### Fixed
 - 移除指向已刪除的 docs/使用教學.html 的規則（教學已併入 README）
