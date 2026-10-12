@@ -777,6 +777,164 @@ function attachmentsTotalBytes(input) {
 }
 
 
+/**
+ * 信裡的附件清單（<ol>／<ul><li>）與這次實際帶的 attachments 對不上。
+ *
+ * 2026-10-11 使用者回報：信裡的附件清單列了 3 個檔，草稿實際只附 2 個。
+ * 序號已經強制用 <ol><li>（handTypedLists），清單項數因此可以機械數出來，
+ * 拿來對 attachments 的個數與檔名。
+ *
+ * 認定「附件清單」：清單開頭標籤之前最後一個非空行（行界：<br>／<div>／清單結束）
+ *   整行是短標題（LIST_LABEL）——對應範本「附件 N 份：」「隨信附上三份檔案：」。
+ *   只看我方內文（切掉 gmail_quote／<blockquote>／<pre>／註解）。
+ * 項數只數第一層 <li>（子清單是該檔的補充說明）；含 <a href> 的項目當成連結交付（雲端硬碟等），不計入。
+ *
+ * 回傳 null＝沒有附件清單或判不出（放行）；否則
+ *   { items, labelCount, attached, problems: [字串…] }，problems 為空表示對得上。
+ * 判準（任一成立即列入 problems）：
+ *   ① 標題寫的份數（附件 3 份）≠ 清單項數
+ *   ② 有帶 attachments，但清單項數 ≠ 實際附件數（inline 圖不算）
+ *   ③ 有帶 attachments，清單項目裡寫了檔名（有副檔名），附件裡卻沒有這個檔
+ * attachments 為空時只查 ①——走瀏覽器上傳的流程會先建無附件草稿，個數交給 (H) 提醒。
+ */
+// 標題列整行就是一個短標題：「附件 3 份：」「隨信附上三份檔案：」「附件如下」「Attachments:」。
+// 中間有逗號句號的是一般句子（「附件裡的報告比較了三方案，步驟如下：」），不算。
+const LIST_LABEL = /^(?:(?:隨信|另|一併|本信)?附(?:件|檔|上)[^，。,.!！？?]{0,12}[：:]?|(?:attachments?|attached)[^.,]{0,20}:?)$/i;
+const CN_NUM = { 一: 1, 兩: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+const FILE_TOKEN = /[^\s<>「」『』"'，、：:（()）]+\.(?:pdf|docx?|xlsx?|pptx?|csv|zip|7z|rar|txt|md|png|jpe?g|gif|sql|json|xml|html?|log|py|js|sh|bat|ps1|conf|ini|yml|yaml)(?![\w])/gi;
+
+function decodeEntities(s) {
+  return s.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+}
+function visible(s) { return decodeEntities(String(s).replace(/<[^>]*>/g, '')); }
+
+function parseCount(label) {
+  const m = /(\d{1,2}|[一兩二三四五六七八九十]+)\s*(?:份|個|件|支|項|檔)/.exec(label);
+  if (!m) return null;
+  if (/^\d+$/.test(m[1])) return parseInt(m[1], 10);
+  const t = m[1];
+  if (t === '十') return 10;
+  if (t.length === 2 && t[0] === '十') return 10 + (CN_NUM[t[1]] || 0);
+  if (t.length === 1) return CN_NUM[t] || null;
+  return null;
+}
+
+/** htmlBody → 附件清單 { items:[{html,text,isLink,files}], labelCount }；沒有附件清單回 null。 */
+function parseAttachmentList(html) {
+  let s = typeof html === 'string' ? html : '';
+  if (!s) return null;
+  if (s.length > 200000) s = s.slice(0, 200000);
+  const q = s.indexOf('gmail_quote');
+  if (q !== -1) {
+    const lt = s.lastIndexOf('<', q);
+    s = s.slice(0, lt === -1 ? q : lt);
+  }
+  s = s.replace(/<!--[\s\S]*?-->/g, '')
+       .replace(/<pre\b[\s\S]*?<\/pre\s*>/gi, '')
+       .replace(/<blockquote\b[\s\S]*?<\/blockquote\s*>/gi, '');
+
+  const raw = [];
+  let labelCount = null;
+  let found = false;
+  const listOpen = /<(ol|ul)\b[^>]*>/gi;
+  let m;
+  while ((m = listOpen.exec(s))) {
+    const before = s.slice(0, m.index);
+    // 已經在別的清單裡面（巢狀）就不是標題列
+    const depthBefore = (before.match(/<(?:ol|ul)\b/gi) || []).length - (before.match(/<\/(?:ol|ul)\s*>/gi) || []).length;
+    if (depthBefore > 0) continue;
+    // 標題列＝清單開頭之前最後一個非空的行（行界：<br>、<div>、清單／表格結束）
+    const lines = before.split(/<br\s*\/?>|<div\b[^>]*>|<\/(?:ol|ul|li|div|table)\s*>/i);
+    let label = '';
+    for (let i = lines.length - 1; i >= 0 && !label; i--) label = visible(lines[i]).trim();
+    if (!LIST_LABEL.test(label)) continue;
+
+    // 走到配對的結束標籤，收第一層 <li> 的內容
+    const tagRe = /<(\/?)(ol|ul|li)\b[^>]*>/gi;
+    tagRe.lastIndex = m.index + m[0].length;
+    let depth = 1, liStart = -1, t, end = s.length;
+    while ((t = tagRe.exec(s))) {
+      const closing = t[1] === '/', name = t[2].toLowerCase();
+      if (name === 'li') {
+        if (depth !== 1) continue;
+        if (!closing) {
+          if (liStart !== -1) raw.push(s.slice(liStart, t.index));   // 沒寫 </li> 的上一項
+          liStart = t.index + t[0].length;
+        } else if (liStart !== -1) { raw.push(s.slice(liStart, t.index)); liStart = -1; }
+        continue;
+      }
+      if (!closing) { depth++; continue; }
+      depth--;
+      if (depth === 0) { end = t.index; break; }
+    }
+    if (liStart !== -1) raw.push(s.slice(liStart, end));
+    const n = parseCount(label);
+    if (n !== null) labelCount = (labelCount || 0) + n;
+    found = true;
+    listOpen.lastIndex = end;
+  }
+  if (!found) return null;
+  const items = raw.map((h) => {
+    const text = visible(h);
+    return {
+      html: h,
+      text: text.trim().slice(0, 60),
+      isLink: /<a\b[^>]*href=/i.test(h),
+      files: (text.match(FILE_TOKEN) || []).map((x) => x.toLowerCase()),
+      lower: text.toLowerCase(),
+    };
+  });
+  return { items, labelCount };
+}
+
+/**
+ * 清單 vs 實際交付的檔名（attachments 的 filename，或瀏覽器上傳的檔名）。
+ * what：「附了」／「上傳了」，只影響訊息用字。回傳 problems 陣列（空＝對得上）。
+ */
+function compareAttachmentList(list, filenames, what) {
+  const problems = [];
+  const fileItems = list.items.filter((it) => !it.isLink);
+  const names = filenames.map((n) => String(n || '').toLowerCase());
+  if (list.labelCount !== null && list.labelCount !== list.items.length) {
+    problems.push(`標題寫 ${list.labelCount} 份，清單卻列了 ${list.items.length} 項`);
+  }
+  if (!filenames.length) return problems;
+  if (fileItems.length !== filenames.length) {
+    problems.push(`清單列了 ${fileItems.length} 個檔，實際${what} ${filenames.length} 個`);
+  }
+  for (const it of fileItems) {
+    for (const tok of it.files) {
+      if (!names.some((nm) => nm && (nm === tok || nm.endsWith(tok) || tok.endsWith(nm)))) {
+        problems.push(`清單寫了「${tok}」，${what}的檔裡沒有它`);
+      }
+    }
+  }
+  if (problems.length) {
+    const text = fileItems.map((it) => it.lower).join('\n');
+    for (let i = 0; i < names.length; i++) {
+      if (names[i] && text.indexOf(names[i]) === -1) problems.push(`「${filenames[i]}」清單裡沒寫到`);
+    }
+  }
+  return problems;
+}
+
+function attachmentListMismatch(input) {
+  if (!input || typeof input !== 'object') return null;
+  try {
+    const list = parseAttachmentList(input.htmlBody);
+    if (!list) return null;
+    const atts = Array.isArray(input.attachments) ? input.attachments.filter((a) => a && a.inline !== true) : [];
+    const attached = atts.map((a) => (typeof a.filename === 'string' && a.filename) || '(未命名)');
+    return {
+      items: list.items.map((it) => it.text),
+      labelCount: list.labelCount, attached,
+      problems: compareAttachmentList(list, attached, '附了'),
+    };
+  } catch (_) { return null; }
+}
+
+
 module.exports = {
   // 常數
   REWRITE_MARK, WRITE_TOOLS, READ_TOOL, BANNED, STATE_DIR,
@@ -791,5 +949,6 @@ module.exports = {
   // transcript
   isUserPromptLine,
   // 附件
-  resultAttachmentCount, attachmentsTotalBytes, attachmentClaimWithoutFiles,
+  resultAttachmentCount, attachmentsTotalBytes, attachmentClaimWithoutFiles, attachmentListMismatch,
+  parseAttachmentList, compareAttachmentList,
 };

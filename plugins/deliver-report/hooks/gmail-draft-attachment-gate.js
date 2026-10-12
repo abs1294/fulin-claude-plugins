@@ -11,7 +11,9 @@
  *
  * ── 行為 ─────────────────────────────────────────────────────
  *   create_draft / update_draft 的 attachments 合計 > 25MB → deny，
- *   理由附三條替代路徑。其餘一律放行。
+ *   理由附三條替代路徑。
+ *   htmlBody 的附件清單（<ol>／<ul><li>）與 attachments 對不上 → deny
+ *   （判準見 draft-checks.core.js attachmentListMismatch）。其餘一律放行。
  *
  * ★ 最高原則：FAIL-OPEN。解析不了就放行——擋錯的代價是流程卡死，
  *   放錯的代價只是吃一次 API 錯誤訊息。
@@ -53,7 +55,7 @@ function main(raw) {
 
   const toolInput = (input.tool_input && typeof input.tool_input === 'object') ? input.tool_input : {};
   const total = C.attachmentsTotalBytes(toolInput);
-  if (total <= LIMIT_BYTES) return process.exit(0);
+  if (total <= LIMIT_BYTES) return checkList(toolInput);
 
   const mb = (total / 1024 / 1024).toFixed(1);
   return deny(
@@ -62,6 +64,23 @@ function main(raw) {
     '  1. 檔案可再縮（分卷、去掉非必要內容）→ 縮到 25MB 內再由工具附上；\n' +
     '  2. 由瀏覽器自動化代拖進 Gmail 網頁草稿（>25MB 網頁版會自動轉雲端硬碟連結）；\n' +
     '  3. 走使用者慣用的檔案交換管道，並把信裡「請詳附件」改成實際取檔方式。\n' +
+    '（SKILL.md 第三步之三 要點 5）'
+  );
+}
+
+// 附件清單（<ol>／<ul><li>）項數、標題份數、檔名 對不上實際 attachments → deny。
+// 2026-10-11 使用者回報：信裡說交付 3 個檔，實際只附 2 個。
+function checkList(toolInput) {
+  const r = C.attachmentListMismatch(toolInput);
+  if (!r || !r.problems.length) return process.exit(0);
+  return deny(
+    '信裡的附件清單和這次實際帶的附件對不上，已先擋下：\n' +
+    r.problems.map((p) => '  ・' + p).join('\n') + '\n\n' +
+    '清單第一層 <li>（' + r.items.length + ' 項）：\n' +
+    r.items.map((it, i) => '  ' + (i + 1) + '. ' + it).join('\n') + '\n' +
+    '實際 attachments（' + r.attached.length + ' 個）：' + (r.attached.join('、') || '（無）') + '\n\n' +
+    '修法：把漏的檔補進 attachments，或把清單改成真正要附的檔；標題的份數要等於清單項數。\n' +
+    '用雲端連結交付的那一項請在 <li> 裡放 <a href>，就不計入附件數。\n' +
     '（SKILL.md 第三步之三 要點 5）'
   );
 }

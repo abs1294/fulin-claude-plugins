@@ -2,6 +2,11 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.9.0] - 2026-10-11
+### Changed
+- 附件清單比對機械閘：htmlBody 的附件清單（「附件 N 份：」標題列＋<ol>／<ul><li>）第一層項數、標題份數、<li> 裡的檔名與這次 attachments 對不上，PreToolUse 閘（gmail-draft-attachment-gate）直接擋下、草稿不建立（2026-10-11 實案：清單列 3 個檔只附 2 個）；含 <a href> 的項目視為雲端連結不計、inline 圖不計、子清單不計、引用原信不檢查；attachments 為空時只查標題份數 vs 項數（瀏覽器上傳流程）。posttool (H) 提醒改為列出清單各項供逐項附滿。SKILL.md 要點 5 補附件清單寫法（一項一檔、檔名開頭）。新增 hooks/tests/attachment-list.test.js（23 例，含實跑 hook 子程序）。
+- 瀏覽器上傳的收尾閘：新增 Stop hook upload-count-gate——本回合有成功的瀏覽器上傳（file_upload／browser_file_upload）時，拿最近一次帶 htmlBody、未帶 attachments 的草稿寫入裡的附件清單，比對那之後成功上傳的檔（跨回合累計、同名去重、失敗不算）的個數與檔名，不符就擋；上傳後又呼叫不帶 attachments 的草稿寫入（附件會被清掉）也擋；同回合第二次改提醒放行。清單解析拆成 parseAttachmentList／compareAttachmentList，與 PreToolUse 閘共用。新增 hooks/tests/upload-count.test.js（17 例，以真實 transcript 形狀造行並實跑 hook）。
+
 ## [1.8.0] - 2026-10-11
 ### Changed
 - Gmail 草稿格式改為預設給 htmlBody（白名單標籤）並附 body 當純文字退路；序號一律 <ol><li>、列點一律 <ul><li>，禁止手打，子行用 <br> 接在同一個 <li> 裡；移除「排版靠空行與破折號／項目：值一行一條」；網址改寫改列為走 htmlBody 的理由之一。兩支草稿閘新增手打序號提醒（handTypedLists，附 22 例測試與兩份副本漂移比對），Markdown 提醒的改法同步改成 <b>／清單標籤。

@@ -292,6 +292,7 @@ function main(raw) {
 
     // (H) 內文說有附檔，這次卻沒帶 attachments——不要留給使用者自己拖
     const claim = C.attachmentClaimWithoutFiles(toolInput);
+    const listed = claim ? C.attachmentListMismatch(toolInput) : null;
     if (claim) {
       once(draftId ? 'claim:' + draftId : null, () =>
         '■ 內文寫了「' + claim + '」，這次 ' + (/update_draft$/.test(toolName) ? 'update_draft' : 'create_draft') + ' 卻沒帶 attachments。\n' +
@@ -300,6 +301,10 @@ function main(raw) {
           : '') +
         '  附檔由我方完成，不要叫使用者自己拖：≤25MB 用 attachments（base64）；\n' +
         '  或用瀏覽器開草稿 viewUrl，對附件的 file input 用 file_upload 上傳後按「儲存並關閉」。\n' +
+        (listed && listed.items.length
+          ? '  信裡的附件清單列了 ' + listed.items.length + ' 項，附完要逐項對過，一個都不能少：\n' +
+            listed.items.map((it, i) => '    ' + (i + 1) + '. ' + it).join('\n') + '\n'
+          : '') +
         '  （SKILL.md 第三步之三 要點 5）'
       );
     }
