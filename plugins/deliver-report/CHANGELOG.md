@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.9.1] - 2026-10-14
+### Fixed
+- deliver-report：稱謂行下直接接正文不留空行（三個形狀骨架與範例一、二、四移除空行，第一步收件人規則補註）
+
 ## [1.9.0] - 2026-10-11
 ### Changed
 - 附件清單比對機械閘：htmlBody 的附件清單（「附件 N 份：」標題列＋<ol>／<ul><li>）第一層項數、標題份數、<li> 裡的檔名與這次 attachments 對不上，PreToolUse 閘（gmail-draft-attachment-gate）直接擋下、草稿不建立（2026-10-11 實案：清單列 3 個檔只附 2 個）；含 <a href> 的項目視為雲端連結不計、inline 圖不計、子清單不計、引用原信不檢查；attachments 為空時只查標題份數 vs 項數（瀏覽器上傳流程）。posttool (H) 提醒改為列出清單各項供逐項附滿。SKILL.md 要點 5 補附件清單寫法（一項一檔、檔名開頭）。新增 hooks/tests/attachment-list.test.js（23 例，含實跑 hook 子程序）。
