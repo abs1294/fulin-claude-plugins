@@ -141,10 +141,10 @@ printf '%s' "$LAST_OUT" | grep -q -- '--staged' && ok "F1c 提示自己切 hunk 
 expect "F2 外來項目也列進清單就放行" 0 flow prepare fg mine.txt other.txt
 git -C "$F" reset -q
 mkdir -p "$F/sub"; echo y > "$F/sub/y.txt"; git -C "$F" add sub/y.txt
-expect "F3 目錄 pathspec 涵蓋已 staged 的檔就放行" 0 flow prepare fg sub
+expect "F3 目錄 pathspec 涵蓋已 staged 的檔就放行" 0 flow prepare fg sub --redo
 git -C "$F" reset -q
 echo other2 >> "$F/other.txt"; git -C "$F" add other.txt
-expect "F4 --staged 模式不檢查（整個 index 就是要送審的）" 0 flow prepare fg --staged
+expect "F4 --staged 模式不檢查（整個 index 就是要送審的）" 0 flow prepare fg --staged --redo
 git -C "$F" reset -q
 expect "F5 index 乾淨時逐檔照常" 0 flow prepare fg mine.txt
 git -C "$F" reset -q

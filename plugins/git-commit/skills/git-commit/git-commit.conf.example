@@ -1,0 +1,23 @@
+# git-commit.conf — git-commit skill 的專案層設定（選用）
+#
+# 放在 .claude/git-commit.conf。flow.sh 依序從 repo 目錄、主 repo 目錄（worktree 時）、工作目錄
+# 各自往上逐層找，取第一個找到的、不合併。沒有這個檔就全部用預設值。
+# 格式：key=value；# 開頭整行是註解；「空白後接 #」到行尾也是註解。
+
+# 允許的 Type（空白分隔）。預設：Feat Modify Style Refactor Perf Chore Docs Test Fix Hotfix
+# 列了 none 表示可以不加前綴，ship <repo> none "<描述>" 的 subject 就只有描述本身。
+# 例：語意化版號前綴的 repo
+#   types=major minor patch none
+#types=Feat Modify Style Refactor Perf Chore Docs Test Fix Hotfix
+
+# 描述（不含 Type 前綴）與內文每行的顯示寬度上限；全形算 2、半形算 1。預設 72（中文約 36 字）。
+# 英文訊息、沒有前綴的 repo 常需要放寬，例：max_width=100
+#max_width=72
+
+# 同一批改動審到第幾輪仍 BLOCK，就停下來問使用者要修還是記進交接。
+# 預設 0＝不停：以正確性為準修到底，只剩極端情境才走下面的預設豁免。
+#review_ask_round=3
+
+# 連續幾輪 BLOCK 都只剩極端情境（一軌或兩軌 BLOCK，中間每輪都有改碼）就預設豁免。
+# 預設 2；0＝關閉（一律要使用者決定）。
+#edge_auto_exempt_rounds=2

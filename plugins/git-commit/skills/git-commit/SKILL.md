@@ -26,7 +26,7 @@ description: >
 > Commit 觸發條件：**Codex 非 BLOCK ∧ code-reviewer 非 BLOCK ∧ 使用者未明確否決。**
 
 1. 兩軌皆 PASS（或豁免）＋使用者未回覆 → **自動 commit**（默許；local）。push 另需使用者當次明確核可（如「commit 並推上去」）才帶 `--push`。預覽時必須明講此行為。
-2. **任一軌 BLOCK → 永不自動 commit**，列必修項等使用者——即使使用者已先回 OK。
+2. **任一軌 BLOCK → 永不自動 commit**——即使使用者已先回 OK。BLOCK 的項目逐條實跑確認後，照第 7 條直接修、重送，不必先問使用者；唯一能不修就 commit 的例外是第 7 條的「連續數輪只剩極端情境」預設豁免，或使用者明示強制 commit（`--exempt`）。
 3. 使用者明確否決（「等等」「先別上」、改 message、調 staging）→ 照使用者意思，不 commit。
 4. PASS 附清單＝「可 commit 但有建議」，預設放行；使用者要先修 → 改碼 → 重跑 `prepare` → 兩軌重送（diff 變了就重判豁免）。BLOCK 後重做同樣走完整 Step 1。禁止沿用先前確認過的 message 直接 commit（碼可能已變）。
 5. **某一軌確定不可用**（額度用完不算，見本條下方）→ 單軌降級（該軌記 `skipped: <原因>`、匯流視為 PASS；C 軌要先走 1.3c 第三層，第三層也失敗才能記 skipped；`review-record` 該軌就填這串），預覽明講已降為單軌，並由主 agent 補做該軌該查的項目。**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認（`review-record` 收到兩軌都 `skipped` 會直接拒絕；使用者核可後改走 `--exempt`）。
@@ -38,6 +38,17 @@ description: >
    > 3. 預覽明講「Codex 額度用完，已排 HH:MM 重跑」（沒排上就寫「應於 HH:MM 重跑，喚醒未排上，需 <誰> 排或手動重跑」），commit 維持不做（這一軌沒結論，不是 PASS）。
    > 4. 喚醒後依序：最小題確認額度恢復 → 確認 index 沒被別人改動（外來 staged 閘會擋）→ staged 沒變就沿用 prepare 的 diff hash 直接重送 B 軌；staged 變了就從 prepare 重來。仍是額度錯誤就依新的重置時間再排一次。
 6. **兩軌對同一項判不同嚴重度（一軌 BLOCK、一軌 Minor／PASS）→ 主 agent 自己實跑驗證再匯流**，不可取中間值、不可選寬鬆那軌放行（實證：Codex 判 BLOCK／code-reviewer 判 Minor，實測 Codex 對；「需要更好的工具才能正確處理」≠「可以不正確」）。驗證結果貼進預覽，才決定走 1 或 2。
+7. **審查停止條件**（2026-10-16 起；起因：同一批改動 Codex 每輪都挖出更邊緣的情況，審了 9 輪）。`prepare` 每跑一次算一輪，輸出會印「審查第 N 輪」；commit 成功、或換了一批改動（上一輪送審的檔這一輪沒有全部還在、HEAD 變過、逐檔 `prepare` 時 index 原本是空的），輪數都歸零。
+   - **極端情境**的判準：只在不尋常的時序或外部條件下才會發生，正常操作路徑不會觸發。例：動畫 0.1 秒內按鍵、只在開發模式發生、後端回傳不合規格的資料（且查不到後端會不會這樣回）、連點或操作到一半切換頁面的競態。**資安、資料遺失、正常流程會當掉的問題不算**，不管多難觸發。
+   - **預設判準：以正確性為準修到底，極端情境可例外**（2026-10-17 使用者指示：「修到底，以正確性為準，極端情境可例外……不要一直問有夠煩」）。BLOCK 裡還有一般問題（含資安、資料遺失、正常流程會壞）→ 逐項實跑確認後直接修、重跑 `prepare`、兩軌重送，**不論第幾輪都不停下來問使用者**；審查意見一樣要逐條驗證，被推翻的不修。
+   - **輪數要少、一次修到位**（2026-10-18 使用者指示：「要做的輪次少、修的到位、架構正確就要修正、不要陷入死胡同一直往極端情境走」）：
+     - **按類別修，不按案例修**：每條 BLOCK 先歸到根因類別，修的時候把整個類別掃過一次（同類寫法、同類檔案全部），不是只改審查者點名的那幾行。
+     - **架構問題必修**：根因是設計錯（判準選錯、列舉式規則、職責放錯層），就改設計，不要在錯的設計上繼續打補丁。
+     - **文字比對類規則（敏感字、AI 痕跡、指令守門）先定範圍**：第一輪就寫明「防手滑、不是完整掃描器」與要涵蓋的寫法清單，連同已知取捨一起交給審查者；清單外的寫法是極端情境，不追。
+   - **同類重複閘（機械閘，2026-10-18 起）**：BLOCK 那一輪要用 `review-record <repo> --codex "<原文>" --reviewer "<原文>" --block-classes "<根因類別1>;<根因類別2>"` 記下類別（不放行 commit），**沒記就不能開下一輪 `prepare`**（還沒送審就要重送才用 `prepare --redo`）。同一個類別在同一批改動第二次出現，`review-record` 拒收：代表逐案補收斂不了，二選一——改架構／判準讓這一類一次涵蓋，再用 `--rearchitect "<類別>：<改了什麼>"` 記錄；或這一類剩下的都是極端情境，改走 `--edge`。類別名稱由 AI 填，換個名字躲比對腳本擋不到；`prepare --redo` 腳本分不出「真的還沒送審」與「送審後 BLOCK 了」（上一輪還沒記結果時它不加輪數、會寫進流水帳供事後稽核；上一輪已記過結果，下一次 prepare 本來就是新的一輪，帶不帶 `--redo` 都加一），只能在真的還沒送審時用——這兩點是自律；腳本保證的是「每輪都要記、重複就要交代架構改法」。起因：敏感字規則逐案補寫法，同一批改動審了 32 輪；harness 0.5.0 的主機規則也是逐案補審了 13 輪，改成放行清單（失敗即擋）才收斂。
+   - BLOCK 的項目（一軌或兩軌）**全部**是極端情境（已逐項核對，不是誤報就是極端）→ `review-record <repo> --codex "<原文>" --reviewer "<原文>" --edge "<剩下哪幾項、為什麼算極端>"`。flow.sh 記下這一輪；**連續 `edge_auto_exempt_rounds` 輪（預設 2，中間每輪都有改碼）都是這樣就預設豁免**，寫成 `edge-exempt` 紀錄、可直接 ship。沒達連續門檻會拒收並印下一步（修掉其中能修的 → 重送）。「同一批改動」以送審的檔名與 HEAD 判斷，不比內容：同一個檔案放棄原本修法、改用另一種修法時輪數會延續——輪數追的是同一件工作，而每一輪 `--edge` 仍要兩軌對當下的 diff 重審、剩下的全是極端情境才收，不會因此放過一般問題。預設豁免時，預覽要明講「連續 N 輪只剩極端情境，已預設豁免」，剩下的項目寫進交接紀錄。
+   - 專案想在某一輪停下來問人：設定檔設 `review_ask_round=<N>`（預設 0＝不停）。設了之後，到第 N 輪仍 BLOCK、又沒達到預設豁免 → 停下來把剩下的項目用白話列給使用者（發生條件、影響、修要多久），請使用者選「修」或「記進交接」；選記進交接 → `review-record <repo> --exempt "<使用者原話>；記進交接：<剩下的項目>"`。`edge_auto_exempt_rounds=0` 時極端情境也一律交給使用者決定。
+   - 兩個門檻都在專案設定檔 `.claude/git-commit.conf` 調整（見「專案設定檔」）。
 
 ## Review 豁免規則
 
@@ -52,17 +63,33 @@ description: >
 | 指令 | 動作 |
 |------|------|
 | `flow.sh analyze <repo>` | 狀態分類＋local-overrides 過濾＋敏感字掃描 |
-| `flow.sh prepare <repo> <files...>` | 逐檔 `git add` → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查）。最後印出 C 軌的專案附加審查要求（見 1.3c） |
+| `flow.sh prepare <repo> <files...> [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]` | 逐檔 `git add` → **內容閘（敏感字／建置產物／AI 痕跡）沒過就不產生 diff hash、送不了審** → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄與放行旗標。誤判時在 prepare 帶 `--allow-*`，旗標綁定這份 diff，ship／amend 沿用不必再帶。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查）。印出「審查第 N 輪」（見核心原則 7）與 C 軌的專案附加審查要求（見 1.3c） |
+| `flow.sh check-msg <repo> <type> <description> [--body "<一兩句>"]` | 只檢查 commit message，判準同 ship（Type、署名、痕跡、寬度、內文）。**1.3a 預覽前先跑**，給使用者看的就是一定過得了 ship 的版本 |
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾用：git 已把合併進來的檔案 stage 好）。index 空的拒絕 |
 | `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆第一行須為 `VERDICT: PASS`（BLOCK 不收）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的；理由含額度字樣不收——額度用完要排重跑，見核心原則 5）。專案有 `.claude/qa-gate.conf` 時，寫紀錄前先過專案閘（`--exempt` 模式同樣適用）：staged 含行為類檔就必帶有效的 `--qa`；設了 `block_staged_overrides=1` 時 staged 含 local-overrides 清單上的檔就拒收（見下一列） |
-| `flow.sh review-record <repo> --exempt "<理由>"` | 使用者明示豁免（Style/Docs、POC、plugin 發布、使用者要求跳過審查）。理由寫使用者的原話或豁免依據，會進稽核流水帳 `review-log.tsv` |
+| `flow.sh review-record <repo> --codex "<原文>" --reviewer "<原文>" --block-classes "<類別1>;<類別2>" [--rearchitect "<類別>：<改法>"]` | 至少一軌 BLOCK 時記下這一輪的根因類別（不放行 commit）；沒記不能開下一輪 `prepare`（未送審就重送用 `prepare --redo`）。同類別在同一批第二次出現要附 `--rearchitect`，否則拒收（見核心原則 7） |
+| `flow.sh review-record <repo> --codex "<原文>" --reviewer "<原文>" --edge "<理由>"` | 至少一軌 BLOCK，且 BLOCK 的全是極端情境（兩軌都 BLOCK 也收；skipped 不收）。連續 `edge_auto_exempt_rounds` 輪才寫成預設豁免紀錄，否則記下這一輪後拒收（見核心原則 7） |
+| `flow.sh review-record <repo> --exempt "<理由>"` | 使用者明示豁免（Style/Docs、POC、plugin 發布、使用者要求跳過審查、使用者選擇把剩下的項目記進交接）。理由寫使用者的原話或豁免依據，會進稽核流水帳 `review-log.tsv` |
 | `review-record ... --qa "<QA 狀態>"`（選填；找得到 `.claude/qa-gate.conf` 時視情況必帶——依序從 repo 目錄、主 repo 目錄（worktree 時）、工作目錄往上逐層找） | QA 表態，與審查結果一起寫進紀錄與流水帳。專案有 `.claude/qa-gate.conf`（與 `local-overrides.yml` 同層）時由 flow.sh 強制：staged 含行為類檔（副檔名命中 `behavior_ext`、且不命中 `exclude`）就必須帶，值以 `已QA`（「已」與「QA」間可有空白、QA 大小寫不分）或 `分流例外` 開頭——`已QA：<報告或測試檔路徑＋綠的輸出行>`／`分流例外：<為何讀 code 就能確定>`；還沒 QA 就不得記錄，先派 QA 實測。沒有設定檔就不檢查 |
 | `review-record ... --allow-overrides "<理由>"` | 只在 `qa-gate.conf` 設了 `block_staged_overrides=1` 時有作用：staged 含 local-overrides 清單上的檔時 review-record 會拒收（多半是誤加，用 `git restore --staged <檔案>` 移出後重跑 prepare）；確實要推（例如檔內混有真改動、已用 `git apply --cached` 只 stage 真改動那幾行）才帶這個旗標，理由寫進 `review-log.tsv` 最後一欄 |
-| `flow.sh audit <repo> [<range>]` | 體檢既有 commit 的 message，唯讀。抓：空 message／缺 `Type:` 前綴／Type 不在允許清單／描述超長／痕跡命中／含多行 body（軟清單命中另標「待確認」）。exit `0`＝乾淨、`1`＝有問題、`2`＝range 無效 |
-| `flow.sh ship <repo> <type> <description> [--push]` | HEREDOC commit → 驗證（內建禁 `--no-verify`/force push、過濾 AI 署名）。**預設只 local commit；帶 `--push` 才推遠端**——push 不可逆，需使用者當次明確核可 |
-| `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述>]` | 改寫 HEAD。自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘，改寫後做 tree 級重現驗證。不帶 `--type`/`--desc` 則沿用既有 message；**只做本地改寫，不 push** |
+| `flow.sh audit <repo> [<range>]` | 體檢既有 commit 的 message，唯讀。抓：空 message／缺 `Type:` 前綴／Type 不在允許清單／描述超長／痕跡命中／內文超過 3 行、過寬或含痕跡（軟清單命中另標「待確認」）。exit `0`＝乾淨、`1`＝有問題、`2`＝range 無效 |
+| `flow.sh ship <repo> <type> <description> [--body "<一兩句>"] [--push]` | commit → 驗證（內建禁 `--no-verify`/force push、過濾 AI 署名）。`--body` 是選填內文（見 Commit Message 規範）。**預設只 local commit；帶 `--push` 才推遠端**——push 不可逆，需使用者當次明確核可。分支沒有 upstream（新開的分支）時自動改用 `git push -u <remote> HEAD`，**不要自己另外組 push 指令** |
+| `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述> [--body "<一兩句>"]]` | 改寫 HEAD。自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘，改寫後做 tree 級重現驗證。不帶 `--type`/`--desc` 則沿用既有 message；**只做本地改寫，不 push** |
 
-`<repo>`＝`.` 或工作目錄下的 git 子目錄名（多 repo workspace 各自獨立 commit）。**不收絕對路徑**——要操作別處的 repo 先 `cd` 過去再用 `.`。`<type>`＝`Feat`/`Modify`/`Style`/`Refactor`/`Perf`/`Chore`/`Docs`/`Test`/`Fix`/`Hotfix`。
+`<repo>`＝`.` 或工作目錄下的 git 子目錄名（多 repo workspace 各自獨立 commit）。**不收絕對路徑**——要操作別處的 repo 先 `cd` 過去再用 `.`。兩種寫法指到同一個 repo 時，審查紀錄是同一份：紀錄、diff hash、補推標記、審查輪數都存在該 repo 的 git 目錄（`.git/git-commit-flow/`），跟怎麼呼叫無關。`<type>` 預設＝`Feat`/`Modify`/`Style`/`Refactor`/`Perf`/`Chore`/`Docs`/`Test`/`Fix`/`Hotfix`，專案可在設定檔改（見下節）。
+
+### 專案設定檔：`.claude/git-commit.conf`（選用）
+
+repo 慣例跟預設不同時用。找法同 `qa-gate.conf`（依序從 repo 目錄、主 repo 目錄、工作目錄往上找，取第一個、不合併）；沒有這個檔就全用預設。範本：`git-commit.conf.example`（與 flow.sh 同目錄）。
+
+| key | 預設 | 作用 |
+|---|---|---|
+| `types=` | 上面 10 種 | 允許的 Type，空白分隔。列了 `none` 就能 `ship <repo> none "<描述>"`，subject 只有描述本身（例：`types=major minor patch none`）。描述開頭像 Type 前綴（`Feat: …`）時不算無前綴，要用清單內的 Type |
+| `max_width=` | 72 | 描述與內文每行的顯示寬度上限（全形算 2、半形算 1；72 換算中文約 36 字）。英文訊息、沒有前綴的 repo 可放寬，例：100 |
+| `review_ask_round=` | 0 | 審到第幾輪仍 BLOCK 就停下來問使用者；0＝不停，修到只剩極端情境 |
+| `edge_auto_exempt_rounds=` | 2 | 連續幾輪只剩極端情境就預設豁免；0＝關閉 |
+
+設定值寫錯（`max_width=abc`、`types=` 空的）會直接報錯，不靜默套預設。
 
 腳本不能代勞的：豁免判斷、1.3a 預覽、啟動兩個審查 subagent、匯流決策。但腳本會**檢查結果有沒有落地**：`ship`／有改到碼的 `amend` 找不到對應當下 staged diff 的 `review-record` 紀錄就拒絕，見下方「真閘 7」。
 
@@ -116,6 +143,8 @@ PreToolUse hook，攔截 Bash 工具裡「不經 flow.sh 就建出 commit」的�
 
 #### 1.3a 預覽（A 軌）
 
+**出預覽前先跑 `flow.sh check-msg <repo> <type> "<描述>" [--body "<…>"]`**，沒過就先改到過，再拿給使用者看。否則使用者核可的訊息到 ship 才被擋（寬度、痕跡），要再核可一次。
+
 Commit message 用 unicode double-line box 框住＋包 fenced code block（高對比，CJK 對齊目視即可）；無警示就不出警示區塊。格式：
 
 ```markdown
@@ -126,7 +155,7 @@ Commit message 用 unicode double-line box 框住＋包 fenced code block（高�
 
 **⚠️ 掃描警示：**（若有才出）
 - 敏感字：`<file>:<line>` 發現 `"password"`
-- AI 痕跡：`<file>` 新增行引用文件出處（`§`／`CLAUDE.md`／`設計文件`）——ship 會擋，須先改掉
+- AI 痕跡：`<file>` 新增行引用文件出處（`§`／`CLAUDE.md`／`設計文件`）——prepare 就會擋、送不了審，須先改掉
 
 ### 📝 建議 Commit Message
 
@@ -257,7 +286,7 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 - 自動 commit 前輸出：兩軌狀態＋「使用者回覆：尚未（視為默許）」＋套用的 message；PASS 附清單時**清單先列給使用者**再告知已開始自動 commit。
 - 匯流判定可 commit 後，**先跑 `flow.sh review-record <repo> --codex "<Codex 回覆原文>" --reviewer "<code-reviewer 回覆原文>"`** 再 ship。回覆原文多行時用 `"$(cat <<'EOF' … EOF)"` 帶入。多 repo 各記各的。
 - **C 軌 BLOCK 先二次驗證（專案有定義才做）**：C 軌回 `VERDICT: BLOCK` 時，先看專案的 code-review skill（通常在 `<workspace>/.claude/skills/code-review/SKILL.md`，`<workspace>` 為工作目錄；多 repo 時該 repo 根目錄下的同路徑也看）有沒有「發現驗證」節。有 → 照該節對每條 `[Critical]` 逐條二次驗證，驗完再走下一條的 BLOCK 處理；被推翻的條目在預覽標「經驗證為假陽性」並附推翻它的那一行（`檔:行`＋原文）。全部被推翻時，**主對話不得自行把 BLOCK 改成 PASS**（也不得自組 `VERDICT: PASS` 送進 `review-record`），改為重派 C 軌一次（prompt 末尾附驗證證據、請它重新裁決），`--reviewer` 以新回覆的原文記錄；新回覆仍是 BLOCK 就照該節後續規定處理，該節沒寫就走 BLOCK 處理。重派以一次為限。staged 沒變，prepare 的 diff hash 仍有效，重派前不要重跑 prepare，B 軌結果沿用。專案沒有這一節 → 行為不變，直接走 BLOCK 處理。B 軌（Codex）的 BLOCK 不適用本條。與核心原則 6 的關係：專案有這一節時，C 軌 BLOCK 一律照本條處理，不適用原則 6 由主 agent 實跑後改判；專案沒有這一節時，原則 6 照舊。
-- BLOCK 處理：列必修項 → 使用者決定修或強制 commit（需明示）→ 修的話改碼、重 `prepare`、兩軌重送，直到全非 BLOCK。無 revert、無歷史噪音。使用者明示強制 commit → `review-record --exempt "<使用者的原話>"`（BLOCK 的回覆原文不會被 `--codex`／`--reviewer` 收下）。
+- BLOCK 處理：逐條實跑確認 → 成立的一般問題直接改碼、重 `prepare`、兩軌重送，直到全非 BLOCK 或只剩極端情境（核心原則 7，預設不停下來問；BLOCK 那輪先 `review-record --block-classes` 記類別，同類重複要改架構）；預覽列出這輪修了什麼。無 revert、無歷史噪音。使用者明示強制 commit → `review-record --exempt "<使用者的原話>"`（BLOCK 的回覆原文不會被 `--codex`／`--reviewer` 收下）。只剩極端情境走 `--edge`；專案設了 `review_ask_round` 才在該輪停下來問。
 
 ## Step 2：`flow.sh ship`
 
@@ -283,11 +312,11 @@ prepare 發現還有未解衝突（`git diff --diff-filter=U` 有東西）會直
 
 ## Commit Message 規範
 
-格式：`{Type}: {簡短描述}`——Type 首字大寫、冒號後空格、中文描述 1 句。例：`Feat: 相關申請紀錄新增發起人欄位與 Excel 匯出`。
+格式：`{Type}: {簡短描述}`——Type 首字大寫、冒號後空格、中文描述 1 句。例：`Feat: 相關申請紀錄新增發起人欄位與 Excel 匯出`。repo 有自己的慣例（`minor:`／`patch:`、沒有前綴）時，照該 repo 的 `.claude/git-commit.conf`；寫 message 前先看該 repo 最近的 `git log` 慣例。
 
-**單行，不寫 body。** `flow.sh ship <repo> <type> <description>` 只吃單行 description，`assert_no_signature` 會機制級擋掉多行。理由要留就留在 PR／issue，不進 git message。
+**描述單行；內文（body）選填，最多 3 行。** 只給「diff 看不出來、接手的人一定要知道」的一兩句，例：`要等設計系統套件發下一版才能建置，目前版本會失敗`。用 `ship --body "<一兩句>"` 帶入（可含換行）。內文跟描述過同一套檢查：AI 署名、作業過程痕跡、每行寬度。背景、過程、怎麼驗證的，寫在 PR 或交接文件，不進 git message。
 
-**長度上限：顯示寬度 ≤72**——全形字（中文、全形標點）算 2、半形算 1。由 `flow.sh ship` 機械檢查，超標即 exit 1，無豁免旗標。
+**長度上限：顯示寬度預設 ≤72**——只算描述（不含 `Type: `），全形字（中文、全形標點）算 2、半形算 1。由 `flow.sh check-msg`／`ship` 機械檢查，超標即 exit 1，沒有豁免旗標；repo 慣例需要更長（例如英文訊息）就在專案設定檔設 `max_width=`。
 
 | 類型 | 說明 |
 |------|------|
@@ -313,7 +342,7 @@ prepare 發現還有未解衝突（`git diff --diff-filter=U` 有東西）會直
 | `Fix: 補 P0 防護` | `Fix: handleConfirmFinalReply 失敗時保留 dialog` |
 | `Chore: 將 .claude 納入 gitignore，該目錄為 Claude Code 的本機設定` | `Chore: 將 .claude 納入 gitignore` |
 
-機制側由 `flow.sh ship` 的 `MESSAGE_TRACE_PATTERN` 擋三類（命中即 exit 1）：
+機制側由 `flow.sh check-msg`／`ship` 的 `MESSAGE_TRACE_PATTERN` 擋三類（命中即 exit 1；描述與內文都掃）：
 
 1. **AI／工具身分**：`Claude`、`Anthropic`、`Codex`、`code-reviewer`、`subagent`、`紅藍對抗`
 2. **作業過程句式**：`經…掃描/確認/比對`、`實測…通過/失敗`、`實跑…通過`、`掃描確認`、`驗證：`後接結論
@@ -361,7 +390,7 @@ prepare 發現還有未解衝突（`git diff --diff-filter=U` 有東西）會直
 
 `format-patch` / `bundle` / `archive` 產出的檔案**內含完整 commit message 原文**，會直接送到客戶或上游手上——比 push 更難收回。
 
-先跑 `flow.sh audit <repo>` 體檢一次 message（空 message、缺 Type、超長、痕跡、多行 body），再對**產出物本身**掃一次，而不是只掃 repo：
+先跑 `flow.sh audit <repo>` 體檢一次 message（空 message、缺 Type、超長、痕跡、內文超過 3 行或含痕跡），再對**產出物本身**掃一次，而不是只掃 repo：
 
 ```bash
 grep -n -i -E 'Claude|Anthropic|Codex|subagent|實測|掃描確認|本輪' <產出的 patch/bundle>

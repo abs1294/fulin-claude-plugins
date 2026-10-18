@@ -21,7 +21,7 @@ expect() {
 has()    { printf '%s' "$LAST_OUT" | grep -qF -- "$2" && ok "$1" || bad "$1" "輸出沒有「$2」：$(printf '%s' "$LAST_OUT" | head -20 | tr '\n' '|')"; }
 hasnt()  { printf '%s' "$LAST_OUT" | grep -qF -- "$2" && bad "$1" "輸出不該有「$2」" || ok "$1"; }
 flow() { bash "$FLOW" "$@"; }
-rec_of() { echo "$CLAUDE_PROJECT_DIR/.claude/.git-commit-tmp/review-${1//\//__}.rec"; }
+rec_of() { echo "$(git -C "$CLAUDE_PROJECT_DIR/$1" rev-parse --absolute-git-dir)/git-commit-flow/review.rec"; }
 LOG="$CLAUDE_PROJECT_DIR/.claude/.git-commit-tmp/review-log.tsv"
 CONF="$CLAUDE_PROJECT_DIR/.claude/qa-gate.conf"
 OVR="$CLAUDE_PROJECT_DIR/.claude/local-overrides.yml"
