@@ -7,9 +7,10 @@
 //     "command": "node \"<專案絕對路徑>/.claude/hooks/memory-write-advisory.js\"", "timeout": 15, "statusMessage": "檢查 memory 寫入的格式與容量" }] }]
 //
 // 只在寫入 auto-memory 目錄底下的 .md 時觸發，做兩件事、全部 advisory（exit 0，不擋）：
-//   ① 印索引檔目前字元數與上限比例——上限是 Claude Code 的載入上限，超限是靜默截斷
-//      （沒有錯誤訊息、沒有警告，內容就是沒被載入）。判準用字元數不用行數：條目長度不一，
-//      行數門檻在條目偏長的專案會低估風險。
+//   ① 印索引檔目前位元組數／行數與上限比例——上限是 Claude Code 的載入上限（官方 memory 文件
+//      https://code.claude.com/docs/en/memory 原句 "The first 200 lines of MEMORY.md, or the first 25KB,
+//      whichever comes first, are loaded"：UTF-8 25KB 或 200 行先到為準），超限是靜默截斷（沒有錯誤訊息、
+//      沒有警告，內容就是沒被載入）。量位元組與行、不量 .length 字元：中文一字 3 位元組，用字元量會低估 45%。
 //   ② 寫入的是新檔時，印「同前綴的既有檔數」與可能可掛的總則檔——鼓勵先掛既有總則檔加節，
 //      掛不上才新開；逐坑新開檔是索引膨脹的主因。
 //
@@ -39,8 +40,9 @@ function tellModel(text) {
 const MEMORY_DIR_PATTERN = /^(.*\/\.claude\/projects\/[^/]+\/memory)\/([^/]+\.md)$/;
 // 索引檔檔名（記憶目錄底下彙總所有條目的那一份）。
 const INDEX_FILE_NAME = 'MEMORY.md';
-// 索引字元數上限（Claude Code 的實際載入上限；環境不同可能有出入，抓保守值即可）。
-const LIMIT = 24986;
+// 索引載入上限（官方：25KB UTF-8 位元組或 200 行，先到為準）。
+const LIMIT_BYTES = 25 * 1024;
+const LIMIT_LINES = 200;
 // 觸發「該精簡了」提醒的比例（相對 LIMIT）。
 const WARN_RATIO = 0.8;
 // 判斷「該不該提示掛既有總則檔」的門檻：同前綴既有檔數 ≥ 此值就提示。
@@ -66,15 +68,17 @@ try {
 
   const out = [];
 
-  // ① 索引字元數
+  // ① 索引位元組數與行數（行＝split(/\r?\n/) 的段數，結尾換行不另算一行；與 learn-lib.indexUsage 同判法）
   const indexPath = path.join(memDir, INDEX_FILE_NAME);
   if (fs.existsSync(indexPath)) {
-    const chars = fs.readFileSync(indexPath, 'utf8').length;
-    const pct = Math.round((chars / LIMIT) * 100);
-    const tag = chars > LIMIT ? '已超限（可能被靜默截斷）'
-      : chars > LIMIT * WARN_RATIO ? `超過提醒線（${Math.round(WARN_RATIO * 100)}%），該考慮精簡`
+    const text = fs.readFileSync(indexPath, 'utf8');
+    const bytes = Buffer.byteLength(text, 'utf8');
+    const lines = text === '' ? 0 : text.replace(/\r?\n$/, '').split(/\r?\n/).length;
+    const pct = Math.max(Math.round((bytes / LIMIT_BYTES) * 100), Math.round((lines / LIMIT_LINES) * 100));
+    const tag = bytes > LIMIT_BYTES || lines > LIMIT_LINES ? '已超限（可能被靜默截斷）'
+      : pct >= WARN_RATIO * 100 ? `超過提醒線（${Math.round(WARN_RATIO * 100)}%），該考慮精簡`
         : 'OK';
-    out.push(`[memory] ${INDEX_FILE_NAME} ${chars} 字元／上限 ${LIMIT}（${pct}%）${tag}`);
+    out.push(`[memory] ${INDEX_FILE_NAME} ${bytes}/${LIMIT_BYTES} 位元組、${lines}/${LIMIT_LINES} 行（${pct}%；上限 25KB 或 200 行先到為準）${tag}`);
   }
 
   // ② 新檔 → 提示同前綴檔與可掛的總則檔

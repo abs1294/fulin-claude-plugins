@@ -9,6 +9,8 @@
 // 輸出（SessionStart 的純文字 stdout 會進 context）：有東西才印一行，例如
 //   [learn] 上次反思（10/09 14:20）寫入 2 筆（db-login-lockout：連庫前先確認帳號；…）、待你看 1 筆、待核 3 筆（含升格提案 1 筆）、
 //   被拒 1 筆（格式 1）、淘汰候選 2 筆——清單：node .claude/hooks/learn-pending.js list；核可或駁回請直接在提示列輸入「核可 <編號>」「駁回 <編號>」
+// 待你看／待核不為 0 時改印「本回合先用 AskUserQuestion 逐項問使用者」的指示，後面每項一行「編號｜類型｜主題｜摘要」，
+// 最後一行保留提示列輸入的替代寫法；使用者點選的答案由 learn-approve.js（PostToolUse matcher AskUserQuestion）執行。
 // - 上次 run 失敗（子程序錯、解析失敗）也印；反思暫停中印一次「反思暫停到 <日期>」——反沉默。
 // - 上次 run 的結果只印一次（印過就把 last-run.json 的 reported 設 true）；待你看／待核／淘汰候選只要不是 0 每次都印。
 // - 全部為 0 且上次 run 已回報過 → 不印任何東西。
@@ -38,6 +40,7 @@ const SHOW_WRITES = 3;
 
 const REASON_TEXT = { format: '格式', secret: '帳密', injection: '注入', exfil: '外洩', evidence: '出處', clue: '線索', verbatim: '抄原文',
   conflict: '矛盾未調和', 'over-limit': '超量', target: '目標不合法', io: '寫入失敗' };
+const TYPE_TEXT = { 'write-review': '待你看', proposal: '待核', promotion: '升格提案' };
 
 try {
   if (process.env.HARNESS_LEARN_CHILD || process.env.COMPACT_HANDOFF_CHILD) process.exit(0);
@@ -97,7 +100,16 @@ try {
   const nCand = cand.items.length + cand.rules.length;
   if (nCand) parts.push('淘汰候選 ' + nCand + ' 筆' + (cand.rules.length ? '（含規則候選降級 ' + cand.rules.length + ' 筆）' : ''));
 
-  if (parts.length) {
+  // 有待你看／待核時叫 Claude 本回合就用 AskUserQuestion 逐項問（2026-10-17）：只印一句「請在提示列輸入核可 <編號>」
+  // 實際上沒有人照打，黃區寫入擱著沒人審。使用者點選的答案由 learn-approve.js（PostToolUse）執行；提示列輸入仍可用。
+  const open = items.filter((x) => x.status === 'pending' && TYPE_TEXT[x.type]);
+  if (parts.length && open.length) {
+    console.log('[learn] ' + parts.join('、') + '——本回合先用 AskUserQuestion 把下列項目逐項問使用者（一項一題，題目寫「編號｜類型｜主題｜摘要」，'
+      + '選項三個：「核可 <編號>」「駁回 <編號>」「稍後」；一次最多 4 題，超過分批問）。使用者選完由 learn-approve.js 照 learn-pending.js 的規則執行，'
+      + '不要自己跑 learn-pending.js approve／reject（核可只認使用者本人，在 Claude 的工具裡跑會被拒）：');
+    for (const x of open) console.log('  ' + x.id + '｜' + TYPE_TEXT[x.type] + '｜' + (x.topic || '-') + '｜' + x.summary);
+    console.log('（替代：使用者也可以直接在提示列輸入「核可 <編號>」「駁回 <編號>」；詳細內容：node .claude/hooks/learn-pending.js list）');
+  } else if (parts.length) {
     console.log('[learn] ' + parts.join('、') + '——清單：node .claude/hooks/learn-pending.js list；核可或駁回請直接在提示列輸入「核可 <編號>」「駁回 <編號>」');
   }
   if (last && last.run && !last.reported) {

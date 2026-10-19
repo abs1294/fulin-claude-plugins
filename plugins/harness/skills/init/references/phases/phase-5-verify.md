@@ -1,6 +1,6 @@
 ## Phase 5 — 驗收（兩層，任一項失敗＝init 未完成）
 
-### 第一層：靜態十三項
+### 第一層：靜態十四項
 
 **先跑腳本，再做腳本做不到的**：
 
@@ -10,7 +10,7 @@ node <本 plugin>/skills/init/scripts/init-verify.js <落點>
 
 每項印一行 `<id> | PASS／FAIL／SKIP | <證據>`，任一 FAIL 就 exit 1。**原始輸出整段貼進收尾回報**。FAIL 回 Phase 4 修、修完整份重跑；確定是誤判（例：引用的是使用者說之後才會建的檔）才用 `init-flow.js waive <目標> <id> --match <命中內容> --reason <理由>` 登記豁免，豁免的每一筆收尾回報都要列出（V09 hook 語法、V10 settings、V12 帳密、V19 hook 模組格式不可豁免）。
 
-腳本做的是下面十三項裡能機械化的部分：
+腳本做的是下面十四項裡能機械化的部分：
 
 | 下方第幾項 | 腳本的檢查 | 腳本做不到、仍要你做的（語意項） |
 |---|---|---|
@@ -21,19 +21,21 @@ node <本 plugin>/skills/init/scripts/init-verify.js <落點>
 | 5 引用的路徑存在 | V07（CLAUDE.md、04、agent 檔的反引號路徑；settings 的 hook 指令路徑） | 工作流地圖雙向對、本機覆寫說明逐筆涵蓋與自檢指令實跑、addendum 實跑印出 |
 | 6 03 驗證指令本體存在 | V08 | 腳本只認得 npm／node／bash／python／pytest 這幾種寫法；其他寫法照下方逐條查 |
 | 7 檔尾完整、hook 語法、settings JSON | V11、V09、V10 | — |
-| 8 probe-hooks 行為層、qa-gate 實跑 | — | 全部（在 `.claude/hooks/` 跑 probe-hooks；qa-gate 的 flow.sh 實跑） |
+| 8 probe-hooks 行為層、qa-gate 實跑 | V23 每支 hook 有回歸（`cases/<名>.json` 或同名 `cases/<名>.test.js`），沒有的在答案檔 Q5 記了沿用、無回歸與理由 | 實跑（在 `.claude/hooks/` 跑 probe-hooks；qa-gate 的 flow.sh 實跑） |
 | 9 規則引擎的解析器 | — | 全部 |
 | 10 B 類規則的放行方式 | — | 全部（實跑放行方式、掃盲點字樣） |
 | 11 專案理解落地 | V13 概要四塊、V14 詞條數＝答案檔、V12 帳密樣式 | 概要內容與使用者改過的版本逐句一致、U1 每個外部系統的去向、Q7 過時註記 |
-| 12 形狀目錄逐列對帳 | V16 每列有去向、V17 每支 hook 有接線 | B 類每個 Q2 勾選項對得到規則、Q9 欄位、restore／port 驗證實跑 |
+| 12 形狀目錄逐列對帳 | V16 每列有去向、V17 每支 hook 有接線且（事件, matcher）與指令路徑對得上 hook-catalog 掛載欄 | B 類每個 Q2 勾選項對得到規則、Q9 欄位、restore／port 驗證實跑 |
 | 13 參考模式 | — | 全部（含另派 subagent 的經驗帶走審查） |
-| （十三項外）答案檔 | V15 init-answers.json 合法、必答題齊 | — |
-| （十三項外）學習迴路 | V18 檔齊、五個事件都有接線、團隊模式 `.gitignore` 排除 learning/ | 冷啟探針 P6 |
-| （十三項外）規則分層 | V20 `.claude/rules/`（含子目錄）每份檔的 paths 寫法合法、每條 glob 在專案裡至少命中一個檔；V21 每份規則檔（含沿用的既有檔）在答案檔 `rulesSplit` 有一筆、每筆記的檔都存在，每份規則檔有 paths 或在處置表標成啟動載入、列在 CLAUDE.md 路由表或 harness README，答案檔 `rulesSplit` 記的每段搬走的原文在規則檔裡、不在 CLAUDE.md 裡，`origin` 對得上 Phase 0 快照（記 kept 的要在快照裡且內容沒變；記 new 的若在快照裡且內容沒變要改記 kept；找不到快照時 kept 不核對、證據寫明）；V03 新建規則檔的建立記在 `CLAUDE.changelog.md`（核對過的沿用檔不要求） | 處置表每一列都照做了（該搬的整段搬了、沒多搬每輪都要的內容），規則檔內容跟原文逐段一致 |
-| （十三項外）skill 的 paths | V22 宣告 paths 的 skill 每條 glob 合法且命中檔案（比對函式取自實例的 `guard-required-skill.js`，跟 hook 同一份程式；實例那支缺匯出或載入失敗時退回 plugin 範本，證據寫明用了哪一份）；agent 定義檔 `skills:` 列的專案 skill 都存在 | 冷啟探針 P7 |
-| （十三項外）hook 以 CommonJS 執行 | V19 `.claude/hooks/package.json` 存在且寫明 `"type": "commonjs"`（專案根是 `"type": "module"` 時，少了它每支 hook 載入就失敗、fail-open 接不到） | — |
+| 14 04 標記名與必讀檔跟派工閘一致（下方判準的第 3 個 □） | V24 讀實例 `check-review-discipline.js`：有 `REQUIRED_MARKERS` 表就逐條 pattern 對 04（填空區 `when` 開關 false 的那幾條不驗），沒有表的實例從 deny 訊息抽「必須含【X】」的標記名、`miss.push('檔名')` 與「缺：檔名.md」的必讀檔名，逐一在 04 找；缺哪個就點名哪個（附 hook 行號） | 反過來 04 分流格的標記名要在 hook 裡 grep 得到；兩邊 grep 原始輸出貼進收尾回報 |
+| （十四項外）答案檔 | V15 init-answers.json 合法、必答題齊 | — |
+| （十四項外）學習迴路 | V18 檔齊、六個事件都有接線（含 learn-approve 的 PostToolUse matcher 涵蓋 AskUserQuestion）、團隊模式 `.gitignore` 排除 learning/ | 冷啟探針 P6 |
+| （十四項外）規則分層 | V20 `.claude/rules/`（含子目錄）每份檔的 paths 寫法合法、每條 glob 在專案裡至少命中一個檔；V21 每份規則檔（含沿用的既有檔）在答案檔 `rulesSplit` 有一筆、每筆記的檔都存在，每份規則檔有 paths 或在處置表標成啟動載入、列在 CLAUDE.md 路由表或 harness README，答案檔 `rulesSplit` 記的每段搬走的原文在規則檔裡、不在 CLAUDE.md 裡，`origin` 對得上 Phase 0 快照（記 kept 的要在快照裡且內容沒變；記 new 的若在快照裡且內容沒變要改記 kept；找不到快照時 kept 不核對、證據寫明）；V03 新建規則檔的建立記在 `CLAUDE.changelog.md`（核對過的沿用檔不要求） | 處置表每一列都照做了（該搬的整段搬了、沒多搬每輪都要的內容），規則檔內容跟原文逐段一致 |
+| （十四項外）skill 的 paths | V22 宣告 paths 的 skill 每條 glob 合法且命中檔案（比對函式取自實例的 `guard-required-skill.js`，跟 hook 同一份程式；實例那支缺匯出或載入失敗時退回 plugin 範本，證據寫明用了哪一份）；agent 定義檔 `skills:` 列的專案 skill 都存在 | 冷啟探針 P7 |
+| （十四項外）詞彙表自動載入三方一致 | V25 答案檔 Q10（匯不匯入）↔ CLAUDE.md 行首 @<詞彙表> ↔ 派工閘 REQUIRE_GLOSSARY_READ：不匯入時開關必須 true（否則 subagent 兩邊都拿不到詞彙表）、有無 @ 行要跟答案一致；沿用的原有閘沒這個開關就只比前兩者 | — |
+| （十四項外）hook 以 CommonJS 執行 | V19 `.claude/hooks/package.json` 存在且寫明 `"type": "commonjs"`（專案根是 `"type": "module"` 時，少了它每支 hook 載入就失敗、fail-open 接不到） | — |
 
-下面是十三項的完整判準（腳本的檢查照這份寫；語意項照這份做）：
+下面是十四項的完整判準（腳本的檢查照這份寫；語意項照這份做）：
 
 ```
 □ 變更紀錄位置：CLAUDE.md、.claude/harness/ 各指令檔、.claude/agents/*.md、三個知識容器本體 `grep -n "^## Changelog"` = 0 命中；
@@ -45,6 +47,7 @@ node <本 plugin>/skills/init/scripts/init-verify.js <落點>
   `HARNESS_TODAY=<建立日加 31 天> node .claude/hooks/health-check-reminder.js`（PowerShell：`$env:HARNESS_TODAY='<日期>'; node .claude/hooks/health-check-reminder.js`；跑完 `Remove-Item Env:HARNESS_TODAY`）：
   要印出提醒，且「紀錄來源」是 CHANGELOG.md 的 05 節——印的是 05 本體＝節標題寫錯、提醒讀到舊位置
 □ grep "{{" 於所有實例檔（文件層、agent 層、容器層、hook 檔）= 0 命中（無殘留填空；hook 檔的「init 填空區」常數已填）
+□ 04 寫的標記名與必讀檔跟派工閘要求的一致（V24；沿用原有派工閘時尤其要查；Phase 2 處置表那一列的比對結果）：實例 `check-review-discipline.js` 有 `REQUIRED_MARKERS` 表就讀表（每條 `pattern`；填空區 `when` 開關 false 的那幾條它不驗），沒有表的實例（自行演進、檢查改寫成逐條 if）從 deny 訊息抽——「必須含【X】」「必須含「X」」的 X 是標記名、`miss.push('檔名（…）')` 與「缺：檔名.md」的檔名是必讀檔，一條指令列完、兩種殼同文：`node <本 plugin>/skills/init/scripts/init-verify.js <落點> --markers`（不要自己 grep：Git Bash 沒設 UTF-8 locale 時全形括號那段靜默漏掉、PowerShell 沒有 grep）；抽到的每一個標記名、檔名，要在它所屬的每個模板 ``` 區塊裡出現（模板六那格、各模板的【開工前必讀】行）——共通規則段寫了不算，V24 逐模板區塊驗；反過來 04 列的分流格標記名也要在 hook 裡 grep 得到。對不上的改 04（紅區，但這是 init 自己產的檔），不改 hook。貼 `--markers` 輸出與 V24 那一行
 □ grep 污染詞表 = 0 命中（詞表＝本 plugin 的 skills/init/pollution-wordlist.txt；
   指令見 adaptation-guide §4.1；命中逐筆判斷：目標專案查證過的事實可留，骨架漏進來的來源事實要清；changelog 出處標註除外）
 □ 詞彙表檔名只有一個（Phase 4 開頭的詞彙表檔名規則）：在 <落點> grep **另一個**檔名，除了下方排除項列明可保留的命中（詞彙表變更紀錄檔裡記錄「改名」的那一行、CLAUDE.md 說明改名的那段、參考模式沿用的原檔），其餘命中 = 0。實際用 `GLOSSARY.md` 時跑
@@ -59,6 +62,8 @@ node <本 plugin>/skills/init/scripts/init-verify.js <落點>
 □ 03 矩陣 B 寫入的每條驗證指令，指令本體實際存在（腳本檔在、npm script 有定義、測試目錄在）
 □ 每個實例檔 Read 回檔尾確認未截斷；每支 hook `node --check` 通過；settings JSON 可解析
 □ 在 <落點>/.claude/hooks/ 跑 `node probe-hooks.js`：全數符合預期、沒有「缺 cases」（這是行為層，前幾條只是結構層）；
+  回歸的認法跟 Phase 1「原有 hook」那一列一致：有 `cases/<名>.json` 的照案例餵 payload；有同名 `cases/<名>.test.js` 的以 node 實跑它為準（probe-hooks 代跑，exit 0 計一筆 PASS、其他計 FAIL）；
+  兩種都沒有、而答案檔 Q5 的 `data.keptWithoutRegression` 記了這支的，probe-hooks 印 KEPT、不算缺 cases（V23 對同一份清單；收尾回報第 5 段逐支列出）；其餘缺回歸一律算未完成；
   有 `.claude/qa-gate.conf`（git-commit 低於 0.11.0 時標「不適用：git-commit 版本低於 0.11.0」）另實跑一次 flow.sh 的 QA 閘——
   probe-hooks 只測得到 hook，權威檢查在 flow.sh，要在它身上證明。用暫存目錄（scratchpad 底下，不污染目標專案的審查紀錄）：
   **暫存目錄的形狀要跟 hook 填空區的 `REPOS` 一致**——`REPOS` 是 `['.']`（單一 repo）就在暫存目錄本身 `git init`；是 `['web', 'api']` 這類多 repo 就在暫存目錄底下照名字各建一個子 repo（都要 `git init`），下面「那個檔」放進其中一個子 repo。以下用 `<暫存根>` 指暫存目錄本身、`<R>` 指 flow.sh 的 repo 參數：單一 repo 時 `<R>` 是 `.`；多 repo 時 `<R>` 是放了那個檔的子目錄名（例 `web`），檔案路徑一律寫成相對 `<R>` 的路徑（例 `a.js`，不是 `web/a.js`）。形狀不一致的話 hook 會去查不存在的子 repo、看不到 staged，驗收必然失敗，那不是 hook 壞了。
@@ -78,6 +83,7 @@ node <本 plugin>/skills/init/scripts/init-verify.js <落點>
 □ B 類每條規則的「放行方式」若是可照抄的指令：①以同一個 hook 餵回去必須放行 ②在它說的位置實際執行一次（唯讀或無害的才實跑；有副作用的只驗①並在回報裡註明）——過得了閘卻跑不起來的放行方式，照上面「訊息怎麼寫」第 2 點改寫。另掃一次 `reason`／`fix` 不得出現「看不到」「擋不住」「限制」這類引擎盲點字樣
 □ 專案理解落地：CLAUDE.md 有「專案概要」節，用途、外部系統環境表（沒有外部系統時是一行「無」）、業務流程、目前進度四塊都在，且跟 Phase 2 使用者改過的版本與 U1、U2 答案一致（逐句對，不抽樣）；GLOSSARY.md（既有專案沿用 CONTEXT.md）這次新增的詞條數＝U3 確認新增的詞數（無人值守＝0，概要標「未經使用者確認」）；參考模式原有的真實條目另外照下面參考模式那一項對帳（總數＝原有＋新增－裁決刪除）；環境表有「方向」欄，U1 使用者答的每一個入向（對方主動打進來的）都在表上；U1 的每一個外部系統都有去向：正式與「不確定」的寫入動作在 Q2 候選裡出現過，測試環境的有對應的「位址不是測試環境就擋」規則或文字（無人值守時「待問」的照正式環境對）；CLAUDE.md 與 PROJECT.md 沒有帳密（grep 連線字串裡的 `://帳號:密碼@`、`Password=`、`pwd=`、`token=` 這類樣式要 0 命中，只准出現環境變數或設定鍵的名稱）；Q7 選進必讀的過時文件，在 04 的【開工前必讀】、CLAUDE.md 路由表、agent 的開工前必讀都有「（過時：…）」註記
 □ 形狀目錄逐列對帳：每一列都有「已裝／不裝＋理由／由 plugin 提供」三者之一；B 類每個 Q2 勾選項、每條標了自動檢查的 Q8 條款都對得到一條規則；
+  類別欄「不帶」的列不記、不對帳（V16 的列數也扣掉它們，見 phase-4-hooks）；
   裝了本機覆寫保護時，Q9 選的每一筆都在覆寫清單裡寫上了對應欄位，並在 <落點> 跑一次 `node .claude/hooks/restore-local-hacks.js`（檢查模式、不改檔）貼原始輸出——
   needed-when 條件不成立的那幾筆要出現在「目前這個 checkout 用不到」，不能出現在「不見了」；
   裝了第 30 列（工作樹的 port 驗證）時，在 <落點> 用**填好的實際服務名**實跑三次、各貼原始輸出與結束碼（這支不是 hook，probe-hooks 只測得到範本案例）：
@@ -107,6 +113,7 @@ cd <目標> && claude -p "<探針 prompt>" --output-format text
 | P4 | **git-commit 攔不攔得住裸 git commit（兩種殼都要）** | 探針前先記 `git -C <repo> rev-parse HEAD`。prompt：「先用 Bash、再用 PowerShell 各執行一次 `git commit --dry-run --allow-empty -m harness-probe`，把兩次工具回傳原文完整貼出。」（沒有 PowerShell 工具的環境只跑 Bash） | 兩次回傳原文都是 hook 擋下的訊息（非 git 自己的輸出），且探針後 `rev-parse HEAD` 與探針前相同。**多 repo 工作區**：對每個子 repo 各跑一次，指令改成 `git -C <子 repo> commit --dry-run --allow-empty -m harness-probe`，每個子 repo 各記前後 HEAD | 0-1 是單一 repo 或多 repo 工作區，且有裝 git-commit plugin |
 | P5 | **B 類規則的接線是真的**（Claude Code 真的會對 Bash／PowerShell 叫 `guard-risky-command`） | 每條規則造一條**就算沒被擋也無害**的觸發指令：在命中規則樣式的前提下加 `--help`／`--version`／`--dry-run`，或指向不存在的主機、不存在的檔案。prompt：「用 Bash 執行 `<無害觸發指令>`，把工具回傳原文完整貼出。」 | 回傳原文為 guard-risky-command 的擋下訊息 | 有裝 guard-risky-command 且至少一條規則造得出無害形式；**造不出無害形式的規則不准拿來冷啟**（只靠 probe-hooks 驗行為），在回報裡寫明 |
 | P7 | **改到 skill 宣告的路徑前，沒載入會不會被擋** | 挑一支宣告 paths 的 skill 與一個相符的既有檔。prompt：「不要載入任何 skill、不要先讀檔。用 Edit 把 `<相符檔>` 裡的 `HARNESS-PROBE-不存在的字串` 改成 `x`，把工具回傳原文完整貼出。」（舊字串不存在，就算沒被擋，Edit 也只會回找不到字串，不會改到檔）。不用先讀檔：PreToolUse 在 Claude Code 的「檔案未讀過」檢查之前觸發，未讀過的檔照樣送進 hook | 回傳原文是 `[必讀 skill]` 開頭的擋下訊息、點名那支 skill；回的是找不到字串或「檔案未讀過」的錯誤＝hook 沒接上 | 裝了 guard-required-skill 且至少一支 skill 宣告 paths |
+| P8 | **派工閘真的接在 Agent 上**（派缺【驗收條件】的專案 agent 要被擋） | 同 P2 的基底 prompt、帶 `model: "sonnet"`，但**整段拿掉【驗收條件】**。prompt：「用 Agent tool 派 subagent_type=`<同 P1 那支專案 agent>`、model=`sonnet`、prompt＝`<拿掉【驗收條件】的基底 prompt>`，把工具回傳的原文完整貼出。」 | 回傳原文含 `[派工紀律]` 的 deny 訊息且點名 `[驗收條件]`，沒有 `PROBE-OK`；回了 `PROBE-OK`＝派工閘沒接在 PreToolUse `Agent` 上（settings 的 matcher 或事件接錯；init-verify V17 只比對設定檔，這條驗 Claude Code 真的叫了它） | 有裝 check-review-discipline |
 
 - **探針基底 prompt**（P1／P2 共用）：「只回覆 PROBE-OK」加上該 agent 在 `check-review-discipline.js` 的 `REQUIRED_MARKERS` 裡要求的每個標記（共用的回報鏈鐵則、【驗收條件】、【回報格式】、【開工前必讀】與它要寫到的必讀檔名，加上該 agent 自己的欄位），每欄寫一句最小內容即可——【驗收條件】要寫一條實際條件（例：「回覆是 PROBE-OK」），只放標題會被擋；QA agent 的【測試資料來源】第一行寫「選 a：探針不造資料」（該格會驗有沒有明選）；實作與 QA agent 的【開工前對齊】寫「無分岔：探針」，QA 的【目標環境】【既有測試分流】各寫一句（例：「本機」「新 TC：探針不跑測試」）；不要帶【計畫／設計文件】（帶了會打開那份檔驗章節）。P1 與 P2 之間**唯一的差別是有沒有帶 model**——一次只變一個變因，否則 P1 被擋時分不出是哪支閘擋的。沒裝 check-review-discipline 時基底就是「只回覆 PROBE-OK」。
 - 用 `--dry-run` 是為了**探針失敗時也不會真的建 commit**。

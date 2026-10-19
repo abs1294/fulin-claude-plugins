@@ -45,8 +45,8 @@
 // **沒有放行旁路**：不提供豁免註解。真的需要掃專案外的目錄時，先問使用者那個東西可能在哪個目錄，
 // 再把路徑限定到那裡；要長期放行某個目錄，改填空區（EXEMPT_ROOTS／ALLOWED_OUTSIDE）。
 //
-// fail-open：stdin 不是 JSON 時安靜放行；判讀過程丟出例外時放行，但用 additionalContext 告訴模型
-// 「這次檢查沒有生效」，不靜默——hook 自己壞掉不能擋死使用者，也不能讓人以為有檢查過。
+// fail-open：空 stdin（手動執行）安靜放行；stdin 不是 JSON 或判讀過程丟出例外時放行，但 stderr 與 additionalContext
+// 都告訴模型「這次檢查沒有生效」，不靜默——hook 自己壞掉不能擋死使用者，也不能讓人以為有檢查過。
 //
 // 已知極限（極端情境，刻意不處理；回歸案例見 cases/guard-full-disk-scan.json）：
 //   · 執行期才組出的路徑或指令：P=/; find $P、eval "$CMD"、$(echo /)、Invoke-Expression $s。
@@ -675,15 +675,21 @@ function parserHit(command, tool, cwd) {
   return null;
 }
 
+// fail-open 但 loud（harness 05 §6.4；2026-10-18 紅藍對抗 R2 R1-6）：stdin 壞或判讀丟例外時放行，但 stderr 與
+// additionalContext 都要說（舊版壞 JSON 安靜放行、例外只有 additionalContext）。exit 0 的 stderr 模型看不到，所以兩邊都印。
 function failOpenNote(msg) {
+  const line = LABEL + ' hook 內部錯誤，本次放行：判讀時發生例外——' + String(msg).split('\n')[0].slice(0, 200);
+  try { process.stderr.write(line + '\n'); } catch (e) { /* 連 stderr 都寫不了就只剩放行 */ }
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext:
-    LABEL + ' ERROR: 判讀時發生例外——' + String(msg).slice(0, 200) +
-    '（本次放行，但全碟掃描檢查沒有生效；搜尋路徑請自行限定在專案目錄內。hook 故障要修：.claude/hooks/guard-full-disk-scan.js，勿靜默忽略）' } }));
+    line + '（全碟掃描檢查沒有生效；搜尋路徑請自行限定在專案目錄內。hook 故障要修：.claude/hooks/guard-full-disk-scan.js，勿靜默忽略）' } }));
 }
 
 (async () => {
+  const raw = await readStdin();
+  if (!raw.trim()) process.exit(0);   // 空 stdin＝手動執行不是故障，安靜放行
   let payload;
-  try { payload = JSON.parse(await readStdin()); } catch (e) { process.exit(0); }
+  try { payload = JSON.parse(raw); } catch (e) { failOpenNote((e && e.message) || e); process.exit(0); }
+  if (!payload || typeof payload !== 'object') process.exit(0);
   const input = (payload && (payload.tool_input || payload.toolInput)) || {};
   const command = String(input.command || '');
   if (!command) process.exit(0);

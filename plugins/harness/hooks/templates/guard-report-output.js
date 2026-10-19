@@ -81,13 +81,24 @@ function violation(rel) {
   return null; // 非過程格式視為交付檔放行；完整原則靠行為層守
 }
 
-(async () => {
-  let payload;
+// fail-open 但 loud（harness 05 §6.4；2026-10-18 紅藍對抗 R2 R1-6）：stdin 壞或判讀丟例外時放行，但 stderr 與
+// additionalContext 都要說，否則閘整段失效也沒人發現。空 stdin＝手動執行不是故障，照舊安靜放行。
+function failOpen(e) {
+  const msg = '[報告輸出守門] hook 內部錯誤，本次放行：' + String((e && e.message) || e).split('\n')[0];
+  try { process.stderr.write(msg + '\n'); } catch (_) { /* 連 stderr 都寫不了就只剩放行 */ }
   try {
-    payload = JSON.parse(await readStdin());
-  } catch {
-    process.exit(0);
-  }
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse',
+      additionalContext: msg + '。這次沒有檢查寫入交付根（' + ROOTS.join('、') + '）的位置是否合規，請自行確認過程檔都在 _work/ 底下；hook 要修：.claude/hooks/guard-report-output.js' } }));
+  } catch (_) { /* 同上 */ }
+  process.exit(0);
+}
+
+(async () => {
+  const raw = await readStdin();
+  if (!raw.trim()) process.exit(0);
+  let payload;
+  try { payload = JSON.parse(raw); } catch (e) { failOpen(e); }
+  if (!payload || typeof payload !== 'object') process.exit(0);
 
   const toolName = payload.tool_name || payload.toolName || '';
   const input = payload.tool_input || payload.toolInput || {};
@@ -139,4 +150,4 @@ function violation(rel) {
   }
 
   process.exit(0);
-})();
+})().catch(failOpen);

@@ -72,9 +72,9 @@
   {
     "line": 266,
     "orig": "| **Q10** | **必問**（接在 U3 後面；參考模式原本的 CLAU",
-    "now": "| **Q10** | **必問**（接在 U3 後面；參考模式原本的 CLAUDE.md 已經有 `@GLOSSARY.md` 或 `@CONTEXT.md` 時照樣問，推薦沿用） | `GLOSSARY.md`（既有專案沿用 `CONTEXT.md`）要不要用 `@<實際檔名>` 匯入主對話（匯入落點實際存在的那一個：新建的是 `@GLOSSARY.md`，沿用舊檔名的是 `@CONTEXT.md`）（每個 session 開頭自動整份載入）。利：主對話一定讀得到用語表，用語表「何時寫」那一節的四個當場觸發時機（使用者的詞跟表衝突、用了模糊的詞…）才做得到——沒讀過表就不知道衝突；弊：每個 session 固定多一份載入成本，表越長越貴（來源專案約 50 個詞、16KB）。**推薦匯入**：init 剛建的表很小，成本可以忽略，而「當場寫」是這份表能長出來的主要機制；表長大之後要省，刪掉 `@<實際檔名>` 那一行就是不匯入 | CLAUDE.md：選匯入→骨架 §0 末行「專案用語的定義見 `GLOSSARY.md`（沒有就讀 `CONTEXT.md`）。」改成「專案用語的定義見 `<實際檔名>`（下一行匯入，每個 session 自動載入）。」，下一行**獨立一行、行首、不加反引號**寫 `@<實際檔名>`（`<實際檔名>`＝落點實際存在的詞彙表：新建的是 `GLOSSARY.md`，沿用舊檔名的是 `CONTEXT.md`；匯入不存在的檔等於沒匯入；包在反引號或程式碼區塊裡不會被匯入）；路由表「本專案特有詞彙」那列寫「`<實際檔名>`（workspace 根；已用 @ 匯入，每個 session 自動載入）」。不匯入→兩處照骨架原文、只把詞彙表檔名換成 `<實際檔名>`（見 Phase 4 開頭的詞彙表檔名規則，`phase-4-generate.md`），不寫 `@` 那一行。不論哪一種，派工的【開工前必讀】照樣列 `<實際檔名>`（專案用語）（subagent 不吃主對話的匯入） |",
-    "where": "skills/init/references/phases/phase-3-interview.md:36",
-    "reason": "拆檔：跨檔引用補上檔名（phase-4-generate.md），規則內容不變"
+    "now": "| **Q10** | **必問**（接在 U3 後面；參考模式原本的 CLAUDE.md 已經有 `@GLOSSARY.md` 或 `@CONTEXT.md` 時照樣問，推薦沿用） | `GLOSSARY.md`（既有專案沿用 `CONTEXT.md`）要不要用 `@<實際檔名>` 匯入主對話（匯入落點實際存在的那一個：新建的是 `@GLOSSARY.md`，沿用舊檔名的是 `@CONTEXT.md`）（每個 session 開頭自動整份載入）。利：主對話一定讀得到用語表，用語表「何時寫」那一節的四個當場觸發時機（使用者的詞跟表衝突、用了模糊的詞…）才做得到——沒讀過表就不知道衝突；弊：每個 session 固定多一份載入成本，表越長越貴（來源專案約 50 個詞、16KB）。**推薦匯入**：init 剛建的表很小，成本可以忽略，而「當場寫」是這份表能長出來的主要機制；表長大之後要省，刪掉 `@<實際檔名>` 那一行就是不匯入 | CLAUDE.md：選匯入→骨架 §0 末行「專案用語的定義見 `GLOSSARY.md`（沒有就讀 `CONTEXT.md`）。」改成「專案用語的定義見 `<實際檔名>`（下一行匯入，每個 session 自動載入）。」，下一行**獨立一行、行首、不加反引號**寫 `@<實際檔名>`（`<實際檔名>`＝落點實際存在的詞彙表：新建的是 `GLOSSARY.md`，沿用舊檔名的是 `CONTEXT.md`；匯入不存在的檔等於沒匯入；包在反引號或程式碼區塊裡不會被匯入）；路由表「本專案特有詞彙」那列寫「`<實際檔名>`（workspace 根；已用 @ 匯入，每個 session 自動載入）」。不匯入→兩處照骨架原文、只把詞彙表檔名換成 `<實際檔名>`（見 Phase 4 開頭的詞彙表檔名規則，`phase-4-generate.md`），不寫 `@` 那一行。答案連動派工閘：`@` 匯入的檔 subagent 啟動時會跟 CLAUDE.md 一起帶到，所以答「匯入」時派工閘的 `REQUIRE_GLOSSARY_READ` 可留預設 false（派工單列不列都過閘）；答「不匯入」時 subagent 兩邊都拿不到詞彙表，Phase 4 要把那個開關填 true、派工單【開工前必讀】必列 `<實際檔名>`（填法見 phase-4-hooks；Phase 5 V25 對這三處一致） |",
+    "where": "skills/init/references/phases/phase-3-interview.md:37",
+    "reason": "拆檔：跨檔引用補上檔名（phase-4-generate.md），規則內容不變；2026-10-19 紅藍對抗 R4B-01：「subagent 不吃主對話的匯入」那句與範本派工閘前提相反（@ 匯入的檔 subagent 會帶到），改成答案連動 REQUIRE_GLOSSARY_READ 開關"
   },
   {
     "line": 267,
@@ -257,5 +257,82 @@
     "now": "（Windows 的 `bash` 照上面 addendum 那一項用 Git Bash）",
     "where": "skills/init/references/phases/phase-5-verify.md:66",
     "reason": "prompt audit：Windows 要用 Git Bash 的完整說明在同檔 addendum 那一項（phase-5-verify.md:58）已寫過，這裡改成指向它"
+  },
+  {
+    "line": 164,
+    "orig": "| 原有 hook | 讀程式判斷它擋什麼：形狀與 harness 某支相同",
+    "now": "**沿用的每支都要有回歸**：`cases/<hook 檔名去 .js>.json`（probe-hooks 的案例格式）或原本就有的同名 `cases/<hook 檔名去 .js>.test.js`",
+    "where": "skills/init/references/phases/phase-1-inventory.md:30",
+    "reason": "沿用的原有 hook 從「手動試跑」改成要有回歸（.json 或同名 .test.js），補不了的記進答案檔 Q5；與 phase-5-verify.md 第 8 項、init-verify V23 一致"
+  },
+  {
+    "line": 340,
+    "orig": "> - 只有自己：規則檔不進版控、不會被 commit",
+    "now": "> - 只有自己：規則檔不進專案 repo 的版控、不會被 commit 進去，要改規則問你就好。",
+    "where": "skills/init/references/phases/questions/how-to-ask.md:76",
+    "reason": "單人模式補私人版控與備份的建議（只推私人 remote、絕不推客戶的 remote）；「不進專案 repo 版控」的規則仍在"
+  },
+  {
+    "line": 429,
+    "orig": "| 制度檔落點 | workspace 根（不進版控；零外向風險）",
+    "now": "| 制度檔落點 | workspace 根（不進專案 repo 的版控；零外向風險）—— remote 指向客戶時尤其如此。**仍建議私人版控**",
+    "where": "skills/init/references/phases/phase-3-interview.md:75",
+    "reason": "單人模式補私人版控建議：workspace 根的 .claude/、tests/ 與 memory 不在任何 git 裡；「不進專案 repo 版控」的規則仍在"
+  },
+  {
+    "line": 431,
+    "orig": "| hook 指令路徑 | 絕對路徑 |",
+    "now": "| hook 指令路徑 | 絕對路徑：`$CLAUDE_PROJECT_DIR` 跟著 session 開在哪個目錄走",
+    "where": "skills/init/references/phases/phase-3-interview.md:77",
+    "reason": "單人模式用絕對路徑補上理由與取捨（從工作樹或子 repo 開的 session 也接到同一份 hook；換機器要重寫路徑）"
+  },
+  {
+    "line": 230,
+    "orig": "| 原有的東西 | 它在管什麼 | 我打算怎麼處理 |",
+    "now": "| 原有的東西 | 它在管什麼 | 實例行數／範本行數 | 實例多出的檢查 | 我打算怎麼處理 | 處理後在哪裡 |",
+    "where": "skills/init/references/phases/phase-2-review.md:32",
+    "reason": "原有設定處置表加兩欄（實例行數／範本行數、實例多出的檢查），讓同名 hook 的行數差與實例獨有的檢查攤在使用者面前"
+  },
+  {
+    "line": 231,
+    "orig": "| CLAUDE.md 的「部署前要先跑 smoke test」 |",
+    "now": "| CLAUDE.md 的「部署前要先跑 smoke test」 | 部署前的檢查 | — | — | 搬過去（這是專案事實） |",
+    "where": "skills/init/references/phases/phase-2-review.md:33",
+    "reason": "處置表加兩欄，非 hook 列填「—」，處置不變"
+  },
+  {
+    "line": 232,
+    "orig": "| CLAUDE.md 的「改完直接 commit」 |",
+    "now": "| CLAUDE.md 的「改完直接 commit」 | 開發流程 | — | — | 換成新流程（改完要先實測、再審查） |",
+    "where": "skills/init/references/phases/phase-2-review.md:34",
+    "reason": "處置表加兩欄，非 hook 列填「—」，處置不變"
+  },
+  {
+    "line": 233,
+    "orig": "| .claude/agents/reviewer.md |",
+    "now": "| .claude/agents/reviewer.md | 程式碼審查 | — | — | 合併進 code-reviewer（程式碼審查），它的檢查清單搬過去 |",
+    "where": "skills/init/references/phases/phase-2-review.md:35",
+    "reason": "處置表加兩欄，非 hook 列填「—」，處置不變"
+  },
+  {
+    "line": 234,
+    "orig": "| .claude/hooks/block-prod-db.js |",
+    "now": "| .claude/hooks/block-prod-db.js | 擋連正式資料庫 | 80／（範本沒有） | — | 保留，繼續接著 |",
+    "where": "skills/init/references/phases/phase-2-review.md:36",
+    "reason": "處置表加兩欄；範本沒有同名檔的 hook 照舊保留"
+  },
+  {
+    "line": 235,
+    "orig": "| .claude/commands/deploy.md |",
+    "now": "| .claude/commands/deploy.md | 部署指令 | — | — | 不動 | 原位 |",
+    "where": "skills/init/references/phases/phase-2-review.md:41",
+    "reason": "處置表加兩欄，非 hook 列填「—」，處置不變"
+  },
+  {
+    "line": 570,
+    "orig": "### 第一層：靜態十三項",
+    "now": "### 第一層：靜態十四項",
+    "where": "skills/init/references/phases/phase-5-verify.md:3",
+    "reason": "2026-10-18 紅藍對抗 R3B-01：Phase 5 靜態驗收加第 14 項（V24 04 標記名與必讀檔跟派工閘一致），原本的 13 項判準一條不少"
   }
 ]

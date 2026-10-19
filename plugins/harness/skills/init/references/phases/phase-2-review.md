@@ -29,15 +29,20 @@
 5. **原有設定怎麼處理**（僅參考模式）：每一項一列，照下面格式。使用者在這裡改處置，改了就照改的做
 
 ```
-| 原有的東西 | 它在管什麼 | 我打算怎麼處理 | 處理後在哪裡 |
-| CLAUDE.md 的「部署前要先跑 smoke test」 | 部署前的檢查 | 搬過去（這是專案事實） | 新 CLAUDE.md「絕對邊界」一節 |
-| CLAUDE.md 的「改完直接 commit」 | 開發流程 | 換成新流程（改完要先實測、再審查） | 新 CLAUDE.md 的開發流程圖 |
-| .claude/agents/reviewer.md | 程式碼審查 | 合併進 code-reviewer（程式碼審查），它的檢查清單搬過去 | .claude/agents/code-reviewer.md |
-| .claude/hooks/block-prod-db.js | 擋連正式資料庫 | 保留，繼續接著 | 新 settings 照原樣接線 |
-| CLAUDE.md 的「React 元件寫法」 | 前端寫法 | 搬進規則檔，改前端檔時才載入（paths：`src/**/*.{jsx,tsx}`，目前命中 42 個檔） | .claude/rules/frontend.md |
-| .claude/skills/ui-guide | 前端規範 skill | 原檔加上 paths：`src/components/**`（命中 18 個檔）：改這些檔之前一定要先載入它；平常不在可用清單，讀到這些檔才出現 | 原位（只改 frontmatter） |
-| .claude/commands/deploy.md | 部署指令 | 不動 | 原位 |
+| 原有的東西 | 它在管什麼 | 實例行數／範本行數 | 實例多出的檢查 | 我打算怎麼處理 | 處理後在哪裡 |
+| CLAUDE.md 的「部署前要先跑 smoke test」 | 部署前的檢查 | — | — | 搬過去（這是專案事實） | 新 CLAUDE.md「絕對邊界」一節 |
+| CLAUDE.md 的「改完直接 commit」 | 開發流程 | — | — | 換成新流程（改完要先實測、再審查） | 新 CLAUDE.md 的開發流程圖 |
+| .claude/agents/reviewer.md | 程式碼審查 | — | — | 合併進 code-reviewer（程式碼審查），它的檢查清單搬過去 | .claude/agents/code-reviewer.md |
+| .claude/hooks/block-prod-db.js | 擋連正式資料庫 | 80／（範本沒有） | — | 保留，繼續接著 | 新 settings 照原樣接線 |
+| .claude/hooks/check-review-discipline.js | 擋派工單缺欄位 | 1200／600 | 「逐格內容檢查」「對照表」兩項（擋下訊息的標籤） | 保留原檔、逐段比對（行數差超過 30%，而且有範本沒有的檢查）；範本有、原檔沒有的「設計文件章節檢查」列為建議補進，你點頭才補 | 原位，新 settings 照原樣接線 |
+| 上面那支派工閘要求的標記名與必讀檔 vs 重生的 04 預設寫的（逐項：QA 分流格標記名、全部角色必讀、鏈路檔、QA 測試知識檔） | 派工單過不過閘 | — | 閘只認【CATALOG 分流】（骨架 04 預設寫【既有測試分流】）；QA 必讀另要求 tests/e2e/README.md；不驗 CLAUDE.md 與詞彙表（系統自動載入） | 04 跟著沿用的 hook 走：分流標記填【CATALOG 分流】、QA 必讀加 README 那一行、刪 CLAUDE.md 與詞彙表那兩行（骨架 04 這幾處是填空，見它共通規則「開工前必讀」的 init 填法）；不反過來改 hook 去配骨架 | 新 04 共通規則「開工前必讀」與各模板【開工前必讀】、模板六分流格 |
+| .claude/hooks/guard-full-disk-scan.js | 擋全碟搜尋 | 110／120 | 無 | 換成範本（差不到 30%，也沒有多出的檢查；範本有 cases 可實測） | 新版放同一路徑 |
+| CLAUDE.md 的「React 元件寫法」 | 前端寫法 | — | — | 搬進規則檔，改前端檔時才載入（paths：`src/**/*.{jsx,tsx}`，目前命中 42 個檔） | .claude/rules/frontend.md |
+| .claude/skills/ui-guide | 前端規範 skill | — | — | 原檔加上 paths：`src/components/**`（命中 18 個檔）：改這些檔之前一定要先載入它；平常不在可用清單，讀到這些檔才出現 | 原位（只改 frontmatter） |
+| .claude/commands/deploy.md | 部署指令 | — | — | 不動 | 原位 |
 ```
+
+   hook 那幾列的兩欄只對 hook 填，其他列寫「—」。**實例行數／範本行數**：兩邊各自的總行數（範本＝`hooks/templates/` 同名檔；範本沒有同名檔就寫「範本沒有」）。**實例多出的檢查**：從原檔檔頭說明與擋下訊息裡的 `[標籤]` 列出範本沒有的那幾項，寫它擋什麼，不只寫標籤名。預設處置照 Phase 1「原有設定的預設處置」的原有 hook 那一列：**行數差超過 30%（以範本行數為分母），或實例有範本沒有的檢查 → 預設保留原檔、逐段比對**，範本有、原檔沒有的檢查列為「建議補進」；兩個條件都不成立才預設換成範本。同名不代表同內容：實例自己長出的檢查多半是踩過坑才加的，照形狀換掉會連那幾道一起丟，而且換掉之後沒有任何訊息會提醒。**沿用派工閘（check-review-discipline）時必加一列**（上表第二支那一列的形狀）：把它 `REQUIRED_MARKERS` 與必讀檢查實際要求的標記名、必讀檔，逐項對上骨架 04 預設寫的（QA 分流格的標記名、全部角色必讀、鏈路檔、QA 測試知識檔），不一致的 04 跟著 hook 走——04 那幾處是填空，Phase 4 照這一列填；不反過來改 hook 配骨架，那會把實例刻意拿掉的檢查裝回去。這一列漏了的後果是：照新 04 寫的派工單被沿用的閘擋、而且擋下訊息講的是 04 沒有的欄位名。
 
    搬進規則檔的列，等使用者確認後才算定案：paths 照他改過的寫，Phase 4 照這張表搬，並把每份規則檔與搬了哪些段落記進答案檔（`init-flow.js rules`）。給既有 skill 加 paths 是改他的原檔，無人值守時不改，只列在收尾回報當提案。
 

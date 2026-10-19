@@ -57,8 +57,8 @@
 | `hooks/templates/learn-promote.js` | 腳本 | 確定性落地：驗證 → 分級 → 寫入／待看／待核 → ledger、run 帳本 | C3、C4 |
 | `hooks/templates/learn-session-report.js` | hook | SessionStart 開場一行回報（含淘汰候選） | C5、C9 |
 | `hooks/templates/learn-pending.js` | CLI | 待核處理：list／approve／reject／revert（在 Claude 的工具裡執行時 approve 拒絕，見 4.5） | C6 |
-| `hooks/templates/learn-approve.js` | hook（UserPromptSubmit） | 使用者在提示列打「核可 p-…」「駁回 p-…」才改狀態——核可只認使用者原話（審查 R14） | C6 |
-| `hooks/templates/learn-usage.js` | hook | Read／Skill 計 view／use；Stop 計 request | C8 |
+| `hooks/templates/learn-approve.js` | hook（UserPromptSubmit＋PostToolUse matcher `AskUserQuestion`） | 使用者在提示列打「核可 p-…」「駁回 p-…」，或在 AskUserQuestion 選單上點選，才改狀態——核可只認使用者本人的動作（審查 R14；選單路徑 2026-10-17 加） | C6 |
+| `hooks/templates/learn-usage.js` | hook | Read／Skill 計 view／use（Bash／PowerShell 用讀檔動詞讀同一批檔也計 view）；Stop 計 request | C8 |
 | `hooks/templates/cases/learn-*.json` | 案例 | 三支 hook 的兩向案例 | C |
 | `hooks/templates/health-check-reminder.js` | hook（改） | 天數或 request 數先到者提醒 | C10 |
 | `hooks/templates/guard-risky-command.js`、`guard-test-preconditions.js` | hook（改） | 擋下時把規則 id 記一筆（不改擋不擋） | C8 |
@@ -161,7 +161,7 @@
 - 題目 id：`Q0 U1 U2 U3 Q1 … Q12`。每題至少有 `asked`、`date`、`delegated`，以及 `answer` 或 `skipped`（`{"reason": "…"}`）其一。
 - 必答（進 Phase 4 前要有答案或跳過理由）：`U1 U2 U3 Q1 Q2 Q4 Q5 Q7 Q10 Q11 Q12`；條件題 `Q0 Q3 Q6 Q8 Q9` 不在必答清單，但出現時要合法。
 - `data` 是給機械檢查用的結構化欄位，只規定 init-verify 會讀的幾個：`U3.data.confirmedTerms`（這次新增的詞，陣列）、`U3.data.originalCount`（參考模式沿用的原有條目數）、`U3.data.removedTerms`、`Q4.data.team`（布林）、`Q10.data.import`（布林）、`Q11.data.choice`（`build | reuse | none`）、`Q1.data.agents`（實際建的 agent 名單）。
-- `hookCatalog`：形狀目錄逐列的去向（Phase 5「形狀目錄逐列對帳」的機械版）；列數必須等於 `hook-catalog.md` 目錄表的列數。
+- `hookCatalog`：形狀目錄逐列的去向（Phase 5「形狀目錄逐列對帳」的機械版）；列數必須等於 `hook-catalog.md` 目錄表**扣掉類別欄「不帶」的列**之後的列數（`init-lib.js` 的 `catalogRows()` 預設就跳過它們；那些列 catalog 維護節規定不記進答案檔）。
 - 寫入時機：每答一題由 `init-flow.js answer <目標> <id>` 寫入（腳本負責合併、補日期、驗 schema），不讓模型手改整份 JSON（plugin 的 `init-state-guard.js` 擋 Write／Edit 直接改）。答案 JSON 從 `--file <檔>` 或 stdin（`--json -`）傳最穩；`--json '<字串>'` 在 PowerShell 5.1 會被剝掉雙引號、在 Bash 遇到單引號會截斷（審查 R9 實測）。腳本把解析後的結果印回來給模型核對。
 - `verifyWaivers`：`[{ "id": "V07-paths", "match": "<命中內容的一段>", "reason": "<為什麼這筆是誤判>" }]`，由 `init-flow.js waive <目標> <id> --match <字串> --reason <理由>` 寫入；V09（hook 語法）、V10（settings JSON）、V12（帳密）、V19（hook 模組格式，0.16.3）不可豁免（審查 R8）。豁免的每一筆在 init-verify 輸出與收尾回報都列出。
 - 重裝（參考模式偵測到舊 `init-answers.json`）：舊檔先隨備份走，舊答案當這次每題的預設答案（推薦選項），新答案覆蓋。
@@ -256,7 +256,7 @@
 
 ```
 主 session 每次工具呼叫 ─PreToolUse→ learn-trigger：session 計數 +1（subagent 的呼叫不計）
-                      └PreToolUse(Read|Skill)→ learn-usage：view／use +1
+                      └PreToolUse(Read|Skill|Bash|PowerShell)→ learn-usage：view／use +1（shell 用讀檔動詞讀 memory／skill 檔也算 view）
 回合結束 ─Stop→ learn-usage：requests +1
           └Stop→ learn-trigger：count - lastTriggerCount ≥ N？
                      是 → 記 lastTriggerCount＝count → detached 起 learn-reflect.js → 立即 exit 0
@@ -319,7 +319,7 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 
 - 原子寫：同目錄 `.<檔名>.<pid>.tmp` → `fs.renameSync`。
 - 寫入前備份：目標已存在時把原檔複製到 `learning/backups/<run>/<相對路徑以 __ 取代分隔符>`；新建的檔記 `backup: null`（還原＝刪除）。寫入後記 `afterHash`。
-- 綠區寫入 memory 新檔時，`MEMORY.md` 補一行索引：`- <星等> [<description 前段>](<檔名>) — <summary>`。星等依 05 §2：`correction`（使用者明文裁定）⭐⭐⭐、`tool-pitfall`／`workaround` ⭐⭐、`fact` ⭐（審查 R17：不標星會被當成冷知識，精簡時第一個被刪）。MEMORY.md 也先備份。寫完量 MEMORY.md 字元數，超過 20,000（05 §3 第 1 條）時在 run 帳本 `notes` 記一句，開場回報帶出。
+- 綠區寫入 memory 新檔時，`MEMORY.md` 補一行索引：`- <星等> [<description 前段>](<檔名>) — <summary>`。星等依 05 §2：`correction`（使用者明文裁定）⭐⭐⭐、`tool-pitfall`／`workaround` ⭐⭐、`fact` ⭐（審查 R17：不標星會被當成冷知識，精簡時第一個被刪）。MEMORY.md 也先備份。寫入前量 MEMORY.md 的 UTF-8 位元組與行數（官方載入上限 25KB 或 200 行先到為準，不量字元）：加本筆索引行會超上限就整筆不寫、留待核；寫完後任一維度 ≥80%（05 §3 第 1 條）在 run 帳本 `notes` 記一句，開場回報帶出。
 - 知識筆記新增條目時，該檔的變更紀錄補一行 `- YYYY-MM-DD 學習迴路新增：<summary>（起因：反思 run <id>；綠區）`。
 - 每筆都寫 ledger；綠區寫入成功的項目也進 `pending.json`（`type: write`、`status: accepted`），只為了讓 `learn-pending revert <id>` 找得到備份——不在開場回報算「待你看」，但開場回報會**逐筆列出綠區寫入的主題與摘要**（最多 3 筆，其餘寫「…等 N 筆」；審查 R3）。
 
@@ -332,22 +332,25 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 | 指令 | 黃區 | 紅區（proposal／promotion） | 綠區（已寫入） |
 |---|---|---|---|
 | `list` | 列 pending | 列 pending（含 content 與出處） | 不列（`list --all` 才列） |
-| `approve <id>` | 標 accepted（保留寫入） | 標 approved，印「使用者已核可：請 Claude 依 05 §1 執行：<summary>（建議內容見 pending.json）」——不改任何規則檔 | 不適用 |
+| `approve <id>` | 標 accepted（保留寫入）；category 是 correction 的 memory，MEMORY.md 該列 ⭐⭐ 升 ⭐⭐⭐（寫入時只給 ⭐⭐，核可才算使用者裁定） | 標 approved，印「使用者已核可：請 Claude 依 05 §1 執行：<summary>（建議內容見 pending.json）」——不改任何規則檔 | 不適用 |
 | `reject <id>` | 目標檔現況 hash＝`afterHash` 時還原備份（新建的刪掉），標 reverted；hash 不同（之後又被改過）就不動檔、exit 1 請人工處理 | 標 rejected | 同黃區（＝revert） |
 | `revert <id>` | 同 reject | 不適用 | 同黃區 |
 
 - **核可只認使用者原話（審查 R14）**：`learn-pending.js approve|reject|revert` 偵測到 `CLAUDECODE` 環境變數（Claude Code 的工具執行的；已實測 Bash 子程序帶 `CLAUDECODE=1`）時拒絕執行，印「請使用者在提示列輸入『核可 <id>』或『駁回 <id>』」。`learn-approve.js`（UserPromptSubmit hook）讀使用者這一則訊息的原文，比對「核可|同意|approve <id>」「駁回|拒絕|reject <id>」「還原|revert <id>」，命中才執行同一套動作，並用 `additionalContext` 告訴 Claude 結果（紅區核可時附上要執行的建議內容）。`list` 不受限。
+- **選單路徑也算使用者本人動作（2026-10-17）**：實際上沒有人照開場那一行去提示列打「核可 <編號>」，黃區擱著沒人審。改成開場回報在待你看／待核不為 0 時，叫 Claude 本回合用 AskUserQuestion 逐項問（每項一題，選項「核可 <編號>」「駁回 <編號>」「稍後」）；`learn-approve.js` 另接 PostToolUse matcher `AskUserQuestion`，讀 `tool_response.answers`（題目原文 → 答案原文）執行同一套動作。答案是「核可|駁回|還原 <id>」照答案裡的 id；答案只有動作詞時題目裡恰好一個 id 才算；「稍後」、多個 id、其他工具一律不動作。選單答案是使用者在 UI 上點的（或在「其他」自己打的），不是模型產生的文字，所以不違反 R14；Claude 在回覆或工具參數裡寫「核可 p-…」不會觸發任何事件，`learn-pending.js` 的 `CLAUDECODE` 拒絕不變。
 - 結束碼：0 成功；1 找不到 id／狀態不允許／hash 不符／在 Claude 工具裡呼叫 approve；2 用法錯。每個動作都寫 ledger。
 
 ## 5. 開場回報、用量與淘汰（C5、C8、C9）
 
 - **一行回報**（SessionStart 純文字 stdout 會進 context）：
   `[learn] 上次反思（10/09 14:20）寫入 2 筆（db-login-lockout：連庫前先確認帳號；…）、待你看 1 筆、待核 3 筆（含升格提案 1 筆）、被拒 1 筆（格式 1）、淘汰候選 2 筆——清單：node .claude/hooks/learn-pending.js list；核可或駁回請直接在提示列輸入「核可 <編號>」「駁回 <編號>」`
+  - 待你看／待核不為 0 時（2026-10-17 起），破折號後改成叫 Claude「本回合先用 AskUserQuestion 把下列項目逐項問使用者」，下面每項一行「編號｜類型｜主題｜摘要」，最後一行保留提示列輸入的替代寫法（見 4.5 選單路徑）。
   - 上次 run 失敗（子程序錯、解析失敗）也印：`上次反思失敗：解析失敗（詳見 learning/runs/<run>.json）`；暫停中印一次「反思暫停到 <日期>」——反沉默。
   - 全部為 0 且上次 run 已回報過 → 不印任何東西。
   - 同一支 hook 順手清理 90 天前的 runs、backups、session 檔（pending 引用中的備份不刪）。
-- **用量**（learn-usage，PreToolUse `Read|Skill`＋Stop）：
+- **用量**（learn-usage，PreToolUse `Read|Skill|Bash|PowerShell`＋Stop）：
   - Read 的 `file_path` 落在 memory 目錄（`.md`）、三份知識筆記、`.claude/harness/*.md`、`.claude/skills/*/` 底下 → 該項 `view +1`。
+  - Bash／PowerShell 的指令用讀檔動詞（`READ_VERBS`：cat、head、less、more、type、sed -n、Get-Content）讀到同一批檔 → 該項 `view +1`（一條指令讀多個檔各計一次、同一檔只計一次；寫檔、刪檔動詞與重導向目標不計）。只接 Read 的話，bypass 模式下約一半的讀取走 shell，常用項目會被誤列成淘汰候選。
   - Skill 的 `skill` 名稱對到 `.claude/skills/<名稱>/` → `use +1`（plugin skill 不計）。
   - Stop → `requests +1`。
   - `HARNESS_LEARN_CHILD` 存在 → 全部不計。
@@ -416,9 +419,9 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 | V13-overview | 專案概要四塊 | CLAUDE.md 有「專案概要」節，且有 `**用途**`、`**外部系統與資料庫**`（表格或「無」）、`**業務流程**`、`**目前進度**` |
 | V14-glossary-count | 詞條數 | 詞彙表 `## 詞彙` 節裡、程式碼區塊外的真詞條數（整行是 `**…**` 的行，排除 `（示範）`；審查 R8 指出全檔數會把格式範本與說明行算進去）＝`U3.data.originalCount + confirmedTerms.length - removedTerms.length`；headless 時新增必須為 0 |
 | V15-answers-schema | 答案檔合法 | `init-answers.json` 存在且通過 schema、必答題齊 |
-| V16-catalog | 形狀目錄逐列去向 | `hookCatalog` 列數＝`hook-catalog.md` 目錄表列數，每列有 decision 與 reason；`installed` 且有範本檔名的，`.claude/hooks/<檔>` 存在 |
+| V16-catalog | 形狀目錄逐列去向 | `hookCatalog` 列數＝`hook-catalog.md` 目錄表扣掉類別「不帶」列之後的列數（`catalogRows()` 預設跳過），每列有 decision 與 reason；`installed` 且有範本檔名的，`.claude/hooks/<檔>` 存在 |
 | V17-wiring | 已裝 hook 有接線 | `.claude/hooks/` 底下每支 hook（檔頭標 `harness-kind: module`／`cli` 的不算；與 probe-hooks 共用同一個判準，審查 R8）都出現在 settings 的某條 command 裡 |
-| V18-learning | 學習迴路完整 | `hookCatalog` 標學習迴路已裝時：五支 learn 檔＋prompt 檔存在、learn-trigger 接了 PreToolUse／Stop／SessionEnd、learn-usage 接了 PreToolUse（Read\|Skill）與 Stop、learn-session-report 接了 SessionStart；`.gitignore` 含 `.claude/harness/learning/`（團隊模式） |
+| V18-learning | 學習迴路完整 | `hookCatalog` 標學習迴路已裝時：五支 learn 檔＋prompt 檔存在、learn-trigger 接了 PreToolUse／Stop／SessionEnd、learn-usage 接了 PreToolUse（matcher 要涵蓋 Read、Skill、Bash、PowerShell 四個）與 Stop、learn-session-report 接了 SessionStart；`.gitignore` 含 `.claude/harness/learning/`（團隊模式） |
 | V19-hooks-commonjs | hook 以 CommonJS 執行（0.16.3） | 有 `.js` hook 時，`.claude/hooks/package.json` 存在且寫明 `"type": "commonjs"`；專案根是 `"type": "module"` 時少了它每支 hook 載入就失敗（e2e-learn 實測抓到）。不可豁免 |
 
 仍由模型做的語意項（phase-5 文件列明）：經驗帶走審查（參考模式）、B 類規則放行方式在它說的位置實跑一次、專案概要內容與使用者改過的版本逐句一致、U1 每個外部系統的去向、Q7 過時註記內容、本機覆寫說明逐筆涵蓋、addendum 與 qa-gate 的 flow.sh 實跑、port 驗證實跑、`probe-hooks.js` 兩條路徑實跑（行為層，耗時長，不併進 init-verify）。
@@ -434,7 +437,7 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 - D1：hook-catalog 加第 31～35 列（學習迴路觸發、用量計數、開場回報、使用者核可、反思與落地腳本＋待核 CLI），類別 A（必裝），寫觸發條件、接線、專案參數（`EVERY_N`、`MIN_REMAINDER`、`TRIAL_REQUESTS`、`MAX_RUNS_PER_DAY`、`MAX_BUDGET_USD`、QA 知識檔路徑；memory 目錄執行時推算、不填）；`learn-lib.js` 等進「範本檔以外的配套」表。phase-4-hooks 加複製與 settings 接線（五個事件）、`.gitignore`。
 - **與沉澱四題閘的分工**：沉澱閘在 commit（或改檔回合結束）時逼模型**當場**對四類知識（詞、鏈、QA、代號）表態，答案由主對話自己寫進知識筆記，管的是「這一輪學到的有沒有當場落檔」；學習迴路在背景**事後**讀 transcript，管沉澱閘不問的使用者糾正、繞法、工具坑，並負責「第 2 次出現」的計數與升格提案。重疊處（四類知識新事實）的取捨：學習迴路提知識筆記條目前先 Grep 既有（沉澱閘當場寫過的就不會重提）；兩者寫進同一份檔都走 05 §1 分級，不會互相覆蓋。沉澱閘保留，不改。
 - 與其他既有 hook 不重疊：
-  - `memory-write-advisory`：管主對話寫 memory 後的索引容量提醒；學習迴路的綠區寫入不經過 Write 工具，所以由 learn-promote 自己在寫入後檢查 MEMORY.md 字元數，超過 80% 時記進 run 帳本，開場回報帶一句。
+  - `memory-write-advisory`：管主對話寫 memory 後的索引容量提醒；學習迴路的綠區寫入不經過 Write 工具，所以由 learn-promote 自己在寫入前後檢查 MEMORY.md 位元組與行數（25KB／200 行先到為準），會超上限就不寫、任一維度 ≥80% 記進 run 帳本，開場回報帶一句。
   - `health-check-reminder`：只管健檢節奏，新增 request 門檻；淘汰候選由開場回報與 review 列，不進健檢提醒。
   - `compact-handoff`：同樣起 `claude -p` 子程序，但它是同步（PreCompact 等它寫完）、`--tools ''`；學習迴路是背景、只給唯讀工具。兩者環境變數各自獨立（`COMPACT_HANDOFF_CHILD`／`HARNESS_LEARN_CHILD`），學習迴路的 trigger 也不在 compact 子程序裡計數（看到 `COMPACT_HANDOFF_CHILD` 一樣直接退出）。
   - `check-review-discipline`：只管派工 prompt；學習迴路不派 subagent（反思是獨立的 `claude -p`，不經 Agent 工具），不受它檢查，也不影響它。
@@ -447,7 +450,7 @@ learn-reflect（背景）：取 reflect 鎖 → 讀 transcript 水位線之後�
 
 1. 反思子程序：只有 Read／Grep／Glob；cwd 是只放複本的沙箱（讀不到沙箱外的檔，已實測）；`--setting-sources local`＋`--system-prompt` 不載任何專案或使用者層設定；不留 session；環境變數標記子程序；`--max-budget-usd` 封頂；逾時強制結束。
 2. 寫入只由確定性腳本做；只寫四類目標（memory 目錄、三份知識筆記與它們的變更紀錄、MEMORY.md）；memory 檔名有白名單樣式、不可是 MEMORY.md，realpath 後必須在 memory 目錄內；知識筆記路徑由程式固定。
-3. 紅區永不自動寫；approve 只改 pending.json 的狀態並印給 Claude 的指示；核可只認使用者在提示列打的原話（UserPromptSubmit），Claude 的工具裡跑 approve 會被拒。
+3. 紅區永不自動寫；approve 只改 pending.json 的狀態並印給 Claude 的指示；核可只認使用者本人的動作——提示列打的原話（UserPromptSubmit）或 AskUserQuestion 選單上點選的答案（PostToolUse，2026-10-17 加），Claude 的工具裡跑 approve 會被拒。
 4. 不存原文：ledger、run 帳本只存出處與線索；pending.json 的 content 與寫進 memory 的內容是摘要，不是原文——落地前 content、summary、clue 都和正規化後的片段比對，不得有 24 字以上連續相同（反引號包住的識別字與路徑除外）。
 5. 帳密 0 命中、注入／外洩 0 命中才寫；破壞性指令樣式改走紅區待核。
 6. 所有 hook fail-open：任何例外 exit 0，stderr 印 `[learn-*] ERROR: …`；SessionStart 的回報 hook 故障時印一行 ERROR（純文字會進 context，讓人知道壞了）。
@@ -547,7 +550,7 @@ Claude Code 2.1.296。在專案根 `.claude/` 放一支 PreToolUse(Bash) 探針 
 | R11 | 中｜成本、失敗語義 | 未登入、quota 用完時每 80 次呼叫重送一次、一直失敗；失敗段落只有同 session 才會補跑；團隊模式全員預設開啟 | 部分採納 | 採納：連續 2 次失敗暫停到隔天、每日上限 6 次、`--max-budget-usd`、確定性預篩、別的 session 的失敗尾段補跑（3 節）。不採納「團隊模式改成每人自選開啟」：任務書 C 把學習迴路列為必裝、使用者決定以環境變數 `HARNESS_REFLECT_EVERY_N=0` 關閉；成本與關法寫進 Phase 3 Q5 清單與收尾回報讓使用者取消 |
 | R12 | 中｜成本、重疊 | 每次工具呼叫多起一支 PreToolUse 計數 hook；並行工具呼叫同時寫計數檔會 lost update；依賴 agent_id 的 HYPOTHESIS；建議改成 Stop 時數 transcript 的 tool_use | 部分採納 | 不採納拿掉 PreToolUse 計數：任務書 C1 指定「PreToolUse 每次主 session 工具呼叫累加計數」。採納計數檔上鎖（3 節）；agent_id 在 e2e-learn 實測 |
 | R13 | 中｜學習品質 | 「第 2 次」用模型自由命名的 topic＋不同 run 計數：換個名字永遠數不到 2、命名太泛亂升格、重讀同一段被算成第 2 次 | 採納 | 4.4：以「主題或目標 memory 檔名相同」為同一件事、以不同出處計次；反思輸入附既有主題清單要求沿用（6 節輸入第 6 點） |
-| R14 | 中｜安全 | 模型能自己用 Bash 跑 `learn-pending approve`，ledger 的核可紀錄不可信 | 採納 | 4.5：Claude 工具裡（`CLAUDECODE` 存在）跑 approve 會被拒；新增 `learn-approve.js`（UserPromptSubmit）只認使用者打的「核可 <id>」 |
+| R14 | 中｜安全 | 模型能自己用 Bash 跑 `learn-pending approve`，ledger 的核可紀錄不可信 | 採納 | 4.5：Claude 工具裡（`CLAUDECODE` 存在）跑 approve 會被拒；新增 `learn-approve.js`（UserPromptSubmit）只認使用者打的「核可 <id>」；2026-10-17 加 PostToolUse(AskUserQuestion) 選單路徑，答案是使用者在 UI 點選的、不是模型文字，同樣算使用者本人動作 |
 | R15 | 中｜路徑逃逸 | 只看「含 `..`／絕對路徑」：`MEMORY.md`、`memory.MD` 會被當 update 覆寫索引；Windows ADS、junction、結尾點能繞過 | 採納 | 4.1：memory 檔名白名單樣式、排除 MEMORY.md（不分大小寫）、realpath 後比對；知識筆記路徑由程式固定 |
 | R16 | 中｜資料格式 | memory 目錄若填安裝者機器的絕對路徑，團隊模式到隊友機器上寫錯地方 | 採納 | 4.1：執行時由專案根推算 slug，目錄不存在就拒收；填空區不放 memory 目錄 |
 | R17 | 中｜格式契約 | 自動寫的索引行沒有星等（會被當冷知識先刪）；type 多了 `user`；schema 漏 `section`、`type: write`、`skipped`；詞彙表檔名判斷順序與 sediment 閘相反 | 採納 | 4.3 星等規則；4.2 type 對齊 05 §2；2.3／2.5／2.6 補欄位；4.1 詞彙表先讀 `init-answers.json` 的 `glossaryFile`，沒有才照 Phase 4 規則（init 之後只會有一個檔，兩個 hook 的順序差異不影響結果） |
@@ -578,7 +581,7 @@ Claude Code 2.1.296。在專案根 `.claude/` 放一支 PreToolUse(Bash) 探針 
 | 新增項 | 來源 | 測試 |
 |---|---|---|
 | `hooks/init-state-guard.js`（plugin 層 PreToolUse `Write|Edit|MultiEdit`，擋直接改 `.init-state.json`、`init-answers.json`） | R6（部分採納的那一半） | `hooks/cases/init-state-guard.json` 8 案例，由 `tests/run.js` 的 plugin-hooks 段實跑 |
-| `hooks/templates/learn-approve.js`（UserPromptSubmit，只認使用者在提示列打的「核可／駁回 <編號>」） | R14 | `hooks/templates/cases/learn-approve.json`＋learn-offline 段 |
+| `hooks/templates/learn-approve.js`（UserPromptSubmit＋PostToolUse(AskUserQuestion)，只認使用者在提示列打的「核可／駁回 <編號>」或在選單上點選的答案） | R14 | `hooks/templates/cases/learn-approve.json`＋learn-offline 段 |
 | `learn-pending.js` 在 `CLAUDECODE` 存在時拒絕 approve／reject／revert | R14 | learn-offline 段 |
 | `HARNESS_LEARN_DRYRUN=1`（觸發只寫標記檔、不起子程序，供 probe 案例用） | R21 | `cases/learn-trigger.json` |
 | 反思連續 2 次失敗暫停到隔天、每日上限 | R11（部分採納） | learn-offline 段 |

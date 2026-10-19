@@ -333,7 +333,13 @@ try {
   const ROOT = findRoot();
   if (!ROOT) process.exit(0);
   const entries = loadEntries(ROOT);
-  if (!entries.length) process.exit(0);
+  if (!entries.length) {
+    // 清單檔在（ROOT 就是靠它找到的）卻讀不到任何條目＝損毀或空白：不再靜默（2026-10-18 紅藍對抗 R2 R1-5）。
+    // 清單讀不到時覆寫銷毀閘也同樣不檢查，整條保護鏈都停了，開場就要講。SessionStart 只有 stdout 進 context。
+    process.stdout.write('[本機覆寫檢查] 本機覆寫清單讀不到任何條目（' + path.join(ROOT, OVERRIDES_REL) + '），'
+      + '開場覆寫檢查與覆寫銷毀閘本次都沒有檢查；清單檔損毀或空白要先修。\n');
+    process.exit(0);
+  }
 
   const outDir = path.join(ROOT, BACKUP_DIR_REL);
   const cache = {};
@@ -359,7 +365,24 @@ try {
     }
     gone.push({ label: label + (why ? '（' + why + '）' : ''), hasBackup: !!bk });
   }
-  if (!gone.length && !stale.length) process.exit(0);
+  // shell 語法解析器可用嗎（2026-10-18）：git 守門閘共用同目錄 git-calls.js／shell-model.js，node_modules 缺（沒跑 npm ci、或被移走）時
+  // 覆寫銷毀閘退回「具名路徑一律擋」、裸 git／worktree 刪除閘（專案自加）退回正則路徑——之前沒有任何 hook 在開場偵測這件事，
+  // deny 訊息也不點名，使用者只看到 `git checkout -- README.md` 莫名被擋、列出一串覆寫檔。
+  // 只在 git-calls.js 真的在同目錄時才查（沒裝 git 守門閘的專案不報）。HARNESS_SHELL_PARSER=off 是使用者刻意設的測試開關
+  // （probe-hooks --parser=off 每案都設它），不報——報了本檔 cases 的 13 案在正則路徑永遠不會 SILENT；
+  // 覆寫銷毀閘的 deny 文對 off 另有一句，這裡只管「真的載不起來」
+  let parserWarn = null;
+  if (process.env.HARNESS_SHELL_PARSER !== 'off' && fs.existsSync(path.join(__dirname, 'git-calls.js'))) {
+    try {
+      const gcl = require('./git-calls.js');
+      const miss = ['Bash', 'PowerShell'].filter((t) => !gcl.parserAvailable(t));
+      if (miss.length) parserWarn = '⚠ shell 語法解析器不可用（' + miss.join('／') + '）：.claude/hooks 下跑 npm ci；在那之前覆寫銷毀閘對具名路徑一律擋，其他 git 守門閘走正則退路。';
+    } catch (e) {
+      parserWarn = '⚠ shell 語法解析器不可用（git-calls.js 載入失敗：' + String((e && e.message) || e).split(/\r?\n/)[0] + '）：.claude/hooks 下跑 npm ci；在那之前覆寫銷毀閘對具名路徑一律擋。';
+    }
+  }
+
+  if (!gone.length && !stale.length && !parserWarn) process.exit(0);
 
   const L = [];
   if (gone.length) {
@@ -387,6 +410,15 @@ try {
     if (stale.length > MAX_LIST) L.push('  …另有 ' + (stale.length - MAX_LIST) + ' 個');
     L.push('對照主要工作目錄或最新備份裡的版本補齊；' + (SETUP_DOC ? '該補什麼見 ' + SETUP_DOC + '。' : '該補什麼見清單每筆的 reason 欄。'));
   }
+  if (parserWarn) {
+    if (L.length) L.push('');
+    L.push(parserWarn);
+  }
   process.stdout.write(L.join('\n') + '\n');
-} catch (e) {}
+} catch (e) {
+  // fail-open 但 loud（2026-10-18 紅藍對抗 R2 R1-6）：SessionStart 只有 stdout 進 context，stderr 給使用者的紀錄看
+  const msg = '[本機覆寫檢查] hook 內部錯誤，本次放行：' + String((e && e.message) || e).split(/\r?\n/)[0];
+  try { process.stderr.write(msg + '\n'); } catch (e2) {}
+  try { process.stdout.write(msg + '。這次沒有檢查本機覆寫還在不在，請自行跑 restore-local-hacks.js（不加參數只看不改）；hook 要修：.claude/hooks/check-local-hacks-alive.js\n'); } catch (e3) {}
+}
 process.exit(0);

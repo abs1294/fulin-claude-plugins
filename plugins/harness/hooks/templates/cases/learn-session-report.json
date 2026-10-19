@@ -314,6 +314,46 @@
         "hook_event_name": "SessionStart"
       },
       "expect": "NOTE"
+    },
+    {
+      "label": "有待你看 → 開場指示本回合先用 AskUserQuestion 逐項問，每項一行，並保留提示列替代寫法",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"level\":\"yellow\",\"type\":\"write-review\",\"status\":\"pending\",\"target\":\"memory/fix-rule.md\",\"topic\":\"fix-rule\",\"summary\":\"改用新規則\"},{\"id\":\"p-20261009-02\",\"level\":\"green\",\"type\":\"write\",\"status\":\"accepted\",\"target\":\"memory/x.md\",\"topic\":\"x\",\"summary\":\"綠區不列\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE",
+      "output_match": "待你看 1 筆——本回合先用 AskUserQuestion[\\s\\S]*p-20261009-01｜待你看｜fix-rule｜改用新規則[\\s\\S]*提示列輸入「核可 <編號>」",
+      "output_not_match": "綠區不列"
+    },
+    {
+      "label": "只有上次反思結果、沒有待處理 → 維持原本一行，不叫 Claude 開 AskUserQuestion",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/last-run.json": "{\"run\":\"r-20261009-101500-ab12\",\"startedAt\":\"2026-10-09T02:00:00.000Z\",\"endedAt\":\"2026-10-09T02:01:00.000Z\",\"trigger\":\"stop-threshold\",\"skipped\":null,\"child\":{\"called\":true,\"ok\":true,\"ms\":1000,\"costUsd\":0.01,\"error\":null},\"parse\":{\"ok\":true,\"error\":null,\"proposals\":1},\"results\":{\"written\":1,\"pendingReview\":0,\"pendingApproval\":0,\"rejected\":0,\"promotions\":0},\"rejectReasons\":{},\"greenWrites\":[{\"topic\":\"db-login-lockout\",\"summary\":\"連庫前先確認帳號\"}],\"notes\":[],\"reported\":false}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null,
+          "HARNESS_TODAY": "2026-10-09"
+        }
+      },
+      "payload": {
+        "hook_event_name": "SessionStart"
+      },
+      "expect": "NOTE",
+      "output_match": "寫入 1 筆",
+      "output_not_match": "AskUserQuestion"
     }
   ]
 }

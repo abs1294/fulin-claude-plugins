@@ -38,7 +38,8 @@
       "expect": "BLOCK"
     },
     {
-      "label": "backend-engineer：必讀清單沒寫到詞彙表（GLOSSARY.md、CONTEXT.md 都沒列）→ 擋下",
+      "label": "backend-engineer：必讀清單沒寫到詞彙表（GLOSSARY.md、CONTEXT.md 都沒列）（必讀開關開著）→ 擋下",
+      "variant": "require-must-read",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
@@ -50,7 +51,8 @@
       "expect": "BLOCK"
     },
     {
-      "label": "詞彙表新舊檔名：只列 GLOSSARY.md → 放行",
+      "label": "詞彙表新舊檔名：只列 GLOSSARY.md（必讀開關開著）→ 放行",
+      "variant": "require-must-read",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
@@ -62,7 +64,8 @@
       "expect": "ALLOW"
     },
     {
-      "label": "詞彙表新舊檔名：只列舊檔名 CONTEXT.md → 放行",
+      "label": "詞彙表新舊檔名：只列舊檔名 CONTEXT.md（必讀開關開著）→ 放行",
+      "variant": "require-must-read",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
@@ -74,7 +77,8 @@
       "expect": "ALLOW"
     },
     {
-      "label": "詞彙表新舊檔名：兩個都列（GLOSSARY.md，沒有就讀 CONTEXT.md）→ 放行",
+      "label": "詞彙表新舊檔名：兩個都列（GLOSSARY.md，沒有就讀 CONTEXT.md）（必讀開關開著）→ 放行",
+      "variant": "require-must-read",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
@@ -86,7 +90,8 @@
       "expect": "ALLOW"
     },
     {
-      "label": "詞彙表新舊檔名：兩個都沒列 → 擋下",
+      "label": "詞彙表新舊檔名：兩個都沒列（必讀開關開著）→ 擋下",
+      "variant": "require-must-read",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
@@ -96,6 +101,35 @@
         }
       },
       "expect": "BLOCK"
+    },
+    {
+      "label": "必讀開關預設 false：必讀清單沒列 CLAUDE.md 也沒列詞彙表（GLOSSARY.md／CONTEXT.md）→ 放行（subagent 啟動時自動載入，不驗）",
+      "description": "REQUIRE_PROJECT_OVERVIEW_READ／REQUIRE_GLOSSARY_READ 預設 false：這兩條必讀不擋。來源專案 198 張真實 QA 派工單餵舊版範本，這兩條各擋 135／88 張，全是多餘的擋。",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【開工前必讀】\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "必讀：專案概要|必讀：專案用語"
+    },
+    {
+      "label": "必讀開關改 true：必讀清單沒列 CLAUDE.md 也沒列詞彙表 → 擋下，兩條都點名",
+      "description": "專案把兩個開關改 true（詞彙表沒以 @ 匯入、或 agent 不自動載入 CLAUDE.md）時，這兩條照擋。",
+      "variant": "require-must-read",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【開工前必讀】\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "必讀：專案概要[\\s\\S]*必讀：專案用語"
     },
     {
       "label": "backend-architect：現在也受管；缺必讀 → 擋下",
@@ -152,7 +186,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "model": "sonnet",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -164,10 +198,24 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "model": "sonnet",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：必讀清單列的是 tests/Project_Detail/ 的子檔（dap-testing-knowledge.md，沒列 PROJECT.md 正名）→ 放行",
+      "description": "測試知識 pattern 認目錄下任一 .md（來源專案 198 張真實 QA 派工單有 41 張列子檔、0 張列 PROJECT.md 正名，只認正名會把列得更細的單擋下）。",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/tests/Project_Detail/dap-testing-knowledge.md\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "必讀：測試知識"
     },
     {
       "label": "qa-engineer：必讀清單寫的是 Windows 反斜線路徑 → 放行",
@@ -176,7 +224,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "model": "sonnet",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:\\proj\\tests\\Project_Detail\\PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:\\proj\\tests\\Project_Detail\\PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -188,7 +236,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "model": "sonnet",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -230,7 +278,8 @@
       "expect": "BLOCK"
     },
     {
-      "label": "backend-engineer：只漏寫 CLAUDE.md → 擋下",
+      "label": "backend-engineer：只漏寫 CLAUDE.md（必讀開關開著）→ 擋下",
+      "variant": "require-must-read",
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
@@ -284,7 +333,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n走真實流程，從下單頁操作\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n走真實流程，從下單頁操作\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -296,7 +345,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一；選 b/c 必附一句理由）\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】（必填，三選一；選 b/c 必附一句理由）\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -308,7 +357,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一；選 b/c 必附一句理由）\n選 a：從下單頁實際操作產生訂單\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】（必填，三選一；選 b/c 必附一句理由）\n選 a：從下單頁實際操作產生訂單\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -320,7 +369,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：真流程太慢\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：真流程太慢\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -332,7 +381,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：真流程成本過高，證據 src/Order/OrderController.cs:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：真流程成本過高，證據 src/Order/OrderController.cs:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -344,7 +393,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：跨模組太麻煩、跑一輪很慢，見 src/Order/OrderService.cs:40\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：跨模組太麻煩、跑一輪很慢，見 src/Order/OrderService.cs:40\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -356,7 +405,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：要精確控制資料形狀，見 src/Order/OrderService.cs:40\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：要精確控制資料形狀，見 src/Order/OrderService.cs:40\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -368,7 +417,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：歷史相容性，證據 a.cs:1\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：歷史相容性，證據 a.cs:1\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -380,7 +429,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，見 src/Order/OrderService.cs:40\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，見 src/Order/OrderService.cs:40\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -392,7 +441,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送，出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送，出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -404,7 +453,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送 唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送 唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -416,7 +465,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送、唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送、唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -428,7 +477,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送. 唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送. 唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -440,7 +489,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送　唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送　唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -452,7 +501,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送\t唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送\t唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -464,7 +513,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：「產品沒有建立入口」，守門 src/Auth/Guard.cs:31\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：「產品沒有建立入口」，守門 src/Auth/Guard.cs:31\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -476,7 +525,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：產品沒有建立入口，守門 src/Auth/Guard.cs:31\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：產品沒有建立入口，守門 src/Auth/Guard.cs:31\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -488,7 +537,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送，出貨單由上游系統推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送，出貨單由上游系統推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK",
@@ -502,7 +551,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送（真流程成本也高），唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送（真流程成本也高），唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -514,7 +563,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：雖然成本較高，仍從下單頁實際操作產生訂單\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：雖然成本較高，仍從下單頁實際操作產生訂單\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -526,7 +575,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：比較快\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：比較快\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -538,7 +587,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送，訂單只由上游 ERP 推送，產品端唯一寫入點 src/sync/erp_import.py:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送，訂單只由上游 ERP 推送，產品端唯一寫入點 src/sync/erp_import.py:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -550,7 +599,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：上游在 http://erp.example.com:9443 推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：上游在 http://erp.example.com:9443 推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -562,7 +611,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 c\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 c\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -574,7 +623,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 c，理由：待補\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 c，理由：待補\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -586,7 +635,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 c：訂單狀態字典，屬設定類主檔，期望值查 DB 推導\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 c：訂單狀態字典，屬設定類主檔，期望值查 DB 推導\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -598,7 +647,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a 或 b 都可以\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a 或 b 都可以\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -610,7 +659,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實流程\n選 b：自種自清 src/x.py:3\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實流程\n選 b：自種自清 src/x.py:3\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -622,7 +671,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選擇：a，從入口操作產生\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選擇：a，從入口操作產生\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -694,7 +743,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在作答段寫「例外類別：<類別名>」（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 a：從訂單建立畫面實際下單產生資料\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在作答段寫「例外類別：<類別名>」（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 a：從訂單建立畫面實際下單產生資料\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -706,7 +755,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在作答段寫「例外類別：<類別名>」（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 c：幣別屬設定類主檔，期望值由資料庫查出\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在作答段寫「例外類別：<類別名>」（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\n選 c：幣別屬設定類主檔，期望值由資料庫查出\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -718,7 +767,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在作答段寫「例外類別：<類別名>」（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\na. 走真實業務流程長出來\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】（必填，三選一。**第一行開頭寫「選 a」「選 b」或「選 c」**，後面接理由；選 b 要在作答段寫「例外類別：<類別名>」（見下方 b 項），並附產品端證據「檔名:行號」，說明真流程為何造不出這筆資料；選 c 要說明為何屬字典／設定類。派工檢查 hook 照這個格式驗，整段照貼沒作答會被擋）\na. 走真實業務流程長出來\n\na. **走真實業務流程長出來**（首選）：從該模組的實際入口操作產生資料。\n   理由：走真流程長出來的資料，本身就在驗那條流程還通不通。\nb. **自種自清**（寫入後取回自己建的 Id ＋ teardown 自刪）：真流程成本過高時用。見 src/seed/helper.py:12\nc. **依賴既有資料**：僅限「字典／設定類」主檔。\n\n⛔ **絕對禁止**：硬編業务 Id\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -730,7 +779,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a，選 b：兩種都可以\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a，選 b：兩種都可以\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -769,7 +818,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b：見【規格】src/sync/erp_import.py:88，例外類別：上游系統推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b：見【規格】src/sync/erp_import.py:88，例外類別：上游系統推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -781,7 +830,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b：見【規格】第三節，訂單只由上游 ERP 推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b：見【規格】第三節，訂單只由上游 ERP 推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -805,7 +854,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n本次資料依下方【測試資料來源】那格造。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：從訂單畫面實際下單\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n本次資料依下方【測試資料來源】那格造。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：從訂單畫面實際下單\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -853,7 +902,7 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
-          "prompt": "【目標環境】本機預設環境\n【既有測試分流】reuse：C:/proj/tests/x.spec.js\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【目標環境】本機預設環境\n【既有測試分流】reuse：C:/proj/tests/x.spec.js\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -865,7 +914,7 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【既有測試分流】reuse：C:/proj/tests/x.spec.js\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【既有測試分流】reuse：C:/proj/tests/x.spec.js\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -877,7 +926,7 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -889,7 +938,7 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】reuse：C:/proj/tests/x.spec.js\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】reuse：C:/proj/tests/x.spec.js\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -1061,7 +1110,7 @@
         "tool_name": "Agent",
         "tool_input": {
           "subagent_type": "qa-engineer",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】reuse：C:/proj/tests/x.spec.js\n【設計文件】\"{PROJECT_DIR}/docs/design.md\"\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】reuse：C:/proj/tests/x.spec.js\n【設計文件】\"{PROJECT_DIR}/docs/design.md\"\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -1550,7 +1599,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：上游系統太慢、成本過高，證據 src/Order/OrderController.cs:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：上游系統太慢、成本過高，證據 src/Order/OrderController.cs:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK"
@@ -1562,7 +1611,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：這不是上游系統推送的資料，走畫面太慢，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：這不是上游系統推送的資料，走畫面太慢，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK",
@@ -1575,7 +1624,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：並非沒有建立入口，只是走畫面太慢，見 src/Order/OrderController.cs:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：並非沒有建立入口，只是走畫面太慢，見 src/Order/OrderController.cs:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK",
@@ -1588,7 +1637,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，理由：雖然上游系統推送也會產生這筆資料，但走畫面太慢，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，理由：雖然上游系統推送也會產生這筆資料，但走畫面太慢，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK",
@@ -1601,7 +1650,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：不是上游系統推送，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：不是上游系統推送，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK",
@@ -1614,7 +1663,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：上游系統推送｜產品沒有建立入口，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送｜產品沒有建立入口，見 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK",
@@ -1627,7 +1676,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：成本過高，見 src/Order/OrderController.cs:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：成本過高，見 src/Order/OrderController.cs:88\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK",
@@ -1640,7 +1689,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：外部系統推送，回呼寫入點 src/Hooks/Callback.cs:15\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：外部系統推送，回呼寫入點 src/Hooks/Callback.cs:15\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "BLOCK",
@@ -1653,7 +1702,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別：產品沒有建立入口（後台不提供新增），守門 src/Auth/Guard.cs:31\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：產品沒有建立入口（後台不提供新增），守門 src/Auth/Guard.cs:31\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -1665,7 +1714,7 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，例外類別:上游系統推送，唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別:上游系統推送，唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
@@ -1677,10 +1726,638 @@
         "tool_input": {
           "subagent_type": "qa-engineer",
           "description": "x",
-          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：...\n【測試資料來源】\n選 b，出貨單只由上游 ERP 推送、畫面不提供新增，唯一寫入點 src/Sync/ShipmentImport.cs:120，例外類別：上游系統推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，出貨單只由上游 ERP 推送、畫面不提供新增，唯一寫入點 src/Sync/ShipmentImport.cs:120，例外類別：上游系統推送\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
         }
       },
       "expect": "ALLOW"
+    },
+    {
+      "label": "範圍展開·四格都只填「無」→ 擋下，逐格點名",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：無\n2. 反向／終止分支：無\n3. 狀態序列：無\n4. 受影響的共用元件：無\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "範圍展開·逐格作答[\\s\\S]*正向路徑——只寫「無／不適用」[\\s\\S]*受影響的共用元件——只寫「無／不適用」"
+    },
+    {
+      "label": "範圍展開·四格齊全且讀得到 04 模板六 → 放行而且不出聲",
+      "setup": {
+        "files": {
+          ".claude/harness/04-delegation-templates.md": "# 04 派工模板\n\n## 模板六：QA\n\n```\n【範圍展開】（四格全填；任一格填「無」必附一句理由）\n1. **正向路徑**：<本次改動的 happy path，逐步>\n2. **反向／終止分支**：退件／拒絕／取消／軟刪／逾時／重送／權限不足 —— 逐條列出適用哪幾條、怎麼觸發；不適用的逐條說為什麼\n3. **狀態序列**：至少一條多步操作（做 A → 做 B → 撤銷 A → 存檔 → 重開），驗最終狀態與各中間態一致；單步操作測不出的鎖死型缺陷只有這格抓得到\n4. **受影響的共用元件**：本次觸及的共用元件清單（src/components/common/）＋各自其他使用點是否需連帶回歸；改共用元件必列，不得只驗本頁\n```\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "範圍展開·整段沒寫、只在【回報格式】提到「【範圍展開】逐格回報」→ 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- **【範圍展開】逐格回報**：四格各測了幾條"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "範圍展開·逐格作答[\\s\\S]*正向路徑——整格沒寫"
+    },
+    {
+      "label": "範圍展開·整段連字樣都沒有 → 只由標記表報一次，不重複報逐格作答",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "\\[範圍展開\\]",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·04 模板六四格照貼未填（讀得到 04）→ 擋下",
+      "setup": {
+        "files": {
+          ".claude/harness/04-delegation-templates.md": "# 04 派工模板\n\n## 模板六：QA\n\n```\n【範圍展開】（四格全填；任一格填「無」必附一句理由）\n1. **正向路徑**：<本次改動的 happy path，逐步>\n2. **反向／終止分支**：退件／拒絕／取消／軟刪／逾時／重送／權限不足 —— 逐條列出適用哪幾條、怎麼觸發；不適用的逐條說為什麼\n3. **狀態序列**：至少一條多步操作（做 A → 做 B → 撤銷 A → 存檔 → 重開），驗最終狀態與各中間態一致；單步操作測不出的鎖死型缺陷只有這格抓得到\n4. **受影響的共用元件**：本次觸及的共用元件清單（src/components/common/）＋各自其他使用點是否需連帶回歸；改共用元件必列，不得只驗本頁\n```\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】（四格全填；任一格填「無」必附一句理由）\n1. **正向路徑**：<本次改動的 happy path，逐步>\n2. **反向／終止分支**：退件／拒絕／取消／軟刪／逾時／重送／權限不足 —— 逐條列出適用哪幾條、怎麼觸發；不適用的逐條說為什麼\n3. **狀態序列**：至少一條多步操作（做 A → 做 B → 撤銷 A → 存檔 → 重開），驗最終狀態與各中間態一致；單步操作測不出的鎖死型缺陷只有這格抓得到\n4. **受影響的共用元件**：本次觸及的共用元件清單（src/components/common/）＋各自其他使用點是否需連帶回歸；改共用元件必列，不得只驗本頁\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "受影響的共用元件——只照抄模板"
+    },
+    {
+      "label": "範圍展開·讀不到 04 模板六 → 齊全的派工照樣放行，但用 additionalContext 告知、不靜默",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true,
+      "output_match": "讀不到 04 模板六"
+    },
+    {
+      "label": "範圍展開·只有共用元件格寫「無」沒附理由 → 擋下，只點名那一格",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "受影響的共用元件——只寫「無／不適用」",
+      "output_not_match": "(正向路徑|反向／終止分支|狀態序列)——"
+    },
+    {
+      "label": "範圍展開·四格寫在同一行（；分隔）、各格都有作答 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】正向：開出貨單列表頁 → 按「匯出」→ 讀回表頭；反向：七種皆不適用，匯出是唯讀動作、沒有送審與刪除入口；狀態序列：篩選「已出貨」→ 換第 2 頁 → 再匯出，只含已出貨；共用元件：無，只改匯出欄位\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·沒寫格名、只用 1.～4. 編號且都有作答；理由寫在括號裡 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n### 【範圍展開】\n1. 開出貨單列表頁 → 按「匯出」→ 讀回下載檔表頭\n2. 不適用（匯出是唯讀動作，七種分支都沒有入口）\n3. 無（只改匯出檔名，不寫入任何資料）\n4. 無（沒動共用元件）\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "對照表·QA【目標】「對齊 Excel」但沒有【對照表】→ 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證出貨單列表頁的欄位對齊 Excel 匯出檔\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "\\[對照表\\][\\s\\S]*找不到行首的【對照表】"
+    },
+    {
+      "label": "對照表·QA 對齊類目標＋五列【對照表】齊全 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證出貨單列表頁的欄位對齊 Excel 匯出檔\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【對照表】\n- 來源：A＝出貨單列表頁 `/shipments` 的表頭；B＝`ShipmentExport.cs` 匯出的 Excel\n- 欄位／元素：讀畫面表頭與 Excel 第 1 列，兩邊全列、不抽樣\n- 順序：逐欄比位置\n- 值／行為：同一張出貨單兩邊逐欄比顯示值\n- 差異結論：每個差異標已消除或刻意保留＋理由，回報貼逐項表\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "\\[對照表\\]"
+    },
+    {
+      "label": "對照表·【目標】是「畫面的欄位都有在 Excel 裡？」問句（沒有對齊動詞）→ 不觸發、放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】畫面的欄位都有在 Excel 裡？\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "\\[對照表\\]"
+    },
+    {
+      "label": "對照表·來源只寫一側 → 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證出貨單列表頁的欄位對齊 Excel 匯出檔\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【對照表】\n- 來源：`ShipmentExport.cs` 匯出的 Excel\n- 欄位／元素：讀畫面表頭與 Excel 第 1 列，兩邊全列、不抽樣\n- 順序：逐欄比位置\n- 值／行為：同一張出貨單兩邊逐欄比顯示值\n- 差異結論：每個差異標已消除或刻意保留＋理由，回報貼逐項表\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "只寫出一側"
+    },
+    {
+      "label": "對照表·來源兩側都沒有錨點（「畫面那邊；匯出那邊」）→ 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證出貨單列表頁的欄位對齊 Excel 匯出檔\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【對照表】\n- 來源：A＝畫面那邊；B＝匯出那邊\n- 欄位／元素：讀畫面表頭與 Excel 第 1 列，兩邊全列、不抽樣\n- 順序：逐欄比位置\n- 值／行為：同一張出貨單兩邊逐欄比顯示值\n- 差異結論：每個差異標已消除或刻意保留＋理由，回報貼逐項表\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "沒有具體錨點"
+    },
+    {
+      "label": "對照表·順序寫「不適用」沒附理由 → 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證出貨單列表頁的欄位對齊 Excel 匯出檔\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【對照表】\n- 來源：A＝出貨單列表頁 `/shipments` 的表頭；B＝`ShipmentExport.cs` 匯出的 Excel\n- 欄位／元素：讀畫面表頭與 Excel 第 1 列，兩邊全列、不抽樣\n- 順序：不適用\n- 值／行為：同一張出貨單兩邊逐欄比顯示值\n- 差異結論：每個差異標已消除或刻意保留＋理由，回報貼逐項表\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "「順序」沒寫內容"
+    },
+    {
+      "label": "對照表·一般用語（已與使用者對齊、照慣例靠左對齊）不觸發 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證出貨單排序（需求已與使用者對齊；欄位照慣例靠左對齊；結果同步給 QA 彙整）\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "\\[對照表\\]"
+    },
+    {
+      "label": "對照表·對齊字眼只在【背景】、不在【目標】→ 不觸發、放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作出貨單排序\n【背景】這次排序規則比照 `OrderList.vue`\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "\\[對照表\\]"
+    },
+    {
+      "label": "對照表·backend-engineer【目標】「讓 exportShipments 跟隔壁 exportOrders 一樣」沒有【對照表】→ 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "backend-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- FLOWS.md：沒觸及已收錄鏈路\n【目標】實作：讓 `exportShipments` 跟隔壁 `exportOrders` 一樣只回自家單據\n本任務由你親自執行，不得再轉派給其他 agent。\n【驗收條件】\n- build 0 error\n【回報格式】\n- 已讀清單\n- 動了哪些檔"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "\\[對照表\\][\\s\\S]*對齊類"
+    },
+    {
+      "label": "對照表·general-purpose 的目標是對齊類 → 不在閘範圍、放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "general-purpose",
+          "prompt": "【目標】查前後台兩份 `vendor.js` 是否一致"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 R1-9：類別名包反引號「例外類別：`上游系統推送`」→ 放行（Markdown 正當寫法）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：`上游系統推送`，出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 R1-9：類別名包粗體「例外類別：**上游系統推送**」→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：**上游系統推送**，出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 R1-9：整句包全形括號「（例外類別：上游系統推送）」→ 放行（類別名在右括號停）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，（例外類別：上游系統推送），出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 R1-9：整句包半形括號「(例外類別: 上游系統推送)」→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，(例外類別: 上游系統推送),出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 R1-9：兩類並列「例外類別：上游系統推送／產品沒有建立入口」→ 放行（取斜線前第一個）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送／產品沒有建立入口，出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 R1-9：類別名後接「以外」→ 擋（否定不算宣告）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送以外，出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 R1-9：類別名後接「（不是）」→ 擋（括號內否定）",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：上游系統推送（不是），出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 R1-9：子句尾帶否定「這筆不屬於例外類別：上游系統推送」→ 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，這筆不屬於例外類別：上游系統推送，出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "範圍展開·品質 正向路徑只寫「開頁面操作一下確認結果正常」（0 個錨點）→ 擋下，點名錨點不足",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開頁面，操作一下，確認結果正常\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "正向路徑——具體錨點不足（找到 0 個",
+      "output_not_match": "(反向／終止分支|狀態序列|受影響的共用元件)——"
+    },
+    {
+      "label": "範圍展開·品質 反向分支只寫權限不足、其餘六種沒點名也沒「其餘不適用」→ 擋下，列出缺的種類",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "反向／終止分支——7 種反向分支沒交代到：退件、拒絕、取消、軟刪、逾時、重送",
+      "output_not_match": "(正向路徑|狀態序列|受影響的共用元件)——"
+    },
+    {
+      "label": "範圍展開·品質 反向分支「取消：應該要正確處理」列為適用卻沒寫怎麼觸發 → 擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：取消：應該要正確處理；其餘皆不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "列為適用但沒寫怎麼觸發[^：]*：取消"
+    },
+    {
+      "label": "範圍展開·品質 反向分支「其餘不適用」沒附理由 → 擋下，說明寫了其餘不適用但沒理由",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；其餘不適用\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "沒交代到：退件[\\s\\S]*寫了「其餘不適用」但沒附理由"
+    },
+    {
+      "label": "範圍展開·品質 狀態序列只有一步「按匯出，檔案正確」→ 擋下，點名步數",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：按匯出，檔案正確\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "狀態序列——只數到 1 步（至少 3 步",
+      "output_not_match": "(正向路徑|反向／終止分支|受影響的共用元件)——"
+    },
+    {
+      "label": "範圍展開·品質 狀態序列與正向路徑貼同一段 → 擋下，點名跨格重複",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "狀態序列——與「正向路徑」格內容實質相同"
+    },
+    {
+      "label": "範圍展開·品質 四格齊全：正向帶路由與欄位、反向以表格逐列交代、狀態序列條列 4 步 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開 `/orders/list` → 篩「已出貨」→ 按「匯出」→ 讀回 `OrderNo` 欄與畫面第一列一致\n2. 反向／終止分支：\n| 分支 | 適用 | 怎麼觸發／為什麼不適用 |\n|---|---|---|\n| 權限不足 | 適用 | 用沒有 `order.export` 權限的帳號開 `/orders/list`，匯出鈕不顯示 |\n| 退件／拒絕 | 不適用 | 匯出不走簽核 |\n| 取消／軟刪 | 不適用 | 列表頁沒有取消與刪除入口 |\n| 逾時／重送 | 不適用 | 匯出是同步下載，沒有排程與重送 |\n3. 狀態序列：\n   1) 篩「已出貨」\n   2) 換第 2 頁\n   3) 重新整理\n   4) 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·品質 四格齊全：反向一條適用＋「其餘皆不適用：理由」、狀態序列寫「連續 5 次」→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開 `/orders/list` → 按「匯出」→ 讀回 `OrderNo` 欄\n2. 反向／終止分支：權限不足：用沒有 `order.export` 權限的帳號開 `/orders/list`，應導向無權限頁；其餘皆不適用：匯出是唯讀動作，沒有送審、刪除與排程入口\n3. 狀態序列：連續 5 次切換「含已取消」勾選框再按匯出，第 5 次檔案列數與第 1 次相同\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·品質 不執行測試的 QA 派工（標題寫不執行＋prompt 明令不開瀏覽器）→ 各格只驗有作答、不判品質，放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n本次只做測試設計：不開瀏覽器、不執行任何操作。\n【範圍展開】（本次不執行測試，只做測試設計）\n1. 正向路徑：依設計文件列出 happy path 的測試情境\n2. 反向／終止分支：列出各分支的情境，暫不判適用\n3. 狀態序列：列一條多步情境\n4. 受影響的共用元件：無，設計階段不回歸\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·品質 只在標題寫「不執行」、prompt 沒有不開瀏覽器的明令 → 品質照判，正向路徑錨點不足擋下",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】（本次不執行測試，只做測試設計）\n1. 正向路徑：依設計文件列出 happy path 的測試情境\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_match": "正向路徑——具體錨點不足"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 複驗：括號只包類別名「例外類別：（上游系統推送）」→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：（上游系統推送），出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 複驗：半形括號只包類別名「例外類別: (上游系統推送)」→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別: (上游系統推送),出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "qa-engineer：選 b·R2 複驗：括號在前的否定「例外類別：（不是）上游系統推送」→ 擋",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "description": "x",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開出貨單列表頁 → 按「匯出」→ 讀回下載檔第 1 列表頭\n2. 反向／終止分支：權限不足：用沒有匯出權限的帳號開頁，匯出鈕不顯示；退件／拒絕／取消／軟刪／逾時／重送不適用：匯出是唯讀動作，沒有送審與刪除入口\n3. 狀態序列：篩選「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 b，例外類別：（不是）上游系統推送，出貨單由上游推送，產品端唯一寫入點 src/Sync/ShipmentImport.cs:120\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單\n- 逐格回報"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "範圍展開·品質 真單形狀：反向格把退件／取消合寫一條、其餘兩句不適用附理由（沒另寫「拒絕」）→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開 `/orders/list` → 按「匯出」→ 讀回 `OrderNo` 欄與畫面第一列一致\n2. 反向／終止分支：退件／取消：用既有 fixture 走產品入口造退件與取消的單，列表狀態欄顯示「已退件」「已取消」；權限不足：不適用——未改權限守門；逾時／軟刪／重送：不適用——純畫面排版無寫入\n3. 狀態序列：篩「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·品質 真單形狀：反向格「軟刪：不適用——無刪除操作」（理由只剩分支同義詞）＋取消用純中文視窗名當觸發 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開 `/orders/list` → 按「匯出」→ 讀回 `OrderNo` 欄與畫面第一列一致\n2. 反向／終止分支：\n- 退件：用主管帳號在簽核頁按「退回」，單據回到可編輯\n- 取消：編輯視窗取消、新增視窗取消，列表不變\n- 軟刪：不適用——無刪除操作\n- 逾時：不適用——本頁沒有到期概念\n- 重送：退回後改一欄再按「送出」，簽核歷程多一筆\n- 權限不足：用沒有 `order.edit` 權限的帳號開 `/orders/1/edit`，應導向無權限頁\n3. 狀態序列：篩「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·品質 真單形狀：正向格只用中文畫面名湊錨點（查詢頁、輸入框、查詢鈕、名稱欄，沒有反引號與路由）→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開會員查詢頁 → 在關鍵字輸入框填公司名 → 按查詢鈕 → 結果列表第一列的公司名稱欄與輸入一致\n2. 反向／終止分支：權限不足：用沒有 `vendor.view` 權限的帳號開 `/vendors`，應導向無權限頁；其餘皆不適用：查詢是唯讀動作，沒有送審、刪除與排程入口\n3. 狀態序列：填關鍵字 → 查詢 → 清空關鍵字 → 再查詢 → 切第 2 頁，列表回到未篩選的第 2 頁\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·品質 真單形狀：正向格用詳情頁、頁籤、點上傳、卡片、時間欄這類中文字尾湊錨點 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開案件詳情頁 → 切到附件頁籤 → 點上傳 → 選一個 PDF → 附件卡片多一張、第一次下載時間欄仍為空\n2. 反向／終止分支：取消：上傳對話框按「取消」，附件卡片數不變；權限不足：用沒有 `case.edit` 權限的帳號開詳情頁，上傳鈕不顯示；退件／軟刪／逾時／重送：不適用——附件上傳不走簽核、沒有刪除與到期概念\n3. 狀態序列：上傳 `a.pdf` → 上傳 `b.pdf` → 重新整理 → 切回附件頁籤，兩張卡片順序與上傳順序一致\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·品質 真單形狀：反向格首句「拒絕／取消／退件等產品分支不在本次範圍——理由」合稱帶過 → 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開 `/orders/list` → 按「匯出」→ 讀回 `OrderNo` 欄與畫面第一列一致\n2. 反向／終止分支：拒絕／取消／退件等產品分支不在本次範圍——本次只改列表欄寬，沒有改任何寫入流程；權限不足：用沒有 `order.view` 權限的帳號開 `/orders/list`，應導向無權限頁\n3. 狀態序列：篩「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·品質 真單形狀：反向格 9 行條列、每種分支各一行（含「拒絕：與退件同一個狀態」「未登入」）→ 放行",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開 `/orders/list` → 按「匯出」→ 讀回 `OrderNo` 欄與畫面第一列一致\n2. 反向／終止分支：\n- 退件：用主管帳號在簽核頁按「退回」，單據回到可編輯\n- 拒絕：與退件同一個 Rejected 狀態，畫面顯示「退件」\n- 取消：在詳情頁按「取消申請」，狀態欄顯示「已取消」\n- 軟刪：不適用——本模組沒有刪除入口\n- 逾時：把 `ExpireAt` 設成昨天再開頁，應顯示「已逾期」標籤\n- 重送：退件後改一欄再按「送出」，歷程多一筆\n- 權限不足：用沒有 `req.approve` 權限的帳號開簽核頁，核准鈕不顯示\n- 重送後再退件：第二次退件原因要覆蓋第一次\n- 未登入：直接開 `/requests/1`，應導向登入頁\n3. 狀態序列：篩「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "ALLOW",
+      "output_not_match": "範圍展開·逐格作答"
+    },
+    {
+      "label": "範圍展開·品質 真單形狀：反向格合稱句「拒絕／取消／退件等產品分支不適用」沒說理由 → 擋下，點名沒交代到的種類",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開 `/orders/list` → 按「匯出」→ 讀回 `OrderNo` 欄與畫面第一列一致\n2. 反向／終止分支：拒絕／取消／退件等產品分支不適用；權限不足：用沒有 `order.view` 權限的帳號開 `/orders/list`，應導向無權限頁\n3. 狀態序列：篩「已出貨」→ 換第 2 頁 → 重新整理 → 再按匯出，檔案只含已出貨\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_not_match": "(正向路徑|狀態序列|受影響的共用元件)——",
+      "output_match": "反向／終止分支——7 種反向分支沒交代到：軟刪、逾時、重送（寫了「其餘不適用」但沒附理由）"
+    },
+    {
+      "label": "範圍展開·品質 真單形狀：正向格字尾像畫面名但只湊到 1 個錨點（「開會員查詢頁，操作一下看看結果有沒有正常」）→ 擋下，點名錨點不足",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "subagent_type": "qa-engineer",
+          "model": "sonnet",
+          "prompt": "【開工前對齊】無分岔：需求只有一種解讀，照計畫實作。\n【目標環境】本機預設環境\n【既有測試分流】新 TC：既有案例沒有覆蓋這個畫面。\n【開工前必讀】\n- C:/proj/CLAUDE.md 的「專案概要」一節\n- C:/proj/CONTEXT.md\n- C:/proj/tests/Project_Detail/PROJECT.md\n【目標】驗證 X\n本任務由你親自執行，不得再轉派給其他 agent。\n【範圍展開】\n1. 正向路徑：開會員查詢頁，操作一下看看結果有沒有正常\n2. 反向／終止分支：權限不足：用沒有 `vendor.view` 權限的帳號開 `/vendors`，應導向無權限頁；其餘皆不適用：查詢是唯讀動作，沒有送審、刪除與排程入口\n3. 狀態序列：填關鍵字 → 查詢 → 清空關鍵字 → 再查詢 → 切第 2 頁，列表回到未篩選的第 2 頁\n4. 受影響的共用元件：無，本次只改匯出欄位，沒動共用元件\n【測試資料來源】\n選 a：走真實業務流程\n【驗收條件】\n- 每個 TC 附三方對照\n【回報格式】\n- 已讀清單"
+        }
+      },
+      "expect": "BLOCK",
+      "output_not_match": "(反向／終止分支|狀態序列|受影響的共用元件)——",
+      "output_match": "正向路徑——具體錨點不足（找到 1 個：會員查詢頁"
     }
   ],
   "variants": {
@@ -1689,6 +2366,18 @@
         [
           "function acceptanceIsEmpty(prompt) {",
           "function acceptanceIsEmpty(prompt) {\n  throw new Error('probe：模擬派工內容檢查故障');"
+        ]
+      ]
+    },
+    "require-must-read": {
+      "replace": [
+        [
+          "const REQUIRE_PROJECT_OVERVIEW_READ = false;",
+          "const REQUIRE_PROJECT_OVERVIEW_READ = true;"
+        ],
+        [
+          "const REQUIRE_GLOSSARY_READ = false;",
+          "const REQUIRE_GLOSSARY_READ = true;"
         ]
       ]
     }

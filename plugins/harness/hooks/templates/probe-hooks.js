@@ -9,6 +9,8 @@
 //   node probe-hooks.js --list          # 列出哪些 hook 有／沒有 cases
 //   node probe-hooks.js --parser=off    # 規則引擎改走退回的正則路徑（沒裝語法解析器時的行為）
 // 結束碼：全數符合預期＝0；任一不符或有 hook 缺 cases＝1。
+// 回歸的認法：cases/<hook>.json（本檔的案例格式）或同名 cases/<hook>.test.js（node 直接跑，exit 0＝通過）皆可，兩種都有就兩種都跑；
+// 都沒有、但答案檔 Q5 的 data.keptWithoutRegression 記了這支（沿用的原有 hook、附理由）時報 KEPT，不算缺 cases。
 //
 // 【範本】/harness:init 會把本檔、cases/ 與選定的 hook 一起複製到目標專案 `.claude/hooks/`。
 // 實例化時若改了某支 hook 的「init 填空區」常數，要同步改它的 cases（例如 agent 名單改了，
@@ -121,12 +123,28 @@ function casesFor(hook) {
   const p = path.join(CASES_DIR, hook.replace(/\.js$/, '.json'));
   return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null;
 }
+// 同名的 cases/<hook>.test.js 也算回歸：參考模式沿用的原有 hook 常只有這種自帶測試（要驗 stderr、建連結夾具這類
+// JSON 案例表達不了的事）。它不吃本探針的案例格式，由本探針用 node 直接跑，exit 0＝通過、其他＝失敗。
+function testFor(hook) {
+  const p = path.join(CASES_DIR, hook.replace(/\.js$/, '.test.js'));
+  return fs.existsSync(p) ? p : null;
+}
+// 答案檔記成「沿用、無回歸」的原有 hook（Q5 的 data.keptWithoutRegression，init 的 phase-1-inventory.md「原有 hook」那一列）：
+// 報 KEPT、不算缺 cases。讀不到答案檔（plugin 開發目錄、還沒跑完 init）時清單是空的，照舊算缺。
+function keptWithoutRegression() {
+  try {
+    const a = JSON.parse(fs.readFileSync(path.join(HERE, '..', 'harness', 'init-answers.json'), 'utf8'));
+    const list = (((a.answers || {}).Q5 || {}).data || {}).keptWithoutRegression;
+    return new Map((Array.isArray(list) ? list : []).filter((x) => x && x.hook && String(x.reason || '').trim()).map((x) => [String(x.hook), String(x.reason)]));
+  } catch { return new Map(); }
+}
+const KEPT = keptWithoutRegression();
 function listHooks() {
-  return ALL_JS.filter((f) => { const k = kindOf(f); return k === 'hook' || (k === 'cli' && casesFor(f)); });
+  return ALL_JS.filter((f) => { const k = kindOf(f); return k === 'hook' || (k === 'cli' && (casesFor(f) || testFor(f))); });
 }
 
 if (args.includes('--list')) {
-  for (const h of listHooks()) console.log((casesFor(h) ? '有 cases ' : '缺 cases ') + h);
+  for (const h of listHooks()) console.log((casesFor(h) || testFor(h) ? '有 cases ' : (KEPT.has(h) ? '沿用無回歸 ' : '缺 cases ')) + h);
   process.exit(0);
 }
 
@@ -217,9 +235,23 @@ function mkProject(setup, hookFile, variant) {
 if (PARSER) console.log('規則引擎判定路徑：' + PARSER.text + '\n');
 let skipped = 0;
 let skippedOff = 0;   // 標 "parser": "off" 的案例在語法樹路徑略過的數量
+let kept = 0;
 for (const hook of hooks) {
   const spec = casesFor(hook);
-  if (!spec) { console.log(`MISS | ${hook} | 沒有 cases 檔`); missing++; continue; }
+  const test = testFor(hook);
+  if (test) {
+    const r = spawnSync(process.execPath, [test], { cwd: HERE, env: Object.assign(hookEnvBase(), { HOOKS_DIR: HERE }),
+      encoding: 'utf8', timeout: 600000, maxBuffer: 64 * 1024 * 1024 });
+    const ok = !r.error && !r.signal && r.status === 0;
+    ok ? pass++ : fail++;
+    console.log(`${ok ? 'PASS' : 'FAIL'} | ${hook} | node cases/${path.basename(test)} → exit ${r.status}${r.error ? '（' + r.error.message + '）' : ''}`);
+    if (!ok) console.log('       輸出尾段:', ((r.stdout || '') + (r.stderr || '')).slice(-600).replace(/\n/g, ' '));
+  }
+  if (!spec) {
+    if (test) continue;
+    if (KEPT.has(hook)) { kept++; console.log(`KEPT | ${hook} | 沿用、無回歸（答案檔 Q5）：${KEPT.get(hook)}`); continue; }
+    console.log(`MISS | ${hook} | 沒有 cases 檔（cases/${hook.replace(/\.js$/, '.json')} 或 cases/${hook.replace(/\.js$/, '.test.js')}）`); missing++; continue;
+  }
   for (const c of spec.cases) {
     if (c.parser === 'only' && PARSER && !PARSER.on) { skipped++; console.log(`SKIP | ${hook} | 只有語法樹路徑做得到 | ${c.label}`); continue; }
     if (c.parser === 'off' && PARSER && PARSER.on) { skippedOff++; console.log(`SKIP | ${hook} | 只在正則路徑跑 | ${c.label}`); continue; }
@@ -281,6 +313,6 @@ for (const hook of hooks) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
   }
 }
-console.log(`\n合計 PASS ${pass} / FAIL ${fail} / 缺 cases ${missing}` + (skipped ? ` / 略過 ${skipped}（只有語法樹路徑做得到）` : '') + (skippedOff ? ` / 略過 ${skippedOff}（只在正則路徑跑）` : ''));
+console.log(`\n合計 PASS ${pass} / FAIL ${fail} / 缺 cases ${missing}` + (kept ? ` / 沿用無回歸 ${kept}` : '') + (skipped ? ` / 略過 ${skipped}（只有語法樹路徑做得到）` : '') + (skippedOff ? ` / 略過 ${skippedOff}（只在正則路徑跑）` : ''));
 if (PARSER && !PARSER.on && !PARSER_OFF) console.log(PARSER.text);
 process.exit(fail || missing ? 1 : 0);

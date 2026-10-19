@@ -23,6 +23,9 @@
  * - 知識筆記 action=create 當成 append（條目只會附加；學習迴路不建知識筆記檔本身）；memory 的 append 拒收 format。
  * - 知識筆記 update 不跑條目格式檢查（content 是替換片段，不一定是完整條目）；memory update 對替換後的整份檔跑格式檢查。
  * - memory 新建（綠或黃）都在 MEMORY.md 補索引行（只補綠區的話，黃區新檔不會被自動載入，等於沒寫）。
+ *   補之前先量（lib.indexUsage）：MEMORY.md 加本筆索引行後位元組 > lib.MEMORY_INDEX_BYTES 或行數 > lib.MEMORY_INDEX_LINES
+ *   任一成立就整筆不寫（memory 檔也不建），留成 flags 帶 index-full 的待核 proposal，notes 記「已達上限 n/25600 位元組、m/200 行」
+ *   由開場回報帶出；整併索引後再核可或重跑。量的是位元組與行（官方載入上限的單位），不是字元。
  * - 知識筆記的變更紀錄檔不存在就不補（不建檔），在 run 帳本 notes 記一句。
  * - 「第 2 次」計數：以「主題相同或目標 memory 檔相同」為同一件事；每筆 ledger 紀錄的出處集合跟先前已計的
  *   紀錄有任何重疊就不算新的一次（同一段被重讀、或一筆提案同時引兩行，都只算一次）。設計稿寫「不同出處數」，
@@ -49,7 +52,9 @@ const CATEGORIES = ['correction', 'workaround', 'tool-pitfall', 'fact'];
 const RED_KINDS = new Set(['rule', 'hook', 'agent', 'claude-md', 'settings']);
 const KNOWLEDGE = new Set(['glossary', 'flows', 'qa-knowledge']);
 const QA_SECTIONS = ['操作規則', '測試坑', '設計知識'];
-const STARS = { correction: '⭐⭐⭐', 'tool-pitfall': '⭐⭐', workaround: '⭐⭐', fact: '⭐' };
+// correction 只給 ⭐⭐：星等判準把 ⭐⭐⭐ 留給使用者明文裁定的鐵則，黃區寫入還沒經人審，不能自評為鐵則
+// （⭐⭐ 以上又不進淘汰候選，自給 ⭐⭐⭐ 等於自發免死金牌）。使用者核可那一刻由 learn-lib.pendingAction 升為 ⭐⭐⭐。
+const STARS = { correction: '⭐⭐', 'tool-pitfall': '⭐⭐', workaround: '⭐⭐', fact: '⭐' };
 const REASONS = ['format', 'secret', 'injection', 'exfil', 'evidence', 'clue', 'verbatim', 'conflict', 'over-limit', 'target', 'io'];
 
 function redPath(t) {
@@ -347,6 +352,35 @@ function promote(o) {
             } else res.notes.push(cl.rel + ' 不存在，' + rel + ' 的變更紀錄沒補');
           }
 
+          // MEMORY.md 上限（05 §3 第 1 條）在寫入前量：現長度＋本筆索引行會超過就整筆不寫（memory 檔與索引行都不寫），
+          // 留成待核的 proposal（flags 帶 index-full；approve／reject 走紅區那套，不另立狀態），notes 記一句讓開場回報帶出。
+          // 先寫再記一句的舊做法（紅藍對抗 R2 R6-13）等於上限不存在：索引超過載入上限是靜默截斷，後面的條目整個 session 載不進來。
+          let indexNext = null;
+          if (indexInfo) {
+            const cur = lib.readText(indexInfo.path);
+            indexNext = (cur === null ? '' : cur.replace(/\n*$/, cur.trim() ? '\n' : '')) + indexInfo.line + '\n';
+            const nextUse = lib.indexUsage(indexNext);
+            if (nextUse.bytes > lib.MEMORY_INDEX_BYTES || nextUse.lines > lib.MEMORY_INDEX_LINES) {
+              const now = lib.indexUsage(cur === null ? '' : cur);
+              const id = lib.nextPendingId(pd.items);
+              const note = 'MEMORY.md 已達上限 ' + now.bytes + '/' + lib.MEMORY_INDEX_BYTES + ' 位元組、' + now.lines + '/' + lib.MEMORY_INDEX_LINES
+                + ' 行（加本筆索引行會到 ' + nextUse.bytes + ' 位元組、' + nextUse.lines + ' 行），'
+                + display(p) + ' 暫不寫入、留在待核 ' + id + '；整併索引後再核可或重跑反思';
+              pd.items.push({ id, run, level, type: 'proposal', status: 'pending', kind: p.kind, action: p.action,
+                target: display(p), topic: topicOf(p), category: p.category || null, summary: p.summary, content: p.content,
+                replaces: typeof p.replaces === 'string' ? p.replaces : null, section: null,
+                evidence: sources(p), flags: ['index-full'], checks: null,
+                backup: null, afterHash: null, createdAt: lib.nowIso(), decidedAt: null, decisionNote: null });
+              res.pendingApproval++;
+              res.notes.push(note);
+              lib.appendLedger(P, { run, action: 'pending-approval', target: display(p), level, result: 'ok',
+                reason: note, reasonClass: '-', evidence: sources(p), topic: topicOf(p), item: id });
+              runRollbacks.push({ id, target: display(p), rollback: () => {} });
+              maybePromote(p);
+              return;
+            }
+          }
+
           // 寫入（先備份）；任何一步失敗，已寫的檔全部回復到寫入前（新建的刪掉），不留半套
           let backup, afterHash;
           const written = [];
@@ -362,13 +396,12 @@ function promote(o) {
             lib.writeAtomic(abs, newText);
             afterHash = lib.sha1(newText);
             if (indexInfo) {
-              const cur = lib.readText(indexInfo.path);
               written.push({ path: indexInfo.path, backup: backupOf(indexInfo.path, 'memory__MEMORY.md') });
-              lib.writeAtomic(indexInfo.path, (cur === null ? '' : cur.replace(/\n*$/, cur.trim() ? '\n' : '')) + indexInfo.line + '\n');
+              lib.writeAtomic(indexInfo.path, indexNext);
               addedLines.push({ path: indexInfo.path, line: indexInfo.line });
-              const chars = lib.readText(indexInfo.path).length;
-              if (chars > lib.MEMORY_INDEX_LIMIT) res.notes.push('MEMORY.md 已 ' + chars + ' 字元，超過上限 ' + lib.MEMORY_INDEX_LIMIT);
-              else if (chars > lib.MEMORY_INDEX_LIMIT * 0.8) res.notes.push('MEMORY.md 已到上限的 ' + Math.round(chars * 100 / lib.MEMORY_INDEX_LIMIT) + '%');
+              const use = lib.indexUsage(lib.readText(indexInfo.path));
+              if (use.pctBytes >= 80 || use.pctLines >= 80) res.notes.push('MEMORY.md 已到上限的 ' + Math.max(use.pctBytes, use.pctLines) + '%（'
+                + use.bytes + '/' + lib.MEMORY_INDEX_BYTES + ' 位元組、' + use.lines + '/' + lib.MEMORY_INDEX_LINES + ' 行）');
             }
             if (changelogInfo) {
               const cur = lib.readText(changelogInfo.path);

@@ -7,7 +7,7 @@
  *   --skip-probe：跳過 hooks/templates 的 probe-hooks 全量（兩輪約 10 分鐘），只供開發中快速迭代；完成驗收一律不跳。
  * 結束碼：0＝全數通過；1＝有失敗。最後一行「合計 PASS n / FAIL n」。
  *
- * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、integration、probe
+ * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、review-collect、integration、probe
  * 不在這裡的：真實端到端（claude -p 跑一次完整 /harness:init），只跑一次當驗收證據，結論記在 docs/learning-loop-design.md §11。
  */
 const fs = require('fs');
@@ -87,8 +87,13 @@ if (want('b8')) {
 
 // ── b9：形狀目錄列數與文字一致（不寫死會過時的數字）──
 if (want('b9')) {
+  const allRows = L.catalogRows(undefined, { all: true });
+  check('b9', allRows.length > 0 && allRows.every((r, i) => r.row === i + 1), `形狀目錄目錄表 ${allRows.length} 列，編號 1..${allRows.length} 連續`);
+  // 類別欄「不帶」的列不進答案檔（catalog 維護節）：catalogRows() 預設要跳過它們，且至少跳得掉一列（表裡現有 28、45、46）
   const rows = L.catalogRows();
-  check('b9', rows.length > 0 && rows.every((r, i) => r.row === i + 1), `形狀目錄目錄表 ${rows.length} 列，編號 1..${rows.length} 連續`);
+  const skipped = allRows.filter((r) => r.skip).map((r) => r.row);
+  check('b9', skipped.length > 0 && rows.length === allRows.length - skipped.length && rows.every((r) => !/^不帶/.test(r.cls)),
+    `catalogRows() 跳過「不帶」列 ${skipped.join('、')}，剩 ${rows.length} 列進答案檔`);
   const texts = [path.join(INIT, 'references', 'hook-catalog.md'), path.join(INIT, 'SKILL.md'), ...walk(PHASES), path.join(PLUGIN, 'README.md')];
   for (const f of texts) {
     const m = read(f).match(/\d+\s*支\s*hook\s*[＋+]\s*\d+\s*個\s*plugin/);
@@ -521,22 +526,36 @@ if (want('delegation-gate')) {
       const b = a < 0 ? -1 : t.indexOf('\n```', a + 4);
       return b < 0 ? null : t.slice(a + 4, b);
     };
-    // 填空：{{…}} 由內往外換；<workspace> 換成暫存目錄；其餘 <…>（可巢狀，不跨行）換成示範內容
+    // 填空：{{…}} 由內往外換——寫了「預設『…』」的填空（必讀檔名、分流標記名：派工閘會拿去驗的字樣）取預設值，其餘換成示範內容；
+    // <workspace> 換成暫存目錄；其餘 <…>（可巢狀，不跨行）換成示範內容
+    // 條件式填空（「有稽核工具時逐條加：…」「若…」）init 時沒有那個條件就整段刪：這裡同樣填空字串，不填示範內容——
+    // 填成一行光禿禿的「示範內容」會被實例閘的【驗收條件】可驗證性檢查擋下，那是測試自己造的假紅
+    const dflt = (inner, fallback) => { const m = /預設『([^』]*)』/.exec(inner); if (m) return m[1]; return /^\s*(有|若|沒|無)/.test(inner) ? '' : fallback; };
     const fill = (s) => {
-      for (let g = 0; g < 999 && /\{\{/.test(s); g++) s = s.replace(/\{\{((?:(?!\{\{|\}\})[\s\S])*)\}\}/, '示範內容');
+      for (let g = 0; g < 999 && /\{\{/.test(s); g++) s = s.replace(/\{\{((?:(?!\{\{|\}\})[\s\S])*)\}\}/, (m, x) => dflt(x, '示範內容'));
       s = s.split('<workspace>').join(W);
       for (let g = 0; g < 99; g++) { const n = s.replace(/<[^<>\n]*>/g, '示範內容'); if (n === s) break; s = n; }
       return s;
     };
+    // 閘執行時從專案 04 讀模板六【範圍展開】的格說明（照抄不算作答）：放 init 填過的 skeleton-04，驗兩邊的格式對得上。
+    // 實例的 04 只換 {{…}}、模板裡的 <…> 佔位照留——換成示範內容的話，prompt 裡同樣的示範內容會被當成照抄而誤擋
+    let t04 = t;
+    for (let g = 0; g < 999 && /\{\{/.test(t04); g++) t04 = t04.replace(/\{\{((?:(?!\{\{|\}\})[\s\S])*)\}\}/, (m, x) => dflt(x, 'src/components/common/'));
+    fs.mkdirSync(path.join(ws, '.claude', 'harness'), { recursive: true });
+    fs.writeFileSync(path.join(ws, '.claude', 'harness', '04-delegation-templates.md'), t04);
     const setLine = (s, head, line) => s.replace(new RegExp('^' + head + '.*$', 'm'), () => line);
     const ALIGN = '【開工前對齊】無分岔＋需求只有一種解讀（單一欄位的顯示調整）';
-    const run = (agent, prompt) => {
-      const r = spawnSync(process.execPath, [HOOK], { encoding: 'utf8', env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: ws }),
-        input: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Agent', cwd: ws, tool_input: { subagent_type: agent, prompt } }) });
+    // 放行但 additionalContext 寫「故障」（派工內容檢查丟例外、fail-open 給的綠燈）一律算沒過：那不是閘判定過，是閘沒跑到（2026-10-19 紅藍對抗 R4）
+    const run = (agent, prompt, hook = HOOK, root = ws, env = {}) => {
+      const r = spawnSync(process.execPath, [hook], { encoding: 'utf8', env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: root }, env),
+        input: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Agent', cwd: root, tool_input: { subagent_type: agent, prompt } }) });
       const o = String(r.stdout || '').trim();
       if (!o) return { allow: true, why: `exit ${r.status}` };
       let j; try { j = JSON.parse(o).hookSpecificOutput || {}; } catch { return { allow: false, why: '輸出不是 JSON：' + o.slice(0, 200) }; }
-      return j.permissionDecision === 'deny' ? { allow: false, why: String(j.permissionDecisionReason) } : { allow: true, why: 'additionalContext：' + String(j.additionalContext || '').slice(0, 200) };
+      if (j.permissionDecision === 'deny') return { allow: false, why: String(j.permissionDecisionReason) };
+      const ctx = String(j.additionalContext || '');
+      if (/故障/.test(ctx)) return { allow: false, why: '放行但閘自報故障（fail-open 的綠燈不算放行）：' + ctx.slice(0, 300) };
+      return { allow: true, why: 'additionalContext：' + ctx.slice(0, 200) };
     };
     const short = (s) => s.replace(/\s+/g, ' ').slice(0, 300);
     const tpl = {};
@@ -558,10 +577,21 @@ if (want('delegation-gate')) {
       check('delegation-gate', r.allow, `模板${n}填好 → 放行${r.allow ? '' : '：' + short(r.why)}`);
     }
     if (tpl['六']) {
-      const { agent, p } = tpl['六'];
+      const { agent } = tpl['六'];
+      const pasted = tpl['六'].p;
+      // 【範圍展開】第 2～4 格在模板裡是說明文字、沒有佔位，照貼等於沒作答；說明後面接本次的實際內容才算
+      // 第 1 格正向路徑在模板裡有佔位但品質層（2026-10-18 回收）要 ≥2 個具體錨點，所以也要補本次內容
+      const scoped = pasted
+        .replace(/^(1\. \*\*正向路徑\*\*：.*)$/m, (m) => m + ' 本次：開 `/orders/list` → 按「匯出」→ 讀回 `OrderNo` 欄與畫面第一列一致')
+        .replace(/^(2\. \*\*反向／終止分支\*\*：.*)$/m, (m) => m + ' 本次：權限不足用沒有匯出權限的帳號開頁，匯出鈕不顯示；其餘六種不適用，匯出是唯讀動作')
+        .replace(/^(3\. \*\*狀態序列\*\*：.*)$/m, (m) => m + ' 本次：篩選已出貨 → 換第 2 頁 → 重新整理 → 再匯出，只含已出貨')
+        .replace(/^(4\. \*\*受影響的共用元件\*\*：.*)$/m, (m) => m + ' 本次：無，只改匯出欄位、沒動共用元件');
+      const p = scoped;
       const answer = (line) => p.replace(/^(【測試資料來源】[^\n]*\n)/m, (m) => m + line + '\n');
+      check('delegation-gate', scoped !== pasted && (scoped.match(/ 本次：/g) || []).length === 4, '模板六【範圍展開】四格抽得到格名（能補上作答）');
       const cases = [
         ['照貼不作答', p, false, '測試資料來源·未明選'],
+        ['【範圍展開】照貼不作答（測試資料來源已選 a）', pasted.replace(/^(【測試資料來源】[^\n]*\n)/m, (m) => m + '選 a：從出貨單畫面實際建單產生資料。\n'), false, '範圍展開·逐格作答'],
         ['選 a', answer('選 a：從出貨單畫面實際建單產生資料。'), true],
         ['選 c＋理由', answer('選 c：幣別屬設定類主檔，期望值查資料庫推導。'), true],
         ['選 b 只寫成本', answer('選 b：走畫面太慢，成本過高。'), false, '測試資料來源·非例外'],
@@ -571,6 +601,47 @@ if (want('delegation-gate')) {
         const r = run(agent, prompt);
         const ok = allow ? r.allow : (!r.allow && r.why.includes(tag));
         check('delegation-gate', ok, `模板六${name} → ${allow ? '放行' : '擋（' + tag + '）'}${ok ? '' : '；實際：' + (r.allow ? '放行 ' : '') + short(r.why)}`);
+      }
+      // 沿用原有派工閘的分支（Phase 2 處置表判「保留原檔」；skeleton-04 共通規則「開工前必讀」的 init 填法）：
+      // 自行演進的實例閘（tests/fixtures/check-review-discipline.evolved-instance.js，來源專案 2026-10-18 原檔的去識別化複本：repo 名／主機名／公司字樣換成 Acme 佔位，判法未動）沒有 REQUIRED_MARKERS 表，
+      // QA 分流格只認「CATALOG 分流」、QA 必讀另要 tests/e2e/README.md、回報鏈另要 SendMessage(to: main)。
+      // 04 與派工單照它的要求填 → 它要放行；範本預設填法餵它要擋、它的填法餵範本閘也要擋——兩個分支的填法不能互換，init 填錯哪邊都會每張單被擋。
+      {
+        const INST = path.join(__dirname, 'fixtures', 'check-review-discipline.evolved-instance.js');
+        const ws2 = tmp('h-dg-inst-');
+        try {
+          const W2 = ws2.split(path.sep).join('/');
+          fs.mkdirSync(path.join(ws2, '.claude', 'hooks'), { recursive: true });
+          fs.mkdirSync(path.join(ws2, '.claude', 'harness'), { recursive: true });
+          const hook2 = path.join(ws2, '.claude', 'hooks', 'check-review-discipline.js');
+          fs.copyFileSync(INST, hook2);
+          // 沿用分支的填法：分流格標記名換成實例認的字樣、QA 必讀多一行 README（04 與派工單同一套換法）
+          const instFill = (s) => s.split('【既有測試分流】').join('【CATALOG 分流】')
+            .replace(/^(- .*tests\/Project_Detail\/PROJECT\.md.*)$/m, (m) => m + '\n- <workspace>/tests/e2e/README.md（e2e 執行契約）');
+          fs.writeFileSync(path.join(ws2, '.claude', 'harness', '04-delegation-templates.md'), instFill(t04));
+          const sendMain = '\n完成後 SendMessage(to: main) 回報結論，結論送出前不要結束 turn。';
+          const pDefault = answer('選 a：從出貨單畫面實際建單產生資料。');
+          // 實例閘把【測試資料來源】標題同一行的字也算作答區第一行（它的 04 標題後面沒有說明文字），骨架標題後的說明「第一行開頭寫「選 a」「選 b」…」
+          // 會被判成同時提到多個選項：餵實例閘的派工單把標題後的說明拿掉（這是模板文字差異，不是沿用分支的填法差異）
+          const forInst = (s) => s.replace(/^【測試資料來源】.*$/m, '【測試資料來源】').split(W).join(W2) + sendMain;
+          const pInst = forInst(instFill(pDefault).split('<workspace>').join(W2));
+          const instCases = [
+            ['04 與派工單照實例閘填（【CATALOG 分流】＋必讀加 tests/e2e/README.md）→ 實例閘放行', pInst, hook2, ws2, true],
+            ['範本預設填法（【既有測試分流】、沒列 README）→ 實例閘擋', forInst(pDefault), hook2, ws2, false, ['CATALOG 分流', 'tests/e2e/README.md']],
+            ['實例閘的填法（【CATALOG 分流】）→ 範本閘擋', instFill(pDefault).split('<workspace>').join(W) + sendMain, HOOK, ws, false, ['既有測試分流']],
+            // 實例閘在 git 正常（CRD_CHANGED_FILES 有值）時真的會走到後段的閘：這三案證明放行不是 fail-open 給的
+            ['照實例閘填、但模板六【開工前必讀】少了 FLOWS 行 → 實例閘擋（五支專案 agent 一律要鏈路檔）', pInst.replace(/^- .*FLOWS\.md.*\n/m, ''), hook2, ws2, false, ['必讀清單·FLOWS']],
+            ['照實例閘填、但【驗收條件】只剩標題 → 實例閘擋', pInst.replace(/(【驗收條件】\n)[\s\S]*?(?=【回報格式】)/, '$1'), hook2, ws2, false, ['驗收條件']],
+            ['照實例閘填、但【目標】是對齊類任務又沒有【對照表】→ 實例閘擋', pInst.replace(/^【目標】.*$/m, '【目標】驗證：匯出欄位要與列表頁顯示一致、對齊既有的訂單匯出'), hook2, ws2, false, ['對照表']],
+          ];
+          // 實例閘的共用元件檢查對四個 repo 跑 git diff，暫存目錄沒有 git 會丟例外、後面的閘全沒跑到（fail-open 放行＋故障 note）：
+          // 用夾具文件化的替身 CRD_CHANGED_FILES='[]'（沒有改到共用元件）讓它走完全部的閘，放行才是真的放行
+          for (const [name, prompt, hook, root, allow, tags] of instCases) {
+            const r = run(agent, prompt, hook, root, hook === hook2 ? { CRD_CHANGED_FILES: '[]' } : {});
+            const ok = allow ? r.allow : (!r.allow && tags.every((x) => r.why.includes(x)));
+            check('delegation-gate', ok, `沿用派工閘分支：${name}${allow ? '' : '（點名 ' + tags.join('、') + '）'}${ok ? '' : '；實際：' + (r.allow ? '放行 ' : '') + short(r.why)}`);
+          }
+        } finally { rm(ws2); }
       }
     }
   } finally { rm(ws); }
@@ -608,6 +679,37 @@ if (want('plugin-hooks')) {
     try { if (process.platform !== 'win32') fs.chmodSync(hd, 0o755); fs.chmodSync(sp, 0o644); } catch {}
     rm(d2);
   }
+  // 範本的 fail-open 要 loud（內部錯誤時放行但 stderr 與 additionalContext 都要說）：JSON cases 餵不了壞 stdin，這裡直接餵。
+  // 不驗的話範本改回靜默放行沒人會知道——來源實例就是這樣一年沒人發現（2026-10-17 紅藍對抗 C03）。
+  // 2026-10-18（紅藍對抗 R2 R1-6）補齊剩下的 deny 閘；stderr 之外 additionalContext 也要同句（exit 0 的 stderr 模型看不到）。
+  const LOUD_TPL = ['check-agent-model.js', 'check-ask-discipline.js', 'guard-local-hack-destroy.js',
+    'check-review-discipline.js', 'guard-claude-dir-hygiene.js', 'guard-full-disk-scan.js', 'guard-report-output.js', 'guard-required-skill.js'];
+  for (const f of LOUD_TPL) {
+    const r = spawnSync(process.execPath, [path.join(TPL, f)], { input: 'not-json', encoding: 'utf8' });
+    let ctx = '';
+    try { const o = JSON.parse(String(r.stdout).trim().split('\n').pop()); ctx = (o.hookSpecificOutput && o.hookSpecificOutput.additionalContext) || o.systemMessage || ''; } catch {}
+    check('plugin-hooks', r.status === 0 && /內部錯誤，本次放行/.test(r.stderr) && /內部錯誤，本次放行/.test(ctx) && !/"permissionDecision"\s*:\s*"deny"/.test(r.stdout),
+      `${f}：壞 stdin → 放行且 stderr 說「內部錯誤，本次放行」、additionalContext 同句（exit ${r.status}，stderr ${String(r.stderr).trim().slice(0, 60)}）`);
+  }
+  for (const f of LOUD_TPL) {
+    const e = spawnSync(process.execPath, [path.join(TPL, f)], { input: '', encoding: 'utf8' });
+    check('plugin-hooks', e.status === 0 && !String(e.stderr).trim() && !String(e.stdout).trim(), `${f}：空 stdin → 安靜放行（exit ${e.status}）`);
+  }
+  // 清單檔在、卻讀不到任何條目（R2 R1-5）：覆寫銷毀閘遇危險指令、開場檢查都要說「讀不到任何條目」，不再靜默
+  {
+    const d3 = tmp('h-emptylist-');
+    try {
+      fs.mkdirSync(path.join(d3, '.claude'), { recursive: true });
+      fs.writeFileSync(path.join(d3, '.claude', 'local-overrides.yml'), '# 空的\n');
+      const env3 = Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: d3 });
+      const g = spawnSync(process.execPath, [path.join(TPL, 'guard-local-hack-destroy.js')], { input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git reset --hard' }, cwd: d3 }), encoding: 'utf8', env: env3, cwd: d3 });
+      check('plugin-hooks', g.status === 0 && !/"permissionDecision"\s*:\s*"deny"/.test(g.stdout) && /讀不到任何條目/.test(g.stdout) && /讀不到任何條目/.test(g.stderr),
+        `guard-local-hack-destroy.js：清單檔無條目＋git reset --hard → 放行但 additionalContext／stderr 說讀不到任何條目（exit ${g.status}，stdout ${String(g.stdout).trim().slice(0, 60)}）`);
+      const a = spawnSync(process.execPath, [path.join(TPL, 'check-local-hacks-alive.js')], { input: '', encoding: 'utf8', env: env3, cwd: d3 });
+      check('plugin-hooks', a.status === 0 && /讀不到任何條目/.test(a.stdout),
+        `check-local-hacks-alive.js：清單檔無條目 → 開場 stdout 說讀不到任何條目（exit ${a.status}，stdout ${String(a.stdout).trim().slice(0, 60)}）`);
+    } finally { rm(d3); }
+  }
 }
 
 // ── learn-offline：學習迴路整段離線測試（假 claude）──
@@ -619,6 +721,14 @@ if (want('learn-offline')) {
     for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('learn-offline', m[1] === 'PASS', m[2]); }
     check('learn-offline', r.status === 0, `learn-offline.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
   }
+}
+
+// ── review-collect：健檢收集腳本對自行演進實例的 9 處誤判回歸（合成逐字紀錄）──
+if (want('review-collect')) {
+  const rc = path.join(__dirname, 'lib', 'review-collect.js');
+  const r = node([rc], { timeout: 120000 });
+  for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('review-collect', m[1] === 'PASS', m[2]); }
+  check('review-collect', r.status === 0, `review-collect.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
 }
 
 // ── integration：壓縮交接範本（compact-*）整合測試；compact_chain_test 的 --real 會呼叫 claude -p，維持手動 ──

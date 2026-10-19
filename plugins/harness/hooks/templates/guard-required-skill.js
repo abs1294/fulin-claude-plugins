@@ -308,9 +308,23 @@ function projectRoot(input) {
   return cands.find((d) => { try { return fs.statSync(path.join(d, '.claude', 'skills')).isDirectory(); } catch { return false; } }) || null;
 }
 
+// fail-open 但 loud（harness 05 §6.4；2026-10-18 紅藍對抗 R2 R1-6）：stdin 壞或判讀丟例外時放行，但 stderr 與
+// additionalContext 都要說（舊版壞 JSON 靜默放行、例外只有 stderr）。空 stdin＝手動執行不是故障，照舊安靜放行。
+function failOpen(e) {
+  const msg = '[guard-required-skill] hook 內部錯誤，本次放行：' + String((e && e.message) || e).split('\n')[0];
+  try { process.stderr.write(msg + '\n'); } catch (_) { /* 連 stderr 都寫不了就只剩放行 */ }
+  try {
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse',
+      additionalContext: msg + '。這次沒有檢查改檔前必要 skill 有沒有載入，請自行對照各 skill frontmatter 的 paths；hook 要修：.claude/hooks/guard-required-skill.js' } }));
+  } catch (_) { /* 同上 */ }
+}
+
 function main() {
+  const raw = fs.readFileSync(0, 'utf8');
+  if (!raw.trim()) return;
   let input;
-  try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch { return; }
+  try { input = JSON.parse(raw); } catch (e) { return failOpen(e); }
+  if (!input || typeof input !== 'object') return;
   if (!TOOLS.has(input.tool_name)) return;
   const ti = input.tool_input || {};
   const fp = ti.file_path || ti.notebook_path || ti.path;
@@ -361,6 +375,6 @@ function main() {
 module.exports = { frontmatter, fmValue, parsePaths, splitTopLevel, expandBraces, matchPath, validatePattern, readSkills, requiredSkillsFor, walkFiles, loadedSkills, isLoaded, projectRoot };
 
 if (require.main === module) {
-  try { main(); } catch (e) { process.stderr.write(`[guard-required-skill] ERROR: ${e && e.message}（放行）\n`); }
+  try { main(); } catch (e) { failOpen(e); }
   process.exit(0);
 }

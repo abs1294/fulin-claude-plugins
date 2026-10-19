@@ -224,6 +224,635 @@
       },
       "expect": "NOTE",
       "visible": true
+    },
+    {
+      "label": "選單路徑：使用者在 AskUserQuestion 選「核可 p-…」（黃區 correction）→ 保留寫入，MEMORY.md 該列 ⭐⭐ 升 ⭐⭐⭐",
+      "setup": {
+        "files": {
+          "mem/fix-rule.md": "---\nname: fix-rule\ndescription: d\nmetadata:\n  type: feedback\n---\n\n內容\n",
+          "mem/MEMORY.md": "# Memory\n- ⭐⭐ [修正規則](fix-rule.md) — s\n",
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-03\",\"run\":\"r-1\",\"level\":\"yellow\",\"type\":\"write-review\",\"status\":\"pending\",\"kind\":\"memory\",\"category\":\"correction\",\"target\":\"memory/fix-rule.md\",\"targetPath\":\"mem/fix-rule.md\",\"topic\":\"fix-rule\",\"summary\":\"s\",\"backup\":null,\"afterHash\":\"x\",\"addedLines\":[{\"path\":\"mem/MEMORY.md\",\"line\":\"- ⭐⭐ [修正規則](fix-rule.md) — s\"}],\"evidence\":[]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "p-20261009-03｜待你看｜fix-rule｜s",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "核可 p-20261009-03",
+                  "description": ""
+                },
+                {
+                  "label": "駁回 p-20261009-03",
+                  "description": ""
+                },
+                {
+                  "label": "稍後",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "p-20261009-03｜待你看｜fix-rule｜s": "核可 p-20261009-03"
+          }
+        }
+      },
+      "expect": "NOTE",
+      "visible": true,
+      "output_match": "已核可.*升為 ⭐⭐⭐"
+    },
+    {
+      "label": "選單路徑：答案只有「核可 (Recommended)」、題目裡恰好一個 id（紅區）→ 標 approved",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\".claude/hooks/guard-risky-command.js\",\"topic\":\"t\",\"summary\":\"加一條規則\",\"content\":\"建議內容\",\"evidence\":[\"t.jsonl:3\"]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "p-20261009-01｜待核｜t｜加一條規則",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "核可",
+                  "description": ""
+                },
+                {
+                  "label": "駁回",
+                  "description": ""
+                },
+                {
+                  "label": "稍後",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "p-20261009-01｜待核｜t｜加一條規則": "核可 (Recommended)"
+          }
+        }
+      },
+      "expect": "NOTE",
+      "visible": true,
+      "output_match": "使用者已核可 p-20261009-01"
+    },
+    {
+      "label": "選單路徑：舊版已寫 ⭐⭐⭐ 的黃區 correction 核可 → 保留寫入、不重複升星",
+      "setup": {
+        "files": {
+          "mem/fix-rule.md": "x\n",
+          "mem/MEMORY.md": "# Memory\n- ⭐⭐⭐ [修正規則](fix-rule.md) — s\n",
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-03\",\"run\":\"r-1\",\"level\":\"yellow\",\"type\":\"write-review\",\"status\":\"pending\",\"kind\":\"memory\",\"category\":\"correction\",\"target\":\"memory/fix-rule.md\",\"targetPath\":\"mem/fix-rule.md\",\"summary\":\"s\",\"backup\":null,\"afterHash\":\"x\",\"addedLines\":[{\"path\":\"mem/MEMORY.md\",\"line\":\"- ⭐⭐⭐ [修正規則](fix-rule.md) — s\"}],\"evidence\":[]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "p-20261009-03｜待你看｜fix-rule｜s",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "核可 p-20261009-03",
+                  "description": ""
+                },
+                {
+                  "label": "稍後",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "p-20261009-03｜待你看｜fix-rule｜s": "核可 p-20261009-03"
+          }
+        }
+      },
+      "expect": "NOTE",
+      "visible": true,
+      "output_match": "已核可",
+      "output_not_match": "升為"
+    },
+    {
+      "label": "選單路徑：使用者選「駁回 p-…」（黃區、hash 相符）→ 刪掉新建檔、移除 MEMORY.md 那一行",
+      "setup": {
+        "files": {
+          "mem/db-login.md": "---\nname: db-login\ndescription: d\nmetadata:\n  type: feedback\n---\n\n新內容\n**Why:** w\n**How to apply:** h\n",
+          "mem/MEMORY.md": "# Memory\n- ⭐⭐ [db](db-login.md) — s\n",
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-02\",\"run\":\"r-1\",\"level\":\"yellow\",\"type\":\"write-review\",\"status\":\"pending\",\"kind\":\"memory\",\"category\":\"correction\",\"target\":\"memory/db-login.md\",\"targetPath\":\"mem/db-login.md\",\"summary\":\"s\",\"backup\":null,\"afterHash\":\"5b5f504ec738defd3b8e5bb6c427b76b2142b6fb\",\"addedLines\":[{\"path\":\"mem/MEMORY.md\",\"line\":\"- ⭐⭐ [db](db-login.md) — s\"}],\"evidence\":[]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "p-20261009-02｜待你看｜db-login｜s",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "核可 p-20261009-02",
+                  "description": ""
+                },
+                {
+                  "label": "駁回 p-20261009-02",
+                  "description": ""
+                },
+                {
+                  "label": "稍後",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "p-20261009-02｜待你看｜db-login｜s": "駁回 p-20261009-02"
+          }
+        }
+      },
+      "expect": "NOTE",
+      "visible": true,
+      "output_match": "已駁回並還原.*移除 MEMORY\\.md"
+    },
+    {
+      "label": "選單路徑：使用者選「稍後」→ 題目文字雖含「核可 p-…」（模型寫的）也不動作、不輸出（R14）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "核可 p-20261009-01",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "核可 p-20261009-01",
+                  "description": ""
+                },
+                {
+                  "label": "稍後",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "核可 p-20261009-01": "稍後"
+          }
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "選單路徑：答案只有「核可」但題目裡有兩個 id → 不猜，不動作、不輸出",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"},{\"id\":\"p-20261009-02\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "p-20261009-01 與 p-20261009-02 一起處理？",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "核可",
+                  "description": ""
+                },
+                {
+                  "label": "稍後",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "p-20261009-01 與 p-20261009-02 一起處理？": "核可"
+          }
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "模型文字不算核可：Bash 工具的 PostToolUse 裡出現「核可 p-…」→ 不動作、不輸出（R14）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo 核可 p-20261009-01"
+        },
+        "tool_response": {
+          "stdout": "核可 p-20261009-01",
+          "answers": {
+            "q p-20261009-01": "核可 p-20261009-01"
+          }
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "模型文字不算核可：Stop 事件的助理最後訊息寫「核可 p-…」→ 不動作、不輸出（R14）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "Stop",
+        "last_assistant_message": "核可 p-20261009-01"
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "選單路徑·R2 R1-10：無關問題裡提到 id、選項「同意」→ 不是開場格式的題目，不動作、不輸出",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "要不要順便處理 p-20261009-01 那筆？",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "同意",
+                  "description": ""
+                },
+                {
+                  "label": "稍後",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "要不要順便處理 p-20261009-01 那筆？": "同意"
+          }
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "選單路徑·R2 R1-10：題目是「要不要駁回 p-…？」、使用者點「同意」→ 不動作（核可對象不能由模型問句決定）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "要不要駁回 p-20261009-01？",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "同意",
+                  "description": ""
+                },
+                {
+                  "label": "不要",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "要不要駁回 p-20261009-01？": "同意"
+          }
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "選單路徑·R2 R1-10：選項字面是英文 approve、題目非開場格式 → 不動作",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "p-20261009-01 looks fine, approve?",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "approve",
+                  "description": ""
+                },
+                {
+                  "label": "later",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "p-20261009-01 looks fine, approve?": "approve"
+          }
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "選單路徑·R2 R1-10：答案帶 id 但題目裡沒有那個 id（選項與題目對不上）→ 不動作",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "p-20261009-02｜待核｜t｜另一筆",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "核可 p-20261009-01",
+                  "description": ""
+                },
+                {
+                  "label": "稍後",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "p-20261009-02｜待核｜t｜另一筆": "核可 p-20261009-01"
+          }
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "選單路徑·R2 R1-10：開場格式題目、裸「核可」→ 照常核可（紅區標 approved）",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "p-20261009-01｜待核｜t｜加一條規則",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "核可",
+                  "description": ""
+                },
+                {
+                  "label": "駁回",
+                  "description": ""
+                },
+                {
+                  "label": "稍後",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": {
+            "p-20261009-01｜待核｜t｜加一條規則": "核可"
+          }
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "選單路徑·R2 R1-10：answers 是 [{question, answer}] 陣列形狀（形狀未驗，兩種都收）→ 照常核可",
+      "setup": {
+        "files": {
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-01\",\"run\":\"r-1\",\"level\":\"red\",\"type\":\"proposal\",\"status\":\"pending\",\"target\":\"CLAUDE.md\",\"summary\":\"s\"}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [
+            {
+              "question": "p-20261009-01｜待核｜t｜加一條規則",
+              "header": "學習迴路",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "核可 p-20261009-01",
+                  "description": ""
+                },
+                {
+                  "label": "稍後",
+                  "description": ""
+                }
+              ]
+            }
+          ]
+        },
+        "tool_response": {
+          "answers": [
+            {
+              "question": "p-20261009-01｜待核｜t｜加一條規則",
+              "answer": "核可 p-20261009-01"
+            }
+          ]
+        }
+      },
+      "expect": "NOTE"
+    },
+    {
+      "label": "R2 R7-13：MEMORY.md 索引行被整併改寫（原句不在）→ 還原時以檔名連結找到並移除，回報說明用的是連結比對",
+      "setup": {
+        "files": {
+          "mem/db-login.md": "---\nname: db-login\ndescription: d\nmetadata:\n  type: feedback\n---\n\n新內容\n**Why:** w\n**How to apply:** h\n",
+          "mem/MEMORY.md": "# Memory\n- ⭐ [別筆](other.md) — x\n- ⭐⭐ 連庫前先確認主機 [·](db-login.md)\n",
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-02\",\"run\":\"r-1\",\"level\":\"yellow\",\"type\":\"write-review\",\"status\":\"pending\",\"kind\":\"memory\",\"category\":\"correction\",\"target\":\"memory/db-login.md\",\"targetPath\":\"mem/db-login.md\",\"summary\":\"s\",\"backup\":null,\"afterHash\":\"5b5f504ec738defd3b8e5bb6c427b76b2142b6fb\",\"addedLines\":[{\"path\":\"mem/MEMORY.md\",\"line\":\"- ⭐⭐ [db](db-login.md) — s\"}],\"evidence\":[]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "還原 p-20261009-02"
+      },
+      "expect": "NOTE",
+      "visible": true,
+      "output_match": "已還原.*已刪除新建的 memory/db-login\\.md.*移除 MEMORY\\.md 裡指向 db-login\\.md 的索引行.*以檔名連結比對",
+      "output_not_match": "索引行未移除"
+    },
+    {
+      "label": "R2 R7-13：MEMORY.md 原句與檔名連結都不在 → 檔案照刪、回報明講索引行未移除（不只說「已還原」）",
+      "setup": {
+        "files": {
+          "mem/db-login.md": "---\nname: db-login\ndescription: d\nmetadata:\n  type: feedback\n---\n\n新內容\n**Why:** w\n**How to apply:** h\n",
+          "mem/MEMORY.md": "# Memory\n- ⭐ [別筆](other.md) — x\n",
+          ".claude/harness/learning/pending.json": "{\"version\":1,\"items\":[{\"id\":\"p-20261009-02\",\"run\":\"r-1\",\"level\":\"yellow\",\"type\":\"write-review\",\"status\":\"pending\",\"kind\":\"memory\",\"category\":\"correction\",\"target\":\"memory/db-login.md\",\"targetPath\":\"mem/db-login.md\",\"summary\":\"s\",\"backup\":null,\"afterHash\":\"5b5f504ec738defd3b8e5bb6c427b76b2142b6fb\",\"addedLines\":[{\"path\":\"mem/MEMORY.md\",\"line\":\"- ⭐⭐ [db](db-login.md) — s\"}],\"evidence\":[]}]}"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "還原 p-20261009-02"
+      },
+      "expect": "NOTE",
+      "visible": true,
+      "output_match": "已刪除新建的 memory/db-login\\.md.*MEMORY\\.md 索引行未移除.*找不到指向 db-login\\.md 的連結",
+      "output_not_match": "並移除"
     }
   ]
 }

@@ -177,7 +177,9 @@ function wordInfo(n) {
       for (let i = 0; i < n.namedChildCount; i++) v += n.namedChild(i).type === 'string_content' ? n.namedChild(i).text.replace(/\\([$`"\\\n])/g, '$1') : n.namedChild(i).text;
       return { value: n.namedChildCount ? v : n.text.slice(1, -1), quoted: true };
     }
-    case 'ansi_c_string': return { value: expandEscapes(n.text.slice(2, -1).replace(/\\(['"?])/g, '$1')), quoted: true };
+    case 'ansi_c_string': return { value: decodeAnsiC(n.text.slice(2, -1)), quoted: true };
+    // bash 的 locale 翻譯字串 $"…"：沒有翻譯檔時就等於 "…"（`$"git" add .` 跑的是 git add；2026-10-19 R3 複驗第二輪 F5）
+    case 'translated_string': { const inner = n.namedChildCount ? wordInfo(n.namedChild(0)) : { value: n.text.slice(2, -1) }; return { value: inner.value, quoted: true }; }
     case 'concatenation': {
       let v = '', q = false;
       for (let i = 0; i < n.namedChildCount; i++) { const w = wordInfo(n.namedChild(i)); v += w.value; q = q || w.quoted; }
@@ -583,19 +585,29 @@ function walkPs(m, node, scope, cond) {
   if (t === 'pipeline_chain') {
     // 管線裡不是指令的元素（字串、here-string、運算式）是下一個指令的輸入：`'TRUNCATE orders' | psql` 的 SQL 要讓規則看得到，
     // `"git push" | bash`、`'…' | powershell` 的字串是那個殼的腳本
-    let pending = null;
+    let pending = null, pendingRaw = null;
     for (let i = 0; i < node.namedChildCount; i++) {
       const el = node.namedChild(i);
-      if (el.type !== 'command') { walkPs(m, el, scope, cond); pending = psLiteralText(el); continue; }
+      if (el.type !== 'command') { walkPs(m, el, scope, cond); pending = psLiteralText(el); pendingRaw = el.text; continue; }
       const before = m.execs.length;
       walkPs(m, el, scope, cond);
       const ex = m.execs.slice(before).find((x) => x.nodeKey === nodeKey(m, el));
       if (ex && pending !== null) {
         if (readsScriptFromStdin(ex)) nested(m, 'bash', pending, ex, 'exec');
         else if ((ex.verb === 'powershell' || ex.verb === 'pwsh') && !ex.argv.slice(1).some((a) => PS_CMD.test(a) || PS_ENC.test(a) || PS_FILE.test(a))) nested(m, 'powershell', pending, ex, 'exec');
-        else ex.heredoc = (ex.heredoc ? ex.heredoc + ' ' : '') + pending.replace(/[;&|'"#\r\n]+/g, ' ').trim();
+        // `'git add .' | Invoke-Expression`：字串就是 iex 要執行的 PowerShell 指令，當內層指令解析
+        else if (ex.verb === 'iex' || ex.verb === 'invoke-expression') {
+          nested(m, 'powershell', pending, ex, 'fork');
+          // `('g'+'it push') | iex`：餵進 iex 的是運算式（字串相加、-f、::Join、子運算式；psLiteralText 對含字串的運算式回整段原文），
+          // 值執行期才組出來、上面解析不出指令；原文留給呼叫端（git-calls）照「提到 git 或含危險動詞就判不出」從嚴（2026-10-18 R3 複驗 G2①）
+          if (pending === pendingRaw || pending === String(pendingRaw).trim()) ex.pipedExpr = pendingRaw;
+        }
+        else { ex.heredoc = (ex.heredoc ? ex.heredoc + ' ' : '') + pending.replace(/[;&|'"#\r\n]+/g, ' ').trim(); ex.heredocRaw = pending; }
+      } else if (ex && pendingRaw !== null && (ex.verb === 'iex' || ex.verb === 'invoke-expression')) {
+        // 管線前段連一個字串都沒有的運算式（`$x | iex`、`(Get-Content f) | iex`）：同上，原文留給呼叫端
+        ex.pipedExpr = pendingRaw;
       }
-      pending = null;
+      pending = null; pendingRaw = null;
     }
     return;
   }
@@ -646,6 +658,16 @@ function walkPs(m, node, scope, cond) {
     // 包裝：cmd /c、bash -c、powershell -Command、Start-Process -FilePath x -ArgumentList y
     const inner = shellInner(verb, argv);
     if (inner) nested(m, inner.lang, inner.text, exec, 'exec');
+    // `Invoke-Expression 'git add .'`／`iex -Command "…"`：字面字串引數在目前 session 執行，當內層指令解析
+    // （引數是變數或運算式時這裡解析不出指令，呼叫端看 words 的字面性自行從嚴）
+    if (verb === 'iex' || verb === 'invoke-expression') {
+      let s = null;
+      for (let k = 1; k < argv.length; k++) {
+        if (/^-c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?$/i.test(argv[k])) { s = argv[k + 1]; break; }
+        if (!argv[k].startsWith('-')) { s = argv[k]; break; }
+      }
+      if (s) nested(m, 'powershell', s, exec, 'fork');
+    }
     if (verb === 'start-process' || verb === 'saps' || verb === 'start') {
       let file = null; const args = [];
       for (let k = 1; k < argv.length; k++) {
@@ -657,7 +679,8 @@ function walkPs(m, node, scope, cond) {
         if (a.startsWith('-')) continue;
         if (file === null) file = argv[k]; else args.push(argv[k]);
       }
-      if (file) nestedArgv(m, [file].concat(args.join(' ').split(/[\s,]+/).filter(Boolean)), exec);
+      // -ArgumentList 'add','.' 的陣列元素各自帶引號（psValue 只剝最外層），逐個剝掉才對得上實際引數
+      if (file) nestedArgv(m, [file].concat(args.join(' ').split(/[\s,]+/).map((x) => x.replace(/^['"]+|['"]+$/g, '')).filter(Boolean)), exec);
     }
     for (const w of words) walkPs(m, w.node, scope, cond);
     return;
@@ -1113,16 +1136,21 @@ function printedText(e) {
   const text = args.join(' ');
   return flags.some((f) => /e/.test(f)) ? expandEscapes(text) : text;
 }
-function expandEscapes(text) {
-  return text.replace(/\\(n|t|r|\\|0?[0-7]{1,3}|x[0-9A-Fa-f]{1,2})/g, (all, c) => {
-    if (c === 'n') return '\n';
-    if (c === 't') return '\t';
-    if (c === 'r') return '\r';
-    if (c === '\\') return '\\';
-    if (c[0] === 'x') return String.fromCharCode(parseInt(c.slice(1), 16));
-    return String.fromCharCode(parseInt(c, 8));
+// bash 的跳脫解碼，ANSI-C 字串 $'…'、`echo -e`、printf 格式字串與 %b 共用一份：\xHH、八進位 \NNN（含 \0NNN）、\uHHHH、\UHHHHHHHH、
+// \n \t \r \a \b \e \E \f \v \\ \' \" \? 與 \cX（控制字元）。2026-10-18 R3 複驗 G1：這裡原本只認 \n \t \r \\ 八進位 \xHH，
+// `$'git' add .`、`$'\U00000067it' push` 語法樹路徑把指令名解成 u0067it 而放行（正則路徑解得出）；
+// git-calls.js 的 decodeAnsiC 改為直接用本函式，只留這一份實作
+function decodeAnsiC(text) {
+  const map = { a: '\x07', b: '\b', e: '\x1b', E: '\x1b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\\': '\\', "'": "'", '"': '"', '?': '?' };
+  return String(text == null ? '' : text).replace(/\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|[0-7]{1,3}|c[\s\S]|[\s\S])/g, (all, e) => {
+    if (e[0] === 'x') return String.fromCharCode(parseInt(e.slice(1), 16));
+    if (e[0] === 'u' || e[0] === 'U') { try { return String.fromCodePoint(parseInt(e.slice(1), 16)); } catch (err) { return ''; } }
+    if (/^[0-7]/.test(e)) return String.fromCharCode(parseInt(e, 8));
+    if (e[0] === 'c') return String.fromCharCode(e.charCodeAt(1) & 31);
+    return Object.prototype.hasOwnProperty.call(map, e) ? map[e] : e;
   });
 }
+function expandEscapes(text) { return decodeAnsiC(text); }
 
 // 殼包裝：這個殼要執行的內層腳本（依殼的種類認它自己的旗標；找第一個像旗標的會被 PowerShell 的 -exec 先命中）
 //   bash 系：-c，可與其他短旗標合寫（-lc、-ec），大小寫有別（-C 是 noclobber）
@@ -1141,7 +1169,11 @@ function shellInner(verb, argv) {
   if (BASH_SHELLS.has(verb)) {
     for (let k = 1; k < argv.length; k++) {
       const a = argv[k];
-      if (/^-[A-Za-z]*c[A-Za-z]*$/.test(a)) return argv[k + 1] !== undefined ? { lang: 'bash', text: argv[k + 1] } : null;
+      // `-c` 之後的 `--` 是選項結束符，指令字串是再下一個（`bash -c -- 'git add .'` 實跑確認會執行）
+      if (/^-[A-Za-z]*c[A-Za-z]*$/.test(a)) {
+        const j = argv[k + 1] === '--' ? k + 2 : k + 1;
+        return argv[j] !== undefined ? { lang: 'bash', text: argv[j] } : null;
+      }
       // -o／+o（set 選項）與 -O／+O（shopt 選項）後面都接一個值
       if (/^[-+][oO]$/.test(a) || /^--(?:rcfile|init-file)$/.test(a)) { k++; continue; }
       if (a === '--' || !/^[-+]/.test(a)) return null;   // 接下來是腳本檔
@@ -1175,7 +1207,10 @@ function shellInner(verb, argv) {
 
 // 讀 stdin 當腳本的殼：bash／sh 不帶 -c、不帶腳本檔（`bash`、`sh -s`、`bash -x`）
 function readsScriptFromStdin(e) {
-  if (!e || !BASH_SHELLS.has(e.verb)) return false;
+  if (!e) return false;
+  // `source /dev/stdin`、`. /dev/stdin`：在目前的殼執行 stdin 的內容（`printf 'git add .' | source /dev/stdin`）
+  if ((e.verb === 'source' || e.verb === '.') && /^\/dev\/(?:stdin|fd\/0)$/.test(e.argv[1] || '')) return true;
+  if (!BASH_SHELLS.has(e.verb)) return false;
   return e.argv.slice(1).every((a) => a.startsWith('-') && !/^-[A-Za-z]*c[A-Za-z]*$/.test(a));
 }
 
@@ -1258,7 +1293,9 @@ function analyze(command, tool, startDir, root, inherited) {
   walkText(m, tool === 'PowerShell' ? 'powershell' : 'bash', command, '', '');
   const lines = buildLines(m);
   const env = makeEnvAt(m, startDir, root, inherited || ((n) => process.env[n]));
-  return { execs: m.execs, lines, envAt: env.envAt, envUnsure: env.envUnsure, envInfo: env.envInfo, dirAt: env.dirAt, hasError: !!m.hasError };
+  // scopeEntry：新程序範圍（bash -c、xargs、find -exec、Start-Process 叫起的）→ 叫起它的那個 exec 的索引；
+  // 呼叫端據此知道某個 git 是不是 xargs／find 叫起的（引數可能由管線在執行期供給）
+  return { execs: m.execs, lines, envAt: env.envAt, envUnsure: env.envUnsure, envInfo: env.envInfo, dirAt: env.dirAt, hasError: !!m.hasError, scopeEntry: m.scopeEntry || {} };
 }
 
-module.exports = { analyze, available, runnerPrefix, baseName };
+module.exports = { analyze, available, runnerPrefix, baseName, decodeAnsiC };

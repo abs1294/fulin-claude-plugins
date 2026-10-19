@@ -41,7 +41,8 @@ function list(all) {
       + ' | ' + (it.topic || '-') + ' | ' + it.target);
     out.push('    摘要：' + it.summary);
     if (it.evidence && it.evidence.length) out.push('    出處：' + it.evidence.join('、'));
-    if (it.flags && it.flags.length) out.push('    標記：' + it.flags.join('、') + (it.flags.includes('destructive') ? '（內容含破壞性指令樣式）' : ''));
+    if (it.flags && it.flags.length) out.push('    標記：' + it.flags.join('、') + (it.flags.includes('destructive') ? '（內容含破壞性指令樣式）' : '')
+      + (it.flags.includes('index-full') ? '（MEMORY.md 已達上限，本筆未寫入；整併索引後再核可，核可後由 Claude 依 05 §1 落檔）' : ''));
     if (it.checks && it.checks.length) out.push('    格式檢查：' + it.checks.join('；'));
     if (it.content && (it.type === 'proposal' || it.type === 'promotion')) {
       const c = [...it.content].length > LIST_CONTENT_MAX ? [...it.content].slice(0, LIST_CONTENT_MAX).join('') + '…（完整內容見 pending.json）' : it.content;

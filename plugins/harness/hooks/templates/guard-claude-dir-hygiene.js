@@ -57,17 +57,28 @@ function suggestDest(base) {
 }
 // ────────────────────────────────────────────────────────────────────────────
 
-function readInput() {
+// fail-open 但 loud（harness 05 §6.4；2026-10-18 紅藍對抗 R2 R1-6）：stdin 壞或判讀丟例外時放行，但 stderr 與
+// additionalContext 都要說，否則閘整段失效也沒人發現。空 stdin＝手動執行不是故障，照舊安靜放行。
+// 本閘擋人用 exit 2＋stderr；放行時 exit 0，stderr 模型看不到，所以另包 additionalContext。
+function failOpen(e) {
+  const msg = '[.claude 目錄衛生] hook 內部錯誤，本次放行：' + String((e && e.message) || e).split('\n')[0];
+  try { process.stderr.write(msg + '\n'); } catch (_) { /* 連 stderr 都寫不了就只剩放行 */ }
   try {
-    return JSON.parse(fs.readFileSync(0, 'utf8'));
-  } catch {
-    return null;
-  }
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse',
+      additionalContext: msg + '。這次沒有檢查新檔是不是寫進 .claude/ 不該放的位置，請自行確認只有機制子目錄或白名單檔；hook 要修：.claude/hooks/guard-claude-dir-hygiene.js' } }));
+  } catch (_) { /* 同上 */ }
+  process.exit(0);
+}
+
+function readInput() {
+  const raw = fs.readFileSync(0, 'utf8');
+  if (!raw.trim()) return null;
+  try { return JSON.parse(raw); } catch (e) { return failOpen(e); }
 }
 
 function main() {
   const input = readInput();
-  if (!input) process.exit(0);
+  if (!input || typeof input !== 'object') process.exit(0);
 
   const tool = input.tool_name || '';
   if (tool !== 'Write') process.exit(0);   // 只管新建；Edit 既有檔不擋
@@ -133,4 +144,4 @@ function main() {
   process.exit(2);
 }
 
-main();
+try { main(); } catch (e) { failOpen(e); }

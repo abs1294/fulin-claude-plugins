@@ -20,6 +20,7 @@
  * - 帳密樣式的「值」至少 4 個字元才算（`token: x` 這類太短的不算值）；值是環境變數引用或 <…>／*** 佔位不算。
  * - 還原時 MEMORY.md 與知識筆記變更紀錄不整檔還原備份，而是只移除當次加上的那一行
  *   （整檔還原會連之後別次寫入的索引行一起刪掉）；主檔照設計稿以 afterHash 比對後還原備份。
+ *   MEMORY.md 原句被整併改寫時退而刪第一個含 `](<本筆檔名>)` 的行；兩種都找不到則主檔照還原、回報明講索引行未移除。
  */
 'use strict';
 const fs = require('fs');
@@ -32,8 +33,21 @@ const crypto = require('crypto');
 const GLOSSARY_CANDIDATES = ['CONTEXT.md', 'GLOSSARY.md'];
 const FLOWS_PATH = 'FLOWS.md';
 const QA_KNOWLEDGE_PATH = 'tests/Project_Detail/PROJECT.md';
-// MEMORY.md 字元數上限（05 §3 第 1 條）；超過、或超過 80% 時在 run 帳本 notes 記一句，開場回報帶出。
-const MEMORY_INDEX_LIMIT = 20000;
+// MEMORY.md 載入上限（05 §3 第 1 條）。出處＝官方 memory 文件（https://code.claude.com/docs/en/memory）原句：
+//   "The first 200 lines of MEMORY.md, or the first 25KB, whichever comes first, are loaded"
+// 兩個維度任一先到即截斷：位元組（UTF-8，不是 .length 的 UTF-16 字元——中文索引一字 3 位元組，用字元量會低估 45%：
+// 2026-10-18 實量 15,459 字元＝22,528 位元組，紅藍對抗 R3 R3A-9）與行數。learn-promote 寫索引行前先量 indexUsage()，
+// 加本筆後任一維度超過就整筆不寫、留待核；任一維度 ≥80% 在 run 帳本 notes 記一句，開場回報帶出。
+const MEMORY_INDEX_BYTES = 25 * 1024;
+const MEMORY_INDEX_LINES = 200;
+// 量 MEMORY.md 用量：bytes＝UTF-8 位元組；lines＝split(/\r?\n/) 的段數，結尾那個換行不另算一行（"a\nb\n" 是 2 行、空檔 0 行）。
+// 官方沒寫行的定義，這裡取最自然的一種；兩種算法只差 1 行，遠小於字元／位元組那 45% 的誤差。
+function indexUsage(text) {
+  const t = text === null || text === undefined ? '' : String(text);
+  const bytes = Buffer.byteLength(t, 'utf8');
+  const lines = t === '' ? 0 : t.replace(/\r?\n$/, '').split(/\r?\n/).length;
+  return { bytes, lines, pctBytes: Math.round(bytes * 100 / MEMORY_INDEX_BYTES), pctLines: Math.round(lines * 100 / MEMORY_INDEX_LINES) };
+}
 // 鎖：最多等多久（毫秒）、鎖檔多舊算殘留（毫秒）。
 const LOCK_WAIT_MS = 2000;
 const LOCK_STALE_MS = 10000;
@@ -347,16 +361,22 @@ function nextPendingId(items) {
   for (const it of items) if (it.id && it.id.startsWith(pre)) { const n = parseInt(it.id.slice(pre.length), 10); if (n > max) max = n; }
   return pre + pad(max + 1);
 }
-// 移除檔案裡第一個與 line 完全相同的行；回傳有沒有移除
-function removeLine(p, line) {
+// 移除檔案裡第一個與 line 完全相同的行；整行比對不到、且給了 linkName（memory 檔名）時，退而找第一個含 `](<檔名>)` 連結的行
+// （MEMORY.md 被人整併改寫後原句就不在了，只刪原句會留下懸空連結、檔案卻已刪——紅藍對抗 R2 R7-13）。
+// 回傳 { how: 'exact' | 'link' | null, others }：others＝連結比對命中時，檔內另外還有幾行也指向該檔（只刪第一行，其餘不動）。
+function removeLine(p, line, linkName) {
   const t = readText(p);
-  if (t === null) return false;
+  if (t === null) return { how: null, others: 0 };
   const arr = t.split('\n');
-  const i = arr.indexOf(line);
-  if (i < 0) return false;
+  let i = arr.indexOf(line), how = 'exact', others = 0;
+  if (i < 0 && linkName) {
+    const hits = arr.map((l, k) => (l.includes('](' + linkName + ')') ? k : -1)).filter((k) => k >= 0);
+    if (hits.length) { i = hits[0]; how = 'link'; others = hits.length - 1; }
+  }
+  if (i < 0) return { how: null, others: 0 };
   arr.splice(i, 1);
   writeAtomic(p, arr.join('\n'));
-  return true;
+  return { how, others };
 }
 // 還原一筆已寫入的項目（黃區或綠區）；回傳 { ok, text }
 function revertItem(P, it) {
@@ -380,12 +400,49 @@ function revertItem(P, it) {
   }
   if (backupAbs) fs.copyFileSync(backupAbs, target);
   else fs.unlinkSync(target);
-  const extra = [];
+  // 附帶的索引行／變更紀錄行：原句比對；MEMORY.md 原句被改寫時退而用本筆 memory 檔名的連結找。刪不到的要明講留了什麼，不能只報「已還原」
+  const name = path.basename(String(it.targetPath || it.target || ''));
+  const exact = [], linked = [], left = [];
   for (const x of it.addedLines || []) {
-    if (removeLine(path.resolve(P.root, x.path), x.line)) extra.push(path.basename(x.path));
+    const base = path.basename(x.path);
+    const isIndex = /^MEMORY\.md$/i.test(base);
+    const r = removeLine(path.resolve(P.root, x.path), x.line, isIndex && name ? name : null);
+    if (r.how === 'exact') exact.push(base);
+    else if (r.how === 'link') linked.push(base + ' 裡指向 ' + name + ' 的索引行（原句已被改寫，以檔名連結比對' + (r.others ? '；另有 ' + r.others + ' 行也指向它，未動' : '') + '）');
+    else left.push(isIndex ? base + ' 索引行未移除（原句已被改寫、也找不到指向 ' + name + ' 的連結），請人工清掉懸空連結' : base + ' 裡當次加上的那一行未移除（原句已被改寫），請人工清理');
   }
   return { ok: true, text: (it.backup ? '已還原 ' + it.target + '（備份 learning/' + it.backup + '）' : '已刪除新建的 ' + it.target)
-    + (extra.length ? '，並移除 ' + extra.join('、') + ' 裡當次加上的那一行' : '') + '。' };
+    + (exact.length ? '，並移除 ' + exact.join('、') + ' 裡當次加上的那一行' : '')
+    + (linked.length ? '，並移除 ' + linked.join('、') : '')
+    + '。' + (left.length ? left.join('；') + '。' : '') };
+}
+// 黃區 memory correction 被使用者核可時，把 MEMORY.md 該列 ⭐⭐ 升為 ⭐⭐⭐：寫入當下未經人審只給 ⭐⭐（learn-promote STARS），
+// 核可這一刻才是「使用者明文裁定」。只動指向本筆檔名的那一行、且只在它剛好兩顆星時升（舊版已寫 ⭐⭐⭐ 或被手改過星等的不碰）。
+// 升完同步改 addedLines 的記錄，之後駁回／還原時 removeLine 才比對得到。回傳接在回報句尾的一段話，沒動回 ''。
+function promoteStarOnApprove(P, it) {
+  if (it.kind !== 'memory' || it.category !== 'correction') return '';
+  const idx = (it.addedLines || []).find((x) => x && x.path && /(^|[\\/])MEMORY\.md$/i.test(x.path));
+  if (!idx) return '';
+  try {
+    const abs = path.resolve(P.root, idx.path);
+    if (!realInside(abs, [P.memoryDir])) return '（MEMORY.md 不在 memory 目錄內，星等未調整）';
+    const t = readText(abs);
+    if (t === null) return '（找不到 MEMORY.md，星等未調整）';
+    const arr = t.split('\n');
+    const name = path.basename(String(it.targetPath || it.target || ''));
+    let i = arr.indexOf(idx.line);
+    if (i < 0 && name) i = arr.findIndex((l) => l.includes('](' + name + ')'));
+    if (i < 0) return '（MEMORY.md 找不到這筆的索引行，星等未調整）';
+    if (!/^- ⭐⭐ /.test(arr[i])) return '';
+    const recorded = arr[i] === idx.line;
+    arr[i] = arr[i].replace(/^- ⭐⭐ /, '- ⭐⭐⭐ ');
+    writeAtomic(abs, arr.join('\n'));
+    if (recorded) idx.line = arr[i];
+    return '，MEMORY.md 索引行由 ⭐⭐ 升為 ⭐⭐⭐';
+  } catch (e) {
+    // 星等是附帶動作：失敗不能讓核可本身失敗（使用者還得重下一次指令）
+    return '（星等調整失敗：' + ((e && e.message) || e) + '）';
+  }
 }
 const LEVEL_TEXT = { green: '綠區', yellow: '黃區', red: '紅區' };
 // action: approve | reject | revert；回傳 { code, text, item }。code 0 成功、1 找不到／狀態不允許／hash 不符
@@ -399,7 +456,8 @@ function pendingAction(root, action, id, by) {
     let out;
     if (action === 'approve') {
       if (it.type === 'write-review' && it.status === 'pending') {
-        it.status = 'accepted'; out = { code: 0, text: id + ' 已核可：保留寫入（' + it.target + '）。' };
+        it.status = 'accepted';
+        out = { code: 0, text: id + ' 已核可：保留寫入（' + it.target + '）' + promoteStarOnApprove(P, it) + '。' };
       } else if (isRed && it.status === 'pending') {
         it.status = 'approved';
         out = { code: 0, text: '使用者已核可 ' + id + '：請 Claude 依 05 §1 執行：' + it.summary + '（建議內容見 .claude/harness/learning/pending.json 的 ' + id + '）'
@@ -509,7 +567,7 @@ function cleanup(root) {
 function isChildEnv() { return !!(process.env.HARNESS_LEARN_CHILD || process.env.COMPACT_HANDOFF_CHILD); }
 
 module.exports = {
-  GLOSSARY_CANDIDATES, FLOWS_PATH, QA_KNOWLEDGE_PATH, MEMORY_INDEX_LIMIT,
+  GLOSSARY_CANDIDATES, FLOWS_PATH, QA_KNOWLEDGE_PATH, MEMORY_INDEX_BYTES, MEMORY_INDEX_LINES, indexUsage,
   rootOf, memoryDir, paths, normPath, isInside, realPathOf, realInside, readTextInside, IS_WIN,
   today, addDays, nowIso, newRunId, localDate, pad,
   sleepMs, ensureDir, readText, readJson, writeAtomic, writeJson, sha1, fileHash,
@@ -519,6 +577,6 @@ module.exports = {
   readAnswers, knowledgeRel, changelogOf, isTeam,
   scanSecrets, scanInjection, scanExfil, scanDestructive,
   extractEntries, KIND_LABEL, normalizeText, shingles, hasVerbatim,
-  emptyPending, nextPendingId, removeLine, revertItem, pendingAction, LEVEL_TEXT,
+  emptyPending, nextPendingId, removeLine, revertItem, promoteStarOnApprove, pendingAction, LEVEL_TEXT,
   ruleIdsOf, registerAll, computeCandidates, memoryStars, cleanup, isChildEnv,
 };

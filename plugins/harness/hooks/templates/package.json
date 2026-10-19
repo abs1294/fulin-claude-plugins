@@ -2,7 +2,7 @@
   "name": "harness-hooks",
   "private": true,
   "type": "commonjs",
-  "description": "harness hook 的套件設定。type 一律 commonjs：專案根的 package.json 是 \"type\": \"module\" 時，沒有這份檔的 .claude/hooks 會被當成 ES 模組、每支 hook 載入就失敗。dependencies 是規則引擎（guard-risky-command／guard-test-preconditions）用的 shell 語法解析器，只在裝了規則引擎時才 npm ci；沒裝時兩支引擎退回正則判法。",
+  "description": "harness hook 的套件設定。type 一律 commonjs：專案根的 package.json 是 \"type\": \"module\" 時，沒有這份檔的 .claude/hooks 會被當成 ES 模組、每支 hook 載入就失敗。dependencies 是 shell-model.js 用的 tree-sitter 語法解析器，給 git 守門閘（guard-local-hack-destroy，以及專案自加的裸 git／worktree 刪除閘，經共用的 git-calls.js）與規則引擎（guard-risky-command／guard-test-preconditions）看清每一個指令；在本目錄跑 npm ci 安裝。沒裝時規則引擎與裸 git／worktree 閘退回正則判法，覆寫銷毀閘退回「具名路徑一律不放寬」，開場 check-local-hacks-alive.js 會報一行、deny 訊息也會點名要 npm ci。",
   "dependencies": {
     "node-gyp-build": "4.8.4",
     "tree-sitter": "0.25.1",

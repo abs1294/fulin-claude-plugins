@@ -276,7 +276,7 @@ module.exports = function run() {
       ok('promote：綠區 memory 新檔寫入＋MEMORY.md 索引行（⭐⭐）', r.status === 0 && out.written === 1 && fs.existsSync(path.join(p.mem, 'green-pit.md')) && /^- ⭐⭐ \[.*\]\(green-pit\.md\) — 摘要 green-pit$/m.test(idx), idx.trim().split('\n').pop());
       ({ out } = promote(p, [memP('fix-rule', { over: { category: 'correction' } })]));
       const yi = pending(p).find((x) => x.target === 'memory/fix-rule.md');
-      ok('promote：使用者糾正（correction）→ 黃區：寫入並進待你看、索引 ⭐⭐⭐', out.pendingReview === 1 && yi && yi.type === 'write-review' && yi.status === 'pending' && /⭐⭐⭐ \[.*\]\(fix-rule\.md\)/.test(rd(path.join(p.mem, 'MEMORY.md'))), yi && yi.id);
+      ok('promote：使用者糾正（correction）→ 黃區：寫入並進待你看、索引只給 ⭐⭐（⭐⭐⭐ 等使用者核可才升）', out.pendingReview === 1 && yi && yi.type === 'write-review' && yi.status === 'pending' && /^- ⭐⭐ \[.*\]\(fix-rule\.md\)/m.test(rd(path.join(p.mem, 'MEMORY.md'))), yi && yi.id);
       fs.writeFileSync(path.join(p.mem, 'old-note.md'), memDoc('old-note', '舊的本體一行。'));
       ({ out } = promote(p, [memP('old-note', { over: { action: 'update', replaces: '舊的本體一行。', content: '新的本體一行。' } })]));
       const ui = pending(p).find((x) => x.target === 'memory/old-note.md');
@@ -289,6 +289,59 @@ module.exports = function run() {
       ({ out } = promote(p, [memP('rm-pit', { body: '清快取要先 `cd` 到專案底下再 rm -rf node_modules，否則會刪錯目錄。' })]));
       const di = pending(p).find((x) => x.target === 'memory/rm-pit.md');
       ok('promote：破壞性指令樣式 → 升紅區待核、保存 content、不寫入', out.pendingApproval === 1 && di && di.level === 'red' && (di.flags || []).includes('destructive') && di.content.includes('rm -rf') && !fs.existsSync(path.join(p.mem, 'rm-pit.md')), di && di.id);
+      // R2 R6-13：MEMORY.md 上限在寫入前量，會超過就整筆不寫（memory 檔與索引行都不寫）、留待核；不是先寫再記一句。
+      // R3 R3A-9：量 UTF-8 位元組與行數（官方：25KB 或 200 行先到為準），不量 .length 字元——中文索引用字元會低估 45%
+      {
+        const pl = mkProject();
+        const mp = path.join(pl.mem, 'MEMORY.md');
+        const llib = require(path.join(TPL, 'learn-lib.js'));
+        const B = (s) => Buffer.byteLength(s, 'utf8');
+        const LINE_B = B('- ⭐⭐ [full-pit 的說明](full-pit.md) — ' + memP('full-pit').summary + '\n');
+        // 塞到剛好 n 位元組：少量長中文行（字元數遠低於 20,000、行數遠低於 200）
+        const fillBytes = (n) => { let s = '# Memory Index\n'; const row = '- ⭐ [row](row.md) — ' + '中'.repeat(300) + '\n'; while (B(s) + B(row) <= n) s += row;
+          let t = '- '; while (B(s) + B(t) + 1 < n) t += B(s) + B(t) + 1 + 3 <= n ? '中' : 'x'; s += t + '\n'; if (B(s) !== n) throw new Error('fillBytes ' + B(s)); fs.writeFileSync(mp, s); return s; };
+        // 塞到剛好 n 行：短行（位元組很少）
+        const fillLines = (n) => { const s = '# Memory Index\n' + '- r\n'.repeat(n - 1); fs.writeFileSync(mp, s); return s; };
+        const usage = () => llib.indexUsage(rd(mp));
+        ok('learn-lib：上限常數是 25*1024 位元組與 200 行、有 indexUsage、舊的 MEMORY_INDEX_LIMIT 已拿掉', llib.MEMORY_INDEX_BYTES === 25600 && llib.MEMORY_INDEX_LINES === 200 && typeof llib.indexUsage === 'function' && llib.MEMORY_INDEX_LIMIT === undefined, JSON.stringify([llib.MEMORY_INDEX_BYTES, llib.MEMORY_INDEX_LINES]));
+        ok('learn-lib.indexUsage：位元組算 UTF-8、結尾換行不另算一行', JSON.stringify(llib.indexUsage('中\n')) === JSON.stringify({ bytes: 4, lines: 1, pctBytes: 0, pctLines: 1 }) && llib.indexUsage('').lines === 0 && llib.indexUsage('a\r\nb\r\n').lines === 2, JSON.stringify(llib.indexUsage('中\n')));
+        const before = fillBytes(25600 - LINE_B + 1);
+        const u0 = usage();
+        let { out: o } = promote(pl, [memP('full-pit')]);
+        const fi = pending(pl).find((x) => x.target === 'memory/full-pit.md');
+        ok('promote：加本筆索引行會到 25,601 位元組（字元只有 ' + before.length + '）→ memory 檔與索引行都不寫、留待核（flags index-full）、notes 記位元組與行',
+          o.written === 0 && o.pendingApproval === 1 && fi && fi.type === 'proposal' && fi.status === 'pending' && (fi.flags || []).includes('index-full') && before.length < 20000
+          && fi.content === memP('full-pit').content && !fs.existsSync(path.join(pl.mem, 'full-pit.md')) && rd(mp) === before
+          && o.notes.some((n) => new RegExp('已達上限 ' + u0.bytes + '/25600 位元組、' + u0.lines + '/200 行（加本筆索引行會到 25601 位元組、' + (u0.lines + 1) + ' 行）').test(n) && /暫不寫入/.test(n)),
+          JSON.stringify({ o, u0, fi: fi && { type: fi.type, status: fi.status, flags: fi.flags } }));
+        r = nodeRun(pl, 'learn-pending.js', ['list']);
+        ok('promote：被上限擋下的那筆 list 列為待核並說明 index-full', r.status === 0 && !!fi && r.stdout.includes(fi.id) && /index-full（MEMORY\.md 已達上限/.test(r.stdout), r.stdout.split('\n').slice(0, 4).join(' / '));
+        r = nodeRun(pl, 'learn-pending.js', ['approve', fi ? fi.id : 'p-00000000-00']);
+        ok('promote：被上限擋下的那筆核可 → approved、印建議內容給 Claude 落檔', r.status === 0 && /請 Claude 依 05 §1 執行/.test(r.stdout) && /name: full-pit/.test(r.stdout), (r.stdout || r.stderr).split('\n')[0]);
+        fillBytes(25600 - B('- ⭐⭐ [edge-pit 的說明](edge-pit.md) — ' + memP('edge-pit').summary + '\n'));
+        ({ out: o } = promote(pl, [memP('edge-pit')]));
+        ok('promote：寫完剛好 25,600 位元組 → 照寫（判準是超過）、notes 報 100%', o.written === 1 && usage().bytes === 25600 && o.notes.length === 1 && /已到上限的 100%（25600\/25600 位元組/.test(o.notes[0]), JSON.stringify(o.notes) + ' ' + JSON.stringify(usage()));
+        // 22,000 個 ASCII 字元：舊的 20,000 字元判準會擋，現在位元組 22,000 < 25,600 照寫、只記 86%
+        { let s = '# Memory Index\n'; while (s.length < 22000) s += '- ' + 'x'.repeat(Math.min(700, 22000 - s.length - 3)) + '\n'; s = s.slice(0, 22000); if (!s.endsWith('\n')) s = s.slice(0, -1) + '\n'; fs.writeFileSync(mp, s); }
+        ({ out: o } = promote(pl, [memP('ascii-pit')]));
+        ok('promote：22,000 個 ASCII 字元（超過舊的 20,000 字元線）→ 照寫：判準已不是字元；notes 只記百分比（位元組）', o.written === 1 && fs.existsSync(path.join(pl.mem, 'ascii-pit.md')) && usage().lines < 160 && o.notes.length === 1 && /已到上限的 8\d%（\d+\/25600 位元組、\d+\/200 行）/.test(o.notes[0]), JSON.stringify(o.notes) + ' ' + JSON.stringify(usage()));
+        // 行數：199→200 照寫（100%）、200→201 擋
+        fillLines(199);
+        ({ out: o } = promote(pl, [memP('line-pit')]));
+        ok('promote：199 行再寫一筆＝200 行 → 照寫、notes 報 100%（行）', o.written === 1 && usage().lines === 200 && usage().bytes < 2000 && o.notes.length === 1 && /已到上限的 100%（\d+\/25600 位元組、200\/200 行）/.test(o.notes[0]), JSON.stringify(o.notes) + ' ' + JSON.stringify(usage()));
+        ({ out: o } = promote(pl, [memP('line-pit-2')]));
+        ok('promote：200 行再寫一筆（會到 201 行、位元組很少）→ 擋下、notes 報「會到 … 201 行」', o.written === 0 && o.pendingApproval === 1 && usage().lines === 200 && o.notes.some((n) => /已達上限 \d+\/25600 位元組、200\/200 行（加本筆索引行會到 \d+ 位元組、201 行）/.test(n)), JSON.stringify(o.notes));
+        // 80%：行 160（位元組少）記；位元組 20,480（行少）記；都低不記
+        fillLines(159);
+        ({ out: o } = promote(pl, [memP('warn-line')]));
+        ok('promote：寫完 160 行（80%，位元組很少）→ 照寫、notes 只記百分比（行）', o.written === 1 && usage().lines === 160 && o.notes.length === 1 && /已到上限的 80%（\d+\/25600 位元組、160\/200 行）/.test(o.notes[0]), JSON.stringify(o.notes));
+        fillBytes(20480 - B('- ⭐⭐ [warn-pit 的說明](warn-pit.md) — ' + memP('warn-pit').summary + '\n'));
+        ({ out: o } = promote(pl, [memP('warn-pit')]));
+        ok('promote：寫完 20,480 位元組（80%，行很少）→ 照寫、notes 只記百分比（位元組）', o.written === 1 && usage().bytes === 20480 && o.notes.length === 1 && /已到上限的 80%（20480\/25600 位元組、\d+\/200 行）/.test(o.notes[0]), JSON.stringify(o.notes));
+        fillLines(150);
+        ({ out: o } = promote(pl, [memP('low-pit')]));
+        ok('promote：151 行、幾百位元組（兩維度都 <80%）→ 照寫、沒有上限相關 notes', o.written === 1 && fs.existsSync(path.join(pl.mem, 'low-pit.md')) && o.notes.length === 0 && rd(mp).includes('(low-pit.md)'), JSON.stringify(o.notes));
+      }
       // 拒收
       const rej = (label, props, cls, range) => {
         const { out: o } = promote(p, props, 't1.jsonl', range);
@@ -533,6 +586,19 @@ module.exports = function run() {
         fs.writeFileSync(pf, JSON.stringify(pd));
         r = nodeRun(p, 'learn-pending.js', ['revert', Y1]);
         ok('pending：targetPath 經專案內 junction 指到外面 → revert 拒絕、外面的檔沒被刪', r.status === 1 && fs.existsSync(victim) && st(Y1) === 'accepted', (r.stderr || r.stdout).trim());
+      }
+      // R2 R7-13：MEMORY.md 索引行被使用者整併改寫後的還原——原句比對不到要退而刪指向本筆檔名的連結行；都找不到要明講
+      {
+        const pq = mkProject();
+        promote(pq, [memP('idx-a', { over: { category: 'correction' } }), memP('idx-b', { over: { category: 'correction' } })]);
+        const IA = (pending(pq).find((x) => x.target === 'memory/idx-a.md') || {}).id, IB = (pending(pq).find((x) => x.target === 'memory/idx-b.md') || {}).id;
+        const mp = path.join(pq.mem, 'MEMORY.md');
+        fs.writeFileSync(mp, '# Memory Index\n- ⭐⭐ 整併後的 b [·](idx-b.md)\n- ⭐⭐ 整併後的 a [·](idx-a.md)\n');
+        r = nodeRun(pq, 'learn-pending.js', ['revert', IA]);
+        ok('pending：索引行被改寫 → revert 以檔名連結找到並刪掉、回報說是連結比對、別筆不動', r.status === 0 && /以檔名連結比對/.test(r.stdout) && !rd(mp).includes('(idx-a.md)') && rd(mp).includes('(idx-b.md)') && !fs.existsSync(path.join(pq.mem, 'idx-a.md')), r.stdout.trim() + ' | ' + rd(mp));
+        fs.writeFileSync(mp, '# Memory Index\n- ⭐ [別筆](other.md) — x\n');
+        r = nodeRun(pq, 'learn-pending.js', ['reject', IB]);
+        ok('pending：原句與連結都不在 → 檔案照刪、回報明講索引行未移除、MEMORY.md 不動', r.status === 0 && /MEMORY\.md 索引行未移除/.test(r.stdout) && !/並移除/.test(r.stdout) && rd(mp) === '# Memory Index\n- ⭐ [別筆](other.md) — x\n' && !fs.existsSync(path.join(pq.mem, 'idx-b.md')), r.stdout.trim());
       }
       // learn-approve：只認使用者原話
       r = hook(p, 'learn-approve.js', { hook_event_name: 'UserPromptSubmit', prompt: '駁回 ' + RC }, { CLAUDECODE: '1' });

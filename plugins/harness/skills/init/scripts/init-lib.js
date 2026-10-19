@@ -89,15 +89,23 @@ function validate(schema, value, root, where = '$') {
 
 function loadSchema() { return readJson(SCHEMA_PATH); }
 
-// 形狀目錄的目錄表：`## 目錄` 之後、下一個 `## ` 之前，以「| 數字 |」開頭的列
-function catalogRows(file = CATALOG_PATH) {
+// 形狀目錄的目錄表：`## 目錄` 之後、下一個 `## ` 之前，以「| 數字 |」開頭的列。
+// 預設跳過類別欄（第 5 欄）寫「不帶」的列——hook-catalog.md 維護節規定這些列 init 不記進答案檔，
+// init-flow.js catalog 與 init-verify V16 都用這份列數對帳；列號照目錄表、不重編。`{ all: true }` 回全部列（連續性檢查用），
+// 每列另帶 cls（類別欄原文）。儲存格裡的 `\|` 是跳脫的直線，不是欄位分隔。
+function catalogRows(file = CATALOG_PATH, { all = false } = {}) {
   const lines = fs.readFileSync(file, 'utf8').split('\n');
   const start = lines.findIndex((l) => /^## 目錄\s*$/.test(l));
   if (start < 0) return [];
   const rows = [];
   for (let i = start + 1; i < lines.length && !/^## /.test(lines[i]); i++) {
     const m = lines[i].match(/^\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|/);
-    if (m) rows.push({ row: Number(m[1]), name: m[2] });
+    if (!m) continue;
+    const cells = lines[i].replace(/^\|/, '').split(/(?<!\\)\|/).map((c) => c.trim());
+    const cls = cells[4] || '';
+    const skip = /^不帶/.test(cls);
+    if (skip && !all) continue;
+    rows.push({ row: Number(m[1]), name: m[2], cls, skip });
   }
   return rows;
 }

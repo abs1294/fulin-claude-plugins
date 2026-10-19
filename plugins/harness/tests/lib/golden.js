@@ -57,14 +57,17 @@ const RULES = [
 ];
 const LEARN_HOOKS = [
   ['learn-trigger.js', 'PreToolUse', ''], ['learn-trigger.js', 'Stop', ''], ['learn-trigger.js', 'SessionEnd', ''],
-  ['learn-usage.js', 'PreToolUse', 'Read|Skill'], ['learn-usage.js', 'Stop', ''],
+  ['learn-usage.js', 'PreToolUse', 'Read|Skill|Bash|PowerShell'], ['learn-usage.js', 'Stop', ''],
   ['learn-session-report.js', 'SessionStart', ''], ['learn-approve.js', 'UserPromptSubmit', ''],
+  ['learn-approve.js', 'PostToolUse', 'AskUserQuestion'],
 ];
 const LEARN_EXTRA = ['learn-lib.js', 'learn-reflect.js', 'learn-promote.js', 'learn-pending.js', 'learn-reflector-prompt.md'];
 
 // 一個 {{…}} 的內容要換成什麼：條件段落（若有…加、沒有…時…）整段刪；日期、專案名照填；驗證指令給真的；其餘填示範值
 function fillOne(inner) {
   const t = inner.trim();
+  const d = /預設『([^』]*)』/.exec(t);   // 寫了「預設『…』」的填空（04 的必讀檔名、分流標記名）照預設填
+  if (d) return d[1];
   if (/^YYYY-MM-DD$/.test(t)) return TODAY;
   if (/^(專案名|專案\/workspace 名稱|skill 名)$/.test(t)) return PROJECT;
   if (/^settings 檔：/.test(t)) return '.claude/settings.local.json';
@@ -132,6 +135,13 @@ function makeGolden(root) {
     const c = path.join(TPL, 'cases', f.replace(/\.js$/, '.json'));
     if (fs.existsSync(c)) write(root, `.claude/hooks/cases/${path.basename(c)}`, fs.readFileSync(c, 'utf8'));
   }
+  // 派工閘填空：golden 的 Q10 答「不載入」（CLAUDE.md 沒有 @GLOSSARY.md），照 phase-4-hooks 填法 REQUIRE_GLOSSARY_READ 要填 true（init-verify V25 對這三處）
+  {
+    const hp = path.join(root, '.claude', 'hooks', 'check-review-discipline.js');
+    const t = fs.readFileSync(hp, 'utf8');
+    if (!t.includes('const REQUIRE_GLOSSARY_READ = false;')) throw new Error('golden：check-review-discipline.js 找不到 REQUIRE_GLOSSARY_READ 開關');
+    fs.writeFileSync(hp, t.replace('const REQUIRE_GLOSSARY_READ = false;', 'const REQUIRE_GLOSSARY_READ = true;'));
+  }
   // 有 .js hook 就一定帶 package.json（"type": "commonjs"；init-verify V19）
   write(root, '.claude/hooks/package.json', fs.readFileSync(path.join(TPL, 'package.json'), 'utf8'));
   const settings = { hooks: {} };
@@ -195,11 +205,20 @@ function dropSnapshot(root) { try { fs.unlinkSync(L.snapshotPath(root)); } catch
 // afterSnap：快照拍完之後再做的改動（模擬 init 期間改了既有檔）
 const app = (root, rel, s) => fs.appendFileSync(path.join(root, rel), s);
 const sub = (root, rel, a, b) => { const p = path.join(root, rel); const t = fs.readFileSync(p, 'utf8'); if (!t.includes(a)) throw new Error(`壞變體找不到要改的字：${rel}「${a}」`); fs.writeFileSync(p, t.replace(a, b)); };
+const subAll = (root, rel, a, b) => { const p = path.join(root, rel); const t = fs.readFileSync(p, 'utf8'); if (!t.includes(a)) throw new Error(`壞變體找不到要改的字：${rel}「${a}」`); fs.writeFileSync(p, t.split(a).join(b)); };
+// 參考模式沿用的自行演進派工閘：來源專案 2026-10-18 原檔的去識別化複本（repo 名／主機名／公司字樣換成 Acme 佔位；沒有 REQUIRED_MARKERS 表、檢查改寫成逐條 if），同名放進 .claude/hooks/（cases 與接線沿用範本的）
+const evolvedHook = (r) => fs.copyFileSync(path.join(PLUGIN, 'tests', 'fixtures', 'check-review-discipline.evolved-instance.js'), path.join(r, '.claude', 'hooks', 'check-review-discipline.js'));
 const editJson = (root, rel, fn) => { const p = path.join(root, rel); const j = JSON.parse(fs.readFileSync(p, 'utf8')); fn(j); fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n'); };
 // 一份合法的規則檔（paths 命中 single-web 的檔、列在 harness README），只差處置表有沒有記它
 const extraRule = (root, rel) => {
   write(root, rel, '---\npaths:\n  - "src/**/*.{jsx,tsx}"\n---\n\n# 呼叫後端 API 規範\n\n呼叫後端一律經過共用的 fetch 包裝，不在元件裡直接寫網址。\n');
   app(root, '.claude/harness/README.md', `\n- \`${rel}\`（paths：src/**/*.{jsx,tsx}）\n`);
+};
+// 參考模式沿用的一支原有 hook（harness 沒有對應範本）：檔放進 .claude/hooks/、照原接線寫進 settings，回歸由各變體決定
+const legacyHook = (root) => {
+  write(root, '.claude/hooks/legacy-guard.js', "#!/usr/bin/env node\n'use strict';\nprocess.exit(0);\n");
+  const abs = root.split(path.sep).join('/');
+  editJson(root, '.claude/settings.local.json', (j) => { (j.hooks.PreToolUse = j.hooks.PreToolUse || []).push({ matcher: 'Bash', hooks: [{ type: 'command', command: `node "${abs}/.claude/hooks/legacy-guard.js"`, timeout: 15, statusMessage: '原有 hook' }] }); });
 };
 const BROKEN = [
   { name: '03 留了 {{ 填空', expect: 'V01-placeholder', apply: (r) => app(r, '.claude/harness/03-judgment-matrix.md', '\n驗證指令：{{測試指令}}\n') },
@@ -221,6 +240,8 @@ const BROKEN = [
   { name: '裝了 hook 卻沒接線', expect: 'V17-wiring', apply: (r) => fs.copyFileSync(path.join(TPL, 'guard-report-output.js'), path.join(r, '.claude', 'hooks', 'guard-report-output.js')) },
   { name: '學習迴路少接一個事件', expect: 'V18-learning', learnOnly: true, apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { j.hooks.SessionEnd = []; }) },
   { name: '學習迴路沒接使用者核可（learn-approve）', expect: 'V18-learning', learnOnly: true, apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { j.hooks.UserPromptSubmit = (j.hooks.UserPromptSubmit || []).filter((g) => !JSON.stringify(g).includes('learn-approve.js')); }) },
+  { name: '學習迴路沒接選單核可（learn-approve 的 PostToolUse）', expect: 'V18-learning', learnOnly: true, apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { j.hooks.PostToolUse = (j.hooks.PostToolUse || []).filter((g) => !JSON.stringify(g).includes('learn-approve.js')); }) },
+  { name: '選單核可的 PostToolUse matcher 沒涵蓋 AskUserQuestion', expect: 'V18-learning', learnOnly: true, apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { for (const g of j.hooks.PostToolUse || []) if (JSON.stringify(g).includes('learn-approve.js')) g.matcher = 'Bash'; }) },
   { name: '工具呼叫計數的 matcher 只接 Bash', expect: 'V18-learning', learnOnly: true, apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { for (const g of j.hooks.PreToolUse) if (JSON.stringify(g).includes('learn-trigger.js')) g.matcher = 'Bash'; }) },
   { name: '用量計數的 matcher 漏了 Skill', expect: 'V18-learning', learnOnly: true, apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { for (const g of j.hooks.PreToolUse) if (JSON.stringify(g).includes('learn-usage.js')) g.matcher = 'Read'; }) },
   { name: '.claude/hooks 沒有 package.json（專案根是 type: module 時每支 hook 載入就失敗）', expect: 'V19-hooks-commonjs', apply: (r) => fs.unlinkSync(path.join(r, '.claude', 'hooks', 'package.json')) },
@@ -247,14 +268,69 @@ const BROKEN = [
   } },
   { name: 'skill 的 paths 在專案裡命中 0 個檔', expect: 'V22-skill-paths', apply: (r) => sub(r, '.claude/skills/frontend-conventions/SKILL.md', 'paths: "src/**/*.{jsx,tsx}"', 'paths: "app/**/*.vue"') },
   { name: 'agent 的 skills: 指到不存在的 skill', expect: 'V22-skill-paths', apply: (r) => sub(r, '.claude/agents/frontend-engineer.md', 'skills: [frontend-conventions]', 'skills: [frontend-conventions, ui-kit-rules]') },
+  { name: '沿用的原有 hook 沒有回歸，答案檔也沒記沿用、無回歸', expect: 'V23-hook-regression', apply: legacyHook },
+  { name: '原有 hook 記成沿用、無回歸，但理由是空的', expect: 'V23-hook-regression', apply: (r) => { legacyHook(r); editJson(r, '.claude/harness/init-answers.json', (j) => { j.answers.Q5.data = { keptWithoutRegression: [{ hook: 'legacy-guard.js', reason: ' ' }] }; }); } },
+  { name: '04 的 QA 分流格標記名跟範本派工閘要求的對不上（【既有測試分流】兩處都寫成別的字樣）', expect: 'V24-delegation-markers', apply: (r) => subAll(r, '.claude/harness/04-delegation-templates.md', '【既有測試分流】', '【分流】') },
+  { name: '沿用自行演進的派工閘（沒有 REQUIRED_MARKERS 表、只認【CATALOG 分流】、QA 必讀另要 tests/e2e/README.md），04 卻照範本預設填', expect: 'V24-delegation-markers', apply: evolvedHook },
+  // 逐模板區塊（R4）：共通規則段的同字樣還在，只有派工單那個區塊少了
+  { name: '04 模板六區塊刪掉【目標環境】那一行（共通規則段仍寫著【目標環境】）', expect: 'V24-delegation-markers', apply: (r) => blockEdit(r, '## 模板六', (b) => b.replace(/^【目標環境】.*\n/m, '')) },
+  { name: '04 模板二【開工前必讀】刪掉 FLOWS.md 那一行（共通規則段仍寫著 FLOWS.md）', expect: 'V24-delegation-markers', apply: (r) => blockEdit(r, '## 模板二', (b) => b.replace(/^- .*FLOWS\.md.*\n/m, '')) },
+  { name: '沿用自行演進的派工閘（五支 agent 一律要 FLOWS.md），04 模板六區塊沒有 FLOWS 行', expect: 'V24-delegation-markers', apply: (r) => { evolvedHook(r); instFill04(r); blockEdit(r, '## 模板六', (b) => b.replace(/^- .*FLOWS\.md.*\n/m, '')); } },
+  // V25 詞彙表自動載入三方一致
+  { name: 'Q10 答不匯入、CLAUDE.md 沒有 @GLOSSARY.md，派工閘 REQUIRE_GLOSSARY_READ 卻是 false（subagent 兩邊都拿不到詞彙表）', expect: 'V25-glossary-autoload', apply: (r) => sub(r, '.claude/hooks/check-review-discipline.js', 'const REQUIRE_GLOSSARY_READ = true;', 'const REQUIRE_GLOSSARY_READ = false;') },
+  { name: 'Q10 答不匯入，CLAUDE.md 卻有行首 @GLOSSARY.md', expect: 'V25-glossary-autoload', apply: (r) => { const p = path.join(r, 'CLAUDE.md'); fs.writeFileSync(p, '@GLOSSARY.md\n' + fs.readFileSync(p, 'utf8')); } },
+  { name: 'Q10 答匯入，CLAUDE.md 卻沒有行首 @GLOSSARY.md', expect: 'V25-glossary-autoload', apply: (r) => editJson(r, '.claude/harness/init-answers.json', (j) => { j.answers.Q10.data = { import: true }; }) },
+  // V17 接線比 (事件, matcher) 與路徑（R4）
+  { name: '派工閘的 matcher 被改成 Bash（檔名還在 settings 裡）', expect: 'V17-wiring', apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { for (const g of j.hooks.PreToolUse) if (g.hooks.some((h) => /check-review-discipline\.js/.test(h.command))) g.matcher = 'Bash'; }) },
+  { name: 'PreToolUse 的接線整段搬到 Stop', expect: 'V17-wiring', apply: (r) => editJson(r, '.claude/settings.local.json', (j) => { j.hooks.Stop = (j.hooks.Stop || []).concat(j.hooks.PreToolUse); delete j.hooks.PreToolUse; }) },
+  { name: '派工閘的接線指令指到 .claude/hooks/old/ 的舊版', expect: 'V17-wiring', apply: (r) => {
+    fs.mkdirSync(path.join(r, '.claude', 'hooks', 'old'), { recursive: true });
+    fs.copyFileSync(path.join(r, '.claude', 'hooks', 'check-review-discipline.js'), path.join(r, '.claude', 'hooks', 'old', 'check-review-discipline.js'));
+    sub(r, '.claude/settings.local.json', '/.claude/hooks/check-review-discipline.js', '/.claude/hooks/old/check-review-discipline.js');
+  } },
 ];
+// 只改 04 某個模板標題下第一個 ``` 區塊的內容（共通規則段不動）
+const blockEdit = (root, title, fn) => {
+  const p = path.join(root, '.claude', 'harness', '04-delegation-templates.md');
+  const t = fs.readFileSync(p, 'utf8');
+  const i = t.indexOf(title); if (i < 0) throw new Error(`golden：04 找不到 ${title}`);
+  const a = t.indexOf('```\n', i), b = t.indexOf('\n```', a + 4);
+  const body = t.slice(a + 4, b), out = fn(body);
+  if (out === body) throw new Error(`golden：${title} 區塊沒有改到東西`);
+  fs.writeFileSync(p, t.slice(0, a + 4) + out + t.slice(b));
+};
 
 // 合法變體：各改一處仍合規，init-verify 要 exit 0 且 expect 這個 id 是 PASS；evidence＝證據要含的字樣
 const keptLegacy = (r) => {
   extraRule(r, '.claude/rules/web/legacy.md');
   editJson(r, '.claude/harness/init-answers.json', (j) => { j.rulesSplit.push({ file: '.claude/rules/web/legacy.md', load: 'paths', origin: 'kept', topic: '既有 API 規範' }); });
 };
+// 沿用自行演進的派工閘時 04 的填法（skeleton-04 共通規則「開工前必讀」的 init 填法；tests/run.js delegation-gate 用同一套換法餵閘）
+const instFill04 = (r) => {
+  const p = path.join(r, '.claude', 'harness', '04-delegation-templates.md');
+  const t = fs.readFileSync(p, 'utf8');
+  if (!t.includes('【既有測試分流】') || !/^- .*tests\/Project_Detail\/PROJECT\.md.*$/m.test(t)) throw new Error('golden：04 找不到分流格或 QA 測試知識檔那一行');
+  // 自行演進的實例五支 agent 一律要 FLOWS.md（含 QA）：骨架模板六自 R4 起預設就有鏈路檔那一行，這裡只確認它在、沒有被填空刪掉
+  const six = t.slice(t.indexOf('## 模板六'));
+  if (!/^- .*FLOWS\.md/m.test(six.slice(six.indexOf('```\n'), six.indexOf('\n```', six.indexOf('```\n') + 4)))) throw new Error('golden：04 模板六區塊沒有 FLOWS.md 那一行（沿用的實例閘對 QA 也要求鏈路檔）');
+  fs.writeFileSync(p, t.split('【既有測試分流】').join('【CATALOG 分流】')
+    .replace(/^(- .*tests\/Project_Detail\/PROJECT\.md.*)$/m, (m) => m + '\n- <workspace>/tests/e2e/README.md（e2e 執行契約）'));
+};
 const VALID = [
+  { name: '範本派工閘（REQUIRED_MARKERS 表＋必讀開關：概要關、詞彙表照 Q10 開）＋04 預設填法，逐模板區塊對', expect: 'V24-delegation-markers',
+    evidence: /4 個派工模板（模板二、模板三、模板四、模板六）逐格對：REQUIRED_MARKERS 表 \d+ 條＋deny 訊息 \d+ 條標記名／必讀檔都在該模板區塊找得到；表裡開關關閉不驗 1 條（必讀：專案概要）/, apply: () => {} },
+  { name: '沿用自行演進的派工閘，04 照它 deny 訊息要求的填（【CATALOG 分流】、QA 必讀加 tests/e2e/README.md、模板六有 FLOWS 行）', expect: 'V24-delegation-markers',
+    evidence: /沒有 REQUIRED_MARKERS 表（自行演進的實例）＋deny 訊息 9 條標記名／必讀檔都在該模板區塊找得到/, apply: (r) => { evolvedHook(r); instFill04(r); } },
+  { name: 'Q10 答匯入＋CLAUDE.md 行首 @GLOSSARY.md＋派工閘 REQUIRE_GLOSSARY_READ 留 false（三處一致）', expect: 'V25-glossary-autoload',
+    evidence: /Q10 import=true、CLAUDE\.md 有行首 @GLOSSARY\.md；派工閘 REQUIRE_GLOSSARY_READ=false/, apply: (r) => {
+      editJson(r, '.claude/harness/init-answers.json', (j) => { j.answers.Q10.data = { import: true }; });
+      const p = path.join(r, 'CLAUDE.md'); fs.writeFileSync(p, '@GLOSSARY.md\n' + fs.readFileSync(p, 'utf8'));
+      sub(r, '.claude/hooks/check-review-discipline.js', 'const REQUIRE_GLOSSARY_READ = true;', 'const REQUIRE_GLOSSARY_READ = false;');
+    } },
+  { name: '沿用的原有派工閘沒有 REQUIRE_GLOSSARY_READ 開關：V25 只對 Q10 與 @ 行', expect: 'V25-glossary-autoload',
+    evidence: /派工閘沒有 REQUIRE_GLOSSARY_READ 開關（沿用的原有閘），不比/, apply: (r) => { evolvedHook(r); instFill04(r); } },
+  { name: '標準接線：每支 hook 的（事件, matcher）對過 hook-catalog 掛載欄', expect: 'V17-wiring',
+    evidence: /支 hook 都有接線、路徑指到 \.claude\/hooks\/，其中 \d+ 支（事件, matcher）對過 hook-catalog 掛載欄/, apply: () => {} },
   { name: '參考模式沿用既有規則檔（子目錄、沒有建立那一行），處置表記 origin: kept，Phase 0 快照裡有它且內容沒變', expect: 'V21-rules-split',
     snap: true, snapAdd: ['.claude/rules/web/legacy.md'], evidence: /沿用 1 份對過 Phase 0 快照/, apply: keptLegacy },
   { name: '沒有 Phase 0 快照（舊版 init 的實例）：origin: kept 照舊放行，證據寫明未核對', expect: 'V21-rules-split',
@@ -265,6 +341,10 @@ const VALID = [
       app(r, 'CLAUDE.changelog.md', `- ${TODAY} 沿用 .claude/rules/web/legacy.md 並改寫（加上逾時規定；harness plugin /harness:init 實例化）\n`);
       editJson(r, '.claude/harness/init-answers.json', (j) => { j.rulesSplit.push({ file: '.claude/rules/web/legacy.md', load: 'paths', origin: 'new', topic: '既有 API 規範' }); });
     }, afterSnap: (r) => app(r, '.claude/rules/web/legacy.md', '\n逾時一律 10 秒。\n') },
+  { name: '沿用的原有 hook 只有同名 cases/<名>.test.js（沒有 .json 案例）', expect: 'V23-hook-regression', evidence: /有 \.test\.js 1 支/,
+    apply: (r) => { legacyHook(r); write(r, '.claude/hooks/cases/legacy-guard.test.js', "'use strict';\nprocess.exit(0);\n"); } },
+  { name: '沿用的原有 hook 沒有回歸，答案檔 Q5 記了沿用、無回歸與理由', expect: 'V23-hook-regression', evidence: /沿用、無回歸 1 支（legacy-guard\.js/,
+    apply: (r) => { legacyHook(r); editJson(r, '.claude/harness/init-answers.json', (j) => { j.answers.Q5.data = { keptWithoutRegression: [{ hook: 'legacy-guard.js', reason: '要真的起服務才測得到' }] }; }); } },
 ];
 
 // check-flow-diagram.js 對符號連結的處理（規則見該檔檔頭）：每個案例在系統暫存目錄建專案與專案外目錄、用 junction 連起來，

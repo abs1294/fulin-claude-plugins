@@ -315,6 +315,190 @@
         "hook_event_name": "Stop"
       },
       "expect": "NOTE"
+    },
+    {
+      "label": "Bash cat memory 檔（接 pipe）→ view +1",
+      "setup": {
+        "files": {
+          "mem/MEMORY.md": "# Memory Index\n- ⭐ [x](db-login.md) — x\n",
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat \"{PROJECT_DIR}/mem/db-login.md\" | head -5"
+        }
+      },
+      "expect": "NOTE",
+      "output_match": "view memory:db-login\\.md = 1"
+    },
+    {
+      "label": "Bash sed -n 讀 memory 檔（Git Bash /c/ 路徑）→ view +1",
+      "setup": {
+        "files": {
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sed -n 1,40p {PROJECT_DIR_POSIX}/mem/db-login.md"
+        }
+      },
+      "expect": "NOTE",
+      "output_match": "view memory:db-login\\.md = 1"
+    },
+    {
+      "label": "PowerShell Get-Content 專案 skill 的 SKILL.md → 該 skill view +1",
+      "setup": {
+        "files": {
+          ".claude/skills/bug-hunt/SKILL.md": "# s\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "PowerShell",
+        "tool_input": {
+          "command": "Get-Content -Path \"{PROJECT_DIR}/.claude/skills/bug-hunt/SKILL.md\" -TotalCount 20"
+        }
+      },
+      "expect": "NOTE",
+      "output_match": "view skill:bug-hunt = 1"
+    },
+    {
+      "label": "Bash 一條指令讀兩個 memory 檔（其中一個寫兩次）→ 各計一次",
+      "setup": {
+        "files": {
+          "mem/db-login.md": "---\nname: db-login\n---\n",
+          "mem/other.md": "---\nname: other\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "head -n 5 {PROJECT_DIR_POSIX}/mem/db-login.md {PROJECT_DIR_POSIX}/mem/other.md {PROJECT_DIR_POSIX}/mem/db-login.md"
+        }
+      },
+      "expect": "NOTE",
+      "output_match": "view memory:db-login\\.md = 1[\\s\\S]*view memory:other\\.md = 1",
+      "output_not_match": "= 2"
+    },
+    {
+      "label": "Bash echo 追加寫入 memory 檔 → 不計（寫檔不是讀取）",
+      "setup": {
+        "files": {
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo \"- 新的一行\" >> \"{PROJECT_DIR}/mem/db-login.md\""
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Bash rm memory 檔（路徑有出現、動詞是刪除）→ 不計",
+      "setup": {
+        "files": {
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rm -f {PROJECT_DIR_POSIX}/mem/db-login.md"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Bash sed -i 改 memory 檔 → 不計（sed 只有 -n 讀取才算）",
+      "setup": {
+        "files": {
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sed -i 's/a/b/' {PROJECT_DIR_POSIX}/mem/db-login.md"
+        }
+      },
+      "expect": "SILENT"
+    },
+    {
+      "label": "Bash cat 別的檔重導向蓋掉 memory 檔 → 不計（重導向目標是寫入）",
+      "setup": {
+        "files": {
+          "src/a.md": "x",
+          "mem/db-login.md": "---\nname: db-login\n---\n"
+        },
+        "env": {
+          "HARNESS_MEMORY_DIR": "{PROJECT_DIR}/mem",
+          "HARNESS_LEARN_DEBUG": "1",
+          "HARNESS_LEARN_CHILD": null,
+          "COMPACT_HANDOFF_CHILD": null
+        }
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat {PROJECT_DIR_POSIX}/src/a.md > {PROJECT_DIR_POSIX}/mem/db-login.md"
+        }
+      },
+      "expect": "SILENT"
     }
   ]
 }

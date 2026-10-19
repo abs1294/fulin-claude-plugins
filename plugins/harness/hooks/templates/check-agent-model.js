@@ -11,7 +11,7 @@
 //   ② 帶的值是不是 fable——「Fable 禁下放」若只有文字規則、hook 只驗「有沒有帶」不驗值，
 //      帶 model:"fable" 的派工一路暢通，規則等於不存在。② 不限 MANAGED_AGENTS，任何 subagent 都適用。
 // 判準正本：.claude/harness/02-model-dispatch.md §1。
-// fail-open：解析失敗或任何例外一律放行（hook 故障不得變成擋路石）。
+// fail-open：解析失敗或任何例外一律放行（hook 故障不得變成擋路石），但放行時在 stderr 與 additionalContext 講明「hook 內部錯誤」。
 
 // ── init 填空區 ──────────────────────────────────────────────────────────────
 // 本專案的 agent 名單（= Phase 3 Q1 裁切後實際建在 .claude/agents/ 的名字；
@@ -30,7 +30,10 @@ const DEFAULT_MODEL_HINT = '實作／審查／QA＝sonnet、architect＝opus；�
 let raw = '';
 process.stdin.on('data', (c) => { raw += c; });
 process.stdin.on('end', () => {
+  // 空輸入＝不是 Claude Code 呼叫（手動執行），不算故障
+  if (!raw.trim()) process.exit(0);
   let reason = null;
+  let failure = null;
   try {
     const input = JSON.parse(raw);
     const ti = input.tool_input || {};
@@ -55,7 +58,11 @@ process.stdin.on('end', () => {
           + '不得改派其他 agent type 繞過本檢查。';
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    // 不用空 catch（fail-open 但 loud，見 05 知識協議升格條款）：吞掉例外靜默放行時，
+    // hook 壞了、派工 model 閘整段失效都沒人發現。仍放行，但 stderr 與 additionalContext 都要講。
+    failure = e;
+  }
   if (reason) {
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: {
@@ -63,6 +70,14 @@ process.stdin.on('end', () => {
         permissionDecision: 'deny',
         permissionDecisionReason: reason,
       },
+    }));
+  } else if (failure) {
+    const msg = '[02-model-dispatch §1] hook 內部錯誤，本次放行：' + String((failure && failure.message) || failure).split('\n')[0];
+    process.stderr.write(msg + '\n');
+    // exit 0 的 stderr 模型看不到，要包成 additionalContext
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'PreToolUse',
+        additionalContext: msg + '。這次沒有檢查派工的 model 參數，請自行對照 02-model-dispatch §1；hook 要修：.claude/hooks/check-agent-model.js' },
     }));
   }
   process.exit(0);

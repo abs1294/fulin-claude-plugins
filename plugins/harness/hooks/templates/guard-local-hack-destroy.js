@@ -30,6 +30,19 @@
 //   6. restore／checkout 依點名路徑放寬**只在語法解析器可用時**（同目錄 shell-model.js；沒有解析器、
 //      HARNESS_SHELL_PARSER=off、語法樹有錯誤節點時，判法與改動前相同）：每個 git 呼叫的目前目錄、環境、旗標、點名路徑、
 //      所屬 repo 都確定，而且沒點到覆寫檔才放行；任何一處判不準就照改動前擋。細節見 astNamedItems 上方的註解。
+//   7. 危險判定本身也走語法樹（2026-10-18；之前語法樹只用來放寬、危險判定停在字串層裸動詞，`git $(echo reset) --hard`、
+//      `git "reset" --hard`、`git --no-optional-locks reset --hard`、`-c alias.r='reset --hard' r`、`printf 'git reset --hard' | sh`、
+//      `bash -c -- '…'`、PowerShell `--%`／`| iex`、GIT_CONFIG_PARAMETERS alias 全放行且實跑毀掉覆寫）：
+//      解析器可用時，每個 git 呼叫由共用模組 git-calls.js（與裸 git 閘、worktree 刪除閘同一份）從語法樹取 argv——引號、跳脫、續行、
+//      命令替換、管線餵殼、殼包裝、xargs／find -exec、`--%`、alias、任何全域選項全部還原後才比對 VERB_RULES；動詞或指令名執行期才知道
+//      （`$(echo reset)`、`xargs git` 沒有自己的動詞、看不清值的 alias、PowerShell 運算式）→ 當成會毀掉三種狀態的檔，保守擋並說明。
+//      解析器不在／HARNESS_SHELL_PARSER=off／語法樹有錯誤節點：git-calls.js 的正則路徑照樣採用（引號拆字、alias、unsure 都認得），
+//      再與本檔的字串層判法（parseGitCalls＋WRAPPER_RUNS_GIT）取聯集；只有「點名路徑放寬」限語法樹路徑。解析器載不起來時
+//      deny 訊息點名叫人在 .claude/hooks 跑 npm ci，開場 check-local-hacks-alive.js 也會報一行（之前整個丟掉 git-calls 結果退回字串層，
+//      PowerShell 下 `git "checkout" -- <覆寫檔>` 放行）。
+//   8. 清單外、工作目錄外的獨立 repo 字串層也放行（之前在 %TEMP% 乾淨小 repo 跑 reset --hard 會被擋「有 N 個覆寫檔」）：
+//      -C／cd／cwd 推得的 repo 頂層不在工作目錄底下、也不是清單 repo → 它碰不到清單上的檔，不列入掃描。
+//      VERB_RULES 補 `rm -f`；`apply -R` 刻意不擋（它是 deny 訊息教的卸下 patch 步驟）。
 //
 // fail-open：解析失敗、git 讀不到、任何例外一律放行。
 
@@ -573,12 +586,15 @@ function gitCallShape(a, idx) {
 }
 
 // 回傳被點到的覆寫條目陣列（可能是空的＝沒點到任何覆寫檔）；判不準回 null
-function astNamedItems(cmd, tool, cwd, root, items, danger) {
+// pre：git-calls.js 已經解析好的語法樹（同一條指令不解析第二次）；沒給就自己解析
+function astNamedItems(cmd, tool, cwd, root, items, danger, pre) {
   if (!cwd || !fs.existsSync(cwd)) return null;
-  let sm;
-  try { sm = require('./shell-model.js'); } catch (e) { return null; }
-  let a;
-  try { a = sm.analyze(cmd, tool === 'PowerShell' ? 'PowerShell' : 'Bash', cwd, root); } catch (e) { return null; }
+  let a = pre || null;
+  if (!a) {
+    let sm;
+    try { sm = require('./shell-model.js'); } catch (e) { return null; }
+    try { a = sm.analyze(cmd, tool === 'PowerShell' ? 'PowerShell' : 'Bash', cwd, root); } catch (e) { return null; }
+  }
   if (!a || a.hasError) return null;
   // 整串的檢查：寫檔的重導向或 cmdlet、執行看不到內容的程式碼、指令名稱不是字面的（$g restore .、"$GIT" …、$(echo git) …）
   if (writesFileByRedirect(cmd) || WRITES_FILE_CMD.test(cmd)) return null;
@@ -709,14 +725,33 @@ const VERB_RULES = [
   { verb: 'revert', test: (a) => !/^--(abort|quit|continue|skip)\b/.test(a.trim()), label: 'git revert（會改動工作區）' },
   { verb: 'am', test: (a) => /--abort/.test(a), label: 'git am --abort' },
   { verb: 'cherry-pick', test: (a) => /--abort/.test(a), label: 'git cherry-pick --abort' },
+  // plumbing 指令同樣會寫工作區（曾實測三條放行）：
+  // checkout-index -f 蓋掉已存在的檔、-a 整個 index 寫回工作區；read-tree -u 依新 tree 更新工作區、--reset 丟掉 index 上的改動；
+  // mv -f 用來源檔蓋掉已存在的目標
+  { verb: 'checkout-index', test: (a) => hasShortFlag(a, 'f') || hasShortFlag(a, 'a') || /(^|\s)(-f|-a|--force|--all)(\s|$)/.test(a), label: 'git checkout-index -f／-a（把 index 寫回工作區）' },
+  { verb: 'read-tree', test: (a) => hasShortFlag(a, 'u') || /(^|\s)(-u|--reset)(\s|$)/.test(a), label: 'git read-tree -u／--reset（依 tree 改寫工作區或 index）' },
+  { verb: 'mv', test: (a) => hasShortFlag(a, 'f') || /(^|\s)(-f|--force)(\s|$)/.test(a), label: 'git mv -f（蓋掉已存在的目標檔）' },
+  // rm -f 連帶未提交改動一起刪掉工作區的檔（不加 -f 時 git 對有改動的檔會拒絕）；--cached 只動 index 不算
+  { verb: 'rm', test: (a) => (hasShortFlag(a, 'f') || /(^|\s)(-f|--force)(\s|$)/.test(a)) && !/(^|\s)--cached(\s|$)/.test(a), label: 'git rm -f（強制刪除工作區檔案，未提交改動一起消失）' },
+  // 刻意不列：`apply -R <patch>`——卸下 patch 是 deny 訊息建議的合法做法，擋了等於封死出口；
+  // `worktree remove --force` 是刻意刪整個 worktree（備份涵蓋），不在本閘範圍。
 ];
 
 // 回傳 { labels, repoHints, kinds }：repoHints 是每個危險呼叫的 -C／--work-tree 指向（沒指向＝null；-C 超過一個＝{ multi }）。
-function matchDanger(text) {
+// calls：[{ verb, args, repoHint, multiHint, viaXargs, unsure }]——字串層 parseGitCalls 的輸出，或 fromLibCall 轉過來的語法樹呼叫
+function matchDanger(calls) {
   const labels = [];
   const repoHints = [];
   const kinds = new Set();
-  for (const call of parseGitCalls(text)) {
+  for (const call of calls) {
+    if (call.unsure) {
+      // 動詞或指令名執行期才知道：判不出它會不會蓋工作區，當成會毀掉三種狀態的檔，保守擋
+      const label = 'git 呼叫判不出子指令（' + call.unsure + '），無法確認會不會蓋工作區';
+      if (labels.indexOf(label) < 0) labels.push(label);
+      ['tracked', 'untracked', 'ignored'].forEach((k) => kinds.add(k));
+      repoHints.push(call.multiHint ? { multi: true } : call.repoHint);
+      continue;
+    }
     if (INERT.test(call.args)) continue;
     let hit = false;
     for (const r of VERB_RULES) {
@@ -732,10 +767,34 @@ function matchDanger(text) {
   }
   return { labels: labels, repoHints: repoHints, kinds: kinds };
 }
+function emptyDanger() { return { labels: [], repoHints: [], kinds: new Set() }; }
+// 兩份判定取聯集（正則路徑：git-calls 的結果＋本檔字串層的結果）。labels 去重；repoHints 直接串接——同一個呼叫兩邊都認出時會重複，
+// 呼叫端只拿它算掃描目標並去重，重複無害；kinds 聯集
+function mergeDanger(a, b) {
+  const out = emptyDanger();
+  for (const d of [a, b]) {
+    if (!d) continue;
+    d.labels.forEach((l) => { if (out.labels.indexOf(l) < 0) out.labels.push(l); });
+    out.repoHints.push.apply(out.repoHints, d.repoHints);
+    d.kinds.forEach((k) => out.kinds.add(k));
+  }
+  return out;
+}
+
+// git-calls.js 的 Call → matchDanger 吃的形狀。repoHint：語法樹算出的執行目錄（絕對路徑，含 cd 與疊加的 -C；--work-tree 優先）；
+// 位置判不出（-C 指向變數、pushd／popd、cd 到變數）→ { multi: true }＝掃全部；整條沒有任何換目錄寫法時給 null，呼叫端照 cwd 判
+function fromLibCall(c) {
+  if (c.inert) return null;
+  let repoHint = c.workTree || c.dir || null;
+  let multiHint = false;
+  if (!repoHint && (c.hints.length || c.repoUnsure) && !c.cwdFallbackOk) multiHint = true;
+  return { verb: c.verb, args: c.args || '', repoHint: repoHint, multiHint: multiHint, viaXargs: !!c.viaXargs, unsure: c.unsure || null };
+}
 
 let raw = '';
 process.stdin.on('data', (c) => { raw += c; });
 process.stdin.on('end', () => {
+  if (!raw.trim()) process.exit(0);   // 空 stdin＝手動執行不是故障，安靜放行（壞 JSON 才走下面的 loud fail-open）
   let reason = null;
   try {
     const input = JSON.parse(raw);
@@ -754,7 +813,31 @@ process.stdin.on('end', () => {
       // 不換的話整段被當成引述（引號裡的字）而放行。只加嚴
       .replace(/(["'])[^"'\n]*[\/\\]git(?:\.(?:exe|cmd|bat|com))?\1(?=\s)/gi, ' git');
 
-    if (!/\bgit\b/i.test(heredocStripped)) process.exit(0);
+    // 初篩：連被引號拆開、字中續行的 git 都算（g''it、gi\⏎t）——共用模組不在時退回只認完整的 git 字樣
+    let lib = null;
+    try { lib = require('./git-calls.js'); } catch (e) { lib = null; }
+    if (lib ? !lib.mentionsGit(cmd) : !/\bgit\b/i.test(heredocStripped)) process.exit(0);
+
+    // ── 危險判定走 git-calls.js：每個 git 呼叫的動詞與 argv 由共用模組還原，再比對 VERB_RULES ──
+    // 語法樹路徑（gc.mode === 'ast'）與正則路徑（解析器不在、HARNESS_SHELL_PARSER=off、語法樹有錯誤節點）**都採用** gc.calls：
+    // 正則路徑一樣會還原引號拆字（`git "checkout"`、`check'out'`）、展開 -c alias、把 `$(echo checkout)` 這類動詞標成 unsure。
+    // 之前只在 ast 模式用 gc.calls、否則整個丟掉退回本檔的 parseGitCalls（不認引號拆字、不展開 alias、不把 unsure 當保守擋）——
+    // PowerShell 文法對 `-- <路徑>` 會出錯誤節點而退回正則，於是 PowerShell 下 `git "checkout" -- <覆寫檔>`、`-c alias.co=checkout co -- <覆寫檔>`、
+    // `git $(echo checkout) -- <覆寫檔>` 全放行（2026-10-18 紅藍對抗第二批實跑）；三支共用一份解析的承諾在這支的退回路徑沒兌現。
+    // 正則路徑另保留本檔自己的字串層判法（parseGitCalls＋WRAPPER_RUNS_GIT）取聯集：兩邊各有對方認不出的形狀（cmd /c 包裝、xargs 無動詞…），
+    // 多擋只是攔下來問，漏擋是覆寫永久消失。只有「點名路徑放寬」仍限語法樹路徑（那是語法樹才判得準的部分，見 astNamedItems 上方）。
+    let gc = null;
+    if (lib) { try { gc = lib.analyzeGitCalls(cmd, input.tool_name, input.cwd || process.cwd()); } catch (e) { gc = null; } }
+    const astMode = !!(gc && gc.mode === 'ast');
+    // 解析器狀態只用在 deny 訊息：不可用（node_modules 缺、shell-model.js 載入失敗）要點名叫人 npm ci，不然看起來像莫名其妙的擋
+    let parserState = 'ok';   // 'ok'｜'off'（HARNESS_SHELL_PARSER=off）｜'missing'（解析器載不起來）
+    if (!lib) parserState = 'missing';
+    else if (process.env.HARNESS_SHELL_PARSER === 'off') parserState = 'off';
+    else { try { if (!lib.parserAvailable(input.tool_name)) parserState = 'missing'; } catch (e) { parserState = 'missing'; } }
+    let danger = gc ? matchDanger(gc.calls.map(fromLibCall).filter(Boolean)) : emptyDanger();
+    // 放行但有解不出的編碼內容（-EncodedCommand 不是乾淨 base64、解碼鏈字面解不出）：不擋，提醒一句本閘沒檢查（2026-10-19 R3 收口）
+    const exitWithNotes = () => { if (lib && lib.noteOutput && gc) lib.noteOutput('本機 hack 防銷毀', gc.notes, '.claude/hooks/guard-local-hack-destroy.js'); process.exit(0); };
+    if (astMode && !danger.labels.length) exitWithNotes();
 
     // 引號剝除只用來判斷「這整段只是在引述指令」，不拿去解析 git 呼叫
     // （剝掉引號會把 -C "路徑" 的參數弄不見、整個呼叫隨之消失）。
@@ -792,16 +875,28 @@ process.stdin.on('end', () => {
       'i');
     const isWrapper = WRAPPER_RUNS_GIT.test(heredocStripped);
 
-    // 純引述：剝掉引號後一個 git token 都不剩（與 parseGitCalls 的 git token 同一判準）
-    if (!isWrapper && !/(^|[^A-Za-z0-9_.\-])git(?:\.(?:exe|cmd|bat|com))?(\s|$)/i.test(quotesGone)) process.exit(0);
-
-    const danger = matchDanger(heredocStripped);
-    if (!danger.labels.length) process.exit(0);
+    if (!astMode) {
+      // 純引述：剝掉引號後一個 git token 都不剩（與 parseGitCalls 的 git token 同一判準）→ 字串層不出意見，只看 git-calls 的結果
+      const quotedOnly = !isWrapper && !/(^|[^A-Za-z0-9_.\-])git(?:\.(?:exe|cmd|bat|com))?(\s|$)/i.test(quotesGone);
+      if (!quotedOnly) danger = mergeDanger(danger, matchDanger(parseGitCalls(heredocStripped)));
+      if (!danger.labels.length) exitWithNotes();
+    }
 
     const ROOT = findRoot();
     if (!ROOT) process.exit(0);
     const entries = loadEntries(ROOT);
-    if (!entries.length) process.exit(0);
+    if (!entries.length) {
+      // 清單檔在（ROOT 就是靠它找到的）卻讀不到任何條目＝損毀或空白：不再靜默放行（2026-10-18 紅藍對抗 R2 R1-5），
+      // 否則整條 hack 保護鏈靜默失效。清單檔不存在（非本專案）走不到這裡，照舊安靜。
+      const lp = path.join(ROOT, OVERRIDES_REL);
+      if (fs.existsSync(lp)) {
+        const note = '[local-hack-destroy] 本機覆寫清單讀不到任何條目（' + lp + '），hack 銷毀閘本次沒有檢查；'
+          + '清單檔損毀或空白要先修，否則 reset --hard／checkout -- 這類指令會直接放行。';
+        try { process.stderr.write(note + '\n'); } catch (e2) {}
+        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: note } }));
+      }
+      process.exit(0);
+    }
 
     // 每個條目 → 它所在 git repo 的頂層目錄。範圍以「git repo」為單位而不是以清單區塊為單位：
     // 兩個區塊若指向同一個 repo 的不同子目錄，reset --hard 會一起蓋掉。
@@ -820,17 +915,35 @@ process.stdin.on('end', () => {
     const norm = (p) => path.resolve(p).split('\\').join('/').replace(/\/+$/, '').toLowerCase();
     const knownTops = [...new Set(items.map((i) => i.top))];
     const base = input.cwd && fs.existsSync(input.cwd) ? input.cwd : ROOT;
-    // 路徑 → 它落在哪個已知 repo（取最長前綴）；對不到回 null（呼叫端退回掃全部）
+    // 路徑 → 它落在哪個已知 repo（取最長前綴）；對不到回 null（呼叫端退回掃全部）。
+    // 回 EXTERNAL＝清單外、工作目錄外的獨立 repo（路徑存在、git 認得它的頂層，頂層與 common dir 都不在工作目錄底下也不是清單 repo）：
+    // 它碰不到清單上的檔，呼叫端不列入掃描（2026-10-18）。工作目錄內對不到清單的仍回 null＝掃全部。
+    const EXTERNAL = '\u0000external';
+    const rootN = norm(ROOT);
+    const underRoot = (p) => { const a = norm(p); return a === rootN || a.indexOf(rootN + '/') === 0; };
     const topOfPath = (p) => {
       if (!p) return null;
       let abs;
-      try { abs = norm(path.resolve(base, stripArgQuotes(p))); } catch (e) { return null; }
+      try { abs = path.resolve(base, stripArgQuotes(p).replace(/^\/([A-Za-z])(?=\/|$)/, '$1:')); } catch (e) { return null; }
       let best = null;
+      const absN = norm(abs);
       for (const t of knownTops) {
         const nt = norm(t);
-        if ((abs === nt || abs.indexOf(nt + '/') === 0) && (!best || nt.length > norm(best).length)) best = t;
+        if ((absN === nt || absN.indexOf(nt + '/') === 0) && (!best || nt.length > norm(best).length)) best = t;
       }
-      return best;
+      if (best) return best;
+      try {
+        if (fs.existsSync(abs)) {
+          const top = path.resolve(git(abs, ['rev-parse', '--show-toplevel']).trim());
+          let common = git(abs, ['rev-parse', '--git-common-dir']).trim();
+          if (!path.isAbsolute(common)) common = path.resolve(abs, common);
+          const mainDir = path.dirname(common);
+          const kt = knownTops.find((t) => norm(t) === norm(top) || norm(t) === norm(mainDir));
+          if (kt) return kt;
+          if (!underRoot(top) && !underRoot(mainDir)) return EXTERNAL;
+        }
+      } catch (e) {}
+      return null;
     };
     // cd 只在「整條指令裡就這麼一個」時才採信：`cd A && git status; cd B && git reset --hard`
     // 危險的是 B，只抓第一個 cd 會把範圍算成 A。逐段追蹤 cwd 等於模擬 shell 語意，錯一個分支就是漏放。
@@ -848,9 +961,11 @@ process.stdin.on('end', () => {
     // 確保縮小範圍的情形是改動前的子集（改動前掃全部的，這裡一定也掃全部）。
     const headCd = heredocStripped.match(/(?:^|[;&|(])\s*(?:cd|Set-Location|sl|pushd)\s+("[^"]+"|'[^']+'|\S+)/gi) || [];
     const cdTarget = cdFound.length === 1 && headCd.length === 1 && !/^-/.test(stripArgQuotes(cdFound[0])) ? topOfPath(cdFound[0]) : null;
+    // 整條沒有任何 cd 時，沒指向的呼叫就在 hook 收到的 cwd 跑：cwd 是清單外、工作目錄外的獨立 repo → 放行，不再退回掃全部
+    const cwdTarget = cdFound.length === 0 && input.cwd ? topOfPath(input.cwd) : null;
     let scanTops = knownTops;
-    const resolved = danger.repoHints.map((h) => (h && h.multi ? null : (h ? topOfPath(h) : cdTarget)));
-    if (resolved.length && resolved.every((r) => r !== null)) scanTops = [...new Set(resolved)];
+    const resolved = danger.repoHints.map((h) => (h && h.multi ? null : (h ? topOfPath(h) : (cdTarget || cwdTarget))));
+    if (resolved.length && resolved.every((r) => r !== null)) scanTops = [...new Set(resolved.filter((r) => r !== EXTERNAL))];
 
     // ── 先照改動前的判法：每個危險呼叫判不出落在哪個 repo 就掃全部 ──
     let atRisk = [];
@@ -869,7 +984,7 @@ process.stdin.on('end', () => {
     if (atRisk.length) {
       // 放寬自己的例外不能落到外層的 catch（那裡是 fail-open 放行）：出錯就維持上面改動前的結果
       let named = null;
-      try { named = astNamedItems(cmd, input.tool_name, input.cwd, ROOT, items, danger); } catch (e) { named = null; }
+      try { named = astNamedItems(cmd, input.tool_name, input.cwd, ROOT, items, danger, astMode ? gc.analysis : null); } catch (e) { named = null; }
       if (named) { atRisk = named.filter(riskOf).map(label); precise = true; }
     }
     if (!atRisk.length) process.exit(0);
@@ -887,14 +1002,31 @@ process.stdin.on('end', () => {
     L.push('  沒有或不是最新 → git -C <repo> diff HEAD -- <檔案> > <備份路徑>.patch，再 git apply --check 驗證可套回');
     L.push('');
     L.push('然後依目的擇一改寫指令：');
+    // 沒能放寬的理由要分三種講：解析器載不起來→叫人 npm ci；被 HARNESS_SHELL_PARSER=off 關掉→說是誰關的；語法樹有錯誤節點→照原句
+    const whyNotPrecise = parserState === 'missing'
+      ? '語法解析器不可用（.claude/hooks/node_modules 缺或 shell-model.js 載入失敗）→ 在 .claude/hooks 跑 `npm ci` 後重試；在那之前具名路徑一律擋，上面列出的是同一 repo 裡可能受影響的覆寫檔）'
+      : (parserState === 'off'
+        ? '語法解析器被 HARNESS_SHELL_PARSER=off 關掉，具名路徑一律擋，上面列出的是同一 repo 裡可能受影響的覆寫檔）'
+        : '這次沒能逐一判定點名的檔，上面列出的是同一 repo 裡可能受影響的覆寫檔）');
     L.push('  · 只想還原某幾個檔 → 用具名路徑 git restore --worktree a.txt b.txt，不要 -- .（語法解析器可用、而且目錄與每個 git 呼叫都判得準時，點名的檔不含覆寫檔就會放行；判不準時照樣擋。' +
-      (precise ? '上面列出的就是被點到的覆寫檔）' : '這次沒能逐一判定點名的檔，上面列出的是同一 repo 裡可能受影響的覆寫檔）'));
+      (precise ? '上面列出的就是被點到的覆寫檔）' : whyNotPrecise));
     L.push('  · 要動 HEAD（reset／rebase／filter-branch）→ 先 git branch backup-<時間> HEAD 備份 ref，事後用 ' + RESTORE_CMD + ' --restore 套回覆寫');
     L.push('  · 要切分支 → 不加 -f 的 git switch 會把未提交改動帶過去，不需要先清工作區');
     L.push('');
     L.push('確定這些覆寫不需要保留時：先照上面備份，或改用只動特定檔案的寫法；本閘沒有放行記號，也沒有「說明原因就放行」的旁路。');
     reason = L.join('\n');
-  } catch (e) { process.exit(0); }
+  } catch (e) {
+    // fail-open 但 loud：hook 壞掉時不擋路，但要留下痕跡，否則閘整段失效也沒人發現
+    const first = String((e && e.message) || e).split(/\r?\n/)[0];
+    const msg = '[local-hack-destroy] hook 內部錯誤，本次放行：' + first;
+    try { process.stderr.write(msg + '\n'); } catch (e2) {}
+    // exit 0 的 stderr 模型看不到（2026-10-18 紅藍對抗 R2 藍方新發現 2）：另包 additionalContext 讓模型知道這次沒檢查
+    try {
+      process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse',
+        additionalContext: msg + '。這次沒有檢查 git 指令會不會銷毀本機 hack（reset --hard／checkout --／clean／stash 等），請先照 .claude/local-overrides.yml 自行確認；hook 要修：.claude/hooks/guard-local-hack-destroy.js' } }));
+    } catch (e3) {}
+    process.exit(0);
+  }
 
   if (reason) {
     process.stdout.write(JSON.stringify({

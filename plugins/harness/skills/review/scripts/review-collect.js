@@ -37,6 +37,26 @@ const rel = (p) => path.relative(root, p).split(path.sep).join('/');
 const slug = root.replace(/[^A-Za-z0-9]/g, '-');
 const tdir = opt('--transcripts') || path.join(os.homedir(), '.claude', 'projects', slug);
 const claudeMd = read(path.join(root, 'CLAUDE.md')) || '';
+// CLAUDE.md 的 @<檔> 匯入（獨立一行、不在 ``` 區塊裡；被匯入的檔再匯入的也算，最多 5 層），相對專案根、只收專案內的檔
+const claudeImports = (() => {
+  const outI = []; const seenI = new Set();
+  const walk = (text, dir, depth) => {
+    if (depth > 5) return;
+    let fence = false;
+    for (const l of String(text).split('\n')) {
+      if (/^\s*```/.test(l)) { fence = !fence; continue; }
+      const m = !fence && l.match(/^\s*@([^\s@`]+)\s*$/);
+      if (!m) continue;
+      const abs = path.resolve(dir, m[1].replace(/^~(?=[\\/])/, os.homedir()));
+      const r = path.relative(root, abs);
+      if (!r || r.startsWith('..') || path.isAbsolute(r) || seenI.has(r)) continue;
+      seenI.add(r); outI.push(r.split(path.sep).join('/'));
+      walk(read(abs) || '', path.dirname(abs), depth + 1);
+    }
+  };
+  walk(claudeMd, root, 1);
+  return outI;
+})();
 
 // ── changelog 讀取（harness 0.10.0 起 changelog 從指令檔與知識容器拆出去）──
 // 一份檔的異動紀錄可能在三個地方，三處都讀、合併（同一個出處不重複）：
@@ -110,23 +130,32 @@ function loadMarkers() {
   if (!src) return null;
   const m = src.match(/const REQUIRED_MARKERS = \{([\s\S]*?)\n\};/);
   if (!m) return null;
+  // 填空區開關（`const REQUIRE_X = true|false;`）：規則寫 `when: REQUIRE_X` 且該開關是 false 的，hook 執行時跳過，這裡也不算它要求（否則 missingReads 會把
+  // 範本預設不驗的 CLAUDE.md／詞彙表列成少讀——2026-10-19 紅藍對抗 R4）
+  const flags = {};
+  for (const f of src.matchAll(/^const ([A-Z_]+) = (true|false);/gm)) flags[f[1]] = f[2] === 'true';
   const table = {};
   const keyRe = /^\s{2}'([^']+)':\s*\[([\s\S]*?)^\s{2}\],?\s*$/gm;
   let k;
   while ((k = keyRe.exec(m[1]))) {
     const rules = [];
-    const ruleRe = /name:\s*('(?:[^'\\]|\\.)*')[\s\S]*?pattern:\s*('(?:[^'\\]|\\.)*')/g;
-    let r;
-    while ((r = ruleRe.exec(k[2]))) rules.push({ name: jsString(r[1]), pattern: jsString(r[2]) });
+    for (const chunk of k[2].split(/(?=\bname:\s*')/).slice(1)) {
+      const nm = /name:\s*('(?:[^'\\]|\\.)*')/.exec(chunk), pt = /pattern:\s*('(?:[^'\\]|\\.)*')/.exec(chunk), wh = /\bwhen:\s*([A-Z_]+)/.exec(chunk);
+      if (!nm || !pt) continue;
+      if (wh && flags[wh[1]] === false) continue;
+      rules.push({ name: jsString(nm[1]), pattern: jsString(pt[1]) });
+    }
     table[k[1]] = rules;
   }
   return Object.keys(table).length ? table : null;
 }
 const markers = loadMarkers();
-const managed = markers ? Object.keys(markers).filter((k) => k !== '*') : [];
 // 角色名、模型名只收已知清單（取自工具輸入，可以是任何字；名稱樣態擋不住長得像名稱的值——審查者實測）
 let instanceAgents = [];
 try { instanceAgents = fs.readdirSync(path.join(root, '.claude', 'agents')).filter((x) => x.endsWith('.md')).map((x) => x.slice(0, -3)); } catch {}
+// 專案 agent：派工檢查表有 REQUIRED_MARKERS 就照表；自行演進的實例把檢查改寫成逐條 if、沒有這張表時，
+// 退回 .claude/agents 底下的角色（來源專案實測：沒退回時 managed=[]，摘要印「專案 agent 0」）
+const managed = markers ? Object.keys(markers).filter((k) => k !== '*') : instanceAgents.slice();
 const BUILTIN_AGENTS = ['general-purpose', 'Explore', 'Plan', 'claude', 'statusline-setup', 'claude-code-guide', 'codex-rescue', 'code-reviewer', 'backend-architect', 'backend-engineer', 'frontend-engineer', 'qa-engineer'];
 const agentName = (t) => (!t || managed.includes(t) || instanceAgents.includes(t) || BUILTIN_AGENTS.includes(t)) ? t : '（其他角色）';
 // 模型：別名，或「claude-家族-純數字版本」（版本段只准數字，帶不進任意字）
@@ -202,31 +231,58 @@ for (const d of [path.join(root, '.claude', 'hooks'), path.resolve(__dirname, '.
 // 另有兩種動態寫法：規則引擎用 '[' + LABEL + ']'（const LABEL = '危險指令守門'）、派工檢查用 `[${rule.name}]`，
 // 所以 LABEL 常數與規則的 name 字面量也收。規則的 id／kind 只出現在訊息中間，不收（收了會把開頭剛好是 [id] 的一般錯誤算成擋下）
 const KNOWN_TAGS = new Set([
-  // 「[標籤]」後面要接空白或引號（訊息開頭的寫法）；含正則符號的（[A-Za-z_]、[\s\S]）不收
-  ...[...hookSrc.matchAll(/['"`]\[([^\]'"`\n,\\^$*+?(){}|]{2,40})\](?=[\s'"`])/g)].map((m) => m[1]).filter((t) => !/^\s|\s$|^-/.test(t)),
+  // 「[標籤]」後面要接空白、引號，或字面量裡的跳脫（'[服務啟動守門]\n' + …）；含正則符號的（[A-Za-z_]、[\s\S]）不收
+  ...[...hookSrc.matchAll(/['"`]\[([^\]'"`\n,\\^$*+?(){}|]{2,40})\](?=[\s'"`]|\\[nrt])/g)].map((m) => m[1]).filter((t) => !/^\s|\s$|^-/.test(t)),
   ...[...hookSrc.matchAll(/\bLABEL\s*=\s*['"]([^'"\n]{2,40})['"]/g)].map((m) => m[1]),
   // name 只從派工檢查收（只有它用 `[${rule.name}]` 當標籤；shell-model 之類的 name 不是標籤）
   ...[...reviewSrc.matchAll(/\bname:\s*['"]([^'"\n]{2,40})['"]/g)].map((m) => m[1]),
 ].filter((t) => !/^\d+$/.test(t) && !t.includes('${')));
-const isKnownTag = (t) => !!t && KNOWN_TAGS.has(t);
+// 前綴＋變數組成的標籤（'[skill-gate:' + skill + ']'、`[skill-gate:${name}]`）：收前綴，後段只准名稱字元
+const TAG_PREFIXES = [...new Set([
+  ...[...hookSrc.matchAll(/['"`]\[([\w-]{2,30}:)['"`]\s*\+/g)].map((m) => m[1]),
+  ...[...hookSrc.matchAll(/`\[([\w-]{2,30}:)\$\{/g)].map((m) => m[1]),
+])];
+const isKnownTag = (t) => !!t && (KNOWN_TAGS.has(t) || TAG_PREFIXES.some((p) => t.startsWith(p) && /^[\w.-]{1,40}$/.test(t.slice(p.length))));
 const knownTag = (t) => isKnownTag(t) ? t : '（不是本專案 hook 的標籤，回原文看）';
+// 名稱類欄位（角色、模型、hook 檔名）只收名稱樣態，其他換成固定字樣
+// 試跑失敗行只收實例裡真的有的 hook 檔名，與固定的結果值
+let hookFiles = [];
+try { hookFiles = fs.readdirSync(path.join(root, '.claude', 'hooks')).filter((x) => x.endsWith('.js')); } catch {}
+// 本專案 hook 的檔名：.claude/hooks 底下的，加上 settings 接線指到的（接線可能指到別處的腳本）
+const projectHookNames = new Set(hookFiles.map((x) => x.toLowerCase()));
+try { for (const w of settingsWiring()) if (w.script && !w.script.startsWith('（')) projectHookNames.add(path.basename(w.script).toLowerCase()); } catch {}
+// Claude Code 把 hook 的 deny 理由包成「PreToolUse:<工具> hook error: [<hook 指令>]: <hook 自己的訊息>」，
+// 第一個方括號是指令而不是標籤（來源專案實測 40 筆因此全歸「不是本專案 hook」）
+const HOOK_CMD = /\.(?:c?js|mjs|sh|ps1|py)\b|^(?:node|bash|sh|python3?|pwsh|powershell|export)\s/i;
 // 擋下的判定：帶「PreToolUse:… hook error:」前綴的一定是 hook；只有「[…]」開頭的，標籤要是已知的 hook 標籤才算
 // （審查者實測：WebFetch 之類的錯誤訊息也可能以 [ 開頭，原本會被算成擋下）
 function hookDenialTag(b) {
   if (!(b.type === 'tool_result' && b.is_error === true)) return null;
   // 工具名可能帶 -（MCP 工具 mcp__服務__some-tool），取到「 hook error:」為止
-  const m = textOf(b).match(/^(PreToolUse:\S+? hook error:\s*)?\[([^\]]+)\]/);
+  const t = textOf(b);
+  const m = t.match(/^(PreToolUse:\S+? hook error:\s*)?\[([^\]]+)\]/);
   if (!m || !(m[1] || isKnownTag(m[2]))) return null;
+  if (m[1] && HOOK_CMD.test(m[2])) {
+    const inner = (t.slice(m[0].length).match(/^:\s*\[([^\]\n]+)\]/) || [])[1];
+    if (isKnownTag(inner)) return inner;
+    // 只輸出檔名（取自指令的最後一個腳本路徑，限名稱字元），不抄指令原文
+    const script = ((m[2].match(/[\w.-]+\.(?:c?js|mjs|sh|ps1|py)\b/gi) || []).pop() || '').toLowerCase();
+    if (script && projectHookNames.has(script)) return script;
+    return script ? '（不是本專案 hook：' + script + '）' : knownTag(null);
+  }
   return knownTag(m[2]);
 }
-// 名稱類欄位（角色、模型、hook 檔名）只收名稱樣態，其他換成固定字樣
-// 試跑失敗行只收實例裡真的有的 hook 檔名，與固定的結果值
-let hookFiles = [];
-try { hookFiles = fs.readdirSync(path.join(root, '.claude', 'hooks')).filter((x) => x.endsWith('.js')); } catch {}
 const OUTCOMES = ['BLOCK', 'ALLOW', 'NOTE', 'CRASH'];
 // 沉澱回答的值只收固定樣態（無、已補2詞、已正名2處…），其他換成固定字樣
 // 固定清單（hook 範例的寫法）：無、已補N詞／條／鏈／處、已正名N處——不再用「已＋任意中文」的樣態（帶得進少量任意字）
 const sedimentValue = (v) => /^(?:無|已補\d{1,3}(?:詞|條|鏈|處|個)|已正名\d{1,3}處)$/.test(v) ? v : '（非標準值，回原文看）';
+// 只抽固定四欄（詞／鏈／QA／代號），不抄整行；agg 在後面才建，呼叫時已存在
+function sedimentFrom(text, at) {
+  for (const x of String(text || '').match(/--sediment[^\n]*/g) || []) {
+    const v = {}; for (const m of x.matchAll(/(詞|鏈|QA|代號)=(\S{1,20})/g)) v[m[1]] = sedimentValue(m[2]);
+    agg.sediment.push({ at, ...v });
+  }
+}
 
 // ── 逐字紀錄 ──
 const badLines = {};   // 解析失敗的行數（含開頭 BOM），寫進 notes，不默默丟掉
@@ -367,6 +423,66 @@ const SECRET_KINDS = [
   ['Cookie 標頭', /\bCookie\s*:\s*[^'"\n]*=[^'"\n;]{6,}/i],
   ['網址帳密', /:\/\/[^\s:@\/]+:(?!\$)[^\s@\/]{3,}@/],
 ];
+// 金鑰偵測前先拿掉「不是在下指令」的文字（來源專案實測 38 處只有 9 處是真值，其餘都落在這幾類）：
+//   heredoc 內文（寫進 .py／.js 的程式碼）、node -e／python -c 的程式碼字串、grep／rg／sed／awk／git grep／git blame 那一段（樣式不是值）
+// 指令本身的密碼旗標（sqlcmd -P、curl -H Authorization）不在這幾類，照常偵測
+const PATTERN_PROGS = /^(?:grep|egrep|fgrep|rg|sed|awk|gawk|findstr|select-string|sls)$/i;
+function commandOnly(c) {
+  let s = String(c).replace(/<<-?\s*(['"]?)([A-Za-z_]\w*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2(?=\s|$|\)|;)/g, '<<HEREDOC');
+  s = s.replace(/\b((?:node|python3?|py|deno|bun|perl|ruby)(?:\.exe)?\b[^\n;|&]*?\s-(?:e|c|p|-eval))\s+(?:'[^']*'|"(?:[^"\\]|\\.)*")/gi, '$1 CODE');
+  // 引號裡的 $(grep …)：切段不進引號，要另外拿掉（實測 echo "$r: $(grep -c -E '…|Bearer eyJ|…' …)"）；括號配對找結尾
+  for (let i = s.search(/\$\(\s*(?:grep|egrep|fgrep|rg|sed|awk)\b/); i >= 0; i = s.search(/\$\(\s*(?:grep|egrep|fgrep|rg|sed|awk)\b/)) {
+    let d = 0, k = i + 1;
+    for (; k < s.length; k++) { if (s[k] === '(') d++; else if (s[k] === ')' && --d === 0) break; }
+    s = s.slice(0, i) + '$(PATTERN)' + s.slice(k + 1);
+  }
+  // 依 ; | & 換行切段（引號內不切），丟掉樣式工具那幾段
+  const segs = []; let cur = ''; let q = null;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (q) { if (ch === q && s[i - 1] !== '\\') q = null; cur += ch; continue; }
+    if (ch === '"' || ch === "'") { q = ch; cur += ch; continue; }
+    if (ch === ';' || ch === '|' || ch === '&' || ch === '\n') { segs.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  segs.push(cur);
+  return segs.filter((seg) => {
+    // 段首的賦值與 shell 關鍵字（for …; do grep …、if …; then rg …）不是程式名
+    const w = seg.trim().split(/\s+/);
+    while (w.length && (/^[A-Za-z_]\w*=/.test(w[0]) || /^(?:do|then|else|elif|!|\{|\(|time|sudo|command|exec|nohup|xargs)$/.test(w[0]))) w.shift();
+    const prog = path.basename(String(w[0] || '').replace(/^['"(]+/, '')).replace(/\.exe$/i, '');
+    if (PATTERN_PROGS.test(prog)) return false;
+    if (/^git$/i.test(prog)) {   // git -C 目錄 grep …／git blame -L '/樣式/'
+      let k = 1; while (k < w.length && /^-/.test(w[k])) k += /^-[Cc]$/.test(w[k]) ? 2 : 1;
+      if (/^(?:grep|blame)$/.test(w[k] || '')) return false;
+    }
+    return true;
+  }).join('\n');
+}
+// 值要像金鑰：純 ASCII、不是 {…}／$(…)／%{…} 佔位、不是 a.b.c 屬性存取、不是檔名、不是型別字；長度至少 6
+// （實測：`--basic 供應商基本資料.xlsx` 被 Basic 權杖規則當成值）
+function looksLikeSecretValue(v) {
+  v = String(v || '').replace(/^['"\\]+|['"\\,;)]+$/g, '');
+  if (v.length < 6 || !/^[\x21-\x7e]+$/.test(v) || /[{}()$%`<>[\]]/.test(v)) return false;
+  if (/\.(?:xlsx?|csv|jsonl?|ya?ml|xml|md|txt|py|js|ts|cs|sql|log|png|jpe?g|html?)$/i.test(v)) return false;
+  if (/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(v)) return false;
+  return !/^(?:true|false|null|none|undefined|string|number|object)$/i.test(v);
+}
+// 不帶值的種類（私鑰標頭）只看有沒有命中；其餘取命中段的最後一個詞當值檢查形狀
+const VALUELESS_KINDS = new Set(['私鑰']);
+function secretKinds(c) {
+  const s = commandOnly(c);
+  return SECRET_KINDS.filter(([k, re]) => {
+    if (VALUELESS_KINDS.has(k)) return re.test(s);
+    const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
+    for (const m of s.matchAll(g)) {
+      // 值後面緊接「.副檔名」就是檔名的一段（f=<session UUID>.jsonl），不是金鑰
+      if (/^\.[A-Za-z]\w*/.test(s.slice(m.index + m[0].length))) continue;
+      if (looksLikeSecretValue(m[0].split(/[=:\s'"]+/).filter(Boolean).pop())) return true;
+    }
+    return false;
+  }).map(([k]) => k);
+}
 const RISKY_CMD =/\b(ssh|scp|rsync|sftp|curl|wget|iwr|irm|Invoke-WebRequest|Invoke-RestMethod|psql|mysql|sqlcmd|mongosh|kubectl|helm|terraform|alembic|docker\s+push|git\s+push|deploy)\b/i;
 
 const agg = {
@@ -415,7 +531,12 @@ for (const f of files) {
   const lateDispatch = new Set();   // 派出的 subagent 在範圍內還有活動的派工：派工本身在範圍前也算（跨午夜）
   // 只認 Agent／Task 的回傳（Bash、grep 查逐字紀錄時，輸出裡也可能出現「agentId: …」——審查者實測）
   const agentCallIds = new Set();
-  for (const o of R) for (const b of blocks(o)) if (o.type === 'assistant' && b.type === 'tool_use' && (b.name === 'Agent' || b.name === 'Task')) agentCallIds.add(b.id);
+  // tool_use 的 id → 它所在的列：擋下的出處要記被擋的那次呼叫，tool_result 那列可能隔著並行的其他呼叫（實測 :75 對到 :74，實為 :73）
+  const useAt = new Map();
+  for (const o of R) for (const b of blocks(o)) if (o.type === 'assistant' && b.type === 'tool_use') {
+    useAt.set(b.id, where(f, o));
+    if (b.name === 'Agent' || b.name === 'Task') agentCallIds.add(b.id);
+  }
   for (const o of R) for (const b of blocks(o)) {
     if (o.type !== 'user' || b.type !== 'tool_result') continue;
     if (hookDenialTag(b)) deniedIds.add(b.tool_use_id);
@@ -436,11 +557,16 @@ for (const f of files) {
     if (!o.__mine) continue;
     for (const b of blocks(o)) {
       if (early && !isLate(b)) continue;   // 範圍前的列只看那次跨午夜的派工
+      // 不是使用者打的字：壓縮摘要（isCompactSummary）、系統注入（isMeta）、別的 session／agent 送來的訊息
+      // （實測 24 筆糾正只有 4 筆真的是使用者說的，其餘都命中這幾種列裡轉述的「不對」「重做」）
+      const notTyped = (t) => o.isCompactSummary || o.isMeta || o.isVisibleInTranscriptOnly
+        || /^(?:Another Claude session sent a message:|This session is being continued from a previous conversation)/.test(t);
       if (o.type === 'user' && b.type === 'text') {
         const t = b.text || '';
         if (/^\[Request interrupted by user/.test(t)) agg.interrupts++;
         else if (/Stop hook feedback/.test(t)) agg.stopFeedback.push({ tag: knownTag((t.match(/\[([^\]]+)\]/) || [])[1]), at: where(f, o) });
-        else if (!/^<|^\[|Base directory for this skill|^Caveat:|^Your response above was stopped by a safety classifier/.test(t)) {
+        // Stop hook 回饋同樣帶 isMeta，所以 notTyped 只擋這一支（使用者發言），不擋上面兩種計數
+        else if (!notTyped(t) && !/^<|^\[|Base directory for this skill|^Caveat:|^Your response above was stopped by a safety classifier/.test(t)) {
           closeTurn(); turnStart = where(f, o);
           agg.userTurns++;
           // 只記出處與命中的詞，不抄使用者原話（原話可能貼了金鑰）；判讀時回原文看
@@ -465,10 +591,14 @@ for (const f of files) {
             alignedBefore: sawAlign, blocked: deniedIds.has(b.id),
           };
           agg.dispatch.push(d); if (!d.blocked) sess.dispatches++;
-          if (!sawDispatch && !d.blocked) {
+          // 首次派工只算專案 agent（codex-rescue 之類的外部 agent 不受對齊回合管）；
+          // 派工 prompt 裡的對齊表態（【開工前對齊】無分岔…）也算對齊——實例的派工檢查就是擋這句
+          const isProjectAgent = managed.includes(type) || instanceAgents.includes(type);
+          if (!sawDispatch && !d.blocked && isProjectAgent) {
             // 跨午夜的派工：它之前的對齊線索在範圍前、沒被看過，判斷不了，不可記成沒對齊
-            const aligned = early ? '無法判斷（派工在範圍前、對齊線索沒看，回原文確認）'
-              : sawAlign ? true : (approvalBefore ? '可能（使用者表示同意：' + approvalBefore + '，回原文確認）' : false);
+            const inPrompt = /對齊回合|無分岔|已對齊|分流例外/.test(p);
+            const aligned = early && !inPrompt ? '無法判斷（派工在範圍前、對齊線索沒看，回原文確認）'
+              : (sawAlign || inPrompt) ? true : (approvalBefore ? '可能（使用者表示同意：' + approvalBefore + '，回原文確認）' : false);
             agg.firstDispatchAligned.push({ session: sid, aligned, at: d.at });
             sawDispatch = true;
           }
@@ -477,21 +607,21 @@ for (const f of files) {
           const c = String(inp.command || '');
           if (RISKY_CMD.test(c)) agg.riskyCmds.push({ at: where(f, o), tool: b.name, ...cmdShape(c) });
           // 指令裡直接寫了金鑰、密碼、權杖（會跟著指令留在逐字紀錄）；只記出處與種類，不把值抄進報告
-          const kinds = SECRET_KINDS.filter(([, re]) => re.test(c)).map(([k]) => k);
+          const kinds = secretKinds(c);
           if (kinds.length) agg.secretCmds.push({ at: where(f, o), tool: b.name, kinds });
           if (/flow\.sh[^\n]*\bship\b|\bgit\s+commit\b/.test(c)) agg.commitCmds.push({ at: where(f, o), tool: b.name, via: /flow\.sh/.test(c) ? 'flow.sh ship' : 'git commit' });
         }
       }
       if (o.type === 'assistant' && b.type === 'text') {
-        // 只抽固定四欄（詞／鏈／QA／代號），不抄整行
-        const s = (b.text || '').match(/--sediment[^\n]*/g);
-        if (s) for (const x of s) { const v = {}; for (const m of x.matchAll(/(詞|鏈|QA|代號)=(\S{1,20})/g)) v[m[1]] = sedimentValue(m[2]); agg.sediment.push({ at: where(f, o), ...v }); }
+        sedimentFrom(b.text, where(f, o));
         if (!sawDispatch && /無分岔|已對齊|分流例外/.test(b.text || '')) sawAlign = true;
       }
+      // 沉澱的另一種接法：commit 前的閘要求在 Skill(git-commit) 的 args 帶 --sediment 表態（實例實測 57 行、腳本報 0）
+      if (o.type === 'assistant' && b.type === 'tool_use' && b.name === 'Skill') sedimentFrom(String((b.input || {}).args || ''), where(f, o));
       if (o.type === 'user') {
         // hook 擋下時：is_error=true，內文以「[標籤]」或「PreToolUse:<工具> hook error: [標籤]」開頭（實測逐字紀錄）
         const tag = hookDenialTag(b);
-        if (tag) agg.denials.push({ at: where(f, o), tag, toolUseId: b.tool_use_id });   // 不抄訊息內容（會引用被擋的指令原文）
+        if (tag) agg.denials.push({ at: useAt.get(b.tool_use_id) || where(f, o), resultAt: where(f, o), tag, toolUseId: b.tool_use_id });   // 不抄訊息內容（會引用被擋的指令原文）
       }
     }
   }
@@ -515,10 +645,16 @@ for (const f of files) {
     const type = agentName(String(meta.agentType || '').split(':').pop());
     // Read 要對到成功的結果才算讀了（檔案不存在、權限不足時 tool_result 是 is_error=true）
     const readReq = new Map(); const reads = []; let failedReads = 0; let lastText = '';
+    // 團隊模式的回報走 SendMessage，而且常在主回報之後再補一則短訊息；每一則都收，任一則有已讀清單就算有
+    const sentTexts = [];
     for (const o of SR) {
       if (!o.__mine) continue;
       for (const b of blocks(o)) {
         if (o.type === 'assistant' && b.type === 'tool_use' && b.name === 'Read') readReq.set(b.id, String((b.input || {}).file_path || ''));
+        if (o.type === 'assistant' && b.type === 'tool_use' && b.name === 'SendMessage') {
+          const msg = (b.input || {}).message;
+          sentTexts.push(typeof msg === 'string' ? msg : JSON.stringify(msg || ''));
+        }
         if (o.type === 'user' && b.type === 'tool_result' && readReq.has(b.tool_use_id)) {
           if (b.is_error === true) failedReads++; else reads.push(readReq.get(b.tool_use_id));
         }
@@ -539,9 +675,21 @@ for (const f of files) {
     // 實測內容在 attachment 列的 rendered[].content；attachment 欄位一併看
     const injected = SR.some((o) => o.__mine && o.type === 'attachment' && strs([o.rendered, o.attachment], []).some((x) => x.length > 20 && wantRe.test(slash(x))));
     for (const [name, re] of need) if (!check[name] && re.test(path.join(root, 'CLAUDE.md')) && injected) check[name] = '自動載入';
+    // CLAUDE.md 用 @<檔> 匯入的檔也一起自動載入（來源專案以 @CONTEXT.md 匯入詞彙表，原本 344 筆「少讀 CONTEXT.md」全不成立）：
+    // 新版逐字紀錄在 attachment.files 逐檔列出路徑；舊版只渲染 CLAUDE.md，就靠解析 CLAUDE.md 的 @ 匯入
+    const injectedFiles = new Set();
+    for (const o of SR) {
+      if (!(o.__mine && o.type === 'attachment')) continue;
+      const fl = o.attachment && Array.isArray(o.attachment.files) ? o.attachment.files : [];
+      for (const x of fl) if (x && typeof x.path === 'string') injectedFiles.add(slash(x.path));
+      for (const x of strs([o.rendered], [])) for (const m of slash(x).matchAll(/contents of ([^\n(]+?\.md)(?=[\s(:]|$)/g)) injectedFiles.add(m[1].trim());
+    }
+    const autoLoaded = [...injectedFiles].filter((p) => p.startsWith(slash(root) + '/'));
+    if (injected) for (const rp of claudeImports) autoLoaded.push(slash(path.join(root, rp)));
+    for (const [name, re] of need) if (!check[name] && autoLoaded.some((p) => re.test(p) || re.test(path.normalize(p)))) check[name] = '自動載入';
     sess.subagents.push({
       file: sid + '/subagents/' + s, type, model: modelName(meta.model), managed: managed.includes(type) || (!hookHasMustRead && !!STANDARD_READS[type]),
-      readCount: reads.length, failedReads, requiredReads: check, reportHasReadList: /已讀清單|已讀：|已讀\s*[:：]/.test(lastText),
+      readCount: reads.length, failedReads, requiredReads: check, reportHasReadList: [lastText, ...sentTexts].some((x) => /已讀清單|已讀：|已讀\s*[:：]/.test(x)),
     });
   }
   out.sessions.push(sess);
