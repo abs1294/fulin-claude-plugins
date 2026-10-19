@@ -148,7 +148,7 @@ const SCOPE_CELLS = [
     example: '上傳 `a.pdf` → 刪除 → 再上傳 `b.pdf` → 暫存 → 重開，附件清單只剩 `b.pdf`' },
   { name: '受影響的共用元件', re: /^(?:受影響的?)?共用元件/, hint: 'VeeUpload/VeeDataTable/VeeNumber/VeeDatePicker/MessageBox 等＋其他使用點是否連帶回歸',
     need: '點名真實存在於四個 repo 的檔名／元件名＋其他使用點；寫「無」要附理由，且四個 repo 工作區不能有沒交代的共用元件改動',
-    example: '`VeeUpload`（其他使用點 `SectionFormSignatureInfo.vue`、`FileManagementDrawer.vue` 連帶回歸上傳與刪除）' },
+    example: '`VeeUpload`（其他使用點 `SignatureSection.vue`、`FileDrawer.vue` 連帶回歸上傳與刪除）' },
 ];
 // 模板六【範圍展開】各格的說明原文，執行時讀 04（不在本檔抄一份——抄的副本會跟模板漂移）
 function scopeTemplateHints() {
@@ -336,7 +336,7 @@ function stripTemplateText(text, slot, opts) {
 }
 
 // 反向／終止分支：模板列的七種，同義詞一併認。
-// 退件與拒絕同一組：本平台 BPM 的 Rejected 在畫面就顯示「退件」（ReviewStatusEnum 只有 Pending/Approved/Rejected），
+// 退件與拒絕同一組：本平台簽核系統的 Rejected 在畫面就顯示「退件」（簽核狀態列舉只有 Pending/Approved/Rejected），
 // 語料裡 27 份只缺一種的派工單幾乎都是「寫了退件、沒另寫拒絕」，逐份讀過全是品質好的單——分開要求只會擋好單。
 // 英文同義詞要整字（前後不接英文字母）：`DocPermission`、`CancelToken` 這類識別字不算點名分支
 // 「退回」後面幾個字內接原文／預設／原值是 fallback（「說明欄應退回後端原文」「切英文退回中文原文」），不是退件
