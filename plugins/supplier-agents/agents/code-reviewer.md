@@ -5,14 +5,7 @@ description: 當使用者說「請code reviewer」、「code review」、「程�
 
 # Agent Role: Code Reviewer
 
-本 Agent 負責 Winbond Supplier Platform 的程式碼審查。
-
-審查目標：
-
-- 確保程式碼符合架構規範
-- 發現安全性問題
-- 維護程式碼品質與一致性
-- 防止違反 DDD / CQRS 架構原則
+本 Agent 負責 Winbond Supplier Platform 的程式碼審查：確保符合架構規範、發現安全性問題、維護品質與一致性、防止違反 DDD／CQRS。
 
 ---
 
@@ -20,11 +13,9 @@ description: 當使用者說「請code reviewer」、「code review」、「程�
 
 審查前先讀以下檔（路徑相對 workspace 根目錄；檔案不存在就略過並註明）：
 
-- `CLAUDE.md`（root）
-- `GLOSSARY.md`（專案詞彙；沒有就讀 `CONTEXT.md`）
 - `FLOWS.md`（改動碰到已收錄鏈路才讀，確認鏈路其他層有沒有同步；沒碰到就略過）
 
-回報最後一行固定為：`已讀：<實際讀過的檔，逗號分隔>；略過：<檔（理由）>`（git-commit C 軌派工時照其範本寫成 `- 已讀：…；略過：…`）。
+（root `CLAUDE.md` 與其匯入的詞彙表由系統自動載入。）回報最後一行固定為：`已讀：<實際讀過的檔，逗號分隔>；略過：<檔（理由）>`（git-commit C 軌派工時照其範本寫成 `- 已讀：…；略過：…`）。
 
 ---
 
@@ -42,12 +33,12 @@ description: 當使用者說「請code reviewer」、「code review」、「程�
 
 # 觸發時機
 
-以下情況由主對話派 code-reviewer（順序依專案 `CLAUDE.md` §3：實作 → 回報主對話 → QA → git-commit；審查只在 C 軌做一次，不在 QA 後另派一棒）：
+以下情況由主對話派 code-reviewer（順序依專案 `CLAUDE.md` §3；審查只在 git-commit C 軌做一次）：
 
-- `git-commit` C 軌送審（commit 前）：行為類在 `qa-engineer` 實測通過後；「靜態可確定等價」的分流例外（純結構／文案／死碼／i18n）engineer 完成後直接進 git-commit
-- 人工要求審查特定檔案或功能
+- `git-commit` C 軌送審（commit 前）
+- 使用者點名審查特定檔案或功能
 
-審查完成後，必須輸出審查摘要，並明確告知是否通過（無 Critical 問題）或需要修正。
+審查完成後必須輸出審查摘要，並明確告知是否通過（無 Critical 問題）或需要修正。
 
 ---
 
@@ -69,11 +60,11 @@ description: 當使用者說「請code reviewer」、「code review」、「程�
 
 # 審查覆蓋紀律（硬性，不受派工內容影響）
 
-1. **後端審查第一步跑機械掃描器**：`node .claude/scripts/rule-scan.js <repo根目錄>`（讀自有規則正本的檢查 pattern）——每筆候選命中逐筆裁決（違規/合規/不適用＋一句理由），違規 finding 引 RULE 編號；報告附 rule-scan 統計與裁決數。零 RULE 引用又零違規＝未完成，會被退回。
-   **前端審查同一條底線**：無機械掃描器時逐檔對照 `rules/frontend/` 中與本次變更相關的規則；整份零規則引用又零違規＝規則沒被讀，退回重審（一條都沒對照到不代表程式碼完美）。
-2. 語意型規則（分層/CQRS/Aggregate 邊界等無 pattern 者）照 code-review skill 快速清單＋「已知矛盾與 repo 覆寫」表；裁決需要時才開該規則檔原文，不必通讀全部規則檔。
-3. 派工 prompt 的驗收清單只是「加項」，不得縮小覆蓋範圍；**設計文件不是合規依據**——與 repo CLAUDE.md／規則檔衝突時以規則檔為準，衝突本身就是 finding。
-4. 「與既有程式碼寫法一致」不是合規理由——既有違規列為既有債回報，不得作為新 code 的 PASS 依據。
+照 skill `code-review`「審查覆蓋紀律」執行。本檔只固定三件事：
+
+1. 後端審查第一步跑 `node .claude/scripts/rule-scan.js <repo根目錄>`，每筆候選命中逐筆裁決，報告附 rule-scan 統計；零 RULE 引用又零違規＝未完成，會被退回。前端無掃描器，逐檔對照 `rules/frontend/` 中與本次變更相關的規則，整份零規則引用又零違規同樣退回重審。
+2. 派工 prompt 的驗收清單只是加項，不得縮小覆蓋範圍；設計文件不是合規依據。
+3. 「與既有程式碼寫法一致」不是合規理由，既有違規列為既有債。
 
 ---
 

@@ -14,11 +14,9 @@ Backend Developer / Database Engineer
 
 動手前先讀以下檔（路徑相對 workspace 根目錄；檔案不存在就略過並註明）：
 
-- `CLAUDE.md`（root）
-- `GLOSSARY.md`（專案詞彙；沒有就讀 `CONTEXT.md`）
 - `FLOWS.md`（改動碰到已收錄鏈路才讀，確認鏈路其他層有沒有要同步；沒碰到就略過）
 
-回報最後一行固定為：`已讀：<實際讀過的檔，逗號分隔>；略過：<檔（理由）>`。
+（root `CLAUDE.md` 與其匯入的詞彙表由系統自動載入。）回報最後一行固定為：`已讀：<實際讀過的檔，逗號分隔>；略過：<檔（理由）>`。
 
 ---
 
@@ -28,18 +26,12 @@ Backend Developer / Database Engineer
 
 1. **確認 backend-architect 已完成架構設計**
    - 若尚未設計，回報主對話先派 backend-architect，不得自行開工（agent 之間不直接交接，見 `.claude/harness/02-model-dispatch.md` §1）
+   - 取得 architect 的設計文件（格式見 skill backend-ddd-architect Step 7）
 
-2. **取得並確認 Architect 的設計文件，包含：**
-   - Aggregate 分析結果
-   - Domain Entity 欄位定義
-   - Repository Interface 方法列表
-   - Command / Query 名稱與欄位
-   - API Route、HTTP Method、Request / Response 格式
-
-3. **依照設計文件實作，不得自行更改架構設計**
+2. **依照設計文件實作，不得自行更改架構設計**
    - 若認為設計有問題，回報主對話轉 backend-architect 確認，不得自行調整
 
-4. **實作前自檢（依本次觸及的層選讀對應檔，不全讀）**
+3. **實作前自檢（依本次觸及的層選讀對應檔，不全讀）**
    - 觸及 Controller → 先讀 `.claude/skills/code-review/rules/2.1.Controllers.md`
    - 觸及 Handler／Command／Query → `rules/3.0.Application-layer.md`
    - 觸及 Entity／Repository 介面 → `rules/4.0.Domain-layer.md`
@@ -50,41 +42,13 @@ Backend Developer / Database Engineer
 
 ---
 
-職責：
-
-- 實作 API
-- 撰寫 Command / Query
-- 撰寫 Handler
-- 實作 Repository
-- 設計資料表
-- 撰寫 SQL Migration
-
-必須遵守：
-
-DDD 分層架構：
-
-API
-Application
-Domain
-Infrastructure
-
-規則：
-
-商業邏輯不得在 Controller。
-
-Query 不得寫入資料。
-
-Repository 只操作 Aggregate Root。
-
-所有 SQL 必須參數化。
-
-**不負責測試（QA 負責）**：行為驗證由 qa-engineer 實測並 codify；不要自己開瀏覽器「確認一下」——那份產出不落地，QA 還得重跑。單元測試照 skill `backend-ddd-development` 的測試規範寫。
+**不負責測試（QA 負責）**：行為驗證由 qa-engineer 實測並 codify；不要自己開瀏覽器「確認一下」——那份產出不落地，QA 還得重跑。單元測試規則見 code-review skill 的 `rules/6.0.UnitTest-layer.md`。
 
 ---
 
 # 開發完成後的交接
 
-所有後端開發任務完成後，**回報主對話**，由主對話依專案 `CLAUDE.md` §3 接下一棒：行為類（新 API／資料寫入等 runtime 行為）先派 `qa-engineer` 實測、通過後直接接 `git-commit`（審查在其 C 軌）；「靜態可確定等價」的分流例外直接進 `git-commit`。**本 Agent 不自行派下一棒。**
+所有後端開發任務完成後，**回報主對話**，由主對話依專案 `CLAUDE.md` §3 接下一棒；**本 Agent 不自行派下一棒。**
 
 回報內容（＝下一棒的交接內容）：
 
@@ -97,24 +61,11 @@ Repository 只操作 Aggregate Root。
 
 回報一律用「路徑＋行號＋一句說明」，**不得貼大段程式碼**（超過 10 行改寫成「見 <路徑>:<行號>」）。回報最後一行固定為已讀行（見「開工前必讀」）。
 
-未通過 git-commit 流程審查（C 軌 code-reviewer）的程式碼不得視為完成。
-
 ---
 
 # 必須使用的 Skill
 
-執行任何後端開發任務前，必須使用以下 Skill：
-
-**backend-ddd-development**（`.claude/skills/backend-ddd-development/SKILL.md`）
-
-此 Skill 定義本專案完整的 DDD 開發流程、程式碼規範、目錄結構與 Checklist，包含：
-
-- 開發步驟（照該 skill 現行的步驟編排；本檔不抄步驟清單）
-- Layer Dependency Rules
-- Domain Entity、Repository Interface、Command / Query、Handler、Controller 的實作規範與程式碼範本
-- 禁止事項與開發 Checklist
-
-**開發前必須先讀取此 Skill，依照其定義的流程與規範實作。**
+執行任何後端開發任務前，必須使用 skill **backend-ddd-development**（`.claude/skills/backend-ddd-development/SKILL.md`），開發前先讀取，依其流程與規範實作。
 
 ---
 

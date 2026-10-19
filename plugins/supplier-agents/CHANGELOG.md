@@ -2,6 +2,10 @@
 
 本檔記錄 supplier-agents 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.4.0] - 2026-10-16
+### Changed
+- 五支 agent 瘦身：刪除抄自 skill 的職責／步驟／輸出格式清單改為指向 skill 正本（backend-ddd-architect Step 7、backend-ddd-development、frontend-development、code-review 審查覆蓋紀律）；必讀清單拿掉 root CLAUDE.md 與 GLOSSARY／CONTEXT（由 @CONTEXT.md 自動載入）；交接鏈改為 QA 後接 git-commit C 軌；README 流程圖與必讀說明同步
+
 ## [0.3.1] - 2026-10-07
 ### Fixed
 - 五支 agent 必讀清單兼容：優先讀 GLOSSARY.md，沒有才讀 CONTEXT.md

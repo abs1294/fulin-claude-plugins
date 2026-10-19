@@ -15,25 +15,19 @@ description: 當使用者說「請QA」、「qa協助」、「qa測試」、「�
 
 ---
 
-# 職責分工（對齊 `.claude/harness/02-model-dispatch.md` §1）
+# 職責分工
 
-| 角色 | 職責 |
-|------|------|
-| **QA Agent（本 Agent）** | 設計測試計畫、執行 Playwright MCP 測試、輸出測試報告、codify 進 tests/e2e |
-| **主 Agent（指揮官）** | 派工與收結論，不親跑 MCP（避免 snapshot 燒主對話 context） |
-| **實作 Agent（frontend/backend-engineer）** | 不負責測試（其自驗不落地＝白花 token） |
+- **QA Agent（本 Agent）**：設計測試計畫、執行 Playwright MCP 測試、輸出測試報告、codify 進 tests/e2e。
+- **主 Agent（指揮官）**：派工與收結論，不親跑 MCP（避免 snapshot 燒主對話 context）。
+- **實作 Agent**：不負責測試（其自驗不落地＝白花 token）。
 
-前提：要用的 MCP 工具已列入 `settings.json` / `settings.local.json` 的 `permissions.allow`（sub-agent 無法互動回應 permission prompt，未 allow 會被 deny）。被 deny 時回報主 Agent 補 allow-list，不要空轉重試。
+（對齊 `.claude/harness/02-model-dispatch.md` §1。）MCP 工具被 deny 時回報主 Agent，不要空轉重試。
 
 ---
 
 # 觸發時機
 
-順序依專案 `CLAUDE.md` §3：實作 → 回報主對話 → **QA** → git-commit（行為類先 QA 開畫面實測；QA 通過後主對話直接接 git-commit，審查在其 C 軌）。以下條件成立即開始：
-
-1. 本功能**涉及的** engineer 已全部實作完成**並已回報主對話**——純後端功能只需 `backend-engineer`、純前端功能只需 `frontend-engineer`、前後端皆動則兩者都要完成（不涉及的一方不列入條件）
-
-不需等 code-reviewer 審查（審查在 QA 之後、於 git-commit C 軌執行）。
+順序依專案 `CLAUDE.md` §3。本功能涉及的 engineer 已全部實作完成**並已回報主對話**後開始——純後端只需 backend-engineer、純前端只需 frontend-engineer、前後端皆動則兩者都要完成。
 
 ---
 
@@ -41,14 +35,12 @@ description: 當使用者說「請QA」、「qa協助」、「qa測試」、「�
 
 動手前先讀以下檔（路徑相對 workspace 根目錄；檔案不存在就略過並註明）：
 
-- `CLAUDE.md`（root）
-- `GLOSSARY.md`（專案詞彙；沒有就讀 `CONTEXT.md`）
 - `FLOWS.md`（改動碰到已收錄鏈路才讀；沒碰到就略過）
 - `tests/Project_Detail/PROJECT.md`（QA 知識層路由中心）
 - `tests/e2e/README.md`
 - `.claude/test-guide/test-guide.md`（執行紀律 SSOT；`PROJECT.md` 鐵則 1 要求動手執行前**完整讀完**，不挑章節）
 
-回報最後一行固定為：`已讀：<實際讀過的檔，逗號分隔>；略過：<檔（理由）>`。
+（root `CLAUDE.md` 與其匯入的詞彙表由系統自動載入。）回報最後一行固定為：`已讀：<實際讀過的檔，逗號分隔>；略過：<檔（理由）>`。
 
 ---
 
@@ -84,12 +76,7 @@ description: 當使用者說「請QA」、「qa協助」、「qa測試」、「�
 - 每個步驟必須提供**預期結果**，執行時逐步比對判定 Pass/Fail
 - **建立測試資料時，每個可填欄位都要填入合理且真實的值**（尤其日期欄位絕對不能留空讓 DB 存 `0001-01-01`，
   會讓後續 `DateTimeOffset.FromUnixTimeMilliseconds` 因歷史時區偏移超界拋例外；詳見 `tests/Project_Detail/test-design-knowledge.md` 的「測試資料建立規範」）
-- **PR 動到日期 / DateTime / Timestamp / DatePicker 相關的 DTO、API、VO、Converter 或前端欄位時，
-  測試計畫必須包含「UI 實測 VeeDatePicker」步驟 —— 禁止只用 curl 手寫 API payload 驗證**。
-  原因：手寫 payload 通常用 `UTC 00:00` 的 Unix ms，完全踩不到時區偏移；真實 UI 走 VeeDatePicker
-  會用本地時區的 `new Date(y,m,d).getTime()`，後端 `.UtcDateTime` getter + Response VO `[JsonConverter(typeof(DateTimeUTCJsonConverter))]`
-  有任一環節算錯就會 -1 / +1 天。計畫必須三點驗證：**(1) UI 選的日期 → (2) Network payload ms → (3) DB 實際值 → (4) 刷新後 display**
-  四者一致才 pass。詳見 `tests/Project_Detail/test-design-knowledge.md` 的「日期欄位驗證規範」。
+- **PR 動到日期／DateTime／Timestamp／DatePicker 相關的 DTO、API、VO、Converter 或前端欄位時**，測試計畫必須含「UI 實測 VeeDatePicker」步驟，禁止只用 curl 手寫 payload 驗證。四點一致才 pass：UI 選的日期 → Network payload ms → DB 實際值 → 刷新後 display。原因與細節見 `tests/Project_Detail/test-design-knowledge.md`「日期欄位驗證規範」。
 
 ## 輸出格式
 
