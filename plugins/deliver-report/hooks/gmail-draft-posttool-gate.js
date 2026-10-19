@@ -41,6 +41,9 @@
  *   (G) reply 附件帶入（2026-10-06 實案：replyToMessageId 建草稿，原信 9 張截圖
  *       被整批複製進草稿附件區，使用者自己打開才發現）→ 寫入時記帳，
  *       get_draft 讀回時：有附件→提醒清除；無附件→銷帳
+ *   (I) 寫入後尚未讀回（只記帳、不出聲）：create_draft／update_draft 成功就記 stale:<id>，
+ *       get_draft 帶 htmlBody 讀回才銷；PreToolUse 閘 gmail-draft-stale-gate 據此擋下
+ *       「上次寫入後沒讀回就再 update_draft」（2026-10-20 實案：使用者在介面手改的草稿被上一版文字原樣覆蓋）
  *
  * ── PostToolUse 契約（官方文件確認，與 Stop 不同）──────────────
  *   stdin:  { tool_name, tool_input, tool_use_id, tool_response, transcript_path,
@@ -121,6 +124,16 @@ function toResultShape(tr) {
   return null;
 }
 
+// 讀回是否帶 htmlBody——(I) 的 stale 記號只認這個：純文字版看不出使用者在編輯器裡改了哪些結構，不足以當底稿。
+function resultHasHtml(res) {
+  const s = C.resultText(res);
+  if (!s) return false;
+  try {
+    const o = JSON.parse(s);
+    return !!(o && typeof o === 'object' && typeof o.htmlBody === 'string');
+  } catch (_) { return false; }
+}
+
 function main(raw) {
   let input;
   try { input = JSON.parse(raw); } catch (_) { return allow(); }
@@ -179,6 +192,12 @@ function main(raw) {
       const i = st.warned.indexOf(noread);
       if (i !== -1) { st.warned.splice(i, 1); C.writeState(st); }
     }
+    // (I) 讀回帶 htmlBody → 銷「上次寫入後尚未讀回」記號，下一次 update_draft 才放行
+    if (draftId && res && resultHasHtml(res)) {
+      const stale = 'stale:' + draftId;
+      const i = st.warned.indexOf(stale);
+      if (i !== -1) { st.warned.splice(i, 1); C.writeState(st); }
+    }
     // (G) 讀回的附件區：有附件→提醒；確認為零→銷「reply 待檢查」記號
     const attCount = res ? C.resultAttachmentCount(res) : null;
     if (attCount !== null && attCount > 0) {
@@ -200,6 +219,13 @@ function main(raw) {
 
   // ── 寫入：(C)(D)(E)(E2)(F)(F2) ＋ (A) 記帳 ──
   if (isWrite) {
+    // (I) 寫入成功 → 記「尚未讀回」。gmail-draft-stale-gate 據此擋下一次沒先 get_draft 的 update_draft
+    //     （2026-10-20 實案：使用者在介面手改過的草稿被上一版文字原樣覆蓋）。這裡只記帳、不出聲。
+    if (draftId) {
+      const stale = 'stale:' + draftId;
+      if (st.warned.indexOf(stale) === -1) { st.warned.push(stale); C.writeState(st); }
+    }
+
     // (C) 掉串：單次觀測判準（自稱 Re: 卻自成一串）
     for (const d of C.detachedReplyDrafts(turn)) {
       once('thread:' + d.id, () =>

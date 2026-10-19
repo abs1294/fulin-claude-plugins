@@ -51,6 +51,16 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "mcp__claude_ai_Gmail__update_draft",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gmail-draft-stale-gate.js\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
         "matcher": "mcp__claude_ai_Gmail__(create_draft|update_draft)",
         "hooks": [
           {

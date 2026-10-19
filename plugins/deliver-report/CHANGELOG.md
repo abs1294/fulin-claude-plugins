@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.10.0] - 2026-10-20
+### Changed
+- 改既有草稿不得覆蓋使用者的手改：新增 PreToolUse 閘 gmail-draft-stale-gate（update_draft 前必須有帶 htmlBody 的 get_draft 讀回，否則擋下；記號 stale:<draftId> 由 gmail-draft-posttool-gate 在寫入成功時記、讀回時銷）；SKILL.md 第三步之三新增要點 6（以讀回版本為底、列出使用者改了什麼、改完切段比對）；README 補說明；新增 hooks/tests/stale-draft.test.js（16 例，實跑兩支 hook 子程序、狀態目錄隔離）。2026-10-20 實案：使用者在 Gmail 介面刪掉的 repo 表格被上一版文字原樣寫回。
+
 ## [1.9.1] - 2026-10-14
 ### Fixed
 - deliver-report：稱謂行下直接接正文不留空行（三個形狀骨架與範例一、二、四移除空行，第一步收件人規則補註）
