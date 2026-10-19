@@ -26,7 +26,7 @@ description: >
 > Commit 觸發條件：**Codex 非 BLOCK ∧ code-reviewer 非 BLOCK ∧ 使用者未明確否決。**
 
 1. 兩軌皆 PASS（或豁免）＋使用者未回覆 → **自動 commit**（默許；local）。push 另需使用者當次明確核可（如「commit 並推上去」）才帶 `--push`。預覽時必須明講此行為。
-2. **任一軌 BLOCK → 永不自動 commit**——即使使用者已先回 OK。BLOCK 的項目逐條實跑確認後，照第 7 條直接修、重送，不必先問使用者；唯一能不修就 commit 的例外是第 7 條的「連續數輪只剩極端情境」預設豁免，或使用者明示強制 commit（`--exempt`）。
+2. **任一軌 BLOCK → 永不自動 commit**——即使使用者已先回 OK。BLOCK 的項目逐條實跑確認後，照第 7 條直接修、重送，不必先問使用者；唯一能不修就 commit 的例外是第 7 條的「Codex 仲裁判定只剩極端情境」預設豁免，或使用者明示強制 commit（`--exempt`）。
 3. 使用者明確否決（「等等」「先別上」、改 message、調 staging）→ 照使用者意思，不 commit。
 4. PASS 附清單＝「可 commit 但有建議」，預設放行；使用者要先修 → 改碼 → 重跑 `prepare` → 兩軌重送（diff 變了就重判豁免）。BLOCK 後重做同樣走完整 Step 1。禁止沿用先前確認過的 message 直接 commit（碼可能已變）。
 5. **某一軌確定不可用**（額度用完不算，見本條下方）→ 單軌降級（該軌記 `skipped: <原因>`、匯流視為 PASS；C 軌要先走 1.3c 第三層，第三層也失敗才能記 skipped；`review-record` 該軌就填這串），預覽明講已降為單軌，並由主 agent 補做該軌該查的項目。**兩軌都不可用 → 不可自動 commit**，停下請使用者人工確認（`review-record` 收到兩軌都 `skipped` 會直接拒絕；使用者核可後改走 `--exempt`）。
@@ -45,9 +45,11 @@ description: >
      - **按類別修，不按案例修**：每條 BLOCK 先歸到根因類別，修的時候把整個類別掃過一次（同類寫法、同類檔案全部），不是只改審查者點名的那幾行。
      - **架構問題必修**：根因是設計錯（判準選錯、列舉式規則、職責放錯層），就改設計，不要在錯的設計上繼續打補丁。
      - **文字比對類規則（敏感字、AI 痕跡、指令守門）先定範圍**：第一輪就寫明「防手滑、不是完整掃描器」與要涵蓋的寫法清單，連同已知取捨一起交給審查者；清單外的寫法是極端情境，不追。
-   - **同類重複閘（機械閘，2026-10-18 起）**：BLOCK 那一輪要用 `review-record <repo> --codex "<原文>" --reviewer "<原文>" --block-classes "<根因類別1>;<根因類別2>"` 記下類別（不放行 commit），**沒記就不能開下一輪 `prepare`**（還沒送審就要重送才用 `prepare --redo`）。同一個類別在同一批改動第二次出現，`review-record` 拒收：代表逐案補收斂不了，二選一——改架構／判準讓這一類一次涵蓋，再用 `--rearchitect "<類別>：<改了什麼>"` 記錄；或這一類剩下的都是極端情境，改走 `--edge`。類別名稱由 AI 填，換個名字躲比對腳本擋不到；`prepare --redo` 腳本分不出「真的還沒送審」與「送審後 BLOCK 了」（上一輪還沒記結果時它不加輪數、會寫進流水帳供事後稽核；上一輪已記過結果，下一次 prepare 本來就是新的一輪，帶不帶 `--redo` 都加一），只能在真的還沒送審時用——這兩點是自律；腳本保證的是「每輪都要記、重複就要交代架構改法」。起因：敏感字規則逐案補寫法，同一批改動審了 32 輪；harness 0.5.0 的主機規則也是逐案補審了 13 輪，改成放行清單（失敗即擋）才收斂。
-   - BLOCK 的項目（一軌或兩軌）**全部**是極端情境（已逐項核對，不是誤報就是極端）→ `review-record <repo> --codex "<原文>" --reviewer "<原文>" --edge "<剩下哪幾項、為什麼算極端>"`。flow.sh 記下這一輪；**連續 `edge_auto_exempt_rounds` 輪（預設 2，中間每輪都有改碼）都是這樣就預設豁免**，寫成 `edge-exempt` 紀錄、可直接 ship。沒達連續門檻會拒收並印下一步（修掉其中能修的 → 重送）。「同一批改動」以送審的檔名與 HEAD 判斷，不比內容：同一個檔案放棄原本修法、改用另一種修法時輪數會延續——輪數追的是同一件工作，而每一輪 `--edge` 仍要兩軌對當下的 diff 重審、剩下的全是極端情境才收，不會因此放過一般問題。預設豁免時，預覽要明講「連續 N 輪只剩極端情境，已預設豁免」，剩下的項目寫進交接紀錄。
-   - 專案想在某一輪停下來問人：設定檔設 `review_ask_round=<N>`（預設 0＝不停）。設了之後，到第 N 輪仍 BLOCK、又沒達到預設豁免 → 停下來把剩下的項目用白話列給使用者（發生條件、影響、修要多久），請使用者選「修」或「記進交接」；選記進交接 → `review-record <repo> --exempt "<使用者原話>；記進交接：<剩下的項目>"`。`edge_auto_exempt_rounds=0` 時極端情境也一律交給使用者決定。
+   - **同類重複閘（機械閘，2026-10-18 起）**：BLOCK 那一輪要用 `review-record <repo> --codex "<原文>" --reviewer "<原文>" --block-classes "<根因類別1>;<根因類別2>"` 記下類別（不放行 commit），**沒記就不能開下一輪 `prepare`**（還沒送審就要重送才用 `prepare --redo`）。同一個類別在同一批改動第二次出現，`review-record` 拒收：代表逐案補收斂不了，二選一——改架構／判準讓這一類一次涵蓋，再用 `--rearchitect "<類別>：<改了什麼>"` 記錄；或派 Codex 仲裁，判定這一類剩下的都是極端情境後走 `--edge`。
+     - **審查單（2026-10-19 起）**：`prepare` 每輪發一張審查單，派兩軌（與仲裁）時 prompt **第一行照抄**它印的那一行。plugin 自帶的 SubagentStop hook（`hooks/capture-review-reply.js`）在代理結束時讀派工內容找到審查單，把最後一則回覆原文存成 `.git/git-commit-flow/reply-<審查單>-<軌>`，flow.sh 以它為準：這一輪抓到 BLOCK、還沒記類別，`prepare` 一律擋（`--redo` 也不放）；`review-record` 貼的結論跟抓到的不同就拒收；記成通過後又抓到 BLOCK（重派那一軌），`ship` 拒絕。抓不到（派工沒帶審查單、hook 沒裝）時退回自陳：`--redo` 只能在真的還沒送審時用，`review-record` 會印「hook 抓到的回覆：無」。
+     - 腳本擋不到、只靠自律的：類別名稱由 AI 填，換個名字躲比對擋不到；派工時刻意不帶審查單、自己寫回覆檔也擋不到——這道閘的範圍是防手滑、不防故意繞。腳本保證的是「每輪都要記、抓到 BLOCK 就一定要記、重複就要交代架構改法」。起因：敏感字規則逐案補寫法，同一批改動審了 32 輪；harness 0.5.0 的主機規則也是逐案補審了 13 輪，改成放行清單（失敗即擋）才收斂。
+   - **極端情境由 Codex 判，不由主對話判**（改的人判自己的改動會偏向放過）：審查當下由兩軌判——每一項標 `[一般]` 或 `[極端]`，只有 `[一般]` 能回 BLOCK（範本見 1.3b／1.3c）。主對話認為某個 BLOCK 項目其實是極端情境或誤報時，**不能自己認定**，派一次 Codex 仲裁（見 1.4「極端情境仲裁」）：回 `RULING: EDGE` → `review-record <repo> --codex "<原文>" --reviewer "<原文>" --edge "<剩下哪幾項>"`，**這一輪就預設豁免**、寫成 `edge-exempt` 紀錄、可直接 ship，不再追；回 `RULING: GENERAL` → 那幾項就是一般問題，用 `--block-classes` 記下後修。仲裁回覆由 hook 抓（審查單的 `arbiter` 軌），**沒有仲裁結果 `--edge` 一律拒收**——沒裝 hook 的環境只能修掉，或請使用者明示 `--exempt`。仲裁結果只對發它的那張審查單有效，重跑 `prepare`、換一批改動都要重新仲裁。預設豁免時，預覽要明講「Codex 仲裁判定只剩極端情境，已預設豁免」，剩下的項目寫進交接紀錄。
+   - 專案想在某一輪停下來問人：設定檔設 `review_ask_round=<N>`（預設 0＝不停）。設了之後，到第 N 輪仍 BLOCK、又沒達到預設豁免 → 停下來把剩下的項目用白話列給使用者（發生條件、影響、修要多久），請使用者選「修」或「記進交接」；選記進交接 → `review-record <repo> --exempt "<使用者原話>；記進交接：<剩下的項目>"`。`edge_auto_exempt_rounds=0` 時仲裁判 EDGE 也不自動豁免，一律交給使用者決定。
    - 兩個門檻都在專案設定檔 `.claude/git-commit.conf` 調整（見「專案設定檔」）。
 
 ## Review 豁免規則
@@ -63,12 +65,12 @@ description: >
 | 指令 | 動作 |
 |------|------|
 | `flow.sh analyze <repo>` | 狀態分類＋local-overrides 過濾＋敏感字掃描 |
-| `flow.sh prepare <repo> <files...> [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]` | 逐檔 `git add` → **內容閘（敏感字／建置產物／AI 痕跡）沒過就不產生 diff hash、送不了審** → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄與放行旗標。誤判時在 prepare 帶 `--allow-*`，旗標綁定這份 diff，ship／amend 沿用不必再帶。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查）。印出「審查第 N 輪」（見核心原則 7）與 C 軌的專案附加審查要求（見 1.3c） |
+| `flow.sh prepare <repo> <files...> [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]` | 逐檔 `git add` → **內容閘（敏感字／建置產物／AI 痕跡）沒過就不產生 diff hash、送不了審** → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄與放行旗標。誤判時在 prepare 帶 `--allow-*`，旗標綁定這份 diff，ship／amend 沿用不必再帶。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查）。印出「審查第 N 輪」、這一輪的審查單（派工 prompt 第一行照抄，見核心原則 7）與 C 軌的專案附加審查要求（見 1.3c） |
 | `flow.sh check-msg <repo> <type> <description> [--body "<一兩句>"]` | 只檢查 commit message，判準同 ship（Type、署名、痕跡、寬度、內文）。**1.3a 預覽前先跑**，給使用者看的就是一定過得了 ship 的版本 |
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾用：git 已把合併進來的檔案 stage 好）。index 空的拒絕 |
-| `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆第一行須為 `VERDICT: PASS`（BLOCK 不收）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的；理由含額度字樣不收——額度用完要排重跑，見核心原則 5）。專案有 `.claude/qa-gate.conf` 時，寫紀錄前先過專案閘（`--exempt` 模式同樣適用）：staged 含行為類檔就必帶有效的 `--qa`；設了 `block_staged_overrides=1` 時 staged 含 local-overrides 清單上的檔就拒收（見下一列） |
-| `flow.sh review-record <repo> --codex "<原文>" --reviewer "<原文>" --block-classes "<類別1>;<類別2>" [--rearchitect "<類別>：<改法>"]` | 至少一軌 BLOCK 時記下這一輪的根因類別（不放行 commit）；沒記不能開下一輪 `prepare`（未送審就重送用 `prepare --redo`）。同類別在同一批第二次出現要附 `--rearchitect`，否則拒收（見核心原則 7） |
-| `flow.sh review-record <repo> --codex "<原文>" --reviewer "<原文>" --edge "<理由>"` | 至少一軌 BLOCK，且 BLOCK 的全是極端情境（兩軌都 BLOCK 也收；skipped 不收）。連續 `edge_auto_exempt_rounds` 輪才寫成預設豁免紀錄，否則記下這一輪後拒收（見核心原則 7） |
+| `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆的結論行須為 `VERDICT: PASS`（BLOCK 不收；結論行＝第一個非空行，不是結論的話看最後一個非空行，兩端的 Markdown 標記不算，跟 hook 同一套規則）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的；理由含額度字樣不收——額度用完要排重跑，見核心原則 5）。專案有 `.claude/qa-gate.conf` 時，寫紀錄前先過專案閘（`--exempt` 模式同樣適用）：staged 含行為類檔就必帶有效的 `--qa`；設了 `block_staged_overrides=1` 時 staged 含 local-overrides 清單上的檔就拒收（見下一列）。hook 抓到某一軌的回覆時，貼的結論要跟抓到的一致，不一致就拒收 |
+| `flow.sh review-record <repo> --codex "<原文>" --reviewer "<原文>" --block-classes "<類別1>;<類別2>" [--rearchitect "<類別>：<改法>"]` | 至少一軌 BLOCK 時記下這一輪的根因類別（不放行 commit）；沒記不能開下一輪 `prepare`（未送審就重送用 `prepare --redo`；hook 已抓到這一輪 BLOCK 時 `--redo` 也擋）。同類別在同一批第二次出現要附 `--rearchitect`，否則拒收（見核心原則 7） |
+| `flow.sh review-record <repo> --codex "<原文>" --reviewer "<原文>" --edge "<剩下哪幾項>"` | 至少一軌 BLOCK，且這一輪的 Codex 仲裁（hook 抓到的 `arbiter` 回覆）是 `RULING: EDGE`（兩軌都 BLOCK 也收；skipped 不收）→ 寫成預設豁免紀錄。沒有仲裁結果或判 `GENERAL` 一律拒收（見核心原則 7、1.4） |
 | `flow.sh review-record <repo> --exempt "<理由>"` | 使用者明示豁免（Style/Docs、POC、plugin 發布、使用者要求跳過審查、使用者選擇把剩下的項目記進交接）。理由寫使用者的原話或豁免依據，會進稽核流水帳 `review-log.tsv` |
 | `review-record ... --qa "<QA 狀態>"`（選填；找得到 `.claude/qa-gate.conf` 時視情況必帶——依序從 repo 目錄、主 repo 目錄（worktree 時）、工作目錄往上逐層找） | QA 表態，與審查結果一起寫進紀錄與流水帳。專案有 `.claude/qa-gate.conf`（與 `local-overrides.yml` 同層）時由 flow.sh 強制：staged 含行為類檔（副檔名命中 `behavior_ext`、且不命中 `exclude`）就必須帶，值以 `已QA`（「已」與「QA」間可有空白、QA 大小寫不分）或 `分流例外` 開頭——`已QA：<報告或測試檔路徑＋綠的輸出行>`／`分流例外：<為何讀 code 就能確定>`；還沒 QA 就不得記錄，先派 QA 實測。沒有設定檔就不檢查 |
 | `review-record ... --allow-overrides "<理由>"` | 只在 `qa-gate.conf` 設了 `block_staged_overrides=1` 時有作用：staged 含 local-overrides 清單上的檔時 review-record 會拒收（多半是誤加，用 `git restore --staged <檔案>` 移出後重跑 prepare）；確實要推（例如檔內混有真改動、已用 `git apply --cached` 只 stage 真改動那幾行）才帶這個旗標，理由寫進 `review-log.tsv` 最後一欄 |
@@ -87,7 +89,7 @@ repo 慣例跟預設不同時用。找法同 `qa-gate.conf`（依序從 repo 目
 | `types=` | 上面 10 種 | 允許的 Type，空白分隔。列了 `none` 就能 `ship <repo> none "<描述>"`，subject 只有描述本身（例：`types=major minor patch none`）。描述開頭像 Type 前綴（`Feat: …`）時不算無前綴，要用清單內的 Type |
 | `max_width=` | 72 | 描述與內文每行的顯示寬度上限（全形算 2、半形算 1；72 換算中文約 36 字）。英文訊息、沒有前綴的 repo 可放寬，例：100 |
 | `review_ask_round=` | 0 | 審到第幾輪仍 BLOCK 就停下來問使用者；0＝不停，修到只剩極端情境 |
-| `edge_auto_exempt_rounds=` | 2 | 連續幾輪只剩極端情境就預設豁免；0＝關閉 |
+| `edge_auto_exempt_rounds=` | 2 | Codex 仲裁判只剩極端情境（`RULING: EDGE`）就預設豁免；0＝關閉、交給使用者決定。大於 0 都是開啟（舊版是「連續幾輪」，改由仲裁判定後不再數輪數，舊設定檔不必改） |
 
 設定值寫錯（`max_width=abc`、`types=` 空的）會直接報錯，不靜默套預設。
 
@@ -114,6 +116,10 @@ PreToolUse hook，攔截 Bash 工具裡「不經 flow.sh 就建出 commit」的�
 
 > **為什麼需要**：上面那句「不要手動組 git 指令」與 frontmatter 的「AI 禁止直接執行 git commit」都是**自律**，AI 會繞；繞過去就等於六道真閘一道都不觸發。skill 的「必須」是自律，只有 hook 是他律。
 > hook **fail-open**：自身任何錯誤（空輸入、壞 JSON、無 python）一律放行並印警告，絕不把使用者鎖在無法 commit 的狀態。
+
+### hook：`hooks/capture-review-reply.js`（SubagentStop，他律）
+
+審查代理（B 軌、C 軌、極端情境仲裁）結束時，把它最後一則回覆原文存回那個 repo 的 `.git/git-commit-flow/reply-<審查單>-<軌>`。全部成立才寫：派工內容有 `prepare` 印的審查單、審查單還是那個 repo 目前這一張（登記在 `~/.claude/git-commit-tickets/`）、代理種類對得上（`codex`／`arbiter` 軌要是 codex 系，`reviewer` 軌不能是）、回覆的第一個或最後一個非空行是結論行（`VERDICT: PASS|BLOCK`；仲裁是 `RULING: EDGE|GENERAL`）。`VERDICT: UNAVAILABLE` 或沒有結論行＝沒審完，不寫。同一軌重派以最後一次為準；仲裁例外，同一張審查單只收第一份有結論的回覆（判 GENERAL 後再派一次也不會變成 EDGE）。fail-open：任何錯誤都靜默結束，不擋代理結束。flow.sh 怎麼用這些檔見核心原則 7。
 
 ### 真閘 7：審查紀錄（`ship`／`amend` 內建）
 
@@ -206,9 +212,10 @@ Prompt 開頭**必須**寫兩件事，缺一必死：
 > **大 diff 不是例外**：只內嵌需要判斷的部分（JSON 結構 diff、檔案清單、已驗證結果）即可。
 > 他律＝本 plugin 自帶的 PreToolUse hook `hooks/guard-codex-diff-embed.js`（prompt 含路徑或讀檔指示即擋；隨 git-commit 一起安裝，見 `hooks/hooks.json`）。同批還有 `hooks/check-codex-cwd.js` 擋 prompt 沒指定 cd 目標或目標不是 git repo 的派工。
 
-Prompt 範本（開頭的 cd 指示與 codex exec 用法照 145–147 兩件事實際寫出，不能只在散文段提過）：
+Prompt 範本（開頭的 cd 指示與 codex exec 用法照 145–147 兩件事實際寫出，不能只在散文段提過；**第一行是 `prepare` 印的 B 軌審查單**，hook 靠它把回覆存回 repo）：
 
 ```
+[git-commit 審查單 <prepare 印的 id> codex]（派工識別碼，不用理會）
 執行任何 codex 指令前，先 cd 到 <repo 的絕對路徑>（`codex exec` 一律加 `< /dev/null`）。
 呼叫 codex 一律開全新對話：走 companion 用 `task --fresh`（禁止 `--resume-last`／`--resume`）；直接用 `codex exec` 則**不加 `--fresh`**（exec 沒有這個旗標，加了 exit 2、完全沒跑），也不用 `codex exec resume`。以下審查內容寫成檔案後以 stdin 傳入（`codex exec ... < 內容檔`，此時不再另加 `< /dev/null`），禁止拆成命令列參數。
 判定跑完與否看輸出有沒有 `VERDICT:` 行，不看 exit code（管線末端的 exit 0 蓋得掉 codex 的 exit 2）；沒有就回 `VERDICT: UNAVAILABLE`。
@@ -224,15 +231,18 @@ Prompt 範本（開頭的 cd 指示與 codex exec 用法照 145–147 兩件事�
 【任務背景】<一句話：這次改動在做什麼、影響範圍>
 
 【判準】
-- BLOCK：會壞功能、資安洞、邏輯錯、敏感資訊外洩（.env / credentials / hardcoded JWT / 連線字串）、
-         改名遺漏跨檔、不該 commit 的檔案。
-- PASS：其餘一切。有疑問寧可 BLOCK。
+- 每一項先分類：[一般]＝正常操作路徑會發生；[極端]＝只在不尋常的時序或外部條件下才會發生
+  （例：動畫 0.1 秒內按鍵、只在開發模式、後端回傳不合規格的資料、操作到一半切頁的競態）。
+  資安、資料遺失、正常流程會當掉的一律算 [一般]，不管多難觸發。
+- BLOCK：至少一項 [一般] 的會壞功能、資安洞、邏輯錯、敏感資訊外洩（.env / credentials / hardcoded JWT / 連線字串）、
+         改名遺漏跨檔、不該 commit 的檔案。[一般] 的有疑問寧可 BLOCK。
+- PASS：沒有 [一般] 的問題；[極端] 的列成觀察點，不 BLOCK。
 
 【重點檢查】明顯 bug／邊界（rollback、exception、null）／安全性／不該 commit 的檔案或 debug 痕跡／改名跨檔殘留
 
 【回覆格式，嚴格遵守】
 第 1 行：`VERDICT: PASS` 或 `VERDICT: BLOCK`
-第 2 行起每行 `- <file>:<line> <短描述>`：BLOCK 列所有必修項；PASS 列所有觀察點
+第 2 行起每行 `- <file>:<line> [一般|極端] <短描述>`：BLOCK 列所有必修項；PASS 列所有觀察點
 （edge case／跨檔殘留／缺測試或 i18n／future risk——觀察到幾項列幾項，不自我省略；真沒有才只回第 1 行）
 一句話講清楚即可，不寫「應該怎麼改」；不要分析段、標題、總結。
 ```
@@ -247,6 +257,7 @@ C 軌的 skipped **只收一種**：第三層 general-purpose 也試過且失敗
 `run_in_background: true`，同輪觸發。Prompt 範本（VERDICT 格式與 B 軌對齊，利匯流判讀）：
 
 ```
+[git-commit 審查單 <prepare 印的 id> reviewer]（派工識別碼，不用理會）
 請審查 staged diff（在 <DIFF_PATH>，請先 `cat` 讀取）。本任務由你親自執行，不得再轉派給其他 agent。
 
 【開工前必讀】（專案有這些檔就讀，沒有就略過）
@@ -261,6 +272,8 @@ C 軌的 skipped **只收一種**：第三層 general-purpose 也試過且失敗
 【驗收條件】（判準）
 - BLOCK：🔴 Critical（違反架構原則、資安洞、破壞 DDD 分層、必錯邏輯）
 - PASS：無 Critical 即放行；🟡 Important／🟢 Minor 列清單供使用者決定。
+- 極端情境（只在不尋常的時序或外部條件下才會發生，例：動畫 0.1 秒內按鍵、只在開發模式、後端回傳不合規格的資料）不列 Critical，
+  描述開頭標 [極端]；資安、資料遺失、正常流程會當掉的不算極端情境。
 - Critical 報出前開全檔核對（不只看 diff 行），並在描述尾端註明核對範圍。
 
 【重點檢查】架構規範（DDD/CQRS/Repository/Section component）／規則違反／資安／i18n 完整性／測試覆蓋
@@ -270,7 +283,7 @@ C 軌的 skipped **只收一種**：第三層 general-purpose 也試過且失敗
 
 【回報格式】（嚴格遵守）
 第 1 行：`VERDICT: PASS` 或 `VERDICT: BLOCK`
-第 2 行起每行 `- <file>:<line> [<Critical|Important|Minor>] <短描述>`
+第 2 行起每行 `- <file>:<line> [<Critical|Important|Minor>] <短描述>`（極端情境在描述開頭加 [極端]）
 最後一行 `- 已讀：<實際讀過的必讀檔名，逗號分隔>；略過：<檔名（理由：專案沒有這個檔／沒觸及已收錄鏈路）>`
 一句話講清楚即可，不寫「應該怎麼改」；不要分析段、標題、總結。
 ```
@@ -286,7 +299,36 @@ B＋C 皆返回即匯流（不等 A 軌），按核心原則四條決策。補�
 - 自動 commit 前輸出：兩軌狀態＋「使用者回覆：尚未（視為默許）」＋套用的 message；PASS 附清單時**清單先列給使用者**再告知已開始自動 commit。
 - 匯流判定可 commit 後，**先跑 `flow.sh review-record <repo> --codex "<Codex 回覆原文>" --reviewer "<code-reviewer 回覆原文>"`** 再 ship。回覆原文多行時用 `"$(cat <<'EOF' … EOF)"` 帶入。多 repo 各記各的。
 - **C 軌 BLOCK 先二次驗證（專案有定義才做）**：C 軌回 `VERDICT: BLOCK` 時，先看專案的 code-review skill（通常在 `<workspace>/.claude/skills/code-review/SKILL.md`，`<workspace>` 為工作目錄；多 repo 時該 repo 根目錄下的同路徑也看）有沒有「發現驗證」節。有 → 照該節對每條 `[Critical]` 逐條二次驗證，驗完再走下一條的 BLOCK 處理；被推翻的條目在預覽標「經驗證為假陽性」並附推翻它的那一行（`檔:行`＋原文）。全部被推翻時，**主對話不得自行把 BLOCK 改成 PASS**（也不得自組 `VERDICT: PASS` 送進 `review-record`），改為重派 C 軌一次（prompt 末尾附驗證證據、請它重新裁決），`--reviewer` 以新回覆的原文記錄；新回覆仍是 BLOCK 就照該節後續規定處理，該節沒寫就走 BLOCK 處理。重派以一次為限。staged 沒變，prepare 的 diff hash 仍有效，重派前不要重跑 prepare，B 軌結果沿用。專案沒有這一節 → 行為不變，直接走 BLOCK 處理。B 軌（Codex）的 BLOCK 不適用本條。與核心原則 6 的關係：專案有這一節時，C 軌 BLOCK 一律照本條處理，不適用原則 6 由主 agent 實跑後改判；專案沒有這一節時，原則 6 照舊。
-- BLOCK 處理：逐條實跑確認 → 成立的一般問題直接改碼、重 `prepare`、兩軌重送，直到全非 BLOCK 或只剩極端情境（核心原則 7，預設不停下來問；BLOCK 那輪先 `review-record --block-classes` 記類別，同類重複要改架構）；預覽列出這輪修了什麼。無 revert、無歷史噪音。使用者明示強制 commit → `review-record --exempt "<使用者的原話>"`（BLOCK 的回覆原文不會被 `--codex`／`--reviewer` 收下）。只剩極端情境走 `--edge`；專案設了 `review_ask_round` 才在該輪停下來問。
+- BLOCK 處理：逐條實跑確認 → 成立的一般問題直接改碼、重 `prepare`、兩軌重送，直到全非 BLOCK 或 Codex 仲裁判定只剩極端情境（核心原則 7，預設不停下來問；BLOCK 那輪先 `review-record --block-classes` 記類別，同類重複要改架構）；預覽列出這輪修了什麼。無 revert、無歷史噪音。使用者明示強制 commit → `review-record --exempt "<使用者的原話>"`（BLOCK 的回覆原文不會被 `--codex`／`--reviewer` 收下）。認為剩下的是極端情境或誤報 → 下面的仲裁；專案設了 `review_ask_round` 才在該輪停下來問。
+
+#### 極端情境仲裁（要走 `--edge` 時才派）
+
+主對話認為 BLOCK 的項目全是極端情境或誤報時派，**一輪一次**、結果就是最終判定（判 EDGE 不再追，判 GENERAL 就修）。`subagent_type: codex:codex-rescue`、`run_in_background: true`；呼叫層規定同 1.3b（先 cd、全新對話、內容以 stdin 傳入、不附檔案路徑）。staged 沒變就不必重跑 `prepare`，用同一張審查單。Prompt 範本：
+
+```
+[git-commit 審查單 <prepare 印的 id> arbiter]（派工識別碼，不用理會）
+<1.3b 範本開頭的 cd／codex 呼叫／嚴格限制那幾段，照抄>
+
+你是極端情境仲裁。下面是審查者回 BLOCK 的項目，判斷每一項是一般問題、極端情境還是誤報。
+
+【定義】
+- 一般：正常操作路徑會發生。資安、資料遺失、正常流程會當掉的一律算一般，不管多難觸發。
+- 極端：只在不尋常的時序或外部條件下才會發生（例：動畫 0.1 秒內按鍵、只在開發模式、後端回傳不合規格的資料
+  且查不到後端會不會這樣回、操作到一半切頁的競態）。
+- 誤報：附的程式碼或實跑證據顯示根本不會發生。
+
+【BLOCK 項目原文】
+<兩軌 BLOCK 的項目逐條原文貼上，不改寫>
+
+【相關程式碼與證據】
+<判斷需要的程式碼片段（內嵌，不附路徑）、主對話實跑的指令與輸出原文>
+
+【回覆格式，嚴格遵守】
+每項一行：`- <項目> [一般|極端|誤報] <一句理由>`
+最後一行：全部是極端或誤報 → `RULING: EDGE`；任何一項是一般 → `RULING: GENERAL`
+```
+
+回 `RULING: EDGE` → `review-record <repo> --codex "<原文>" --reviewer "<原文>" --edge "<剩下哪幾項>"`；回 `RULING: GENERAL` → 照判成一般的項目修，這一輪先 `--block-classes` 記類別。仲裁沒有結論行（`UNAVAILABLE`、中斷）＝沒有仲裁，照 1.3b 的不可用判準處理，不能自己判。
 
 ## Step 2：`flow.sh ship`
 

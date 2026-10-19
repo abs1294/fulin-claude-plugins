@@ -4,6 +4,8 @@ set -u
 FLOW="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 ROOT="$(mktemp -d)"
 export CLAUDE_PROJECT_DIR="$ROOT/ws"
+# prepare 發審查單時會寫登記處；放測試目錄，不寫進真的家目錄
+export GIT_COMMIT_TICKET_DIR="$ROOT/tickets"
 mkdir -p "$CLAUDE_PROJECT_DIR"
 pass=0; fail=0; failed=()
 

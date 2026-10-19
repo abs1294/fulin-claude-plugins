@@ -9,6 +9,8 @@ HOOK="$HOOKS/block-bare-git-commit.sh"
 PY="$(command -v python3 2>/dev/null || command -v python 2>/dev/null)"
 ROOT="$(mktemp -d)"
 export CLAUDE_PROJECT_DIR="$ROOT/ws"
+# prepare 發審查單時會寫登記處；放測試目錄，不寫進真的家目錄
+export GIT_COMMIT_TICKET_DIR="$ROOT/tickets"
 export GIT_EDITOR=true GIT_MERGE_AUTOEDIT=no
 mkdir -p "$CLAUDE_PROJECT_DIR"
 pass=0; fail=0; failed=()

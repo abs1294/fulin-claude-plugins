@@ -109,10 +109,15 @@ COMMIT_CONF=""
 BODY_MAX_LINES=3
 # 同一批改動審到第幾輪仍 BLOCK 就停下來問使用者（修，或記進交接）；0＝不停（預設）。
 # 預設判準：以正確性為準修到底——還有一般問題就繼續修、重送，只有極端情境可以例外（review-record --edge）。
-# 每輪都停下來問會讓使用者被同一批改動問好幾次（2026-10-17 使用者指示改成預設不停）；要停的專案在設定檔打開。
+# 每輪都停下來問會讓使用者被同一批改動問好幾次，所以預設不停；要停的專案在設定檔打開。
 REVIEW_ASK_ROUND=0
-# 連續幾輪 BLOCK 都只剩極端情境就預設豁免（review-record --edge）；0＝關閉，一律要使用者決定。
+# Codex 仲裁判「只剩極端情境」（RULING: EDGE）就預設豁免（review-record --edge）；0＝關閉，一律要使用者決定。
+# 大於 0 都是開啟。舊版的意思是「連續幾輪」，改由獨立的 Codex 仲裁判定後不再數輪數
+# （判成極端就不再追，多數一輪只是逼著修極端情境）；保留這個鍵與預設值，舊設定檔不必改。
 EDGE_AUTO_EXEMPT_ROUNDS=2
+# 審查單登記處：prepare 發的審查單 id → 這個 repo 的狀態目錄。SubagentStop hook（hooks/capture-review-reply.js）
+# 靠它把審查代理的回覆存回對的 repo。兩邊都用使用者家目錄，測試可用環境變數換位置。
+TICKET_DIR="${GIT_COMMIT_TICKET_DIR:-$HOME/.claude/git-commit-tickets}"
 
 # ------------------------------------------------------------
 # Utility
@@ -1018,6 +1023,7 @@ staged_hash_file() { echo "$(repo_state_dir)/staged.sha"; }
 prepare_allow_file() { echo "$(repo_state_dir)/prepare-allow"; }
 # 同一批改動的審查輪數（每次 prepare 加 1，commit 成功歸零）與「只剩極端情境」的輪次紀錄。
 review_round_file() { echo "$(repo_state_dir)/round"; }
+# 舊版「連續幾輪只剩極端情境」的計數檔；改由 Codex 仲裁後不再寫，只在歸零時順手清掉舊檔。
 edge_rounds_file() { echo "$(repo_state_dir)/edge-rounds"; }
 # 上一輪 prepare 時 staged 的檔名清單，用來判斷這一輪是不是同一批
 round_files_file() { echo "$(repo_state_dir)/round-files"; }
@@ -1037,7 +1043,60 @@ recorded_round() {
   printf '%s' "${n:-0}"
 }
 mark_round_recorded() { local r; r="$(current_round)"; [ "$r" -ge 1 ] || r=1; printf '%s\n' "$r" > "$(recorded_round_file)"; }
-reset_review_rounds() { rm -f "$(review_round_file)" "$(edge_rounds_file)" "$(round_files_file)" "$(repo_state_dir)/round-head" "$(recorded_round_file)" "$(block_classes_file)"; }
+reset_review_rounds() {
+  rm -f "$(review_round_file)" "$(edge_rounds_file)" "$(round_files_file)" "$(repo_state_dir)/round-head" "$(recorded_round_file)" "$(block_classes_file)"
+  drop_review_ticket
+}
+
+# ------------------------------------------------------------
+# 審查單（2026-10-19 起）：審查回覆由 hook 抓，不靠 AI 自陳
+#
+# 兩軌審查在 flow.sh 外面跑（主對話派代理、代理把回覆交回主對話），flow.sh 原本只看得到 AI 拿去 review-record 的東西：
+# 收到 BLOCK 卻不記類別、直接 prepare --redo，腳本分不出「真的還沒送審」；極端情境也由 AI 自己用 --edge 宣稱。
+# 做法：prepare 發一張審查單（id），派工 prompt 第一行照抄；SubagentStop hook 在代理結束時讀它的派工內容找到審查單，
+# 把最後一則回覆原文存成 reply-<id>-<軌>（codex／reviewer／arbiter）。flow.sh 只讀這些檔：
+#   - 這一輪抓到 BLOCK 而還沒記類別 → prepare 一律擋（--redo 也不放）
+#   - review-record 貼的結論跟抓到的不同 → 拒收；ship 時抓到的是 BLOCK、紀錄卻是一般通過 → 拒絕
+#   - --edge 要有 Codex 仲裁抓到的 RULING: EDGE 才收
+# 範圍：防手滑、不防故意繞（派工時刻意不帶審查單、自己寫回覆檔，腳本擋不到）。hook 沒裝或沒抓到時退回原本的自陳，
+# 唯一例外是 --edge：沒有仲裁結果就不收（出口：修掉，或使用者明示 --exempt）。
+# ------------------------------------------------------------
+review_ticket_file() { echo "$(repo_state_dir)/ticket"; }
+current_ticket_id() { read_marker_line "$(review_ticket_file)" 1; }
+# 抓到的某一軌結論（PASS／BLOCK／EDGE／GENERAL）；這一輪的審查單沒有那一軌的回覆就印空字串。
+captured_verdict() {
+  local id f
+  id="$(current_ticket_id)"
+  [ -n "$id" ] || return 0
+  f="$(repo_state_dir)/reply-$id-$1"
+  [ -f "$f" ] || return 0
+  [ "$(read_marker_line "$f" 1)" = "$id" ] || return 0
+  read_marker_line "$f" 3
+}
+# 清掉這個 repo 的審查單、抓到的回覆，以及登記處裡指向這個 repo 的舊登記（只刪自己的，不動別的 repo）。
+drop_review_ticket() {
+  local sd f
+  sd="$(repo_state_dir)"
+  rm -f "$(review_ticket_file)" "$sd"/reply-gcf-* 2>/dev/null || true
+  [ -d "$TICKET_DIR" ] || return 0
+  for f in "$TICKET_DIR"/gcf-*; do
+    [ -f "$f" ] || continue
+    [ "$(read_marker_line "$f" 1)" = "$sd" ] && rm -f "$f"
+  done
+  return 0
+}
+# 發新的審查單：舊的（含抓到的回覆）一律作廢，登記處寫一份給 hook 找狀態目錄。
+issue_review_ticket() {
+  local round="$1" hash="$2" sd id
+  drop_review_ticket
+  sd="$(repo_state_dir)"
+  id="gcf-$(printf '%s|%s|%s|%s|%s' "$sd" "$round" "$hash" "$(date '+%s')" "$RANDOM$RANDOM" | git hash-object --stdin | cut -c1-16)"
+  printf 'id=%s\nround=%s\ndiff_hash=%s\n' "$id" "$round" "$hash" > "$(review_ticket_file)"
+  if mkdir -p "$TICKET_DIR" 2>/dev/null; then
+    printf 'state_dir=%s\nid=%s\nround=%s\ndiff_hash=%s\n' "$sd" "$id" "$round" "$hash" > "$TICKET_DIR/$id" || true
+  fi
+  printf '%s' "$id"
+}
 
 # 狀態檔已改放 git 目錄，這一層主要防「紀錄被手動搬到別的 repo」；保留比對，成本很低。
 repo_identity() { git rev-parse --absolute-git-dir; }
@@ -1057,17 +1116,26 @@ read_marker_line() {
   printf '%s' "${line#*=}"
 }
 
-# 取第一個非空行並去頭尾空白；agent 回覆常帶前導空行或 CR。
+# 取回覆的結論行：第一個非空行是 VERDICT: PASS|BLOCK 或 skipped: 就取它；不是、而最後一個非空行是 VERDICT: PASS|BLOCK，
+# 改取最後一行；都不是就回第一行（給錯誤訊息用）。兩端的 Markdown 標記（* _ # > ` 與空白）先去掉。
+# 跟 hooks/capture-review-reply.js 的 verdictOf 同一套規則，兩邊必須一致：Codex 習慣把 VERDICT 放最後一行，
+# 規則不同時 hook 抓到的 BLOCK 用原文記不進來，下一輪又被它擋住，只能改寫原文才出得去。
 # awk 刻意讀完全部輸入、不提早 exit：提早結束會讓上游收到 SIGPIPE，
 # 在 pipefail 下整條管線回非 0，set -e 會讓腳本無聲中止（回覆越長越容易撞上）。
-first_nonblank_line() {
-  printf '%s\n' "$1" | tr -d '\r' | awk 'NF && !done { sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); print; done = 1 }'
+verdict_line() {
+  printf '%s\n' "$1" | tr -d '\r' | awk '
+    { sub(/^[ \t*_#>`]+/, ""); sub(/[ \t*_`]+$/, "") }
+    NF { if (!seen) { first = $0; seen = 1 }; last = $0 }
+    END {
+      v = "^VERDICT:[ \t]*(PASS|BLOCK)([ \t]|$)"
+      if (first ~ v || first ~ /^skipped:/ || last !~ v) print first; else print last
+    }'
 }
 
 # 判一軌的結果：PASS／SKIPPED 印正規化狀態並回 0；其餘印原因回 1。
 classify_verdict() {
   local label="$1" text="$2" head
-  head="$(first_nonblank_line "$text")"
+  head="$(verdict_line "$text")"
   if [[ "$head" =~ ^VERDICT:[[:space:]]*PASS([[:space:]]|$) ]]; then
     echo "PASS"; return 0
   fi
@@ -1075,14 +1143,14 @@ classify_verdict() {
     echo "ERROR: $label 回 BLOCK，不能記成通過。先用 --block-classes \"<根因類別>\" 記下這一輪，再按類別改碼、重跑 prepare、重送兩軌；" >&2
     echo "       C 軌 BLOCK 且專案 .claude/skills/code-review/SKILL.md 有「發現驗證」節：先逐條二次驗證；全部推翻時重派 C 軌一次（不必重跑 prepare），以新回覆記錄。" >&2
     echo "       使用者明示要強制 commit 時，改用 --exempt \"<使用者的原話>\"。" >&2
-    echo "       BLOCK 的項目（一軌或兩軌）全是極端情境：加 --edge \"<剩下哪幾項、為什麼算極端>\"（連續數輪才預設豁免，見 SKILL.md 核心原則 7）。" >&2
+    echo "       認為 BLOCK 的項目全是極端情境或誤報：不能自己判，派 Codex 仲裁（審查單的 arbiter 軌），回 RULING: EDGE 才能加 --edge \"<剩下哪幾項>\"（見 SKILL.md 核心原則 7）。" >&2
     return 1
   fi
   if [[ "$head" =~ ^skipped:[[:space:]]*[^[:space:]] ]]; then
     # 額度／用量上限是暫時狀態，不是「確定不可用」：記 skipped 等於把這一軌靜默跳過。
     # 要排額度恢復後重跑（SKILL.md 核心原則 5），這裡機械擋下。
     # 用 bash 內建比對、不接 printf | grep -q：回覆很長時 grep 命中就提早結束，上游 printf 吃 SIGPIPE，
-    # pipefail 下整條管線回非 0，條件被判成假而放行（3MB 文字實測誤判；短文字正常；本檔 first_nonblank_line 同型的坑）。
+    # pipefail 下整條管線回非 0，條件被判成假而放行（3MB 文字實測誤判；短文字正常；本檔 verdict_line 同型的坑）。
     local quota_re='usage limit|rate limit|quota|credits|try again at|額度|用量上限|配額'
     local restore_nocase quota_hit=0
     # shopt -p 在該選項關閉時回 1。目前呼叫點是 `x="$(classify_verdict ...)" || exit 1`，errexit 在 || 左側被暫停，
@@ -1128,8 +1196,8 @@ classify_verdict() {
     fi
     echo "SKIPPED"; return 0
   fi
-  echo "ERROR: $label 的第一行必須是「VERDICT: PASS」（貼 agent 回覆原文）或「skipped: <原因>」（該軌確定不可用；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的）。" >&2
-  echo "       收到的第一行：${head:-（空白）}" >&2
+  echo "ERROR: $label 的結論行（第一個或最後一個非空行）必須是「VERDICT: PASS」（貼 agent 回覆原文）或「skipped: <原因>」（該軌確定不可用；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的）。" >&2
+  echo "       收到的第一行（最後一行也不是結論行）：${head:-（空白）}" >&2
   return 1
 }
 
@@ -1173,7 +1241,21 @@ check_review_recorded() {
     print_review_howto "$repo"
     return 1
   fi
-  echo "[git-commit] 審查紀錄吻合：$(sed -n 2p "$rec" | tr -d '\r')"
+  # 一般通過的紀錄，記下之後 hook 又抓到這一輪某一軌回 BLOCK（例如重派那一軌）：以抓到的為準。
+  # 使用者豁免、仲裁判極端的預設豁免本來就是在 BLOCK 之下放行，不看這一條。
+  local summary_line t v
+  summary_line="$(sed -n 2p "$rec" | tr -d '\r')"
+  if [[ "$summary_line" == Codex* ]]; then
+    for t in codex reviewer; do
+      v="$(captured_verdict "$t")"
+      if [ "$v" = "BLOCK" ]; then
+        echo "ERROR: hook 抓到這一輪 $t 軌的回覆是 BLOCK（.git/git-commit-flow/reply-$(current_ticket_id)-$t），紀錄卻是通過，已拒絕 $action。" >&2
+        echo "       照 BLOCK 處理：review-record --block-classes 記類別 → 修 → 重跑 prepare → 兩軌重送。" >&2
+        return 1
+      fi
+    done
+  fi
+  echo "[git-commit] 審查紀錄吻合：$summary_line"
   return 0
 }
 
@@ -1284,7 +1366,7 @@ load_qa_gate_conf() {
 #   types=Feat Fix …                 允許的 Type，空白分隔；列了 none 才能不加前綴（subject 只有描述本身）
 #   max_width=72                     描述（與內文每行）的顯示寬度上限，全形算 2、半形算 1
 #   review_ask_round=0               審到第幾輪仍 BLOCK 就停下來問使用者；0＝不停，修到只剩極端情境（預設）
-#   edge_auto_exempt_rounds=2        連續幾輪 BLOCK 都只剩極端情境就預設豁免；0＝關閉
+#   edge_auto_exempt_rounds=2        Codex 仲裁判只剩極端情境（RULING: EDGE）就預設豁免；0＝關閉（大於 0 都是開啟）
 # 沒有設定檔＝沿用本檔頂端的預設值，既有專案行為不變。
 # 參數＝repo 目錄。ship／amend／check-msg／audit／prepare／review-record 在 assert_valid_repo 之後呼叫。
 # ------------------------------------------------------------
@@ -1566,12 +1648,12 @@ $(qa_norm_path "$e_path" "$ic")"
 # 第 34–36 輪兩軌連續找到「某個錯誤在作廢之前就離開」（同類閘拒收、一般模式 BLOCK、類別空白、設定檔寫錯、
 # 旗標缺值、--allow-overrides 空字串），逐條往前挪收斂不了，改成函式第一行就做。
 # 不靠旗標配對（第 37 輪 C 軌：中間的旗標缺值、旗標名打錯，配對就錯位、BLOCK 認不出來）：
-# 任何一個參數的第一個非空行（去掉 Markdown 的 * _ # > 與空白）以 VERDICT: BLOCK 開頭就算收到 BLOCK；
+# 任何一個參數的結論行（verdict_line：第一個或最後一個非空行，去掉 Markdown 標記）以 VERDICT: BLOCK 開頭就算收到 BLOCK；
 # 每個指向工作目錄底下 git repo 的單行參數都當成候選 repo，一律作廢它的紀錄（多刪的代價只是重記一次）。
 invalidate_record_on_block() {
   local a blocked=0 head
   for a in "$@"; do
-    head="$(first_nonblank_line "$a" | sed -E 's/^[*_#>[:space:]]+//')"
+    head="$(verdict_line "$a")"
     if [[ "$head" =~ ^VERDICT:[[:space:]*_]*BLOCK ]]; then blocked=1; break; fi
   done
   [ "$blocked" -eq 1 ] || return 0
@@ -1680,7 +1762,7 @@ cmd_review_record() {
     fi
     codex_status="$(edge_track_status "Codex" "$codex")" || exit 1
     reviewer_status="$(edge_track_status "code-reviewer" "$reviewer")" || exit 1
-    # 兩軌都 BLOCK 也收：判準是「剩下的項目是不是極端情境」，不是幾軌 BLOCK（2026-10-17 使用者指示）。
+    # 兩軌都 BLOCK 也收：判準是「剩下的項目是不是極端情境」，不是幾軌 BLOCK。
     # skipped 的那軌沒有結論，不能替另一軌背書；兩軌都 PASS 不需要 --edge。
     if [ "$codex_status" = "SKIPPED" ] || [ "$reviewer_status" = "SKIPPED" ] \
        || { [ "$codex_status" != "BLOCK" ] && [ "$reviewer_status" != "BLOCK" ]; }; then
@@ -1733,6 +1815,23 @@ cmd_review_record() {
     exit 1
   fi
 
+  # hook 抓到的回覆是準的：貼進來的結論跟抓到的不同就拒收（抓不到的那軌照舊收自陳）。
+  local cap_codex="" cap_reviewer=""
+  if [ "$mode" != "exempt" ]; then
+    cap_codex="$(captured_verdict codex)"
+    cap_reviewer="$(captured_verdict reviewer)"
+    local cap_bad=""
+    [ -n "$cap_codex" ] && [ "$cap_codex" != "$codex_status" ] && cap_bad+="  - Codex：hook 抓到 $cap_codex，貼的是 $codex_status"$'\n'
+    [ -n "$cap_reviewer" ] && [ "$cap_reviewer" != "$reviewer_status" ] && cap_bad+="  - code-reviewer：hook 抓到 $cap_reviewer，貼的是 $reviewer_status"$'\n'
+    if [ -n "$cap_bad" ]; then
+      rm -f "$(review_record_file)"
+      echo "ERROR: 貼進來的審查結論跟 hook 抓到的回覆原文不同，不能記錄：" >&2
+      printf '%s' "$cap_bad" >&2
+      echo "       抓到的原文在 $(repo_state_dir)/reply-$(current_ticket_id)-<軌>；照原文的結論記（BLOCK 用 --block-classes）。" >&2
+      exit 1
+    fi
+  fi
+
   # 同類重複閘（2026-10-18 起）：BLOCK 這一輪記下根因類別；同一類別在同一批改動的前幾輪出現過，
   # 代表逐案補收斂不了（審查者每輪都能找到同類的新案例），要改架構／判準讓這一類一次涵蓋，用 --rearchitect 寫明，
   # 或把這一類剩下的判成極端情境走 --edge。起因：git-commit 0.13.0 的敏感字規則逐案補寫法，同一批改動審了 32 輪；
@@ -1760,7 +1859,7 @@ cmd_review_record() {
       echo "       不要再逐案補。二選一：" >&2
       echo "       1) 改架構／判準，讓這一類一次涵蓋（例：列舉改放行清單、失敗即擋、換判準、先定範圍再交審查者），" >&2
       echo "          改完用 --rearchitect \"<類別>：<改了什麼>\" 記這一輪" >&2
-      echo "       2) 這一類剩下的都是極端情境 → review-record 改用 --edge" >&2
+      echo "       2) 這一類剩下的都是極端情境 → 派 Codex 仲裁，回 RULING: EDGE 再用 review-record --edge" >&2
       exit 1
     fi
     { [ -f "$bc_file" ] && awk -F'\t' -v r="$round" '$1 != r' "$bc_file"; printf '%s\n' "$classes" | awk -v r="$round" '{ print r "\t" $0 }'; } > "$bc_file.tmp"
@@ -1774,44 +1873,35 @@ cmd_review_record() {
     exit 0
   fi
 
-  # 極端情境：記下這一輪，再看是否已連續 EDGE_AUTO_EXEMPT_ROUNDS 輪（中間每輪都有改碼）。
-  # 起因（2026-10-16 使用回饋）：「任一軌 BLOCK 就不能 commit」沒有停止條件，Codex 每輪都挖出更邊緣的情況
-  # （動畫 0.1 秒內按鍵、只在開發模式發生、後端回傳不合規格資料），同一批審了 9 輪。
-  local edge_k=0
+  # 極端情境：由 Codex 仲裁判，不由 AI 自己判（改的人判自己的改動會偏向放過）。仲裁回 RULING: EDGE 就預設豁免、不再追；
+  # RULING: GENERAL 就是一般問題，要修。仲裁回覆由 hook 抓（審查單的 arbiter 軌），沒抓到就不收。
+  # 起因：舊版 --edge 只檢查理由有沒有填，AI 球員兼裁判；又規定連續 2 輪才豁免，等於逼著把極端情境再修一輪。
+  # 更早（2026-10-16）：「任一軌 BLOCK 就不能 commit」沒有停止條件，同一批審了 9 輪。
+  local ruling=""
   if [ "$mode" = "edge" ]; then
-    local round edge_file
-    round="$(current_round)"; [ "$round" -ge 1 ] || round=1
-    edge_file="$(edge_rounds_file)"
-    { [ -f "$edge_file" ] && awk -F'\t' -v r="$round" '$1 != r' "$edge_file"; printf '%s\t%s\n' "$round" "$current"; } > "$edge_file.tmp"
-    mv "$edge_file.tmp" "$edge_file"
-    mark_round_recorded
-    # 從這一輪往回數：每一輪都要有極端情境紀錄，且 diff 跟後一輪不同（同一份 diff 重審不算新的一輪）
-    local r="$round" h later=""
-    while [ "$r" -ge 1 ]; do
-      h="$(awk -F'\t' -v r="$r" '$1 == r { print $2 }' "$edge_file" | tail -1)"
-      [ -n "$h" ] || break
-      [ -n "$later" ] && [ "$h" = "$later" ] && break
-      edge_k=$((edge_k + 1)); later="$h"; r=$((r - 1))
-    done
-    if [ "$EDGE_AUTO_EXEMPT_ROUNDS" -gt 0 ] && [ "$edge_k" -ge "$EDGE_AUTO_EXEMPT_ROUNDS" ]; then
-      mode="edge-exempt"
-      reason="$edge"
-    else
-      echo "ERROR: 未寫入審查紀錄。已記下第 $round 輪的 BLOCK 只剩極端情境（連續 $edge_k 輪）。" >&2
-      if [ "$EDGE_AUTO_EXEMPT_ROUNDS" -gt 0 ]; then
-        echo "       連續 $EDGE_AUTO_EXEMPT_ROUNDS 輪都只剩極端情境（中間有改碼）才預設豁免。" >&2
+    ruling="$(captured_verdict arbiter)"
+    if [ "$ruling" != "EDGE" ]; then
+      if [ "$ruling" = "GENERAL" ]; then
+        echo "ERROR: Codex 仲裁判定還有一般問題（RULING: GENERAL），不能走 --edge。" >&2
+        echo "       照仲裁回覆（$(repo_state_dir)/reply-$(current_ticket_id)-arbiter）把判成一般問題的項目修掉 → 重跑 prepare → 兩軌重送；" >&2
+        echo "       這一輪先用 --block-classes 記類別。" >&2
       else
-        echo "       ${COMMIT_CONF:-設定檔} 設了 edge_auto_exempt_rounds=0，極端情境不會自動豁免。" >&2
-      fi
-      if [ "$EDGE_AUTO_EXEMPT_ROUNDS" -gt 0 ]; then
-        echo "       下一步：修掉這幾項（或其中能修的）→ 重跑 prepare → 兩軌重送；下一輪若仍只剩極端情境，再用 --edge 記錄。" >&2
-        echo "       不要為此停下來問使用者。" >&2
-      else
-        echo "       下一步：把剩下的項目用白話列給使用者，請使用者決定修或記進交接；" >&2
-        echo "       選記進交接：review-record $repo --exempt \"<使用者原話>；記進交接：<剩下的項目>\"" >&2
+        echo "ERROR: 沒有這一輪的 Codex 仲裁結果，不能走 --edge（極端情境不由主對話自己判）。" >&2
+        echo "       派 codex:codex-rescue 仲裁，prompt 第一行照抄 prepare 印的「[git-commit 審查單 $(current_ticket_id) arbiter]」，" >&2
+        echo "       內容與格式照 SKILL.md 1.4「極端情境仲裁」；回 RULING: EDGE 後再跑同一條 review-record。" >&2
+        echo "       沒有 hook（仲裁回覆存不下來）時，只能修掉，或請使用者明示 --exempt。" >&2
       fi
       exit 1
     fi
+    if [ "$EDGE_AUTO_EXEMPT_ROUNDS" -le 0 ]; then
+      mark_round_recorded
+      echo "ERROR: 未寫入審查紀錄。仲裁判定只剩極端情境，但 ${COMMIT_CONF:-設定檔} 設了 edge_auto_exempt_rounds=0，極端情境不會自動豁免。" >&2
+      echo "       下一步：把剩下的項目用白話列給使用者，請使用者決定修或記進交接；" >&2
+      echo "       選記進交接：review-record $repo --exempt \"<使用者原話>；記進交接：<剩下的項目>\"" >&2
+      exit 1
+    fi
+    mode="edge-exempt"
+    reason="$edge"
   fi
 
   local now summary
@@ -1819,7 +1909,7 @@ cmd_review_record() {
   if [ "$mode" = "exempt" ]; then
     summary="豁免（$reason）"
   elif [ "$mode" = "edge-exempt" ]; then
-    summary="極端情境預設豁免（連續 $edge_k 輪；Codex $codex_status／code-reviewer $reviewer_status）"
+    summary="極端情境預設豁免（Codex 仲裁 RULING: EDGE；Codex $codex_status／code-reviewer $reviewer_status）"
   else
     summary="Codex $codex_status／code-reviewer $reviewer_status"
   fi
@@ -1836,6 +1926,7 @@ cmd_review_record() {
     echo "repo=$repo"
     echo "qa=${qa:--}"
     echo "allow_overrides=${allow_overrides:--}"
+    echo "captured=codex:${cap_codex:--} reviewer:${cap_reviewer:--} arbiter:${ruling:--}"
     if [ "$mode" = "exempt" ]; then
       echo "exempt_reason=$reason"
     else
@@ -1871,10 +1962,17 @@ cmd_review_record() {
   echo "  diff hash：$current"
   echo "  結果：$summary"
   echo "  QA：${qa:-（未表態）}"
+  if [ "$mode" != "exempt" ]; then
+    if [ -z "$cap_codex$cap_reviewer" ]; then
+      echo "  hook 抓到的回覆：無（派工 prompt 第一行沒帶 prepare 印的審查單，或 hook 沒裝）——這一輪的結論只有自陳"
+    else
+      echo "  hook 抓到的回覆：Codex ${cap_codex:-（沒抓到）}／code-reviewer ${cap_reviewer:-（沒抓到）}"
+    fi
+  fi
   [ -n "$allow_overrides" ] && echo "  放行 local-overrides 檔：$allow_overrides"
   if [ "$mode" = "edge-exempt" ]; then
     echo "  極端情境：$reason"
-    echo "  ⚠ 這是預設豁免：預覽要明講「連續 $edge_k 輪只剩極端情境，已預設豁免」，剩下的項目寫進交接紀錄。"
+    echo "  ⚠ 這是預設豁免：預覽要明講「Codex 仲裁判定只剩極端情境，已預設豁免」，剩下的項目寫進交接紀錄。"
   fi
   echo "  下一步：flow.sh ship $repo <Type> \"<描述>\""
 }
@@ -1882,7 +1980,7 @@ cmd_review_record() {
 # --edge 模式判一軌：BLOCK 照收（回 BLOCK），其餘交給 classify_verdict（PASS／SKIPPED 或報錯）。
 edge_track_status() {
   local label="$1" text="$2" head
-  head="$(first_nonblank_line "$text")"
+  head="$(verdict_line "$text")"
   if [[ "$head" =~ ^VERDICT:[[:space:]]*BLOCK([[:space:]]|$) ]]; then
     echo "BLOCK"; return 0
   fi
@@ -2062,8 +2160,7 @@ cmd_prepare() {
   fi
 
   # 新一批改動：逐檔模式下 index 原本是空的，就是新的一批（重審時上一輪 stage 的檔還在 index 裡）。
-  # 輪數與極端情境紀錄歸零——否則放棄的改動留下的輪次會被算進不相干的下一批，
-  # 下一批只審一次就拿到「連續 N 輪」的預設豁免（2026-10-16 對抗審查實跑重現）。
+  # 輪數、審查單與抓到的回覆歸零——否則放棄的改動留下的輪次與 BLOCK 會被算進不相干的下一批。
   if [ $use_staged -eq 0 ] && git diff --cached --quiet 2>/dev/null; then
     reset_review_rounds
   fi
@@ -2085,11 +2182,27 @@ cmd_prepare() {
     && [ -z "$(comm -23 <(tr -d '\r' < "$prev_files_rec" | sed '/^$/d' | sort) <(printf '%s\n' "$predicted_files") | sed '/^$/d')" ]; then
     same_batch=1
   fi
+  # hook 已抓到這一輪有 BLOCK（審查單 reply 檔）：確定送審過，--redo 也不放，一定要先記類別。
+  # 抓不到（沒送審、還沒回、hook 沒裝）才輪到下面那道靠 --redo 自陳的閘。
+  if [ "$same_batch" -eq 1 ] && [ "$(current_round)" -ge 1 ] && [ "$(recorded_round)" != "$(current_round)" ] \
+    && [ "$(read_marker_line "$(review_ticket_file)" 2)" = "$(current_round)" ]; then
+    local cap_t cap_hit=""
+    for cap_t in codex reviewer; do
+      [ "$(captured_verdict "$cap_t")" = "BLOCK" ] && cap_hit+=" $cap_t"
+    done
+    if [ -n "$cap_hit" ]; then
+      echo "ERROR: 第 $(current_round) 輪已送審，hook 抓到 BLOCK（${cap_hit# }），還沒記類別，不能重新準備（帶 --redo 也一樣）。" >&2
+      echo "       先記：review-record $repo --codex \"<原文>\" --reviewer \"<原文>\" --block-classes \"<根因類別1>;<根因類別2>\"" >&2
+      echo "       認為是極端情境或誤報 → 派 Codex 仲裁，回 RULING: EDGE 再用 --edge（見 SKILL.md 核心原則 7）" >&2
+      echo "       抓到的原文：$(repo_state_dir)/reply-$(current_ticket_id)-<軌>" >&2
+      exit 1
+    fi
+  fi
   if [ "$redo" -eq 0 ] && [ "$same_batch" -eq 1 ] && [ "$(current_round)" -ge 1 ] \
     && [ "$(recorded_round)" != "$(current_round)" ]; then
     echo "ERROR: 第 $(current_round) 輪送審後還沒用 review-record 記下結果，不能開下一輪。" >&2
     echo "       BLOCK → review-record $repo --codex \"<原文>\" --reviewer \"<原文>\" --block-classes \"<根因類別1>;<根因類別2>\"" >&2
-    echo "       只剩極端情境 → --edge；兩軌 PASS → 照常 review-record" >&2
+    echo "       只剩極端情境 → 派 Codex 仲裁、回 RULING: EDGE 再用 --edge；兩軌 PASS → 照常 review-record" >&2
     echo "       還沒送審就要重送（漏了檔、內容閘後補改）→ prepare 加 --redo" >&2
     exit 1
   fi
@@ -2201,17 +2314,23 @@ cmd_prepare() {
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(tmp_repo_key "$repo")" "$current_hash" "redo" "-" "-" "第 $round 輪未送審就重新準備" "-" "-" >> "$REVIEW_LOG"
   fi
   printf '%s\n' "$round" > "$(review_round_file)"
+  local ticket_id
+  ticket_id="$(issue_review_ticket "$round" "$current_hash")"
   echo ""
   echo "=== 審查第 $round 輪 ==="
+  echo "審查單：$ticket_id——派工 prompt 第一行照抄下面那一行（hook 靠它把回覆原文存回這個 repo，見 SKILL.md 1.3）："
+  echo "  B 軌 Codex：      [git-commit 審查單 $ticket_id codex]"
+  echo "  C 軌 reviewer：   [git-commit 審查單 $ticket_id reviewer]"
+  echo "  極端情境仲裁：    [git-commit 審查單 $ticket_id arbiter]（只在要走 --edge 時派，見 SKILL.md 1.4）"
   if [ "$REVIEW_ASK_ROUND" -gt 0 ] && [ "$round" -ge "$REVIEW_ASK_ROUND" ]; then
     echo "⚠ 已到第 $round 輪（門檻 $REVIEW_ASK_ROUND，${COMMIT_CONF:-設定檔} 設定）。這輪兩軌若仍有 BLOCK："
-    echo "   - BLOCK 的全是極端情境 → review-record 加 --edge（連續 $EDGE_AUTO_EXEMPT_ROUNDS 輪才預設豁免；0＝關閉）"
+    echo "   - 認為 BLOCK 的全是極端情境或誤報 → 派 Codex 仲裁，回 RULING: EDGE 再用 review-record --edge（AI 不自己判）"
     echo "   - 其他情況 → 停下來把剩下的項目用白話列給使用者，請使用者決定修或記進交接；不要自己繼續修下一輪"
   elif [ "$round" -ge 3 ]; then
     echo "⚠ 已到第 $round 輪。這輪兩軌若仍有 BLOCK：以正確性為準——"
     echo "   - 還有一般問題（含資安、資料遺失、正常流程會壞）→ 按類別一次修完、重跑 prepare、兩軌重送，不要停下來問使用者"
     echo "   - 同一類別前幾輪出現過 → 逐案補收斂不了，改架構／判準讓這類一次涵蓋（review-record --block-classes 會擋）"
-    echo "   - BLOCK 的全是極端情境 → review-record 加 --edge（連續 $EDGE_AUTO_EXEMPT_ROUNDS 輪才預設豁免；0＝關閉）"
+    echo "   - 認為 BLOCK 的全是極端情境或誤報 → 派 Codex 仲裁，回 RULING: EDGE 再用 review-record --edge（AI 不自己判）"
   fi
   echo ""
 
@@ -3084,11 +3203,11 @@ Commands:
                                     預覽給使用者看之前先跑，免得核可後才在 ship 被擋
   review-record <repo> --codex "<回覆>" --reviewer "<回覆>" [--qa "<QA 狀態>"] [--allow-overrides "<理由>"]
   review-record <repo> --codex "<原文>" --reviewer "<原文>" --edge "<剩下哪幾項、為什麼算極端>"
-                                    至少一軌 BLOCK、BLOCK 的全是極端情境：記下這一輪；
-                                    連續 edge_auto_exempt_rounds 輪（中間有改碼）才寫成「極端情境預設豁免」紀錄，否則拒收並說明下一步
+                                    至少一軌 BLOCK，且 Codex 仲裁（審查單 arbiter 軌，hook 抓回覆）判 RULING: EDGE：
+                                    寫成「極端情境預設豁免」紀錄；沒有仲裁結果或判 GENERAL 一律拒收
   review-record <repo> --exempt "<理由>" [--qa "<QA 狀態>"] [--allow-overrides "<理由>"]
                                     把兩軌結果（或使用者豁免）綁定到當下 staged diff；ship／amend 沒有它就拒絕
-                                    回覆第一行須為 VERDICT: PASS，不可用的那軌填 "skipped: <原因>"（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的）
+                                    回覆的結論行（第一個或最後一個非空行）須為 VERDICT: PASS，不可用的那軌填 "skipped: <原因>"（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的）
                                     額度／用量上限不算不可用：skipped 理由含 usage limit、quota、額度等字樣一律拒收（要排重跑）
                                     專案有 .claude/qa-gate.conf 時：staged 含行為類檔（behavior_ext／exclude）就必須帶
                                     --qa "已QA：…" 或 --qa "分流例外：…"；block_staged_overrides=1 時 staged 含
@@ -3122,7 +3241,7 @@ Valid types（預設；專案可在 .claude/git-commit.conf 用 types= 覆寫，
   types=…                   允許的 Type；none＝subject 只有描述
   max_width=72              描述與內文每行的顯示寬度上限
   review_ask_round=0        審到第幾輪仍 BLOCK 就停下來問使用者（0＝不停，修到只剩極端情境；預設）
-  edge_auto_exempt_rounds=2 連續幾輪只剩極端情境就預設豁免（0＝關閉）
+  edge_auto_exempt_rounds=2 Codex 仲裁判只剩極端情境（RULING: EDGE）就預設豁免（大於 0＝開啟；0＝關閉）
 
 Examples:
   flow.sh analyze .                              # 工作目錄本身是 git repo

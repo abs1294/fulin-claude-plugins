@@ -47,7 +47,7 @@
 | `flow.sh prepare <repo> <files...> [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]` | `git add`（只加列出的檔，不 `git add .`）→ 內容閘（敏感字／建置產物／AI 痕跡）沒過就不產生 diff hash、送不了審；誤判時帶 `--allow-*`，旗標綁定這份 diff，ship 沿用 → 產出 staged diff 供兩軌讀取，並印「審查第 N 輪」。index 已有不在清單內的 staged 項目（多半是別的 session stage 的）就拒絕；merge 進行中不檢查（合併進來的檔本來就屬於這顆 commit）。最後印出工作目錄層 `.claude/git-commit-reviewer-addendum.md` 的內容（C 軌的專案附加審查要求，逐字貼進 C 軌 prompt；沒有這個檔就印「無」） | 1.2 Stage |
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾、自己切 hunk stage 時用） | 1.2 Stage／Merge 收尾 |
 | `flow.sh check-msg <repo> <type> "<desc>" [--body "<一兩句>"]` | 只檢查 commit message（判準同 ship），預覽給使用者看之前先跑，免得核可後到 ship 才被擋 | 1.3a 預覽前 |
-| `flow.sh review-record <repo> --codex "<回覆>" --reviewer "<回覆>"` | 把兩軌回覆原文綁定到當下 staged diff；回覆第一行須為 `VERDICT: PASS`，不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的；理由含 usage limit／quota／額度等字樣也不收——額度用完要排重跑）。豁免改用 `--exempt "<理由>"`，可加 `--qa "<QA 狀態>"`。專案有 `.claude/qa-gate.conf` 時另做兩道檢查：該 repo 的 staged 有行為類檔卻沒帶 `--qa "已QA：…"`／`--qa "分流例外：…"` 就拒絕記錄；設了 `block_staged_overrides=1` 時 staged 混進本機覆寫清單上的檔也拒絕，`--allow-overrides "<理由>"` 放行並記進流水帳。至少一軌 BLOCK、BLOCK 的全是極端情境時加 `--edge "<理由>"`（兩軌都 BLOCK 也收）：連續 2 輪（可設定）才寫成預設豁免紀錄 | 1.4 匯流後 |
+| `flow.sh review-record <repo> --codex "<回覆>" --reviewer "<回覆>"` | 把兩軌回覆原文綁定到當下 staged diff；回覆的結論行（第一個非空行，不是的話看最後一個；跟 hook 同一套規則）須為 `VERDICT: PASS`，不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的；理由含 usage limit／quota／額度等字樣也不收——額度用完要排重跑）。豁免改用 `--exempt "<理由>"`，可加 `--qa "<QA 狀態>"`。專案有 `.claude/qa-gate.conf` 時另做兩道檢查：該 repo 的 staged 有行為類檔卻沒帶 `--qa "已QA：…"`／`--qa "分流例外：…"` 就拒絕記錄；設了 `block_staged_overrides=1` 時 staged 混進本機覆寫清單上的檔也拒絕，`--allow-overrides "<理由>"` 放行並記進流水帳。至少一軌 BLOCK、且這一輪的 Codex 仲裁回 `RULING: EDGE` 時加 `--edge "<剩下哪幾項>"`（兩軌都 BLOCK 也收）：寫成預設豁免紀錄；沒有仲裁結果或判 GENERAL 拒收。hook 抓到某一軌的回覆時，貼的結論要跟抓到的一致 | 1.4 匯流後 |
 | `flow.sh ship <repo> <type> "<desc>" [--body "<一兩句>"] [--push]` | 真閘（AI 署名／單行 subject／message 與內文的痕跡與寬度／diff hash／敏感字／建置產物／AI 痕跡）→ `git commit` → 驗證。**預設只本機 commit，`--push` 才推遠端**（需使用者當次核可）；分支沒有 upstream 時自動 `git push -u <remote> HEAD`；沒有 `review-record` 紀錄就拒絕 | Step 2 |
 | `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述> [--body "<一兩句>"]]` | 改寫 HEAD：自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘、改寫後做 tree 級驗證；只本機改寫不 push | 歷史改寫 |
 | `flow.sh audit <repo> [<range>]` | 唯讀體檢既有 commit 的 message（空 message／缺 Type／超長／痕跡／內文超過 3 行、過寬或含痕跡）；交付 patch 或推上游前跑一次 | 交付前 |
@@ -63,6 +63,7 @@
 | `hooks/block-bare-git-commit.sh`（PreToolUse：Bash／PowerShell） | 不經 `flow.sh` 建 commit 或改 ref：`git commit`（含 `--amend`）、`commit-tree`、`update-ref`、`symbolic-ref`、`branch -f/-M/-C`、`git merge --continue`。放行條件只有 `flow.sh` 自己匯出的環境變數，外部設不進來；hook 自身出錯一律放行（fail-open） |
 | `hooks/guard-codex-diff-embed.js`（PreToolUse：Agent／Task） | 派給 Codex 的審查 prompt 附檔案路徑或讀檔指示（部分環境的 codex 沙箱讀不到檔，diff 必須內嵌） |
 | `hooks/check-codex-cwd.js`（PreToolUse：Agent／Task） | 派給 Codex 的 prompt 沒指定 cd 目標、或目標不是 git repo（codex 拒絕在非 git 目錄啟動） |
+| `hooks/capture-review-reply.js`（SubagentStop） | 不擋任何東西：審查代理（B 軌、C 軌、極端情境仲裁）結束時，派工內容有 `prepare` 印的審查單，就把最後一則回覆原文存回那個 repo 的 `.git/git-commit-flow/`。flow.sh 以它為準：這一輪抓到 BLOCK 沒記類別不能重新 `prepare`（`--redo` 也不行）、`review-record` 貼的結論要跟抓到的一致、`--edge` 要有 Codex 仲裁的 `RULING: EDGE`。fail-open |
 
 ## 重點規則
 
@@ -75,8 +76,8 @@
 | 兩軌 PASS ＋ 使用者明確否決 🖊（「等等」/「先別上」/改 message） | → 照使用者意思，不 commit |
 | 兩軌**豁免**（Style/Docs）＋ 尚未回覆 | → **自動**本機 commit（豁免比照 PASS 默許；仍要跑 `review-record --exempt`） |
 | **任一軌 BLOCK** ＋ 任何狀態 | → **絕不自動 commit**；逐條實跑確認後直接修、重送（以正確性為準修到底，預設不停下來問；按根因類別一次修完，架構問題改架構） |
-| BLOCK 那一輪 | → `review-record --block-classes "<根因類別>"` 記下（機械閘：沒記不能開下一輪 `prepare`）；同一類別在同一批第二次出現會被拒收，要改架構／判準（`--rearchitect`）或判成極端情境（`--edge`），不再逐案補 |
-| 連續 2 輪（可設定）BLOCK 的全是極端情境（一軌或兩軌） | → `review-record --edge` 記成預設豁免，可 commit；預覽講明、剩下的項目寫進交接 |
+| BLOCK 那一輪 | → `review-record --block-classes "<根因類別>"` 記下（機械閘：沒記不能開下一輪 `prepare`）；同一類別在同一批第二次出現會被拒收，要改架構／判準（`--rearchitect`）或派 Codex 仲裁判成極端情境（`--edge`），不再逐案補。hook 抓到這一輪 BLOCK 時，`prepare --redo` 也擋 |
+| 主對話認為 BLOCK 的項目全是極端情境或誤報（一軌或兩軌） | → 不能自己判：派 Codex 仲裁一次。回 `RULING: EDGE` → `review-record --edge` 記成預設豁免，可 commit，不再追；預覽講明、剩下的項目寫進交接。回 `RULING: GENERAL` → 照一般問題修 |
 | 專案設了 `review_ask_round=N`，第 N 輪仍 BLOCK、又沒達到預設豁免 | → 停下來請使用者選「修」或「記進交接」（記進交接走 `--exempt`）；預設 0＝不停 |
 
 - **AI 禁直接 git**：不手動組 `git status` / `git add` / `git commit`，一律走 `flow.sh`。
@@ -101,7 +102,7 @@
 | `.claude/local-overrides.yml` | `flow.sh analyze`；不存在時 `analyze` 會從 `skills/git-commit/local-overrides.example.yml` 自動建一份空範本 | 列出本機常駐覆寫檔（Mock 切換、本地 DB 連線、測試 JWT），`analyze` 把這些檔排除在告警與建議 stage 清單外（`prepare` 只 stage 你列出的檔，本身不讀這份）。格式見範本檔內說明 |
 | `.claude/git-commit-reviewer-addendum.md`（0.10.0 起） | `flow.sh prepare` 跑完時整份原文印出；AI 照 SKILL.md 1.3c 逐字貼進 C 軌（code-reviewer）prompt 的【專案附加審查要求】段 | 補上通用範本不會有的**專案專屬審查步驟**。不存在或為空時 `prepare` 印「無」，C 軌 prompt 就不帶這段 |
 | `.claude/qa-gate.conf`（0.11.0 起） | `flow.sh review-record` 每次記錄前讀 | 專案的 QA 表態閘（設定檔位置：依序從 repo 目錄（經過 symlink 的字面路徑、實體路徑）、主 repo 目錄（worktree 時）、工作目錄各自往上逐層找 `.claude/qa-gate.conf`，取第一個找到的、不合併（先 cd 進 repo 再用 `.`、沒設 `CLAUDE_PROJECT_DIR` 也找得到）；`block_staged_overrides` 讀同一層的 `local-overrides.yml`，用 git 的實際身分比對：清單每一區（設定檔所在目錄＋repo 值或區塊 key）若跟這次的 repo 是同一個（git 共用目錄相同，worktree 也算），該區的檔換算成 repo 內路徑再跟 staged 比；git 設了 `core.ignorecase` 時不分大小寫。cd 進子目錄、路徑大小寫不同、worktree、經 symlink 進入都認得；區塊目錄解析得出 git repo 卻不是這次的 repo，就當成別的 repo 跳過（`repo:` 值優先於 key，例如寫成 `巢狀名:` 加 `repo: .` 時以 `.` 為準、指的是設定檔那一層的 repo；由 key 推出的目錄必須本身是 repo 根目錄，上層 repo 裡同名的普通資料夾不算）；目錄不存在或不是 git repo（例如清單用 remote 名稱當 key）才退回比名稱，`.` 不算名稱。key 或 `repo:` 值等於這次 repo 的 remote（origin）名稱時，即使同名目錄是另一份 clone 也照樣擋。`repo:` 值也可以寫絕對路徑（`/x/y`、`C:/x`））。`behavior_ext`（行為類副檔名，空白分隔、帶點、不分大小寫）、`exclude`（不算行為類的路徑，空白分隔的 ERE，區分大小寫）、`block_staged_overrides`（1＝staged 混進本機覆寫檔就拒絕）。staged 有行為類檔時 review-record 必須帶 `--qa "已QA：…"` 或 `--qa "分流例外：…"`（冒號或空白後要有內容）。在 flow.sh 裡判斷而不是在指令層攔：review-record 是 ship 前必經的一步，函式、變數、Invoke-Expression 這類間接呼叫最後都會走到這裡被查。harness 的 `/harness:init` 會依專案盤點產生這個檔 |
-| `.claude/git-commit.conf`（0.13.0 起） | `flow.sh` 的 `check-msg`／`prepare`／`review-record`／`ship`／`amend`／`audit` 讀（找法同 `qa-gate.conf`） | repo 的 commit 慣例：`types=`（允許的 Type；列 `none` 表示可不加前綴）、`max_width=`（描述與內文每行寬度上限，預設 72）、`review_ask_round=`（第幾輪仍 BLOCK 就停下來問使用者，預設 0＝不停、修到只剩極端情境）、`edge_auto_exempt_rounds=`（連續幾輪只剩極端情境就預設豁免，預設 2；0＝關閉）。範本 `skills/git-commit/git-commit.conf.example`；寫錯的值直接報錯，不靜默套預設 |
+| `.claude/git-commit.conf`（0.13.0 起） | `flow.sh` 的 `check-msg`／`prepare`／`review-record`／`ship`／`amend`／`audit` 讀（找法同 `qa-gate.conf`） | repo 的 commit 慣例：`types=`（允許的 Type；列 `none` 表示可不加前綴）、`max_width=`（描述與內文每行寬度上限，預設 72）、`review_ask_round=`（第幾輪仍 BLOCK 就停下來問使用者，預設 0＝不停、修到只剩極端情境）、`edge_auto_exempt_rounds=`（Codex 仲裁判只剩極端情境就預設豁免，預設 2＝開啟；0＝關閉、交給使用者決定；舊版的「連續幾輪」已不再數）。範本 `skills/git-commit/git-commit.conf.example`；寫錯的值直接報錯，不靜默套預設 |
 
 **附加審查要求檔的寫法**：純 Markdown、不要 frontmatter，內容就是要對審查者說的話，條列步驟即可。各 repo 要求不同時在檔內分段寫明適用哪個 repo。範例：
 

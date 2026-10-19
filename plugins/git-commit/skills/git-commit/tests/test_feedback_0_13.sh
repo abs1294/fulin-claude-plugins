@@ -35,6 +35,31 @@ state() { echo "$(git -C "$(R "$1")" rev-parse --absolute-git-dir)/git-commit-fl
 PASS_REPLY=$'VERDICT: PASS\n- a.txt:1 觀察點'
 BLOCK_REPLY=$'VERDICT: BLOCK\n- a.txt:1 動畫 0.1 秒內按 Esc 關不掉'
 rec_pass() { flow review-record "$1" --codex "$PASS_REPLY" --reviewer "$PASS_REPLY" >/dev/null 2>&1; }
+# 審查單與 hook（2026-10-19）：登記處放測試目錄；Windows 上 node 讀不懂 /tmp 開頭的路徑，一律轉成 C:/ 形式
+winp() { cygpath -m "$1" 2>/dev/null || printf '%s' "$1"; }
+export GIT_COMMIT_TICKET_DIR="$(winp "$ROOT/tickets")"
+HOOK="$(cd "$(dirname "$FLOW")/../../hooks" && pwd)/capture-review-reply.js"
+EDGE_RULING=$'- a.txt:1 [極端] 動畫 0.1 秒內按 Esc\n\nRULING: EDGE'
+GENERAL_RULING=$'RULING: GENERAL\n- a.txt:1 [一般] 正常操作就會壞'
+ticket() { sed -n 1p "$(state "$1" ticket)" 2>/dev/null | tr -d '\r' | sed 's/^id=//'; }
+# capture_raw <派工內容> <回覆> <agent_type> [no-last]：模擬 SubagentStop 呼叫 hook（no-last＝payload 不帶 last_assistant_message）
+capture_raw() {
+  local tr; tr="$ROOT/tr-$RANDOM$RANDOM.jsonl"
+  CAP_PROMPT="$1" CAP_REPLY="$2" CAP_AT="$3" CAP_TR="$(winp "$tr")" CAP_NOLAST="${4:-}" node -e '
+const fs=require("fs"); const e=process.env;
+fs.writeFileSync(e.CAP_TR, JSON.stringify({type:"user",message:{role:"user",content:e.CAP_PROMPT}})+"\n"
+  +JSON.stringify({type:"assistant",message:{role:"assistant",content:[{type:"text",text:e.CAP_REPLY}]}})+"\n");
+const p={hook_event_name:"SubagentStop",agent_type:e.CAP_AT,agent_transcript_path:e.CAP_TR};
+if(!e.CAP_NOLAST) p.last_assistant_message=e.CAP_REPLY;
+process.stdout.write(JSON.stringify(p));' | node "$HOOK"
+}
+# capture <repo> <軌> <回覆> [agent_type]：照 SKILL.md 範本，派工第一行是審查單
+capture() {
+  local at="${4:-}"
+  [ -n "$at" ] || case "$2" in reviewer) at=general-purpose ;; *) at=codex:codex-rescue ;; esac
+  capture_raw "[git-commit 審查單 $(ticket "$1") $2]（派工識別碼）"$'\n請審查 staged diff' "$3" "$at"
+}
+reply_of() { echo "$(state "$1" "reply-$(ticket "$1")-$2")"; }
 
 # ================= 1. 新分支第一次 push =================
 BARE="$ROOT/remote.git"; git init -q --bare "$BARE"
@@ -217,53 +242,59 @@ new_repo e1
 put e1 a.txt r1
 expect "E01 prepare 印第 1 輪" 0 flow prepare e1 a.txt
 has "E01b 第 1 輪" "審查第 1 輪"
-expect "E02 第 1 輪極端情境：記下但不放行" 1 flow review-record e1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "動畫 0.1 秒內按 Esc"
-has "E02b 說明連續 1 輪" "連續 1 輪"
+has "E01c 印出審查單" "[git-commit 審查單 gcf-"
+expect "E02 沒有 Codex 仲裁結果不收 --edge" 1 flow review-record e1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "動畫 0.1 秒內按 Esc"
+has "E02b 說明要派仲裁" "沒有這一輪的 Codex 仲裁結果"
 [ ! -f "$(state e1 review.rec)" ] && ok "E02c 沒寫審查紀錄" || bad "E02c 沒寫審查紀錄"
-expect "E03 同一份 diff 重 prepare 再記極端情境不算連續" 0 flow prepare e1 a.txt
-expect "E03b 仍拒收" 1 flow review-record e1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "同一份 diff"
-has "E03c 仍是連續 1 輪" "連續 1 輪"
+capture e1 arbiter "$GENERAL_RULING"
+expect "E03 仲裁判 GENERAL 不收 --edge" 1 flow review-record e1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "動畫 0.1 秒內按 Esc"
+has "E03b 說明仲裁判一般問題" "RULING: GENERAL"
+flow review-record e1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --block-classes "一般問題" >/dev/null
+put e1 a.txt r2; flow prepare e1 a.txt >/dev/null
+flow review-record e1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --block-classes "另一類" >/dev/null
 put e1 a.txt r3
-expect "E04 改碼後 prepare 第 3 輪並提示問使用者" 0 flow prepare e1 a.txt
+expect "E04 改碼後 prepare 第 3 輪並提示" 0 flow prepare e1 a.txt
 has "E04b 印出第 3 輪門檻提示" "已到第 3 輪"
 has "E04c 預設不停下來問，修到只剩極端情境" "不要停下來問使用者"
-expect "E05 連續第 2 輪極端情境：預設豁免" 0 flow review-record e1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "只在開發模式發生"
+capture e1 arbiter "$EDGE_RULING"
+expect "E05 仲裁判 EDGE：這一輪就預設豁免（不再數連續輪數）" 0 flow review-record e1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "只在開發模式發生"
 has "E05b 提醒預覽要講明" "預設豁免"
 grep -q $'\tedge-exempt\tBLOCK\tPASS\t只在開發模式發生' "$CLAUDE_PROJECT_DIR/.claude/.git-commit-tmp/review-log.tsv" && ok "E05c 流水帳記成 edge-exempt" || bad "E05c 流水帳記成 edge-exempt" "$(tail -1 "$CLAUDE_PROJECT_DIR/.claude/.git-commit-tmp/review-log.tsv")"
+grep -q '^captured=codex:- reviewer:- arbiter:EDGE$' "$(state e1 review.rec)" && ok "E05d 紀錄寫明仲裁結果" || bad "E05d 紀錄寫明仲裁結果" "$(grep captured "$(state e1 review.rec)")"
 expect "E06 預設豁免的紀錄可以 ship" 0 flow ship e1 Fix "Esc 判斷補上關閉中狀態"
 [ ! -f "$(state e1 round)" ] && [ ! -f "$(state e1 edge-rounds)" ] && ok "E06b commit 後輪數歸零" || bad "E06b commit 後輪數歸零"
+[ ! -f "$(state e1 ticket)" ] && [ -z "$(ls "$(state e1 '')" | grep '^reply-')" ] && ok "E06e commit 後審查單與抓到的回覆清掉" || bad "E06e commit 後審查單與抓到的回覆清掉" "$(ls "$(state e1 '')")"
 put e1 a.txt next
 flow prepare e1 a.txt >/dev/null 2>&1
 LAST_OUT="$(flow prepare e1 a.txt --redo 2>&1)"; has "E06c --redo 重新準備不加輪數" "審查第 1 輪"
 grep -q $'\tredo\t' "$CLAUDE_PROJECT_DIR/.claude/.git-commit-tmp/review-log.tsv" && ok "E06d --redo 寫進流水帳" || bad "E06d --redo 寫進流水帳"
-# 不連續：第 1 輪極端、第 2 輪不是、第 3 輪極端 → 只算 1 輪
+# 上一張審查單的仲裁結果，重新 prepare 之後不算
 new_repo e2
 put e2 a.txt 1; flow prepare e2 a.txt >/dev/null
-flow review-record e2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "x" >/dev/null 2>&1
-put e2 a.txt 2; flow prepare e2 a.txt >/dev/null
+capture e2 arbiter "$EDGE_RULING"
 flow review-record e2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --block-classes "一般問題" >/dev/null
-put e2 a.txt 3; flow prepare e2 a.txt >/dev/null
-expect "E07 中間斷一輪不算連續" 1 flow review-record e2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "y"
-has "E07b 連續 1 輪" "連續 1 輪"
+put e2 a.txt 2; flow prepare e2 a.txt >/dev/null
+expect "E07 上一輪的仲裁結果不能用在這一輪" 1 flow review-record e2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "y"
+has "E07b 說明要派這一輪的仲裁" "沒有這一輪的 Codex 仲裁結果"
 # 輸入檢查
-expect "E08 兩軌都 BLOCK、全是極端情境也收 --edge（未連續所以先不放行）" 1 flow review-record e2 --codex "$BLOCK_REPLY" --reviewer "$BLOCK_REPLY" --edge "z"
-has "E08b 是因為未連續才拒收（不是兩軌 BLOCK 被擋）" "未寫入審查紀錄"
+capture e2 arbiter "$EDGE_RULING"
+expect "E08 兩軌都 BLOCK、仲裁判 EDGE 也收" 0 flow review-record e2 --codex "$BLOCK_REPLY" --reviewer "$BLOCK_REPLY" --edge "z"
 expect "E09 兩軌都 PASS 不收 --edge" 1 flow review-record e2 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY" --edge "z"
 expect "E10 skipped＋BLOCK 不收 --edge" 1 flow review-record e2 --codex "$BLOCK_REPLY" --reviewer "skipped: code-reviewer 與 general-purpose 第三層皆失敗" --edge "z"
 expect "E11 --edge 空理由不收" 1 flow review-record e2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "  "
 expect "E12 --edge 與 --exempt 不能並用" 1 flow review-record e2 --exempt "x" --edge "y"
-expect "E13 C 軌 BLOCK、Codex PASS 也收" 1 flow review-record e2 --codex "$PASS_REPLY" --reviewer "$BLOCK_REPLY" --edge "C 軌的極端情境"
-has "E13b 是因為未連續才拒收（不是格式錯）" "未寫入審查紀錄"
+expect "E13 C 軌 BLOCK、Codex PASS 也收" 0 flow review-record e2 --codex "$PASS_REPLY" --reviewer "$BLOCK_REPLY" --edge "C 軌的極端情境"
 # 設定檔關閉預設豁免
 new_repo e3; mkdir -p "$(R e3)/.claude"
 printf 'edge_auto_exempt_rounds=0\nreview_ask_round=2\n' > "$(R e3)/.claude/git-commit.conf"
 put e3 a.txt 1; flow prepare e3 a.txt >/dev/null
-flow review-record e3 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "x" >/dev/null 2>&1
-put e3 a.txt 2
-expect "E14 review_ask_round=2 在第 2 輪提示" 0 flow prepare e3 a.txt
-has "E14b 第 2 輪提示" "已到第 2 輪"
-expect "E15 edge_auto_exempt_rounds=0 時連續兩輪也不放行" 1 flow review-record e3 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "y"
+capture e3 arbiter "$EDGE_RULING"
+expect "E15 edge_auto_exempt_rounds=0 時仲裁判 EDGE 也不放行" 1 flow review-record e3 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "y"
 has "E15b 說明設定為 0" "edge_auto_exempt_rounds=0"
+[ ! -f "$(state e3 review.rec)" ] && ok "E15c 沒寫審查紀錄" || bad "E15c 沒寫審查紀錄"
+put e3 a.txt 2
+expect "E14 review_ask_round=2 在第 2 輪提示（上一輪已記下、可開下一輪）" 0 flow prepare e3 a.txt
+has "E14b 第 2 輪提示" "已到第 2 輪"
 # 同類重複閘：上一輪沒記結果不能開下一輪；同類別在同一批第二次出現要附架構改法
 new_repo e4
 put e4 a.txt 1; flow prepare e4 a.txt >/dev/null
@@ -305,7 +336,7 @@ expect "E28b 同一份 diff 再記 BLOCK 類別" 0 flow review-record e6 --codex
 [ ! -f "$(state e6 review.rec)" ] && ok "E28c 舊 PASS 紀錄已作廢" || bad "E28c 舊 PASS 紀錄已作廢"
 expect "E28d ship 被擋" 1 flow ship e6 Fix "不該放行"
 expect "E29 再記 PASS 後改記未達門檻的 --edge" 0 flow review-record e6 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY"
-expect "E29b --edge 未達連續門檻拒收" 1 flow review-record e6 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "x"
+expect "E29b --edge 沒有仲裁結果拒收" 1 flow review-record e6 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "x"
 [ ! -f "$(state e6 review.rec)" ] && ok "E29c 舊 PASS 紀錄已作廢" || bad "E29c 舊 PASS 紀錄已作廢"
 # 收到 BLOCK 但 review-record 因錯誤離開：舊 PASS 一樣作廢（入口統一處理）
 expect "E31 先記兩軌 PASS" 0 flow review-record e6 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY"
@@ -374,12 +405,12 @@ git -C "$(R v1)" reset -q --hard HEAD
 # 放棄的改動 A 留下的極端情境輪次，不能算進不相干的改動 B
 new_repo v2
 put v2 a.txt A; flow prepare v2 a.txt >/dev/null
-flow review-record v2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "A 的極端情境" >/dev/null 2>&1
+capture v2 arbiter "$EDGE_RULING"
 git -C "$(R v2)" reset -q a.txt; rm -f "$(R v2)/a.txt"
 put v2 b.txt B
 expect "V05 新一批（index 原本是空的）prepare" 0 flow prepare v2 b.txt
 has "V05b 輪數從 1 重算" "審查第 1 輪"
-expect "V06 B 第一次審就帶 --edge 不能預設豁免" 1 flow review-record v2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "B 第一次審"
+expect "V06 A 的仲裁結果不能用在新一批 B" 1 flow review-record v2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "B 第一次審"
 git -C "$(R v2)" reset -q --hard HEAD; rm -f "$(R v2)/b.txt"
 # 連線字串放在單引號裡、後面還接參數
 chk_sens "V07 單引號連線字串 Pwd=…' 擋" 1 "conn = connect('Server=x;UID=sa;Pwd=Secr3t', timeout=5)"
@@ -405,30 +436,31 @@ done
 # 「同一批」判斷：--staged 模式、留一個舊檔再加新檔，都要歸零
 new_repo w1
 put w1 a.txt A; flow prepare w1 a.txt >/dev/null
-flow review-record w1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "A" >/dev/null 2>&1
+capture w1 arbiter "$EDGE_RULING"
 git -C "$(R w1)" reset -q a.txt; rm -f "$(R w1)/a.txt"
 put w1 b.txt B; git -C "$(R w1)" add b.txt
 expect "W01 --staged 換一批" 0 flow prepare w1 --staged
 has "W01b --staged 新一批從第 1 輪算" "審查第 1 輪"
-expect "W01c --staged 新一批第一次 --edge 不豁免" 1 flow review-record w1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "B"
+expect "W01c --staged 新一批不帶上一批的仲裁結果" 1 flow review-record w1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "B"
 git -C "$(R w1)" reset -q --hard HEAD; rm -f "$(R w1)/b.txt"
 new_repo w2
 put w2 a.txt A; put w2 c.txt C; flow prepare w2 a.txt c.txt >/dev/null
-flow review-record w2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "A" >/dev/null 2>&1
+capture w2 arbiter "$EDGE_RULING"
 git -C "$(R w2)" reset -q c.txt; rm -f "$(R w2)/c.txt"
 put w2 b.txt B
 expect "W02 留一個舊檔再加新檔" 0 flow prepare w2 a.txt b.txt
 has "W02b 從第 1 輪算" "審查第 1 輪"
-expect "W02c 第一次 --edge 不豁免" 1 flow review-record w2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "B"
+expect "W02c 新一批不帶上一批的仲裁結果" 1 flow review-record w2 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "B"
 git -C "$(R w2)" reset -q --hard HEAD; rm -f "$(R w2)/b.txt"
 # 修 BLOCK 時多 stage 一個檔仍算同一批
 new_repo w3
 put w3 a.txt 1; flow prepare w3 a.txt >/dev/null
-flow review-record w3 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "x" >/dev/null 2>&1
+flow review-record w3 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --block-classes "一般問題" >/dev/null 2>&1
 put w3 a.txt 2; put w3 d.txt new
 expect "W03 修 BLOCK 多加一個檔" 0 flow prepare w3 a.txt d.txt
 has "W03b 仍算第 2 輪" "審查第 2 輪"
-expect "W03c 連續第 2 輪極端情境豁免" 0 flow review-record w3 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "y"
+capture w3 arbiter "$EDGE_RULING"
+expect "W03c 第 2 輪仲裁判 EDGE 豁免" 0 flow review-record w3 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "y"
 # 敏感字：連線字串的各種包法要擋，程式碼寫法不擋
 chk_sens "W04 反引號連線字串擋" 1 'connect(`Server=x;Pwd=Secr3t`, opts);'
 chk_sens "W05 連線字串 ; Pwd = x 有空白擋" 1 'const cs = "Server=x; Pwd = Secr3t;";'
@@ -475,12 +507,12 @@ expect "Y08 Co-Authored-By 尾行仍擋" 1 flow check-msg w4 Fix "x" --body "Co-
 # 上一批在流程外 commit 掉（HEAD 變了）要歸零
 new_repo y1
 put y1 a.txt 1; flow prepare y1 a.txt >/dev/null
-flow review-record y1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "x" >/dev/null 2>&1
+capture y1 arbiter "$EDGE_RULING"
 GIT_COMMIT_FLOW=1 git -C "$(R y1)" commit -q -m "Chore: manual"
 put y1 a.txt unrelated; git -C "$(R y1)" add a.txt
 expect "Y09 HEAD 變了之後 prepare" 0 flow prepare y1 a.txt
 has "Y09b 從第 1 輪算" "審查第 1 輪"
-expect "Y09c 第一次 --edge 不豁免" 1 flow review-record y1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "y"
+expect "Y09c HEAD 變了之後不帶上一批的仲裁結果" 1 flow review-record y1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --edge "y"
 # python 是壞掉的佔位程式時，寬度與署名檢查不可無聲中止
 FAKEPY="$ROOT/fakepy"; mkdir -p "$FAKEPY"
 printf '#!/bin/sh\nexit 49\n' > "$FAKEPY/python3"; cp "$FAKEPY/python3" "$FAKEPY/python"; chmod +x "$FAKEPY/python3" "$FAKEPY/python"
@@ -1235,6 +1267,124 @@ git -C "$(R s1)" reset -q --hard HEAD; printf 'DB_PWD = Prod(2026)\n' > "$(R s1)
 expect "PW46 analyze 跑得完" 0 flow analyze s1
 has "PW46b analyze 也報設定檔的命中" "DB_PWD = Prod(2026)"
 git -C "$(R s1)" reset -q --hard HEAD
+
+# ================= 13. 審查單與 hook 抓回覆（2026-10-19）=================
+# hook 本身：只在審查單有效、代理種類對、回覆有結論行時寫檔
+new_repo h1
+put h1 a.txt 1
+flow prepare h1 a.txt >/dev/null
+id1="$(ticket h1)"
+[[ "$id1" =~ ^gcf-[0-9a-f]{16}$ ]] && ok "H01 prepare 發審查單" || bad "H01 prepare 發審查單" "$id1"
+grep -qxF "state_dir=$(git -C "$(R h1)" rev-parse --absolute-git-dir)/git-commit-flow" "$GIT_COMMIT_TICKET_DIR/$id1" 2>/dev/null && ok "H01b 登記處指向這個 repo 的狀態目錄" || bad "H01b 登記處指向這個 repo 的狀態目錄" "$(cat "$GIT_COMMIT_TICKET_DIR/$id1" 2>&1)"
+hout="$(capture h1 codex $'分析如下……\n\nVERDICT: BLOCK')"
+[ "$(sed -n 3p "$(reply_of h1 codex)" 2>/dev/null)" = "verdict=BLOCK" ] && ok "H02 Codex 把 VERDICT 放最後一行也抓得到" || bad "H02 Codex 把 VERDICT 放最後一行也抓得到" "$(ls "$(state h1 '')")"
+[ -z "$hout" ] && ok "H02b hook 不輸出任何 decision" || bad "H02b hook 不輸出任何 decision" "$hout"
+grep -qF '分析如下……' "$(reply_of h1 codex)" && ok "H02c 存的是回覆原文" || bad "H02c 存的是回覆原文"
+capture h1 reviewer $'**VERDICT: PASS**\n- a.txt:1 [Minor] x' >/dev/null
+[ "$(sed -n 3p "$(reply_of h1 reviewer)" 2>/dev/null)" = "verdict=PASS" ] && ok "H03 Markdown 包住的 VERDICT 抓得到" || bad "H03 Markdown 包住的 VERDICT 抓得到"
+nrep() { ls "$(state h1 '')" | grep -c '^reply-' || true; }
+n0="$(nrep)"
+capture_raw $'請審查 staged diff（沒帶審查單）' "VERDICT: BLOCK" codex:codex-rescue
+capture_raw "[git-commit 審查單 gcf-0000000000000000 codex]" "VERDICT: BLOCK" codex:codex-rescue
+capture_raw "[git-commit 審查單 $id1 arbiter]" "RULING: EDGE" general-purpose
+capture_raw "[git-commit 審查單 $id1 codex]" "VERDICT: UNAVAILABLE exit 2" codex:codex-rescue
+[ "$(nrep)" = "$n0" ] && ok "H04 沒審查單／不認得的審查單／仲裁不是 Codex／沒有結論行：都不寫" || bad "H04 沒審查單／不認得的審查單／仲裁不是 Codex／沒有結論行：都不寫" "$(ls "$(state h1 '')")"
+capture_raw "[git-commit 審查單 $id1 reviewer]" "VERDICT: BLOCK" codex:codex-rescue
+[ "$(sed -n 3p "$(reply_of h1 reviewer)")" = "verdict=PASS" ] && ok "H05 C 軌審查單由 codex 代理回的不收" || bad "H05 C 軌審查單由 codex 代理回的不收"
+capture_raw "[git-commit 審查單 $id1 codex]" "VERDICT: BLOCK" general-purpose
+[ "$(sed -n 6p "$(reply_of h1 codex)")" = "---" ] && [ "$(sed -n 4p "$(reply_of h1 codex)")" = "agent_type=codex:codex-rescue" ] && ok "H06 B 軌審查單由非 codex 代理回的不收" || bad "H06 B 軌審查單由非 codex 代理回的不收"
+capture_raw "前言"$'\n'"[git-commit 審查單 $id1 arbiter]（派工識別碼）" $'- x [極端]\nRULING: EDGE' codex:codex-rescue no-last
+[ "$(sed -n 3p "$(reply_of h1 arbiter)" 2>/dev/null)" = "verdict=EDGE" ] && ok "H07 payload 沒帶 last_assistant_message 時從 transcript 讀回覆" || bad "H07 payload 沒帶 last_assistant_message 時從 transcript 讀回覆"
+capture h1 arbiter $'- x [一般]
+RULING: GENERAL' >/dev/null
+[ "$(sed -n 3p "$(reply_of h1 arbiter)" 2>/dev/null)" = "verdict=EDGE" ] && ok "H07b 同一張審查單再派仲裁不覆寫第一份判定" || bad "H07b 同一張審查單再派仲裁不覆寫第一份判定"
+hout="$(printf 'not json' | node "$HOOK" 2>&1)"; hrc=$?
+[ "$hrc" -eq 0 ] && [ -z "$hout" ] && ok "H08 輸入壞掉 fail-open（exit 0、不輸出）" || bad "H08 輸入壞掉 fail-open（exit 0、不輸出）" "rc=$hrc $hout"
+# 登記處被指到不是 git-commit-flow 的目錄：不寫
+mkdir -p "$ROOT/evil"; printf 'id=gcf-1111111111111111\n' > "$ROOT/evil/ticket"
+printf 'state_dir=%s\n' "$(winp "$ROOT/evil")" > "$GIT_COMMIT_TICKET_DIR/gcf-1111111111111111"
+capture_raw "[git-commit 審查單 gcf-1111111111111111 codex]" "VERDICT: BLOCK" codex:codex-rescue
+[ -z "$(ls "$ROOT/evil" | grep '^reply-')" ] && ok "H09 登記處指向別的目錄不寫" || bad "H09 登記處指向別的目錄不寫"
+node -e 'const h=require(process.argv[1]).hooks.SubagentStop; if(!JSON.stringify(h).includes("capture-review-reply.js")) process.exit(1)' "$(winp "$(dirname "$HOOK")/hooks.json")" && ok "H10 hooks.json 掛上 SubagentStop" || bad "H10 hooks.json 掛上 SubagentStop"
+
+# prepare 的閘：這一輪抓到 BLOCK、還沒記類別 → --redo 也擋
+put h1 a.txt 2
+expect "T01 抓到 BLOCK 後 prepare --redo 擋" 1 flow prepare h1 a.txt --redo
+has "T01b 說明 hook 抓到 BLOCK" "hook 抓到 BLOCK（codex）"
+git -C "$(R h1)" diff --cached | grep -q '^+2$' && bad "T01c 被擋時不 git add" || ok "T01c 被擋時不 git add"
+expect "T01d 不帶 --redo 一樣擋" 1 flow prepare h1 a.txt
+# review-record：貼的結論跟抓到的不同就拒收
+expect "T02 抓到 BLOCK 卻貼 PASS：拒收" 1 flow review-record h1 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY"
+has "T02b 說明跟 hook 抓到的不同" "hook 抓到 BLOCK，貼的是 PASS"
+expect "T03 照抓到的結論記類別" 0 flow review-record h1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --block-classes "一般問題"
+expect "T04 記過類別可開下一輪" 0 flow prepare h1 a.txt
+has "T04b 第 2 輪" "審查第 2 輪"
+[ "$(ticket h1)" != "$id1" ] && [ ! -f "$GIT_COMMIT_TICKET_DIR/$id1" ] && [ -z "$(ls "$(state h1 '')" | grep "^reply-$id1")" ] && ok "T04c 舊審查單、登記與抓到的回覆都作廢" || bad "T04c 舊審查單、登記與抓到的回覆都作廢"
+old2="$(ticket h1)"
+# 只抓到一軌 PASS（另一軌沒回）：當作沒審完，--redo 留在同一輪
+capture h1 codex "VERDICT: PASS"
+put h1 a.txt 3
+expect "T05 只抓到 PASS、還沒記：--redo 放行" 0 flow prepare h1 a.txt --redo
+has "T05b 留在第 2 輪" "審查第 2 輪"
+# 舊審查單的回覆晚到：登記已刪，不寫
+capture_raw "[git-commit 審查單 $old2 codex]" "VERDICT: BLOCK" codex:codex-rescue
+[ ! -f "$(state h1 "reply-$old2-codex")" ] && ok "T06 舊審查單晚到的回覆不寫" || bad "T06 舊審查單晚到的回覆不寫"
+# 內容閘擋下的 prepare 不換審查單：之後才抓到的 BLOCK 照樣擋
+t3="$(ticket h1)"
+put h1 a.txt 'const cs = "Pwd=abc";'
+expect "T07 內容閘擋下（審查單不換）" 1 flow prepare h1 a.txt --redo
+[ "$(ticket h1)" = "$t3" ] && ok "T07b 審查單沒換" || bad "T07b 審查單沒換"
+capture h1 reviewer "VERDICT: BLOCK"
+printf '%s\n' 1 2 3 4 > "$(R h1)/a.txt"
+expect "T07c 晚到的 BLOCK 照樣擋 --redo" 1 flow prepare h1 a.txt --redo
+has "T07d 點名 reviewer 軌" "hook 抓到 BLOCK（reviewer）"
+# ship：記成通過之後又抓到 BLOCK（重派那一軌）→ 以抓到的為準
+new_repo h2
+put h2 a.txt 1; flow prepare h2 a.txt >/dev/null
+capture h2 codex "VERDICT: PASS"; capture h2 reviewer "VERDICT: PASS"
+expect "T08 兩軌 PASS（跟抓到的一致）照常記錄" 0 flow review-record h2 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY"
+has "T08b 輸出抓到的回覆" "hook 抓到的回覆：Codex PASS／code-reviewer PASS"
+capture h2 reviewer "VERDICT: BLOCK"
+expect "T09 記成通過後又抓到 BLOCK：ship 擋" 1 flow ship h2 Fix "不該放行"
+has "T09b 說明以抓到的為準" "紀錄卻是通過"
+expect "T10 使用者明示豁免不受影響" 0 flow review-record h2 --exempt "使用者：先 commit"
+expect "T10b 豁免可 ship" 0 flow ship h2 Fix "使用者豁免"
+[ ! -f "$(state h2 ticket)" ] && ! grep -rqF "$(git -C "$(R h2)" rev-parse --absolute-git-dir)/git-commit-flow" "$GIT_COMMIT_TICKET_DIR" && ok "T10c commit 後審查單與登記清掉" || bad "T10c commit 後審查單與登記清掉"
+[ -f "$GIT_COMMIT_TICKET_DIR/$(ticket h1)" ] && ok "T10d 別的 repo 的登記不受影響" || bad "T10d 別的 repo 的登記不受影響"
+# 沒抓到任何回覆：照舊收自陳，但講明
+new_repo h3
+put h3 a.txt 1; flow prepare h3 a.txt >/dev/null
+expect "T11 沒抓到回覆照舊收" 0 flow review-record h3 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY"
+has "T11b 講明只有自陳" "hook 抓到的回覆：無"
+# 換一批：上一批抓到的 BLOCK 不擋新的一批
+new_repo h4
+put h4 a.txt 1; flow prepare h4 a.txt >/dev/null
+capture h4 codex "VERDICT: BLOCK"
+git -C "$(R h4)" reset -q a.txt; rm -f "$(R h4)/a.txt"; put h4 b.txt 1
+expect "T12 換一批不被上一批的 BLOCK 擋" 0 flow prepare h4 b.txt
+has "T12b 從第 1 輪算" "審查第 1 輪"
+# skipped 的那軌其實有抓到回覆：拒收
+new_repo h5
+put h5 a.txt 1; flow prepare h5 a.txt >/dev/null
+capture h5 reviewer "VERDICT: PASS"
+expect "T13 抓到回覆卻記 skipped：拒收" 1 flow review-record h5 --codex "$PASS_REPLY" --reviewer "skipped: general-purpose 第三層也失敗"
+# 結論行規則跟 hook 一致：hook 收的原文 review-record 也要收，否則抓到的 BLOCK 記不進來、下一輪被擋住
+new_repo h6
+put h6 a.txt 1; flow prepare h6 a.txt >/dev/null
+LAST_BLOCK=$'分析如下……\n- a.txt:1 [一般] x\n\nVERDICT: BLOCK'
+LAST_PASS=$'看過了。\n\n**VERDICT: PASS**'
+capture h6 codex "$LAST_BLOCK"; capture h6 reviewer "$LAST_PASS"
+expect "T14 結論在最後一行的 BLOCK 原文可以記類別" 0 flow review-record h6 --codex "$LAST_BLOCK" --reviewer "$LAST_PASS" --block-classes "一般問題"
+put h6 a.txt 2
+expect "T14b 記過類別可開下一輪" 0 flow prepare h6 a.txt
+capture h6 codex "$LAST_PASS"; capture h6 reviewer "$LAST_PASS"
+expect "T14c 結論在最後一行（Markdown 包住）的 PASS 原文照收" 0 flow review-record h6 --codex "$LAST_PASS" --reviewer "$LAST_PASS"
+expect "T14d 最後一行是 BLOCK 的原文不能記成通過" 1 flow review-record h6 --codex "$LAST_BLOCK" --reviewer "$LAST_PASS"
+[ ! -f "$(state h6 review.rec)" ] && ok "T14e 最後一行是 BLOCK 也作廢既有紀錄" || bad "T14e 最後一行是 BLOCK 也作廢既有紀錄"
+expect "T14f 第一行跟最後一行都不是結論行：拒收" 1 flow review-record h6 --codex $'前言\nVERDICT: PASS\n結語' --reviewer "$LAST_PASS"
+capture_raw "[git-commit 審查單 $(ticket h6) codex]" $'x\nVERDICT: BLOCK.' codex:codex-rescue
+capture_raw "[git-commit 審查單 $(ticket h6) codex]" $'VERDICT: PASSED' codex:codex-rescue
+[ "$(sed -n 3p "$(reply_of h6 codex)")" = "verdict=PASS" ] && ok "H11 結論字後面接句點或別的字：hook 不收（跟 flow.sh 一致）" || bad "H11 結論字後面接句點或別的字：hook 不收（跟 flow.sh 一致）" "$(sed -n 3p "$(reply_of h6 codex)")"
 
 echo ""
 echo "=== 結果：PASS $pass / FAIL $fail ==="
