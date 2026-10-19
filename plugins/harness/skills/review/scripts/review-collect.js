@@ -384,7 +384,10 @@ function shellWords(c) {
 let files = [];
 try { files = fs.readdirSync(tdir).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(tdir, f)); } catch { out.notes.push('找不到逐字紀錄目錄：' + tdir); }
 
-const CORRECTION = /不對|錯了|不是這樣|你漏|漏了|怎麼又|為什麼沒|為什麼不|沒有照|不要這樣|重做|搞錯/;
+// 糾正語氣的詞表只抓得到「不對／重做」這一類；使用者重複交代同一件事時多半是平鋪直敘（來源專案 2026-10-19 實測：
+// 「還沒推就 amend、不要另開 commit」61 次、「備份分支確認一致就刪」28 次，這張表一次都沒命中）。
+// 後面幾個詞（講過、說過、幾次了、每次都、又忘、不要再）抓「使用者自己說他重複講了」；真正的重複交代由 repeatedInstructions 另抓。
+const CORRECTION = /不對|錯了|不是這樣|你漏|漏了|怎麼又|為什麼沒|為什麼不|沒有照|不要這樣|重做|搞錯|講過|說過|幾次了|每次都|又忘|不要再|又來|髒紀錄/;
 // 金鑰寫法：key=／token=／password=／secret= 後面接一段非變數的值、Bearer 權杖、或整段 UUID 當值（實測：K='<UUID>'）
 // 每一種各自比對，一條指令可以記多種；只記種類與出處，不抄值
 const PLACEHOLDER = '(?:dummy|fake|test|sample|placeholder|changeme|example|redacted|masked|xxx+)(?:[-_]?(?:key|id|token|secret))?[\'"]?(?![\\w-])';
@@ -605,7 +608,8 @@ for (const f of files) {
         }
         if (b.name === 'Bash' || b.name === 'PowerShell') {
           const c = String(inp.command || '');
-          if (RISKY_CMD.test(c)) agg.riskyCmds.push({ at: where(f, o), tool: b.name, ...cmdShape(c) });
+          // heredoc 內文與 node -e／python -c 的程式碼字串不是在下指令（實測：寫進 .md 的「git push 前先驗」被算成一次 git push）
+          if (RISKY_CMD.test(commandOnly(c))) agg.riskyCmds.push({ at: where(f, o), tool: b.name, ...cmdShape(c) });
           // 指令裡直接寫了金鑰、密碼、權杖（會跟著指令留在逐字紀錄）；只記出處與種類，不把值抄進報告
           const kinds = secretKinds(c);
           if (kinds.length) agg.secretCmds.push({ at: where(f, o), tool: b.name, kinds });
@@ -816,10 +820,139 @@ out.F.riskyLookingCommands = agg.riskyCmds;
 out.F.secretsInCommands = agg.secretCmds;
 out.F.note = 'riskyLookingCommands 的 hosts 只列專案文件（CLAUDE.md、GLOSSARY.md／CONTEXT.md、FLOWS.md、PROJECT.md、.claude/harness）裡寫過的主機；unknownHosts 是文件沒寫過的主機數，不列名稱（避免把指令裡的值當主機抄出來），逐條照出處回原文看是連到哪裡、該不該擋。';
 
+// ── 重複交代：同一句交代在不同 session 被使用者反覆打字 ──
+// 不靠詞表：直接找「在 ≥3 則使用者發言、跨 ≥2 個 session 出現」的片語。看全部歷史、不受 --since 限制
+// （重複交代多半跨好幾個月，範圍只看六天會把 61 次看成 12 次），另標範圍內的次數。
+// 只列片語（5～8 個字、不含數字與長英數串——避免把 commit hash 或金鑰抄出來）與出處，不抄整句；判讀時回原文看。
+// ── 重複交代偵測：兩段式計數（第 2 輪審查後改設計）──
+// 片語數跟歷史長度成正比，Map 不管怎麼修剪都是「邊數邊丟」（丟掉只出現一次的，就會把跨三個 session 各講一次的交代漏掉）。
+// 改成：第一段用固定大小的計數草圖（兩列各 2^24 個 1 位元組計數器、共 32MB，計到 255 就停）記每條片語出現在幾則發言——
+// 草圖只會高估、不會低估；第二段再掃一次，只有草圖說「至少 3 則」的片語才進 Map 記出處與 session。Map 的大小由真正
+// 重複的片語數決定，跟歷史長度無關；另設硬上限 CAND_CAP 當保險，碰到就停收新片語並在 notes 說明（已收的照常累計）。
+// 代價是逐字紀錄讀兩次。
+const SKETCH_BITS = 24, SKETCH_MASK = (1 << SKETCH_BITS) - 1;
+const CAND_CAP = Number(process.env.REVIEW_COLLECT_CAND_CAP) > 0 ? Number(process.env.REVIEW_COLLECT_CAND_CAP) : 2000000;   // 環境變數只給測試用
+function fnv(s, seed) { let h = seed >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h & SKETCH_MASK; }
+// token＝一個中文字、或一整個非中文的「詞」：以空白與中文字切界，整段取出後去掉頭尾標點，只留純字母 2～12 字，其餘整個丟。
+// `abc/def+ghi==`、`a1b2c3`、`co-author`、路徑、hash 都是一整個詞、整個不要——不再從字串裡挑字母，長金鑰不管用什麼
+// 分隔符都切不出短片段混進片語（第 1、2 輪審查各指出一種切法會漏）。貼進來的長文不是交代，只看前 400 個 token
+function instructionTokens(t) {
+  const toks = [];
+  for (const m of t.toLowerCase().matchAll(/[一-鿿]|[^\s一-鿿]+/g)) {
+    const w = m[0].length === 1 ? m[0] : m[0].replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+    if (!/^[一-鿿]$/.test(w) && !/^[a-z]{2,12}$/.test(w)) continue;
+    toks.push(w); if (toks.length >= 400) break;
+  }
+  return toks;
+}
+// 片語＝token 串起來：中文字直接相連，兩個英文詞之間補一個空白（「git push之前先驗」），讀得出來、也讓英文的指示詞比對得到
+function joinTokens(toks) {
+  let s = '';
+  for (const w of toks) { if (s && /[a-z]$/.test(s) && /^[a-z]/.test(w)) s += ' '; s += w; }
+  return s;
+}
+// 一則發言裡 5～8 個 token 的片語（去重；純語助詞不算；要帶指示語）。長度只以 token 數為界，不另設字數上限——
+// 字數上限會把英文交代整段略過（5 個英文詞就超過 16 字；第 3 輪審查指出）
+function instructionGrams(toks, DIRECTIVE, FILLER) {
+  const set = new Set();
+  for (let n = 5; n <= 8; n++) for (let i = 0; i + n <= toks.length; i++) {
+    const g = joinTokens(toks.slice(i, i + n));
+    if (set.has(g) || FILLER.test(g) || !DIRECTIVE.test(g)) continue;
+    set.add(g);
+  }
+  return set;
+}
+function repeatedInstructions(allFiles) {
+  // 交代一定帶動詞或指示語（就／要／不／刪／推／改／先／再／一律／確認／記得…；英文的 always／never／must／remember／delete…）；
+  // 純名詞片語（「內站後端」「供應商平台」）是話題不是交代，不列
+  const DIRECTIVE = /[就要不刪推改別先再准得須擋問]|一律|確認|記得|\b(?:always|never|must|should|remember|don't|do not|make sure|please|need to|delete|remove|push|confirm|verify|before|after)\b/;
+  const FILLER = /^[的了是嗎呢吧啊喔嘛也都就還有沒不要可以這那你我他它們一個什麼怎麼然後因為所以如果但是而且或者請幫看一下]+$/;
+  const NOT_TYPED = /^(?:Another Claude session sent a message:|This session is being continued|<|\[|Caveat:|Base directory for this skill|Stop hook feedback|Your response above was stopped)/;
+  // 使用者親手打的發言（去掉壓縮摘要、meta、跨 session 轉貼、工具回傳），每則給 { f, o, sid, grams }。
+  // 同一則發言的多個文字區塊先合併再切：一則就是一則，不能因為分了兩個區塊算成兩則（第 3 輪審查指出）
+  function* typed() {
+    for (const f of allFiles) {
+      const R = rows(f); markRows(R);
+      const sid = path.basename(f, '.jsonl');
+      for (const o of R) {
+        if (!o.__mine || o.type !== 'user' || !o.message) continue;
+        if (o.isCompactSummary || o.isMeta || o.isVisibleInTranscriptOnly) continue;
+        const texts = [];
+        for (const b of blocks(o)) {
+          if (b.type !== 'text') continue;
+          const t = b.text || '';
+          if (!NOT_TYPED.test(t)) texts.push(t);
+        }
+        if (!texts.length) continue;
+        yield { f, o, sid, grams: instructionGrams(instructionTokens(texts.join('\n')), DIRECTIVE, FILLER) };
+      }
+    }
+  }
+  // 第一段：草圖計數（同一則發言內 grams 已去重，所以數的是「幾則發言」）
+  const row0 = new Uint8Array(1 << SKETCH_BITS), row1 = new Uint8Array(1 << SKETCH_BITS);
+  for (const m of typed()) for (const g of m.grams) {
+    const a = fnv(g, 2166136261), b = fnv(g, 0x9747b28c);
+    if (row0[a] < 255) row0[a]++;
+    if (row1[b] < 255) row1[b]++;
+  }
+  // 第二段：只收草圖說至少 3 則的片語
+  const byGram = new Map();
+  let capped = false;
+  for (const m of typed()) {
+    const at = where(m.f, m.o);
+    const inRange = !!(m.o.timestamp && (!since || localDay(m.o.timestamp) >= since));
+    for (const g of m.grams) {
+      if (Math.min(row0[fnv(g, 2166136261)], row1[fnv(g, 0x9747b28c)]) < 3) continue;
+      let e = byGram.get(g);
+      if (!e) {
+        if (byGram.size >= CAND_CAP) { capped = true; continue; }
+        e = { n: 0, at: [], sessions: new Set(), inRange: 0 }; byGram.set(g, e);
+      }
+      e.n++; if (e.at.length < 8) e.at.push(at); e.sessions.add(m.sid); if (inRange) e.inRange++;
+    }
+  }
+  if (capped) out.notes.push('重複交代偵測：候選片語超過 ' + CAND_CAP + ' 條，之後出現的新片語沒有收（已收的照常累計）——歷史極長或草圖撞滿，結果可能少算');
+  const list = [...byGram.entries()].filter(([, e]) => e.n >= 3 && e.sessions.size >= 2)
+    .map(([g, e]) => ({ phrase: g, messages: e.n, sessions: e.sessions.size, inRange: e.inRange, at: e.at }));
+  // 片語最長只切 8 個 token，一句 11 個字的交代會變成四條只差一個字的片語：出現在完全相同的發言裡、而且頭尾相接的，接成一條（最長 40 字，英文一句約 7 個詞）
+  const overlap = (a, b) => { for (let k = Math.min(a.length, b.length) - 1; k >= 4; k--) if (a.endsWith(b.slice(0, k))) return k; return 0; };
+  const groups = new Map();
+  for (const x of list) { const k = x.at.join('|') + '#' + x.messages; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+  const merged = [];
+  for (const g of groups.values()) {
+    const used = new Set();
+    for (const x of g) {
+      if (used.has(x.phrase)) continue;
+      used.add(x.phrase); let cur = x.phrase; let grew = true;
+      while (grew && cur.length < 40) {
+        grew = false;
+        for (const p of g) {
+          if (used.has(p.phrase)) continue;
+          const r = overlap(cur, p.phrase); if (r) { cur += p.phrase.slice(r); used.add(p.phrase); grew = true; break; }
+          const l = overlap(p.phrase, cur); if (l) { cur = p.phrase + cur.slice(l); used.add(p.phrase); grew = true; break; }
+        }
+      }
+      merged.push({ ...x, phrase: cur });
+    }
+  }
+  merged.sort((a, b) => b.messages - a.messages || b.phrase.length - a.phrase.length);
+  // 同一句話換個頭尾又會切出別的片語：短片語被已留下的長片語包含、而且出現次數差不多（1.25 倍內）時不再列
+  const kept = [];
+  for (const x of merged) {
+    if (kept.some((k) => k.phrase.includes(x.phrase) && x.messages <= k.messages * 1.25)) continue;
+    // 反過來：已留下的是短片語、現在這條更長且次數差不多，換成長的（長的比較看得出是哪一句交代）
+    const i = kept.findIndex((k) => x.phrase.includes(k.phrase) && x.messages >= k.messages * 0.8);
+    if (i >= 0) kept[i] = x; else kept.push(x);
+  }
+  return kept.slice(0, 60);
+}
+
 // ── G 使用者介入 ──
 out.G.userTurns = agg.userTurns;
 out.G.interrupts = agg.interrupts;
 out.G.corrections = agg.corrections;
+out.G.repeatedInstructions = repeatedInstructions(files);
+out.G.note = 'corrections 只認糾正語氣的詞；repeatedInstructions 是全部歷史裡跨 session 重複出現的片語（messages＝幾則發言、sessions＝幾個 session、inRange＝範圍內幾則），每一條都要回原文看是不是同一件事被反覆交代——是的話一定進提案，而且提案要是自動檢查或流程腳本的預設行為，不是再寫一條規則文字。';
 
 // ── H 專案概要 ──
 const sec0 = claudeMd.match(/^## 0\. 專案概要[\s\S]*?(?=^## |(?![\s\S]))/m);
@@ -916,7 +1049,7 @@ out.summary = {
   lastHealthCheck: out.E.lastHealthCheck ? `${out.E.lastHealthCheck.date}（${out.E.lastHealthCheck.at}）` : '找不到帶【健檢執行】標記的紀錄',
   risky: `看起來有風險的指令 ${agg.riskyCmds.length} 條（其中連到專案文件沒寫過的主機 ${agg.riskyCmds.filter((x) => x.unknownHosts).length} 條）；危險指令檢查擋下 ${out.F.guardDenials.length} 次`,
   secrets: `指令裡直接寫了金鑰、密碼或權杖 ${agg.secretCmds.length} 處`,
-  userSignals: `糾正 ${agg.corrections.length} 次、打斷 ${agg.interrupts} 次`,
+  userSignals: `糾正 ${agg.corrections.length} 次、打斷 ${agg.interrupts} 次；跨 session 重複交代的片語候選 ${out.G.repeatedInstructions.length} 條（全部歷史；逐條回原文判）`,
   versionGap: Object.entries(out.I.features).filter(([, v]) => !v).map(([k]) => k),
   learning: out.J.note || `反思 ${out.J.runs.total} 次（叫模型 ${out.J.runs.calledModel}、子程序失敗 ${out.J.runs.childFailed}、解析失敗 ${out.J.runs.parseFailed}、花費 ${out.J.runs.costUsd} 美元）；寫入 ${out.J.runs.written} 筆、拒收 ${out.J.runs.rejected} 筆；待你看 ${out.J.pendingReview.length} 筆、待核 ${out.J.pendingApproval.length} 筆（升格提案 ${out.J.promotions.length}）`
     + (out.J.usage ? `；淘汰候選 ${out.J.usage.retireCandidates.length} 筆、從未觸發的規則 ${out.J.usage.rulesNeverHit.length} 條（request 數 ${out.J.usage.requests}，試用期 ${out.J.usage.trialRequests}）` : '；沒有用量紀錄'),

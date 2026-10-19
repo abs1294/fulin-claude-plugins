@@ -73,8 +73,42 @@ try {
     // 引號裡的 $(grep …) 與「UUID.jsonl」檔名
     /* 28 */ TU('k7', 'Bash', { command: 'for r in a b; do echo "$r: $(grep -c -E \'^\\+.*(Mock|Bearer eyJhbGciOiJIUzI1NiJ9abc|x)\' s-$r.diff)"; done' }),
     /* 29 */ TU('k8', 'Bash', { command: 'f=311a0dac-c568-4e85-a1d0-3f1615d3cad4.jsonl; ls -la $f' }),
+    // 重複交代（第 11 項）：平鋪直敘、沒有糾正語氣，但在兩個 session 講了三次
+    /* 30 */ U('推吧，備份分支確認一致就刪除'),
+    /* 31 */ U('4f479e8 備份分支確認一致就刪除，然後碳排那支也推'),
+    // 第 12 項：heredoc 內文裡的「git push」是寫進檔案的文字，不是指令；真的 git push 在下一行
+    /* 32 */ TU('h1', 'Bash', { command: "cat > notes.md <<'EOF'\n記得 git push 前先驗一致\nEOF" }),
+    /* 33 */ TU('h2', 'Bash', { command: 'git push origin main' }),
+    // 第 12 項續：node -e／python -c 的程式碼字串裡的「git push」「curl」也不是指令
+    /* 34 */ TU('h3', 'Bash', { command: 'node -e "process.stdout.write(\'git push 之前先驗\'); fetch(\'curl\')"' }),
+    /* 35 */ TU('h4', 'Bash', { command: "python -c 'print(\"ssh ok\")'" }),
+    // 第 13 項：使用者發言裡重複出現的長金鑰（含 / + = 分隔符，像 base64）不得被切段混進片語；中文交代照常
+    /* 36 */ U('這把 abcdefghijkl/mnop+qrst== 要換掉，然後備份分支確認一致就刪除'),
+    // 第 14 項：跨三個 session 各講一次的交代（S1:37、S2:4、S3:1）
+    /* 37 */ U('文件寫完要跑易讀性檢查'),
+    // 第 11 項續：同一則發言分成兩個文字區塊、都含同一句——只能算一則（messages 5 不是 6）
+    /* 38 */ U([{ type: 'text', text: '備份分支確認一致就刪除' }, { type: 'text', text: '然後再說一次：備份分支確認一致就刪除' }]),
+    // 第 16 項：英文交代（S1:39、S2:5、S3:2），5 個英文詞就超過 16 字，字數上限會整段略過
+    /* 39 */ U('always delete the backup branch after verifying'),
   ];
   put(path.join(tdir, 'S1.jsonl'), main.map((o) => JSON.stringify(o)).join('\n') + '\n');
+  // ── 第二個 session（範圍前）：同一句交代再講一次；壓縮摘要與跨 session 訊息裡的同一句話不算 ──
+  const base2 = { cwd: root, timestamp: '2026-09-20T02:00:00.000Z', sessionId: 'S2' };
+  const U2 = (content, extra) => Object.assign({ type: 'user', message: { role: 'user', content } }, base2, extra || {});
+  const s2 = [
+    /* 1 */ U2('碳排推上去，備份分支確認一致就刪除'),
+    /* 2 */ U2('這把 abcdefghijkl/mnop+qrst== 要換掉'),
+    /* 3 */ U2('這把 abcdefghijkl/mnop+qrst== 要換掉喔'),
+    /* 4 */ U2('文件寫完要跑易讀性檢查再交'),
+    /* 5 */ U2('please always delete the backup branch after verifying it'),
+    /* 2 */ U2('This session is being continued from a previous conversation. Summary: 使用者說備份分支確認一致就刪除', { isCompactSummary: true, isVisibleInTranscriptOnly: true }),
+    /* 3 */ U2('Another Claude session sent a message: <agent-message>備份分支確認一致就刪除</agent-message>'),
+  ];
+  put(path.join(tdir, 'S2.jsonl'), s2.map((o) => JSON.stringify(o)).join('\n') + '\n');
+  // ── 第三個 session：同一句交代只講一次（跨三個 session 各一次也要算到，第 14 項）──
+  const base3 = { cwd: root, timestamp: '2026-08-01T02:00:00.000Z', sessionId: 'S3' };
+  const U3 = (content) => JSON.stringify(Object.assign({ type: 'user', message: { role: 'user', content } }, base3));
+  put(path.join(tdir, 'S3.jsonl'), [U3('文件寫完要跑易讀性檢查喔'), U3('always delete the backup branch after verifying, thanks')].join('\n') + '\n');
 
   // ── subagent 1：qa-engineer，舊式注入（只渲染 CLAUDE.md，詞彙表靠 @ 匯入）；主回報有已讀清單，之後再補一則短訊息 ──
   const sb = { cwd: root, timestamp: TS, isSidechain: true, agentId: 'sub1' };
@@ -152,6 +186,30 @@ try {
     const g = ((jj.D.subagents || []).find((s) => /agent-sub1/.test(s.file)) || {}).requiredReads || {};
     return { reads: g, missing: (jj.D.missingReads || []).flatMap((m) => m.missing || []) };
   };
+  // 11 重複交代：沒有糾正語氣的同一句交代，跨兩個 session 三則發言要被列出來（全部歷史；S2 在 --since 之前，inRange 只算 S1 的兩則）；
+  //    壓縮摘要與跨 session 訊息裡的同一句不算；糾正詞表仍然不該命中這幾句
+  const rep = (j.G.repeatedInstructions || []).filter((x) => /備份分支確認一致就刪/.test(x.phrase));
+  const top = rep[0] || {};
+  check(rep.length >= 1 && top.messages === 5 && top.sessions === 2 && top.inRange === 4 && (top.at || []).includes(at(30)) && (top.at || []).includes(at(38)) && (top.at || []).includes('S2.jsonl:1'),
+    '11 G repeatedInstructions（跨 session 重複交代；S1:38 兩個文字區塊只算一則）', '實得 ' + show(rep.slice(0, 2)) + '；糾正 ' + show(cor));
+  // 12 風險指令：heredoc 內文、node -e／python -c 程式碼字串裡的「git push」「curl」「ssh」不算，真的 git push 算
+  const risky = (j.F.riskyLookingCommands || []).map((x) => x.at);
+  check(!risky.includes(at(32)) && !risky.includes(at(34)) && !risky.includes(at(35)) && risky.includes(at(33)), '12 F riskyLookingCommands（heredoc 與程式碼字串不算）', '實得 ' + show(risky));
+  // 13 片語不得含金鑰片段（S1:36、S2:2、S2:3 三則都有同一把帶 / + = 的「金鑰」，跨兩個 session；
+  //    舊切法會切出 abcdefghijkl／mnop／qrst 三個純字母詞，「把abcdefghijkl要換掉」剛好 16 字、三則共有，會被列出）
+  const leaked = (j.G.repeatedInstructions || []).filter((x) => /abcdefghij|mnop|qrst/.test(x.phrase));
+  check(leaked.length === 0, '13 G repeatedInstructions 不抄金鑰片段', '實得 ' + show(leaked));
+  // 14 跨三個 session 各講一次（S1:37、S2:4、S3:1）也要列出——草圖計數不會因為「只出現一次」先丟掉
+  const once = (j.G.repeatedInstructions || []).find((x) => /寫完要跑易讀性/.test(x.phrase));
+  check(!!once && once.messages === 3 && once.sessions === 3, '14 G repeatedInstructions（跨三個 session 各一次）', '實得 ' + show(once));
+  // 16 英文交代（S1:39、S2:5、S3:2）：英文詞之間補空白、不設字數上限、指示語認英文
+  const en = (j.G.repeatedInstructions || []).find((x) => /always delete the backup branch/.test(x.phrase));
+  check(!!en && en.messages === 3 && en.sessions === 3, '16 G repeatedInstructions（英文交代）', '實得 ' + show(en) + '；全部 ' + show((j.G.repeatedInstructions || []).map((x) => x.phrase)));
+  // 15 候選上限：REVIEW_COLLECT_CAND_CAP=1 時只收第一條、notes 說明、不當掉
+  const out2 = path.join(tdir, 'out2.json');
+  const r2 = spawnSync(process.execPath, [SCRIPT, root, '--since', '2026-10-01', '--transcripts', tdir, '--out', out2], { encoding: 'utf8', env: Object.assign({}, process.env, { REVIEW_COLLECT_CAND_CAP: '1' }) });
+  const j2 = r2.status === 0 && fs.existsSync(out2) ? JSON.parse(fs.readFileSync(out2, 'utf8')) : null;
+  check(!!j2 && (j2.G.repeatedInstructions || []).length <= 1 && (j2.notes || []).some((s) => /候選片語超過 1 條/.test(s)), '15 G 候選片語上限（notes 說明、不當掉）', 'exit ' + r2.status + ' ' + (j2 ? show(j2.notes) : String(r2.stderr).slice(-300)));
   const off = runWith(false), on = runWith(true);
   check(!off.err && !on.err && !('GLOSSARY.md/CONTEXT.md' in off.reads) && !off.missing.includes('GLOSSARY.md/CONTEXT.md')
     && ('GLOSSARY.md/CONTEXT.md' in on.reads) && on.missing.includes('GLOSSARY.md/CONTEXT.md'),
