@@ -131,5 +131,5 @@ console.log('  plugins      : ' + pluginCount + '（user 層啟用 ' + enabledCo
 console.log('  projects     : ' + Object.keys(projects).length + '（各專案 per-project 啟用）');
 console.log('  → 快照已寫到：' + outPath + '（在 plugin 內、隨 git）');
 console.log('\n下一步：');
-console.log('  1. /plugin-manager:publish 把快照推上去（新機 install plugin-manager 才帶得到）。');
+console.log('  1. /plugin-manager-publish 把快照推上去（新機 install plugin-manager 才帶得到）。');
 console.log('  2. 新機裝好 plugin-manager 後說「復現環境」，restore 會從快照產生安裝清單。');

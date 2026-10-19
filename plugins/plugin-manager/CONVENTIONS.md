@@ -15,7 +15,7 @@ monorepo 路徑與 repo 從 `~/.claude/plugin-manager/config.json` 讀（owner=f
 
 ## 規則 2 — 改 skill 必發布
 
-> 只要改動了任何已納管 skill（monorepo 真身或其 symlink），完成後**必須主動提醒使用者用 `/plugin-manager:publish` 推上 remote monorepo**，不可只停在本機生效。
+> 只要改動了任何已納管 skill（monorepo 真身或其 symlink），完成後**必須主動提醒使用者用 `/plugin-manager-publish` 推上 remote monorepo**，不可只停在本機生效。
 
 - 因 symlink 改了本機立刻生效、極易忘記推遠端，導致 monorepo 落後本機。
 - 對「改完 skill 卻沒走 publish 就結束對話」也成立——結束前要提醒尚有未發布的 skill 變更。
@@ -46,8 +46,8 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 
 ## 版本號慣例
 
-- bump 只設在各 plugin 的 `plugin.json` 的 `version`，**不在 marketplace.json 加 version 欄**（兩處衝突時 Claude Code 以 plugin.json 為準）。用 `/plugin-manager:bump`（腳本 `scripts/bump-version.js`）。
-- 指令分工：開發端 `/plugin-manager:bump`（升版號）→ `/plugin-manager:publish`（推 git）；使用端 `/plugin-manager:update`（`scripts/update-all.js`，把這台電腦所有專案與 user 層已裝的本 marketplace plugin 更新到最新）。單一專案的落後檢查用 `/setup-plugins upgrade`。
+- bump 只設在各 plugin 的 `plugin.json` 的 `version`，**不在 marketplace.json 加 version 欄**（兩處衝突時 Claude Code 以 plugin.json 為準）。用 `/plugin-manager-bump`（腳本 `scripts/bump-version.js`）。
+- 指令分工：開發端 `/plugin-manager-bump`（升版號）→ `/plugin-manager-publish`（推 git）；使用端 `/plugin-manager-update`（`scripts/update-all.js`，把這台電腦所有專案與 user 層已裝的本 marketplace plugin 更新到最新）。單一專案的落後檢查用 `/setup-plugins upgrade`。
 - **bump 時帶第三參數＝變更摘要**，`bump-version.js` 會在 `plugins/<name>/CHANGELOG.md` 追加 Keep a Changelog 條目（patch→Fixed、minor/major→Changed，最新在上）。摘要省略會留佔位，應補上。
 - 改了某 plugin 的內容（skill/hook/script）→ bump 該 plugin（patch/minor/major）。
 - 改 repo 根層級文件（README / 本檔 / .gitignore 等，在 `plugins/` 之外）→ **不綁任何 plugin 版本**，不 bump。
@@ -55,7 +55,7 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 ## plugin 指令分工（誰來跑）
 
 - **Claude 直接跑 `claude plugin …` 非互動 CLI（Bash）**：`install`、`uninstall`、`update`、`enable`、`disable`、`list --json`、`marketplace add|update|list|remove`。核可規則照各 skill 原本的流程：裝新東西、動別的專案前先問使用者；CLI 失敗才退回列指令請使用者自己做。
-  - 更新已裝 plugin：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（`--scope` 可選 user|project|local|managed，省略時依目前目錄自動判斷；project/local scope 要在該專案目錄下跑）。scope 用 `claude plugin list --json` 查（欄位含 `id`、`version`、`scope`、`enabled`、`projectPath`）。整台電腦批次更新走 `/plugin-manager:update`：它處理巢狀 project 安裝漏更新（uninstall --keep-data ＋ install 補救並比對設定檔）與專案目錄已不存在的失效紀錄。
+  - 更新已裝 plugin：`claude plugin marketplace update fulin-plugins` 刷新 → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（`--scope` 可選 user|project|local|managed，省略時依目前目錄自動判斷；project/local scope 要在該專案目錄下跑）。scope 用 `claude plugin list --json` 查（欄位含 `id`、`version`、`scope`、`enabled`、`projectPath`）。整台電腦批次更新走 `/plugin-manager-update`：它處理巢狀 project 安裝漏更新（uninstall --keep-data ＋ install 補救並比對設定檔）與專案目錄已不存在的失效紀錄。
   - `claude plugin install` 不帶 `--scope` 時預設是 **user**（全域），裝到專案要明寫 `--scope project`。
 - **只有這兩件要使用者自己做**：`/reload-plugins`（沒有 CLI 對應），以及 `claude plugin update` 之後**重開 session** 讓新版生效。
 - 互動 slash UI（`/plugin …`）仍是互動畫面，Claude 不去操作它；slash 版沒有 `update` 子指令（Claude Code 2.1.294 的 `/plugin help` 只列 install／uninstall／enable／disable／marketplace／manage 等），更新要走上面的 CLI `claude plugin update`，或在 `/plugin` UI 開 Enable auto-update。
@@ -74,7 +74,7 @@ commit message **必須註明本次改了哪一個 / 哪些 skill**。格式：
 - 只記**來源 + 用途 + tag**（`name@marketplace` → `{marketplace, source, note, tags}`），**不複製別人的程式碼進 monorepo**（尊重它住在別人的 repo、跟著上游更新）。
 - 登記/移除一律用 `scripts/register-external.js`（不手編）；**note 必填**（之後要靠它認出 plugin 用途）。`/setup-plugins` 讀 recommends.json 列給使用者挑裝（清單多時按 tag 分組），產生 `marketplace add` + `install` 指令。
 - 外部 plugin 的**版本更新由其上游 marketplace 管**，本系統不追蹤其版本。
-- 改 recommends.json 後要 `/plugin-manager:publish` 才會推上去讓別人看到。
+- 改 recommends.json 後要 `/plugin-manager-publish` 才會推上去讓別人看到。
 
 ## 環境快照 / 復現（export-env / restore-env）
 

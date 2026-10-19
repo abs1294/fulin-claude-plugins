@@ -115,7 +115,7 @@ try {
   const pj = {
     name: pluginName,
     version: '0.1.0',
-    description: '（adopt-agents 自動建立，請用 /plugin-manager:bump 補描述）agent 組：' + agentFiles.map(f => f.replace(/\.md$/, '')).join('、'),
+    description: '（adopt-agents 自動建立，請用 /plugin-manager-bump 補描述）agent 組：' + agentFiles.map(f => f.replace(/\.md$/, '')).join('、'),
     author: { name: config.owner || 'unknown' },
     keywords: [pluginName, 'agents']
   };
@@ -168,8 +168,8 @@ if (fs.existsSync(path.join(projectDir, '.git'))) {
 }
 
 if (junctionOk) {
-  console.log('\n✅ adopt-agents 完成。下一步：/plugin-manager:publish 把整個 monorepo 推上 git。');
+  console.log('\n✅ adopt-agents 完成。下一步：/plugin-manager-publish 把整個 monorepo 推上 git。');
 } else {
   console.log('\n⚠ 主體已完成（agents 真身進 monorepo、marketplace/registry 已更新），但原專案連結未建。');
-  console.log('  請手動：mklink /J "' + srcAgents + '" "' + destAgents + '"，之後再 /plugin-manager:publish。');
+  console.log('  請手動：mklink /J "' + srcAgents + '" "' + destAgents + '"，之後再 /plugin-manager-publish。');
 }

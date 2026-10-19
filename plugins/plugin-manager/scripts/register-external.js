@@ -24,7 +24,7 @@
  *                      /setup-plugins 與本腳本會依此顯示正確安裝方式，不再誤導成 plugin install
  *
  * 移除：node register-external.js --remove <name@marketplace>
- * 改完記得 /plugin-manager:publish，recommends 才會推上去讓別人看到。
+ * 改完記得 /plugin-manager-publish，recommends 才會推上去讓別人看到。
  */
 const fs = require('fs');
 const path = require('path');
@@ -149,7 +149,7 @@ if (tags.length) console.log('  tags        : ' + tags.join(', '));
 console.log('  install     : ' + installMethod);
 console.log('  → 已寫進 plugins/plugin-manager/recommends.json（隨 monorepo publish 後別人裝你 repo 就看得到）');
 console.log('\n下一步：');
-console.log('  - /plugin-manager:publish 把 recommends.json 推上去，別人裝你 repo 才看得到此推薦。');
+console.log('  - /plugin-manager-publish 把 recommends.json 推上去，別人裝你 repo 才看得到此推薦。');
 console.log('  - /setup-plugins 會列出推薦清單讓你（或別人）挑裝。');
 if (installMethod === 'skill-copy') {
   console.log('  - 這是 skill-copy 型（非 marketplace plugin）——安裝是「複製 skill 目錄」，不能用 claude plugin install：');

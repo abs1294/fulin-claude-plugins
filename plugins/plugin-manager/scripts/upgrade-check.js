@@ -143,7 +143,7 @@ for (const r of rows) {
 const dirtyOnes = rows.filter(r => r.dirty).map(r => r.name);
 if (dirtyOnes.length) {
   console.log('\n⚠ 下列 plugin 的 registry 最新版尚未 publish：' + dirtyOnes.join(', '));
-  console.log('  請先在 monorepo 跑 /plugin-manager:publish，否則刷新 marketplace 後也抓不到新版。');
+  console.log('  請先在 monorepo 跑 /plugin-manager-publish，否則刷新 marketplace 後也抓不到新版。');
 }
 
 console.log('\n-- 更新指令（非互動 CLI，Claude 可直接執行；在專案目錄 ' + projectDir + ' 下跑）--');

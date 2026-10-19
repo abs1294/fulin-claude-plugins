@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * update-all.js — 把「這台電腦所有專案（與 user 層）」已安裝的本 marketplace plugin 批次更新到最新版。
- * （使用端功能，對應 /plugin-manager:update；開發端的 bump 版號是 bump-version.js／/plugin-manager:bump。）
+ * （使用端功能，對應 /plugin-manager-update；開發端的 bump 版號是 bump-version.js／/plugin-manager-bump。）
  *
  * 流程：
  *   1. 解析 marketplace 名：--marketplace > config.marketplace > monorepo marketplace.json 的 name > 'fulin-plugins'
@@ -265,7 +265,7 @@ if (!opt.apply) {
     console.log(JSON.stringify({ mode: 'dry-run', marketplace: MKT, marketplaceClone: mktRoot, refresh: refreshNote, latest, upToDate: plan.upToDate, rows: plan.rows }, null, 2));
     process.exit(0);
   }
-  console.log('== /plugin-manager:update（dry-run，不改任何東西）==');
+  console.log('== /plugin-manager-update（dry-run，不改任何東西）==');
   console.log('  marketplace : ' + MKT + '（刷新：' + refreshNote + '）');
   console.log('  最新版來源  : ' + mktRoot);
   if (opt.only) console.log('  只看        : ' + opt.only.join(', '));
@@ -290,7 +290,7 @@ function printMissingHelp(rows) {
 // ---------- 6. --apply ----------
 const todo = plan.rows.filter((r) => r.category === 'updatable');
 if (!opt.json) {
-  console.log('== /plugin-manager:update --apply ==');
+  console.log('== /plugin-manager-update --apply ==');
   console.log('  marketplace : ' + MKT + '（刷新：' + refreshNote + '）');
   console.log('  要更新      : ' + todo.length + ' 筆');
 }

@@ -1,9 +1,9 @@
 ---
 name: plugin-manager-adopt
-description: 把當前專案資料夾裡的一個自製 skill「納管」進 fulin 的 plugin monorepo（move+symlink 模型，真身只有一份）。當使用者說 /plugin-manager:adopt、「把這個 skill 納管」、「收進 monorepo」、「adopt 這個 skill」時觸發。把 skill 真身搬進 monorepo、原位改 symlink、更新 marketplace 與 registry。
+description: 把當前專案資料夾裡的一個自製 skill「納管」進 fulin 的 plugin monorepo（move+symlink 模型，真身只有一份）。當使用者說 /plugin-manager-adopt、「把這個 skill 納管」、「收進 monorepo」、「adopt 這個 skill」時觸發。把 skill 真身搬進 monorepo、原位改 symlink、更新 marketplace 與 registry。
 ---
 
-# plugin-manager:adopt — 納管自製 skill
+# plugin-manager-adopt — 納管自製 skill
 
 把使用者在「當前專案資料夾」隨手寫的自製 skill，集中收進 monorepo，從此真身住 monorepo、原專案靠 symlink 引用同一份（不會有兩份不同步）。
 
@@ -31,7 +31,7 @@ description: 把當前專案資料夾裡的一個自製 skill「納管」進 ful
 
 5. **更新 monorepo README**（**規則 4**，詳 `../../CONVENTIONS.md`）：adopt 在 marketplace 新增了一個 plugin → 同步更新根 `README.md` 的 plugin 列表與「結構」樹，隨本次一起 publish。
 
-6. **提示下一步**：納管後真身在 monorepo 但**尚未推上 git**。提示使用者用 `/plugin-manager:publish` 發布。
+6. **提示下一步**：納管後真身在 monorepo 但**尚未推上 git**。提示使用者用 `/plugin-manager-publish` 發布。
 
 > **規則 1（真身單一份 / C 折衷）**：adopt 一律 move 真身 + 原位 symlink，真身只有 monorepo 一份；開發期靠 symlink 即時迭代、段落完成就 publish。若發現兩份獨立實體則收斂（diff → 刪實體 → 改 symlink）。完整規範見 `../../CONVENTIONS.md`。
 

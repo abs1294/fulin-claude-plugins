@@ -1,9 +1,9 @@
 ---
 name: plugin-manager-clone-env
-description: 擷取整套 Claude Code plugin 環境快照、並在新機器/新專案復現（含自製與第三方 plugin）。當使用者說 /plugin-manager:clone-env、「複製我的環境」、「擷取環境快照」、「環境復現」、「搬到新機器」、「換新電腦把 plugin 裝回來」、「把我的 plugin 組合搬到別的專案」時觸發。Claude 跑 export-env/restore-env 腳本產生 claude plugin CLI 安裝指令，使用者核可後由 Claude 直接執行。
+description: 擷取整套 Claude Code plugin 環境快照、並在新機器/新專案復現（含自製與第三方 plugin）。當使用者說 /plugin-manager-clone-env、「複製我的環境」、「擷取環境快照」、「環境復現」、「搬到新機器」、「換新電腦把 plugin 裝回來」、「把我的 plugin 組合搬到別的專案」時觸發。Claude 跑 export-env/restore-env 腳本產生 claude plugin CLI 安裝指令，使用者核可後由 Claude 直接執行。
 ---
 
-# plugin-manager:clone-env — 環境快照與復現
+# plugin-manager-clone-env — 環境快照與復現
 
 把整套 plugin 環境（有哪些 marketplace、哪些 plugin、版本、啟用狀態，含自製 + 第三方）擷取成快照，在新機器或新專案復現。**使用者用自然語言講即可，Claude 跑腳本**——不必使用者自己打 node 指令。
 
@@ -21,7 +21,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/export-env.js" [outputPath]
 ```
 - 讀 Claude Code 官方記錄（`~/.claude/plugins/known_marketplaces.json` + `installed_plugins.json` + settings 的 enabledPlugins），產出 `env-snapshot.json`，**預設寫進 plugin 內**（`plugins/plugin-manager/env-snapshot.json`，隨 git）。
 - 純讀 + 寫一份 JSON，不碰 /plugin。
-- 把結果回報使用者，並**提示要 `/plugin-manager:publish`**——快照進 git 後，新機裝 plugin-manager（`claude plugin install plugin-manager@fulin-plugins`）才會把它帶進 cache、restore 才讀得到。
+- 把結果回報使用者，並**提示要 `/plugin-manager-publish`**——快照進 git 後，新機裝 plugin-manager（`claude plugin install plugin-manager@fulin-plugins`）才會把它帶進 cache、restore 才讀得到。
 
 ### B. 產生復現指令（在新環境）
 使用者說「環境復現 / 搬到新機器 / 復現指令」時，Claude 跑：

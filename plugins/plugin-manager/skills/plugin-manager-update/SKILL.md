@@ -1,18 +1,18 @@
 ---
 name: plugin-manager-update
-description: （使用端）把這台電腦所有專案與 user 層已安裝的 fulin marketplace plugin 批次更新到最新版。當使用者說 /plugin-manager:update、「更新所有 plugin」、「把這台電腦的 plugin 全部更新」、「已裝的 plugin 更新到最新」、「各專案的 plugin 同步最新版」、「publish 完讓各專案拿到新版」時觸發。先 dry-run 列表給使用者看，核可後才套用。改完 plugin 要 bump 版號是開發端的 /plugin-manager:bump，不是本 skill。
+description: （使用端）把這台電腦所有專案與 user 層已安裝的 fulin marketplace plugin 批次更新到最新版。當使用者說 /plugin-manager-update、「更新所有 plugin」、「把這台電腦的 plugin 全部更新」、「已裝的 plugin 更新到最新」、「各專案的 plugin 同步最新版」、「publish 完讓各專案拿到新版」時觸發。先 dry-run 列表給使用者看，核可後才套用。改完 plugin 要 bump 版號是開發端的 /plugin-manager-bump，不是本 skill。
 ---
 
-# plugin-manager:update — 全機批次更新已裝的 plugin（使用端）
+# plugin-manager-update — 全機批次更新已裝的 plugin（使用端）
 
 publish 只把新版推上 git，**已經裝好的專案不會自己變新版**。本 skill 掃這台電腦每一筆本 marketplace 的安裝紀錄（user 層＋各專案的 project／local 層），把落後的更新到 marketplace 最新版。
 
 ## 分工
 | 端 | 指令 | 範圍 |
 |---|---|---|
-| 開發端 | `/plugin-manager:bump` | 在 monorepo 改完 plugin → bump 版號、寫 CHANGELOG |
-| 開發端 | `/plugin-manager:publish` | 把 monorepo 推上 git |
-| 使用端 | `/plugin-manager:update`（本 skill） | **整台電腦**所有已裝的本 marketplace plugin |
+| 開發端 | `/plugin-manager-bump` | 在 monorepo 改完 plugin → bump 版號、寫 CHANGELOG |
+| 開發端 | `/plugin-manager-publish` | 把 monorepo 推上 git |
+| 使用端 | `/plugin-manager-update`（本 skill） | **整台電腦**所有已裝的本 marketplace plugin |
 | 使用端 | `/setup-plugins upgrade` | 只看**目前這個專案**啟用的自製 plugin，並對照 registry（含「還沒 publish」的提醒） |
 
 順序：`bump` → `publish` → `update`。dirty（bump 了還沒 publish）的版本 marketplace 上還沒有，本 skill 看到的「最新版」是 marketplace clone 裡的版本，不是 monorepo 工作樹。

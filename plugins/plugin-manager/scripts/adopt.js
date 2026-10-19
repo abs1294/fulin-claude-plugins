@@ -129,7 +129,7 @@ try {
   const pluginJson = {
     name: pluginName,
     version: '0.1.0',
-    description: '（adopt 自動建立，請用 /plugin-manager:bump 補描述）skill ' + skillName,
+    description: '（adopt 自動建立，請用 /plugin-manager-bump 補描述）skill ' + skillName,
     author: { name: config.owner || 'unknown' },
     keywords: [skillName]
   };
@@ -189,9 +189,9 @@ if (fs.existsSync(projGit)) {
 }
 
 if (symlinkOk) {
-  console.log('\n✅ adopt 完成。下一步：/plugin-manager:publish 把整個 monorepo 推上 git。');
+  console.log('\n✅ adopt 完成。下一步：/plugin-manager-publish 把整個 monorepo 推上 git。');
 } else {
   console.log('\n⚠ adopt 主體已完成（真身已進 monorepo、marketplace/registry 已更新），但原專案連結未建。');
   console.log('  請先手動執行：mklink /J "' + srcSkill + '" "' + destSkill + '"');
-  console.log('  建好連結後才能在原專案使用此 skill。之後再 /plugin-manager:publish。');
+  console.log('  建好連結後才能在原專案使用此 skill。之後再 /plugin-manager-publish。');
 }

@@ -1,17 +1,17 @@
 ---
 name: plugin-manager-publish
-description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commit + push）。當使用者說 /plugin-manager:publish、「發布 plugin」、「推上去 monorepo」、「把自製 plugin 推上 git」時觸發。因為所有納管的 skill 真身在 adopt 時已搬進 monorepo，publish 只做純 git 發布——一次推整個 repo，不管改了幾個 plugin。
+description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commit + push）。當使用者說 /plugin-manager-publish、「發布 plugin」、「推上去 monorepo」、「把自製 plugin 推上 git」時觸發。因為所有納管的 skill 真身在 adopt 時已搬進 monorepo，publish 只做純 git 發布——一次推整個 repo，不管改了幾個 plugin。
 ---
 
-# plugin-manager:publish — 一鍵發布整個 monorepo
+# plugin-manager-publish — 一鍵發布整個 monorepo
 
 把 monorepo（所有自製 plugin 的家）一次 commit + push。解決「一 plugin 一 repo、500 個 plugin 無法維護」的核心痛點——所有自製 plugin 在同一個 repo，發布只需一次。
 
 ## 前提
-- 自製 skill 的真身在 `/plugin-manager:adopt` 時就已搬進 monorepo，所以 publish **不需要再蒐集**，只做 git。
+- 自製 skill 的真身在 `/plugin-manager-adopt` 時就已搬進 monorepo，所以 publish **不需要再蒐集**，只做 git。
 - monorepo 路徑與 repo 從 `~/.claude/plugin-manager/config.json` 讀。
 
-> **規則 2（改 skill 必發布）**：只要改動任何已納管 skill（monorepo 真身或其 symlink），完成後必須主動提醒使用者 `/plugin-manager:publish` 推上 remote；對「改完沒 publish 就結束對話」也成立——結束前要提醒未發布的 skill 變更。
+> **規則 2（改 skill 必發布）**：只要改動任何已納管 skill（monorepo 真身或其 symlink），完成後必須主動提醒使用者 `/plugin-manager-publish` 推上 remote；對「改完沒 publish 就結束對話」也成立——結束前要提醒未發布的 skill 變更。
 >
 > **規則 4（發布前確認 README）**：若本次 status 含新增/刪除 `plugins/<name>/`，發布前先確認根 `README.md` 的 plugin 列表與「結構」樹已同步，未同步就提醒補上再一起 publish。
 >
@@ -36,7 +36,7 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
    > ⚠️ **「5 分鐘自動推」必須有喚醒源，否則是空頭承諾**（實戰教訓）：呈現完 message 後，這一輪就結束、控制權交還使用者——若不主動排一個喚醒，5 分鐘後根本沒有任何東西會觸發 push，只會卡等下一次使用者輸入。
    >
    > **所以呈現 message 的「同一輪」必須立刻排一個 ~5 分鐘後的喚醒**（與 git-commit 不同：那邊的默許掛在「審查完成事件」、當輪即到，不需計時器；本 skill 是時間驅動，必須自備計時器）：
-   > - 優先 `ScheduleWakeup({ delaySeconds: 300, reason: "publish 默許窗口", prompt: "<重述：到 /plugin-manager:publish 的 commit+push 步驟>" })`；
+   > - 優先 `ScheduleWakeup({ delaySeconds: 300, reason: "publish 默許窗口", prompt: "<重述：到 /plugin-manager-publish 的 commit+push 步驟>" })`；
    > - 若環境無 ScheduleWakeup，用 `CronCreate({ recurring:false, durable:false, cron:<現在+5分>, prompt: "[publish 默許自動發布] 若使用者自呈現後未否決/未改 message，直接用建議 message 跑 commit + push + finalize。" })`，並記下 job id。
    > - **喚醒時的守衛**：先檢查 ① 使用者是否已在窗口內否決/改 message（是 → 不推、結束）② git 是否已 commit/push（已推 → 結束，不重複）；兩者皆否才執行步驟 4。
    > - **使用者在 5 分鐘內回應時**：先 `CronDelete <id>`（或讓 ScheduleWakeup 的守衛自然 no-op），再依回應處理，避免喚醒重複觸發。
@@ -100,4 +100,4 @@ description: 一鍵把整個自製 plugin monorepo 發布上 git（stage + commi
 - push 是對外動作。執行前一定要讓使用者看過 status + commit message（採無人值守默許：呈現後 5 分鐘無拒絕/修改即自動採用，見步驟 3）。
 - 不做 force-push / rebase / amend，除非使用者明確要求。
 - 若 push 失敗（遠端有新 commit），回報並建議先 pull，不要自動 force。
-- publish 只推 monorepo，**不會自動讓已安裝該 plugin 的專案更新**——publish 後用 `/plugin-manager:update`（使用端）一次把這台電腦所有專案與 user 層已裝的 fulin plugin 更新到最新；只更新單一專案也可直接跑非互動 CLI `claude plugin marketplace update fulin-plugins` → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（動別的專案前先問使用者），跑完請使用者**重開 session** 才生效；或開 auto-update。互動 slash UI 的 `/plugin` 沒有 `update` 子指令，所以走 CLI。
+- publish 只推 monorepo，**不會自動讓已安裝該 plugin 的專案更新**——publish 後用 `/plugin-manager-update`（使用端）一次把這台電腦所有專案與 user 層已裝的 fulin plugin 更新到最新；只更新單一專案也可直接跑非互動 CLI `claude plugin marketplace update fulin-plugins` → `claude plugin update <name>@fulin-plugins --scope <該安裝的 scope>`（動別的專案前先問使用者），跑完請使用者**重開 session** 才生效；或開 auto-update。互動 slash UI 的 `/plugin` 沒有 `update` 子指令，所以走 CLI。

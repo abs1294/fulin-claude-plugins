@@ -78,13 +78,13 @@ const entry = registry.selfMade[name];
 if (!entry) {
   die('registry.selfMade 找不到 plugin entry：' + name +
       '（plugin.json 存在但 registry 缺此筆，registry 可能未同步）。' +
-      '請先用 /plugin-manager:adopt 納管或手動補 entry，再重跑 bump-version，' +
+      '請先用 /plugin-manager-adopt 納管或手動補 entry，再重跑 bump-version，' +
       '以免把 adopted plugin 誤記為 native 並遺失 adoptedFrom。');
 }
 
 // 1. 先維護 CHANGELOG（風險最高的新邏輯先跑：若它失敗，plugin.json/registry 還沒動，無半完成）。
 // bump 等級對應區段：major/minor → ### Changed、patch → ### Fixed（粗略預設；使用者可事後手調區段為 Added/Removed）。
-// 摘要由第四參數帶入；沒給則留佔位讓 bump 流程（/plugin-manager:bump）補。
+// 摘要由第四參數帶入；沒給則留佔位讓 bump 流程（/plugin-manager-bump）補。
 const changelogPath = path.join(pluginDir, 'CHANGELOG.md');
 const today = new Date().toISOString().slice(0, 10); // 一般腳本可用 Date（非 Workflow 環境）
 const section = bump === 'patch' ? 'Fixed' : 'Changed';
@@ -125,4 +125,4 @@ console.log('  ' + cur + ' → ' + next);
 console.log('✓ 已寫回 plugin.json');
 console.log('✓ 已同步 registry（version=' + next + ', dirty=true）');
 console.log('✓ 已更新 CHANGELOG.md（## [' + next + ']）' + (note ? '' : ' — 摘要待補'));
-console.log('\n下一步：' + (note ? '' : '補上 CHANGELOG 摘要；') + '用 /plugin-manager:publish 發布。');
+console.log('\n下一步：' + (note ? '' : '補上 CHANGELOG 摘要；') + '用 /plugin-manager-publish 發布。');

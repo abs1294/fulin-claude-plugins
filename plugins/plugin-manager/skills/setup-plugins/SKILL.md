@@ -88,7 +88,7 @@ setup 做**偵測 + 推薦 + 核可後代裝**，**不手寫 settings**：
 
 當使用者說 `/setup-plugins upgrade`、「把這專案的自製 plugin 更到最新」、「plugin 升版同步」時走這條，**不是**重選 profile，而是「偵測本專案啟用的自製 plugin 是否落後 registry 最新版 + 給更新指令」。
 
-> 範圍只有**目前這個專案**。要一次更新**整台電腦**所有專案與 user 層的安裝，改走 `/plugin-manager:update`（`scripts/update-all.js`，以 marketplace clone 的版本為準、含巢狀安裝補救與失效紀錄清單）。本子流程的特點是對照 registry，能提醒「最新版還沒 publish（dirty）」。
+> 範圍只有**目前這個專案**。要一次更新**整台電腦**所有專案與 user 層的安裝，改走 `/plugin-manager-update`（`scripts/update-all.js`，以 marketplace clone 的版本為準、含巢狀安裝補救與失效紀錄清單）。本子流程的特點是對照 registry，能提醒「最新版還沒 publish（dirty）」。
 
 1. **跑偵測腳本**（唯讀，不動檔案）：
    ```
@@ -99,7 +99,7 @@ setup 做**偵測 + 推薦 + 核可後代裝**，**不手寫 settings**：
 
 2. **呈現結果給使用者**：
    - 列出本專案啟用了哪些自製 plugin、各自 registry 最新版。
-   - 若有 `⚠ dirty`（registry 最新版尚未 publish）→ 提醒**得先 `/plugin-manager:publish`**，否則使用者刷新 marketplace 後也抓不到新版。
+   - 若有 `⚠ dirty`（registry 最新版尚未 publish）→ 提醒**得先 `/plugin-manager-publish`**，否則使用者刷新 marketplace 後也抓不到新版。
 
 3. **代跑更新**（CLI 非互動，Claude 直接執行；舊說法「不能代執行 /plugin」只適用互動 slash UI）：
    ```
@@ -132,7 +132,7 @@ setup 做**偵測 + 推薦 + 核可後代裝**，**不手寫 settings**：
    - 移除：`node "${CLAUDE_PLUGIN_ROOT}/scripts/register-external.js" --remove <name@marketplace>`
 
 3. **提示兩件事**：
-   - 推薦寫進 recommends.json 後**要 `/plugin-manager:publish`** 才會推上去讓別人看到。
+   - 推薦寫進 recommends.json 後**要 `/plugin-manager-publish`** 才會推上去讓別人看到。
    - 登記/推薦只是進清單，**不會自動安裝**。要實際裝：使用者核可後 Claude 跑 `claude plugin marketplace add <source>` + `claude plugin install <name@marketplace> --scope project`，使用者再 `/reload-plugins`；或下次 `/setup-plugins` 看推薦挑裝。
 
 ## 重要限制（要誠實告知）
