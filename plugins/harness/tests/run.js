@@ -7,7 +7,7 @@
  *   --skip-probe：跳過 hooks/templates 的 probe-hooks 全量（兩輪約 10 分鐘），只供開發中快速迭代；完成驗收一律不跳。
  * 結束碼：0＝全數通過；1＝有失敗。最後一行「合計 PASS n / FAIL n」。
  *
- * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、review-collect、integration、probe
+ * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、review-collect、ledger-diff、integration、probe
  * 不在這裡的：真實端到端（claude -p 跑一次完整 /harness:init），只跑一次當驗收證據，結論記在 docs/learning-loop-design.md §11。
  */
 const fs = require('fs');
@@ -729,6 +729,14 @@ if (want('review-collect')) {
   const r = node([rc], { timeout: 120000 });
   for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('review-collect', m[1] === 'PASS', m[2]); }
   check('review-collect', r.status === 0, `review-collect.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
+}
+
+// ── ledger-diff：修正回流帳本的機械讀者（抽帳本宣稱同文的檔名、比對實例與範本）自測 ──
+if (want('ledger-diff')) {
+  const ld = path.join(__dirname, '..', 'skills', 'review', 'scripts', 'ledger-diff.js');
+  const r = node([ld, '--self-test'], { timeout: 60000 });
+  for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('ledger-diff', m[1] === 'PASS', m[2]); }
+  check('ledger-diff', r.status === 0, `ledger-diff.js --self-test exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
 }
 
 // ── integration：壓縮交接範本（compact-*）整合測試；compact_chain_test 的 --real 會呼叫 claude -p，維持手動 ──

@@ -44,6 +44,7 @@ node <本 plugin>/skills/review/scripts/review-collect.js <落點> --since <日�
 - 腳本預設只讀、不執行專案裡的程式。輸出不含指令、使用者發言、擋下訊息的原文，只有出處（`檔名:行號`）與抽出的線索（指令名、命中的關鍵詞、擋下的標籤、已知的角色／模型／hook 檔名）；要看內容就照出處回原文。它只收 cwd 是這個專案的列，並略過跑 `/harness:init` 的 session 與安裝時的冷啟探針 session（探針會故意觸發擋下）。
 - **要實際執行專案裡的程式，先問使用者一次，他同意才做**——涵蓋這裡的 `--probe`，也涵蓋第 1.5 步清單裡的 hook dry-run、專案稽核工具、清單描述自驗的實跑；他不同意時這些項目一律標「沒機會驗證：使用者沒同意執行專案程式」，不准由 subagent 自己決定跑。`--probe` 會在實例的 `.claude/hooks/` 跑 `probe-hooks.js`（語法樹與正則兩條路徑）。問法：「要不要順便實際試跑一次自動檢查？會執行專案 .claude/hooks 裡的程式（建議：要，確認它們還擋得住）」。無人值守、或他不同意時不加，報告寫明「自動檢查沒有實際試跑」。
 - 逐字紀錄目錄預設是 `~/.claude/projects/<落點換算的名稱>`（英數字以外的字元換成 `-`）；找不到時腳本會在 `notes` 說明，這時問使用者目錄在哪，用 `--transcripts` 指定。
+- **實例有修正回流帳本（`.claude/harness/sync-ledger.md`）時順手跑** `node <本 plugin>/skills/review/scripts/ledger-diff.js <落點>`：它抽出帳本裡宣稱「與範本同文」的 hook 檔名，對實例 `.claude/hooks/` 與本 plugin `hooks/templates/` 比對（忽略 CR 與 harness-wire 標記行），列 SAME／DRIFT／缺檔。帳本是人寫的，同文主張不會自己過期，這支腳本就是它的讀者；輸出貼進第 4 步報告第 9 段「版本差距」前，DRIFT 的檔列成提案（哪邊先改的、要不要回流）。沒有帳本的實例印一行略過。
 
 輸出分十個面向，對應下一步的判讀：
 
