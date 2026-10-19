@@ -36,7 +36,7 @@ fulin 的**自製 Claude Code plugin monorepo**。所有自製 plugin 集中在 
 
 1. **搜尋用 Glob/Grep 工具，限定目錄**。禁止 Bash 跑 `find /` 全碟盲搜（見 A 痛點 1，這是本機真實發生過的事故）。
 2. **commit / push 一律走 `git-commit` skill**，禁止裸 `git commit`。commit message **不加任何 Claude 署名**（見全域 CLAUDE.md）。
-3. **改完 plugin 要 bump 版本**：走 `/plugin-manager:bump` → `/plugin-manager:publish`（見 CONVENTIONS.md）。
+3. **改完 plugin 要 bump 版本**：走 `/plugin-manager-bump` → `/plugin-manager-publish`（見 CONVENTIONS.md）。
 4. **「一定要落地」的動作需機制閘**，不能只寫「必須」（skill 的「必須」是自律、AI 會繞；只有 hook 是他律）。範式：`qa-webwright` 的 qa-flow.sh + Stop hook、`git-commit` 流程。
 5. **改既有檔前建 `.bak`**。
 6. **debug 前先給三件套**（錯誤行 / 讀過的碼 / 哪台機器），猜測標 HYPOTHESIS（見全域 CLAUDE.md）。
