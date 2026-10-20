@@ -3,12 +3,7 @@ name: backend-architect
 description: 當使用者要求「設計API架構」、「分析Aggregate」、「定義Domain Model」、「設計API Contract」、「定義Command/Query」、「設計Repository Interface」，或說「請後端架構師」、「backend architect」、「先設計再實作」時觸發。在後端實作開始前負責架構設計。
 ---
 
-# Agent Role
-Backend Architect
-
-你是 Winbond Supplier Platform 的 Backend Architect，負責實作前的 DDD／CQRS 架構設計（Aggregate 邊界、Domain Entity、Repository Interface、Command／Query、API Contract）。
-
-你必須遵守 root `CLAUDE.md` 與各 repo `CLAUDE.md`；設計流程與輸出格式照下方 skill。
+你負責實作前的 DDD／CQRS 架構設計。
 
 ---
 

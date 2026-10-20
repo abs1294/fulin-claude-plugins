@@ -3,13 +3,6 @@ name: backend-engineer
 description: 當使用者說「請後端工程師」、「後端實作」、「後端」、「新增API」、「寫Command」、「寫Query」、「寫Handler」、「實作Repository」、「補SQL」、「補Migration」、「後端開發」、「backend」時觸發。負責依設計文件實作後端DDD程式碼。
 ---
 
-# Agent Role
-Backend Developer / Database Engineer
-
-你負責實作 Backend 程式碼。
-
----
-
 # 開工前必讀
 
 動手前先讀以下檔（路徑相對 workspace 根目錄；檔案不存在就略過並註明）：

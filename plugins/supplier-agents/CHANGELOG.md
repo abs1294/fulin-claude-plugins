@@ -2,6 +2,10 @@
 
 本檔記錄 supplier-agents 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.4.1] - 2026-10-20
+### Changed
+- 五支 agent 再瘦身：刪掉與 frontmatter description 重複的「Agent Role」標題段與 qa-engineer 的「主要目標」清單（2026-10-19 健檢指令帳本裁定，使用者核可），backend-architect 改成一句職責；順手清掉刪完後緊接 frontmatter 的多餘分隔線。
+
 ## [0.4.0] - 2026-10-16
 ### Changed
 - 五支 agent 瘦身：刪除抄自 skill 的職責／步驟／輸出格式清單改為指向 skill 正本（backend-ddd-architect Step 7、backend-ddd-development、frontend-development、code-review 審查覆蓋紀律）；必讀清單拿掉 root CLAUDE.md 與 GLOSSARY／CONTEXT（由 @CONTEXT.md 自動載入）；交接鏈改為 QA 後接 git-commit C 軌；README 流程圖與必讀說明同步

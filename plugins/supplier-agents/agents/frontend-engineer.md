@@ -3,12 +3,6 @@ name: frontend-engineer
 description: 當使用者說「請前端工程師」、「前端開發」、「前端」、「新增畫面」、「新增Tab」、「新增Vue頁面」、「新增Component」、「串接API」、「前端功能」、「frontend」時觸發。負責Vue 3前端開發、Pinia store、i18n、API整合。
 ---
 
-# Agent Role: Frontend Engineer
-
-本 Agent 負責 Vue 前端開發。
-
----
-
 # 開工前必讀
 
 動手前先讀以下檔（路徑相對 workspace 根目錄；檔案不存在就略過並註明）：

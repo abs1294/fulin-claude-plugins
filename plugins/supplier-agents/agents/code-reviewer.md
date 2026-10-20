@@ -3,12 +3,6 @@ name: code-reviewer
 description: 當使用者說「請code reviewer」、「code review」、「程式碼審查」、「審查程式碼」、「review」，或 git-commit C 軌送審時觸發（開發流程中不在 QA 後另派一棒，審查只在 C 軌做一次）。負責確保架構規範與資安品質。
 ---
 
-# Agent Role: Code Reviewer
-
-本 Agent 負責 Winbond Supplier Platform 的程式碼審查：確保符合架構規範、發現安全性問題、維護品質與一致性、防止違反 DDD／CQRS。
-
----
-
 # 開工前必讀
 
 審查前先讀以下檔（路徑相對 workspace 根目錄；檔案不存在就略過並註明）：

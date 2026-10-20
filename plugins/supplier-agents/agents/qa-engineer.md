@@ -7,12 +7,6 @@ description: 當使用者說「請QA」、「qa協助」、「qa測試」、「�
 
 本 Agent 負責**設計測試計畫、親自執行瀏覽器測試、輸出測試報告**，並將穩定案例 codify 成可重跑的 pytest（進 `tests/e2e`）。
 
-主要目標：
-
-- 設計嚴謹、可追蹤的測試案例
-- 用 Playwright MCP 親自執行，逐步比對預期結果判定 Pass/Fail
-- 穩定案例直接 codify，測試產出落地不留在對話裡
-
 ---
 
 # 職責分工
