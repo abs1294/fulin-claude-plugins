@@ -18,7 +18,7 @@
 #   - commit message 顯示寬度超標（不可豁免）
 # 其餘規範（local-overrides 過濾、禁 force push/no-verify）由 subcommand 封裝與旗標缺席保證。
 # amend 有專屬子命令（flow.sh amend，見下），會自動建備份分支、擋已 push 的改寫、
-# 並在改寫後做 tree 級重現驗證；不經該子命令的裸 amend 由 PreToolUse hook 攔。
+# 並在改寫後做 tree 級重現驗證、通過即刪備份分支；不經該子命令的裸 amend 由 PreToolUse hook 攔。
 #
 # 用法：
 #   flow.sh analyze <repo>
@@ -2432,6 +2432,8 @@ cmd_ship() {
   local do_push=0
   # 內文（第二行以後）：選填，一兩句 diff 看不出來、接手的人一定要知道的事。
   local body=""
+  # HEAD 還沒推上遠端時另開一顆 commit 要寫理由（見下方「追加修正閘」）
+  local new_commit_reason=""
   local positional=()
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -2440,6 +2442,9 @@ cmd_ship() {
       --allow-ai-trace) allow_ai_trace=1; shift ;;
       --allow-message-trace) allow_message_trace=1; shift ;;
       --push) do_push=1; shift ;;
+      --new-commit)
+        [ $# -lt 2 ] && { echo "ERROR: --new-commit 後面要寫為什麼要另開一顆、而不是 amend 併進 HEAD。" >&2; exit 1; }
+        new_commit_reason="$(printf '%s' "$2" | tr '\r\n\t' '   ' | sed 's/^ *//; s/ *$//')"; shift 2 ;;
       --body)
         [ $# -lt 2 ] && { echo "ERROR: --body 後面缺內容。" >&2; exit 1; }
         body="$(normalize_body "$2")"; shift 2 ;;
@@ -2452,7 +2457,7 @@ cmd_ship() {
   local type="${2:-}"
   local desc="${3:-}"
   if [ -z "$repo" ] || [ -z "$type" ] || [ -z "$desc" ]; then
-    echo "Usage: flow.sh ship <repo> <type> <description> [--body \"<一兩句>\"] [--push] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace] [--allow-message-trace]" >&2
+    echo "Usage: flow.sh ship <repo> <type> <description> [--body \"<一兩句>\"] [--push] [--new-commit \"<理由>\"] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace] [--allow-message-trace]" >&2
     exit 1
   fi
   assert_valid_repo "$repo"
@@ -2510,6 +2515,36 @@ cmd_ship() {
       git -c color.ui=false log --oneline -1
       return 0
     fi
+  fi
+
+  # === 追加修正閘：HEAD 是這一輪 flow.sh 剛建的、還沒推上遠端時，新 commit 預設要併進 HEAD（amend），不另開一顆 ===
+  # 使用者裁定（2026-10-14「不要一直留髒紀錄」；2026-10-19 健檢實測這句交代講了 28 次、流程都沒接住）：
+  # 同輪的追加修正一律 amend 進未推的 HEAD。判準四條全符才擋：repo 有 remote、不在 merge 中、
+  # HEAD 就是 ship／amend 記下的那顆（shipped 標記＝HEAD，表示是這一輪建的；init、別人的、merge 出來的未推 commit 不算）、
+  # HEAD 不在任何遠端分支上（git branch -r --contains HEAD 為空）、HEAD 不是 merge commit（parent 只有一個；merge 收尾
+  # 那顆也是本流程建的、也會記進 shipped 標記，但合併後接著做的改動不是它的追加修正，不能要求 amend 進 merge commit）。
+  # 真的要另開一顆（不同功能、刻意分開）帶 --new-commit "<理由>"，理由寫進 review-log.tsv 供事後稽核。
+  # 沒有 remote 的 repo 不管（全都「沒推」，擋了沒意義）。
+  local head_unpushed=0 gate_marker
+  gate_marker="$(shipped_marker_file "$(tmp_repo_slug "$repo")")"
+  if [ -n "$(git remote 2>/dev/null)" ] && [ ! -e "$(git rev-parse --git-path MERGE_HEAD)" ] \
+     && git rev-parse -q --verify HEAD >/dev/null 2>&1 \
+     && [ "$(read_marker_line "$gate_marker" 1)" = "$(git rev-parse HEAD)" ] && [ "$(read_marker_line "$gate_marker" 2)" = "$(repo_identity)" ] \
+     && [ -z "$(git branch -r --contains HEAD 2>/dev/null)" ] \
+     && [ "$(git rev-list --parents -n 1 HEAD | wc -w)" -le 2 ]; then
+    head_unpushed=1
+  fi
+  if [ "$head_unpushed" -eq 1 ]; then
+    if [ -z "$new_commit_reason" ]; then
+      echo "ERROR: HEAD（$(git -c color.ui=false log -1 --format='%h %s')）是這一輪 flow.sh 剛建的、還沒推上遠端，新 commit 預設視為追加修正，應併進 HEAD 而不是另開一顆。" >&2
+      echo "       （同輪追加修正一律 amend 進未推的 HEAD，不留髒紀錄。）" >&2
+      echo "       併進去：flow.sh amend $repo --confirm-rewrite [--type <Type> --desc <描述>]（這份 staged 的審查紀錄沿用，不必重審）" >&2
+      echo "       真的是獨立的一顆（不同功能、刻意分開）：加 --new-commit \"<為什麼要分開>\" 重跑，理由會寫進 review-log.tsv。" >&2
+      exit 1
+    fi
+    mkdir -p "$(dirname "$REVIEW_LOG")"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(tmp_repo_key "$repo")" "$(git -c color.ui=false diff --staged | git hash-object --stdin)" "new-commit" "-" "-" "$new_commit_reason" "-" "-" >> "$REVIEW_LOG"
+    echo "=== HEAD 未推、另開一顆 commit：理由已記進 review-log.tsv（$new_commit_reason）==="
   fi
 
   # === 真閘 2：TOCTOU — 比對當下 staged diff 與 prepare 時被審查的那份 ===
@@ -2985,7 +3020,13 @@ $new_body"
   echo "--- last commit ---"
   git -c color.ui=false log --oneline -1
   echo ""
-  echo "備份分支 $backup_branch 保留著。確認無誤後可刪：git branch -D $backup_branch"
+  # 驗證已通過（parent 未變、改寫後的樹等於改寫前的 index），備份分支沒有保留價值——留著只會累積垃圾，
+  # 而且使用者講過很多次「備份完確認一致就要刪」（2026-10-19 健檢實測 28 次）。當場刪，並把刪的依據印出來。
+  if git branch -D "$backup_branch" >/dev/null 2>&1; then
+    echo "=== 備份分支 $backup_branch 已刪除（驗證通過：parent $(git rev-parse --short "$after_parent") 未變、tree $after_tree 與改寫前的 index 一致）==="
+  else
+    echo "WARNING: 備份分支 $backup_branch 刪不掉，請手動：git branch -D $backup_branch" >&2
+  fi
 }
 
 
@@ -3216,14 +3257,15 @@ Commands:
                                     Type 不在允許清單／描述超長／痕跡命中／內文超過行數、過寬或含痕跡
                                     不帶 range 時：有 upstream 掃未推的，否則掃最近 20 顆
                                     exit 0=乾淨、1=有問題、2=range 無效。交付 patch 或推上游前先跑一次
-  ship    <repo> <type> <desc> [--body "<一兩句>"] [--push] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace] [--allow-message-trace]
+  ship    <repo> <type> <desc> [--body "<一兩句>"] [--push] [--new-commit "<理由>"] [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace] [--allow-message-trace]
                                     真閘(署名/單行/message痕跡+長度/diff-hash/敏感字/建置產物/AI痕跡)
                                     → git commit → 驗證；--body 是選填內文（最多 3 行，每行寬度同描述上限）
                                     預設只 local commit；--push 才推遠端（需使用者明確核可）
                                     分支沒有 upstream 時 --push 自動改用 git push -u <remote> HEAD
+                                    HEAD 是這一輪剛建、還沒推上遠端時預設拒絕另開一顆（同輪追加修正要 amend 併進 HEAD）；真要分開帶 --new-commit "<理由>"
   amend   <repo> --confirm-rewrite [--type <Type> --desc <描述> [--body "<一兩句>"]] [--allow-*]
                                     改寫 HEAD。自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘
-                                    改寫後做 tree 級重現驗證（證明只動了 staged 的那幾個檔案）
+                                    改寫後做 tree 級重現驗證（證明只動了 staged 的那幾個檔案），通過即刪備份分支並印證據
                                     不帶 --type/--desc 則沿用既有 message；只做本地改寫，不 push
 
 repo 參數：
@@ -3254,7 +3296,7 @@ Examples:
 Notes:
   - 禁止 --no-verify、禁止 force push（旗標層不提供）
   - amend 走 flow.sh amend <repo> --confirm-rewrite：自動建備份分支、擋已 push 的 commit、
-    沿用 ship 的全部真閘，改寫後做 tree 級重現驗證（證明只動了 staged 的那幾個檔案）
+    沿用 ship 的全部真閘，改寫後做 tree 級重現驗證（證明只動了 staged 的那幾個檔案），通過即刪備份分支並印證據
   - 預設 local commit only：未帶 --push 不會推遠端，且保留 diff hash（未 push 不算完成）
   - Commit message 禁止任何 AI 署名——ship 會機制級攔截（assert_no_signature），非僅提醒
   - 新增行的註解禁止引用外部文件出處（CLAUDE.md / skill / 設計文件 / §章節號）——

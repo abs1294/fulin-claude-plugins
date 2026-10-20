@@ -48,8 +48,8 @@
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾、自己切 hunk stage 時用） | 1.2 Stage／Merge 收尾 |
 | `flow.sh check-msg <repo> <type> "<desc>" [--body "<一兩句>"]` | 只檢查 commit message（判準同 ship），預覽給使用者看之前先跑，免得核可後到 ship 才被擋 | 1.3a 預覽前 |
 | `flow.sh review-record <repo> --codex "<回覆>" --reviewer "<回覆>"` | 把兩軌回覆原文綁定到當下 staged diff；回覆的結論行（第一個非空行，不是的話看最後一個；跟 hook 同一套規則）須為 `VERDICT: PASS`，不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的；理由含 usage limit／quota／額度等字樣也不收——額度用完要排重跑）。豁免改用 `--exempt "<理由>"`，可加 `--qa "<QA 狀態>"`。專案有 `.claude/qa-gate.conf` 時另做兩道檢查：該 repo 的 staged 有行為類檔卻沒帶 `--qa "已QA：…"`／`--qa "分流例外：…"` 就拒絕記錄；設了 `block_staged_overrides=1` 時 staged 混進本機覆寫清單上的檔也拒絕，`--allow-overrides "<理由>"` 放行並記進流水帳。至少一軌 BLOCK、且這一輪的 Codex 仲裁回 `RULING: EDGE` 時加 `--edge "<剩下哪幾項>"`（兩軌都 BLOCK 也收）：寫成預設豁免紀錄；沒有仲裁結果或判 GENERAL 拒收。hook 抓到某一軌的回覆時，貼的結論要跟抓到的一致 | 1.4 匯流後 |
-| `flow.sh ship <repo> <type> "<desc>" [--body "<一兩句>"] [--push]` | 真閘（AI 署名／單行 subject／message 與內文的痕跡與寬度／diff hash／敏感字／建置產物／AI 痕跡）→ `git commit` → 驗證。**預設只本機 commit，`--push` 才推遠端**（需使用者當次核可）；分支沒有 upstream 時自動 `git push -u <remote> HEAD`；沒有 `review-record` 紀錄就拒絕 | Step 2 |
-| `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述> [--body "<一兩句>"]]` | 改寫 HEAD：自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘、改寫後做 tree 級驗證；只本機改寫不 push | 歷史改寫 |
+| `flow.sh ship <repo> <type> "<desc>" [--body "<一兩句>"] [--push] [--new-commit "<理由>"]` | 真閘（AI 署名／單行 subject／message 與內文的痕跡與寬度／diff hash／敏感字／建置產物／AI 痕跡）→ `git commit` → 驗證。**預設只本機 commit，`--push` 才推遠端**（需使用者當次核可）；分支沒有 upstream 時自動 `git push -u <remote> HEAD`；沒有 `review-record` 紀錄就拒絕。**HEAD 是這一輪 flow.sh 剛建、還沒推上遠端時預設拒絕另開一顆**（同輪追加修正要 `amend` 併進 HEAD）；真要分開帶 `--new-commit "<理由>"`，理由寫進 review-log.tsv | Step 2 |
+| `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述> [--body "<一兩句>"]]` | 改寫 HEAD：自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘、改寫後做 tree 級驗證，**通過即自動刪備份分支並印依據**（失敗才保留）；只本機改寫不 push | 歷史改寫 |
 | `flow.sh audit <repo> [<range>]` | 唯讀體檢既有 commit 的 message（空 message／缺 Type／超長／痕跡／內文超過 3 行、過寬或含痕跡）；交付 patch 或推上游前跑一次 | 交付前 |
 
 `<repo>` 是工作目錄底下的 git 子目錄名，或 `.`（工作目錄本身就是 repo）；不收絕對路徑。

@@ -27,6 +27,13 @@
 - 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
 - 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
 
+## [0.14.0] - 2026-10-20
+### Added
+- 追加修正閘：`ship` 在「HEAD 是這一輪 flow.sh 剛建的那顆（shipped 標記＝HEAD）、而且還沒推上遠端」時預設拒絕另開一顆 commit，指示 `flow.sh amend` 併進 HEAD（這份 staged 的審查紀錄沿用）；真的是獨立的一顆帶 `--new-commit "<理由>"`，理由寫進 review-log.tsv（使用者裁定「同輪追加修正一律 amend、不要一直留髒紀錄」；2026-10-19 健檢實測這句交代講了 28 次、流程都沒接住）。不是本流程建的未推 commit（init、別人的）、沒有 remote、merge 收尾、HEAD 是 merge commit（合併後接著做的改動不是 merge commit 的追加修正）都不管——第一版只看「HEAD 未推」，既有測試 P05（remote 叫 upstream、從沒推過的 init）實跑抓到；第二版漏了「merge 收尾那顆也會記進 shipped 標記」，審查時 Codex 抓到、新測試 M02 實跑確認後改成看 parent 數。
+- `tests/test_amend_cleanup_new_commit.sh`：36 案，涵蓋追加修正閘五種情況（含 merge 收尾後的下一顆不擋）、amend 兩種驗證通過後備份分支都刪、閘擋下時也不殘留、push-only 不受影響。
+### Changed
+- `amend` 驗證通過（parent 未變、改寫後的樹等於改寫前的 index）後自動刪掉備份分支並印出刪的依據；amend 失敗或驗證失敗才保留供還原（使用者裁定「備份完確認一致就要刪」，講了很多次）。SKILL.md 歷史改寫規則 1 同步：手動 rebase／reset 驗完也要自己刪。
+
 ## [0.13.0] - 2026-10-16
 ### Changed
 - 同類重複閘（機械閘）：BLOCK 那一輪要用 `review-record --block-classes "<根因類別>"` 記下（不放行 commit），沒記不能開下一輪 `prepare`（未送審就重送用 `prepare --redo`）；同一類別在同一批改動第二次出現就拒收，要附 `--rearchitect "<類別>：<改了什麼架構／判準>"` 或改走 `--edge`。SKILL.md 補「按類別一次修完、架構問題必修、文字比對類規則先定範圍交給審查者」。起因：敏感字規則逐案補寫法，同一批改動審了 32 輪。

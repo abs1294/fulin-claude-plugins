@@ -75,8 +75,8 @@ description: >
 | `review-record ... --qa "<QA 狀態>"`（選填；找得到 `.claude/qa-gate.conf` 時視情況必帶——依序從 repo 目錄、主 repo 目錄（worktree 時）、工作目錄往上逐層找） | QA 表態，與審查結果一起寫進紀錄與流水帳。專案有 `.claude/qa-gate.conf`（與 `local-overrides.yml` 同層）時由 flow.sh 強制：staged 含行為類檔（副檔名命中 `behavior_ext`、且不命中 `exclude`）就必須帶，值以 `已QA`（「已」與「QA」間可有空白、QA 大小寫不分）或 `分流例外` 開頭——`已QA：<報告或測試檔路徑＋綠的輸出行>`／`分流例外：<為何讀 code 就能確定>`；還沒 QA 就不得記錄，先派 QA 實測。沒有設定檔就不檢查 |
 | `review-record ... --allow-overrides "<理由>"` | 只在 `qa-gate.conf` 設了 `block_staged_overrides=1` 時有作用：staged 含 local-overrides 清單上的檔時 review-record 會拒收（多半是誤加，用 `git restore --staged <檔案>` 移出後重跑 prepare）；確實要推（例如檔內混有真改動、已用 `git apply --cached` 只 stage 真改動那幾行）才帶這個旗標，理由寫進 `review-log.tsv` 最後一欄 |
 | `flow.sh audit <repo> [<range>]` | 體檢既有 commit 的 message，唯讀。抓：空 message／缺 `Type:` 前綴／Type 不在允許清單／描述超長／痕跡命中／內文超過 3 行、過寬或含痕跡（軟清單命中另標「待確認」）。exit `0`＝乾淨、`1`＝有問題、`2`＝range 無效 |
-| `flow.sh ship <repo> <type> <description> [--body "<一兩句>"] [--push]` | commit → 驗證（內建禁 `--no-verify`/force push、過濾 AI 署名）。`--body` 是選填內文（見 Commit Message 規範）。**預設只 local commit；帶 `--push` 才推遠端**——push 不可逆，需使用者當次明確核可。分支沒有 upstream（新開的分支）時自動改用 `git push -u <remote> HEAD`，**不要自己另外組 push 指令** |
-| `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述> [--body "<一兩句>"]]` | 改寫 HEAD。自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘，改寫後做 tree 級重現驗證。不帶 `--type`/`--desc` 則沿用既有 message；**只做本地改寫，不 push** |
+| `flow.sh ship <repo> <type> <description> [--body "<一兩句>"] [--push] [--new-commit "<理由>"]` | **HEAD 是這一輪 flow.sh 剛建、還沒推上遠端的那顆時，預設拒絕另開一顆**（同輪追加修正一律 `flow.sh amend` 併進 HEAD，不留髒紀錄；真的是獨立的一顆才帶 `--new-commit "<理由>"`，理由寫進 `review-log.tsv`；不是本流程建的未推 commit、沒有 remote 的 repo、merge 收尾都不管）→ commit → 驗證（內建禁 `--no-verify`/force push、過濾 AI 署名）。`--body` 是選填內文（見 Commit Message 規範）。**預設只 local commit；帶 `--push` 才推遠端**——push 不可逆，需使用者當次明確核可。分支沒有 upstream（新開的分支）時自動改用 `git push -u <remote> HEAD`，**不要自己另外組 push 指令** |
+| `flow.sh amend <repo> --confirm-rewrite [--type <T> --desc <描述> [--body "<一兩句>"]]` | 改寫 HEAD。自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘，改寫後做 tree 級重現驗證，**通過即自動刪掉備份分支並印出驗證證據**（失敗才保留供還原）。不帶 `--type`/`--desc` 則沿用既有 message；**只做本地改寫，不 push** |
 
 `<repo>`＝`.` 或工作目錄下的 git 子目錄名（多 repo workspace 各自獨立 commit）。**不收絕對路徑**——要操作別處的 repo 先 `cd` 過去再用 `.`。兩種寫法指到同一個 repo 時，審查紀錄是同一份：紀錄、diff hash、補推標記、審查輪數都存在該 repo 的 git 目錄（`.git/git-commit-flow/`），跟怎麼呼叫無關。`<type>` 預設＝`Feat`/`Modify`/`Style`/`Refactor`/`Perf`/`Chore`/`Docs`/`Test`/`Fix`/`Hotfix`，專案可在設定檔改（見下節）。
 
@@ -411,11 +411,13 @@ prepare 發現還有未解衝突（`git diff --diff-filter=U` 有東西）會直
 
 改寫既有 commit（`rebase -i`／`--amend`／`reset`）同樣受本 skill 管轄——`git commit` 以外的改寫指令一樣會繞過全部真閘，禁令不因指令名稱不同而失效。
 
-**amend 走 `flow.sh amend <repo> --confirm-rewrite`**，下面第 1、4、5 條它會自動做（建備份分支、機械驗證、擋已 push 的改寫），第 2、3 條仍是你的責任。`rebase -i`／`reset` 尚無子命令封裝，需人工按本節規則走。
+**HEAD 是這一輪剛建、還沒推上遠端的 commit 時，同輪的追加修正一律 `flow.sh amend` 併進 HEAD、不另開一顆**（使用者裁定「不要一直留髒紀錄」）；`ship` 會機械擋下（見上表），真的是獨立的一顆才帶 `--new-commit "<理由>"`。
+
+**amend 走 `flow.sh amend <repo> --confirm-rewrite`**，下面第 1、4、5 條它會自動做（建備份分支、機械驗證、驗證通過刪備份分支、擋已 push 的改寫），第 2、3 條仍是你的責任。`rebase -i`／`reset` 尚無子命令封裝，需人工按本節規則走。
 
 規則：
 
-1. **改寫前必建備份分支**，並把分支名回報給使用者：`git branch backup/pre-<動作>-$(date +%H%M%S)`。回報的分支名一律複製**指令實際輸出**，不要憑記憶寫——名字裡有時戳，記錯了使用者就查不到。
+1. **改寫前必建備份分支**，並把分支名回報給使用者：`git branch backup/pre-<動作>-$(date +%H%M%S)`。回報的分支名一律複製**指令實際輸出**，不要憑記憶寫——名字裡有時戳，記錯了使用者就查不到。**確認一致後當場刪掉備份分支**（`flow.sh amend` 驗證通過會自動刪並印證據；手動 rebase／reset 驗完也要自己刪）——備份分支不是交付物，留著就是髒紀錄（使用者 2026-10-19 裁定）。
 2. **只改 message、不改碼** → 免三軌審查，但**每顆的新 message 都要過 §Commit Message 規範**（含痕跡與寬度）。
 3. **有改到碼** → 走完整三軌流程，等同新 commit（`flow.sh amend` 會檢查 `review-record` 紀錄，沒有就拒絕並清掉剛建的備份分支）。
 4. **改寫後必須機械驗證**，兩種情況驗法不同（用錯會得到假結論）：
