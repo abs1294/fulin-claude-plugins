@@ -90,9 +90,10 @@ function isGmailTool(name, suffixes) {
 }
 
 // 草稿送出去的文字：body + htmlBody 都算（htmlBody 也可能有裸網址）。
+// 簽名檔（使用者在 Gmail 設定的固定內容）不算本次寫的正文，先拿掉再掃。
 function draftText(input) {
   if (!input || typeof input !== 'object') return '';
-  return safeStr(input.body) + '\n' + safeStr(input.htmlBody);
+  return safeStr(input.body) + '\n' + stripSignature(input.htmlBody);
 }
 
 // 信裡有沒有網址。判準刻意寬鬆——漏提醒的代價遠高於多提醒一次。
@@ -935,7 +936,85 @@ function attachmentListMismatch(input) {
 }
 
 
+// ---- 簽名檔 ----
+// 2026-10-21 實測：create_draft 預設不帶 Gmail 網頁簽名檔，要 includeSignature: true 才會附上
+// （回覆草稿同樣有效）；update_draft 沒有這個參數，帶新的 htmlBody／body 會整段取代內文、
+// 簽名檔跟著消失。簽名檔在 htmlBody 裡是 <div class="gmail_signature">。
+const SIGNATURE_MARK = /class\s*=\s*["'][^"']*\bgmail_signature\b/i;
+
+function hasSignature(html) { return SIGNATURE_MARK.test(safeStr(html)); }
+
+// 把 htmlBody 裡整段簽名檔（<div class="gmail_signature" …> 到配對的 </div>）拿掉。
+// 內容掃描（機敏字、佔位符、標籤白名單、日報內容閘）掃的是「這次寫的正文」——簽名檔是使用者
+// 自己在 Gmail 設定的固定內容，裡面的電話、email、<span style> 不是本次產出，不該被報。
+function stripSignature(html) {
+  let s = safeStr(html);
+  // 每輪剝掉一份、s 一定變短，所以迴圈必然結束；上限只是保險
+  for (let guard = 0; guard < 1000; guard++) {
+    const m = /<div\b[^>]*class\s*=\s*["'][^"']*\bgmail_signature\b[^>]*>/i.exec(s);
+    if (!m) break;
+    const re = /<\/?div\b[^>]*>/gi;
+    re.lastIndex = m.index;
+    let depth = 0, end = -1, t;
+    while ((t = re.exec(s))) {
+      depth += t[0][1] === '/' ? -1 : 1;
+      if (depth === 0) { end = re.lastIndex; break; }
+    }
+    // 找不到配對的 </div> 就不剝：寧可把簽名當正文多報，也不要把後面的內容一起藏起來躲過內容閘
+    if (end === -1) break;
+    s = s.slice(0, m.index) + s.slice(end);
+  }
+  return s;
+}
+
+// 每封草稿的簽名狀態記在共用狀態檔：sig:<id>＝目前有簽名檔、nosig:<id>＝讀回確認沒有。
+// 由 gmail-draft-posttool-gate 在 get_draft 讀回／寫入成功時記，gmail-draft-signature-gate 讀。
+function signatureState(st, draftId) {
+  if (!st || !draftId) return null;
+  if (st.warned.indexOf('sig:' + draftId) !== -1) return 'sig';
+  if (st.warned.indexOf('nosig:' + draftId) !== -1) return 'nosig';
+  return null;
+}
+function setSignatureState(st, draftId, has) {
+  if (!st || !draftId) return false;
+  const on = (has ? 'sig:' : 'nosig:') + draftId, off = (has ? 'nosig:' : 'sig:') + draftId;
+  let changed = false;
+  const i = st.warned.indexOf(off);
+  if (i !== -1) { st.warned.splice(i, 1); changed = true; }
+  if (st.warned.indexOf(on) === -1) { st.warned.push(on); changed = true; }
+  return changed;
+}
+
+// 回傳問題字串；沒問題回 null。toolSuffix：'create_draft'／'update_draft'。
+// sigState：update_draft 用，這封草稿目前的簽名狀態（'sig'／'nosig'／null＝不知道）。
+function signatureProblem(toolSuffix, input, sigState) {
+  if (!input || typeof input !== 'object') return null;
+  const html = safeStr(input.htmlBody);
+  const hasMark = hasSignature(html);
+  if (toolSuffix === 'create_draft') {
+    if (input.includeSignature === true) {
+      return hasMark ? 'htmlBody 已含簽名檔（gmail_signature），又帶 includeSignature: true，會出現兩份' : null;
+    }
+    return hasMark ? null : '沒帶 includeSignature: true，草稿不會有使用者的簽名檔（create_draft 預設不加）';
+  }
+  if (toolSuffix === 'update_draft') {
+    const touchesBody = html.trim() !== '' || safeStr(input.body).trim() !== '';
+    if (!touchesBody || hasMark) return null;
+    if (sigState === 'nosig') return null;     // 讀回確認原本就沒有簽名檔，沒東西可弄丟
+    if (sigState === null || sigState === undefined) {
+      return '不知道這封草稿目前有沒有簽名檔（狀態檔裡沒有它的讀回紀錄），update_draft 會整段取代內文';
+    }
+    return html.trim() === ''
+      ? '只帶 body（純文字）會清掉 HTML 內文，簽名檔一起消失'
+      : '新的 htmlBody 沒有簽名檔（gmail_signature）；update_draft 會整段取代內文，簽名檔會消失';
+  }
+  return null;
+}
+
+
 module.exports = {
+  // 簽名檔
+  SIGNATURE_MARK, signatureProblem, hasSignature, stripSignature, signatureState, setSignatureState,
   // 常數
   REWRITE_MARK, WRITE_TOOLS, READ_TOOL, BANNED, STATE_DIR,
   // 工具名 / 取值

@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.1.0] - 2026-10-21
+### Changed
+- 草稿不得弄丟使用者的 Gmail 簽名檔：新增 PreToolUse 閘 gmail-draft-signature-gate（create_draft 沒帶 includeSignature: true 就擋；內文已有 gmail_signature 又帶 true 會變兩份也擋；update_draft 改內文卻沒保留 gmail_signature 就擋），update_draft 依草稿原本有沒有簽名判斷（posttool 閘在 get_draft 讀回／寫入成功時記 sig:/nosig: 狀態，沒讀回過要求先讀回，原本沒簽名的草稿放行）；posttool、Stop 閘與日報內容閘掃描前先用 stripSignature() 剝掉簽名檔，簽名裡的電話／email／網址不再被當成正文誤報或擋下。判準 draft-checks.core.js signatureProblem()／stripSignature()，測試 hooks/tests/signature-gate.test.js 42 例（含八項變異測試確認）。簽名 div 沒有配對結尾時不剝，避免把後面的內容藏起來躲過內容閘；純文字草稿讀回記為沒簽名。deliver-report SKILL.md 改正舊說法「Gmail 會自動附上簽名」（實測 create_draft 預設不加、update_draft 會清掉），daily-report MCP 草稿路徑補 includeSignature: true。2026-10-21 實案：建新信草稿後簽名檔不見。
+
 ## [2.0.0] - 2026-10-21
 ### Changed
 - test-report-docx 情境順序改照業務流程：情境改用不變的 key 識別，依 STAGES 分階段由 arrange() 排序並自動編號，補測插回所屬階段不再加在最後；新增 stage_rows／stage_starts／ref／conclusion，驗證範圍表、結論句、交叉引用由程式產生不手寫。排序閘擋空引用、漏排、重複、收容區階段名（補測／其他）；閘二要求 CASES 為 arrange() 回傳物件、同階段連續、scope 非空；閘三新增階段標題精確比對、驗證範圍表逐列比對、引用越界檢查。自測改為每種違規須被預期理由擋下（排序閘 12、閘二 14、閘三 4 種）。不相容：舊生成腳本（手寫 id、無 STAGES）會被閘二擋下，需改寫。

@@ -125,6 +125,13 @@ function toResultShape(tr) {
 }
 
 // 讀回是否帶 htmlBody——(I) 的 stale 記號只認這個：純文字版看不出使用者在編輯器裡改了哪些結構，不足以當底稿。
+function resultHtml(res) {
+  try {
+    const o = JSON.parse(C.resultText(res));
+    return (o && typeof o.htmlBody === 'string') ? o.htmlBody : '';
+  } catch (_) { return ''; }
+}
+
 function resultHasHtml(res) {
   const s = C.resultText(res);
   if (!s) return false;
@@ -197,6 +204,11 @@ function main(raw) {
       const stale = 'stale:' + draftId;
       const i = st.warned.indexOf(stale);
       if (i !== -1) { st.warned.splice(i, 1); C.writeState(st); }
+      // (J) 讀回的 htmlBody 有沒有簽名檔——原本就沒有的草稿，update 不必保留
+      if (C.setSignatureState(st, draftId, C.hasSignature(resultHtml(res)))) C.writeState(st);
+    } else if (draftId && res && C.resultHasBody(res)) {
+      // (J) 純文字草稿：讀回有內文卻沒有 htmlBody＝沒有 HTML 簽名檔，記 nosig，之後的 update 不會永遠被擋
+      if (C.setSignatureState(st, draftId, false)) C.writeState(st);
     }
     // (G) 讀回的附件區：有附件→提醒；確認為零→銷「reply 待檢查」記號
     const attCount = res ? C.resultAttachmentCount(res) : null;
@@ -246,8 +258,20 @@ function main(raw) {
       );
     }
 
+    // (J) 簽名狀態：create 帶 includeSignature:true 或內文有 gmail_signature → 有簽名；
+    //     update 改了內文 → 依新內文判斷（只改收件人／主旨不動狀態）。gmail-draft-signature-gate 據此判斷 update 會不會弄丟簽名
+    if (draftId) {
+      const newHtml = C.safeStr(toolInput.htmlBody);
+      const touches = newHtml.trim() !== '' || C.safeStr(toolInput.body).trim() !== '';
+      const isCreate = C.isGmailTool(toolName, 'create_draft');
+      if (isCreate || touches) {
+        const has = (isCreate && toolInput.includeSignature === true) || C.hasSignature(newHtml);
+        if (C.setSignatureState(st, draftId, has)) C.writeState(st);
+      }
+    }
+
     const text = C.draftText(toolInput);
-    const html = C.safeStr(toolInput.htmlBody);
+    const html = C.stripSignature(toolInput.htmlBody);
 
     if (text.trim()) {
       const ph = C.findPlaceholders(text);

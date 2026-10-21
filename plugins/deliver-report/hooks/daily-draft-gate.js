@@ -20,6 +20,10 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
+// 載入失敗就退回不剝簽名（行為同修改前）
+let stripSignature = (s) => String(s || '');
+try { stripSignature = require(path.join(__dirname, 'lib', 'draft-checks.core.js')).stripSignature; } catch (_) { /* 沿用預設 */ }
+
 const ROOT = path.join(__dirname, '..');
 const CONTENT_GUARD = path.join(ROOT, 'skills', 'daily-report', 'scripts', 'content_guard.py');
 const CHECK_DOC = path.join(ROOT, 'skills', 'check-before', 'scripts', 'check_doc.js');
@@ -85,7 +89,8 @@ function main(input) {
   const ti = (p && p.tool_input) || {};
   const isUpdate = /update_draft$/.test(String(p.tool_name || ''));
   const plain = typeof ti.body === 'string' ? ti.body : '';
-  const html = typeof ti.htmlBody === 'string' ? stripHtml(ti.htmlBody) : '';
+  // 簽名檔是使用者在 Gmail 設定的固定內容（含電話、email），不算日報內文，先拿掉再跑內容閘
+  const html = typeof ti.htmlBody === 'string' ? stripHtml(stripSignature(ti.htmlBody)) : '';
   // body 與 htmlBody 都要掃：同時提供時 htmlBody 才是對方實際看到的版本
   const body = [plain, html].filter((x) => x.trim()).filter((x, i, a) => a.indexOf(x) === i).join('\n\n');
 

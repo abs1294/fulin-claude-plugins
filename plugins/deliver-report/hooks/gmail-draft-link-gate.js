@@ -282,7 +282,7 @@ function main(raw) {
       );
     }
 
-    const badTags = disallowedTags(safeStr(b.input && b.input.htmlBody));
+    const badTags = disallowedTags(stripSignature(b.input && b.input.htmlBody));
     if (badTags.length) {
       once(id ? 'tag:' + id : null, () =>
         '\u25a0 htmlBody 用了白名單以外的標籤或屬性：' + badTags.join('\u3001') + '\n' +
@@ -295,7 +295,7 @@ function main(raw) {
     }
 
     {
-      const html = safeStr(b.input && b.input.htmlBody);
+      const html = stripSignature(b.input && b.input.htmlBody);
       const lists = handTypedLists(html);
       if (lists.length) {
         once(id ? 'list:' + id : null, () =>
@@ -351,7 +351,7 @@ function isGmailTool(name, suffixes) {
 // 草稿送出去的文字：body + htmlBody 都算（htmlBody 也可能有裸網址）。
 function draftText(input) {
   if (!input || typeof input !== 'object') return '';
-  return safeStr(input.body) + '\n' + safeStr(input.htmlBody);
+  return safeStr(input.body) + '\n' + stripSignature(input.htmlBody);
 }
 
 // 信裡有沒有網址。判準刻意寬鬆——漏提醒的代價遠高於多提醒一次。
@@ -947,3 +947,25 @@ function isUserPromptLine(o) {
 }
 
 function safeStr(x) { return typeof x === 'string' ? x : ''; }
+
+// 簽名檔（使用者在 Gmail 設定的固定內容）不算本次寫的正文，內容掃描前先拿掉。
+// 與 lib/draft-checks.core.js 的 stripSignature 同一份判準；漂移比對在 tests/signature-gate.test.js。
+function stripSignature(html) {
+  let s = safeStr(html);
+  // 每輪剝掉一份、s 一定變短，所以迴圈必然結束；上限只是保險
+  for (let guard = 0; guard < 1000; guard++) {
+    const m = /<div\b[^>]*class\s*=\s*["'][^"']*\bgmail_signature\b[^>]*>/i.exec(s);
+    if (!m) break;
+    const re = /<\/?div\b[^>]*>/gi;
+    re.lastIndex = m.index;
+    let depth = 0, end = -1, t;
+    while ((t = re.exec(s))) {
+      depth += t[0][1] === '/' ? -1 : 1;
+      if (depth === 0) { end = re.lastIndex; break; }
+    }
+    // 找不到配對的 </div> 就不剝：寧可把簽名當正文多報，也不要把後面的內容一起藏起來躲過內容閘
+    if (end === -1) break;
+    s = s.slice(0, m.index) + s.slice(end);
+  }
+  return s;
+}

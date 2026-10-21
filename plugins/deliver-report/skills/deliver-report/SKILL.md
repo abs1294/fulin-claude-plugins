@@ -455,7 +455,9 @@ location = /connect.php { return 307 https://www.example.com$request_uri; }</pre
 
 重點：**標籤之間不留空行**（要空一行就寫 `<br><br>`）；**序號用 `<ol><li>`、同一點的補充行用 `<br>` 接在同一個 `<li>` 裡**（如上例「改完確認」）；但 **`<pre>` 裡面的換行照舊保留**——
 多行設定就是靠它才貼得出來，實測兩種寫法下 `<pre>` 內的換行都不會被動。
-- **不要在草稿裡加簽名檔**——Gmail 會自動附上使用者設定的簽名，重複加會出現兩份。結尾寫到「Best Regards,」加名字即可，或連名字都不寫讓簽名檔接手（看使用者習慣）。
+- **簽名檔由 `includeSignature: true` 帶，內文不要自己打**（2026-10-21 實測推翻舊說法「Gmail 會自動附上」）：`create_draft` 預設**不加**簽名檔，必須帶 `includeSignature: true`（回覆草稿同樣適用，簽名會插在正文與引用原信之間）；內文再自己打一份會變兩份。結尾寫到「Best Regards,」加名字即可，或連名字都不寫讓簽名檔接手（看使用者習慣）。
+- **`update_draft` 會把簽名檔一起清掉**：它沒有 `includeSignature` 參數，帶新的 `htmlBody` 會整段取代內文。改草稿時以 `get_draft` 讀回的 `htmlBody` 為底（要點 6），讀回內容裡整段 `<div class="gmail_signature" …>…</div>` 原樣留在結尾；不要只帶 `body`（會清掉 HTML 內文）。
+- **機械閘**：PreToolUse 閘 `gmail-draft-signature-gate`——`create_draft` 沒帶 `includeSignature: true`、內文已有簽名又帶 `includeSignature: true`（兩份）、`update_draft` 改了內文卻弄丟原本的 `gmail_signature`，都直接擋下。草稿原本有沒有簽名以 `get_draft` 讀回為準：沒讀回過會被要求先讀回；讀回確認原本就沒有簽名（舊草稿、網頁建的）就直接放行。只管草稿：`send_message`／`reply` 直接寄出的信不會帶簽名檔，要寄給外部的信一律先建草稿。
 
 **這也是預設走 `htmlBody` 的理由之一：信裡有網址／指令／設定內容時，純文字 `body` 會被 Gmail 竄改。**
 

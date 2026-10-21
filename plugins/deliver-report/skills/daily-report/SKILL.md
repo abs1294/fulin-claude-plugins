@@ -189,7 +189,7 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/send_gmail.py" --repor
 同樣先 dry-run 再實寄。臨時改收件人用 `--to a@x,b@y`（會連 config 的 cc 一併清空，避免自我測試誤寄主管）。
 
 **C. MCP 建草稿**（session 有 `mcp__claude_ai_Gmail__create_draft`；工具未載入先 ToolSearch）
-`create_draft`：`to`/`cc` 讀 config、`subject`=`<subject_prefix> <date> 工作日報`、`body`=markdown 原文、`htmlBody`=`send_gmail.py` 的 `md_to_html()` 轉換結果。完成後告知「草稿已在你的 Gmail 草稿匣，過目後自己按送出」——**按送出即人工核可**，本 skill 不代按。
+`create_draft`：`to`/`cc` 讀 config、`subject`=`<subject_prefix> <date> 工作日報`、`body`=markdown 原文、`htmlBody`=`send_gmail.py` 的 `md_to_html()` 轉換結果、`includeSignature: true`（預設不帶簽名檔；沒帶會被 `gmail-draft-signature-gate` 擋下）。完成後告知「草稿已在你的 Gmail 草稿匣，過目後自己按送出」——**按送出即人工核可**，本 skill 不代按。
 
 ## 定時觸發（`schedule` 區塊，自續鏈）
 
