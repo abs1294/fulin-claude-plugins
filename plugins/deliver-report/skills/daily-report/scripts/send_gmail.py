@@ -262,9 +262,16 @@ def main():
     print("寄件人 : {} <{}>".format(cfg.get("from_name", ""), smtp["user"]))
     if cfg.get("_project_config"):
         print("來源   : " + cfg["_project_config"] + "（專案層覆寫收件人）")
-    sc.print_preview(plan, "Gmail SMTP", args.dry_run)
+    # SMTP 不經 Gmail 網頁，不會自動帶簽名檔；設定檔有 OAuth 授權時借它讀簽名，沒有就標明未附上
+    try:
+        from gmail_oauth import fetch_signature
+        sig_html, sig_why = fetch_signature(cfg, sender_email=smtp["user"])
+    except Exception as e:  # noqa: BLE001  簽名檔抓不到不擋寄送
+        sig_html, sig_why = None, "讀取簽名檔時出錯：{}".format(e)
+    sc.print_preview(plan, "Gmail SMTP", args.dry_run, sig_why if sig_html else "未附上——" + sig_why)
     if args.dry_run:
         return
+    md, html = sc.append_signature(plan.md, md_to_html(plan.md), sig_html)
 
     # 本檔只負責「怎麼把郵件送出去」：組 MIME → SMTP 連線
     msg = MIMEMultipart("alternative")
@@ -273,8 +280,8 @@ def main():
     msg["To"] = ", ".join(plan.recipients)
     if plan.cc:
         msg["Cc"] = ", ".join(plan.cc)
-    msg.attach(MIMEText(plan.md, "plain", "utf-8"))
-    msg.attach(MIMEText(md_to_html(plan.md), "html", "utf-8"))
+    msg.attach(MIMEText(md, "plain", "utf-8"))
+    msg.attach(MIMEText(html, "html", "utf-8"))
 
     try:
         ctx = ssl.create_default_context()

@@ -21,6 +21,7 @@ send_common.py — 兩條寄送路徑（Gmail API OAuth / SMTP）共用的「寄
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -241,14 +242,37 @@ def mark_sent(plan, channel):
         pass
 
 
-def print_preview(plan, channel_label, dry_run):
-    """兩條路徑一致的預覽輸出。"""
+def append_signature(md, html, sig_html):
+    """把 Gmail 簽名檔接在日報結尾。回傳 (純文字, HTML)。sig_html 為空就原樣回傳。
+
+    HTML 版照 Gmail 網頁版的結構包 <div class="gmail_signature">；純文字版用慣例分隔線「-- 」
+    加上去掉標籤後的簽名文字。簽名內容是使用者在 Gmail 設定的，不經內容閘（內容閘在這之前已跑完）。
+    """
+    if not sig_html or not str(sig_html).strip():
+        return md, html
+    import html as _html
+    text = re.sub(r"<(style|script)\b[^>]*>.*?</\1\s*>", "", str(sig_html), flags=re.I | re.S)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"</(div|p|li|tr)>", "\n", text, flags=re.I)
+    text = _html.unescape(re.sub(r"<[^>]+>", "", text))
+    text = "\n".join(ln.rstrip() for ln in text.splitlines())
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    md2 = md.rstrip("\n") + "\n\n-- \n" + text + "\n"
+    block = '<br><div class="gmail_signature" data-smartmail="gmail_signature">' + str(sig_html) + "</div>"
+    html2 = (html + block) if html else None
+    return md2, html2
+
+
+def print_preview(plan, channel_label, dry_run, signature=None):
+    """兩條路徑一致的預覽輸出。signature：簽名檔狀態說明（None＝這條路徑不處理簽名）。"""
     print("管道     : " + channel_label)
     print("收件人   : " + ", ".join(plan.recipients))
     if plan.cc:
         print("副本     : " + ", ".join(plan.cc))
     print("主旨     : " + plan.subject)
     print("內文     : {} 字".format(len(plan.md)))
+    if signature is not None:
+        print("簽名檔   : " + signature)
     if dry_run:
         print("\n--dry-run：未寄送。內文前 10 行：")
         for ln in plan.md.splitlines()[:10]:

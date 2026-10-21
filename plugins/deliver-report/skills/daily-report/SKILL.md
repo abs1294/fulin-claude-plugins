@@ -321,6 +321,9 @@ OAuth 管道跑 `gmail_oauth.py doctor`——五項全綠才算完成。常見�
 | `invalid_grant` | 授權已失效 | 重跑 `setup` |
 | `授權範圍不含 gmail.send` | scope 不對 | 重跑 `setup` 重新授權 |
 | `收件人未設定` | 缺 recipients | 問使用者收件人並寫進 config |
+| `[–] 簽名檔  授權範圍不含 gmail.settings.basic` | 2026-10-21 前的授權，讀不到 Gmail 簽名檔（不擋寄送，只是不附簽名） | 請使用者重跑 `setup` 重新授權（要在瀏覽器按允許，只能使用者做） |
+
+**簽名檔（2026-10-21 起）**：SMTP 與 OAuth 直寄都不經 Gmail 網頁，不會自動帶簽名。兩條路寄送前都用 OAuth 的 `gmail.settings.basic` 讀寄件帳號在 Gmail 設好的簽名（只用實際寄件地址對得上的身分：SMTP 用 `smtp.user`、OAuth 用 `from_email`；對不上就不附，以免附到另一個 Google 帳號的簽名；沒有寄件地址才用預設身分），HTML 版接成 `<div class="gmail_signature">`、純文字版用「-- 」分隔附上。預覽多一行「簽名檔：已附上／未附上——原因」；抓不到（舊授權、沒有 OAuth、帳號沒設簽名）**照常寄送**，原因寫在預覽裡給使用者看。`gmail.settings.basic` 讀不到信件內容，但同時能改基本設定（Google 沒有唯讀設定的權限；能唯讀的 `gmail.readonly` 會讀到全部信件，所以不採用）。MCP 草稿路徑改由 `includeSignature: true` 帶簽名（見方案 C）。
 
 其他管道（app password / MCP 草稿）跑 `setup_gate.py status`，看到 `SETUP_OK` 才算完成。
 

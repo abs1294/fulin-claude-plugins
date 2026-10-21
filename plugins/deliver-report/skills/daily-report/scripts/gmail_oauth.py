@@ -20,7 +20,9 @@ gmail_oauth.py — Gmail API OAuth 授權與寄送（選項 B：使用者自帶 
 - 帶 PKCE（S256）——即使 client_secret 被看到（桌面 app 本來就藏不住），
   授權碼也無法被第三方攔截兌換。
 - state 隨機值防 CSRF。
-- scope 只要 gmail.send（唯寄不能讀），最小權限。
+- scope：gmail.send（寄信）＋ gmail.settings.basic（讀寄件帳號的簽名檔，2026-10-21 起）。
+  兩者都讀不到信件內容。settings.basic 是 Gmail 能讀簽名檔的最小權限（Google 沒有唯讀設定版；
+  gmail.readonly 會讀到全部信件，不採用）。舊授權沒有這個範圍時照常寄送，只是不附簽名並提示重跑 setup。
 """
 import argparse
 import base64
@@ -48,10 +50,12 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
 
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".claude", "daily-report")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
-SCOPE = "https://www.googleapis.com/auth/gmail.send"
+SCOPE = ("https://www.googleapis.com/auth/gmail.send "
+         "https://www.googleapis.com/auth/gmail.settings.basic")
 AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 SEND_URI = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+SENDAS_URI = "https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs"
 CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9._-]+\.apps\.googleusercontent\.com$")
 
 SUCCESS_HTML = """<!doctype html><meta charset="utf-8">
@@ -59,7 +63,7 @@ SUCCESS_HTML = """<!doctype html><meta charset="utf-8">
 <body style="font-family:-apple-system,'Segoe UI','Microsoft JhengHei',sans-serif;
 text-align:center;padding:60px;color:#222">
 <h2>✅ 授權完成</h2>
-<p>daily-report 已取得寄信授權（僅 gmail.send，無法讀取你的信件）。</p>
+<p>daily-report 已取得寄信與讀取簽名檔的授權（gmail.send、gmail.settings.basic，無法讀取你的信件）。</p>
 <p style="color:#666">可以關掉這個分頁，回到終端機繼續。</p>
 </body>"""
 
@@ -197,7 +201,8 @@ def cmd_setup(args):
     print("  • 請選擇要用來寄日報的 Gmail 帳號")
     print("  • 若看到「Google 尚未驗證這個應用程式」→ 點「進階」→「前往（不安全）」")
     print("    （這是因為此 OAuth 用戶端是你自己建立、未送 Google 驗證，屬正常）")
-    print("  • 授權範圍只有「代您傳送電子郵件」，無法讀取信件")
+    print("  • 授權範圍：「代您傳送電子郵件」＋「管理基本郵件設定」（用來讀你在 Gmail 設好的簽名檔，")
+    print("    附在日報結尾）；兩者都無法讀取信件內容")
     print()
     print("若瀏覽器沒自動開，手動貼上這個網址：")
     print("  " + auth_url)
@@ -284,6 +289,63 @@ def access_token(oauth):
     if not tok.get("access_token"):
         die("Google 未回傳 access_token：" + json.dumps(tok)[:200], 2)
     return tok["access_token"]
+
+
+def fetch_signature(cfg, token=None, sender_email=None):
+    """抓寄件帳號在 Gmail 設好的簽名檔 HTML。回傳 (html, 說明)；抓不到時 html 為 None。
+
+    不會中止程式：簽名檔抓不到不該擋住日報寄送，由呼叫端在預覽裡標明「未附上」與原因。
+    任何例外（逾時、連線被切斷…）都轉成「抓不到」的說明。
+
+    sender_email：這封信實際的寄件地址（SMTP 路徑傳 smtp.user；OAuth 路徑省略＝from_email）。
+    有寄件地址就只用對得上的那個寄件身分，對不上就不附——寧可不附，也不附到別人的簽名
+    （SMTP 帳號與 OAuth 授權的可能是不同的 Google 帳號）。沒有寄件地址才用預設身分。
+    """
+    try:
+        return _fetch_signature(cfg, token, sender_email)
+    except Exception as e:  # noqa: BLE001  簽名檔抓不到不擋寄送
+        return None, "讀取簽名檔時出錯：{}: {}".format(type(e).__name__, str(e)[:150])
+
+
+def _fetch_signature(cfg, token, sender_email):
+    oauth = cfg.get("oauth") or {}
+    if token is None:
+        if not all(oauth.get(k) for k in ("client_id", "client_secret", "refresh_token")):
+            return None, "沒有 OAuth 授權，抓不到 Gmail 簽名檔（跑 gmail_oauth.py setup）"
+        try:
+            token = post_form(TOKEN_URI, {
+                "client_id": oauth["client_id"], "client_secret": oauth["client_secret"],
+                "refresh_token": oauth["refresh_token"], "grant_type": "refresh_token",
+            }).get("access_token")
+        except RuntimeError as e:
+            return None, "換發 access_token 失敗：{}".format(str(e)[:150])
+        if not token:
+            return None, "Google 未回傳 access_token"
+    req = urllib.request.Request(SENDAS_URI, headers={"Authorization": "Bearer " + token})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        if e.code == 403 and ("insufficient" in detail.lower() or "scope" in detail.lower()):
+            return None, ("授權範圍不含 gmail.settings.basic（2026-10-21 前的授權）——"
+                          "重跑 gmail_oauth.py setup 重新授權即可附上簽名檔")
+        return None, "讀取簽名檔失敗 HTTP {}：{}".format(e.code, detail[:150])
+    except (urllib.error.URLError, json.JSONDecodeError) as e:
+        return None, "讀取簽名檔失敗：{}".format(e)
+    identities = data.get("sendAs") or []
+    want = str(sender_email if sender_email is not None else (cfg.get("from_email") or "")).strip().lower()
+    if want:
+        pick = next((s for s in identities if str(s.get("sendAsEmail", "")).lower() == want), None)
+        if not pick:
+            return None, ("寄件地址 {} 不在 OAuth 授權帳號的寄件身分裡（可能是不同的 Google 帳號），"
+                          "不附簽名以免附到別人的".format(want))
+    else:
+        pick = next((s for s in identities if s.get("isDefault")), None)
+    sig = (pick or {}).get("signature") or ""
+    if not sig.strip():
+        return None, "Gmail 帳號沒有設定簽名檔（{}）".format((pick or {}).get("sendAsEmail") or "找不到寄件身分")
+    return sig, "已附上 {} 的 Gmail 簽名檔".format(pick.get("sendAsEmail"))
 
 
 def probe_send_api(token):
@@ -405,6 +467,11 @@ def cmd_doctor(args):
     else:
         print("  [–] {:<12} {}".format("寄件帳號", "未取得（不影響寄送，預覽會少顯示一行）"))
 
+    # 非阻斷項：簽名檔抓不到照樣能寄，只是日報結尾沒有簽名（預覽與這裡都會講原因）
+    if token:
+        sig, why = fetch_signature(cfg, token)
+        print("  [{}] {:<12} {}".format("✓" if sig else "–", "簽名檔", why))
+
     # 5. 收件人——只認專案層（與 send_common.resolve_recipients 同紀律）。
     # 家目錄的 recipients 不算數，否則 doctor 會顯示「借用來的」收件人為綠燈，
     # 讓使用者以為設好了，實際寄送時卻被拒（或誤寄）。
@@ -470,9 +537,12 @@ def cmd_send(args):
     plan = sc.prepare_send(args, cfg)
     if cfg.get("_project_config"):
         print("收件人來源: " + cfg["_project_config"] + "（專案層覆寫）")
-    sc.print_preview(plan, "Gmail API（OAuth, gmail.send）", args.dry_run)
+    # 簽名檔抓取不會中止程式（dry-run 沒授權時照常預覽，只標明未附上）
+    sig_html, sig_why = fetch_signature(cfg)
+    sc.print_preview(plan, "Gmail API（OAuth, gmail.send）", args.dry_run, sig_why if sig_html else "未附上——" + sig_why)
     if args.dry_run:
         return
+    token = access_token(oauth)
 
     # 本檔只負責「怎麼把郵件送出去」：換 HTML → 組 MIME → 打 Gmail API
     html = None
@@ -482,8 +552,8 @@ def cmd_send(args):
     except Exception:
         pass  # 轉換不可用就只寄純文字，不因排版問題擋住寄送
 
-    token = access_token(oauth)
-    raw = build_message(plan.md, plan.subject,
+    md, html = sc.append_signature(plan.md, html, sig_html)
+    raw = build_message(md, plan.subject,
                         {"email": cfg.get("from_email", ""), "name": cfg.get("from_name", "")},
                         plan.recipients, plan.cc, html)
     req = urllib.request.Request(

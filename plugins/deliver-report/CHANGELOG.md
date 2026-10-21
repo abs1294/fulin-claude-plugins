@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.2.0] - 2026-10-21
+### Changed
+- daily-report 直寄的日報自動附上 Gmail 簽名檔：OAuth 授權新增 gmail.settings.basic（讀寄件帳號簽名，仍讀不到信件），SMTP 與 OAuth 兩條路寄送前讀簽名（只用實際寄件地址對得上的寄件身分：SMTP 用 smtp.user、OAuth 用 from_email；對不上就不附，以免附到另一個 Google 帳號的簽名；沒有寄件地址才用預設身分；逾時等任何網路例外都轉成「未附上」不中止），HTML 接 gmail_signature 區塊、純文字以「-- 」分隔附上；預覽與 doctor 多一行簽名檔狀態，舊授權／沒有 OAuth／帳號沒設簽名時照常寄送並寫明原因。測試 hooks/tests/daily-signature.test.py 22 例（含三項變異測試確認）；以舊授權實跑 doctor 與 send --dry-run 確認權限不足時不中止。
+
 ## [2.1.0] - 2026-10-21
 ### Changed
 - 草稿不得弄丟使用者的 Gmail 簽名檔：新增 PreToolUse 閘 gmail-draft-signature-gate（create_draft 沒帶 includeSignature: true 就擋；內文已有 gmail_signature 又帶 true 會變兩份也擋；update_draft 改內文卻沒保留 gmail_signature 就擋），update_draft 依草稿原本有沒有簽名判斷（posttool 閘在 get_draft 讀回／寫入成功時記 sig:/nosig: 狀態，沒讀回過要求先讀回，原本沒簽名的草稿放行）；posttool、Stop 閘與日報內容閘掃描前先用 stripSignature() 剝掉簽名檔，簽名裡的電話／email／網址不再被當成正文誤報或擋下。判準 draft-checks.core.js signatureProblem()／stripSignature()，測試 hooks/tests/signature-gate.test.js 42 例（含八項變異測試確認）。簽名 div 沒有配對結尾時不剝，避免把後面的內容藏起來躲過內容閘；純文字草稿讀回記為沒簽名。deliver-report SKILL.md 改正舊說法「Gmail 會自動附上簽名」（實測 create_draft 預設不加、update_draft 會清掉），daily-report MCP 草稿路徑補 includeSignature: true。2026-10-21 實案：建新信草稿後簽名檔不見。
