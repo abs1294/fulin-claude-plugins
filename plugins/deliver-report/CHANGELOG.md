@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.2.2] - 2026-10-21
+### Fixed
+- Gmail 草稿附件預設改用瀏覽器代上傳：attachments（base64）要模型逐字輸出整個檔案，2026-10-21 實測 13.4 KB zip 兩次建草稿各 486、498 秒才送出，畫面像當掉。SKILL.md 要點 5、6 改為 create_draft 先不帶附件、再用瀏覽器對草稿 viewUrl 的 file input 上傳，改內文後也用瀏覽器重傳；base64 只在瀏覽器不能用時才用，且先告訴使用者大小與預估時間。attach-handback-gate、posttool 提醒與 README 的代附路徑順序同步改為瀏覽器優先。Stop 閘 upload-count-gate 新增跨回合檢查：本 session 用瀏覽器上傳過附件的草稿，之後某回合 update_draft 沒帶 attachments（附件被清掉）且回合結束前沒重傳就擋下（舊版只在本回合有上傳時才檢查，新流程下「下一輪改內文」會完全漏掉）；上傳歸屬改成單一判準、兩段檢查（本回合清單比對、跨回合清附件）共用：只認瀏覽器導覽工具帶的草稿網址（viewUrl 的 msg-a:<草稿 id>），逐分頁（tabId）記錄各分頁開著哪封，導覽到非草稿頁（草稿匣列表等）只清該分頁；判斷不出時僅在 session 只寫過一封草稿時歸給它，否則不歸屬不檢查；本回合清單比對改為依草稿分組各自比對。舊判準「上傳前最近一次寫入」在多封草稿交錯時會擋錯對象（可能引導把 A 的附件傳進 B）、漏抓、誤認重傳。建草稿回傳抽不到 id 但 session 只有一封草稿時用那封的寫入比對。測試 upload-count 36 例（含多封交錯、兩個分頁、草稿匣點入、非導覽工具帶網址、兩封各比各的清單、抽不到 id；五條規則各自改回舊寫法都有測試轉紅）。posttool (H) 提醒改為提示下一步（□），不再把預期步驟標成缺陷。
+
 ## [2.2.1] - 2026-10-21
 ### Fixed
 - daily-report 補寄件信箱（from_email）一直沒寫進設定檔：setup 讀 id_token 的那段因授權範圍沒有 openid 從未生效、doctor 改打 users/me/profile 實測回 403 Insufficient Permission 且錯誤被吞掉。兩處改從 sendAs 清單取 isPrimary 的信箱（gmail.settings.basic 範圍內），讀不到回 None 不中止；setup 一律以這次授權的帳號為準（換帳號重跑時覆寫舊值，讀不到就清掉舊值），刪除永遠拿不到 id_token 的死碼並改正錯誤註解。測試 daily-signature.test.py 26 例。

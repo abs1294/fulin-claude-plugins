@@ -93,10 +93,11 @@ function main(raw) {
     '以下句子把附檔丟回給使用者自己做：', '',
     ...hits.map((h) => '   ・' + h), '',
     '附檔是做得到的事（SKILL.md 第三步之三 要點 5）：',
-    '   ① 合計 ≤25MB：create_draft／update_draft 帶 attachments（base64）；',
-    '      update_draft 不帶 attachments 會清掉既有附件，重附時要全部一起帶。',
-    '   ② 不想轉 base64 或檔案較大：瀏覽器開草稿的 viewUrl（authuser 指到草稿所在帳號），',
-    '      對附件的 file input 用 file_upload 上傳，按「儲存並關閉」，再從草稿匣重新打開確認附件區。',
+    '   ① 預設：瀏覽器開草稿的 viewUrl（authuser 指到草稿所在帳號），對附件的 file input 用',
+    '      file_upload 上傳，按「儲存並關閉」，再從草稿匣重新打開確認附件區。幾秒完成。',
+    '      update_draft 會清掉既有附件——改完內文再用瀏覽器重新上傳。',
+    '   ② 瀏覽器不能用時才用 attachments（base64，合計 ≤25MB）：模型要逐字輸出整個檔案，',
+    '      13 KB 實測約 8 分鐘，動手前先告訴使用者檔案大小與預估等待時間。',
     '   ③ 真的代附不了：回覆裡寫一行「無法代附：<理由>」並改寫信裡的取檔方式。',
   ];
   if (payload.stop_hook_active === true) {

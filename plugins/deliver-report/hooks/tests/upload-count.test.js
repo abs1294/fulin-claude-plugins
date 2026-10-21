@@ -41,6 +41,15 @@ function t(label, lines, want, mustContain, extra) {
 }
 const U = 'C:\\out\\';
 
+// 跨回合清附件（2026-10-21 審查重現：上傳在前一回合、改內文在下一回合，舊版完全不檢查）
+const created = (id, draftId, input, asString) => [call(id, 'mcp__claude_ai_Gmail__create_draft', input),
+  { type: 'user', toolUseResult: {}, message: { content: [{ type: 'tool_result', tool_use_id: id, is_error: false,
+    content: asString ? JSON.stringify({ id: draftId, threadId: 't' }) : [{ type: 'text', text: JSON.stringify({ id: draftId, threadId: 't' }) }] }] } }];
+const upd = (id, input) => [call(id, 'mcp__claude_ai_Gmail__update_draft', input), result(id)];
+// 瀏覽器打開草稿：參數帶 viewUrl（真實形狀：…compose=thread-f:…%2Bmsg-a:<草稿 id>）
+const nav = (id, draftId, name) => [call(id, name || 'mcp__claude-in-chrome__navigate',
+  { url: 'https://mail.google.com/mail/?authuser=x#all?compose=thread-f:18796%2Bmsg-a:' + draftId, tabId: 1 }), result(id)];
+const upTo = (id, draftId, paths) => [...nav('n' + id, draftId), ...up(id, paths)];
 console.log('=== 應擋 ===');
 const reason = t('實案：清單 3 個，瀏覽器只傳 2 個', [
   prompt('寫回信'), ...draft('d1', { htmlBody: LIST3 }),
@@ -58,15 +67,116 @@ t('傳錯檔（個數對、檔名不對）', [
 t('Playwright 的 browser_file_upload 也算', [
   prompt('x'), ...draft('d1', { htmlBody: LIST3 }), ...up('u1', [U + 'a.docx'], 'mcp__playwright__browser_file_upload'),
 ], 'block', '實際上傳了 1 個');
-t('上傳完又 update_draft 不帶 attachments → 附件被清掉', [
-  prompt('x'), ...draft('d1', { htmlBody: LIST3 }), ...up('u1', [U + 'a.docx', U + 'b.xlsx', U + 'c.zip']),
-  call('d2', 'mcp__claude_ai_Gmail__update_draft', { draftId: 'r1', subject: '改主旨' }), result('d2'),
+t('上傳完又 update_draft 不帶 attachments → 附件被清掉（create 回傳帶真實 id，update 指同一封）', [
+  prompt('x'), ...created('d1', 'r-1879000000000000022', { htmlBody: LIST3 }), ...up('u1', [U + 'a.docx', U + 'b.xlsx', U + 'c.zip']),
+  call('d2', 'mcp__claude_ai_Gmail__update_draft', { draftId: 'r-1879000000000000022', subject: '改主旨' }), result('d2'),
 ], 'block', '整批清掉');
+const ALL3 = [U + 'a.docx', U + 'b.xlsx', U + 'c.zip'];
+t('跨回合：前一回合上傳完，這回合 update_draft 改內文、沒重傳 → 擋', [
+  prompt('寫信'), ...created('c1', 'r-1879000000000000000', { htmlBody: LIST3, includeSignature: true }), ...upTo('u1', 'r-1879000000000000000', ALL3),
+  prompt('第二段改一下'), ...upd('d2', { draftId: 'r-1879000000000000000', htmlBody: LIST3 + '<br>改過' }), say('改好了'),
+], 'block', '先前用瀏覽器上傳過附件');
+t('跨回合：只改主旨也會清附件 → 擋', [
+  prompt('寫信'), ...created('c1', 'r2215269328682791539', { htmlBody: LIST3 }, true), ...upTo('u1', 'r2215269328682791539', ALL3),
+  prompt('改主旨'), ...upd('d2', { draftId: 'r2215269328682791539', subject: '新主旨' }),
+], 'block', 'r2215269328682791539');
+t('跨回合：Playwright 開草稿網址也認得', [
+  prompt('寫信'), ...created('c1', 'r-1879000000000000002', { htmlBody: LIST3 }), ...nav('n1', 'r-1879000000000000002', 'mcp__playwright__browser_navigate'), ...up('u1', ALL3),
+  prompt('改'), ...upd('d2', { draftId: 'r-1879000000000000002', htmlBody: LIST3 }),
+], 'block', 'r-1879000000000000002');
+t('跨回合：第二次 Stop 仍沒重傳 → 改提醒放行', [
+  prompt('寫信'), ...created('c1', 'r-1879000000000000001', { htmlBody: LIST3 }), ...upTo('u1', 'r-1879000000000000001', ALL3),
+  prompt('改'), ...upd('d2', { draftId: 'r-1879000000000000001', htmlBody: LIST3 }),
+], 'remind', '已擋過一次', { stop_hook_active: true });
+// 多封草稿交錯（2026-10-21 審查實測：舊判準「上傳前最近一次寫入」會擋錯、漏抓、誤認重傳）
+t('多封：建 A、建 B、傳給 A；下一回合改 A 沒重傳 → 擋（舊判準漏抓）', [
+  prompt('寫兩封'), ...created('c1', 'r-1879000000000000007', { htmlBody: LIST3 }), ...created('c2', 'r-1879000000000000009', { htmlBody: '<div dir="ltr">B</div>' }),
+  ...upTo('u1', 'r-1879000000000000007', ALL3),
+  prompt('改 A'), ...upd('d2', { draftId: 'r-1879000000000000007', htmlBody: LIST3 + '<br>改過' }),
+], 'block', 'r-1879000000000000007');
+t('多封：改了 A 沒重傳，接著把附件傳給 C → 仍擋 A（舊判準誤認為重傳）', [
+  prompt('寫'), ...created('c1', 'r-1879000000000000008', { htmlBody: LIST3 }), ...upTo('u1', 'r-1879000000000000008', ALL3),
+  prompt('改 A、另建 C'), ...upd('d2', { draftId: 'r-1879000000000000008', htmlBody: LIST3 }),
+  ...created('c3', 'r-1879000000000000010', { htmlBody: LIST3 }), ...upTo('u3', 'r-1879000000000000010', ALL3),
+], 'block', 'r-1879000000000000008');
 t('第二次 Stop 仍不符 → 改提醒放行', [
   prompt('x'), ...draft('d1', { htmlBody: LIST3 }), ...up('u1', [U + 'a.docx']),
 ], 'remind', '已擋過一次', { stop_hook_active: true });
 
 console.log('=== 應放行 ===');
+t('跨回合：改內文後同回合開回同一封重傳 3 個 → 放行', [
+  prompt('寫信'), ...created('c1', 'r-1879000000000000003', { htmlBody: LIST3 }), ...upTo('u1', 'r-1879000000000000003', ALL3),
+  prompt('改'), ...upd('d2', { draftId: 'r-1879000000000000003', htmlBody: LIST3 + '<br>改過' }), ...upTo('u2', 'r-1879000000000000003', ALL3), say('改好並重傳'),
+], 'allow');
+t('跨回合：改的是另一封沒上傳過附件的草稿 → 不出聲', [
+  prompt('寫信'), ...created('c1', 'r-1879000000000000004', { htmlBody: LIST3 }), ...upTo('u1', 'r-1879000000000000004', ALL3),
+  ...created('c2', 'r-1879000000000000014', { htmlBody: '<div dir="ltr">別封</div>' }),
+  prompt('改別封'), ...upd('d2', { draftId: 'r-1879000000000000014', htmlBody: '<div dir="ltr">別封改過</div>' }),
+], 'allow');
+t('多封：建 A、建 B、傳給 A；下一回合只改 B → 不擋（舊判準擋錯對象）', [
+  prompt('寫兩封'), ...created('c1', 'r-1879000000000000011', { htmlBody: LIST3 }), ...created('c2', 'r-1879000000000000012', { htmlBody: '<div dir="ltr">B</div>' }),
+  ...upTo('u1', 'r-1879000000000000011', ALL3),
+  prompt('改 B'), ...upd('d2', { draftId: 'r-1879000000000000012', htmlBody: '<div dir="ltr">B 改過</div>' }),
+], 'allow');
+t('上傳前沒開草稿網址、session 寫過兩封（判斷不出是哪封）→ 不歸屬、不擋', [
+  prompt('寫信'), ...created('c1', 'r-1879000000000000013', { htmlBody: LIST3 }),
+  ...created('c2', 'r-1879000000000000015', { htmlBody: '<div dir="ltr">另一封</div>' }), ...up('u1', ALL3),
+  prompt('改'), ...upd('d2', { draftId: 'r-1879000000000000013', htmlBody: LIST3 }),
+], 'allow');
+t('從草稿匣列表點進去上傳（導覽到非草稿頁會清掉歸屬）→ 不算傳給先前開過的那封', [
+  prompt('寫兩封'), ...created('c1', 'r-1879000000000000016', { htmlBody: LIST3 }),
+  ...created('c2', 'r-1879000000000000017', { htmlBody: LIST3 }),
+  ...nav('n1', 'r-1879000000000000017'),
+  call('n2', 'mcp__claude-in-chrome__navigate', { url: 'https://mail.google.com/mail/#drafts', tabId: 1 }), result('n2'),
+  ...up('u1', ALL3),
+  prompt('改 B'), ...upd('d2', { draftId: 'r-1879000000000000017', htmlBody: LIST3 }),
+], 'allow');
+t('草稿網址出現在非導覽工具（例如寫檔）→ 不算打開那封', [
+  prompt('寫兩封'), ...created('c1', 'r-1879000000000000018', { htmlBody: LIST3 }),
+  ...created('c2', 'r-1879000000000000019', { htmlBody: '<div dir="ltr">B</div>' }),
+  ...nav('n1', 'r-1879000000000000018'),
+  call('w1', 'Write', { file_path: 'x.md', content: 'https://mail.google.com/#all?compose=x%2Bmsg-a:r-1879000000000000019' }), result('w1'),
+  ...up('u1', ALL3),
+  prompt('改 B'), ...upd('d2', { draftId: 'r-1879000000000000019', htmlBody: '<div dir="ltr">B 改過</div>' }),
+], 'allow');
+t('兩個分頁：分頁 1 開 A、分頁 2 開 B，在分頁 1 傳 A 的 3 個檔 → 放行（不算給 B）', [
+  prompt('寫兩封'), ...created('c1', 'r-1879000000000000023', { htmlBody: LIST3 }),
+  ...created('c2', 'r-1879000000000000024', { htmlBody: '<div dir="ltr">附件 1 份：<br><ol><li>d.pdf — 說明</li></ol></div>' }),
+  call('n1', 'mcp__claude-in-chrome__navigate', { url: 'https://mail.google.com/#all?compose=x%2Bmsg-a:r-1879000000000000023', tabId: 1 }), result('n1'),
+  call('n2', 'mcp__claude-in-chrome__navigate', { url: 'https://mail.google.com/#all?compose=x%2Bmsg-a:r-1879000000000000024', tabId: 2 }), result('n2'),
+  call('u1', 'mcp__claude-in-chrome__file_upload', { paths: ALL3, ref: 'ref_1', tabId: 1 }), result('u1'),
+], 'allow');
+t('兩個分頁：在分頁 1 只傳 A 的 2 個檔 → 擋 A（不是 B）', [
+  prompt('寫兩封'), ...created('c1', 'r-1879000000000000025', { htmlBody: LIST3 }),
+  ...created('c2', 'r-1879000000000000026', { htmlBody: '<div dir="ltr">B</div>' }),
+  call('n1', 'mcp__claude-in-chrome__navigate', { url: 'https://mail.google.com/#all?compose=x%2Bmsg-a:r-1879000000000000025', tabId: 1 }), result('n1'),
+  call('n2', 'mcp__claude-in-chrome__navigate', { url: 'https://mail.google.com/#all?compose=x%2Bmsg-a:r-1879000000000000026', tabId: 2 }), result('n2'),
+  call('u1', 'mcp__claude-in-chrome__file_upload', { paths: [U + 'a.docx', U + 'b.xlsx'], ref: 'ref_1', tabId: 1 }), result('u1'),
+], 'block', '實際上傳了 2 個');
+t('create 回傳抽不到 id、只有一封草稿、開網址後少傳 → 仍擋（2026-10-11 主情境）', [
+  prompt('寫信'), ...draft('d1', { htmlBody: LIST3 }), ...nav('n1', 'r-1879000000000000027'), ...up('u1', [U + 'a.docx', U + 'b.xlsx']),
+], 'block', '實際上傳了 2 個');
+t('Playwright（沒有分頁編號）：開 A、寫檔帶 B 的網址、上傳 → 仍算給 A；下一回合改 B 不擋', [
+  prompt('寫兩封'), ...created('c1', 'r-1879000000000000028', { htmlBody: LIST3 }),
+  ...created('c2', 'r-1879000000000000029', { htmlBody: '<div dir="ltr">B</div>' }),
+  call('n1', 'mcp__playwright__browser_navigate', { url: 'https://mail.google.com/#all?compose=x%2Bmsg-a:r-1879000000000000028' }), result('n1'),
+  call('w1', 'Write', { file_path: 'x.md', content: 'https://mail.google.com/#all?compose=x%2Bmsg-a:r-1879000000000000029' }), result('w1'),
+  call('u1', 'mcp__playwright__browser_file_upload', { paths: ALL3 }), result('u1'),
+  prompt('改 B'), ...upd('d2', { draftId: 'r-1879000000000000029', htmlBody: '<div dir="ltr">B 改過</div>' }),
+], 'allow');
+t('同一回合兩封各自上傳：各比各的清單，不混算', [
+  prompt('寫兩封'), ...created('c1', 'r-1879000000000000020', { htmlBody: LIST3 }),
+  ...created('c2', 'r-1879000000000000021', { htmlBody: '<div dir="ltr">附件 1 份：<br><ol><li>d.pdf — 說明</li></ol></div>' }),
+  ...upTo('u1', 'r-1879000000000000020', ALL3), ...upTo('u2', 'r-1879000000000000021', [U + 'd.pdf']),
+], 'allow');
+t('跨回合：update_draft 自己用 API 帶了附件 → 不算清掉', [
+  prompt('寫信'), ...created('c1', 'r-1879000000000000005', { htmlBody: LIST3 }), ...upTo('u1', 'r-1879000000000000005', ALL3),
+  prompt('改'), ...upd('d2', { draftId: 'r-1879000000000000005', htmlBody: LIST3, attachments: [{ filename: 'a.docx', content: 'A' }] }),
+], 'allow');
+t('跨回合：update_draft 失敗（沒真的清掉）→ 不出聲', [
+  prompt('寫信'), ...created('c1', 'r-1879000000000000006', { htmlBody: LIST3 }), ...upTo('u1', 'r-1879000000000000006', ALL3),
+  prompt('改'), call('d2', 'mcp__claude_ai_Gmail__update_draft', { draftId: 'r-1879000000000000006', htmlBody: LIST3 }), result('d2', true),
+], 'allow');
 t('3 個都傳了（含重傳同一檔去重）', [
   prompt('x'), ...draft('d1', { htmlBody: LIST3 }), ...up('u1', [U + 'a.docx', U + 'b.xlsx']), ...up('u2', [U + 'b.xlsx', U + 'c.zip']),
 ], 'allow');
