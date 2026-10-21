@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.0.0] - 2026-10-21
+### Changed
+- test-report-docx 情境順序改照業務流程：情境改用不變的 key 識別，依 STAGES 分階段由 arrange() 排序並自動編號，補測插回所屬階段不再加在最後；新增 stage_rows／stage_starts／ref／conclusion，驗證範圍表、結論句、交叉引用由程式產生不手寫。排序閘擋空引用、漏排、重複、收容區階段名（補測／其他）；閘二要求 CASES 為 arrange() 回傳物件、同階段連續、scope 非空；閘三新增階段標題精確比對、驗證範圍表逐列比對、引用越界檢查。自測改為每種違規須被預期理由擋下（排序閘 12、閘二 14、閘三 4 種）。不相容：舊生成腳本（手寫 id、無 STAGES）會被閘二擋下，需改寫。
+
 ## [1.10.0] - 2026-10-20
 ### Changed
 - 改既有草稿不得覆蓋使用者的手改：新增 PreToolUse 閘 gmail-draft-stale-gate（update_draft 前必須有帶 htmlBody 的 get_draft 讀回，否則擋下；記號 stale:<draftId> 由 gmail-draft-posttool-gate 在寫入成功時記、讀回時銷）；SKILL.md 第三步之三新增要點 6（以讀回版本為底、列出使用者改了什麼、改完切段比對）；README 補說明；新增 hooks/tests/stale-draft.test.js（16 例，實跑兩支 hook 子程序、狀態目錄隔離）。2026-10-20 實案：使用者在 Gmail 介面刪掉的 repo 表格被上一版文字原樣寫回。
