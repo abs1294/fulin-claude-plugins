@@ -5,6 +5,7 @@
 # 把 urlopen／post_form 換成假的回應，驗：
 #   1. fetch_signature：選對寄件身分（from_email 對得上的 > 預設）、沒設簽名、
 #      權限不足（舊授權）、沒有 OAuth、換 token 失敗——都不中止、回傳原因
+#   1b. primary_send_as（補寄件信箱）：取 isPrimary、沒有就退回 isDefault、舊授權或逾時回 None
 #   2. append_signature：HTML 包 gmail_signature、純文字用「-- 」分隔且去掉標籤、沒簽名原樣回傳
 #   3. 預覽多一行「簽名檔」狀態；舊呼叫端不傳參數時不印
 # （端到端：2026-10-21 以舊授權實跑 gmail_oauth.py send --dry-run，預覽標出「未附上——授權範圍不含
@@ -133,6 +134,18 @@ go.post_form = raise_rt
 sig, why = go.fetch_signature(dict(OAUTH))
 check('換 token 失敗 → None，不中止', (sig, 'invalid_grant' in why), (None, True))
 go.post_form = lambda url, data: {'access_token': 'tok'}
+
+print('=== 1b. primary_send_as（補寄件信箱）===')
+go.urllib.request.urlopen = fake_urlopen({'sendAs': [
+    {'sendAsEmail': 'alias@example.com', 'isPrimary': False, 'isDefault': True},
+    {'sendAsEmail': 'me@example.com', 'isPrimary': True, 'isDefault': False}]})
+check('取 isPrimary 的信箱（不是預設別名）', go.primary_send_as('tok'), 'me@example.com')
+go.urllib.request.urlopen = fake_urlopen({'sendAs': [{'sendAsEmail': 'only@example.com', 'isDefault': True}]})
+check('沒有 isPrimary → 退回 isDefault', go.primary_send_as('tok'), 'only@example.com')
+go.urllib.request.urlopen = fake_urlopen(http_error=(403, 'insufficient scopes'))
+check('舊授權讀不到清單 → None，不中止', go.primary_send_as('tok'), None)
+go.urllib.request.urlopen = raise_timeout
+check('逾時 → None，不中止', go.primary_send_as('tok'), None)
 
 print('=== 2. append_signature ===')
 md, html = sc.append_signature('# 日報\n\n- 完成 A\n', '<b>日報</b><ul><li>完成 A</li></ul>', SIG_A)

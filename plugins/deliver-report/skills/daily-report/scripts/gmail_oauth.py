@@ -239,19 +239,15 @@ def cmd_setup(args):
     except RuntimeError as e:
         die("兌換 token 失敗：{}".format(e), 2)
 
-    # 順手記下授權帳號的信箱：日報表頭要顯示寄件者，而 OAuth 路徑的寄件地址
-    # 就是授權的那個帳號——這裡拿到就不必再問使用者一次。
-    # id_token 是 JWT，payload 段含 email；只解不驗（我們不用它做身分決策）。
-    try:
-        idt = tok.get("id_token") or ""
-        if idt.count(".") == 2:
-            payload = idt.split(".")[1]
-            payload += "=" * (-len(payload) % 4)
-            claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
-            if claims.get("email"):
-                cfg["from_email"] = claims["email"]
-    except (ValueError, KeyError, UnicodeDecodeError):
-        pass
+    # 記下授權帳號的信箱：預覽顯示寄件者、OAuth 寄送的 From、簽名檔比對寄件身分都用它。
+    # 一律以這次授權的帳號為準（換帳號重跑 setup 時舊值會錯）：讀得到就覆寫，讀不到就清掉舊值，
+    # 讓寄送改用授權帳號的預設身分，下次 doctor 再補。
+    # （不用 id_token：它只在授權範圍含 openid 時才給，本工具沒要 openid。）
+    email = primary_send_as(tok["access_token"]) if tok.get("access_token") else None
+    if email:
+        cfg["from_email"] = email
+    elif cfg.pop("from_email", None):
+        print("  （讀不到這個帳號的寄件信箱，已清掉設定檔裡舊的 from_email；之後跑 doctor 會再補）")
 
     refresh_token = tok.get("refresh_token")
     if not refresh_token:
@@ -289,6 +285,24 @@ def access_token(oauth):
     if not tok.get("access_token"):
         die("Google 未回傳 access_token：" + json.dumps(tok)[:200], 2)
     return tok["access_token"]
+
+
+def primary_send_as(token):
+    """授權帳號的主要寄件信箱（sendAs 清單裡 isPrimary 的那個；沒有就退回 isDefault）；
+    拿不到回 None，不中止。
+
+    舊授權（只有 gmail.send）讀不到這個清單，會回 None——重跑 setup 後才補得到。
+    """
+    try:
+        req = urllib.request.Request(SENDAS_URI, headers={"Authorization": "Bearer " + token})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        ids = data.get("sendAs") or []
+        pick = next((s for s in ids if s.get("isPrimary")), None) or next((s for s in ids if s.get("isDefault")), None)
+        email = str((pick or {}).get("sendAsEmail") or "").strip()
+        return email or None
+    except Exception:  # noqa: BLE001  補不到寄件信箱不影響寄送
+        return None
 
 
 def fetch_signature(cfg, token=None, sender_email=None):
@@ -439,26 +453,21 @@ def cmd_doctor(args):
     # 4.5 寄件帳號：舊版授權沒存 from_email，doctor 順手補回設定檔，
     # 免得使用者為了顯示寄件人而被要求重新授權。
     if token and not cfg.get("from_email"):
-        try:
-            # 用 Gmail 自己的 profile 端點：它在 gmail.send 的權限範圍內，
-            # 而 oauth2/userinfo 需要 userinfo.email scope（我們刻意不要那個）。
-            req = urllib.request.Request(
-                "https://gmail.googleapis.com/gmail/v1/users/me/profile",
-                headers={"Authorization": "Bearer " + token})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                info = json.loads(resp.read().decode("utf-8"))
-            info = {"email": info.get("emailAddress")}
-            if info.get("email"):
+        # 從寄件身分清單取主要身分（gmail.settings.basic 範圍內）。
+        # 舊寫法打 users/me/profile，2026-10-21 實測回 403 Insufficient Permission
+        # ——它不在 gmail.send／settings.basic 的範圍內，而錯誤被吞掉，所以從來沒補成功過。
+        email = primary_send_as(token)
+        if email:
+            try:
                 raw = {}
                 if os.path.exists(CONFIG_PATH):
                     with open(CONFIG_PATH, encoding="utf-8") as fh:
                         raw = json.load(fh)
-                raw["from_email"] = info["email"]
+                raw["from_email"] = email
                 save_config(raw)
-                cfg["from_email"] = info["email"]
-        except (urllib.error.HTTPError, urllib.error.URLError,
-                json.JSONDecodeError, OSError):
-            pass  # 補不到不影響寄送，只是顯示少一項
+                cfg["from_email"] = email
+            except (json.JSONDecodeError, OSError):
+                pass  # 寫不回設定檔不影響寄送，只是顯示少一項
 
     # 非阻斷項：拿不到寄件帳號只是預覽少一行，不該讓整體健檢判定失敗
     # （用裝飾性欄位擋住可用的設定，會讓使用者以為壞了）

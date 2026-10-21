@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.2.1] - 2026-10-21
+### Fixed
+- daily-report 補寄件信箱（from_email）一直沒寫進設定檔：setup 讀 id_token 的那段因授權範圍沒有 openid 從未生效、doctor 改打 users/me/profile 實測回 403 Insufficient Permission 且錯誤被吞掉。兩處改從 sendAs 清單取 isPrimary 的信箱（gmail.settings.basic 範圍內），讀不到回 None 不中止；setup 一律以這次授權的帳號為準（換帳號重跑時覆寫舊值，讀不到就清掉舊值），刪除永遠拿不到 id_token 的死碼並改正錯誤註解。測試 daily-signature.test.py 26 例。
+
 ## [2.2.0] - 2026-10-21
 ### Changed
 - daily-report 直寄的日報自動附上 Gmail 簽名檔：OAuth 授權新增 gmail.settings.basic（讀寄件帳號簽名，仍讀不到信件），SMTP 與 OAuth 兩條路寄送前讀簽名（只用實際寄件地址對得上的寄件身分：SMTP 用 smtp.user、OAuth 用 from_email；對不上就不附，以免附到另一個 Google 帳號的簽名；沒有寄件地址才用預設身分；逾時等任何網路例外都轉成「未附上」不中止），HTML 接 gmail_signature 區塊、純文字以「-- 」分隔附上；預覽與 doctor 多一行簽名檔狀態，舊授權／沒有 OAuth／帳號沒設簽名時照常寄送並寫明原因。測試 hooks/tests/daily-signature.test.py 22 例（含三項變異測試確認）；以舊授權實跑 doctor 與 send --dry-run 確認權限不足時不中止。
