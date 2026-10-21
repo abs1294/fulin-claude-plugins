@@ -2,6 +2,10 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.5.8] - 2026-10-22
+### Fixed
+- goal skill 新增 2a-2 有效性前提實查（會讓整份產出作廢的前提在 grill 前實跑查完）、禁止條件式 grill 題目；例外只能是局部的，會讓產出作廢的 blocker 改為中止條件（engine.js exceptionRules：引擎寫帳本【中止】後自己 --stop 終止 run）；propose-flow 與 delaylocal 同步
+
 ## [0.5.7] - 2026-10-09
 ### Fixed
 - detectWtf() 改先讀 wtf 0.18.0 起的使用者層寬度設定 ~/.claude/wtf/config.json，沒有才退回舊版資料夾裡最近一次填過的值（新版 wtf 資料夾不再帶 config.json）

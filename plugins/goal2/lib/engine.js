@@ -80,6 +80,17 @@ function selfSufficiency(task) {
   return { conversational_refs: refs, has_items: !!items, items_count: items ? items.split('\n').filter((l) => /^\s*(\d+[.)、]|[-*])\s+/.test(l)).length : 0, has_context: !!context, self_sufficient: refs.length === 0 || !!items };
 }
 
+/**
+ * 條件字面與例外條款（兩種 condSection 共用）。
+ * 中止條款的由來：2026-10-21 run 4536 查到兩個 worktree 切不到最新版，照「需使用者決策」列例外後
+ * 在新舊混搭環境跑了 7 小時，產出全數作廢；同輪還自己強制探針旗標繞過開跑閘。例外只能是局部的。
+ */
+function exceptionRules(runDir) {
+  const stopCmd = `node "${path.join(PLUGIN_ROOT, 'skills', 'goal', 'goal.js')}" --stop "${runDir}"`;
+  return `條件裡的數量與全稱照字面：「= 0」就是 0、「每一項」就是全部，不得自行放寬成「差不多」「主要的」。條件若含「例外清單內的項目不計」：例外只限真 blocker（需使用者決策／授權、外部系統不可用、缺只有使用者能給的祕密或資料、與任務書規範衝突），每項附證據＋原因，寫進帳本「決策與注意」並在最後回報以「例外清單」逐項列出；「太花時間」「不重要」不是例外。
+⛔ **例外只能是局部的；會讓整份產出失去意義的 blocker 是中止條件，不是例外**：例如做的對象不是任務要的版本（某部分切不到要測的版本）、環境不是任務要的那套、要跑下去得繞過開跑閘門或檢查（強制旗標、略過探針、改判定）。遇到這類，**不准列例外後照做其餘部分，也不准自己繞過**：立刻停手：先把「中止原因、證據原文、卡在哪、使用者要做什麼才能重跑」寫進帳本「決策與注意」最上方（標題寫【中止】），再用 Bash 前景執行 \`${stopCmd}\` 終止本 run——不要只結束回合（完成條件的檢查器會把你推回去空轉），也不要先等或先收尾其他工作。沒有人能回答你的問題，跑下去只會燒掉整晚的額度換一份作廢的結果。任務書的「脈絡與約束」若已明寫某情況該怎麼處理，照任務書。`;
+}
+
 function buildAnchor({ condition, conditionOverflow = false, task, workList, runDir, cwd = '', extra = '' }) {
   const items = extractItems(task);
   const context = extractContext(task);
@@ -87,13 +98,13 @@ function buildAnchor({ condition, conditionOverflow = false, task, workList, run
     ? `## 完成條件全文（/goal 第一行因 4000 字元上限只放指針句；引擎據此逐項驗收）
 ${condition}
 
-條件裡的數量與全稱照字面：「= 0」就是 0、「每一項」就是全部，不得自行放寬成「差不多」「主要的」。條件若含「例外清單內的項目不計」：例外只限真 blocker（需使用者決策／授權、外部系統不可用、缺只有使用者能給的祕密或資料、與任務書規範衝突），每項附證據＋原因，寫進帳本「決策與注意」並在最後回報以「例外清單」逐項列出；「太花時間」「不重要」不是例外。
+${exceptionRules(runDir)}
 
 ⚠️ 你的第一則回覆必須先把上面「完成條件全文」逐項原文貼出，再開始做事——檢查器要在對話裡看得到它。`
     : `## 完成條件（引擎據此驗收；達成才准停）
 ${condition}
 
-條件裡的數量與全稱照字面：「= 0」就是 0、「每一項」就是全部，不得自行放寬成「差不多」「主要的」。條件若含「例外清單內的項目不計」：例外只限真 blocker（需使用者決策／授權、外部系統不可用、缺只有使用者能給的祕密或資料、與任務書規範衝突），每項附證據＋原因，寫進帳本「決策與注意」並在最後回報以「例外清單」逐項列出；「太花時間」「不重要」不是例外。`;
+${exceptionRules(runDir)}`;
   // <!-- goal2:sec=… --> 是給 hooks/compact-anchor.js 切節用的標記（HTML 註解，對引擎是雜訊但無害）；任務書或條件裡自帶的「## 」標題不會被誤當節邊界
   return `# goal2 錨定（本區塊在系統提示中，每回合重送、上下文壓縮也不會消失）
 
