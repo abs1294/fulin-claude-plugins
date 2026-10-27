@@ -2643,6 +2643,26 @@ cmd_ship() {
 # 刻意不提供：已 push 的 commit 改寫（需 force push）。那是要停下來問人的情境，
 # 不是給旗標就放行——force push 會改寫別人已經拉過的歷史。
 # ------------------------------------------------------------
+# amend --date 的值：ISO 8601 含時區（+HH:MM／-HH:MM／Z），而且月份、當月天數（含閏年）、時分秒、時區都在範圍內。
+# 字形對但日期不存在（2 月 30 日、25 點）時，git 的處理不一致，有的報錯、有的靜默換成別的時間；
+# 外部 date 指令各平台行為也不同（BSD date 沒有 -d），所以全用 bash 自己算，不依賴外部指令。
+valid_iso_datetime() {
+  local re='^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(Z|[+-]([0-9]{2}):([0-9]{2}))$'
+  [[ "$1" =~ $re ]] || return 1
+  local y=$((10#${BASH_REMATCH[1]})) mo=$((10#${BASH_REMATCH[2]})) d=$((10#${BASH_REMATCH[3]}))
+  local h=$((10#${BASH_REMATCH[4]})) mi=$((10#${BASH_REMATCH[5]})) s=$((10#${BASH_REMATCH[6]}))
+  local oh=0 om=0
+  if [ -n "${BASH_REMATCH[8]}" ]; then oh=$((10#${BASH_REMATCH[8]})); om=$((10#${BASH_REMATCH[9]})); fi
+  # git 的時間是 1970 起算的秒數，更早的年份存不進去
+  [ "$y" -ge 1970 ] && [ "$mo" -ge 1 ] && [ "$mo" -le 12 ] || return 1
+  local mdays=(31 28 31 30 31 30 31 31 30 31 30 31) max
+  max="${mdays[$((mo - 1))]}"
+  if [ "$mo" -eq 2 ] && { [ $((y % 400)) -eq 0 ] || { [ $((y % 4)) -eq 0 ] && [ $((y % 100)) -ne 0 ]; }; }; then max=29; fi
+  # 時區偏移實際範圍是 -12:00～+14:00，這裡只擋明顯不可能的值
+  [ "$d" -ge 1 ] && [ "$d" -le "$max" ] && [ "$h" -le 23 ] && [ "$mi" -le 59 ] && [ "$s" -le 59 ] \
+    && [ "$oh" -le 14 ] && [ "$om" -le 59 ]
+}
+
 cmd_amend() {
   local allow_sensitive=0
   local allow_artifacts=0
@@ -2654,6 +2674,10 @@ cmd_amend() {
   local new_type=""
   local new_desc=""
   local new_body="" has_body=0
+  # 交付時程要求 commit 落在特定日期時用。git commit --amend 預設保留原 author date，
+  # 只靠 GIT_AUTHOR_DATE 環境變數改不到（實測：committer date 變了、author date 沒變，
+  # 而 git log 預設顯示的正是 author date）；要同時改兩個欄位得走 --date 加 GIT_COMMITTER_DATE。
+  local new_date=""
   local positional=()
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -2663,12 +2687,13 @@ cmd_amend() {
       --allow-message-trace) allow_message_trace=1; shift ;;
       --confirm-rewrite) confirm_rewrite=1; shift ;;
       # 缺值時 shift 2 在 set -e 下會無聲中止，先檢查
-      --type|--desc|--body)
+      --type|--desc|--body|--date)
         [ $# -lt 2 ] && { echo "ERROR: $1 後面缺內容。" >&2; exit 1; }
         case "$1" in
           --type) new_type="$2" ;;
           --desc) new_desc="$2" ;;
           --body) new_body="$(normalize_body "$2")"; has_body=1 ;;
+          --date) new_date="$2" ;;
         esac
         shift 2 ;;
       *) positional+=("$1"); shift ;;
@@ -2678,11 +2703,17 @@ cmd_amend() {
 
   local repo="${1:-}"
   if [ -z "$repo" ]; then
-    echo "Usage: flow.sh amend <repo> --confirm-rewrite [--type <Type> --desc <描述> [--body \"<一兩句>\"]] [--allow-*]" >&2
+    echo "Usage: flow.sh amend <repo> --confirm-rewrite [--type <Type> --desc <描述> [--body \"<一兩句>\"]] [--date <ISO 8601>] [--allow-*]" >&2
     echo "  不帶 --type/--desc：沿用 HEAD 既有 message（含內文）" >&2
+    echo "  --date：author date 與 committer date 一起改成這個時間（例 2026-10-23T10:15:00+08:00）" >&2
     exit 1
   fi
   assert_valid_repo "$repo"
+  # 格式在這裡擋下，不要等到建完備份分支才在 commit 那步失敗
+  if [ -n "$new_date" ] && ! valid_iso_datetime "$new_date"; then
+    echo "ERROR: --date 要寫成 ISO 8601 含時區、而且日期時間真的存在，例 2026-10-23T10:15:00+08:00 或 2026-10-23T02:15:00Z（收到：$new_date）" >&2
+    exit 1
+  fi
   load_commit_conf "$(resolve_repo_path "$repo")"
 
   if [ "$confirm_rewrite" -eq 0 ]; then
@@ -2937,7 +2968,12 @@ $new_body"
   # exit code 要在這裡抓：寫在 if 主體內的 $? 是 if 判斷本身的結果（恆為 0），
   # 而 local 宣告又會再覆寫一次 $?——兩者都會讓失敗回報成 exit 0。
   local amend_rc=0
-  git commit --amend -m "$final_msg" || amend_rc=$?
+  if [ -n "$new_date" ]; then
+    # --date 只管 author date；committer date 要靠環境變數，兩個一起給才會一致
+    GIT_COMMITTER_DATE="$new_date" git commit --amend --date="$new_date" -m "$final_msg" || amend_rc=$?
+  else
+    git commit --amend -m "$final_msg" || amend_rc=$?
+  fi
   if [ "$amend_rc" -ne 0 ]; then
     echo "" >&2
     echo "ERROR: git commit --amend 失敗（exit $amend_rc），歷史未被改寫。" >&2
@@ -3263,10 +3299,11 @@ Commands:
                                     預設只 local commit；--push 才推遠端（需使用者明確核可）
                                     分支沒有 upstream 時 --push 自動改用 git push -u <remote> HEAD
                                     HEAD 是這一輪剛建、還沒推上遠端時預設拒絕另開一顆（同輪追加修正要 amend 併進 HEAD）；真要分開帶 --new-commit "<理由>"
-  amend   <repo> --confirm-rewrite [--type <Type> --desc <描述> [--body "<一兩句>"]] [--allow-*]
+  amend   <repo> --confirm-rewrite [--type <Type> --desc <描述> [--body "<一兩句>"]] [--date <ISO 8601>] [--allow-*]
                                     改寫 HEAD。自動建備份分支、擋已 push 的 commit、沿用 ship 全部真閘
                                     改寫後做 tree 級重現驗證（證明只動了 staged 的那幾個檔案），通過即刪備份分支並印證據
                                     不帶 --type/--desc 則沿用既有 message；只做本地改寫，不 push
+                                    --date 把 author date 與 committer date 一起改成指定時間（例 2026-10-23T10:15:00+08:00）
 
 repo 參數：
   工作目錄底下的 git 子目錄名（多 repo workspace），或 "." 代表工作目錄本身就是 git repo。

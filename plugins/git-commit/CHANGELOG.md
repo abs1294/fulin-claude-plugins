@@ -27,6 +27,11 @@
 - 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
 - 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
 
+## [0.14.1] - 2026-10-27
+### Added
+- `amend --date <ISO 8601>`：author date 與 committer date 一起改成指定時間（交付時程要求 commit 落在特定日期時用）。`git commit --amend` 預設保留原 author date，只設 `GIT_AUTHOR_DATE` 改不到，實測 committer date 變了、author date 沒變；改走 `--date` 加 `GIT_COMMITTER_DATE`。格式在建備份分支前就擋：必須含時區（`+08:00` 或 UTC 的 `Z`），月份、當月天數（含閏年）、時分秒、時區偏移都要在範圍內。驗證全用 bash 自己算——第一版靠 GNU `date -d`，macOS 的 BSD date 沒有 `-d` 只能退回字形檢查，各平台行為不一致，審查連兩輪都卡在這裡，改成不依賴外部指令。
+- `tests/test_amend_cleanup_new_commit.sh` 補 25 案（D01–D07：格式不對、缺值、2 月 30 日、非閏年 2 月 29 日、4 月 31 日、24 點、60 分、+15:00、1970 年前都被擋且不留備份分支；閏年 2 月 29 日放行；合法時兩個日期都改、message 沿用；`Z` 寫法換算成同一個時間點），合計 61 案；以拒絕 `-d` 的 date 替身模擬 BSD 環境實跑結果相同。
+
 ## [0.14.0] - 2026-10-20
 ### Added
 - 追加修正閘：`ship` 在「HEAD 是這一輪 flow.sh 剛建的那顆（shipped 標記＝HEAD）、而且還沒推上遠端」時預設拒絕另開一顆 commit，指示 `flow.sh amend` 併進 HEAD（這份 staged 的審查紀錄沿用）；真的是獨立的一顆帶 `--new-commit "<理由>"`，理由寫進 review-log.tsv（使用者裁定「同輪追加修正一律 amend、不要一直留髒紀錄」；2026-10-19 健檢實測這句交代講了 28 次、流程都沒接住）。不是本流程建的未推 commit（init、別人的）、沒有 remote、merge 收尾、HEAD 是 merge commit（合併後接著做的改動不是 merge commit 的追加修正）都不管——第一版只看「HEAD 未推」，既有測試 P05（remote 叫 upstream、從沒推過的 init）實跑抓到；第二版漏了「merge 收尾那顆也會記進 shipped 標記」，審查時 Codex 抓到、新測試 M02 實跑確認後改成看 parent 數。

@@ -81,6 +81,30 @@ expect "A03 沒審查紀錄的 amend 被擋" 1 flow amend n1 --confirm-rewrite
 [ -z "$(backups n1)" ] && ok "A03b 擋下時也沒殘留 backup/* 分支" || bad "A03b 擋下時也沒殘留 backup/* 分支" "殘留：$(backups n1)"
 git -C "$(R n1)" restore --staged a.txt; git -C "$(R n1)" checkout -- a.txt
 
+# ================= 2b. amend --date：author date 與 committer date 一起改 =================
+expect "D01 --date 格式不對被擋" 1 flow amend n1 --confirm-rewrite --date "2026-10-23 10:15"
+has "D01b 訊息說明要 ISO 8601 含時區" "ISO 8601 含時區"
+[ -z "$(backups n1)" ] && ok "D01c 格式擋下時沒建備份分支" || bad "D01c 格式擋下時沒建備份分支" "殘留：$(backups n1)"
+expect "D02 --date 合法：只改 message 的 amend 成功" 0 flow amend n1 --confirm-rewrite --date "2026-10-23T10:15:00+08:00"
+[ "$(git -C "$(R n1)" log -1 --format=%aI)" = "2026-10-23T10:15:00+08:00" ] && ok "D02b author date 已改" || bad "D02b author date 已改" "$(git -C "$(R n1)" log -1 --format=%aI)"
+[ "$(git -C "$(R n1)" log -1 --format=%cI)" = "2026-10-23T10:15:00+08:00" ] && ok "D02c committer date 已改" || bad "D02c committer date 已改" "$(git -C "$(R n1)" log -1 --format=%cI)"
+[ "$(git -C "$(R n1)" log -1 --format=%s)" = "Fix: 再改一次名字" ] && ok "D02d message 沿用" || bad "D02d message 沿用"
+expect "D03 --date 缺值被擋" 1 flow amend n1 --confirm-rewrite --date
+expect "D04 --date 日期不存在被擋" 1 flow amend n1 --confirm-rewrite --date "2026-13-45T99:99:99+08:00"
+has "D04b 訊息說明日期時間要存在" "日期時間真的存在"
+[ -z "$(backups n1)" ] && ok "D04c 擋下時沒建備份分支" || bad "D04c 擋下時沒建備份分支" "殘留：$(backups n1)"
+for bad_date in 2026-02-30T10:00:00+08:00 2026-02-29T10:00:00+08:00 2100-02-29T10:00:00+08:00 2026-04-31T10:00:00+08:00 \
+                2026-10-23T24:00:00+08:00 2026-10-23T10:60:00+08:00 2026-10-23T10:15:00+15:00 1969-12-31T23:59:59Z; do
+  expect "D06 --date 不存在的值被擋：$bad_date" 1 flow amend n1 --confirm-rewrite --date "$bad_date"
+done
+[ -z "$(backups n1)" ] && ok "D06b 全部擋下時沒建備份分支" || bad "D06b 全部擋下時沒建備份分支" "殘留：$(backups n1)"
+expect "D07 閏年 2 月 29 日放行" 0 flow amend n1 --confirm-rewrite --date "2028-02-29T10:00:00+08:00"
+[ "$(git -C "$(R n1)" log -1 --format=%aI)" = "2028-02-29T10:00:00+08:00" ] && ok "D07b author date 是 2028-02-29" || bad "D07b author date 是 2028-02-29" "$(git -C "$(R n1)" log -1 --format=%aI)"
+expect "D05 --date 收 UTC 的 Z 寫法" 0 flow amend n1 --confirm-rewrite --date "2026-10-23T02:15:00Z"
+# 1792721700＝2026-10-23T02:15:00Z 的 epoch 秒數，寫死以免依賴 GNU date
+[ "$(git -C "$(R n1)" log -1 --format=%at)" = "1792721700" ] && ok "D05b author date 是同一個時間點" || bad "D05b author date 是同一個時間點" "$(git -C "$(R n1)" log -1 --format=%aI)"
+[ "$(git -C "$(R n1)" log -1 --format=%ct)" = "1792721700" ] && ok "D05c committer date 是同一個時間點" || bad "D05c committer date 是同一個時間點" "$(git -C "$(R n1)" log -1 --format=%cI)"
+
 # ================= 3. push-only 補推不受追加修正閘影響；推完 HEAD 已推 =================
 expect "P01 push-only 補推（沒有 staged）成功" 0 flow ship n1 Fix "再改一次名字" --push
 [ -n "$(git -C "$(R n1)" branch -r --contains HEAD)" ] && ok "P01b 推完 HEAD 在遠端分支上" || bad "P01b 推完 HEAD 在遠端分支上"
