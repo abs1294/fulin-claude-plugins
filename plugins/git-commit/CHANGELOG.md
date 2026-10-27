@@ -27,6 +27,17 @@
 - 2026-08-26 B 軌補「codex 拒絕在非 git 目錄啟動」的必死坑（使用者當次指示記錄）：subagent 預設 cwd 是 workspace 根、而根目錄不是 git repo，codex 會回 `Not inside a trusted directory` 即退出，現象與「算很久」完全相同（只送 idle、無 VERDICT），實證白等逾 1 小時。修正：prompt 開頭強制指定 `cd` 到 repo，並把「先跑最小題」提到「耐心等」之前。
 - 2026-08-25 B 軌等待門檻 5 分鐘 → 10 分鐘，改為「告知一次後續等、至多 1 小時」（使用者當次指示）。起因：原門檻 5 分鐘與同段實測「完整審查需 7 分鐘以上」自相矛盾，照規則走每次都必然打擾使用者一次。新規則下 10 分鐘只告知不停手，1 小時才是真正的停損點。
 
+## [0.15.0] - 2026-10-27
+### Added
+- 審查輪數進流水帳：`review-log.tsv` 最後加 `rounds`（這一批送審到第幾輪）與 `risk`（風險等級）兩欄，舊表頭第一次寫入時就地升級。原本輪數在 commit 後就被清掉，同一批審了幾輪事後查不到，收斂機制有沒有用無從量。四處寫流水帳的程式併成同一個函式，欄位順序只在一處定義。
+- 重審只看新的：第 2 輪起 `prepare` 產出 `staged-<repo>.prev-findings.md`（前幾輪 hook 抓到的兩軌意見、BLOCK 根因類別、方案重想，逐輪累積）與 `staged-<repo>.incremental.diff`（每輪記下當時 index 的 tree，拿上一輪那棵比）。SKILL.md 兩軌範本加【前幾輪已回報、不要重提】【這一輪的改動重點】兩段。
+- 方案重想閘：同一批送到第 `rethink_round` 輪（預設 3）起，`prepare` 要帶 `--rethink "<內容>"` 才放行，內容進流水帳（mode＝rethink）與下一輪的 prev-findings；不停下來問使用者。`--redo` 同一輪不必重寫；太短的表態擋下。
+- 風險分級：`prepare` 依 staged 內容判定低／一般／高。低（只改 .md、i18n 的值、單行註解）只送 C 軌，`review-record` 只在 prepare 判成低風險的那一份 diff 才收 `--codex "skipped: 低風險"`；高（命中 `high_risk_paths`）印專案的 `.claude/git-commit-reviewer-addendum-high.md` 接在 C 軌附加要求後面。設定鍵 `rethink_round`、`high_risk_paths`、`low_risk_i18n`。低風險的判定寧嚴勿寬：每個檔都要是一般檔的「修改」（.md 也一樣，新增、刪除、改名、二進位、symlink、submodule 不算）；i18n 用 python 解析 HEAD 與 staged 兩版 JSON，鍵、順序、巢狀、陣列長度都相同、只有葉節點的值不同才算（解析不了、有重複鍵、沒有 python 都不算）——送審時逐行比對的版本兩輪都被挖出新寫法（同一行兩個鍵、值後面接結構、非法數字、逗號增減），改成解析才一次涵蓋；註解寫法依副檔名認（`//` 只在 C 系語言，YAML 等資料檔以 `//` 開頭的行是資料）；只改檔案權限不算。
+- `review-eval.js`：審查者評測集。案例（含客戶程式碼）放專案自己的目錄；`build` 依修正 commit 產生「引入 bug 的改動」或乾淨改動，`run` 用 `claude -p --agent` 逐案跑審查者，`score` 算抓到與誤擋的件數。改審查者規則前後各跑一次。
+- `tests/test_review_convergence_0_15.sh`：100 案，涵蓋上述四項（含舊表頭升級、hook 抓到的回覆進 prev-findings、增量 diff 不含上一輪的新增行、上一輪的 tree 讀不到時照常送審、同一輪重送不重複附加方案重想、`rethink_round=0／1`、C# 的 `#region` 不算註解、上面那幾種不算低風險的 i18n 與註解寫法、壞掉的 JSON、新增與刪除 .md、symlink 改指向、只改權限、樣式不會被 shell 展開成工作目錄的檔名）。
+### Changed
+- 既有測試跟著新規格改判準（測的內容不變）：`test_qa_gate.sh` Q13c／Q13d／Q18b／Q18e 與 `test_review_gate.sh` T36c 原本寫死「allow_overrides 是最後一欄、一列 9 欄」，改成看第 9 欄與 11 欄；`test_feedback_0_13.sh` E04 第 3 輪補帶 `--rethink`。
+
 ## [0.14.1] - 2026-10-27
 ### Added
 - `amend --date <ISO 8601>`：author date 與 committer date 一起改成指定時間（交付時程要求 commit 落在特定日期時用）。`git commit --amend` 預設保留原 author date，只設 `GIT_AUTHOR_DATE` 改不到，實測 committer date 變了、author date 沒變；改走 `--date` 加 `GIT_COMMITTER_DATE`。格式在建備份分支前就擋：必須含時區（`+08:00` 或 UTC 的 `Z`），月份、當月天數（含閏年）、時分秒、時區偏移都要在範圍內。驗證全用 bash 自己算——第一版靠 GNU `date -d`，macOS 的 BSD date 沒有 `-d` 只能退回字形檢查，各平台行為不一致，審查連兩輪都卡在這裡，改成不依賴外部指令。

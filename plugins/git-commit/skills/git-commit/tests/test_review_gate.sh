@@ -258,7 +258,7 @@ edit r8 a.vue x
 flow prepare r8 a.vue >/dev/null
 expect "T36 帶 --qa 可記錄" 0 flow review-record r8 --codex "$PASS_REPLY" --reviewer "$PASS_REPLY" --qa $'已QA：tests/e2e/x.py\n 3 passed'
 grep -q "^qa=已QA：tests/e2e/x.py  3 passed$" "$(rec_of r8)" && ok "T36b QA 表態寫進紀錄（換行已攤平）" || bad "T36b QA 表態寫進紀錄（換行已攤平）" "$(grep '^qa=' "$(rec_of r8)")"
-grep -q $'\tr8\t.*\t已QA：tests/e2e/x.py  3 passed\t-$' "$LOG" && ok "T36c QA 表態寫進流水帳（最後一欄是 allow_overrides，未帶記 -）" || bad "T36c QA 表態寫進流水帳" "$(tail -1 "$LOG")"
+grep -q $'\tr8\t.*\t已QA：tests/e2e/x.py  3 passed\t-\t[^\t]*\t[^\t]*$' "$LOG" && ok "T36c QA 表態寫進流水帳（後面接 allow_overrides 未帶記 -，再接 rounds、risk）" || bad "T36c QA 表態寫進流水帳" "$(tail -1 "$LOG")"
 expect "T36d 帶 QA 的紀錄 ship 放行" 0 flow ship r8 Feat "帶 QA"
 edit r8 a.vue y
 flow prepare r8 a.vue >/dev/null

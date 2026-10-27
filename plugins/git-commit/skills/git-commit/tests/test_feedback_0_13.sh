@@ -253,7 +253,8 @@ flow review-record e1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --block-cl
 put e1 a.txt r2; flow prepare e1 a.txt >/dev/null
 flow review-record e1 --codex "$BLOCK_REPLY" --reviewer "$PASS_REPLY" --block-classes "另一類" >/dev/null
 put e1 a.txt r3
-expect "E04 改碼後 prepare 第 3 輪並提示" 0 flow prepare e1 a.txt
+# 0.15.0 起第 3 輪要先寫方案重想（test_review_convergence_0_15.sh 測閘本身）
+expect "E04 改碼後 prepare 第 3 輪並提示" 0 flow prepare e1 a.txt --rethink "兩輪是不同類別，做法本身沒問題，維持現在的寫法逐類修"
 has "E04b 印出第 3 輪門檻提示" "已到第 3 輪"
 has "E04c 預設不停下來問，修到只剩極端情境" "不要停下來問使用者"
 capture e1 arbiter "$EDGE_RULING"

@@ -49,10 +49,26 @@ description: >
      - **審查單（2026-10-19 起）**：`prepare` 每輪發一張審查單，派兩軌（與仲裁）時 prompt **第一行照抄**它印的那一行。plugin 自帶的 SubagentStop hook（`hooks/capture-review-reply.js`）在代理結束時讀派工內容找到審查單，把最後一則回覆原文存成 `.git/git-commit-flow/reply-<審查單>-<軌>`，flow.sh 以它為準：這一輪抓到 BLOCK、還沒記類別，`prepare` 一律擋（`--redo` 也不放）；`review-record` 貼的結論跟抓到的不同就拒收；記成通過後又抓到 BLOCK（重派那一軌），`ship` 拒絕。抓不到（派工沒帶審查單、hook 沒裝）時退回自陳：`--redo` 只能在真的還沒送審時用，`review-record` 會印「hook 抓到的回覆：無」。
      - 腳本擋不到、只靠自律的：類別名稱由 AI 填，換個名字躲比對擋不到；派工時刻意不帶審查單、自己寫回覆檔也擋不到——這道閘的範圍是防手滑、不防故意繞。腳本保證的是「每輪都要記、抓到 BLOCK 就一定要記、重複就要交代架構改法」。起因：敏感字規則逐案補寫法，同一批改動審了 32 輪；harness 0.5.0 的主機規則也是逐案補審了 13 輪，改成放行清單（失敗即擋）才收斂。
    - **極端情境由 Codex 判，不由主對話判**（改的人判自己的改動會偏向放過）：審查當下由兩軌判——每一項標 `[一般]` 或 `[極端]`，只有 `[一般]` 能回 BLOCK（範本見 1.3b／1.3c）。主對話認為某個 BLOCK 項目其實是極端情境或誤報時，**不能自己認定**，派一次 Codex 仲裁（見 1.4「極端情境仲裁」）：回 `RULING: EDGE` → `review-record <repo> --codex "<原文>" --reviewer "<原文>" --edge "<剩下哪幾項>"`，**這一輪就預設豁免**、寫成 `edge-exempt` 紀錄、可直接 ship，不再追；回 `RULING: GENERAL` → 那幾項就是一般問題，用 `--block-classes` 記下後修。仲裁回覆由 hook 抓（審查單的 `arbiter` 軌），**沒有仲裁結果 `--edge` 一律拒收**——沒裝 hook 的環境只能修掉，或請使用者明示 `--exempt`。仲裁結果只對發它的那張審查單有效，重跑 `prepare`、換一批改動都要重新仲裁。預設豁免時，預覽要明講「Codex 仲裁判定只剩極端情境，已預設豁免」，剩下的項目寫進交接紀錄。
+   - **重審只看新的、不重提舊的**（0.15.0 起）：第 2 輪起 `prepare` 另產出兩份檔——`staged-<repo>.prev-findings.md`（前幾輪 hook 抓到的兩軌意見、BLOCK 根因類別、方案重想，逐輪累積）與 `staged-<repo>.incremental.diff`（這一輪比上一輪多改了什麼）。兩軌派工加【前幾輪已回報、不要重提】與【這一輪的改動重點】兩段（範本見 1.3b／1.3c），整份 diff 照常附上當上下文。起因：每輪全新上下文重審整份 diff、不知道上一輪講過什麼，審查者就會在已修好的地方往更邊緣挖。
+   - **第 3 輪起先重想方案**（機械閘，0.15.0 起）：同一批改動要送第 `rethink_round` 輪（預設 3）起，`prepare` 沒帶 `--rethink "<內容>"` 就擋（git add 之前擋，index 不動）。內容回答三件事：前幾輪的 BLOCK 是什麼讓它們一直冒出來、現在的做法本身有沒有問題、結論是換什麼做法或為什麼維持。不停下來問使用者——重想由改的人自己做，內容寫進流水帳（mode＝`rethink`）與下一輪的 prev-findings。`--redo` 同一輪重送不必再寫；只寫「無」「OK」這類太短的表態會被擋（30 位元組以下）。
    - 專案想在某一輪停下來問人：設定檔設 `review_ask_round=<N>`（預設 0＝不停）。設了之後，到第 N 輪仍 BLOCK、又沒達到預設豁免 → 停下來把剩下的項目用白話列給使用者（發生條件、影響、修要多久），請使用者選「修」或「記進交接」；選記進交接 → `review-record <repo> --exempt "<使用者原話>；記進交接：<剩下的項目>"`。`edge_auto_exempt_rounds=0` 時仲裁判 EDGE 也不自動豁免，一律交給使用者決定。
    - 兩個門檻都在專案設定檔 `.claude/git-commit.conf` 調整（見「專案設定檔」）。
 
+## 風險分級（0.15.0 起）
+
+`prepare` 依 staged 內容判定風險等級並印出，決定這一份要送幾軌、C 軌要不要加深。判定綁 diff hash，記在 `review-log.tsv` 的 `risk` 欄。
+
+| 等級 | 判準（機械判定） | 處理 |
+|---|---|---|
+| 低 | 每個檔都是一般檔的「修改」（不是新增、刪除、改名、只改權限，也不是 symlink、submodule）且屬於：`.md` 文字檔；`low_risk_i18n` 樣式的 json 只改值（HEAD 與 staged 兩版用 python 解析，鍵、順序、巢狀、陣列長度都相同，只有葉節點的值不同；解析不了、有重複鍵、沒有 python 都不算）；程式檔只改單行註解（註解寫法依副檔名認：`//` 只在 C 系語言；整行 `/* */` 另含 CSS；整行 `<!-- -->` 只在標記語言；`#` 只在 .sh／.py／.yml 等——C# 的 `#if`、`#region` 會改變編譯結果） | **只送 C 軌**；B 軌不送，`review-record` 時 `--codex "skipped: 低風險"`（只有 prepare 判成低風險的這一份才收，否則拒收） |
+| 一般 | 其他 | 兩軌照送 |
+| 高 | 有檔命中專案設定檔的 `high_risk_paths` | 兩軌照送；C 軌【專案附加審查要求】再接上 `prepare` 印出的高風險附加要求（專案寫在 `.claude/git-commit-reviewer-addendum-high.md`），通過後照常自動 commit |
+
+範圍：防手滑、不是完整解析器。註解認不出來、新增／刪除／改名（含 .md）、只改權限、二進位、symlink、submodule 一律算一般（寧可多送一軌，不可少審）。風險等級只決定送幾軌，不影響 QA 閘與其他真閘。
+
 ## Review 豁免規則
+
+`prepare` 判成低風險的改動（見上節）不用豁免，照「只送 C 軌」走。下面的豁免留給低風險判定認不出來的情況（例如純 CSS、template class 調整）。
 
 `Style`（純 CSS／`<style>` 區塊／template class 調整／i18n value／格式化）與 `Docs`（純 `.md`／註解文字／XML doc 內文）可**同時豁免兩軌**（不得只豁免一軌），敏感掃描仍必做，1.3a 預覽仍要出並標示「已豁免——未回覆將自動 commit + push」。豁免也要落紀錄：`flow.sh review-record <repo> --exempt "Style：<為什麼只動到樣式>"`，否則 ship 會拒絕。
 
@@ -65,7 +81,7 @@ description: >
 | 指令 | 動作 |
 |------|------|
 | `flow.sh analyze <repo>` | 狀態分類＋local-overrides 過濾＋敏感字掃描 |
-| `flow.sh prepare <repo> <files...> [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]` | 逐檔 `git add` → **內容閘（敏感字／建置產物／AI 痕跡）沒過就不產生 diff hash、送不了審** → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄與放行旗標。誤判時在 prepare 帶 `--allow-*`，旗標綁定這份 diff，ship／amend 沿用不必再帶。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查）。印出「審查第 N 輪」、這一輪的審查單（派工 prompt 第一行照抄，見核心原則 7）與 C 軌的專案附加審查要求（見 1.3c） |
+| `flow.sh prepare <repo> <files...> [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]` | 逐檔 `git add` → **內容閘（敏感字／建置產物／AI 痕跡）沒過就不產生 diff hash、送不了審** → staged diff 輸出到 `.claude/.git-commit-tmp/staged-<repo>.diff`；重跑會作廢上一輪的審查紀錄與放行旗標。誤判時在 prepare 帶 `--allow-*`，旗標綁定這份 diff，ship／amend 沿用不必再帶。**index 已有不在清單內的 staged 項目就拒絕**（多半是別的 session stage 的；merge 進行中不檢查）。印出「審查第 N 輪」、這一輪的審查單（派工 prompt 第一行照抄，見核心原則 7）、風險等級（見「風險分級」）與 C 軌的專案附加審查要求（見 1.3c）。第 2 輪起另產出前幾輪意見與增量 diff；第 `rethink_round` 輪起要帶 `--rethink "<方案重想>"`（見核心原則 7） |
 | `flow.sh check-msg <repo> <type> <description> [--body "<一兩句>"]` | 只檢查 commit message，判準同 ship（Type、署名、痕跡、寬度、內文）。**1.3a 預覽前先跑**，給使用者看的就是一定過得了 ship 的版本 |
 | `flow.sh prepare <repo> --staged` | 不 `git add`，直接拿當下 index 送審（merge 收尾用：git 已把合併進來的檔案 stage 好）。index 空的拒絕 |
 | `flow.sh review-record <repo> --codex "<回覆原文>" --reviewer "<回覆原文>"` | 匯流後把兩軌回覆記下並綁定當下 staged diff 的 hash。回覆的結論行須為 `VERDICT: PASS`（BLOCK 不收；結論行＝第一個非空行，不是結論的話看最後一個非空行，兩端的 Markdown 標記不算，跟 hook 同一套規則）；不可用的那軌填 `skipped: <原因>`（兩軌都 skipped 不收；C 軌 code-reviewer 只收理由寫明 general-purpose 第三層也試過且失敗的；理由含額度字樣不收——額度用完要排重跑，見核心原則 5）。專案有 `.claude/qa-gate.conf` 時，寫紀錄前先過專案閘（`--exempt` 模式同樣適用）：staged 含行為類檔就必帶有效的 `--qa`；設了 `block_staged_overrides=1` 時 staged 含 local-overrides 清單上的檔就拒收（見下一列）。hook 抓到某一軌的回覆時，貼的結論要跟抓到的一致，不一致就拒收 |
@@ -90,6 +106,9 @@ repo 慣例跟預設不同時用。找法同 `qa-gate.conf`（依序從 repo 目
 | `max_width=` | 72 | 描述與內文每行的顯示寬度上限（全形算 2、半形算 1；72 換算中文約 36 字）。英文訊息、沒有前綴的 repo 可放寬，例：100 |
 | `review_ask_round=` | 0 | 審到第幾輪仍 BLOCK 就停下來問使用者；0＝不停，修到只剩極端情境 |
 | `edge_auto_exempt_rounds=` | 2 | Codex 仲裁判只剩極端情境（`RULING: EDGE`）就預設豁免；0＝關閉、交給使用者決定。大於 0 都是開啟（舊版是「連續幾輪」，改由仲裁判定後不再數輪數，舊設定檔不必改） |
+| `rethink_round=` | 3 | 同一批送到第幾輪起 `prepare` 要帶 `--rethink`；0＝關閉。1 是設定錯誤（第 1 輪沒有前一輪可重想） |
+| `high_risk_paths=` | （空） | 高風險路徑，空白分隔的 bash 樣式，比對 repo 內相對路徑（`*` 會跨過 `/`），例：`*AuthController.cs *Payment* *.sql` |
+| `low_risk_i18n=` | `*/locales/*.json */i18n/*.json */lang/*.json` | 低風險認得的 i18n 檔樣式（只改值時算低風險） |
 
 設定值寫錯（`max_width=abc`、`types=` 空的）會直接報錯，不靜默套預設。
 
@@ -132,6 +151,23 @@ PreToolUse hook，攔截 Bash 工具裡「不經 flow.sh 就建出 commit」的�
 **補推捷徑（`ship ... --push` 且沒有 staged）只認 flow.sh 親手建的那顆**：ship 成功後會記下 commit sha，補推時 HEAD 必須就是那顆。只比 message 字串的舊寫法，可以 `reset --soft` 換掉內容、沿用同一句 message 重新 commit 後直接推。只改 message 的 amend 只有在原 HEAD 本來就是 ship 建的時候才承接這筆紀錄，不能替流程外建的 commit 洗白。副作用：舊版 flow.sh 建的未推 commit 沒有這筆紀錄，補推會被擋。
 
 紀錄內容是呼叫者自陳的：這道閘擋的是「忘了審」，擋不住蓄意填假結果。假結果會在流水帳留下可查的一行，但不會被自動發現——**`--codex`／`--reviewer` 必須貼 agent 回覆原文，不得自己組一行 `VERDICT: PASS`**。
+
+流水帳 `review-log.tsv` 的欄位：`recorded_at`、`repo`、`diff_hash`、`mode`（review／exempt／edge-exempt／block／redo／rethink／new-commit）、`codex`、`reviewer`、`exempt_reason`、`qa`、`allow_overrides`、`rounds`（這一批送審到第幾輪，0.15.0 起）、`risk`（prepare 判定的風險等級，0.15.0 起）。舊版表頭在第一次寫入時就地升級，舊資料列少的欄位＝當時沒記。看收斂狀況就看 `mode` 為 review／exempt／edge-exempt 那幾列的 `rounds`：第 1 輪就過的比例、要 5 輪以上的比例。
+
+## 審查者評測集（`review-eval.js`，0.15.0 起）
+
+改審查者的規則、prompt 或 agent 定義之後，用過去的事故檢查「以前抓得到的現在還抓不抓得到、乾淨的改動有沒有被誤擋」。案例含客戶程式碼，放在專案自己的目錄（不進本 plugin）；一個案例一個資料夾、一份 `case.json`（格式見腳本檔頭）：
+
+- 有 bug 的案例：找到修正那顆 commit，`direction: "reverse"` 反過來當成「引入 bug 的改動」，`expect.hits` 標出審查者該點中的檔案與行號範圍
+- 乾淨的案例：已知正確的改動，`direction: "forward"`，`expect.verdict: "PASS"`
+
+```bash
+node <本 skill 目錄>/review-eval.js build <案例根目錄>     # 產生 case.diff 與 context/（改動後那一側的檔案全文）
+node <本 skill 目錄>/review-eval.js run   <案例根目錄> [--agent code-reviewer] [--model sonnet]   # 每個案例起一個 headless 審查
+node <本 skill 目錄>/review-eval.js score <案例根目錄>     # 抓到幾個、誤擋幾個；不帶 --run 取最新一次
+```
+
+改審查者前後各跑一次：抓到的變少、或誤擋變多，就不採用那次修改。出了審查沒攔下的事故，就把它的修正 commit 加成一個新案例。
 
 ## Step 1
 
@@ -230,6 +266,12 @@ Prompt 範本（開頭的 cd 指示與 codex exec 用法照 145–147 兩件事�
 
 【任務背景】<一句話：這次改動在做什麼、影響範圍>
 
+【前幾輪已回報、不要重提】（第 2 輪起才有；照貼 prepare 指出的 prev-findings.md，已修的寫明怎麼修、不修的寫明理由）
+<內容>
+
+【這一輪的改動重點】（第 2 輪起才有；貼 prepare 指出的 incremental.diff，上面的整份 diff 是上下文）
+<內容>
+
 【判準】
 - 每一項先分類：[一般]＝正常操作路徑會發生；[極端]＝只在不尋常的時序或外部條件下才會發生
   （例：動畫 0.1 秒內按鍵、只在開發模式、後端回傳不合規格的資料、操作到一半切頁的競態）。
@@ -268,6 +310,8 @@ C 軌的 skipped **只收一種**：第三層 general-purpose 也試過且失敗
 【驗證方式】cat 讀 diff；需要上下文時 Read 對應檔案全檔，不只看 diff 行
 【任務背景】<一句話：這次改動在做什麼、影響範圍>
 【審查對象】Repository: <repo>；檔案類型：<.vue/.cs/...>；適用規則：code-review Skill＋rules/
+【前幾輪已回報、不要重提】（第 2 輪起才有；照貼 prepare 指出的 prev-findings.md，已修的寫明怎麼修、不修的寫明理由）
+【這一輪的改動重點】（第 2 輪起才有；prepare 指出的 incremental.diff 路徑，請 cat 讀取；整份 diff 是上下文）
 
 【驗收條件】（判準）
 - BLOCK：🔴 Critical（違反架構原則、資安洞、破壞 DDD 分層、必錯邏輯）
@@ -279,7 +323,7 @@ C 軌的 skipped **只收一種**：第三層 general-purpose 也試過且失敗
 【重點檢查】架構規範（DDD/CQRS/Repository/Section component）／規則違反／資安／i18n 完整性／測試覆蓋
 
 【專案附加審查要求】
-<prepare 印出的附加審查要求原文，逐字貼上；prepare 印「無」時刪掉這一段>
+<prepare 印出的附加審查要求原文，逐字貼上；prepare 印「無」時刪掉這一段；風險等級是高時，再接上 prepare 印出的高風險附加要求原文>
 
 【回報格式】（嚴格遵守）
 第 1 行：`VERDICT: PASS` 或 `VERDICT: BLOCK`
@@ -288,7 +332,7 @@ C 軌的 skipped **只收一種**：第三層 general-purpose 也試過且失敗
 一句話講清楚即可，不寫「應該怎麼改」；不要分析段、標題、總結。
 ```
 
-**專案附加審查要求**：通用範本不帶專案專屬步驟（例：供應商平台審查前要跑 `rule-scan`）。專案把這類要求寫進工作目錄層的 `.claude/git-commit-reviewer-addendum.md`（與 `local-overrides.yml` 同層；`CLAUDE_PROJECT_DIR` 未設時取 flow.sh 執行時的目錄），`prepare` 最後會整段原文印出，**逐字**貼進範本的【專案附加審查要求】，不摘要、不改寫——專案的派工 hook 可能逐字比對其中的關鍵字。檔案不存在或為空時 `prepare` 印「無」，刪掉那一段。檔案格式：純 Markdown，內容就是要對審查者說的話（條列步驟即可），不需要 frontmatter；一份管工作目錄底下所有 repo，各 repo 要求不同時在檔內分段寫明適用 repo。
+**專案附加審查要求**：通用範本不帶專案專屬步驟（例：供應商平台審查前要跑 `rule-scan`）。專案把這類要求寫進工作目錄層的 `.claude/git-commit-reviewer-addendum.md`（與 `local-overrides.yml` 同層；`CLAUDE_PROJECT_DIR` 未設時取 flow.sh 執行時的目錄），`prepare` 最後會整段原文印出，**逐字**貼進範本的【專案附加審查要求】，不摘要、不改寫——專案的派工 hook 可能逐字比對其中的關鍵字。檔案不存在或為空時 `prepare` 印「無」，刪掉那一段。高風險（見「風險分級」）另讀同層的 `.claude/git-commit-reviewer-addendum-high.md`，只在命中 `high_risk_paths` 時印，內容寫這個專案的高風險改動要「深」在哪（必讀哪些文件、逐條對照哪些規則）；沒有這份檔時 `prepare` 提醒派工時自己寫明。檔案格式：純 Markdown，內容就是要對審查者說的話（條列步驟即可），不需要 frontmatter；一份管工作目錄底下所有 repo，各 repo 要求不同時在檔內分段寫明適用 repo。
 
 多 repo 可合併或拆分送審，但**全部非 BLOCK** 才進 Step 2。
 

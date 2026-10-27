@@ -21,3 +21,14 @@
 # Codex 仲裁判定 BLOCK 的只剩極端情境（RULING: EDGE）就預設豁免。
 # 預設 2＝開啟（大於 0 都是開啟；舊版是「連續幾輪」，改由仲裁判定後不再數輪數）；0＝關閉（一律要使用者決定）。
 #edge_auto_exempt_rounds=2
+
+# 同一批改動送到第幾輪起，prepare 要帶 --rethink "<方案重想>" 才放行（前幾輪的問題為何一直冒出來、做法要不要換）。
+# 預設 3；0＝關閉；1 是設定錯誤（第 1 輪沒有前一輪可重想）。
+#rethink_round=3
+
+# 高風險路徑：空白分隔的 bash 樣式，比對 repo 內的相對路徑（* 會跨過 /）。命中就判高風險，
+# prepare 印出 .claude/git-commit-reviewer-addendum-high.md 的內容，接在 C 軌的專案附加審查要求後面。預設不設。
+#high_risk_paths=*AuthController.cs *Payment* *.sql
+
+# 低風險認得的 i18n 檔樣式（只改值、不動鍵時算低風險，B 軌不送）。
+#low_risk_i18n=*/locales/*.json */i18n/*.json */lang/*.json

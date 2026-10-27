@@ -200,8 +200,9 @@ has "Q12g 提示 --allow-overrides" '--allow-overrides "<理由>"'
 has "Q12h 說明來自 block_staged_overrides" "block_staged_overrides=1"
 expect "Q13 --allow-overrides 空理由不收" 1 rr r1 --allow-overrides "   "
 expect "Q13b --allow-overrides 有理由可記錄" 0 rr r1 --allow-overrides "檔內混有真改動，已用 git apply --cached 只 stage 那幾行"
-[ "$(tail -n 1 "$LOG" | awk -F'\t' '{print $NF}')" = "檔內混有真改動，已用 git apply --cached 只 stage 那幾行" ] && ok "Q13c 理由寫在流水帳最後一欄" || bad "Q13c 理由寫在流水帳最後一欄" "$(tail -n 1 "$LOG")"
-[ "$(head -n 1 "$LOG" | awk -F'\t' '{print $NF}')" = "allow_overrides" ] && ok "Q13d 流水帳表頭最後一欄是 allow_overrides" || bad "Q13d 流水帳表頭最後一欄是 allow_overrides" "$(head -n 1 "$LOG")"
+# 0.15.0 起 allow_overrides 後面又加了 rounds、risk 兩欄，它固定在第 9 欄
+[ "$(tail -n 1 "$LOG" | awk -F'\t' '{print $9}')" = "檔內混有真改動，已用 git apply --cached 只 stage 那幾行" ] && ok "Q13c 理由寫在流水帳 allow_overrides 欄（第 9 欄）" || bad "Q13c 理由寫在流水帳 allow_overrides 欄（第 9 欄）" "$(tail -n 1 "$LOG")"
+[ "$(head -n 1 "$LOG" | awk -F'\t' '{print $9}')" = "allow_overrides" ] && ok "Q13d 流水帳表頭第 9 欄是 allow_overrides" || bad "Q13d 流水帳表頭第 9 欄是 allow_overrides" "$(head -n 1 "$LOG")"
 [ "$(head -n 1 "$LOG" | cut -f1-8)" = "$(printf 'recorded_at\trepo\tdiff_hash\tmode\tcodex\treviewer\texempt_reason\tqa')" ] && ok "Q13e 既有欄位順序不變" || bad "Q13e 既有欄位順序不變" "$(head -n 1 "$LOG")"
 grep -q "^allow_overrides=檔內混有真改動" "$(rec_of r1)" && ok "Q13f 理由寫進紀錄檔" || bad "Q13f 理由寫進紀錄檔"
 expect "Q13g 帶 --allow-overrides 的紀錄 ship 放行" 0 flow ship r1 Chore "調整本機設定範本"
@@ -534,10 +535,10 @@ printf 'recorded_at\trepo\tdiff_hash\tmode\tcodex\treviewer\texempt_reason\tqa\n
 rm -f "$CONF"
 stage r1 a.txt
 expect "Q18 舊流水帳仍可記錄" 0 rr r1
-[ "$(head -n 1 "$LOG" | awk -F'\t' '{print $NF}')" = "allow_overrides" ] && ok "Q18b 舊表頭補上 allow_overrides" || bad "Q18b 舊表頭補上 allow_overrides" "$(head -n 1 "$LOG")"
+[ "$(head -n 1 "$LOG" | awk -F'\t' '{print $9 "|" $10 "|" $11 "|" NF}')" = "allow_overrides|rounds|risk|11" ] && ok "Q18b 舊表頭補上 allow_overrides、rounds、risk" || bad "Q18b 舊表頭補上 allow_overrides、rounds、risk" "$(head -n 1 "$LOG")"
 [ "$(sed -n 2p "$LOG")" = "$(printf '2026-01-01 00:00:00\told\tabc\treview\tPASS\tPASS\t-\t-')" ] && ok "Q18c 舊資料列原樣保留" || bad "Q18c 舊資料列原樣保留" "$(sed -n 2p "$LOG")"
 [ "$(wc -l < "$LOG" | tr -d ' ')" = 3 ] && ok "Q18d 新增一列" || bad "Q18d 新增一列" "$(cat "$LOG")"
-[ "$(tail -n 1 "$LOG" | awk -F'\t' '{print NF}')" = 9 ] && ok "Q18e 新列 9 欄（未帶旗標記 -）" || bad "Q18e 新列 9 欄（未帶旗標記 -）" "$(tail -n 1 "$LOG")"
+[ "$(tail -n 1 "$LOG" | awk -F'\t' '{print NF "|" $9}')" = "11|-" ] && ok "Q18e 新列 11 欄（未帶旗標記 -）" || bad "Q18e 新列 11 欄（未帶旗標記 -）" "$(tail -n 1 "$LOG")"
 
 # ---------- 設定檔位置：cd 進 repo 再用 '.'、沒設 CLAUDE_PROJECT_DIR 也找得到 ----------
 # 照實際用法：prepare 與 review-record 都在 repo 裡跑、都不設 CLAUDE_PROJECT_DIR（WORKSPACE_DIR＝repo 本身），

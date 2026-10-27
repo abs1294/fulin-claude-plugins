@@ -115,6 +115,14 @@ REVIEW_ASK_ROUND=0
 # 大於 0 都是開啟。舊版的意思是「連續幾輪」，改由獨立的 Codex 仲裁判定後不再數輪數
 # （判成極端就不再追，多數一輪只是逼著修極端情境）；保留這個鍵與預設值，舊設定檔不必改。
 EDGE_AUTO_EXEMPT_ROUNDS=2
+# 同一批改動送到第幾輪起，prepare 要先收到一段「方案重想」（--rethink）才放行；0＝關閉。
+# 起因：同一批改動審了 9／13／32 輪的紀錄，都是在錯的做法上逐案補邊界；前兩輪沒收斂就該退一步看做法本身。
+RETHINK_ROUND=3
+# 風險分級（見 compute_risk_tier）：命中這些路徑就是高風險，C 軌照專案的高風險附加要求加深審查。
+# 空白分隔的 bash 樣式，比對 repo 內的相對路徑（* 會跨過 /）；沒設＝沒有高風險路徑。
+HIGH_RISK_PATHS=""
+# 低風險認得的 i18n 檔（只改值、不動鍵時算低風險）；同樣是空白分隔的 bash 樣式。
+LOW_RISK_I18N="*/locales/*.json */i18n/*.json */lang/*.json"
 # 審查單登記處：prepare 發的審查單 id → 這個 repo 的狀態目錄。SubagentStop hook（hooks/capture-review-reply.js）
 # 靠它把審查代理的回覆存回對的 repo。兩邊都用使用者家目錄，測試可用環境變數換位置。
 TICKET_DIR="${GIT_COMMIT_TICKET_DIR:-$HOME/.claude/git-commit-tickets}"
@@ -1044,8 +1052,211 @@ recorded_round() {
 }
 mark_round_recorded() { local r; r="$(current_round)"; [ "$r" -ge 1 ] || r=1; printf '%s\n' "$r" > "$(recorded_round_file)"; }
 reset_review_rounds() {
-  rm -f "$(review_round_file)" "$(edge_rounds_file)" "$(round_files_file)" "$(repo_state_dir)/round-head" "$(recorded_round_file)" "$(block_classes_file)"
+  rm -f "$(review_round_file)" "$(edge_rounds_file)" "$(round_files_file)" "$(repo_state_dir)/round-head" "$(recorded_round_file)" "$(block_classes_file)" \
+        "$(round_tree_file)" "$(prev_findings_file)" "$(rethink_file)" "$(risk_file)"
   drop_review_ticket
+}
+# 每一輪送審時 index 的 tree：下一輪拿它算「這一輪比上一輪多改了什麼」（增量 diff）
+round_tree_file() { echo "$(repo_state_dir)/round-tree"; }
+# 這一批改動前幾輪的審查意見（累積），下一輪派工時貼進「上一輪已回報、不要重提」
+prev_findings_file() { echo "$(repo_state_dir)/prev-findings"; }
+# 哪幾輪已寫過方案重想（每行一個輪次）
+rethink_file() { echo "$(repo_state_dir)/rethink"; }
+# prepare 判定的風險等級：第 1 行等級（low／normal／high），第 2 行對應的 diff hash
+risk_file() { echo "$(repo_state_dir)/risk"; }
+# 當下 staged 的風險等級；沒有判定過、或 staged 已不是判定時那一份，就回空字串
+current_risk() {
+  local f current
+  f="$(risk_file)"
+  [ -f "$f" ] || return 0
+  current="$(git -c color.ui=false diff --staged | git hash-object --stdin)"
+  [ "$(sed -n 2p "$f" | tr -d '\r')" = "$current" ] || return 0
+  sed -n 1p "$f" | tr -d '\r'
+}
+
+# 稽核流水帳（review-log.tsv）一律從這裡寫：欄位順序固定，舊版的表頭就地補成新的。
+# 0.11.0 加 allow_overrides；0.15.0 加 rounds（這批改動送審到第幾輪）與 risk（prepare 判定的風險等級）。
+# 新欄位一律加在最後、不動既有順序；舊資料列少的欄位＝當時沒有記。
+# 已知限制：補表頭是 tmp＋mv 改寫、沒有鎖；兩個 session 剛好同時第一次在新版記錄時，可能少掉其中一列。
+# 只會發生在升級後第一次寫入的那一刻（之後表頭已是新的，只做附加），沒為此加鎖。
+REVIEW_LOG_HEADER=$'recorded_at\trepo\tdiff_hash\tmode\tcodex\treviewer\texempt_reason\tqa\tallow_overrides\trounds\trisk'
+# 參數：repo diff_hash mode codex reviewer reason qa allow_overrides
+append_review_log() {
+  local first rounds risk
+  mkdir -p "$(dirname "$REVIEW_LOG")"
+  if [ ! -f "$REVIEW_LOG" ]; then
+    printf '%s\n' "$REVIEW_LOG_HEADER" > "$REVIEW_LOG"
+  else
+    first="$(head -n 1 "$REVIEW_LOG" | tr -d '\r')"
+    if [ "$first" != "$REVIEW_LOG_HEADER" ] && [[ "$first" == recorded_at$'\t'* ]] && [[ "$REVIEW_LOG_HEADER" == "$first"* ]]; then
+      { printf '%s\n' "$REVIEW_LOG_HEADER"; tail -n +2 "$REVIEW_LOG"; } > "$REVIEW_LOG.tmp" && mv "$REVIEW_LOG.tmp" "$REVIEW_LOG"
+    fi
+  fi
+  rounds="$(current_round)"; [ "$rounds" -ge 1 ] || rounds="-"
+  risk="$(current_risk)"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(tmp_repo_key "$1")" "$2" "$3" "$4" "$5" "$6" "${7:--}" "${8:--}" "$rounds" "${risk:--}" >> "$REVIEW_LOG"
+}
+
+# 某個路徑是否命中空白分隔的 bash 樣式清單。用 read -a 拆，樣式不會被 shell 拿去展開成當下目錄的檔名。
+path_matches_any() {
+  local p pats=()
+  read -r -a pats <<< "$2" || true
+  for p in ${pats[@]+"${pats[@]}"}; do
+    # 樣式刻意不加引號：要的就是 glob 比對
+    # shellcheck disable=SC2053
+    [[ "$1" == $p ]] && return 0
+  done
+  return 1
+}
+
+# 風險分級（0.15.0）：依 staged 內容判定，決定 B 軌（Codex）要不要送、C 軌要不要加深。
+# 結果寫進 RISK_TIER（low／normal／high）與 RISK_HIGH_HITS（命中高風險的檔，空白分隔）。
+#   high：有任何一個檔命中 high_risk_paths
+#   low：每個檔都是修改（不是新增、刪除、改名）且是下列之一——.md 文字檔、low_risk_i18n 的 json 只改值不動鍵、程式檔只改單行註解
+#   normal：其他
+# 範圍：防手滑、不是完整解析器。註解只認單行的 //、#（.sh／.py／.yml 等）、整行的 <!-- -->、/* */；
+# 認不出來就算 normal（寧可多送一軌，不可少審）。新增、刪除、改名、只改權限、二進位、symlink、submodule 一律 normal。
+compute_risk_tier() {
+  local status path all_low=1 has_file=0 high_hits=""
+  while IFS=$'\t' read -r status path; do
+    [ -n "$path" ] || continue
+    has_file=1
+    if [ -n "$HIGH_RISK_PATHS" ] && path_matches_any "$path" "$HIGH_RISK_PATHS"; then
+      high_hits+="$path "
+    fi
+    [ "$all_low" -eq 1 ] || continue
+    if [ "$status" != "M" ]; then all_low=0; continue; fi
+    # 只改檔案權限（例如 chmod +x）時 -U0 沒有內容行，下面兩個判定都會放過，先擋掉
+    if git -c core.quotePath=false diff --cached --no-renames --summary -- "$path" | grep -q '^ mode change '; then
+      all_low=0; continue
+    fi
+    # 新舊兩版都要是一般檔：symlink（120000）、submodule（160000）改的是指向，內容只是路徑或 commit id
+    if ! git -c core.quotePath=false diff --cached --no-renames --raw -- "$path" | awk '
+      { a = substr($1, 2); b = $2 }
+      END { exit ((a == "100644" || a == "100755") && (b == "100644" || b == "100755")) ? 0 : 1 }'; then
+      all_low=0; continue
+    fi
+    case "$path" in
+      *.md|*.MD)
+        # 二進位檔的 numstat 是「-	-」，不是行數
+        if git -c core.quotePath=false diff --cached --no-renames --numstat -- "$path" | grep -q '^-'; then
+          all_low=0
+        fi
+        continue ;;
+    esac
+    if [[ "$path" == *.json ]] && path_matches_any "$path" "$LOW_RISK_I18N"; then
+      i18n_value_only "$path" || all_low=0
+      continue
+    fi
+    comment_only_change "$path" || all_low=0
+  done < <(git -c core.quotePath=false diff --cached --no-renames --name-status)
+  # 結果放全域變數，不用 echo：呼叫端若用 $(...) 接，命中的檔名清單會留在子 shell 裡帶不出來
+  RISK_HIGH_HITS="${high_hits% }"
+  if [ -n "$high_hits" ]; then RISK_TIER=high
+  elif [ "$has_file" -eq 1 ] && [ "$all_low" -eq 1 ]; then RISK_TIER=low
+  else RISK_TIER=normal
+  fi
+}
+
+# i18n json 只改值：HEAD 與 staged 兩版各自解析成 JSON，結構完全相同（同一組鍵、同樣順序與巢狀、陣列等長），
+# 只有葉節點的值（字串、數字、true／false／null）不同。任一版解析不了（含非法數字、非法跳脫、逗號增減）、
+# 有重複鍵、沒有可用的 python，都不算。
+# 用解析、不用逐行比對：逐行比對要列舉每一種會動到結構的寫法（同一行兩個鍵、值後面接結構、鍵搬區段……），列不完。
+i18n_value_only() {
+  [ -n "$PYTHON_BIN" ] || return 1
+  "$PYTHON_BIN" - "$1" <<'PY'
+import json, subprocess, sys
+
+path = sys.argv[1]
+
+def no_dup(pairs):
+    d = {}
+    for k, v in pairs:
+        if k in d:
+            raise ValueError("duplicate key")
+        d[k] = v
+    return d
+
+def no_const(name):
+    raise ValueError(name)
+
+def load(rev):
+    r = subprocess.run(["git", "show", rev + ":" + path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if r.returncode != 0:
+        raise ValueError("git show")
+    return json.loads(r.stdout.decode("utf-8-sig"), object_pairs_hook=no_dup, parse_constant=no_const)
+
+def same_shape(a, b):
+    if isinstance(a, dict) or isinstance(b, dict):
+        return isinstance(a, dict) and isinstance(b, dict) and list(a) == list(b) and all(same_shape(a[k], b[k]) for k in a)
+    if isinstance(a, list) or isinstance(b, list):
+        return isinstance(a, list) and isinstance(b, list) and len(a) == len(b) and all(same_shape(x, y) for x, y in zip(a, b))
+    return True
+
+try:
+    ok = same_shape(load("HEAD"), load(""))
+except Exception:
+    ok = False
+sys.exit(0 if ok else 1)
+PY
+}
+
+# 程式檔只改單行註解：改動的每一個非空白行，去掉前後空白後都是這種檔的註解寫法。
+# 註解寫法依副檔名認：// 只在 C 系語言、/* */ 另含 CSS、<!-- --> 只在標記語言、# 只在 shell／Python／YAML 類
+# （C# 的 #if、#region 會改變編譯結果；YAML、JSON 等資料檔裡以 // 開頭的行是資料）。清單外的副檔名一律不算。
+# 範圍是防手滑：多行字串裡剛好以 // 開頭的行、Vue template 裡以 // 開頭的文字認不出來（C 軌照樣審）。
+comment_only_change() {
+  local slash_ok=0 block_ok=0 html_ok=0 hash_ok=0
+  case "$1" in
+    *.js|*.mjs|*.cjs|*.jsx|*.ts|*.tsx|*.vue|*.cs|*.java|*.kt|*.go|*.c|*.h|*.cc|*.cpp|*.hpp|*.swift|*.rs|*.php|*.dart|*.scss|*.less)
+      slash_ok=1; block_ok=1 ;;
+    *.css) block_ok=1 ;;
+  esac
+  case "$1" in
+    *.vue|*.html|*.htm|*.xml|*.svg|*.cshtml|*.razor) html_ok=1 ;;
+  esac
+  case "$1" in
+    *.sh|*.bash|*.py|*.yml|*.yaml|*.toml|*.rb|*.conf|*.ps1) hash_ok=1 ;;
+  esac
+  git -c color.ui=false diff --cached -U0 --no-renames -- "$1" | awk -v slash_ok="$slash_ok" -v block_ok="$block_ok" -v html_ok="$html_ok" -v hash_ok="$hash_ok" '
+    /^(\+\+\+|---) / { next }
+    /^@@/ { next }
+    /^Binary files / { bad = 1; exit }
+    /^[-+]/ {
+      body = substr($0, 2); sub(/^[ \t]+/, "", body); sub(/[ \t\r]+$/, "", body)
+      if (body == "") next
+      if (slash_ok == 1 && body ~ /^\/\//) next
+      if (block_ok == 1 && body ~ /^\/\*.*\*\/$/ && body !~ /\*\/.*\/\*/) next
+      if (html_ok == 1 && body ~ /^<!--.*-->$/ && body !~ /-->.*<!--/) next
+      if (hash_ok == 1 && body ~ /^#/ && body !~ /^#!/) next
+      bad = 1; exit
+    }
+    END { exit bad ? 1 : 0 }'
+}
+
+# 把這一輪抓到的兩軌回覆（hook 存的 reply 檔）與 BLOCK 類別累積進 prev-findings，給下一輪派工用。
+# 抓不到回覆（hook 沒裝、沒帶審查單）就只記類別，並註明要自己補貼。
+archive_round_findings() {
+  local round="$1" id sd f t body any=0
+  sd="$(repo_state_dir)"
+  id="$(current_ticket_id)"
+  {
+    echo "## 第 $round 輪"
+    if [ -f "$(block_classes_file)" ]; then
+      awk -F'\t' -v r="$round" '$1 == r { print "- 根因類別：" $2 }' "$(block_classes_file)"
+    fi
+    for t in codex reviewer; do
+      f="$sd/reply-$id-$t"
+      if [ -n "$id" ] && [ -f "$f" ]; then
+        any=1
+        body="$(awk 'found { print } /^---$/ { found = 1 }' "$f")"
+        [ "$t" = "codex" ] && echo "### Codex" || echo "### code-reviewer"
+        printf '%s\n' "$body"
+      fi
+    done
+    [ "$any" -eq 1 ] || echo "（hook 沒抓到這一輪兩軌的回覆原文；派工時自己把這一輪的意見原文補貼進去）"
+    echo ""
+  } >> "$(prev_findings_file)"
 }
 
 # ------------------------------------------------------------
@@ -1367,6 +1578,9 @@ load_qa_gate_conf() {
 #   max_width=72                     描述（與內文每行）的顯示寬度上限，全形算 2、半形算 1
 #   review_ask_round=0               審到第幾輪仍 BLOCK 就停下來問使用者；0＝不停，修到只剩極端情境（預設）
 #   edge_auto_exempt_rounds=2        Codex 仲裁判只剩極端情境（RULING: EDGE）就預設豁免；0＝關閉（大於 0 都是開啟）
+#   rethink_round=3                  同一批送到第幾輪起要先寫「方案重想」（prepare --rethink）；0＝關閉
+#   high_risk_paths=                 高風險路徑（空白分隔的 bash 樣式）；命中就印專案的高風險附加審查要求
+#   low_risk_i18n=…                  低風險認得的 i18n 檔樣式（只改值時算低風險）
 # 沒有設定檔＝沿用本檔頂端的預設值，既有專案行為不變。
 # 參數＝repo 目錄。ship／amend／check-msg／audit／prepare／review-record 在 assert_valid_repo 之後呼叫。
 # ------------------------------------------------------------
@@ -1402,18 +1616,22 @@ load_commit_conf() {
         fi
         VALID_TYPES=("${list[@]}")
         ;;
-      max_width|review_ask_round|edge_auto_exempt_rounds)
-        if ! [[ "$val" =~ ^[0-9]+$ ]] || { [ "$key" = "max_width" ] && [ "$val" -lt 20 ]; }; then
-          echo "ERROR: $COMMIT_CONF 的 $key= 要是整數（max_width 至少 20），收到「$val」。" >&2
+      max_width|review_ask_round|edge_auto_exempt_rounds|rethink_round)
+        if ! [[ "$val" =~ ^[0-9]+$ ]] || { [ "$key" = "max_width" ] && [ "$val" -lt 20 ]; } \
+           || { [ "$key" = "rethink_round" ] && [ "$val" -eq 1 ]; }; then
+          echo "ERROR: $COMMIT_CONF 的 $key= 要是整數（max_width 至少 20；rethink_round 是 0 或至少 2——第 1 輪還沒有前一輪可重想），收到「$val」。" >&2
           exit 1
         fi
         case "$key" in
           max_width) MESSAGE_MAX_WIDTH="$val" ;;
           review_ask_round) REVIEW_ASK_ROUND="$val" ;;
           edge_auto_exempt_rounds) EDGE_AUTO_EXEMPT_ROUNDS="$val" ;;
+          rethink_round) RETHINK_ROUND="$val" ;;
         esac
         ;;
-      *) echo "WARNING: $COMMIT_CONF 第 $n 行的 key「$key」不認得，已略過（可用：types、max_width、review_ask_round、edge_auto_exempt_rounds）。" >&2 ;;
+      high_risk_paths) HIGH_RISK_PATHS="$val" ;;
+      low_risk_i18n) LOW_RISK_I18N="$val" ;;
+      *) echo "WARNING: $COMMIT_CONF 第 $n 行的 key「$key」不認得，已略過（可用：types、max_width、review_ask_round、edge_auto_exempt_rounds、rethink_round、high_risk_paths、low_risk_i18n）。" >&2 ;;
     esac
   done < "$COMMIT_CONF"
   return 0
@@ -1815,6 +2033,15 @@ cmd_review_record() {
     exit 1
   fi
 
+  # 低風險免送 Codex（0.15.0）：只有 prepare 判成低風險的這一份 diff，B 軌才能填「skipped: 低風險」。
+  # 判定綁 diff hash，改過內容沒重跑 prepare、或判定是一般／高風險，一律拒收。
+  if [ "$mode" = "review" ] && [ "$codex_status" = "SKIPPED" ] \
+     && [[ "$(verdict_line "$codex")" =~ ^skipped:[[:space:]]*低風險 ]] && [ "$(current_risk)" != "low" ]; then
+    echo "ERROR: Codex 填了「skipped: 低風險」，但 prepare 對這一份 diff 判定的風險等級是「$(current_risk || true)」，不是低風險。" >&2
+    echo "       低風險只認：只改 .md、i18n 的文字值（不動鍵）、或單行註解。其他改動兩軌都要送。" >&2
+    exit 1
+  fi
+
   # hook 抓到的回覆是準的：貼進來的結論跟抓到的不同就拒收（抓不到的那軌照舊收自陳）。
   local cap_codex="" cap_reviewer=""
   if [ "$mode" != "exempt" ]; then
@@ -1865,8 +2092,7 @@ cmd_review_record() {
     { [ -f "$bc_file" ] && awk -F'\t' -v r="$round" '$1 != r' "$bc_file"; printf '%s\n' "$classes" | awk -v r="$round" '{ print r "\t" $0 }'; } > "$bc_file.tmp"
     mv "$bc_file.tmp" "$bc_file"
     mark_round_recorded
-    [ -f "$REVIEW_LOG" ] || printf 'recorded_at\trepo\tdiff_hash\tmode\tcodex\treviewer\texempt_reason\tqa\tallow_overrides\n' > "$REVIEW_LOG"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(tmp_repo_key "$repo")" "$current" "block" "$codex_status" "$reviewer_status" "$(printf '%s' "$classes" | tr '\n' ';')${rearchitect:+ ／ 架構改法：$rearchitect}" "-" "-" >> "$REVIEW_LOG"
+    append_review_log "$repo" "$current" "block" "$codex_status" "$reviewer_status" "$(printf '%s' "$classes" | tr '\n' ';')${rearchitect:+ ／ 架構改法：$rearchitect}" "-" "-"
     echo "=== 已記下第 $round 輪 BLOCK 的根因類別（不放行 commit）==="
     printf '%s\n' "$classes" | sed 's/^/  - /'
     echo "下一步：按類別一次修完（整類掃過，不是只修被點名的那幾行）→ 重跑 prepare → 兩軌重送。"
@@ -1939,23 +2165,8 @@ cmd_review_record() {
   } > "$rec"
   mark_round_recorded
 
-  # 稽核用流水帳，commit 後不清：事後查「哪些 commit 是豁免放行的」只能靠它。
-  # allow_overrides 欄（0.11.0 起）加在最後、不動既有欄位順序；舊檔的表頭就地補上這一欄，
-  # 舊資料列少這一欄＝當時沒有這個旗標。
-  # 已知限制：補表頭是 tmp＋mv 改寫、沒有鎖；兩個 session 剛好同時第一次在 0.11.0 記錄時，可能少掉其中一列。
-  # 只會發生在升級後第一次寫入的那一刻（之後表頭已是新的，只做附加），沒為此加鎖。
-  local log_header_old log_header log_first
-  log_header_old=$'recorded_at\trepo\tdiff_hash\tmode\tcodex\treviewer\texempt_reason\tqa'
-  log_header="$log_header_old"$'\tallow_overrides'
-  if [ ! -f "$REVIEW_LOG" ]; then
-    printf '%s\n' "$log_header" > "$REVIEW_LOG"
-  else
-    log_first="$(head -n 1 "$REVIEW_LOG" | tr -d '\r')"
-    if [ "$log_first" = "$log_header_old" ]; then
-      { printf '%s\n' "$log_header"; tail -n +2 "$REVIEW_LOG"; } > "$REVIEW_LOG.tmp" && mv "$REVIEW_LOG.tmp" "$REVIEW_LOG"
-    fi
-  fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$(tmp_repo_key "$repo")" "$current" "$mode" "$codex_status" "$reviewer_status" "$reason" "${qa:--}" "${allow_overrides:--}" >> "$REVIEW_LOG"
+  # 稽核用流水帳，commit 後不清：事後查「哪些 commit 是豁免放行的」「每批審了幾輪」只能靠它。
+  append_review_log "$repo" "$current" "$mode" "$codex_status" "$reviewer_status" "$reason" "${qa:--}" "${allow_overrides:--}"
 
   echo "=== 審查紀錄已寫入 ==="
   echo "  repo：$repo"
@@ -2097,20 +2308,24 @@ cmd_analyze() {
 
 cmd_prepare() {
   local repo="${1:-}"
-  [ -z "$repo" ] && { echo "Usage: flow.sh prepare <repo> <files...> | --staged  [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace]" >&2; exit 1; }
+  [ -z "$repo" ] && { echo "Usage: flow.sh prepare <repo> <files...> | --staged  [--allow-sensitive] [--allow-artifacts] [--allow-ai-trace] [--rethink \"<方案重想>\"]" >&2; exit 1; }
   assert_valid_repo "$repo"
   load_commit_conf "$(resolve_repo_path "$repo")"
   shift
   # --allow-*：內容閘（敏感字／建置產物／AI 痕跡）提前到 prepare 擋，誤判時在這裡就放行，
   # 旗標綁定送審 diff hash 記下來，ship／amend 沿用，不必再帶一次。
-  local allow_sensitive=0 allow_artifacts=0 allow_ai_trace=0 redo=0 args=() a
-  for a in "$@"; do
-    case "$a" in
-      --redo) redo=1 ;;
-      --allow-sensitive) allow_sensitive=1 ;;
-      --allow-artifacts) allow_artifacts=1 ;;
-      --allow-ai-trace) allow_ai_trace=1 ;;
-      *) args+=("$a") ;;
+  local allow_sensitive=0 allow_artifacts=0 allow_ai_trace=0 redo=0 args=() rethink="" has_rethink=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --redo) redo=1; shift ;;
+      --allow-sensitive) allow_sensitive=1; shift ;;
+      --allow-artifacts) allow_artifacts=1; shift ;;
+      --allow-ai-trace) allow_ai_trace=1; shift ;;
+      # 缺值時 shift 2 在 set -e 下會無聲中止，先檢查
+      --rethink)
+        [ $# -lt 2 ] && { echo "ERROR: --rethink 後面缺內容。" >&2; exit 1; }
+        rethink="$(printf '%s' "$2" | tr '\r\t' '  ')"; has_rethink=1; shift 2 ;;
+      *) args+=("$1"); shift ;;
     esac
   done
   set -- ${args[@]+"${args[@]}"}
@@ -2205,6 +2420,35 @@ cmd_prepare() {
     echo "       只剩極端情境 → 派 Codex 仲裁、回 RULING: EDGE 再用 --edge；兩軌 PASS → 照常 review-record" >&2
     echo "       還沒送審就要重送（漏了檔、內容閘後補改）→ prepare 加 --redo" >&2
     exit 1
+  fi
+
+  # 方案重想閘（0.15.0）：同一批改動要進第 rethink_round 輪起，先退一步想做法本身，寫成一段帶進來才放行。
+  # 前兩輪沒收斂，多半是做法有問題、正在錯的做法上逐案補邊界（9／13／32 輪的紀錄都是這樣）。
+  # 不停下來問使用者：重想由改的人自己做，內容進流水帳與下一輪派工，事後查得到。
+  # 在 git add 之前擋，index 不動。--redo（同一輪重送）已寫過的那一輪不必再寫。
+  local next_round=1
+  if [ "$same_batch" -eq 1 ] && [ "$(current_round)" -ge 1 ]; then
+    if [ "$redo" -eq 1 ] && [ "$(recorded_round)" != "$(current_round)" ]; then next_round="$(current_round)"
+    else next_round=$(( $(current_round) + 1 )); fi
+  fi
+  if [ "$RETHINK_ROUND" -gt 0 ] && [ "$next_round" -ge "$RETHINK_ROUND" ] \
+     && ! grep -qx "$next_round" "$(rethink_file)" 2>/dev/null; then
+    local rethink_trim
+    rethink_trim="$(trim_space "$(printf '%s' "$rethink" | tr '\n' ' ')")"
+    # 以位元組計：中文一字 3 位元組，30 位元組約十個中文字。只擋「無」「OK」這種空表態，不評內容好壞。
+    if [ "$has_rethink" -eq 0 ] || [ "$(printf '%s' "$rethink_trim" | wc -c | tr -d ' ')" -lt 30 ]; then
+      echo "ERROR: 這批改動要送第 $next_round 輪審查了（門檻 $RETHINK_ROUND，${COMMIT_CONF:-預設值}）。送審前先退一步重想做法，用 --rethink 帶進來：" >&2
+      echo "       1) 前幾輪的 BLOCK 是什麼讓它們一直冒出來？" >&2
+      echo "       2) 現在的做法本身有沒有問題（判準選錯、列舉式規則、職責放錯層）？要不要換做法？" >&2
+      echo "       3) 結論：換成什麼做法，或為什麼維持現在的做法" >&2
+      if [ -f "$(block_classes_file)" ]; then
+        echo "       前幾輪記下的根因類別：" >&2
+        awk -F'\t' '{ print "         - 第 " $1 " 輪：" $2 }' "$(block_classes_file)" >&2
+      fi
+      echo "       例：prepare $repo <檔案...> --rethink \"三輪都在補日期邊界，做法是靠外部 date 指令，平台行為不一致；改成 bash 自己驗範圍\"" >&2
+      [ "$has_rethink" -eq 1 ] && echo "       （收到的內容太短：「$rethink_trim」——要寫出做法層面的判斷，不是表態）" >&2
+      exit 1
+    fi
   fi
 
   echo "=== Stage files ==="
@@ -2310,10 +2554,51 @@ cmd_prepare() {
   # 留在流水帳，事後查得到。
   if [ "$redo" -eq 1 ] && [ "$(current_round)" -ge 1 ] && [ "$(recorded_round)" != "$(current_round)" ]; then
     round="$(current_round)"
-    [ -f "$REVIEW_LOG" ] || printf 'recorded_at\trepo\tdiff_hash\tmode\tcodex\treviewer\texempt_reason\tqa\tallow_overrides\n' > "$REVIEW_LOG"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(tmp_repo_key "$repo")" "$current_hash" "redo" "-" "-" "第 $round 輪未送審就重新準備" "-" "-" >> "$REVIEW_LOG"
+    append_review_log "$repo" "$current_hash" "redo" "-" "-" "第 $round 輪未送審就重新準備" "-" "-"
+  fi
+  # 進到新的一輪：上一輪抓到的兩軌回覆在發新審查單時會被清掉，先累積進 prev-findings（--redo 同一輪重送不累積）
+  if [ "$same_batch" -eq 1 ] && [ "$round" -gt "$(current_round)" ] && [ "$(current_round)" -ge 1 ]; then
+    archive_round_findings "$(current_round)"
   fi
   printf '%s\n' "$round" > "$(review_round_file)"
+
+  # 增量 diff：這一輪比上一輪多改了什麼。每一輪記下當時 index 的 tree（第 N 輪一行），拿上一輪那棵比。
+  # 重審時兩軌只要專心看這一份，整份 diff 照附當上下文（審到第 9／13／32 輪的紀錄，每輪都在整份 diff 裡挖更邊緣的情況）。
+  local tree_now prev_tree="" inc_file="$TMP_DIR/staged-$repo_slug.incremental.diff" pf_out="$TMP_DIR/staged-$repo_slug.prev-findings.md"
+  rm -f "$inc_file" "$pf_out"
+  tree_now="$(git write-tree)"
+  if [ "$round" -ge 2 ] && [ -f "$(round_tree_file)" ]; then
+    prev_tree="$(awk -F'\t' -v r="$((round - 1))" '$1 == r { t = $2 } END { print t }' "$(round_tree_file)" | tr -d '\r')"
+  fi
+  { [ -f "$(round_tree_file)" ] && awk -F'\t' -v r="$round" '$1 != r' "$(round_tree_file)"; printf '%s\t%s\n' "$round" "$tree_now"; } > "$(round_tree_file).tmp"
+  mv "$(round_tree_file).tmp" "$(round_tree_file)"
+  if [ -n "$prev_tree" ]; then
+    # 上一輪的 tree 是 write-tree 寫的鬆散物件，沒被 commit 參照；被 gc 清掉時不能讓 prepare 停在這裡
+    if ! git -c color.ui=false diff --no-renames "$prev_tree" "$tree_now" > "$inc_file" 2>/dev/null; then
+      rm -f "$inc_file"
+      echo "（讀不到上一輪的 tree $prev_tree，這一輪沒有增量 diff，兩軌照整份 diff 審）"
+    fi
+  fi
+
+  # 同一輪 --redo 再帶一次 --rethink 時不重複附加（這一輪已經寫過就不寫）
+  local rethink_new=0
+  if [ -n "$rethink" ] && [ "$RETHINK_ROUND" -gt 0 ] && [ "$round" -ge "$RETHINK_ROUND" ] \
+     && ! grep -qx "$round" "$(rethink_file)" 2>/dev/null; then
+    rethink_new=1
+  fi
+  if [ "$rethink_new" -eq 1 ]; then
+    printf '%s\n' "$round" >> "$(rethink_file)"
+    printf '## 第 %s 輪送審前的方案重想\n%s\n\n' "$round" "$rethink" >> "$(prev_findings_file)"
+  fi
+  [ -s "$(prev_findings_file)" ] && cp "$(prev_findings_file)" "$pf_out"
+
+  # 風險分級：判定結果綁這一份 diff hash，review-record 收「skipped: 低風險」時比對
+  compute_risk_tier
+  printf '%s\n%s\n' "$RISK_TIER" "$current_hash" > "$(risk_file)"
+  if [ "$rethink_new" -eq 1 ]; then
+    append_review_log "$repo" "$current_hash" "rethink" "-" "-" "$(printf '%s' "$rethink" | tr '\n' ' ')" "-" "-"
+  fi
+
   local ticket_id
   ticket_id="$(issue_review_ticket "$round" "$current_hash")"
   echo ""
@@ -2332,6 +2617,39 @@ cmd_prepare() {
     echo "   - 同一類別前幾輪出現過 → 逐案補收斂不了，改架構／判準讓這類一次涵蓋（review-record --block-classes 會擋）"
     echo "   - 認為 BLOCK 的全是極端情境或誤報 → 派 Codex 仲裁，回 RULING: EDGE 再用 review-record --edge（AI 不自己判）"
   fi
+  echo ""
+
+  if [ "$round" -ge 2 ]; then
+    echo "--- 第 $round 輪重審：前幾輪的意見與這一輪新增的改動 ---"
+    if [ -f "$pf_out" ]; then
+      echo "前幾輪已回報的意見：$pf_out"
+      echo "  → 兩軌派工加【前幾輪已回報、不要重提】一段，照貼這份；已修的寫明怎麼修，不修的寫明理由"
+    else
+      echo "前幾輪已回報的意見：無紀錄（hook 沒抓到回覆）→ 派工時自己把前幾輪兩軌的意見原文貼進【前幾輪已回報、不要重提】"
+    fi
+    if [ -f "$inc_file" ]; then
+      echo "這一輪比上一輪多改的：$inc_file（$(wc -l < "$inc_file" | tr -d ' ') 行）"
+      echo "  → 貼進【這一輪的改動重點】；整份 diff 照常附上當上下文"
+    else
+      echo "這一輪比上一輪多改的：算不出來（找不到上一輪的 tree），兩軌照整份 diff 審"
+    fi
+    echo ""
+  fi
+
+  case "$RISK_TIER" in
+    low)
+      echo "--- 風險等級：低（只改 .md、i18n 的文字值、或單行註解）---"
+      echo "B 軌（Codex）這一份不送；review-record 時 --codex 填 \"skipped: 低風險\"。C 軌照送。"
+      ;;
+    high)
+      echo "--- 風險等級：高（命中 high_risk_paths：$RISK_HIGH_HITS）---"
+      echo "兩軌照送；C 軌 prompt 的【專案附加審查要求】再接上下面這段高風險附加要求（逐字貼上）。"
+      print_reviewer_addendum_high
+      ;;
+    *)
+      echo "--- 風險等級：一般 ---"
+      ;;
+  esac
   echo ""
 
   print_reviewer_addendum
@@ -2378,6 +2696,20 @@ print_reviewer_addendum() {
     echo "--- 附加審查要求結束 ---"
   else
     echo "C 軌專案附加審查要求：無（$REVIEWER_ADDENDUM_FILE 不存在或為空，C 軌 prompt 刪掉【專案附加審查要求】那段）"
+  fi
+}
+
+# 高風險時 C 軌加深審查的專案附加要求（0.15.0）：與上面那份同層、檔名加 -high，只在命中 high_risk_paths 時印。
+# 專案沒寫這份就只提醒派工時寫明碰到哪些高風險路徑——通用版不知道各專案的「深」要深在哪。
+REVIEWER_ADDENDUM_HIGH_FILE="$WORKSPACE_DIR/.claude/git-commit-reviewer-addendum-high.md"
+print_reviewer_addendum_high() {
+  if [ -f "$REVIEWER_ADDENDUM_HIGH_FILE" ] && [ -s "$REVIEWER_ADDENDUM_HIGH_FILE" ]; then
+    echo "--- C 軌高風險附加要求（$REVIEWER_ADDENDUM_HIGH_FILE）---"
+    cat "$REVIEWER_ADDENDUM_HIGH_FILE"
+    [ -z "$(tail -c 1 "$REVIEWER_ADDENDUM_HIGH_FILE")" ] || echo
+    echo "--- 高風險附加要求結束 ---"
+  else
+    echo "（專案沒有 $REVIEWER_ADDENDUM_HIGH_FILE：C 軌派工時寫明這次碰到哪些高風險路徑、要逐條核對的規則）"
   fi
 }
 
@@ -2542,8 +2874,7 @@ cmd_ship() {
       echo "       真的是獨立的一顆（不同功能、刻意分開）：加 --new-commit \"<為什麼要分開>\" 重跑，理由會寫進 review-log.tsv。" >&2
       exit 1
     fi
-    mkdir -p "$(dirname "$REVIEW_LOG")"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(tmp_repo_key "$repo")" "$(git -c color.ui=false diff --staged | git hash-object --stdin)" "new-commit" "-" "-" "$new_commit_reason" "-" "-" >> "$REVIEW_LOG"
+    append_review_log "$repo" "$(git -c color.ui=false diff --staged | git hash-object --stdin)" "new-commit" "-" "-" "$new_commit_reason" "-" "-"
     echo "=== HEAD 未推、另開一顆 commit：理由已記進 review-log.tsv（$new_commit_reason）==="
   fi
 
@@ -3275,6 +3606,9 @@ Commands:
                                     送審前先跑內容閘（敏感字／建置產物／AI 痕跡），沒過就不產生 diff hash；
                                     誤判時在 prepare 帶 --allow-*，旗標綁定這份 diff，ship／amend 沿用不必再帶
                                     每跑一次算一輪審查（commit 成功歸零），第 3 輪起印停止條件提示
+          [--rethink "<方案重想>"]   同一批送到第 rethink_round 輪（預設 3）起必帶：前幾輪的問題為何一直冒出來、做法要不要換
+                                    第 2 輪起另產出前幾輪的意見（*.prev-findings.md）與增量 diff（*.incremental.diff）
+                                    印出風險等級：低（只改 .md／i18n 值／單行註解，Codex 不送）、一般、高（命中 high_risk_paths）
   check-msg <repo> <type> <desc> [--body "<一兩句>"] [--allow-message-trace]
                                     只檢查 commit message（同 ship 的判準：Type／署名／痕跡／寬度／內文），
                                     預覽給使用者看之前先跑，免得核可後才在 ship 被擋
