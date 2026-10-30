@@ -134,6 +134,20 @@ try {
   put(path.join(tdir, 'S1', 'subagents', 'agent-sub2.jsonl'), sub2.map((o) => JSON.stringify(o)).join('\n') + '\n');
   put(path.join(tdir, 'S1', 'subagents', 'agent-sub2.meta.json'), JSON.stringify({ agentType: 'general-purpose', model: 'sonnet' }));
 
+  // ── 審查評測集的 headless 審查 session（review-eval.js 起的 claude -p）：三個，entrypoint sdk-cli，第一則提問是固定 prompt ──
+  //    E1 另派一次 qa-engineer（不可進 B 的派工統計）。對照組：N1＝entrypoint cli、使用者在互動 session 貼同一句（照算）；
+  //    N2＝sdk-cli 但提問是別的（goal2 之類的 headless 子程序，照算）
+  const evalPrompt = (n) => '請審查這份改動：' + fwd + '/.claude/review-evals/cases/' + n + '/case.diff（請先 cat 讀取）。本任務由你親自執行，不得再轉派給其他 agent。\n需要上下文時，改動後的檔案全文在 ' + fwd + '/.claude/review-evals/cases/' + n + '/context/ 底下。';
+  const sess = (sid, entrypoint, rowsIn) => put(path.join(tdir, sid + '.jsonl'), rowsIn.map((o) => JSON.stringify(Object.assign({ cwd: root, timestamp: TS, sessionId: sid, entrypoint }, o))).join('\n') + '\n');
+  const UU = (content) => ({ type: 'user', message: { role: 'user', content } });
+  ['bug-a', 'bug-b', 'bug-c'].forEach((n, i) => {
+    const rowsE = [{ type: 'agent-setting', agentSetting: 'code-reviewer' }, UU(evalPrompt(n))];
+    if (i === 0) rowsE.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'ea', name: 'Agent', input: { subagent_type: 'qa-engineer', model: 'sonnet', prompt: '評測內的派工' } }] } });
+    sess('E' + (i + 1), 'sdk-cli', rowsE);
+  });
+  sess('N1', 'cli', [UU(evalPrompt('bug-a')), UU('這是我手貼的審查請求，請先確認再回覆')]);
+  sess('N2', 'sdk-cli', [UU('整理今天的待辦清單')]);
+
   const outFile = path.join(tdir, 'out.json');
   const r = spawnSync(process.execPath, [SCRIPT, root, '--since', '2026-10-01', '--transcripts', tdir, '--out', outFile], { encoding: 'utf8' });
   if (r.status !== 0 || !fs.existsSync(outFile)) { check(false, '收集腳本跑得完', 'exit ' + r.status + ' ' + String(r.stderr).slice(-800)); process.exit(1); }
@@ -205,6 +219,19 @@ try {
   // 16 英文交代（S1:39、S2:5、S3:2）：英文詞之間補空白、不設字數上限、指示語認英文
   const en = (j.G.repeatedInstructions || []).find((x) => /always delete the backup branch/.test(x.phrase));
   check(!!en && en.messages === 3 && en.sessions === 3, '16 G repeatedInstructions（英文交代）', '實得 ' + show(en) + '；全部 ' + show((j.G.repeatedInstructions || []).map((x) => x.phrase)));
+  // 17 審查評測集的 headless session：略過 3 個（notes 寫數量與依據、點名編號），N1（cli）與 N2（非評測 prompt）照算；
+  //    評測的固定 prompt 不進重複交代，評測內的派工不進 B
+  const evalNote = (j.notes || []).find((s) => /審查評測集/.test(s)) || '';
+  check(/session 3 個/.test(evalNote) && /sdk-cli/.test(evalNote) && /E1/.test(evalNote) && /E2/.test(evalNote) && /E3/.test(evalNote) && !/N1|N2/.test(evalNote),
+    '17 notes 記略過評測 session 的數量、依據與編號', '實得 ' + show(evalNote));
+  check(j.summary.sessions === 3 && j.C.managedDispatch === 1,
+    '17 評測 session 不進 A 的 session 數與 B 的派工；N1／N2 照算（S1+N1+N2＝3）', 'sessions ' + j.summary.sessions + '；managedDispatch ' + j.C.managedDispatch);
+  const evalGrams = (j.G.repeatedInstructions || []).filter((x) => /審查這份改動|請先cat|不得再轉派|親自執行/.test(x.phrase) || (x.at || []).some((a) => /^E\d/.test(a)));
+  check(evalGrams.length === 0, '17 G repeatedInstructions 沒有評測 prompt 的片語', '實得 ' + show(evalGrams));
+  const incl = path.join(tdir, 'out-incl.json');
+  const ri = spawnSync(process.execPath, [SCRIPT, root, '--since', '2026-10-01', '--transcripts', tdir, '--out', incl, '--include-eval'], { encoding: 'utf8' });
+  const ji = ri.status === 0 && fs.existsSync(incl) ? JSON.parse(fs.readFileSync(incl, 'utf8')) : null;
+  check(!!ji && ji.summary.sessions === 6 && !(ji.notes || []).some((s) => /審查評測集/.test(s)), '17 --include-eval 時評測 session 照算（6 個）、不寫略過 note', ji ? 'sessions ' + ji.summary.sessions : 'exit ' + ri.status);
   // 15 候選上限：REVIEW_COLLECT_CAND_CAP=1 時只收第一條、notes 說明、不當掉
   const out2 = path.join(tdir, 'out2.json');
   const r2 = spawnSync(process.execPath, [SCRIPT, root, '--since', '2026-10-01', '--transcripts', tdir, '--out', out2], { encoding: 'utf8', env: Object.assign({}, process.env, { REVIEW_COLLECT_CAND_CAP: '1' }) });

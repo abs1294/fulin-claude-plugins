@@ -9,6 +9,7 @@
 //            changelog 拆出指令檔，找不到時再看 CLAUDE.changelog.md 與 .claude/harness/CHANGELOG.md，見 changelogEntries）
 //   --transcripts：逐字紀錄目錄（預設 ~/.claude/projects/<落點換算的名稱>）
 //   --include-install：連跑 /harness:init 的 session 與安裝時的冷啟探針 session 一起算（預設略過，探針會故意觸發擋下）
+//   --include-eval：連審查評測集（review-eval.js）自動起的 headless 審查 session 一起算（預設略過，見 isEvalReviewSession）
 //   --probe：另外在實例的 .claude/hooks 跑 probe-hooks.js（兩條路徑）。這會執行專案裡的程式，所以要明確加才跑；
 //            不加時腳本只讀檔，不執行專案的任何程式。
 //
@@ -26,7 +27,7 @@ const args = process.argv.slice(2);
 const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
 const root = args[0] && !args[0].startsWith('--') ? path.resolve(args[0]) : null;
 if (!root || !fs.existsSync(path.join(root, '.claude', 'harness', 'README.md'))) {
-  console.error('用法：node review-collect.js <落點> [--since YYYY-MM-DD] [--transcripts <目錄>] [--out <檔>] [--probe] [--include-install]');
+  console.error('用法：node review-collect.js <落點> [--since YYYY-MM-DD] [--transcripts <目錄>] [--out <檔>] [--probe] [--include-install] [--include-eval]');
   console.error('落點要是裝了 harness 的專案根目錄（找不到 .claude/harness/README.md）：' + (root || '（沒給）'));
   process.exit(2);
 }
@@ -488,6 +489,27 @@ function secretKinds(c) {
 }
 const RISKY_CMD =/\b(ssh|scp|rsync|sftp|curl|wget|iwr|irm|Invoke-WebRequest|Invoke-RestMethod|psql|mysql|sqlcmd|mongosh|kubectl|helm|terraform|alembic|docker\s+push|git\s+push|deploy)\b/i;
 
+// 審查評測集（git-commit plugin 的 review-eval.js）自動起的 headless 審查對話：不是使用者的對話，
+// 發言（「請審查這份改動：…」）是腳本送出的固定 prompt，同一句在每個案例重複一次，會灌爆 G 的重複交代，也污染 B／C 的派工統計。
+// 判斷 = 兩個訊號都成立：
+//   ① 內容訊號：該 session 第一則 user 提問以「請審查這份改動：」開頭，且路徑含 review-evals/cases/ 與 case.diff（review-eval.js reviewerPrompt 的固定開頭）
+//   ② 結構訊號：該 session 任一列 entrypoint 是 sdk-cli（claude -p 的 headless 入口，互動 session 是 cli）；
+//      逐字紀錄完全沒有 entrypoint 欄位的舊版本，無法用結構驗證，退回只看 ①
+// 盲區：sdk-cli 單獨不夠（goal2 等其他 headless 子程序也是 sdk-cli，實測 20 個一般 session），所以一定要加 ①；
+//   ① 單獨也不夠嚴（使用者在互動 session 親手貼同一句會誤中），所以有 entrypoint 時一定要加 ②；
+//   評測腳本改了 prompt 開頭或案例路徑 ① 就失效，會漏略過（不會誤排除，只是統計又變髒）。
+// 用 Set 記住略過的 session 編號：主迴圈與 G 的重複交代偵測都會呼叫，各自只計一次。
+const evalSkipped = new Set();
+function isEvalReviewSession(R) {
+  const fu = R.find((o) => o.type === 'user' && o.message && !o.isMeta && !o.isCompactSummary);
+  if (!fu) return false;
+  const t = blocks(fu).filter((b) => b.type === 'text').map((b) => b.text || '').join('');
+  const head = t.slice(0, 600).replace(/\\/g, '/');
+  if (!(/^請審查這份改動：/.test(t) && /review-evals\/cases\/[^\s]+\/case\.diff/.test(head))) return false;
+  const ents = R.map((o) => o.entrypoint).filter(Boolean);
+  return !ents.length || ents.includes('sdk-cli');
+}
+
 const agg = {
   sessions: 0, userTurns: 0, reminderSessions: 0, dispatch: [], denials: [], stopFeedback: [], sediment: [],
   corrections: [], interrupts: 0, askUser: 0, riskyCmds: [], secretCmds: [], commitCmds: [], firstDispatchAligned: [], editTurns: [],
@@ -522,6 +544,11 @@ for (const f of files) {
   const firstText = firstUser ? blocks(firstUser).filter((b) => b.type === 'text').map((b) => b.text || '').join('') : '';
   if (/PROBE-OK|開頭的提醒？|harness-probe|--dry-run --allow-empty/.test(firstText) && !args.includes('--include-install')) {
     out.notes.push('略過安裝時的冷啟探針 session：' + sid + '（探針會故意觸發擋下）');
+    continue;
+  }
+  // 審查評測集的 headless 審查對話（判斷依據見 isEvalReviewSession）
+  if (!args.includes('--include-eval') && isEvalReviewSession(R)) {
+    evalSkipped.add(sid);
     continue;
   }
   agg.sessions++;
@@ -874,6 +901,7 @@ function repeatedInstructions(allFiles) {
     for (const f of allFiles) {
       const R = rows(f); markRows(R);
       const sid = path.basename(f, '.jsonl');
+      if (!args.includes('--include-eval') && isEvalReviewSession(R)) { evalSkipped.add(sid); continue; }
       for (const o of R) {
         if (!o.__mine || o.type !== 'user' || !o.message) continue;
         if (o.isCompactSummary || o.isMeta || o.isVisibleInTranscriptOnly) continue;
@@ -952,6 +980,7 @@ out.G.userTurns = agg.userTurns;
 out.G.interrupts = agg.interrupts;
 out.G.corrections = agg.corrections;
 out.G.repeatedInstructions = repeatedInstructions(files);
+if (evalSkipped.size) out.notes.push('略過審查評測集自動起的 headless 審查 session ' + evalSkipped.size + ' 個（不進 B／C／G 統計；全部歷史範圍）：判斷依據＝第一則提問以「請審查這份改動：」開頭且路徑含 review-evals/cases/…/case.diff，加上 entrypoint 是 sdk-cli（逐字紀錄沒有 entrypoint 欄位時只看前者）；要算進來加 --include-eval。編號：' + [...evalSkipped].join('、'));
 out.G.note = 'corrections 只認糾正語氣的詞；repeatedInstructions 是全部歷史裡跨 session 重複出現的片語（messages＝幾則發言、sessions＝幾個 session、inRange＝範圍內幾則），每一條都要回原文看是不是同一件事被反覆交代——是的話一定進提案，而且提案要是自動檢查或流程腳本的預設行為，不是再寫一條規則文字。';
 
 // ── H 專案概要 ──

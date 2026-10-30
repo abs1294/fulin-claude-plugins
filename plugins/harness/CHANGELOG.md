@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [Unreleased]
+### Changed
+- review-collect：略過審查評測集（git-commit plugin 的 review-eval.js）自動起的 headless 審查 session，不進 A 的 session 數、B／C 的派工與擋下統計、G 的使用者發言與重複交代，notes 寫略過幾個、判斷依據與 session 編號；`--include-eval` 可算進來。判斷＝第一則提問以「請審查這份改動：」開頭且路徑含 `review-evals/cases/…/case.diff`，加上 entrypoint 是 sdk-cli（逐字紀錄沒有 entrypoint 欄位時只看提問）。盲區：sdk-cli 單看會誤中其他 headless 子程序（來源專案實測 20 個一般 session 也是 sdk-cli），所以必須加提問條件；評測腳本改了 prompt 開頭或案例路徑時會漏略過。來源專案 2026-10-30 健檢：10 個評測 session 佔 G.repeatedInstructions 前 10 名的 9 條。tests 第 17 項（3 個評測 session 被略過、cli 手貼同句與 sdk-cli 別的提問照算、`--include-eval`）。
+
 ## [0.20.0] - 2026-10-19
 ### Added
 - review-collect：G 面向新增 `repeatedInstructions`——不靠詞表，直接找「在 ≥3 則使用者發言、跨 ≥2 個 session 出現」的片語（5～8 字、不含數字與長英數串），看全部歷史並標範圍內次數。來源專案健檢實測：糾正詞表對「還沒推就 amend、不要另開 commit」（61 次）與「備份分支確認一致就刪」（28 次）一次都沒命中，健檢沒抓到、使用者當場指出。糾正詞表另補「講過／說過／幾次了／每次都／又忘／不要再／又來／髒紀錄」。tests 第 11 項：跨 session 三則同句要列出、壓縮摘要與跨 session 訊息裡的同句不算。
