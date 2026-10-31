@@ -2,7 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
-## [Unreleased]
+## [0.20.1] - 2026-10-31
+### Fixed
+- tests：split-audit 對照表第 762 行跟上 2026-10-20 白話化措辭（「三軌」改「三種檢查」、行號 114→120），split-audit 恢復 0 遺失
+
 ### Changed
 - review-collect：略過審查評測集（git-commit plugin 的 review-eval.js）自動起的 headless 審查 session，不進 A 的 session 數、B／C 的派工與擋下統計、G 的使用者發言與重複交代，notes 寫略過幾個、判斷依據與 session 編號；`--include-eval` 可算進來。判斷＝第一則提問以「請審查這份改動：」開頭且路徑含 `review-evals/cases/…/case.diff`，加上 entrypoint 是 sdk-cli（逐字紀錄沒有 entrypoint 欄位時只看提問）。盲區：sdk-cli 單看會誤中其他 headless 子程序（來源專案實測 20 個一般 session 也是 sdk-cli），所以必須加提問條件；評測腳本改了 prompt 開頭或案例路徑時會漏略過。來源專案 2026-10-30 健檢：10 個評測 session 佔 G.repeatedInstructions 前 10 名的 9 條。tests 第 17 項（3 個評測 session 被略過、cli 手貼同句與 sdk-cli 別的提問照算、`--include-eval`）。
 
