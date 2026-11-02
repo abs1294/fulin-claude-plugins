@@ -63,7 +63,7 @@
 
 觸發詞：「WBS」「工作分解」「專案時程」「甘特圖」「MS Project 檔」「排一份 N 天 / N 人的開發計畫」。
 
-**交付用 XLSX**：`skills/msproject-wbs/scripts/mspdi-to-xlsx.py` 直接從 XML 轉出內容與 MS Project 匯出一致的 XLSX（階層縮排、層級配色、凍結窗格、可摺疊大綱），免去「匯入 MS Project → 存 MPP → 另存 XLSX」的手工。產檔前自動跑 `check_doc.js`（同一套易讀性與文件屬性判準），有硬缺陷就不產出、exit 1；文件屬性的標題取專案名稱、作者用 `--author` 指定（省略留空）、應用程式寫成 Microsoft Excel，不留 openpyxl 的預設值。這支要直接從 plugin 目錄執行，複製出去找不到自檢腳本會拒絕產檔。
+**交付用 XLSX**：`skills/msproject-wbs/scripts/mspdi-to-xlsx.py` 直接從 XML 轉出內容與 MS Project 匯出一致的 XLSX（階層縮排、層級配色、凍結窗格、可摺疊大綱），免去「匯入 MS Project → 存 MPP → 另存 XLSX」的手工。產檔前自動跑 `check_doc.js`（同一套易讀性與文件屬性判準），有硬缺陷就不產出、exit 1；文件屬性的標題取專案名稱、作者用 `--author` 指定（省略留空）、應用程式寫成 Microsoft Excel，不留 openpyxl 的預設值。這支要直接從 plugin 目錄執行，複製出去找不到自檢腳本會拒絕產檔。判定看 check_doc 的 `pass`：有硬缺陷、或因環境缺東西（例如找不到 Python）沒檢查到文件內容／屬性，都不產出；自檢沒過、逾時或任何例外都走同一套失敗訊息（不只丟 traceback）、不留下暫存檔（清不掉時只印警告，不蓋掉原本的錯誤），上一版交付檔還在時會提醒它已過期。暫存檔放在交付檔所在資料夾裡本次專用的暫存資料夾、檔名和交付檔相同（Windows 上路徑太長、暫存放不下時先講明），跑完整個刪掉，不會覆寫或刪掉旁邊的同名檔，交付檔權限跟一般新檔案一樣；XML 沒有專案名稱時標題取交付檔名；輸出資料夾不存在、輸出位置不是 .xlsx 檔案或是資料夾時，轉檔前就講明、不產出。測試 `hooks/tests/mspdi-to-xlsx.test.py`（109 例，交付檔權限一例只在 POSIX 跑、長路徑十三例只在 Windows 跑，實跑腳本子程序，每例各用一個資料夾：含 cp950 主控台與找不到 Python 兩種實案、自檢輸出不是 JSON／JSON 毀損、逾時、改寫文件屬性出錯、覆寫失敗、清暫存失敗、旁邊有同名檔、沒有專案名稱、英文標題、輸出資料夾不存在）。
 
 前置依賴：Node.js（生成 XML、跑自檢）；Python 3＋openpyxl（轉 XLSX）；PowerShell（XML 結構驗證；非 Windows 可改用任何嚴格 XML parser）；MS Project（收件人端匯入驗收）。
 

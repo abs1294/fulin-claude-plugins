@@ -16,7 +16,7 @@
 #
 # ⚠ 內容欄位不得為了「好看」而改寫（例如把工期寫成 "3 天"、日期改 ISO），
 #   否則與客戶端 MS Project 匯出結果對不上。排版只用樣式層（字體/底色/縮排/欄寬）。
-import re, sys, os, html, json, shutil, subprocess, zipfile
+import re, sys, os, html, json, shutil, subprocess, tempfile, zipfile
 from datetime import date
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -226,7 +226,8 @@ def convert(xml_path, xlsx_path, author=''):
 
 def set_properties(wb, xml_text, xlsx_path, author):
     """文件屬性改成交付用的值。openpyxl 預設把「作者」「最後修改者」寫成 openpyxl，
-    對方按右鍵看內容就看得到（check_doc.js 判為硬缺陷）。標題取 MSPDI 的專案 <Title>，沒有就用檔名。"""
+    對方按右鍵看內容就看得到（check_doc.js 判為硬缺陷）。標題取 MSPDI 的專案 <Title>，沒有就用檔名
+    （暫存檔和交付檔同名，見 make_workdir）。"""
     m = re.search(r'<Title>(.*?)</Title>', xml_text, re.S)
     title = html.unescape(m.group(1)).strip() if m else ''
     wb.properties.title = title or os.path.splitext(os.path.basename(xlsx_path))[0]
@@ -234,24 +235,92 @@ def set_properties(wb, xml_text, xlsx_path, author):
     wb.properties.lastModifiedBy = author
 
 
+WORKDIR_EXTRA = len(os.sep + '.chk') + 8   # make_workdir 讓路徑多出的字數：分隔字元＋.chk＋8 碼
+
+
+def make_workdir(dst):
+    """在交付檔所在資料夾建本次專用的暫存資料夾（mkdtemp，名稱不重複、由本程序建立），回傳路徑。
+    暫存檔放在裡面、檔名和交付檔完全相同：
+      - 不會撞到、覆寫或刪掉使用者放在交付檔旁邊的任何檔案（固定暫存檔名會）；
+      - 自檢（check_doc 比對標題和檔名）、標題退路、訊息裡看到的都是交付檔名，不是暫存檔名；
+      - 檔案由 openpyxl 正常建立，權限照 umask（mkstemp 會建成 0600、被 os.replace 帶到交付檔）；
+      - 和交付檔同一顆磁碟，最後 os.replace 一次換掉，不必複製（複製到一半失敗會毀掉上一版交付檔）；
+      - 不放系統暫存資料夾：Windows 上那裡的權限不保證只有自己讀得到；
+      - 改寫文件屬性在這份檔上原地做（見 fix_application），不另建檔。
+    路徑只比交付檔多 WORKDIR_EXTRA 字；Windows 上放不放得下由 path_too_long 先擋。"""
+    out_dir = os.path.dirname(os.path.abspath(dst))
+    return tempfile.mkdtemp(prefix='.chk', dir=out_dir)
+
+
+def wlen(path):
+    """Windows 計算路徑長度的單位是 UTF-16：emoji 這類字元算 2 個，Python 的 len() 只算 1 個。"""
+    return len(path.encode('utf-16-le', 'surrogatepass')) // 2
+
+
+def path_too_long(dst):
+    """Windows 上暫存資料夾（上限 248 字元）或暫存檔（上限 260 字元）放不下時，回傳說明是哪一條上限；
+    放得下、或不是 Windows，回 None。長度用 wlen 算（UTF-16），不用 len()。
+    交付檔本身放得下、暫存放不下的範圍只有 WORKDIR_EXTRA 字寬；先擋下講明，不要轉到一半才失敗。
+    Windows 一律照 260／248 算、不看「長路徑支援」：登錄 LongPathsEnabled=1 不保證這個 Python 程序真的能用
+    （執行檔要宣告 longPathAware、改登錄後可能還沒套用），照登錄放行會變回轉到一半才失敗、訊息講不清楚。
+    代價是開了長路徑的電腦，交付檔路徑也只能到 246 字元。"""
+    if os.name != 'nt':
+        return None
+    full = os.path.abspath(dst)
+    if wlen(os.path.dirname(full)) + WORKDIR_EXTRA >= 248:
+        return '轉檔用的暫存資料夾會超過 Windows 的資料夾路徑上限（248 字元）'
+    if wlen(full) + WORKDIR_EXTRA >= 260:
+        return '轉檔用的暫存檔會超過 Windows 的檔案路徑上限（260 字元）'
+    return None
+
+
+def discard(path):
+    """刪掉本次暫存資料夾裡的一個檔案。清不掉（被鎖住、沒權限）只印警告、不丟例外——
+    清理發生在 finally 裡，這裡再丟例外會蓋掉原本已受控的錯誤，變回只剩 traceback。"""
+    if not os.path.lexists(path):
+        return
+    try:
+        os.remove(path)
+    except OSError as e:
+        print('   ⚠ 暫存檔 %s 刪不掉（%s: %s），請手動刪除，不要拿去交付' % (path, type(e).__name__, e))
+
+
+def discard_workdir(work):
+    """清掉 make_workdir 建的暫存資料夾（裡面只有本次產生的檔案）。清不掉只印警告、不丟例外。"""
+    try:
+        names = os.listdir(work)
+    except OSError:
+        names = []
+    for name in names:
+        discard(os.path.join(work, name))
+    try:
+        os.rmdir(work)
+    except OSError as e:
+        print('   ⚠ 暫存資料夾 %s 刪不掉（%s: %s），請手動刪除' % (work, type(e).__name__, e))
+
+
 def fix_application(xlsx_path):
     """openpyxl 存檔時固定把「應用程式」寫成 Microsoft Excel Compatible / Openpyxl x.y.z，
     沒有 API 可改（writer 每次 new ExtendedProperties()），只能存檔後改 docProps/app.xml。
-    只做字串替換、其他零件原樣複製，不重新序列化 XML。"""
-    tmp = xlsx_path + '.app-fix'
-    with zipfile.ZipFile(xlsx_path) as zin, zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout:
-        for item in zin.infolist():
-            data = zin.read(item.filename)
+    只做字串替換、其他零件原樣複製，不重新序列化 XML。
+    原地改寫（整份讀進記憶體再寫回同一個檔）、不另建檔：xlsx_path 是 make_workdir 私有資料夾裡的暫存檔，
+    另建改寫檔會讓暫存路徑隨檔名長短變長（Windows 260 字元上限下，短檔名的長路徑交付檔反而轉不出來）。
+    寫到一半失敗時這份暫存檔會壞掉，但它只是暫存：例外走失敗流程、不交付、整個資料夾清掉。"""
+    with zipfile.ZipFile(xlsx_path) as zin:
+        items = [(item, zin.read(item.filename)) for item in zin.infolist()]
+    with zipfile.ZipFile(xlsx_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for item, data in items:
             if item.filename == 'docProps/app.xml':
                 data = re.sub(rb'<Application>[^<]*</Application>', b'<Application>Microsoft Excel</Application>', data)
                 data = re.sub(rb'<AppVersion>[^<]*</AppVersion>', b'<AppVersion>16.0300</AppVersion>', data)
             zout.writestr(item, data)
-    os.replace(tmp, xlsx_path)
 
 
 def readability_gate(xlsx_path):
     """跑同 plugin 的 check-before/scripts/check_doc.js（與 Stop hook 同一套判準）。
-    硬缺陷、讀不到、沒有 node 都算不通過；提醒印出來由人判斷。回傳 (通過與否, 訊息列)。"""
+    以 check_doc 的 pass 判定：硬缺陷、或因環境缺東西（例如找不到 Python）而沒檢查到文件內容／文件屬性，
+    都算不通過——只看 bad 會在「文件屬性整項沒檢查」時放行（bad 是空的）。
+    沒有 node、找不到自檢腳本、讀不到檔、輸出不是 JSON 也算不通過。回傳 (通過與否, 訊息列)。"""
     checker = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                             '..', '..', 'check-before', 'scripts', 'check_doc.js'))
     node = shutil.which('node')
@@ -263,12 +332,27 @@ def readability_gate(xlsx_path):
     out = r.stdout.decode('utf-8', 'replace').strip()
     if r.returncode == 2 or not out.startswith('{'):
         return False, ['交付前自檢讀不到檔案：%s' % (out or r.stderr.decode('utf-8', 'replace').strip())[-400:]]
-    res = json.loads(out)
+    try:
+        res = json.loads(out)
+    except ValueError:
+        return False, ['交付前自檢的輸出無法解析：%s' % out[-400:]]
+    ok = res.get('pass') is True
     msgs = ['✗ ' + b for b in res.get('bad', [])] + ['△ ' + n for n in res.get('notes', [])]
-    return not res.get('bad'), msgs
+    if not ok:
+        # 沒過但沒有硬缺陷 → 原因在「沒檢查到」的項目（例如找不到 Python），一併印出。
+        # 「沒給 --prev／--thread」是 check_doc 的選用比對，本腳本沒有這兩個參數、也不影響 pass，不印以免誤導
+        msgs += ['□ 沒檢查到：' + u for u in res.get('unchecked', []) if '沒給 --' not in u]
+    return ok, msgs
 
 
 if __name__ == '__main__':
+    # 主控台編碼可能是 cp950（Git Bash、輸出被導向時），印不出 ✗ △ 這類符號會整支當掉、暫存檔也清不掉；
+    # 印不出的字改成 ? 照常往下跑
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors='replace')
+        except (AttributeError, ValueError):
+            pass
     # 用法：python mspdi-to-xlsx.py <輸入.xml> <輸出.xlsx> [--author <作者>]
     #   --author 省略時「作者」欄留空（不留 openpyxl 預設值）。
     # 先寫到暫存檔跑交付前自檢，有硬缺陷就不產出 <輸出.xlsx>、exit 1。
@@ -283,15 +367,47 @@ if __name__ == '__main__':
     if len(args) != 2:
         sys.exit('用法：python mspdi-to-xlsx.py <輸入.xml> <輸出.xlsx> [--author <作者>]')
     src, dst = args
-    root, ext = os.path.splitext(dst)
-    tmp = root + '.checking' + (ext or '.xlsx')
-    n = convert(src, tmp, author)
-    ok, msgs = readability_gate(tmp)
-    for line in msgs:
-        print('   ' + line)
+    work = None
+    ok = False
+    usable = False   # 輸出位置本身合格（是 .xlsx 檔案路徑、資料夾存在）；不合格時不提「舊檔」
+    out_dir = os.path.dirname(os.path.abspath(dst))
+    try:
+        name = os.path.basename(dst)
+        if not name.lower().endswith('.xlsx') or len(name) <= len('.xlsx'):
+            # 沒有副檔名、別的副檔名、結尾斜線（資料夾路徑）、檔名只有 .xlsx 都擋：暫存檔要和交付檔同名，
+            # 又要讓 check_doc.js 依副檔名認出 XLSX（它把 .xlsx 這種檔名當成沒有副檔名），
+            # 只有「主檔名＋.xlsx」才同時成立
+            print('   ✗ 輸出位置 %s 不是 .xlsx 檔案路徑；請寫成 <檔名>.xlsx' % dst)
+        elif os.path.isdir(dst):
+            print('   ✗ 輸出位置 %s 是一個資料夾，不是檔案；請改成 .xlsx 檔案路徑' % dst)
+        elif not os.path.isdir(out_dir):
+            print('   ✗ 輸出資料夾 %s 不存在；請先建立資料夾或改輸出路徑' % out_dir)
+        elif path_too_long(dst):
+            usable = True   # 輸出位置本身是合格的 .xlsx 路徑，那裡若有上一版交付檔，照樣提醒它已過期
+            print('   ✗ 輸出路徑太長（%d 字）：%s；請把輸出放到路徑短一點的資料夾'
+                  % (wlen(os.path.abspath(dst)), path_too_long(dst)))
+        else:
+            usable = True
+            work = make_workdir(dst)
+            tmp = os.path.join(work, os.path.basename(dst))   # 和交付檔同名，見 make_workdir
+            n = convert(src, tmp, author)
+            ok, msgs = readability_gate(tmp)
+            for line in msgs:
+                print('   ' + line)
+            if ok:
+                os.replace(tmp, dst)
+    except Exception as e:
+        # 逾時、轉檔／改寫文件屬性出錯、os.replace 失敗（dst 正在 Excel 開著）……一律走下面的受控失敗訊息，
+        # 不要只丟 traceback——使用者會看不到「沒有產出」與「舊檔已過期」的提醒
+        ok = False
+        print('   ✗ 轉檔或交付前自檢途中出錯：%s: %s' % (type(e).__name__, e))
+    finally:
+        # 自檢沒過、逾時、例外、os.replace 失敗（例如 dst 正在 Excel 開著）都不留下帶缺陷的暫存檔
+        if work:
+            discard_workdir(work)
     if not ok:
-        os.remove(tmp)
-        print('✗ 交付前自檢沒通過，沒有產出 %s；改完再轉' % dst)
+        print('✗ 沒有產出 %s（原因見上）；改完再轉' % dst)
+        if usable and os.path.isfile(dst):
+            print('  注意：%s 是上一次產出的舊檔，內容沒有跟著這次的 XML 更新，不要拿去交付' % dst)
         sys.exit(1)
-    os.replace(tmp, dst)
     print('OK 轉出 %d 列 → %s' % (n, dst))
