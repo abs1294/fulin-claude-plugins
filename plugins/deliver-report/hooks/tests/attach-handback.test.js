@@ -73,6 +73,36 @@ expectAllow([], '沒有任何文字');
   check(r.status === 0 && !r.stdout, 'transcript 讀不到：fail-open 放行', JSON.stringify(r.stdout));
 }
 
+console.log('=== Stop 閘：表格列不判斷（2026-11-02 誤判實案）===');
+expectAllow(['| 主旨 | 時間 | 附件 |\n|---|---|---|\n| 碳排-手動上傳基本資料 檔案無法上傳 | 10-15 09:03 | `1.3入庫品碳排基本資料上傳範本.xlsx`、`image001.jpg`（信內錯誤截圖） |'], '實案：表格裡的客戶問題標題含「手動上傳」');
+expectBlock(['| 主旨 | 附件 |\n|---|---|\n| a | b |\n\n附件請您自行上傳到草稿。'], '表格外的丟回句照擋');
+
+expectAllow(['它剛好命中「手動＋上傳」，被當成叫你自己附檔。'], '實案：描述閘的誤判（被當成／命中）');
+expectAllow(['這句是誤擋，閘把它當成叫你自己附上檔案。'], '誤擋說明句');
+console.log('=== Stop 閘：問要不要下載附件 → 擋（2026-11-02 實案）===');
+expectBlock(['要我下載那 4 個附件嗎？ 兩封信共 2 個 Excel、1 張錯誤截圖，總共約 130 KB。'], '實案：要我下載那 4 個附件嗎');
+expectBlock(['存到 scratchpad 的新資料夾。你回「可以」，我就下載。'], '實案：你回「可以」，我就下載（同句沒有附件字）');
+expectBlock(['無法代附：這次不是寄信草稿，沒有附件要附；那張表列的是我準備下載的客戶附件清單，下載前需要你同意。'], '實案：下載前需要你同意（「無法代附」不豁免）');
+expectBlock(['要不要我先把信裡的附件下載下來？'], '要不要下載附件（「要不要」不算否定）');
+expectBlock(['附件可以讓我下載嗎？'], '可以讓我下載附件嗎');
+expectBlock(['Shall I download the attachments?'], '英文 shall I download');
+{
+  const r = runStop(['附件請您自行上傳。要我下載信裡的附件嗎？']);
+  check(r.out.decision === 'block' && /附檔不丟回／附件直接下載/.test(r.out.reason || ''), '兩種同時命中：標題兩者都列', JSON.stringify(r));
+}
+{
+  const r = runStop(['要我下載那 4 個附件嗎？'], { active: true });
+  check(r.code === 0 && !r.out.decision && /附件直接下載.*已擋過一次/.test(r.out.systemMessage || ''), '下載詢問 stop_hook_active：第二次改提醒放行', JSON.stringify(r));
+}
+
+console.log('=== Stop 閘：下載相關但不是在問 → 放行 ===');
+expectAllow(['4 個附件已下載到 scratchpad，接著派人重現。'], '已下載');
+expectAllow(['我已把附件下載下來，Excel 第 3 列是空的。'], '我已下載');
+expectAllow(['無法代下載：附件已被寄件者撤回，信裡只剩檔名。'], '「無法代下載：」聲明句');
+expectAllow(['規則改成下載附件不用問，例句如「要我下載附件嗎」這類會被擋。'], '引號內的例句');
+expectAllow(['客戶說範本下載後打不開，附件是他們重存的版本。'], '描述客戶的下載動作（不是在問）');
+expectAllow(['要我先跑測試嗎？'], '一般詢問（與下載無關）');
+
 console.log('=== (H) attachmentClaimWithoutFiles ===');
 const c = (input, expect, label) => {
   const r = attachmentClaimWithoutFiles(input);
