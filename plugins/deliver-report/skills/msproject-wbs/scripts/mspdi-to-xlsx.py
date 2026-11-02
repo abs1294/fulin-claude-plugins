@@ -16,7 +16,7 @@
 #
 # ⚠ 內容欄位不得為了「好看」而改寫（例如把工期寫成 "3 天"、日期改 ISO），
 #   否則與客戶端 MS Project 匯出結果對不上。排版只用樣式層（字體/底色/縮排/欄寬）。
-import re, sys, html
+import re, sys, os, html, json, shutil, subprocess, zipfile
 from datetime import date
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -108,7 +108,7 @@ def build_outline_numbers(tasks):
     return out
 
 
-def convert(xml_path, xlsx_path):
+def convert(xml_path, xlsx_path, author=''):
     with open(xml_path, encoding='utf-8-sig') as f:
         xml_text = f.read()
 
@@ -118,6 +118,7 @@ def convert(xml_path, xlsx_path):
     uid2outline = {t['uid']: outline[i] for i, t in enumerate(tasks)}
 
     wb = Workbook()
+    set_properties(wb, xml_text, xlsx_path, author)
     ws = wb.active
     ws.title = '專案時程'
 
@@ -219,11 +220,78 @@ def convert(xml_path, xlsx_path):
     ws.sheet_properties.outlinePr.summaryBelow = False
     ws.sheet_view.showGridLines = False
     wb.save(xlsx_path)
+    fix_application(xlsx_path)
     return len(tasks)
 
 
+def set_properties(wb, xml_text, xlsx_path, author):
+    """文件屬性改成交付用的值。openpyxl 預設把「作者」「最後修改者」寫成 openpyxl，
+    對方按右鍵看內容就看得到（check_doc.js 判為硬缺陷）。標題取 MSPDI 的專案 <Title>，沒有就用檔名。"""
+    m = re.search(r'<Title>(.*?)</Title>', xml_text, re.S)
+    title = html.unescape(m.group(1)).strip() if m else ''
+    wb.properties.title = title or os.path.splitext(os.path.basename(xlsx_path))[0]
+    wb.properties.creator = author
+    wb.properties.lastModifiedBy = author
+
+
+def fix_application(xlsx_path):
+    """openpyxl 存檔時固定把「應用程式」寫成 Microsoft Excel Compatible / Openpyxl x.y.z，
+    沒有 API 可改（writer 每次 new ExtendedProperties()），只能存檔後改 docProps/app.xml。
+    只做字串替換、其他零件原樣複製，不重新序列化 XML。"""
+    tmp = xlsx_path + '.app-fix'
+    with zipfile.ZipFile(xlsx_path) as zin, zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == 'docProps/app.xml':
+                data = re.sub(rb'<Application>[^<]*</Application>', b'<Application>Microsoft Excel</Application>', data)
+                data = re.sub(rb'<AppVersion>[^<]*</AppVersion>', b'<AppVersion>16.0300</AppVersion>', data)
+            zout.writestr(item, data)
+    os.replace(tmp, xlsx_path)
+
+
+def readability_gate(xlsx_path):
+    """跑同 plugin 的 check-before/scripts/check_doc.js（與 Stop hook 同一套判準）。
+    硬缺陷、讀不到、沒有 node 都算不通過；提醒印出來由人判斷。回傳 (通過與否, 訊息列)。"""
+    checker = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                            '..', '..', 'check-before', 'scripts', 'check_doc.js'))
+    node = shutil.which('node')
+    if not node:
+        return False, ['本機找不到 node，無法跑交付前自檢（check_doc.js）']
+    if not os.path.isfile(checker):
+        return False, ['找不到交付前自檢腳本：%s' % checker]
+    r = subprocess.run([node, checker, xlsx_path, '--json'], capture_output=True, timeout=180)
+    out = r.stdout.decode('utf-8', 'replace').strip()
+    if r.returncode == 2 or not out.startswith('{'):
+        return False, ['交付前自檢讀不到檔案：%s' % (out or r.stderr.decode('utf-8', 'replace').strip())[-400:]]
+    res = json.loads(out)
+    msgs = ['✗ ' + b for b in res.get('bad', [])] + ['△ ' + n for n in res.get('notes', [])]
+    return not res.get('bad'), msgs
+
+
 if __name__ == '__main__':
-    src = sys.argv[1]
-    dst = sys.argv[2]
-    n = convert(src, dst)
+    # 用法：python mspdi-to-xlsx.py <輸入.xml> <輸出.xlsx> [--author <作者>]
+    #   --author 省略時「作者」欄留空（不留 openpyxl 預設值）。
+    # 先寫到暫存檔跑交付前自檢，有硬缺陷就不產出 <輸出.xlsx>、exit 1。
+    args = sys.argv[1:]
+    author = ''
+    if '--author' in args:
+        i = args.index('--author')
+        if i + 1 >= len(args):
+            sys.exit('--author 後面要接作者名稱')
+        author = args[i + 1]
+        del args[i:i + 2]
+    if len(args) != 2:
+        sys.exit('用法：python mspdi-to-xlsx.py <輸入.xml> <輸出.xlsx> [--author <作者>]')
+    src, dst = args
+    root, ext = os.path.splitext(dst)
+    tmp = root + '.checking' + (ext or '.xlsx')
+    n = convert(src, tmp, author)
+    ok, msgs = readability_gate(tmp)
+    for line in msgs:
+        print('   ' + line)
+    if not ok:
+        os.remove(tmp)
+        print('✗ 交付前自檢沒通過，沒有產出 %s；改完再轉' % dst)
+        sys.exit(1)
+    os.replace(tmp, dst)
     print('OK 轉出 %d 列 → %s' % (n, dst))

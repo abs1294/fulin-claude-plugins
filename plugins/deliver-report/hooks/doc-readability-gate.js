@@ -264,11 +264,12 @@ function referencedDeliverables(tp, cwd) {
 
 
 // 本 plugin 中「會產出交付文件」的 skill 名單。
-// deliver-report 產交付訊息、test-report-docx 產報告 DOCX、to-checklist 產確認清單（md 原稿＋PDF）。
+// deliver-report 產交付訊息、test-report-docx 產報告 DOCX、to-checklist 產確認清單（md 原稿＋PDF）、
+// msproject-wbs 產 WBS 時程（XML＋交付用 XLSX；XLSX 的文件屬性另由 mspdi-to-xlsx.py 產檔時硬擋）。
 // daily-report 不列：它的日報寫在家目錄、不在 cwd，且寄送腳本自有 content_guard 硬閘。
 // ⚠ 這裡曾經是 indexOf('deliver-report') 的子字串比對——skill 一旦改名或新增，
 //   閘門會靜默失效（看起來還在，實際沒守）。改成明確清單，新增 skill 請一併加進來。
-const GATED_SKILLS = ['deliver-report', 'test-report-docx', 'to-checklist'];
+const GATED_SKILLS = ['deliver-report', 'test-report-docx', 'to-checklist', 'msproject-wbs'];
 
 // skill 名可能帶 plugin 前綴（如 'deliver-report:test-report-docx'），
 // 故用「結尾比對或完全相等」而非寬鬆子字串。

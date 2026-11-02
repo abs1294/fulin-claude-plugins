@@ -7,6 +7,7 @@ description: >
   「排一份 N 天 / N 人的開發計畫」「by 功能 / by 工項排時程」時觸發。
   **只要使用者要的是「能匯入 MS Project 的時程表」就用這個 skill**——手刻 MSPDI XML 極易踩雷
   （打不開 / 日期全塌 / 工期顯示 0），本 skill 把這些坑全部編碼進生成腳本，一次到位。
+  另可把 XML 轉成交給對方的 XLSX（階層配色、凍結窗格），產檔時自動跑交付前自檢，文件屬性留著預設值等硬缺陷不產檔。
 ---
 
 # MS Project WBS 產生器
@@ -82,7 +83,7 @@ node scripts/generate-wbs.mjs
 > 標準連動指令（改完 XML 後照跑）：
 > ```bash
 > node   scripts/generate-wbs.mjs                                   # 1) 重生 XML
-> python scripts/mspdi-to-xlsx.py <輸出.xml> <交付.xlsx>            # 2) 立刻重生 XLSX（同一輪）
+> python "${CLAUDE_PLUGIN_ROOT}/skills/msproject-wbs/scripts/mspdi-to-xlsx.py" <輸出.xml> <交付.xlsx> [--author <作者>]   # 2) 立刻重生 XLSX（同一輪）
 > ```
 > 收尾自檢：確認 XML 與 XLSX 的 `mtime` 皆為本輪、且工項數一致；不一致代表漏跑步驟 2。
 
@@ -123,13 +124,21 @@ try {
 
 告訴使用者檔案路徑、起訖日、總工項數、每工項 ≤N 天。若有截止日，明說「排出來 vs 截止日」是否塌得進。提醒匯入後應看到：任務名純中文、有工期天數、資源名稱欄顯示負責人、甘特圖依日期展開。
 
+WBS 是要交給對方的檔案，對外鐵則同本 plugin 其他 skill（見 `../../references/document-readability.md`）：工項名稱不寫內部代號、AI／內部流程字眼。
+- **XLSX 交付檔**：`mspdi-to-xlsx.py` 產檔時已自動跑交付前自檢（見下方「常見追加需求」），沒過不會產出。要再加視覺檢查或對照客戶來信，另跑同 plugin 的 `check-before`。
+- **XML 檔**：`check_doc.js` 不支援 .xml，靠步驟 3 的 PowerShell 驗證與使用者實際匯入 MS Project 確認。
+- **要寫交付信／交付訊息**：接著用同 plugin 的 `deliver-report` skill。叫起本 skill 的回合結束時，Stop hook 也會掃本回合提到的交付檔（同 deliver-report）。
+
 ## 常見追加需求
 
 - **改任務名 / 去代號**：只改 `MODULES` 的 `name`，重跑。
 - **加人並行 / 改工期**：改 `RESOURCES` 與工項的 `res`/`d`，重跑（腳本自動依資源排時間線）。
 - **使用者說「打不開 / 日期全塌 / 工期 0」**：對照上面「四個雷」逐一查——幾乎都是某個欄位缺了。用 PowerShell parser 定位。若是既有檔要修，先跑 parser 找出是哪個雷，再針對性補（打不開通常是雷 1/2，日期塌是雷 3）。
 - **使用者要 XLSX 交付檔（免手動 MPP 轉檔）**：客戶常把 XML→MS Project→存 MPP→另存 XLSX，得到白底黑字、無階層、難讀。用 `scripts/mspdi-to-xlsx.py` 直接從 MSPDI XML 產出**內容與 MS Project 匯出完全一致**的 XLSX，並額外加階層縮排／層級配色（L1 藍、L2 灰、里程碑黃）／凍結窗格／可摺疊 outline。
-  - 執行：`python scripts/mspdi-to-xlsx.py <輸入.xml> <輸出.xlsx>`
+  - 執行：`python "${CLAUDE_PLUGIN_ROOT}/skills/msproject-wbs/scripts/mspdi-to-xlsx.py" <輸入.xml> <輸出.xlsx> [--author <作者>]`
+    - **直接跑 plugin 裡的這支，不要複製到專案目錄**：它用相對路徑呼叫同 plugin 的 `check-before/scripts/check_doc.js` 做交付前自檢，複製出去找不到自檢腳本會直接拒絕產檔。
+    - **產檔即自檢（硬閘）**：先寫到暫存檔（`<輸出>.checking.xlsx`）跑 `check_doc.js`，有硬缺陷（文件屬性留著產生工具預設值、含 AI 工具名稱、憑證／個資…）就刪掉暫存檔、不產出、exit 1；提醒（例如術語沒中文說明）照印、由你逐條判斷要不要改工項名稱。
+    - **文件屬性**：標題取 MSPDI 的專案 `<Title>`（沒有就用檔名）；作者／最後修改者用 `--author`，省略就留空（不留 openpyxl）；應用程式寫成 Microsoft Excel。
   - **內容對等契約**（改動前想清楚）：8 欄＝大綱編號(1/1.1/1.1.1，依 OutlineLevel 累進非 UID)／名稱／工期("N 工作日"＝Duration 時數÷8)／開始時間(「2026年7月27日 上午 08:00」月日不補零、12 小時制)／完成時間／前置任務(PredecessorLink→對應列大綱編號)／資源名稱(摘要列空白)／完成百分比。
   - **驗收**：若客戶已有一份自己轉的 XLSX，用「名稱＋開始日」複合 key 逐欄比對，內容 diff 必須為 0（大綱編號會因模組增減位移，屬正常）。排版只走樣式層，**絕不改欄位字串內容**（不可把工期寫「3 天」、日期改 ISO），否則對不上客戶端匯出結果。
 - **使用者要「預計完成%」基準線欄**（依開檔當天算「今天照計畫該完成幾趴」）：**兩邊都能加**——

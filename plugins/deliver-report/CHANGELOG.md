@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.3.0] - 2026-11-02
+### Changed
+- msproject-wbs 併入成為第 6 個 skill（原獨立 plugin msproject-wbs 0.4.1，已從 marketplace 移除；已安裝者改裝 deliver-report）。WBS 交付用 XLSX 原本帶著 openpyxl 的預設文件屬性（作者＝openpyxl、應用程式＝Microsoft Excel Compatible / Openpyxl 3.1.5）交出去，對方按右鍵看內容就看得到：mspdi-to-xlsx.py 改為標題取 MSPDI 專案 <Title>（沒有用檔名）、作者／最後修改者用 --author（省略留空）、存檔後以字串替換改 docProps/app.xml 的應用程式為 Microsoft Excel；並先寫暫存檔跑同 plugin 的 check_doc.js，有硬缺陷就刪暫存檔、不產出、exit 1（沒有 node、找不到自檢腳本、讀不到檔一律不產出），提醒照印。doc-readability-gate 的受閘 skill 名單加入 msproject-wbs（turn-start.test.js 新增 Skill 工具與斜線指令兩例；名單改回舊版時兩例轉紅）。實測：範本 XML 轉出 16 列、Excel COM 開檔讀回 17 列；--author 帶 AI 工具名稱時擋下且不留檔。SKILL.md 補交付段（XLSX 自檢、XML 靠 PowerShell 驗證與實際匯入、交付信接 deliver-report），XLSX 指令改為直接跑 plugin 內的腳本。
+
 ## [2.2.3] - 2026-11-02
 ### Fixed
 - attach-handback-gate 新增第二條判準：收尾回覆在問使用者可不可以下載附件就擋（要我／要不要／可以讓我…下載附件嗎、下載前要你同意、你回「可以」我就下載），下載附件直接做、存到 scratchpad 新建的空資料夾，真的下載不了寫一行「無法代下載：<理由>」；「無法代附」聲明不豁免下載詢問，「要不要」裡的「不要」不算否定。markdown 表格列不再判斷：2026-11-02 誤判實案是表格裡的客戶問題標題「碳排-手動上傳基本資料 檔案無法上傳」命中「手動＋上傳」被當成叫使用者自己附檔；描述閘判定的句子（被當成／當成／誤判／誤擋／命中）同樣不算，同日回報誤判時又被擋一次。測試 attach-handback 45 例（新增 19 例，含兩則實案句）；拿掉表格略過、拿掉「要不要」例外兩項變異各自轉紅。README 同步。

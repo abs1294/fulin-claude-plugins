@@ -43,17 +43,12 @@
     {
       "name": "deliver-report",
       "source": "./plugins/deliver-report",
-      "description": "對外產物五件套：deliver-report 交付訊息、test-report-docx 測試報告 DOCX（總覽表＋逐項展開版面，證據對應由 report_gate.py 三道機械閘強制）、daily-report 工作日報寄 Gmail、to-checklist 確認清單 PDF、check-before 交付前自檢（五者共用同一支易讀性掃描）；禁 AI／內部流程字眼，含易讀性鐵則與 Stop hook 閘。"
+      "description": "對外產物六件套：deliver-report 交付訊息、test-report-docx 測試報告 DOCX（總覽表＋逐項展開版面，證據對應由 report_gate.py 三道機械閘強制）、daily-report 工作日報寄 Gmail、to-checklist 確認清單 PDF、msproject-wbs 產 MS Project WBS 時程 XML 與交付用 XLSX、check-before 交付前自檢（共用同一支易讀性掃描）；禁 AI／內部流程字眼，含易讀性鐵則與 Stop hook 閘。"
     },
     {
       "name": "cc-statusline",
       "source": "./plugins/cc-statusline",
       "description": "高資訊密度 status line（目錄/model/成本/quota/agents/skills 等多欄）；/cc-statusline-rows 逐列開關與寬度邊距；需手動接 settings.json。"
-    },
-    {
-      "name": "msproject-wbs",
-      "source": "./plugins/msproject-wbs",
-      "description": "產生 MS Project 可直接匯入的 WBS 時程 XML（MSPDI）：模組/工項兩層、工期、資源、依賴鏈甘特圖；常見七雷已編碼進腳本。"
     },
     {
       "name": "fable-quote",

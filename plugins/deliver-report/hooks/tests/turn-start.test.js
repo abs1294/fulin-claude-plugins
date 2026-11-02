@@ -68,6 +68,9 @@ check('Stop hook 擋過一次後（多一行 isMeta feedback）仍會擋', run([
 const slash = (name) => ({ type: 'user', promptId: 'p2', message: { role: 'user', content: `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args>sample.docx</command-args>` } });
 check('斜線指令叫受閘的 skill（沒有 Skill tool_use）也會擋', run([slash('deliver-report:deliver-report'), metaSkill, reply]) === 'block');
 check('斜線指令叫 to-checklist 也會擋', run([slash('deliver-report:to-checklist'), metaSkill, reply]) === 'block');
+check('斜線指令叫 msproject-wbs 也會擋', run([slash('deliver-report:msproject-wbs'), metaSkill, reply]) === 'block');
+const wbsCall = { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Skill', input: { skill: 'deliver-report:msproject-wbs' } }] } };
+check('Skill 工具叫 msproject-wbs 也會擋', run([userLine, wbsCall, skillResult, metaSkill, reply]) === 'block');
 check('斜線指令叫不受閘的 check-before 放行（它自己就跑檢查）', run([slash('deliver-report:check-before'), metaSkill, reply]) === 'allow');
 const other = { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't9', name: 'Skill', input: { skill: 'plugin-manager:plugin-manager-update' } }] } };
 check('沒有叫 deliver-report 系 skill 時放行', run([userLine, other, skillResult, metaSkill, reply]) === 'allow');

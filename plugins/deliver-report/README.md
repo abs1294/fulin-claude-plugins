@@ -1,6 +1,6 @@
 # deliver-report
 
-把工作成果變成**對外產物**。五個 skill，共用同一套對外鐵則與同一套交付前自檢。
+把工作成果變成**對外產物**。六個 skill，共用同一套對外鐵則與同一套交付前自檢。
 
 | skill | 產出什麼 | 什麼時候用 |
 |-------|----------|-----------|
@@ -8,6 +8,7 @@
 | **test-report-docx** | 一份**測試報告 DOCX 檔** | 測試已做完、證據在手，要把結果文件化給 PM／客戶簽核轉發 |
 | **daily-report** | 一封**工作日報**（核可後寄出） | 把當天散在各專案的工作，濃縮成主管／客戶看得懂的日報 |
 | **to-checklist** | 一份**確認清單 PDF**（附 Markdown 原稿） | 有幾件事要對方拍板才能往下做，要在會議上逐項對齊或寄給對方逐項回覆（僅點名觸發） |
+| **msproject-wbs** | 一份**WBS 專案時程**（MS Project 可匯入的 XML＋交付用 XLSX） | 要排開發時程、工作分解、甘特圖給對方，或要「能匯入 MS Project 的時程表」 |
 | **check-before** | 一份**自檢結果**（不改檔） | 指定一份要交出去的文件（docx／pptx／xlsx／md／txt／pdf），交付前跑易讀性檢查與文件屬性檢查（標題、作者留著產生工具的預設值、含 AI 工具名稱就擋）；可選擇對照客戶最新來信（`--thread`）、與上一版比對合約條款（`--prev`），沒給就列成「這次沒檢查到」；pptx／docx／pdf 另做視覺檢查（用 PowerPoint／Word 實際排版抓疊字、字跑出方塊、超出頁面，每頁出圖逐張看）。它的腳本也已接進其他 subskill 的產檔／寄送腳本自動跑（這些呼叫端不跑視覺檢查） |
 
 前兩者的分流判準一句：**對方收到的是「文字」還是「檔案」？** 兩者常前後接續——報告檔產好之後要寫段訊息把它交出去，就換 `deliver-report`。
@@ -23,13 +24,13 @@
 ## 共用的東西
 
 - `references/document-readability.md`（**plugin 層級共用一份**）：交付文件易讀性十五條鐵則＋交付前必做的十一項機械掃描。每一條都是使用者當面指出過 2~4 次的實案。
-- `hooks/lib/readability-scan.core.js`：上述鐵則中「機器判得準」那幾項的**唯一實作**。Stop hook 與 `skills/check-before/scripts/check_doc.js` 都 require 它，判準改一處全部生效。`check_doc.js` 是 CLI（exit 0 通過／1 有硬缺陷／2 讀不到；本機沒有 Python 時 xlsx／pdf 內容與文件屬性列為「這次沒檢查到」並提醒安裝，不算 exit 2），已接進各 subskill 自己的腳本自動跑：to-checklist 的 `md_to_pdf.py`（轉檔前）、test-report-docx 的 `report_gate.verify_docx()`（閘三）、daily-report 的 `send_common.prepare_send`（寄送前置）；daily-report 的 MCP 草稿路徑由 PreToolUse hook `hooks/daily-draft-gate.js` 在建立／更新 Gmail 草稿前跑內容閘與易讀性閘，沒過就拒絕建立。deliver-report 沒有產檔腳本，由下面的 Stop hook 掃本回合提到或寫過的交付檔（任何位置與格式）。
+- `hooks/lib/readability-scan.core.js`：上述鐵則中「機器判得準」那幾項的**唯一實作**。Stop hook 與 `skills/check-before/scripts/check_doc.js` 都 require 它，判準改一處全部生效。`check_doc.js` 是 CLI（exit 0 通過／1 有硬缺陷／2 讀不到；本機沒有 Python 時 xlsx／pdf 內容與文件屬性列為「這次沒檢查到」並提醒安裝，不算 exit 2），已接進各 subskill 自己的腳本自動跑：to-checklist 的 `md_to_pdf.py`（轉檔前）、test-report-docx 的 `report_gate.verify_docx()`（閘三）、msproject-wbs 的 `mspdi-to-xlsx.py`（XLSX 產檔前）、daily-report 的 `send_common.prepare_send`（寄送前置）；daily-report 的 MCP 草稿路徑由 PreToolUse hook `hooks/daily-draft-gate.js` 在建立／更新 Gmail 草稿前跑內容閘與易讀性閘，沒過就拒絕建立。deliver-report 沒有產檔腳本，由下面的 Stop hook 掃本回合提到或寫過的交付檔（任何位置與格式）。
 - `skills/check-before/scripts/visual_check.py`：視覺檢查。先用對方實際的軟體排版成 PDF（Windows：PowerPoint／Word；macOS：PowerPoint／Word，簡報另可退到 Keynote；各平台最後退到 LibreOffice），再讀每個字實際畫出的位置判疊字、字跑出方塊、超出頁面、字太小，每頁輸出 PNG。pptx 由 `check_doc.js` 預設呼叫，docx／pdf 要加 `--visual`（check-before 一律加）。回歸測試 `hooks/tests/visual/run_fixtures.py`。
 - `hooks/visual-view-gate.js`：Stop hook，視覺檢查印出的每頁圖片都要在本回合被 Read 過，漏看就擋。機器只判得準字形互相壓到，SmartArt、圖片裡的字這類疊字要看圖才抓得到，寫在 SKILL.md 是自律、AI 會只看總覽，所以用 hook。測試 `hooks/tests/visual-view-gate.test.js`。
 - `hooks/attach-handback-gate.js`：Stop hook，**附檔不准丟回給使用者自己拖**。本回合收尾那段回覆逐句看，同一句有附件對象（附件／附檔／檔案）又是叫使用者動手（拖進／拖入、你／您…附上／上傳、自行／手動附）就擋下，並列出三條代附路徑（預設：瀏覽器對草稿 viewUrl 的 file input 上傳；瀏覽器不能用才用 attachments base64——模型要逐字輸出整個檔案，13 KB 實測約 8 分鐘，看起來像卡住；真的不行時寫「無法代附：<理由>」）。引號內的例句、回顧／否定句、「我自己附」、markdown 表格列不算；同一回合第二次 Stop 改提醒放行。同一支也擋**問使用者可不可以下載附件**（要我／要不要／可以讓我…下載附件嗎、下載前要你同意、你回「可以」我就下載）——下載附件直接做，存到 scratchpad 新建的空資料夾；真的下載不了寫一行「無法代下載：<理由>」。測試 `hooks/tests/attach-handback.test.js`（含 2026-10-11、2026-11-02 實案句）。
 - **附件清單要和實際附的檔對得上**（2026-10-11 實案：信裡列 3 個檔、只附 2 個）：信裡的附件清單（「附件 N 份：」標題列＋`<ol>`／`<ul><li>`，只數第一層、含 `<a href>` 的項目視為雲端連結不計）有兩道閘把關。走 API 附檔時，`hooks/gmail-draft-attachment-gate.js`（PreToolUse）比對清單項數、標題份數、檔名與 `attachments`，不符就擋下、草稿不建立（測試 `hooks/tests/attachment-list.test.js`）；走瀏覽器上傳時，`hooks/upload-count-gate.js`（Stop）在本回合有成功上傳時，比對清單與建草稿後實際上傳成功的檔，少傳、傳錯、上傳後又被不帶附件的 `update_draft` 清掉都擋，同回合第二次改提醒放行（測試 `hooks/tests/upload-count.test.js`）。兩道閘共用 `hooks/lib/draft-checks.core.js` 的 `parseAttachmentList`／`compareAttachmentList`。
 - **改既有草稿不得覆蓋使用者的手改**（2026-10-20 實案：使用者在 Gmail 介面刪掉的 repo 表格被上一版文字原樣寫回）：`hooks/gmail-draft-stale-gate.js`（PreToolUse，只掛 `update_draft`）——同一封草稿自上次 `create_draft`／`update_draft` 成功後，沒有帶 htmlBody 的 `get_draft` 讀回，就擋下這次 `update_draft`；記號 `stale:<draftId>` 由 `gmail-draft-posttool-gate.js` 在寫入成功時記、讀回帶 htmlBody 時銷，存在共用狀態檔 `~/.claude/deliver-report/draft-link-gate/warned.json`。閘只管「讀過沒」；讀回後要以它為底、只改被要求的幾處、改完切段比對，見 SKILL.md 第三步之三要點 6。測試 `hooks/tests/stale-draft.test.js`（實跑兩支 hook 子程序，狀態目錄隔離在暫存家目錄）。
-- `hooks/doc-readability-gate.js`：Stop hook，把上述判準做成交付前機械閘。**deliver-report、test-report-docx、to-checklist 會觸發**（Skill 工具或斜線指令叫起都算）。掃兩種來源：本回合提到或寫過的交付檔（交付訊息裡的檔名、Write 寫出的檔；任何位置、docx／md／txt／pdf／pptx／xlsx，最多 6 份；文件屬性不在 Stop hook 範圍），以及目前目錄、`_work/`、`docs/`、`output/` 內近 6 小時改過的 docx 與 `checklist-*.md`；docx 有目錄時另檢查目錄頁碼（每次最多 2 份）。回合起點排除 `isMeta` 的 user 行——Skill 叫起後注入的說明內容與 Stop hook feedback 都是這種行，舊版把它當成起點，照真實行順序實測時閘不會觸發（回歸測試 `hooks/tests/turn-start.test.js`、`doc-gate-scope.test.js`）。本機沒有 Python 而讀不了的檔（xlsx、pdf）不擋，結束時提醒哪幾份沒檢查、要裝什麼。
+- `hooks/doc-readability-gate.js`：Stop hook，把上述判準做成交付前機械閘。**deliver-report、test-report-docx、to-checklist、msproject-wbs 會觸發**（Skill 工具或斜線指令叫起都算）。掃兩種來源：本回合提到或寫過的交付檔（交付訊息裡的檔名、Write 寫出的檔；任何位置、docx／md／txt／pdf／pptx／xlsx，最多 6 份；文件屬性不在 Stop hook 範圍），以及目前目錄、`_work/`、`docs/`、`output/` 內近 6 小時改過的 docx 與 `checklist-*.md`；docx 有目錄時另檢查目錄頁碼（每次最多 2 份）。回合起點排除 `isMeta` 的 user 行——Skill 叫起後注入的說明內容與 Stop hook feedback 都是這種行，舊版把它當成起點，照真實行順序實測時閘不會觸發（回歸測試 `hooks/tests/turn-start.test.js`、`doc-gate-scope.test.js`）。本機沒有 Python 而讀不了的檔（xlsx、pdf）不擋，結束時提醒哪幾份沒檢查、要裝什麼。
 - **草稿不得弄丟使用者的 Gmail 簽名檔**（2026-10-21 實案：建新信草稿後簽名檔不見；實測 `create_draft` 預設不帶簽名檔、`update_draft` 帶新內文會把簽名檔清掉）：`hooks/gmail-draft-signature-gate.js`（PreToolUse，`create_draft`／`update_draft`）——`create_draft` 沒帶 `includeSignature: true` 就擋；內文已有 `gmail_signature` 又帶 `true`（會兩份）也擋；`update_draft` 改了內文、新內文卻沒有 `gmail_signature`，而這封草稿原本有簽名就擋；原本有沒有簽名由 `gmail-draft-posttool-gate.js` 在 `get_draft` 讀回與寫入成功時記在共用狀態檔（`sig:<id>`／`nosig:<id>`），本 session 沒讀回過就要求先讀回，讀回確認原本沒簽名的草稿（舊草稿、網頁建的、帳號沒設簽名）直接放行。各道內容閘（posttool 的機敏字／網址／標籤白名單、Stop 閘、日報內容閘）掃描前都先用 `stripSignature()` 拿掉整段簽名檔，簽名裡的電話、email、網址、`<span style>` 不算本次寫的正文。判準在 `draft-checks.core.js` 的 `signatureProblem()`／`stripSignature()`（Stop 閘自帶一份副本，漂移比對在測試裡），測試 `hooks/tests/signature-gate.test.js`（42 例，實跑 hook 子程序）。範圍只到 `create_draft`／`update_draft`：`send_message`／`reply` 直接寄出的信、daily-report 的 SMTP／OAuth 直寄路徑都不經這道閘，也都不會自動帶簽名檔。
 - `hooks/daily-draft-gate.js`：PreToolUse hook（`mcp__claude_ai_Gmail__create_draft`／`update_draft`）。主旨含「工作日報」的草稿，內文先跑 `content_guard.py` 與 `check_doc.js`，任一不過就拒絕建立草稿——daily-report 的 MCP 草稿路徑原本不經任何腳本、兩道閘只靠自律。回歸測試 `hooks/tests/daily-draft-gate.test.js`。
 - `hooks/gmail-draft-link-gate.js`：Stop hook，**七項檢查、全部只提醒不硬擋**。守的是**寄出去就收不回來**的那一段——上面那支閘掃的是檔案，**草稿本身原本沒有任何人掃**，而它才是真正到外人手上的東西。只讀 transcript 裡已發生的工具呼叫與回傳（**不碰 Gmail API、不需憑證**）。
@@ -53,6 +54,20 @@
   AI 工具名稱（`ai_tool_names`，docx 與日報都套）用品牌族寫法，不逐一列版本；另外 `readability-scan.core.js` 的 `harvestLocalAiNames()` 每次掃描時自動蒐集本機已安裝的 AI 工具名稱（Claude Code plugin／marketplace／MCP、描述標為 AI 的全域 npm CLI），新裝的工具不必手動加。
   每組帶 `applies_to` 標明適用產物——`credentials`／`pii` 兩邊都套；`ai_toolchain`／`email`／`money` 只套日報；`revision_history` 只套文件。兩支閘的**實作**仍是兩份（語言與掃描對象不同：Node 掃 .docx、Python 掃待寄的 .md），但**規則**只有一份。
   兩邊都保留內建 fallback：共用檔讀不到或壞掉時照樣運作，不因少一個檔而整個失效。
+
+---
+
+# skill：msproject-wbs（WBS 專案時程）
+
+產生 MS Project 可直接匯入的 WBS 時程 XML（MSPDI 格式）：模組→主條目→細部工項三層、工期、負責資源、前置依賴、資源指派，日期照依賴鏈自動展開成甘特圖；支援依賴鏈自動排與週次／天粒度落位兩種排程、里程碑、貫穿全期工項、預計完成% 公式欄。手刻 MSPDI XML 極易踩雷（打不開／日期全塌到起始日／工期顯示 0），這些雷已編碼進 `skills/msproject-wbs/scripts/generate-wbs.mjs`（含 Task 子元素順序白名單＋生成期自檢）。流程與雷區清單見 `skills/msproject-wbs/SKILL.md`。
+
+觸發詞：「WBS」「工作分解」「專案時程」「甘特圖」「MS Project 檔」「排一份 N 天 / N 人的開發計畫」。
+
+**交付用 XLSX**：`skills/msproject-wbs/scripts/mspdi-to-xlsx.py` 直接從 XML 轉出內容與 MS Project 匯出一致的 XLSX（階層縮排、層級配色、凍結窗格、可摺疊大綱），免去「匯入 MS Project → 存 MPP → 另存 XLSX」的手工。產檔前自動跑 `check_doc.js`（同一套易讀性與文件屬性判準），有硬缺陷就不產出、exit 1；文件屬性的標題取專案名稱、作者用 `--author` 指定（省略留空）、應用程式寫成 Microsoft Excel，不留 openpyxl 的預設值。這支要直接從 plugin 目錄執行，複製出去找不到自檢腳本會拒絕產檔。
+
+前置依賴：Node.js（生成 XML、跑自檢）；Python 3＋openpyxl（轉 XLSX）；PowerShell（XML 結構驗證；非 Windows 可改用任何嚴格 XML parser）；MS Project（收件人端匯入驗收）。
+
+> 本 skill 原為獨立 plugin `msproject-wbs`（最後版本 0.4.1），deliver-report 2.3.0 起併入；舊 plugin 已從 marketplace 移除，已安裝的請改裝 deliver-report。
 
 ---
 
