@@ -947,6 +947,9 @@ function hasSignature(html) { return SIGNATURE_MARK.test(safeStr(html)); }
 // 把 htmlBody 裡整段簽名檔（<div class="gmail_signature" …> 到配對的 </div>）拿掉。
 // 內容掃描（機敏字、佔位符、標籤白名單、日報內容閘）掃的是「這次寫的正文」——簽名檔是使用者
 // 自己在 Gmail 設定的固定內容，裡面的電話、email、<span style> 不是本次產出，不該被報。
+// （本函式與 gmail-draft-link-gate.js 的副本逐字相同，由 tests/signature-gate.test.js 比對，所以不改寫。
+//   它是正則版：輸入裡沒有 '>' 時 [^>]* 會二次方回溯（'<div '.repeat(50000) 要 11 秒）；
+//   段落閘不呼叫它，改用下方 scanTags 線性剝。這裡只服務內容閘（timeout 90）與 PostToolUse 提醒。）
 function stripSignature(html) {
   let s = safeStr(html);
   // 每輪剝掉一份、s 一定變短，所以迴圈必然結束；上限只是保險
@@ -965,6 +968,120 @@ function stripSignature(html) {
     s = s.slice(0, m.index) + s.slice(end);
   }
   return s;
+}
+
+/**
+ * 單趟掃出 htmlBody 裡「真正的標籤」，逐個回呼 cb({ name, isClose, selfClose, start, end, inner })。
+ *   name：小寫標籤名（完整讀到底：<pre>／<param>／<p:custom> 不是 'p'）
+ *   start／end：標籤在字串裡的 [起點, 終點)；inner：標籤名之後到 '>' 之前的原文（屬性區）
+ * 規則：
+ *   - HTML 註解整段跳過（<!-- <p> --> 不是標籤）
+ *   - 標籤內引號裡的 > 不算結尾、屬性值裡的 <p>（<a title="<p>">）不是標籤
+ *   - 沒有收尾 '>' 的「標籤」（掃到字串結尾）不算標籤，瀏覽器也不會把它當標籤渲染
+ *   - &lt;p&gt; 是文字，不算
+ * ★ 為什麼是字元掃描、不是正則（2026-11-03 獨立審查實測）：
+ *   引用區原本用 /<div\b[^>]*class=…/ 這類正則剝，輸入裡沒有 '>' 時 [^>]* 吞到結尾再逐字回溯，
+ *   每個起點 O(n)、整體 O(n²)——'<div '.repeat(50000)（250 KB）要跑 19 秒、超過 hook 的 15 秒
+ *   timeout 被中止＝deny 閘靜默失效。單趟掃描每個字元只看一次，同一輸入 <100 ms。
+ *   stripSignature()（既有、Stop 閘有逐字副本）仍是正則版，段落閘不呼叫它，改由本掃描器一併剝簽名檔。
+ */
+function scanTags(s, cb) {
+  const n = s.length;
+  let i = 0;
+  while (i < n) {
+    const lt = s.indexOf('<', i);
+    if (lt < 0) break;
+    if (s.startsWith('<!--', lt)) {
+      const close = s.indexOf('-->', lt + 4);
+      i = close < 0 ? n : close + 3;
+      continue;
+    }
+    let j = lt + 1;
+    const isClose = s[j] === '/';
+    if (isClose) j++;
+    if (!/[A-Za-z]/.test(s[j] || '')) { i = lt + 1; continue; }
+    let k = j;
+    while (k < n && /[A-Za-z0-9:-]/.test(s[k])) k++;
+    const name = s.slice(j, k).toLowerCase();
+    let q = 0, e = k;
+    while (e < n) {
+      const c = s[e];
+      if (q) { if (c === q) q = 0; }
+      else if (c === '"' || c === "'") q = c;
+      else if (c === '>') break;
+      e++;
+    }
+    if (e >= n) break;                         // 沒有收尾的 '>'：不是標籤，後面也不會再有完整標籤
+    const inner = s.slice(k, e);
+    const selfClose = !isClose && inner.trimEnd().endsWith('/');
+    cb({ name, isClose, selfClose, start: lt, end: e + 1, inner });
+    i = e + 1;
+  }
+}
+
+// 引用區與簽名檔：回覆草稿 get_draft 讀回時，原信整段包在 <div class="gmail_quote …">（內含 <blockquote>），
+// 舊版 Gmail 另有 <div class="gmail_extra">、署名行是 <div class="gmail_attr">；簽名檔是
+// <div class="gmail_signature">。對方用 Outlook 寫的原信裡滿是 <p class="MsoNormal">、簽名檔裡也可能有
+// <p>——那都不是本次寫的正文，段落閘不能擋它。
+// 配對規則：開頭之後同名標籤開一個深度加一、關一個減一，回到 0 就整段剝掉；自閉合（<div/>）不計深度。
+// 找不到配對的結束標籤就不剝：寧可把那段當正文多報，也不要把後面的內容一起藏起來躲過閘。
+// 判斷「是不是引用區開頭」只看該標籤自己的屬性區，且屬性區超過 2000 字元就不當引用區開頭
+// （Gmail 真實的 gmail_quote／gmail_signature 標籤都很短；超長屬性區只會是惡意或壞掉的輸入，
+//   讓正則去跑它才會變成二次方）。
+const QUOTE_CLASS_RE = /class\s*=\s*["'][^"']*\bgmail_(?:quote|extra|attr|signature)/i;
+function stripQuotedRegions(html) {
+  const s = safeStr(html);
+  const drop = [];
+  let region = null;
+  try {
+    scanTags(s, (t) => {
+      if (!region) {
+        if (t.isClose || t.selfClose) return;
+        const isQuoteDiv = t.name === 'div' && t.inner.length <= 2000 && QUOTE_CLASS_RE.test(t.inner);
+        if (isQuoteDiv || t.name === 'blockquote') region = { name: t.name, start: t.start, depth: 1 };
+        return;
+      }
+      if (t.name !== region.name || t.selfClose) return;
+      if (t.isClose) {
+        region.depth--;
+        if (region.depth === 0) { drop.push([region.start, t.end]); region = null; }
+      } else {
+        region.depth++;
+      }
+    });
+  } catch (_) { return s; }
+  if (!drop.length) return s;
+  let out = '', pos = 0;
+  for (const [a, b] of drop) { out += s.slice(pos, a); pos = b; }
+  return out + s.slice(pos);
+}
+
+/**
+ * htmlBody 裡真正的 <p> 開頭標籤（回傳每一處的標籤原文，例如 '<p>'、'<p class="MsoNormal">'）。
+ *
+ * 為什麼單獨一支、而且要硬擋（2026-11-03 實案）：
+ *   SKILL.md 自 0.18.0 就寫「禁止用 <p>」，PostToolUse 閘的標籤白名單也會報 <p>——但那是提醒。
+ *   2026-11-03 回覆草稿寫成 <p>Hi Soloment,<br>…</p>\n\n<p>…</p>，PostToolUse 當場提醒了
+ *   「白名單以外：<p>」，模型照樣交付；Gmail 把 <p> 的上下邊距原樣顯示，收件人列和稱謂行之間
+ *   空出一大段、每段之間也多一截，使用者截圖退件（原話「你為什麼有padding」）。
+ *   同一個 session 這句提醒出現過 9 次都沒被理。提醒擋不住就改成 PreToolUse deny。
+ *
+ * 判準走 scanTags 的單趟掃描：大小寫不分（<P>）、換行後接屬性（<p\nclass=…>）、自閉合（<p/>）都算；
+ * 只看開頭標籤，孤兒 </p> 不報（沒有開頭就不會撐出邊距）。只掃前 200000 字元（與 scanBanned 同一道
+ * 長度兜底；Gmail 草稿正文遠小於此）。呼叫端先用 stripQuotedRegions 把引用區與簽名檔剝掉再餵進來。
+ */
+function paragraphTags(html) {
+  const found = [];
+  try {
+    const src = safeStr(html);
+    const s = src.length > 200000 ? src.slice(0, 200000) : src;
+    scanTags(s, (t) => {
+      if (t.name !== 'p' || t.isClose) return;
+      const raw = s.slice(t.start, t.end);
+      found.push(raw.length > 40 ? raw.slice(0, 40) + '…' : raw);
+    });
+  } catch (_) { return []; }
+  return found;
 }
 
 // 每封草稿的簽名狀態記在共用狀態檔：sig:<id>＝目前有簽名檔、nosig:<id>＝讀回確認沒有。
@@ -1015,6 +1132,8 @@ function signatureProblem(toolSuffix, input, sigState) {
 module.exports = {
   // 簽名檔
   SIGNATURE_MARK, signatureProblem, hasSignature, stripSignature, signatureState, setSignatureState,
+  // 引用區與段落標籤（gmail-draft-paragraph-gate）
+  scanTags, stripQuotedRegions, paragraphTags,
   // 常數
   REWRITE_MARK, WRITE_TOOLS, READ_TOOL, BANNED, STATE_DIR,
   // 工具名 / 取值

@@ -432,15 +432,24 @@ exit 1＝有硬缺陷要改；exit 0 仍要逐條判斷「提醒」；exit 2＝�
 >
 > （`<strong>`／`<em>`／`<code>`／`<thead>`／`<tbody>` 是上面幾個的等價寫法，hook 一併放行，但寫的時候用上面那組就好。）
 >
-> **換行一律用 `<br>`，禁止用 `<p>`。** 段落之間空一行就是 `<br><br>`。
-> 外層可以包一個 `<div dir="ltr">`，那是 Gmail 自己的結構。
+> **換行一律用 `<br>`，禁止用 `<p>`。** 段落之間空一行就是 `<br><br>`；段內換行一個 `<br>`。
+> **稱謂行寫 `Hi X,<br>` 直接接正文**（不是 `<br><br>`）——稱謂下不留空行是使用者的固定偏好（第一步要點 2）。
+> 外層可以包一個 `<div dir="ltr">`，那是 Gmail 自己的結構；**不要改成「每段一個 `<div>`」**，`<div>` 只有外層那一個。
 >
 > **為什麼禁 `<p>`**（兩個理由，第二個才是主因）：
-> 1. `<p>` 本身有段落間距，原始碼裡再留空行會疊成雙倍行距。
+> 1. `<p>` 自帶上下邊距，Gmail 原樣顯示：**第一個 `<p>` 把收件人列和稱謂行之間撐出一大段空白**、
+>    每段之間也多一截（2026-11-03 實案：回覆草稿寫成 `<p>Hi Soloment,<br>…</p>\n\n<p>…</p>`，
+>    使用者截圖退件，原話「你為什麼有padding」）；原始碼裡再留空行會疊成雙倍行距。
 > 2. **更重要：草稿是要讓使用者在 Gmail 富文本編輯器裡微調的。** 塞 `<p class=…>`
 >    這種結構進去，使用者改一個字就可能整段跑版——而寄不寄、怎麼微調本來就是他的事。
 >    `<div dir="ltr">` ＋ `<br>` **正是 Gmail 編輯器自己產生的結構**，所以草稿在編輯器裡的
 >    行為會跟他手打的信完全一致。
+>
+> **機械閘**：PreToolUse 閘 `gmail-draft-paragraph-gate`——`create_draft`／`update_draft` 的 `htmlBody`
+> 在簽名檔（`gmail_signature`）與引用區（`gmail_quote`／`gmail_extra`／`gmail_attr`／`blockquote`，原信若是
+> Outlook 寫的滿是 `<p class="MsoNormal">`，那是對方的）以外出現 `<p>` 就**直接擋下**（新草稿不會建立、既有草稿不會被改）。2026-11-03 那封
+> PostToolUse 當場提醒了「白名單以外：<p>」卻照樣交付，同一 session 這句提醒出現 9 次都沒被理——
+> 提醒擋不住就硬擋。其餘白名單外的標籤仍由 PostToolUse 閘提醒。
 >
 > **禁止**：`class=`、`style=`、`<span>`、`<div>`（外層那一個除外）、任何 CSS。
 >
@@ -451,11 +460,11 @@ exit 1＝有硬缺陷要改；exit 0 仍要逐條判斷「提醒」；exit 2＝�
 **寫法範例**（含指令、清單、表格的完整一封）：
 
 ```html
-<div dir="ltr">Hi 暉東,<br><br>正式站的 HTTPS 已經上線，18 項裡 17 項通過。<br><br>請把步驟 7 這三行的 <b>308 改成 307</b>，其餘不動：<br><pre>location = /api.php     { return 307 https://www.example.com$request_uri; }
+<div dir="ltr">Hi 暉東,<br>正式站的 HTTPS 已經上線，18 項裡 17 項通過。<br><br>請把步驟 7 這三行的 <b>308 改成 307</b>，其餘不動：<br><pre>location = /api.php     { return 307 https://www.example.com$request_uri; }
 location = /connect.php { return 307 https://www.example.com$request_uri; }</pre><br>改完確認：<br><ol><li>回應要有 Location 這一行<br>（沒有就是設定沒生效，先重啟服務）</li><li>而且指向加密版網址</li></ol><br>Best Regards,<br>甫軒</div>
 ```
 
-重點：**標籤之間不留空行**（要空一行就寫 `<br><br>`）；**序號用 `<ol><li>`、同一點的補充行用 `<br>` 接在同一個 `<li>` 裡**（如上例「改完確認」）；但 **`<pre>` 裡面的換行照舊保留**——
+重點：**標籤之間不留空行**（要空一行就寫 `<br><br>`）；**稱謂行 `Hi 暉東,<br>` 後直接接正文**；**序號用 `<ol><li>`、同一點的補充行用 `<br>` 接在同一個 `<li>` 裡**（如上例「改完確認」）；但 **`<pre>` 裡面的換行照舊保留**——
 多行設定就是靠它才貼得出來，實測兩種寫法下 `<pre>` 內的換行都不會被動。
 - **簽名檔由 `includeSignature: true` 帶，內文不要自己打**（2026-10-21 實測推翻舊說法「Gmail 會自動附上」）：`create_draft` 預設**不加**簽名檔，必須帶 `includeSignature: true`（回覆草稿同樣適用，簽名會插在正文與引用原信之間）；內文再自己打一份會變兩份。結尾寫到「Best Regards,」加名字即可，或連名字都不寫讓簽名檔接手（看使用者習慣）。
 - **`update_draft` 會把簽名檔一起清掉**：它沒有 `includeSignature` 參數，帶新的 `htmlBody` 會整段取代內文。改草稿時以 `get_draft` 讀回的 `htmlBody` 為底（要點 6），讀回內容裡整段 `<div class="gmail_signature" …>…</div>` 原樣留在結尾；不要只帶 `body`（會清掉 HTML 內文）。

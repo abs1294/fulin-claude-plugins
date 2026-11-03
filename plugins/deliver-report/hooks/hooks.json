@@ -77,6 +77,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gmail-draft-signature-gate.js\"",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gmail-draft-paragraph-gate.js\"",
+            "timeout": 15
           }
         ]
       }
