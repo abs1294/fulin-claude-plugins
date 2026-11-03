@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.8.1] - 2026-11-03
+### Fixed
+- stacked 排版的 agents／skills／mcp／crons 每列之間加分隔線（memory／edited 仍同一組），實測各寬度框線對齊
+
 ## [1.8.0] - 2026-11-03
 ### Changed
 - 新增第二套排版「上下分」（stacked）：~/.claude/cc-statusline-rows.json 的 layout 鍵設 "stacked"（或 2）切換，預設 "columns" 為原本的左右分、畫面不變。上半為 3 欄 2 列狀態面板（dir／repo、model／cost、tokens／context＋quota），下半每類一列橫向排滿：agents、skills、mcp、crons 依序，項目以 · 分隔由新到舊，放不下的收成列尾 …+N；空類別整列不畫，高度隨活動 5～9 行；mcp 只顯示工具名不帶 server 前綴；agents／skills 名稱在此套預裁 34 字。終端太窄時上半由右往左把欄降成整列。環境變數 CC_STATUSLINE_LAYOUT 可一次性覆蓋。另修：5h 視窗已過期（resets_at 已過）時不再被當成有資料而畫 0% 空 bar——其他 session 快照裡留著過期數字就會觸發，實測發生過

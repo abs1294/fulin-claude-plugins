@@ -1586,7 +1586,6 @@ process.stdin.on('end', () => {
         const item = cronRows[1].trim() + (n ? ` ${DIM}×${n}${R}` : '');
         activity.push(activityRow('crons', [item], 1));
       }
-      const below = [...extraRows, ...activity];
 
       // Summary row: label + text, session name right-aligned, as in layout 1.
       const summaryRow = () => {
@@ -1639,9 +1638,16 @@ process.stdin.on('end', () => {
         if (asColumns) openGroup();
         pushRows(droppedRows.map(fullRow));
       }
-      if (below.length) {
+      // memory/edited stay one group; every activity row gets its own, so a
+      // divider separates agents / skills / mcp / crons (user's request: the
+      // rows read as one block without a line between them).
+      if (extraRows.length) {
         openGroup();
-        pushRows(below.map(fullRow));
+        pushRows(extraRows.map(fullRow));
+      }
+      for (const row of activity) {
+        openGroup();
+        pushRows([fullRow(row)]);
       }
       out.push(closedCols ? flatRule('└', '┘') : colRule('└', '┴', '┘'));
       process.stdout.write(out.join('\n'));
