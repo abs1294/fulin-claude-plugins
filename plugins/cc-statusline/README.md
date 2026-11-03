@@ -13,7 +13,7 @@
 
 ## 資料從哪來：8 支 tracker hooks（裝 plugin 即自動註冊）
 
-status line 上的 agents / MCP 呼叫 / skills / 近期編輯 / 動作歷史 / 頂部摘要 / compact 次數，不是 statusline.js 自己變出來的——它們由 8 支 tracker hooks 在對應事件時寫入 temp 狀態檔，statusline.js 只負責讀：
+status line 上的 agents / MCP 呼叫 / skills / 近期編輯 / 動作歷史 / 頂部摘要 / compact 次數，不是 statusline.js 自己變出來的——它們由 8 支 tracker hooks 在對應事件時寫入狀態檔（`~/.claude/cc-statusline/state/claude-<kind>-<sid>.json`），statusline.js 只負責讀：
 
 | hook | 事件 | 餵哪一列 |
 |------|------|----------|
@@ -27,6 +27,8 @@ status line 上的 agents / MCP 呼叫 / skills / 近期編輯 / 動作歷史 / 
 | `cron-tracker.js` | PostToolUse (CronCreate|CronDelete|ScheduleWakeup) | crons（排程狀態，有排程時佔 agents/skills 欄底兩行、無排程不佔位；一次性排程逾時自動視為已觸發剔除，循環排程顯示至刪除） |
 
 這些 hooks 由本 plugin 的 `hooks/hooks.json` **在安裝啟用時自動註冊**（v0.2.0 起），不需手動設定。沒有它們，上述各列會永遠空白（其餘列如 dir/repo/model/cost/quota 不受影響）。
+
+> **狀態檔位置**（v1.7.0 起）：原本放在系統暫存目錄（`%TEMP%` / `/tmp`），Windows 的 Storage Sense／磁碟清理會按檔齡清掉，開了十天的 session 會發現 agents／skills 歷史憑空消失（實際發生於 2026-11-03：所有三天前的狀態檔一次全沒）。現改放 `~/.claude/cc-statusline/state/`，只有本 plugin 會動它；`message-tracker` 每天掃一次、刪 30 天未更新的檔。升級後舊 session 的 temp 檔會在較新時自動複製過來，不用手動搬。
 
 > ⚠️ **重複註冊警告**：若你以前曾手動把這些 tracker 複製到 `~/.claude/hooks/` 並註冊在自己的 `settings.json`，啟用本 plugin 後同一事件會**跑兩份**（history 列會出現重複條目）。請二選一：移除 settings.json 裡的手動註冊，或不啟用本 plugin 的 hook（開發機直接把 settings.json 指向 repo 內路徑時，就不要同時啟用本 plugin）。
 

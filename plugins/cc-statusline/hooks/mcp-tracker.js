@@ -3,7 +3,7 @@ const os = require('os');
 const path = require('path');
 // Locked CAS merge (see lib-state.js) — same reason as skill-tracker: concurrent
 // PostToolUse hooks would otherwise lose entries.
-const { casMerge } = require('./lib-state');
+const { casMerge, stateFile } = require('./lib-state');
 
 // Keyed BY TOOL NAME (one entry per mcp tool, with a count), so like skills and
 // unlike agents there is no instance/name mismatch — the cap only ever drops
@@ -74,7 +74,7 @@ process.stdin.on('end', () => {
     }
 
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
-    const file = path.join(os.tmpdir(), `claude-mcp-${sid}.json`);
+    const file = stateFile(`claude-mcp-${sid}.json`);
     const myStamp = Date.now();
 
     casMerge(file,

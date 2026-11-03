@@ -70,7 +70,15 @@ process.stdin.on('end', () => {
     // for THIS render's display -- only the write-back is dropped. If lib-state
     // is missing (statusline.js copied on its own) the section runs unguarded.
     let withFileLock = (file, fn) => fn();
-    try { withFileLock = require('./hooks/lib-state').withFileLock; } catch (e) {}
+    // Per-session state files (agents, skills, mcp calls, ...) live under
+    // ~/.claude/cc-statusline/state/ — see stateFile in lib-state for why they
+    // left os.tmpdir(). Without lib-state fall back to the legacy tmp location.
+    let stateFile = (name) => path.join(os.tmpdir(), name);
+    try {
+      const ls = require('./hooks/lib-state');
+      withFileLock = ls.withFileLock;
+      if (ls.stateFile) stateFile = ls.stateFile;
+    } catch (e) {}
 
     // CAS-style merge: read → mutate → atomic write → re-read → verify, inside the
     // lock. Returns the state after the write, or -- when the lock could not be
@@ -285,7 +293,7 @@ process.stdin.on('end', () => {
     // counted in both entries of the (all) figure.
     // v2: state now carries per-file offsets plus cost. The filename is versioned so
     // a v1 file is ignored rather than misread as a costless single-file scan.
-    const tokStatePath = path.join(os.tmpdir(), `claude-toksum2-${sid}.json`);
+    const tokStatePath = stateFile(`claude-toksum2-${sid}.json`);
     // The main transcript plus every subagent transcript beside it. Claude Code
     // stores those under <dir>/<session-id>/subagents/*.jsonl.
     const transcriptTargets = () => {
@@ -812,7 +820,7 @@ process.stdin.on('end', () => {
     // or N under-reports whatever the cap already discarded.
     let totalAgentGroups = 0;
     try {
-      const agents = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-agents-${sid}.json`), 'utf8'));
+      const agents = JSON.parse(fs.readFileSync(stateFile(`claude-agents-${sid}.json`), 'utf8'));
       // Model letter per agent instance, shown as a (f)/(o)/(s)/(h) prefix on the
       // agent name. The SubagentStart/Stop hook payload carries NO model field
       // (per docs only SessionStart may), so we lazily read each subagent's own
@@ -820,7 +828,7 @@ process.stdin.on('end', () => {
       // its first assistant event carries the model id) and cache resolved
       // letters in a separate tmp file. Separate file on purpose: writing back
       // into the tracker's state file would race its CAS merge.
-      const modelCacheFile = path.join(os.tmpdir(), `claude-agent-models-${sid}.json`);
+      const modelCacheFile = stateFile(`claude-agent-models-${sid}.json`);
       let modelCache = {};
       try { modelCache = JSON.parse(fs.readFileSync(modelCacheFile, 'utf8')); } catch (e) {}
       let modelCacheDirty = false;
@@ -885,7 +893,7 @@ process.stdin.on('end', () => {
     // "used": name + xN count + how long ago, most-recent first, up to 4 names.
     let skillItems = [];
     try {
-      const skills = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-skills-${sid}.json`), 'utf8'));
+      const skills = JSON.parse(fs.readFileSync(stateFile(`claude-skills-${sid}.json`), 'utf8'));
       const entries = Object.entries(skills)
         .sort((a, b) => (b[1].last || 0) - (a[1].last || 0))
         .slice(0, 5);
@@ -920,7 +928,7 @@ process.stdin.on('end', () => {
     // marker read "…+3" when 7 were hidden.
     let totalMcpTools = 0;
     try {
-      const calls = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-mcp-${sid}.json`), 'utf8'));
+      const calls = JSON.parse(fs.readFileSync(stateFile(`claude-mcp-${sid}.json`), 'utf8'));
       const sorted = Object.entries(calls)
         .sort((a, b) => (b[1].last || 0) - (a[1].last || 0));
       totalMcpTools = sorted.length;
@@ -946,7 +954,7 @@ process.stdin.on('end', () => {
     let cronRows = [];
     try {
       let jobs = {};
-      try { jobs = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-crons-${sid}.json`), 'utf8')); } catch (e) {}
+      try { jobs = JSON.parse(fs.readFileSync(stateFile(`claude-crons-${sid}.json`), 'utf8')); } catch (e) {}
       const active = Object.values(jobs).filter((j) => j && (j.at == null ? j.recurring : j.at > Date.now() - 90000));
       // 無排程 → 區塊整個不顯示（不佔位）；有排程才佔欄底兩 row。
       if (active.length) {
@@ -966,14 +974,14 @@ process.stdin.on('end', () => {
     } catch (e) { cronRows = []; }
 
     let compactCount = 0;
-    try { compactCount = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-compacts-${sid}.json`), 'utf8')).count; } catch (e) {}
+    try { compactCount = JSON.parse(fs.readFileSync(stateFile(`claude-compacts-${sid}.json`), 'utf8')).count; } catch (e) {}
 
     let fileParts = [];
-    try { fileParts = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-files-${sid}.json`), 'utf8')); } catch (e) {}
+    try { fileParts = JSON.parse(fs.readFileSync(stateFile(`claude-files-${sid}.json`), 'utf8')); } catch (e) {}
 
     let msgHistory = [];
     try {
-      msgHistory = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), `claude-msgs-${sid}.json`), 'utf8'));
+      msgHistory = JSON.parse(fs.readFileSync(stateFile(`claude-msgs-${sid}.json`), 'utf8'));
     } catch (e) {}
 
     // Memory: check which CLAUDE.md / rules are loaded
@@ -1103,7 +1111,17 @@ process.stdin.on('end', () => {
     // countdown is replaced with a compact "│" separator to keep width down.
     const reset5hCompact = resetInfo.replace(`${DIM}resets${R} `, `${DIM}│${R} `);
     const reset7dCompact = reset7dInfo.replace(`${DIM}resets${R} `, `${DIM}│${R} `);
-    const quotaLine = `${DIM}5h-quota${R} ${cc(r5h)}${bar(r5h)} ${r5h}%${R} ${reset5hCompact}     ${DIM}7d-quota${R} ${cc(r7d)}${bar(r7d)} ${r7d}%${R} ${reset7dCompact}`;
+    // Since 2026-10-30 Anthropic drops the 5h window for verified Ultra accounts
+    // and Claude Code then sends rate_limits.five_hour as null in every session
+    // (measured: 10 live sessions, all null). A null window rendered as "0%"
+    // with an empty bar, which reads as a real, unused quota. When no session
+    // reports a 5h window at all, the segment is dropped and the row carries
+    // 7d-quota alone; the `quota` row switch still hides the whole row.
+    const has5h = typeof i.rate_limits?.five_hour?.used_percentage === 'number'
+      || Object.values(rlSnaps || {}).some(s => typeof s?.five_hour?.used_percentage === 'number');
+    const quota5h = `${DIM}5h-quota${R} ${cc(r5h)}${bar(r5h)} ${r5h}%${R} ${reset5hCompact}`;
+    const quota7d = `${DIM}7d-quota${R} ${cc(r7d)}${bar(r7d)} ${r7d}%${R} ${reset7dCompact}`;
+    const quotaLine = has5h ? `${quota5h}     ${quota7d}` : quota7d;
     const fullLeftRows = [];
     if (showRow('usage')) fullLeftRows.push(ctxLine);
     if (showRow('quota')) fullLeftRows.push(quotaLine);
@@ -1147,7 +1165,7 @@ process.stdin.on('end', () => {
     let summary = '';
     if (showRow('summary')) {
       try {
-        const sf = path.join(os.tmpdir(), `claude-summary-${sid}.txt`);
+        const sf = stateFile(`claude-summary-${sid}.txt`);
         summary = fs.readFileSync(sf, 'utf8').trim().split('\n')[0].slice(0, 500);
       } catch (e) {}
       if (!summary) summary = sessionName || '';
@@ -1720,10 +1738,25 @@ process.stdin.on('end', () => {
       // turned off.
       const hiddenMcp = hasMcpContent ? Math.max(0, totalMcpTools - mcpShown) : 0;
 
+      // Hidden mcp calls are reported INSIDE the mcp block — its header becomes
+      // "mcp …+N" — whenever that block is drawn, so the flow marker below counts
+      // agents only. Measured 2026-11-03: a session with no agents and 13 mcp
+      // tools rendered "agents" over "…+11"; the marker sat under the agents
+      // header while counting mcp calls and was read as eleven hidden agents.
+      // Only when the mcp block stands down (fewer than three cells) is there no
+      // header to carry the count, and the flow marker takes it as before.
+      const mcpInFlowMarker = fixedCount > 0 ? 0 : hiddenMcp;
+      // agentItems was already capped at AGENT_BUILD_CAP, so groups dropped
+      // there never reached rightMsgs and are invisible to the cut-row scan.
+      // Only count them when the agents block is actually being rendered — with
+      // the row switched off its groups were never candidates for this column.
+      const preCapHidden = hasAgentContent
+        ? Math.max(0, totalAgentGroups - agentItems.length)
+        : 0;
       // Reserve a flow cell for the marker only when something is actually
       // hidden; otherwise the flow area keeps every cell it has.
       const flowAll = cellCount - fixedCount;
-      const needMarker = rightMsgs.length > flowAll || hiddenMcp > 0;
+      const needMarker = rightMsgs.length > flowAll || preCapHidden > 0 || mcpInFlowMarker > 0;
       const flowCells = flowAll;
       // markerIdx lands on the last flow cell, which is only the cell before
       // fixedStart because the fixed block is pinned to the BOTTOM — i.e.
@@ -1742,9 +1775,14 @@ process.stdin.on('end', () => {
         : -1;
 
       const midTextFor = (n) => {
-        if (n >= fixedStart && fixedCount) return midFixed[n - fixedStart] || '';
+        if (n >= fixedStart && fixedCount) {
+          const k = n - fixedStart;
+          if (k === 0 && hiddenMcp > 0) return `${midFixed[0]} ${DIM}…+${hiddenMcp}${R}`;
+          return midFixed[k] || '';
+        }
         if (n === markerIdx && markerIdx >= 0) {
-          // N counts hidden ITEMS (agent groups + mcp calls), never rows.
+          // N counts hidden ITEMS (agent groups, plus mcp calls only when the
+          // mcp block is not drawn), never rows.
           //
           // Two earlier forms were wrong. The original measured
           // totalAgentGroups minus one header row, assuming this column held
@@ -1761,22 +1799,13 @@ process.stdin.on('end', () => {
           // The marker occupies this cell, so the row that would have been drawn
           // here is displaced and counts as hidden too — hence the scan starts at
           // cellCount - 1 rather than cellCount.
-          let hiddenItems = hiddenMcp;
+          let hiddenItems = mcpInFlowMarker;
           // `=== false` rather than `!`: an out-of-range index yields undefined,
           // which `!` would count as an item and inflate N by one. Cheap immunity
           // against a negative or overshooting index from the draw loop.
           for (let k = markerIdx; k < rightMsgs.length; k++) {
             if (midIsHeader[k] === false) hiddenItems++;
           }
-          // agentItems was already capped at AGENT_BUILD_CAP, so groups dropped
-          // there never reached rightMsgs and are invisible to the scan above.
-          // Only count them when the agents block is actually being rendered —
-          // with the row switched off its groups were never candidates for this
-          // column at all, and adding them would inflate a marker that is then
-          // reporting mcp rows only.
-          const preCapHidden = hasAgentContent
-            ? Math.max(0, totalAgentGroups - agentItems.length)
-            : 0;
           return `${DIM}…+${Math.max(0, hiddenItems + preCapHidden)}${R}`;
         }
         return rightMsgs[n] || '';

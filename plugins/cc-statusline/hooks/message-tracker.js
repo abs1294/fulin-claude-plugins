@@ -2,7 +2,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { atomicWrite, withFileLock } = require('./lib-state');
+const { atomicWrite, withFileLock, stateFile, pruneState } = require('./lib-state');
 // CAS merge: Stop fires multiple times per turn and two hooks can race. The
 // read -> dedup check -> append -> write now runs under lib-state's file lock
 // (this local copy used to have none, so two hooks could both pass the dedup
@@ -28,7 +28,8 @@ process.stdin.on('end', () => {
   try {
     const i = JSON.parse(d);
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
-    const file = path.join(os.tmpdir(), `claude-msgs-${sid}.json`);
+    const file = stateFile(`claude-msgs-${sid}.json`);
+    pruneState();   // at most one scan a day; drops state files untouched for 30 days
 
     // Dedup: Stop can fire multiple times per assistant turn, and duplicate user prompts
     // can happen if the same text is submitted twice. CAS wraps read-check-write

@@ -3,7 +3,7 @@ const os = require('os');
 const path = require('path');
 // Locked CAS merge (see lib-state.js). The previous local copy had no
 // inter-process lock, so concurrent PostToolUse hooks could lose entries.
-const { casMerge } = require('./lib-state');
+const { casMerge, stateFile } = require('./lib-state');
 
 // Skills are already keyed BY NAME (one entry per skill, with a count), so
 // unlike the agents file there is no instance/name mismatch to fix here — every
@@ -31,7 +31,7 @@ process.stdin.on('end', () => {
     const name = raw.includes(':') ? raw.split(':').pop() : raw;
 
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
-    const file = path.join(os.tmpdir(), `claude-skills-${sid}.json`);
+    const file = stateFile(`claude-skills-${sid}.json`);
     const myStamp = Date.now();
 
     casMerge(file,

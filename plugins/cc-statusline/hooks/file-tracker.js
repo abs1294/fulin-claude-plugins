@@ -4,7 +4,7 @@ const path = require('path');
 // Locked read -> reorder -> write (lib-state). The file holds an ARRAY, which
 // lib-state's casMerge would reset to {}, so the lock is used directly. Parallel
 // Edit/Write hooks racing unlocked would drop each other's file from the list.
-const { atomicWrite, withFileLock } = require('./lib-state');
+const { atomicWrite, withFileLock, stateFile } = require('./lib-state');
 let d = '';
 process.stdin.on('data', c => d += c);
 process.stdin.on('end', () => {
@@ -13,7 +13,7 @@ process.stdin.on('end', () => {
     const fp = i.tool_input?.file_path;
     if (!fp) return;
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
-    const file = path.join(os.tmpdir(), `claude-files-${sid}.json`);
+    const file = stateFile(`claude-files-${sid}.json`);
     const name = path.basename(fp);
     withFileLock(file, () => {
       let files = [];

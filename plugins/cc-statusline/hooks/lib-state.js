@@ -21,6 +21,7 @@
 // had within the timeout makes the update SKIP (returns undefined/false) -- one
 // dropped update is recoverable, a lost-update race silently corrupts others'.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 // Atomic write: write to a per-pid temp file then rename. On both POSIX
@@ -152,4 +153,55 @@ const casMerge = (file, mutate, verify, maxRetries = 10) => withFileLock(file, (
   return false;
 }) === true;
 
-module.exports = { atomicWrite, withFileLock, casMerge, acquireLock, ownsLock, releaseLock, pidAlive };
+// ── Session state files ──
+// They used to live in os.tmpdir() as claude-<kind>-<sid>.*. Windows cleans
+// that directory by age (Storage Sense / Disk Cleanup): on 2026-11-03 every
+// claude-*.json older than about three days was gone at once, so a 10-day
+// session had lost its agents and skills history while its mcp file, rewritten
+// on every call, survived. They now live under ~/.claude/cc-statusline/state/,
+// which nothing but this plugin touches; pruneState() is the only cleanup.
+//
+// Transition: hooks installed from an older plugin version keep writing to
+// tmpdir until the plugin is updated and the session restarted, while a newer
+// statusline.js already reads here. So when the legacy copy is NEWER than (or
+// the only copy of) the file, it is copied over first. A copy can in theory
+// land between a hook's read and write and lose that one update; the window is
+// transitional and a lost update is the recoverable failure mode here.
+const STATE_DIR = path.join(os.homedir(), '.claude', 'cc-statusline', 'state');
+const PRUNE_AGE_MS = 30 * 86400000;
+const stateFile = (name) => {
+  const p = path.join(STATE_DIR, name);
+  try { fs.mkdirSync(STATE_DIR, { recursive: true }); } catch (e) {}
+  try {
+    const legacy = path.join(os.tmpdir(), name);
+    const ls = fs.statSync(legacy);
+    // Windows copyFileSync keeps the source mtime, so a legacy file older than
+    // the prune age would be copied, pruned the next day, and copied again.
+    if (Date.now() - ls.mtimeMs > PRUNE_AGE_MS) return p;
+    let cur = null;
+    try { cur = fs.statSync(p); } catch (e) {}
+    if (!cur || ls.mtimeMs > cur.mtimeMs) fs.copyFileSync(legacy, p);
+  } catch (e) {}
+  return p;
+};
+
+// Remove state files not modified for maxAgeMs (default 30 days). Stamped so a
+// caller may invoke it on every event and it still scans at most once a day.
+// A session whose file has not been touched for that long loses that file,
+// which is the trade accepted for never letting the directory grow unbounded.
+const pruneState = (maxAgeMs = PRUNE_AGE_MS) => {
+  try {
+    const stamp = path.join(STATE_DIR, '.last-prune');
+    try { if (Date.now() - fs.statSync(stamp).mtimeMs < 86400000) return; } catch (e) {}
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    fs.writeFileSync(stamp, String(Date.now()));
+    const now = Date.now();
+    for (const f of fs.readdirSync(STATE_DIR)) {
+      if (!f.startsWith('claude-')) continue;
+      const p = path.join(STATE_DIR, f);
+      try { if (now - fs.statSync(p).mtimeMs > maxAgeMs) fs.unlinkSync(p); } catch (e) {}
+    }
+  } catch (e) {}
+};
+
+module.exports = { atomicWrite, withFileLock, casMerge, acquireLock, ownsLock, releaseLock, pidAlive, stateFile, pruneState, STATE_DIR };

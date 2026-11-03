@@ -3,7 +3,7 @@ const os = require('os');
 const path = require('path');
 // Locked CAS merge (see lib-state.js). The previous local copy had no
 // inter-process lock, so concurrent SubagentStart hooks silently lost entries.
-const { casMerge } = require('./lib-state');
+const { casMerge, stateFile } = require('./lib-state');
 
 // A running entry whose SubagentStop never arrived would otherwise sit in the
 // state file forever, permanently occupying a display slot with a "○" for work
@@ -77,7 +77,7 @@ process.stdin.on('end', () => {
     const event = i.hook_event_name;
     if (event !== 'SubagentStart' && event !== 'SubagentStop') return;
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
-    const file = path.join(os.tmpdir(), `claude-agents-${sid}.json`);
+    const file = stateFile(`claude-agents-${sid}.json`);
 
     let name = i.agent_type;
     if (!name && typeof i.agent_id === 'string') {

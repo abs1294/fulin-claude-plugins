@@ -13,7 +13,7 @@ const path = require('path');
 
 // Locked read -> update -> write (lib-state): the hook can fire twice for one
 // tool call (duplicate registration was measured) and unlocked writers race.
-const { atomicWrite, withFileLock } = require('./lib-state');
+const { atomicWrite, withFileLock, stateFile } = require('./lib-state');
 
 // 一次性 cron（M H DoM Mon *，四欄皆數字）→ 下一次觸發 epoch ms；解析不了回 null。
 function nextFire(cron) {
@@ -41,7 +41,7 @@ process.stdin.on('end', () => {
     const i = JSON.parse(d);
     const tool = i.tool_name || '';
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
-    const file = path.join(os.tmpdir(), `claude-crons-${sid}.json`);
+    const file = stateFile(`claude-crons-${sid}.json`);
     if (!['CronCreate', 'CronDelete', 'ScheduleWakeup'].includes(tool)) return;
     withFileLock(file, () => {
       let jobs = {};

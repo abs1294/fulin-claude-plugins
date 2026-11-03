@@ -7,15 +7,15 @@ const os = require('os');
 const path = require('path');
 // Locked read -> increment -> write of the message counter (lib-state): two
 // prompts' hooks racing unlocked would both read N and both write N+1.
-const { atomicWrite, withFileLock } = require('./lib-state');
+const { atomicWrite, withFileLock, stateFile } = require('./lib-state');
 let d = '';
 process.stdin.on('data', c => d += c);
 process.stdin.on('end', () => {
   try {
     const i = JSON.parse(d);
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
-    const countFile = path.join(os.tmpdir(), `claude-msgcount-${sid}`);
-    const summaryFile = path.join(os.tmpdir(), `claude-summary-${sid}.txt`);
+    const countFile = stateFile(`claude-msgcount-${sid}`);
+    const summaryFile = stateFile(`claude-summary-${sid}.txt`);
 
     // Sync current summary → transcript custom-title (takes effect in /resume picker).
     // Skip if no transcript path or no summary yet. Only rewrite when it would change,

@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.7.0] - 2026-11-03
+### Changed
+- session 狀態檔（agents／skills／mcp 呼叫／編輯／歷史／摘要／compact／crons／token 累計）從系統暫存目錄搬到 ~/.claude/cc-statusline/state/：Windows 的 Storage Sense／磁碟清理會按檔齡清掉暫存檔，2026-11-03 實測所有三天前的狀態檔一次全沒，開了十天的 session 因此 agents／skills 歷史憑空消失。升級後舊 session 的暫存檔若較新會自動複製過來（超過 30 天的不搬）；message-tracker 每天掃一次、刪 30 天未更新的檔。中欄溢出標記分家：沒排進畫面的 MCP 工具數改顯示在 mcp 區塊標題（"mcp …+N"），agents 標題下的 "…+N" 只算 agents——原本兩者合算且標記掛在 agents 標題下，沒跑 agent 的 session 顯示 "agents / …+11" 被讀成 11 個 agent（其實是 11 個 MCP 工具）；只有欄高不足三格、mcp 區塊不畫時才併回。quota 列：所有 session 的 rate_limits.five_hour 都是 null（Ultra 方案自 2026-10-30 起取消 5 小時視窗）時整段不顯示、只留 7d-quota，不再畫 0% 的空 bar（要連 7d 一起關用 /cc-statusline-rows 的 quota 開關）
+
 ## [1.6.3] - 2026-09-25
 ### Fixed
 - 單價回填背景程序的鎖改用原子改名接手，並在寫檔時合併，不再有兩支同時抓網頁或互相蓋掉紀錄；整次抓取加 45 秒總時限，伺服器慢速回應也不會卡住；表裡沒有的模型改用同系列版本最接近的單價暫估（原本用最新版，已退役舊型號會被少算，如 opus-3 以 $4 估、實價 $15）
