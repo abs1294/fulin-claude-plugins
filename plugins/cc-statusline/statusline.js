@@ -23,14 +23,28 @@ process.stdin.on('end', () => {
     // of setting: a local preference, not something the plugin can derive. null
     // means "not configured" and leaves the default in force.
     let cfgWidthMargin = null;
+    // Layout set. 'columns' (1) is the original left panel + agents/skills
+    // columns; 'stacked' (2) puts the status panel on top and one full-width
+    // row per activity kind (agents, skills, mcp, crons) underneath. Same row
+    // switches apply to both. Unknown values fall back to 'columns'.
+    let cfgLayout = 'columns';
     try {
       const stored = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'cc-statusline-rows.json'), 'utf8'));
       for (const k of Object.keys(rowDefaults)) if (k in stored) rowCfg[k] = !!stored[k];
       if (stored.enabled === false) cfgEnabled = false;
+      const lay = String(stored.layout ?? '').toLowerCase();
+      if (lay === 'stacked' || lay === '2') cfgLayout = 'stacked';
       // Floor it: a fractional margin would make TERM_W fractional and feed a
       // non-integer width into every box-drawing calculation downstream.
       if (Number.isFinite(stored.widthMargin) && stored.widthMargin >= 0) cfgWidthMargin = Math.floor(stored.widthMargin);
     } catch (e) {}
+    // One-off override for trying a layout without touching the shared config
+    // (which every live session reads): CC_STATUSLINE_LAYOUT=stacked|columns.
+    {
+      const envLay = String(process.env.CC_STATUSLINE_LAYOUT || '').toLowerCase();
+      if (envLay === 'stacked' || envLay === '2') cfgLayout = 'stacked';
+      else if (envLay === 'columns' || envLay === '1') cfgLayout = 'columns';
+    }
     // Master switch off — print nothing (Claude Code shows blank status area)
     if (!cfgEnabled) { process.stdout.write(''); return; }
     const showRow = k => !!rowCfg[k];
@@ -815,6 +829,12 @@ process.stdin.on('end', () => {
     } catch (e) {}
 
     let agentItems = [];
+    // Stacked-layout twins of agentItems / skillItems: same entries, names
+    // pre-capped at 34 (what the mcp names use) instead of 20, because a
+    // full-width row has the room and 20 cut "plugin-manager-publish".
+    const NAME_CAP_WIDE = 34;
+    let agentItemsWide = [];
+    let skillItemsWide = [];
     // True number of distinct agent name-groups BEFORE any display cap. The
     // "…+N" overflow marker counts against this, not against the capped list,
     // or N under-reports whatever the cap already discarded.
@@ -874,36 +894,42 @@ process.stdin.on('end', () => {
       }).slice(0, AGENT_BUILD_CAP);
       // One entry per agent (each becomes its own third-column row); names can be
       // wider now that they're no longer packed onto a single shared line.
-      agentItems = nameEntries.map(([n, s]) => {
+      const buildAgentItems = (budget) => nameEntries.map(([n, s]) => {
         // (f)name — mixed models in one name-group show all letters, e.g. (f,h).
-        // Prefix + name share the original 20-char budget so the column width
-        // math and fit() clipping stay unchanged.
+        // Prefix + name share the budget: 20 in the columns layout so its width
+        // math and fit() clipping stay unchanged, wider for the stacked rows.
         const mk = s.letters.size ? `(${[...s.letters].join(',')})` : '';
-        const cap = 20 - mk.length;
+        const cap = budget - mk.length;
         const short = n.length > cap ? n.slice(0, cap) : n;
         const parts = [];
         if (s.running > 0) parts.push(`${YELLOW}\u25cb${s.running > 1 ? `\u00d7${s.running}` : ''}${R}`);
         if (s.done > 0) parts.push(`${GREEN}\u2713${s.done > 1 ? `\u00d7${s.done}` : ''}${R}${s.latestFinished ? ` ${DIM}${ago(s.latestFinished)}${R}` : ''}`);
         return `${mk ? `${DIM}${mk}${R}` : ''}${short} ${parts.join(' ')}`;
       });
+      agentItems = buildAgentItems(20);
+      agentItemsWide = buildAgentItems(NAME_CAP_WIDE);
     } catch (e) {}
 
     // Skills used this session — written by skill-tracker.js on PostToolUse(Skill).
     // No running state (PostToolUse fires after the skill runs), so we only show
     // "used": name + xN count + how long ago, most-recent first, up to 4 names.
     let skillItems = [];
+    let totalSkills = 0; // distinct skills before the display cap, for the stacked "…+N"
     try {
       const skills = JSON.parse(fs.readFileSync(stateFile(`claude-skills-${sid}.json`), 'utf8'));
+      totalSkills = Object.keys(skills).length;
       const entries = Object.entries(skills)
         .sort((a, b) => (b[1].last || 0) - (a[1].last || 0))
         .slice(0, 5);
       // One entry per skill (each becomes its own third-column row).
-      skillItems = entries.map(([n, s]) => {
-        const short = n.length > 20 ? n.slice(0, 20) : n;
+      const buildSkillItems = (cap) => entries.map(([n, s]) => {
+        const short = n.length > cap ? n.slice(0, cap) : n;
         const cnt = (s.count > 1) ? `${DIM}×${s.count}${R}` : '';
         const when = s.last ? ` ${DIM}${ago(s.last)}${R}` : '';
         return `${GREEN}${short}${R}${cnt}${when}`;
       });
+      skillItems = buildSkillItems(20);
+      skillItemsWide = buildSkillItems(NAME_CAP_WIDE);
     } catch (e) {}
 
     // MCP tool calls this session — written by mcp-tracker.js on PostToolUse(mcp__.*).
@@ -927,11 +953,26 @@ process.stdin.on('end', () => {
     // cap discarded vanish silently: measured with 9 tools and 2 cells, the
     // marker read "…+3" when 7 were hidden.
     let totalMcpTools = 0;
+    // Stacked layout: tool name only (the server prefix before `__` is dropped;
+    // the server set is visible on the memory_mcp row) and a deeper cap, since
+    // one full-width row holds far more than a column cell does.
+    let mcpItemsBare = [];
     try {
       const calls = JSON.parse(fs.readFileSync(stateFile(`claude-mcp-${sid}.json`), 'utf8'));
       const sorted = Object.entries(calls)
         .sort((a, b) => (b[1].last || 0) - (a[1].last || 0));
       totalMcpTools = sorted.length;
+      const decor = (s) => {
+        const cnt = (s.count > 1) ? `${DIM}×${s.count}${R}` : '';
+        const err = (s.errors > 0) ? ` ${RED}✘${s.errors > 1 ? `×${s.errors}` : ''}${R}` : '';
+        const when = s.last ? ` ${DIM}${ago(s.last)}${R}` : '';
+        return `${cnt}${err}${when}`;
+      };
+      mcpItemsBare = sorted.slice(0, 12).map(([n, s]) => {
+        const sep = n.indexOf('__');
+        const bare = sep > 0 ? n.slice(sep + 2) : n;
+        return `${CYAN}${bare}${R}${decor(s)}`;
+      });
       const entries = sorted.slice(0, 5);
       mcpItems = entries.map(([n, s]) => {
         let short = n;
@@ -1117,8 +1158,12 @@ process.stdin.on('end', () => {
     // with an empty bar, which reads as a real, unused quota. When no session
     // reports a 5h window at all, the segment is dropped and the row carries
     // 7d-quota alone; the `quota` row switch still hides the whole row.
-    const has5h = typeof i.rate_limits?.five_hour?.used_percentage === 'number'
-      || Object.values(rlSnaps || {}).some(s => typeof s?.five_hour?.used_percentage === 'number');
+    // A window counts only while it is live (resets_at in the future): an
+    // expired one makes aggMax report 0, and showing that as "0%" is the same
+    // fabricated figure this guard exists to remove.
+    const live5h = (w) => w && typeof w.used_percentage === 'number' && w.resets_at > _nowSec;
+    const has5h = live5h(i.rate_limits?.five_hour)
+      || Object.values(rlSnaps || {}).some(s => live5h(s?.five_hour));
     const quota5h = `${DIM}5h-quota${R} ${cc(r5h)}${bar(r5h)} ${r5h}%${R} ${reset5hCompact}`;
     const quota7d = `${DIM}7d-quota${R} ${cc(r7d)}${bar(r7d)} ${r7d}%${R} ${reset7dCompact}`;
     const quotaLine = has5h ? `${quota5h}     ${quota7d}` : quota7d;
@@ -1449,6 +1494,159 @@ process.stdin.on('end', () => {
     const addrDisp = sessionAddr ? clipCells(sessionAddr, 24) : '';
     const sidFull = addrDisp || sid;
     const sidShort = addrDisp ? clipCells(addrDisp, 12) : sid.slice(0, 8);
+
+    // ── Layout 2: stacked ──
+    // Status panel on top (three columns of two rows: dir/repo, model/cost,
+    // tokens/quota), then one full-width row per activity kind underneath —
+    // agents, skills, mcp, crons in that order. Rows with nothing to show are
+    // not drawn, so the box is as tall as the activity and never taller. Each
+    // row lists its items newest first, separated by "·", as many as fit, and
+    // folds the rest into "…+N" at the end. Chosen over the columns layout
+    // because that one fixes the activity columns' height to the left panel's
+    // row count, which left most of their area blank while hiding items.
+    // The columns-layout computations above run unchanged; this branch only
+    // decides what to print.
+    if (cfgLayout === 'stacked') {
+      const INNER = TERM_W - 2;                 // between the outer │ glyphs
+      const h = c => `${DIM}${c}${R}`;
+      const hl = n => '─'.repeat(Math.max(0, n));
+      const sum = a => a.reduce((x, y) => x + y, 0);
+      const out = [];
+      const fullRow = (s) => `${h('│')}${fit(` ${s}`, INNER)}${h('│')}`;
+
+      // Top panel columns; a column whose every row is switched off is dropped.
+      const compactPart = `${DIM}compact${R} ${compactLabel}`;
+      const tokensPart = `${DIM}tokens${R} ${fmtTok(tokTotal)} ${DIM}(all${R} ${allTok === null ? '--' : fmtTok(allTok)}${DIM})${R}  ${compactPart}`;
+      const contextPart = `${DIM}context${R} ${cc(ctx)}${bar(ctx)} ${ctx}%${R}`;
+      const q5 = showRow('quota') && has5h ? quota5h : '';
+      const q7 = showRow('quota') ? quota7d : '';
+      let cRow1 = showRow('usage') ? tokensPart : '';
+      let cRow2 = showRow('usage') ? contextPart : '';
+      // 5h goes beside tokens when that row exists, so the second row stays
+      // short; with usage off both quota segments share the one row.
+      if (q5) { if (cRow1) cRow1 += `  ${q5}`; else cRow2 = [cRow2, q5].filter(Boolean).join('   '); }
+      if (q7) cRow2 = [cRow2, q7].filter(Boolean).join('   ');
+      // When one side of the dir/repo | model/cost pair is switched off, the
+      // columns layout has already moved the survivor into preSplitRows and
+      // blanked the splitRow* cells, so take it from there in that case.
+      const cols = [
+        ...(preSplitRows.length
+          ? [preSplitRows.slice()]
+          : [[splitRow1L, splitRow2L].filter(Boolean), [splitRow1R, splitRow2R].filter(Boolean)]),
+        [cRow1, cRow2].filter(Boolean),
+      ].filter(c => c.length);
+      // Column widths are content-driven; the last column absorbs the slack so
+      // the frame always spans the terminal. When the three do not fit side by
+      // side, the longest prefix that does stays in columns and the remaining
+      // columns' rows go full width underneath (measured: at 150 cells the
+      // tokens/quota column misses by two, so dir/repo and model/cost keep
+      // their pair and only that column drops down).
+      const allW = cols.map(c => Math.max(...c.map(dw)) + 2);
+      let nCols = cols.length;
+      while (nCols > 1 && sum(allW.slice(0, nCols)) + nCols - 1 > INNER) nCols--;
+      const asColumns = nCols > 1;
+      const colW = allW.slice(0, nCols);
+      if (asColumns) colW[nCols - 1] += INNER - (sum(colW) + nCols - 1);
+      const colRule = (l, m, r) => `${h(l)}${colW.map(w => h(hl(w))).join(h(m))}${h(r)}`;
+      const droppedRows = asColumns ? cols.slice(nCols).flat() : cols.flat();
+
+      // Rows below the panel: memory/mcp health and edited files keep their
+      // full-width form, then the activity rows. The columns layout may have
+      // folded its skills/crons rows into fullLeftRows on a narrow terminal;
+      // those belong to the activity rows here, so they are filtered out.
+      const extraRows = fullLeftRows
+        .slice((showRow('usage') ? 1 : 0) + (showRow('quota') ? 1 : 0))
+        .filter(r => !r3rows.includes(r) && !r3fixed.includes(r));
+      const LABEL_W = 8;
+      const activityRow = (label, items, total) => {
+        const avail = INNER - 1 - LABEL_W;        // 1 = leading pad inside fullRow
+        const sep = ` ${DIM}·${R} `;
+        const shown = [];
+        let used = 0;
+        for (let k = 0; k < items.length; k++) {
+          const w = dw(items[k]) + (shown.length ? 3 : 0);
+          const leftAfter = total - (shown.length + 1);
+          // Keep room for the marker whenever this item would not be the last.
+          const reserve = leftAfter > 0 ? 3 + dw(`…+${leftAfter}`) : 0;
+          if (used + w + reserve > avail) break;
+          shown.push(items[k]); used += w;
+        }
+        const hidden = Math.max(0, total - shown.length);
+        let body = shown.join(sep);
+        if (hidden > 0) body += (shown.length ? sep : '') + `${DIM}…+${hidden}${R}`;
+        return `${fit(`${DIM}${label}${R}`, LABEL_W)}${body}`;
+      };
+      const activity = [];
+      if (showRow('agents') && agentItemsWide.length) activity.push(activityRow('agents', agentItemsWide, totalAgentGroups));
+      if (showRow('skills') && skillItemsWide.length) activity.push(activityRow('skills', skillItemsWide, Math.max(totalSkills, skillItemsWide.length)));
+      if (showRow('mcps') && mcpItemsBare.length) activity.push(activityRow('mcp', mcpItemsBare, totalMcpTools));
+      if (showRow('crons') && cronRows.length === 2) {
+        // cronRows = [header with optional ×N, "  ⏰ hh:mm label"]; one row here.
+        const n = (cronRows[0].replace(/\x1b\[[0-9;]*m/g, '').match(/×(\d+)/) || [])[1];
+        const item = cronRows[1].trim() + (n ? ` ${DIM}×${n}${R}` : '');
+        activity.push(activityRow('crons', [item], 1));
+      }
+      const below = [...extraRows, ...activity];
+
+      // Summary row: label + text, session name right-aligned, as in layout 1.
+      const summaryRow = () => {
+        const avail = INNER - 2;
+        let sidT = '';
+        if (avail - (dw(sidFull) + SID_GAP) >= 20) sidT = sidFull;
+        else if (avail - (dw(sidShort) + SID_GAP) >= 20) sidT = sidShort;
+        const label = `${DIM}session summary${R} `;
+        const textW = avail - dw(label) - (sidT ? dw(sidT) + SID_GAP : 0);
+        const text = clipCells(summary, Math.max(1, textW));
+        const left = label + text;
+        const gap = avail - dw(left) - dw(sidT);
+        return `${h('│')} ${left}${' '.repeat(Math.max(0, gap))}${sidT ? `${DIM}${sidT}${R}` : ''} ${h('│')}`;
+      };
+
+      // Assemble. A rule (border or divider) is only emitted between content:
+      // `lastIsRule` stops two rules from touching when a block is empty (the
+      // panel with every row off, or no summary above an empty panel).
+      const flatRule = (l, r) => `${h(l)}${h(hl(INNER))}${h(r)}`;
+      let lastIsRule = false;
+      let closedCols = !asColumns;   // false while the column rules are open
+      const pushRows = (rows) => { for (const r of rows) out.push(r); if (rows.length) lastIsRule = false; };
+      // Divider before a full-width group: closes the columns if they are
+      // still open, otherwise flat; skipped when the previous line is a rule.
+      const openGroup = () => {
+        if (!lastIsRule) out.push(closedCols ? flatRule('├', '┤') : colRule('├', '┴', '┤'));
+        closedCols = true;
+        lastIsRule = true;
+      };
+      if (hasSummary) {
+        out.push(flatRule('┌', '┐'));
+        pushRows([summaryRow()]);
+        if (asColumns) { out.push(colRule('├', '┬', '┤')); lastIsRule = true; }
+        else if (cols.length) { out.push(flatRule('├', '┤')); lastIsRule = true; }
+      } else {
+        out.push(asColumns ? colRule('┌', '┬', '┐') : flatRule('┌', '┐'));
+        lastIsRule = true;
+      }
+      if (asColumns) {
+        const shown = cols.slice(0, nCols);
+        const rows = Math.max(...shown.map(c => c.length));
+        const lines = [];
+        for (let r = 0; r < rows; r++) {
+          lines.push(`${h('│')}${shown.map((c, k) => fit(` ${c[r] || ''}`, colW[k])).join(h('│'))}${h('│')}`);
+        }
+        pushRows(lines);
+      }
+      // Panel rows that did not get a column, then everything below the panel.
+      if (droppedRows.length) {
+        if (asColumns) openGroup();
+        pushRows(droppedRows.map(fullRow));
+      }
+      if (below.length) {
+        openGroup();
+        pushRows(below.map(fullRow));
+      }
+      out.push(closedCols ? flatRule('└', '┘') : colRule('└', '┴', '┘'));
+      process.stdout.write(out.join('\n'));
+      return;
+    }
     const sumRowW = BOX_W - 18; // content width available on the summary row
     let sidText = '';
     if (hasSummary) {

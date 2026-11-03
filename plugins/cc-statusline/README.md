@@ -110,6 +110,17 @@ Claude Code **不支援由 plugin 自動設定主 status line**（plugin.json �
 
 也可手動編那個 JSON——只寫要關的 key 即可，例如 `{ "cost": false, "history": false }`。
 
+### 排版套組 `layout`（v1.8.0 起）
+
+同一個 JSON 的 `layout` 鍵決定用哪一套版面，兩套共用上面的列開關：
+
+| `layout` | 版面 |
+|-----------|------|
+| `"columns"`（預設） | **左右分**：左面板（dir／repo／model／cost／tokens／quota）＋右側 agents 與 skills 兩欄，mcp 呼叫固定在 agents 欄底。右欄高度等於左面板列數，所以 agents／mcp 各只看得到 2～3 筆 |
+| `"stacked"` | **上下分**：上半是 3 欄 2 列的狀態面板，下半每類一列橫向排滿整個寬度——agents、skills、mcp、crons 依序，項目用 `·` 分隔由新到舊，放不下的收成 `…+N`。沒內容的類別不畫，高度隨活動 5～9 行。mcp 只顯示工具名（server 名在 memory_mcp 列看得到）。終端太窄時上半的欄由右往左逐一降成整列，不會出現左右分那種混合退化 |
+
+說「換成上下分」「切換排版」即由 `/cc-statusline-rows` 代寫；要先試看不改設定檔，設環境變數 `CC_STATUSLINE_LAYOUT=stacked`。
+
 ### 面板寬度邊距 `widthMargin`
 
 面板依 `COLUMNS` 繪製，但實際可用寬度通常比它少幾格（TUI 自身的渲染邊距），**差幾格因機器而異**——終端程式、字型、視窗設定都有影響。畫太寬會讓每一列被 TUI 折行，被切掉的是每列最右端（session 名字所在處）。

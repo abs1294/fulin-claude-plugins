@@ -1,6 +1,6 @@
 ---
 name: cc-statusline-rows
-description: 開關 cc-statusline status line 上各列（欄位）的顯示、整條 status line 的總開關，以及面板寬度邊距。當使用者說「/cc-statusline-rows」、「關掉 status line 的 X 列」、「status line 只留 X」、「打開/關閉 成本那列」、「隱藏 quota」、「status line 太長/太吵」、「重設 status line 顯示」、「關掉整條 status line」時觸發；**面板右邊被切掉／換行／跑版／session 名字顯示不全／框線右邊不見了／status line 超出視窗**時也觸發（調 widthMargin）。透過改寫 ~/.claude/cc-statusline-rows.json 生效，statusline.js 下一次刷新即套用。
+description: 開關 cc-statusline status line 上各列（欄位）的顯示、整條 status line 的總開關、面板寬度邊距，以及切換排版套組（layout：左右分 columns／上下分 stacked）。當使用者說「/cc-statusline-rows」、「換成上下分」、「切換排版」、「改用第二套排版」、「換回左右分」、「關掉 status line 的 X 列」、「status line 只留 X」、「打開/關閉 成本那列」、「隱藏 quota」、「status line 太長/太吵」、「重設 status line 顯示」、「關掉整條 status line」時觸發；**面板右邊被切掉／換行／跑版／session 名字顯示不全／框線右邊不見了／status line 超出視窗**時也觸發（調 widthMargin）。透過改寫 ~/.claude/cc-statusline-rows.json 生效，statusline.js 下一次刷新即套用。
 ---
 
 # cc-statusline-rows — status line 逐列顯示開關
@@ -32,6 +32,15 @@ description: 開關 cc-statusline status line 上各列（欄位）的顯示、�
 |-----|------|
 | `enabled` | 設 `false` 時整條 status line 印空字串（完全關閉）。設 `true` 或省略 = 開啟。 |
 
+## 排版套組（`layout`）
+
+| 值 | 排版 |
+|----|------|
+| `"columns"`（或 `1`，預設） | 第一套，左右分：左面板＋右側 agents／skills 兩欄，mcp 呼叫在 agents 欄底。欄高跟著左面板列數，固定約 6 格 |
+| `"stacked"`（或 `2`） | 第二套，上下分：上半狀態面板 3 欄 2 列（dir／repo、model／cost、tokens／context＋quota），下半每類一列橫向排滿——順序 agents、skills、mcp、crons，項目以 `·` 分隔、由新到舊，放不下的收成列尾 `…+N`。**空的類別整列不畫**，高度隨活動變動（最少 5 行）。mcp 名稱只留工具名、不帶 server 前綴。終端太窄時上半由右往左把欄降成整列 |
+
+兩套共用同一組列開關；不認得的值回到 `columns`。一次性試看而不動設定檔：環境變數 `CC_STATUSLINE_LAYOUT=stacked`（或 `columns`）優先於設定檔。
+
 ## 面板寬度邊距（`widthMargin`）
 
 statusline 依環境變數 `COLUMNS` 繪製面板，但**實際可用寬度通常比 `COLUMNS` 少幾格**（TUI 自身的渲染邊距），差幾格**因機器而異**——終端程式、字型、視窗設定都會影響。畫太寬的後果是每一列被 TUI 折行，且被切掉的是每列**最右端**，也就是 session 名字所在處。
@@ -60,10 +69,10 @@ statusline 依環境變數 `COLUMNS` 繪製面板，但**實際可用寬度通�
 { "cost": false, "history": false }
 ```
 
-`widthMargin` 與列開關放在同一個物件裡（值是數字不是布林）：
+`widthMargin`、`layout` 與列開關放在同一個物件裡（`widthMargin` 是數字、`layout` 是字串，都不是布林）：
 
 ```json
-{ "cost": false, "widthMargin": 6 }
+{ "cost": false, "widthMargin": 6, "layout": "stacked" }
 ```
 
 只留 dir / repo / model（其餘全關）時，把其他所有列明確設 false 比較清楚：
@@ -83,6 +92,7 @@ statusline 依環境變數 `COLUMNS` 繪製面板，但**實際可用寬度通�
 ## 特殊指令對照
 
 - 「重設 / 全部打開 / 恢復預設」→ 直接刪除 `~/.claude/cc-statusline-rows.json`（缺檔即全開），或寫入 `{}`。刪檔前先確認這是使用者要的。
+- 「換成上下分 / 第二套排版 / 切換排版」→ 設 `layout: "stacked"`；「換回左右分 / 第一套 / 原本的」→ 設 `layout: "columns"` 或移除該 key。只改這個 key，列開關照舊。
 - 「關掉整條 status line」→ 設 `{ "enabled": false }`（保留其他 key）。
 - 「打開整條 status line」→ 設 `enabled: true` 或移除該 key。
 - 「status line 太長 / 太吵 / 精簡一點」→ 這是偏好而非明確 key，向使用者提議一組精簡組合（例如只留 `dir/repo/model/quota`），確認後再寫。
@@ -94,4 +104,5 @@ statusline 依環境變數 `COLUMNS` 繪製面板，但**實際可用寬度通�
 - 只碰 `~/.claude/cc-statusline-rows.json` 這一個檔，**不要**去改 `statusline.js` 或 `settings.json`。
 - key 打錯（不在上表）會被 statusline.js 忽略，不會報錯但也不會生效——寫入前務必用上表核對 key 拼字。
 - `widthMargin` 的值是**數字**，不是布林；寫成 `true`／`"6"`（字串）都會被忽略而回到預設 4。
+- `layout` 只認 `"columns"`／`"stacked"`（或 `1`／`2`），其他值靜默回到 `columns`。
 - **`widthMargin` 的正確值無法由腳本推導，只能由使用者目視回報**——不要自行宣稱「已修正對齊」，要請使用者確認框線右端的 `┐` 是否完整出現。

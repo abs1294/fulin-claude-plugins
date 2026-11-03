@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.8.0] - 2026-11-03
+### Changed
+- 新增第二套排版「上下分」（stacked）：~/.claude/cc-statusline-rows.json 的 layout 鍵設 "stacked"（或 2）切換，預設 "columns" 為原本的左右分、畫面不變。上半為 3 欄 2 列狀態面板（dir／repo、model／cost、tokens／context＋quota），下半每類一列橫向排滿：agents、skills、mcp、crons 依序，項目以 · 分隔由新到舊，放不下的收成列尾 …+N；空類別整列不畫，高度隨活動 5～9 行；mcp 只顯示工具名不帶 server 前綴；agents／skills 名稱在此套預裁 34 字。終端太窄時上半由右往左把欄降成整列。環境變數 CC_STATUSLINE_LAYOUT 可一次性覆蓋。另修：5h 視窗已過期（resets_at 已過）時不再被當成有資料而畫 0% 空 bar——其他 session 快照裡留著過期數字就會觸發，實測發生過
+
 ## [1.7.0] - 2026-11-03
 ### Changed
 - session 狀態檔（agents／skills／mcp 呼叫／編輯／歷史／摘要／compact／crons／token 累計）從系統暫存目錄搬到 ~/.claude/cc-statusline/state/：Windows 的 Storage Sense／磁碟清理會按檔齡清掉暫存檔，2026-11-03 實測所有三天前的狀態檔一次全沒，開了十天的 session 因此 agents／skills 歷史憑空消失。升級後舊 session 的暫存檔若較新會自動複製過來（超過 30 天的不搬）；message-tracker 每天掃一次、刪 30 天未更新的檔。中欄溢出標記分家：沒排進畫面的 MCP 工具數改顯示在 mcp 區塊標題（"mcp …+N"），agents 標題下的 "…+N" 只算 agents——原本兩者合算且標記掛在 agents 標題下，沒跑 agent 的 session 顯示 "agents / …+11" 被讀成 11 個 agent（其實是 11 個 MCP 工具）；只有欄高不足三格、mcp 區塊不畫時才併回。quota 列：所有 session 的 rate_limits.five_hour 都是 null（Ultra 方案自 2026-10-30 起取消 5 小時視窗）時整段不顯示、只留 7d-quota，不再畫 0% 的空 bar（要連 7d 一起關用 /cc-statusline-rows 的 quota 開關）
