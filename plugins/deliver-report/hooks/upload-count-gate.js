@@ -15,6 +15,10 @@
  *      上傳歸屬逐分頁（tabId）記錄。沒開草稿網址就上傳（例如從草稿匣列表點開），判斷不出是哪封，
  *      session 寫過不止一封時就不歸屬、不檢查——包括「從草稿匣點進去重傳」這條常見路徑，所以 SKILL.md
  *      要求上傳前一定開那封的 viewUrl。
+ *      分頁開著的若明確**不是**任何已知草稿（Gmail 的別串信、非 Gmail 網站），上傳不歸屬、也不套
+ *      「只寫過一封就是它」的推定（2026-11-04 實案：10/20 建的草稿是 session 唯一一封；今天 create_draft
+ *      連線失敗後改在 Chrome 開對方的信串按回覆、上傳新版工項表，舊判準把它算給 10/20 那封，拿 10/20
+ *      的清單比對、連當時的 2 個上傳一起算，擋「清單 2 個、上傳 3 個」）。
  *      限同一個 session 的 transcript；別的 session 上傳過的看不到。
  *   都沒有就不出聲——沒附檔的情況由 posttool (H) 與 attach-handback-gate 負責。
  * 比對：
@@ -59,12 +63,24 @@ const NAV_TOOL = /(?:^|__)(?:browser_)?(?:navigate|tabs_create(?:_mcp)?)$/;
 const DRAFT_IN_URL = /msg-a(?::|%3A)(r-?\d+)/i;
 // create_draft 回傳內容裡的草稿 id（純字串 JSON，或陣列經 JSON.stringify 後帶跳脫引號）
 const RESULT_ID = /"id\\?"\s*:\s*\\?"(r-?\d+)/;
+// 寫入回傳裡的 messageId（16 位十六進位）與 viewUrl 裡的 thread-f（每次 update 都會換新的一組，全部記下）
+const RESULT_MSG = /"messageId\\?"\s*:\s*\\?"([0-9a-f]{8,})/gi;
+const THREAD_F = /thread-f(?::|%3A)(\d+)/gi;
+// 導覽網址：Gmail 網頁、草稿匣的 compose=<messageId>（2026-11-04 實測 …#drafts?compose=1a1a66306c1f6835）
+const GMAIL_HOST = /^https?:\/\/mail\.google\.com(?:[/?#]|$)/i;
+const COMPOSE_HEX = /[?&#]compose=([0-9a-f]{8,})(?![0-9a-z])/i;
+// 導覽工具回傳的「Executed on tabId: N」（Chrome 擴充 navigate 沒帶 tabId 時，實際落在哪個分頁只有回傳寫）
+const EXEC_TAB = /Executed on tabId:\s*(\d+)/;
+// 分頁目前開著的不是任何已知草稿（別串信、非 Gmail 網站）：不歸屬、也不套「只寫過一封」的推定
+const NOT_DRAFT = '__not_draft';
 
 /**
  * transcript 各行 → 依序的事件，回傳 { events, errors:Set, start }。事件：
  *   write  Gmail create_draft／update_draft：{ input, isUpdate, draft（update 的 draftId 或 create 回傳的 id）}
  *   upload 瀏覽器上傳：{ input }
- *   nav    瀏覽器導覽：{ draft }——網址是草稿網址就是那封的 id，不是（例如草稿匣列表）就是 ''
+ *   nav    瀏覽器導覽：{ draft, url, tab }——網址是草稿網址就是那封的 id，不是就是 ''，由 resolveNav 再依
+ *          網址分成「某封草稿／判斷不出／明確不是草稿」
+ *   另回傳 keys：草稿 id → { msgs:Set(messageId), threads:Set(thread-f) }（從寫入回傳蒐集）
  */
 function collect(lines) {
   let start = -1;
@@ -75,6 +91,8 @@ function collect(lines) {
   const events = [];
   const errors = new Set();
   const byId = new Map();
+  const keys = new Map();
+  const keyOf = (d) => { if (!keys.has(d)) keys.set(d, { msgs: new Set(), threads: new Set() }); return keys.get(d); };
   for (let i = 0; i < parsed.length; i++) {
     const o = parsed[i];
     if (!o || typeof o !== 'object' || o.isSidechain === true) continue;
@@ -92,20 +110,55 @@ function collect(lines) {
           ev = { kind: 'upload', idx: i, id: b.id, input };
         } else if (NAV_TOOL.test(name)) {
           const d = DRAFT_IN_URL.exec(JSON.stringify(input));
-          ev = { kind: 'nav', idx: i, id: b.id, input, draft: d ? d[1] : '' };
+          ev = { kind: 'nav', idx: i, id: b.id, input, draft: d ? d[1] : '', url: C.safeStr(input.url), tab: '' };
         }
         if (ev) { events.push(ev); byId.set(b.id, ev); }
       } else if (o.type === 'user' && b.type === 'tool_result') {
         if (b.is_error === true) errors.add(b.tool_use_id);
         const ev = byId.get(b.tool_use_id);
-        if (ev && ev.kind === 'write' && !ev.draft) {
-          const m = RESULT_ID.exec(typeof b.content === 'string' ? b.content : JSON.stringify(b.content || ''));
-          if (m) ev.draft = m[1];
+        if (!ev || b.is_error === true) continue;
+        const text = typeof b.content === 'string' ? b.content : JSON.stringify(b.content || '');
+        if (ev.kind === 'write') {
+          if (!ev.draft) { const m = RESULT_ID.exec(text); if (m) ev.draft = m[1]; }
+          if (ev.draft) {
+            const k = keyOf(ev.draft);
+            let m;
+            RESULT_MSG.lastIndex = 0; while ((m = RESULT_MSG.exec(text))) k.msgs.add(m[1].toLowerCase());
+            THREAD_F.lastIndex = 0; while ((m = THREAD_F.exec(text))) k.threads.add(m[1]);
+          }
+        } else if (ev.kind === 'nav' && (ev.input.tabId === undefined || ev.input.tabId === null)) {
+          const m = EXEC_TAB.exec(text);
+          if (m) ev.tab = m[1];
         }
       }
     }
   }
-  return { events, errors, start };
+  return { events, errors, start, keys };
+}
+
+/**
+ * 導覽後這個分頁開著什麼（三種值）：
+ *   草稿 id        網址帶 msg-a:<id>；或 compose=<messageId>／thread-f:<id> 對得上某次寫入回傳的那封
+ *   null           判斷不出（Gmail 草稿匣列表等 Gmail 頁面、沒帶網址的開分頁）→ 容許「只寫過一封」推定
+ *   NOT_DRAFT      明確不是已知草稿：Gmail 裡對不上任何寫入的信串（例如開對方來信按回覆）、非 Gmail 網站
+ */
+function resolveNav(e, keys) {
+  if (e.draft) return e.draft;
+  const url = e.url;
+  if (!url) return null;
+  if (!GMAIL_HOST.test(url)) return NOT_DRAFT;
+  const cm = COMPOSE_HEX.exec(url);
+  if (cm) {
+    const hex = cm[1].toLowerCase();
+    for (const [d, k] of keys) if (k.msgs.has(hex)) return d;
+  }
+  THREAD_F.lastIndex = 0;
+  const tm = THREAD_F.exec(url);
+  if (tm) {
+    for (const [d, k] of keys) if (k.threads.has(tm[1])) return d;
+    return NOT_DRAFT;
+  }
+  return null;
 }
 
 /**
@@ -119,21 +172,28 @@ function collect(lines) {
 // 寫入對應的草稿代號：知道 id 就用 id；不知道（回傳裡抽不到）就用寫入位置當暫時代號
 function writeKey(e) { return e.draft || '__w' + e.idx; }
 
-// 分頁代號：Chrome 擴充的 navigate／file_upload 都帶 tabId；沒帶的工具（Playwright 等）共用一個預設分頁
-function tabOf(input) { return input && input.tabId !== undefined && input.tabId !== null ? String(input.tabId) : '__default'; }
+// 分頁代號：Chrome 擴充的 navigate／file_upload 都帶 tabId；navigate 沒帶時用回傳的「Executed on tabId」；
+// 都沒有的工具（Playwright 等）共用一個預設分頁
+function tabOf(e) {
+  const input = e.input;
+  if (input && input.tabId !== undefined && input.tabId !== null) return String(input.tabId);
+  return e.tab ? String(e.tab) : '__default';
+}
 
-function attributeUploads(events, ok) {
+function attributeUploads(events, ok, keys) {
   const targets = new Set();
   for (const e of events) if (e.kind === 'write' && ok(e)) targets.add(writeKey(e));
   const solo = targets.size === 1 ? Array.from(targets)[0] : '';
-  // 每個分頁目前開著哪封：沒有紀錄＝沒導覽過；''＝導覽到非草稿頁（只清該分頁）
+  // 每個分頁目前開著哪封（resolveNav 的三種值；沒有紀錄＝沒導覽過，同 null）
   // （只看最近一次導覽、不分分頁時，分頁 1 開 A、分頁 2 開 B、在分頁 1 上傳 A 會被算給 B——2026-10-21 審查實測）
   const open = new Map();
   const ups = [];
   for (const e of events) {
-    if (e.kind === 'nav' && ok(e)) open.set(tabOf(e.input), e.draft);
+    if (e.kind === 'nav' && ok(e)) open.set(tabOf(e), resolveNav(e, keys));
     else if (e.kind === 'upload' && ok(e) && Array.isArray(e.input.paths) && e.input.paths.length) {
-      ups.push({ idx: e.idx, paths: e.input.paths, draft: open.get(tabOf(e.input)) || solo });
+      const cur = open.get(tabOf(e));
+      const draft = cur === NOT_DRAFT ? '' : (cur || solo);
+      ups.push({ idx: e.idx, paths: e.input.paths, draft });
     }
   }
   return { ups, solo };
@@ -206,10 +266,10 @@ function basename(p) { return String(p).split(/[\\/]/).pop(); }
 
 /** 回傳 { problems, items, uploaded, wipeOnly? } 或 null（不歸這支管／判不出） */
 function evaluate(lines) {
-  const { events, errors, start } = collect(lines);
+  const { events, errors, start, keys } = collect(lines);
   if (start < 0) return null;
   const ok = (e) => !errors.has(e.id);
-  const { ups, solo } = attributeUploads(events, ok);
+  const { ups, solo } = attributeUploads(events, ok, keys);
   const wipes = crossTurnWipes(events, ok, ups, start);
   const r = evaluateUploads(events, ok, ups, start, solo);
   if (!wipes.length) return r && r.problems.length ? r : null;

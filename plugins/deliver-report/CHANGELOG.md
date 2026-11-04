@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.4.1] - 2026-11-04
+### Fixed
+- upload-count-gate（Stop 閘）修「上傳歸給哪封草稿」的誤判：分頁開著的明確不是任何已知草稿時（Gmail 裡對不上任何寫入回傳的信串、非 Gmail 網站），上傳不歸屬、也不套「session 只寫過一封就是它」的推定。2026-11-04 實案：10/20 建的草稿是 session 唯一一封（清單 2 項、當時上傳 2 個）；今天 create_draft 連線失敗三次後改在 Chrome 開對方信串按回覆、上傳 1 個新版工項表，舊判準把它算給 10/20 那封，拿 10/20 的清單比對、連當時的 2 個一併累計，擋「清單列了 2 個檔，實際上傳了 3 個」；從草稿匣重開確認附件其實正確。同時補三種本來認不得的歸屬：草稿匣的 compose=<messageId>、對得上寫入回傳 viewUrl 的信串 thread-f（每次 update 換新的一組全部記下）、navigate 沒帶 tabId 時改讀回傳的「Executed on tabId」。先開 A 的草稿網址、再在同分頁開別串信才上傳，不再算給 A；跨回合清附件檢查用同一套歸屬。實跑兩份真實 transcript（汎銓 10/19–11/04、華邦 11/02–11/04）新版均放行；tests/upload-count.test.js 新增 10 例（46 例全綠），換回舊版 9 例轉紅。README 補歸屬規則一句。
+
 ## [2.4.0] - 2026-11-03
 ### Changed
 - **Gmail 草稿 `htmlBody` 用 `<p>` 分段改為 PreToolUse 硬擋**（新 hook `hooks/gmail-draft-paragraph-gate.js`，掛 `create_draft|update_draft`）。由來（2026-11-03 實案，另一 session 轉來）：回覆草稿寫成 `<p>Hi Soloment,<br>…</p>\n\n<p>…</p>`，PostToolUse 閘當場提醒「■ htmlBody 用了白名單以外的標籤或屬性：<p>」（transcript 可查，建草稿後下一行就是），模型照樣交付；Gmail 把 `<p>` 上下邊距原樣顯示，收件人列和稱謂行之間空出一大段、每段之間也多一截，使用者截圖退件（原話「你為什麼有padding」）。同一 session 這句提醒出現 9 次都沒被理；0.18.0（2026-09-17，7 個 `<p>`，「我根本改不了」）是同一種錯。規則與偵測都早就有，缺的是他律——提醒擋不住就 deny。

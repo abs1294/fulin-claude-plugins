@@ -203,6 +203,71 @@ t('子代理（sidechain）的呼叫不看', [
   Object.assign(call('u1', 'mcp__claude-in-chrome__file_upload', { paths: [U + 'a.docx'] }), { isSidechain: true }),
 ], 'allow');
 
+// 分頁開著的明確不是已知草稿 → 不歸屬、不套「只寫過一封」推定（2026-11-04 誤判實案）
+console.log('=== 導覽到非草稿頁 ===');
+// 寫入回傳帶真實形狀的 messageId 與 viewUrl（thread-f 每次寫入都換新）
+const createdFull = (id, draftId, msgId, threadF, input) => [call(id, 'mcp__claude_ai_Gmail__create_draft', input),
+  { type: 'user', toolUseResult: {}, message: { content: [{ type: 'tool_result', tool_use_id: id, is_error: false,
+    content: [{ type: 'text', text: JSON.stringify({ id: draftId, messageId: msgId, threadId: msgId,
+      viewUrl: 'https://mail.google.com/mail/?authuser=x#all?compose=thread-f:' + threadF + '%2Bmsg-a:' + draftId }) }] }] } }];
+const navUrl = (id, url, tabId) => [call(id, 'mcp__claude-in-chrome__navigate', tabId === undefined ? { url } : { url, tabId }), result(id)];
+const LIST2 = '<div dir="ltr">附件 2 份：<br><ol><li>a.docx — 報告</li><li>b.xlsx — 時程</li></ol></div>';
+t('實案：session 唯一一封是半月前的草稿（清單 2、已傳 2）；今天 create_draft 失敗、開對方信串按回覆傳 1 個 → 不出聲', [
+  prompt('寫信'), ...createdFull('c1', 'r7382026575004447389', '1a1582fb2eb5b6b7', '1879552434829113015', { htmlBody: LIST2 }),
+  ...navUrl('n1', 'https://mail.google.com/mail/?authuser=x#drafts', 5), call('u1', 'mcp__claude-in-chrome__file_upload', { paths: [U + 'a.docx', U + 'b.xlsx'], ref: 'r', tabId: 5 }), result('u1'),
+  prompt('回 Tina'), call('c2', 'mcp__claude_ai_Gmail__create_draft', { replyToMessageId: '1a1a56c9e1f99be4', body: 'Hi' }), result('c2', true),
+  ...navUrl('n2', 'https://mail.google.com/mail/u/2/#all/thread-f:1880911219460250596', 9),
+  call('u2', 'mcp__claude-in-chrome__file_upload', { paths: [U + 'new.xlsx'], ref: 'r', tabId: 9 }), result('u2'), say('存好了'),
+], 'allow');
+t('只寫過一封、分頁開著非 Gmail 網站（Drive）就上傳 → 不算傳給那封', [
+  prompt('x'), ...draft('d1', { htmlBody: LIST3 }),
+  ...navUrl('n1', 'https://drive.google.com/drive/u/2/search?q=x', 1), ...up('u1', [U + 'z.xlsx']),
+], 'allow');
+t('只寫過一封、分頁開著 Gmail 別串信（thread-f 對不上任何寫入）→ 不算傳給那封', [
+  prompt('x'), ...createdFull('c1', 'r-1879000000000000030', '1a1a000000000001', '1880000000000000001', { htmlBody: LIST3 }),
+  ...navUrl('n1', 'https://mail.google.com/mail/u/2/#all/thread-f:1880999999999999999', 1), ...up('u1', [U + 'a.docx']),
+], 'allow');
+t('只寫過一封、開草稿匣列表（判斷不出）就上傳 → 仍推定是那封（少傳要擋）', [
+  prompt('x'), ...createdFull('c1', 'r-1879000000000000031', '1a1a000000000002', '1880000000000000002', { htmlBody: LIST3 }),
+  ...navUrl('n1', 'https://mail.google.com/mail/?authuser=x#drafts', 1), ...up('u1', [U + 'a.docx']),
+], 'block', '實際上傳了 1 個');
+t('兩封草稿：開的是 A 的信串（thread-f 對上 A 的 viewUrl）、少傳 → 擋 A', [
+  prompt('x'), ...createdFull('c1', 'r-1879000000000000032', '1a1a000000000003', '1880000000000000003', { htmlBody: LIST3 }),
+  ...createdFull('c2', 'r-1879000000000000033', '1a1a000000000004', '1880000000000000004', { htmlBody: '<div dir="ltr">B</div>' }),
+  ...navUrl('n1', 'https://mail.google.com/mail/u/2/#all/thread-f:1880000000000000003', 1), ...up('u1', [U + 'a.docx']),
+], 'block', '清單列了 3 個檔，實際上傳了 1 個');
+t('兩封草稿：update 後 thread-f 換新、開新的那組 → 仍對得上', [
+  prompt('x'), ...createdFull('c1', 'r-1879000000000000034', '1a1a000000000005', '1880000000000000005', { htmlBody: LIST3 }),
+  ...createdFull('c2', 'r-1879000000000000035', '1a1a000000000006', '1880000000000000006', { htmlBody: '<div dir="ltr">B</div>' }),
+  call('d2', 'mcp__claude_ai_Gmail__update_draft', { draftId: 'r-1879000000000000034', htmlBody: LIST3 }),
+  { type: 'user', toolUseResult: {}, message: { content: [{ type: 'tool_result', tool_use_id: 'd2', is_error: false,
+    content: JSON.stringify({ id: 'r-1879000000000000034', messageId: '1a1a000000000007', viewUrl: 'https://mail.google.com/mail/?authuser=x#all?compose=thread-f:1880000000000000007%2Bmsg-a:r-1879000000000000034' }) }] } },
+  ...navUrl('n1', 'https://mail.google.com/mail/u/2/#all/thread-f:1880000000000000007', 1), ...up('u1', [U + 'a.docx']),
+], 'block', '清單列了 3 個檔，實際上傳了 1 個');
+t('兩封草稿：開 #drafts?compose=<messageId>（對上 A）、少傳 → 擋 A', [
+  prompt('x'), ...createdFull('c1', 'r-1879000000000000036', '1a1a66306c1f6835', '1880000000000000008', { htmlBody: LIST3 }),
+  ...createdFull('c2', 'r-1879000000000000037', '1a1a000000000009', '1880000000000000009', { htmlBody: '<div dir="ltr">B</div>' }),
+  ...navUrl('n1', 'https://mail.google.com/mail/u/1/#drafts?compose=1a1a66306c1f6835', 1), ...up('u1', [U + 'a.docx']),
+], 'block', '清單列了 3 個檔，實際上傳了 1 個');
+t('兩封草稿：navigate 沒帶 tabId、回傳寫 Executed on tabId: 7，之後在分頁 7 傳 A 的檔、少傳 → 擋 A', [
+  prompt('x'), ...createdFull('c1', 'r-1879000000000000038', '1a1a00000000000a', '1880000000000000010', { htmlBody: LIST3 }),
+  ...createdFull('c2', 'r-1879000000000000039', '1a1a00000000000b', '1880000000000000011', { htmlBody: '<div dir="ltr">B</div>' }),
+  call('n1', 'mcp__claude-in-chrome__navigate', { url: 'https://mail.google.com/mail/?authuser=x#all?compose=thread-f:1880000000000000010%2Bmsg-a:r-1879000000000000038' }),
+  { type: 'user', toolUseResult: {}, message: { content: [{ type: 'tool_result', tool_use_id: 'n1', is_error: false,
+    content: [{ type: 'text', text: 'Navigated to …' }, { type: 'text', text: '\n\nTab Context:\n- Executed on tabId: 7\n- Available tabs:\n' }] }] } },
+  call('u1', 'mcp__claude-in-chrome__file_upload', { paths: [U + 'a.docx'], ref: 'r', tabId: 7 }), result('u1'),
+], 'block', '清單列了 3 個檔，實際上傳了 1 個');
+t('先開 A 的草稿網址、再在同分頁開別串信才上傳 → 不算給 A（開著的已經不是 A）', [
+  prompt('x'), ...createdFull('c1', 'r-1879000000000000040', '1a1a00000000000c', '1880000000000000012', { htmlBody: LIST3 }),
+  ...nav('n1', 'r-1879000000000000040'),
+  ...navUrl('n2', 'https://mail.google.com/mail/u/2/#all/thread-f:1880999999999999998', 1), ...up('u1', [U + 'a.docx']),
+], 'allow');
+t('跨回合清附件也用同一套歸屬：上傳時開著別串信 → 之後改那封沒重傳也不擋', [
+  prompt('x'), ...createdFull('c1', 'r-1879000000000000041', '1a1a00000000000d', '1880000000000000013', { htmlBody: LIST3 }),
+  ...navUrl('n1', 'https://mail.google.com/mail/u/2/#all/thread-f:1880999999999999997', 1), ...up('u1', ALL3),
+  prompt('改'), ...upd('d2', { draftId: 'r-1879000000000000041', htmlBody: LIST3 }),
+], 'allow');
+
 console.log('=== fail-open ===');
 {
   const p = spawnSync(process.execPath, [GATE], { input: 'not json', encoding: 'utf8' });
