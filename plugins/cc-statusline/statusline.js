@@ -28,12 +28,16 @@ process.stdin.on('end', () => {
     // row per activity kind (agents, skills, mcp, crons) underneath. Same row
     // switches apply to both. Unknown values fall back to 'columns'.
     let cfgLayout = 'columns';
+    // stacked only: keep the tokens segment when a 5h quota window is live
+    // (default drops it to keep the third column narrow).
+    let cfgTokensWith5h = false;
     try {
       const stored = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'cc-statusline-rows.json'), 'utf8'));
       for (const k of Object.keys(rowDefaults)) if (k in stored) rowCfg[k] = !!stored[k];
       if (stored.enabled === false) cfgEnabled = false;
       const lay = String(stored.layout ?? '').toLowerCase();
       if (lay === 'stacked' || lay === '2') cfgLayout = 'stacked';
+      if (stored.tokens_with_5h === true) cfgTokensWith5h = true;
       // Floor it: a fractional margin would make TERM_W fractional and feed a
       // non-integer width into every box-drawing calculation downstream.
       if (Number.isFinite(stored.widthMargin) && stored.widthMargin >= 0) cfgWidthMargin = Math.floor(stored.widthMargin);
@@ -1515,17 +1519,37 @@ process.stdin.on('end', () => {
       const fullRow = (s) => `${h('│')}${fit(` ${s}`, INNER)}${h('│')}`;
 
       // Top panel columns; a column whose every row is switched off is dropped.
+      // The third column is itself a small grid so its two rows line up
+      // (before this the segments were run together and "compact" on the
+      // first row started two cells right of "7d-quota" beneath it):
+      //   no 5h window:   tokens  | context      compact | 7d-quota
+      //   live 5h window: context | 5h-quota     compact | 7d-quota
+      // With a 5h window the tokens segment is dropped so the column stays
+      // about as wide as without one; `tokens_with_5h: true` keeps it, as a
+      // fourth sub-column (tokens/compact, 5h/7d, context).
       const compactPart = `${DIM}compact${R} ${compactLabel}`;
-      const tokensPart = `${DIM}tokens${R} ${fmtTok(tokTotal)} ${DIM}(all${R} ${allTok === null ? '--' : fmtTok(allTok)}${DIM})${R}  ${compactPart}`;
-      const contextPart = `${DIM}context${R} ${cc(ctx)}${bar(ctx)} ${ctx}%${R}`;
+      const tokensPart = `${DIM}tokens${R} ${fmtTok(tokTotal)} ${DIM}(all${R} ${allTok === null ? '--' : fmtTok(allTok)}${DIM})${R}`;
+      // "context" is padded to the width of "7d-quota" so the two bars start
+      // in the same cell when they sit one above the other.
+      const contextPart = `${fit(`${DIM}context${R}`, 8)} ${cc(ctx)}${bar(ctx)} ${ctx}%${R}`;
       const q5 = showRow('quota') && has5h ? quota5h : '';
       const q7 = showRow('quota') ? quota7d : '';
-      let cRow1 = showRow('usage') ? tokensPart : '';
-      let cRow2 = showRow('usage') ? contextPart : '';
-      // 5h goes beside tokens when that row exists, so the second row stays
-      // short; with usage off both quota segments share the one row.
-      if (q5) { if (cRow1) cRow1 += `  ${q5}`; else cRow2 = [cRow2, q5].filter(Boolean).join('   '); }
-      if (q7) cRow2 = [cRow2, q7].filter(Boolean).join('   ');
+      const subCols = [];
+      if (q5) {
+        if (showRow('usage') && cfgTokensWith5h) subCols.push([tokensPart, compactPart], [q5, q7], [contextPart, '']);
+        else if (showRow('usage')) subCols.push([contextPart, compactPart], [q5, q7]);
+        else subCols.push([q5, q7]);
+      } else {
+        if (showRow('usage')) subCols.push([tokensPart, compactPart]);
+        if (q7) subCols.push([showRow('usage') ? contextPart : '', q7]);
+        else if (showRow('usage')) subCols.push([contextPart, '']);
+      }
+      const subW = subCols.map(c => Math.max(...c.map(dw)));
+      const subRow = (k) => subCols.some(c => c[k])
+        ? subCols.map((c, j) => j < subCols.length - 1 ? fit(c[k], subW[j]) : c[k]).join('   ').replace(/\s+$/, '')
+        : '';
+      const cRow1 = subRow(0);
+      const cRow2 = subRow(1);
       // When one side of the dir/repo | model/cost pair is switched off, the
       // columns layout has already moved the survivor into preSplitRows and
       // blanked the splitRow* cells, so take it from there in that case.
