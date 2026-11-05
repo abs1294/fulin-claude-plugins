@@ -1129,11 +1129,129 @@ function signatureProblem(toolSuffix, input, sigState) {
 }
 
 
+/* ───────────────────────────── 稱謂行後不留空行（greeting-gate） ─────────────────────────────
+ * 使用者固定偏好（SKILL.md 第一步要點 2、第三步之三格式）：稱謂行「Hi X,」下一行直接接正文，中間不空行。
+ * 規則自 0.x 起就寫在 SKILL.md，但只是自律：2026-11-04 回覆草稿又寫成「Hi Tina,」＋空行（先是
+ * create_draft 的 body 寫 "Hi Tina,\n\n…"，Gmail 工具斷線後改在 Chrome 用 javascript_tool 寫
+ * ["Hi Tina,","",…]，兩條路都沒有閘），使用者截圖退件「怎麼又有信第二行是空白」。改成機制閘。
+ *
+ * 三個判準，三種輸入：
+ *   greetingGapText(body)      純文字（Gmail 的 body）：第一個非空行是稱謂行、下一行是空行
+ *   greetingGapHtml(html)      HTML（Gmail 的 htmlBody）：剝掉引用區與簽名檔後，開頭的稱謂行到下一段文字之間
+ *                              有兩個以上的換行（<br><br>、<br>&nbsp;<br>、</div><div><br></div><div>…）
+ *   greetingGapInStrings(obj)  瀏覽器打字類工具的參數：任一字串值裡「稱謂＋空行」（真換行、字面 \n\n、
+ *                              <br><br>、逐行陣列 "Hi X,","",）——內容不經 Gmail 工具，只能從工具參數看
+ * 稱謂行：Hi／Hello／Hey／Dear 開頭（後面可接稱呼、半形或全形逗號／冒號），或「X 您好／你好」。
+ * 只看「開頭那一行」（純文字與 HTML）：引用區裡對方信的稱謂、正文中間引述的「Hi」都不算。
+ * 全部 FAIL-SAFE：輸入不是字串／解析不了 → 回 null（放行）。
+ */
+const GREETING_LINE_RE = /^(?:(?:hi|hello|hey|dear)\b[^,，:：]{0,60}|[^,，:：]{0,20}(?:您好|你好))\s*[,，:：]?\s*$/i;
+function isGreeting(line) {
+  const t = safeStr(line).replace(/\u00a0/g, ' ').trim();
+  return t.length > 0 && t.length <= 80 && GREETING_LINE_RE.test(t);
+}
+
+function greetingGapText(body) {
+  const lines = safeStr(body).slice(0, 20000).replace(/\r\n?/g, '\n').split('\n');
+  const blank = (l) => !safeStr(l).replace(/\u00a0/g, ' ').trim();
+  let i = 0;
+  while (i < lines.length && blank(lines[i])) i++;
+  if (i >= lines.length || !isGreeting(lines[i])) return null;
+  if (i + 1 >= lines.length || !blank(lines[i + 1])) return null;
+  return { greeting: lines[i].trim(), how: '稱謂行的下一行是空行' };
+}
+
+const GREETING_INLINE_TAGS = new Set(['span', 'font', 'b', 'strong', 'i', 'em', 'u', 'a', 'small', 'sup', 'sub', 'wbr']);
+const GREETING_STOP_TAGS = new Set(['ol', 'ul', 'table', 'pre', 'blockquote', 'hr', 'p', 'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+function decodeEntities(t) {
+  return t.replace(/&nbsp;|&#160;|&#xa0;/gi, ' ').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/g, "'").replace(/&amp;/gi, '&');
+}
+/**
+ * 把 HTML 開頭依「行」建模：稱謂文字 → 到下一段文字之間算幾個換行。
+ *   <br>：+1；但 <br> 後面緊接 </div>（區塊結尾的 br）瀏覽器不畫，+0
+ *   區塊邊界：連續的 </div>／<div …>（中間只有空白）算一次 +1（</div><div> 是換行；<div><br></div> 是空行，
+ *             由「邊界 +1、br 被收掉、再一個邊界 +1」合計 2 抓到）
+ *   行內標籤（span／b／a…）與空白、&nbsp; 不算
+ *   碰到清單／表格等區塊標籤就停，用當下的計數判
+ * 換行 ≥ 2 ＝ 稱謂行與正文之間有空行。只看前 6000 字元（稱謂在開頭；也避免長輸入拖慢）。
+ */
+function greetingGapHtml(html) {
+  const own = stripQuotedRegions(safeStr(html)).slice(0, 6000);
+  const tokens = [];
+  let pos = 0;
+  try {
+    scanTags(own, (t) => {
+      if (t.start > pos) tokens.push({ text: own.slice(pos, t.start) });
+      tokens.push({ tag: t.name, isClose: t.isClose, selfClose: t.selfClose });
+      pos = t.end;
+    });
+  } catch (_) { return null; }
+  if (pos < own.length) tokens.push({ text: own.slice(pos) });
+  const isWs = (tok) => tok.text !== undefined && !decodeEntities(tok.text).replace(/\u00a0/g, ' ').trim();
+  const isInline = (tok) => tok.tag !== undefined && GREETING_INLINE_TAGS.has(tok.tag);
+  const isBoundary = (tok) => tok.tag === 'div' && !tok.selfClose;
+
+  // 第一階段：收集開頭的文字直到第一個換行／區塊邊界／停止標籤
+  let k = 0, greeting = '', started = false;
+  for (; k < tokens.length; k++) {
+    const tok = tokens[k];
+    if (tok.text !== undefined) { const d = decodeEntities(tok.text); if (d.trim()) started = true; greeting += d; continue; }
+    if (isInline(tok)) continue;
+    if (tok.tag === 'br') break;
+    if (isBoundary(tok)) { if (started) break; continue; }   // 開頭的包裹 <div dir="ltr"> 跳過
+    if (GREETING_STOP_TAGS.has(tok.tag)) break;
+    // 其他標籤（font／style…）當行內
+  }
+  if (!isGreeting(greeting)) return null;
+
+  // 第二階段：數到下一段文字之前有幾個換行
+  let breaks = 0, inBoundaryRun = false;
+  const nextNonWs = (from) => { for (let j = from; j < tokens.length; j++) if (!isWs(tokens[j])) return tokens[j]; return null; };
+  for (; k < tokens.length; k++) {
+    const tok = tokens[k];
+    if (tok.text !== undefined) { if (isWs(tok)) continue; break; }   // 下一段文字：停
+    if (isInline(tok)) { inBoundaryRun = false; continue; }
+    if (tok.tag === 'br') {
+      inBoundaryRun = false;
+      const nx = nextNonWs(k + 1);
+      if (!(nx && nx.tag === 'div' && nx.isClose)) breaks++;
+      continue;
+    }
+    if (isBoundary(tok)) { if (!inBoundaryRun) { breaks++; inBoundaryRun = true; } continue; }
+    if (GREETING_STOP_TAGS.has(tok.tag)) break;
+    inBoundaryRun = false;
+  }
+  if (breaks < 2) return null;
+  return { greeting: greeting.trim(), how: '稱謂行和正文之間有 ' + breaks + ' 個換行（多出 ' + (breaks - 1) + ' 個空行）' };
+}
+
+// 瀏覽器打字類工具的參數裡，任一字串值出現「稱謂＋空行」。四種空行寫法：
+//   真換行 \n\n、程式碼字串裡的字面 \\n\\n（含 \\r\\n）、<br><br>（中間可夾空白或 &nbsp;）、逐行陣列 "Hi X,","",
+const GREETING_GAP_INLINE_RE = /(?:^|[\n"'`>\]\(])[ \t]*((?:Hi|Hello|Hey|Dear)(?:[ \u3000][^\n"'`<>,，:：\\]{1,60})?[,，:：]?)(?:\r?\n[ \t]*\r?\n|(?:\\r)?\\n[ \t]*(?:\\r)?\\n|<br\s*\/?>(?:\s|&nbsp;)*<br|["'`][ \t]*,[ \t]*(["'`])[ \t]*\2)/i;
+function greetingGapInStrings(obj) {
+  const seen = [];
+  let budget = 300000;
+  const walk = (v, depth) => {
+    if (seen.length || depth > 12 || budget <= 0) return;
+    if (typeof v === 'string') {
+      budget -= v.length;
+      const m = GREETING_GAP_INLINE_RE.exec(v.slice(0, 200000));
+      if (m) seen.push({ greeting: m[1].trim(), how: '稱謂行後面接著空行' });
+    } else if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); }
+    else if (v && typeof v === 'object') { for (const key of Object.keys(v)) walk(v[key], depth + 1); }
+  };
+  try { walk(obj, 0); } catch (_) { return null; }
+  return seen[0] || null;
+}
+
+
 module.exports = {
   // 簽名檔
   SIGNATURE_MARK, signatureProblem, hasSignature, stripSignature, signatureState, setSignatureState,
   // 引用區與段落標籤（gmail-draft-paragraph-gate）
   scanTags, stripQuotedRegions, paragraphTags,
+  // 稱謂行後不留空行（greeting-gate）
+  isGreeting, greetingGapText, greetingGapHtml, greetingGapInStrings,
   // 常數
   REWRITE_MARK, WRITE_TOOLS, READ_TOOL, BANNED, STATE_DIR,
   // 工具名 / 取值

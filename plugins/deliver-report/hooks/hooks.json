@@ -84,6 +84,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "mcp__claude_ai_Gmail__(create_draft|update_draft|reply|send_message)|mcp__claude-in-chrome__(javascript_tool|computer|form_input|browser_batch)|mcp__playwright__browser_(type|evaluate|fill_form|run_code_unsafe)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/greeting-gate.js\"",
+            "timeout": 15
+          }
+        ]
       }
     ]
   }
