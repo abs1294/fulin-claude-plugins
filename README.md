@@ -78,6 +78,7 @@ monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建�
 | **deliver-report** | 把工作成果變成**對外產物**，六個 skill：**deliver-report** 寫交付訊息／逐題回覆信（動筆前先定四件事——檔案是主體還是佐證、有沒有對方的問題要回、單一收件人還是多類分眾、內文密度，形狀自然長出來；含三種形狀與四個範例）；**test-report-docx** 產測試報告 DOCX 給 PM／客戶簽核轉發（九條鐵則＋段落構件庫）；**daily-report** 掃當日 session 按專案分組摘要、人工核可後經 Gmail 寄出；**to-checklist** 把要對方拍板的待決事項整理成確認清單 PDF；**msproject-wbs** 產 MS Project 可直接匯入的 WBS 時程 XML（MSPDI 七雷編碼＋順序自檢），並可轉成交付用 XLSX（產檔前自動自檢）；**check-before** 對指定文件做交付前易讀性自檢（同一支檢查已接進其他 subskill 的產檔／寄送腳本自動跑）。六者共通：**嚴禁 AI／內部流程／異動紀錄字眼**、預設讀者不懂技術。含易讀性十五條鐵則＋Stop hook 機械閘，日報另有寄送前 content_guard 硬閘 | Python 3（日報／報告／WBS 轉 XLSX）；Node.js（WBS 生成、自檢）；Gmail 憑證放家目錄不進 git，詳 `plugins/deliver-report/README.md` |
 | **fable-quote** | 產生「寓意科技」格式的正式軟體開發報價單 .docx：套已脫敏的公司標準模板（版式/乙方資料/通用條款內建），只填客戶資料與專案 JSON，明細列動態展開、含稅總計自動算。說「做報價單 / 寓意報價 / 幫客戶出報價」即觸發 | Python 3 + python-docx |
 | **harness** | 開發流程制度安裝器與制度健檢。`/harness:init` 在任何軟體開發專案裝上一套工作紀律：前置檢查→盤點（技術面＋這個專案在做什麼）→攤開核對→訪談（先確認哪個環境是正式、專案進度與用語，再問流程設定）→**五層生成**（制度文件＋依盤點從形狀目錄推導的可執行 hook＋通用 agent＋知識筆記＋settings）→`init-verify` 腳本驗收＋**冷啟探針**（新 session 實測 hook 真的會擋）→三張流程圖；階段順序由狀態檔與 Stop hook 把關。裝好之後有**學習迴路**：每累積一段工作量，背景起一個只能讀檔的反思子程序，從對話紀錄提出 memory／知識筆記／規則的提案，由腳本依分級落地（低風險的驗證後自動寫、改既有的寫入並在下次開場列出讓你否決、改規則的只進待核清單），同類問題第 2 次出現自動提出升格，並統計哪些規則與 memory 沒被用到。`/harness:review` 從實際對話紀錄檢查流程有沒有起作用，列出待核提案、淘汰候選與版本差距。**開發流程骨幹全帶、事故型條款不帶**；引擎在 plugin、實例在專案（plugin 更新不覆蓋實例）。產出是骨架＋長出資產的路徑，收尾回報會明列「你還沒有的」 | Node.js（hook 用）；Codex CLI（commit 第二審查軌）；學習迴路需要找得到 claude 執行檔（PATH、~/.local/bin，或設 HARNESS_CLAUDE_BIN） |
+| **travel-advisor** | 旅遊行程顧問與現場導遊：四道強制閘門（選項盤點→硬約束過濾→查證完備→範圍宣告）把 136 則實際踩過的坑編碼成規則；旅伴參數（孕婦／長輩）與地區從設定檔讀不寫死；附現場定位腳本（Google Maps 即時位置分享→座標，不開瀏覽器）與 Gate-V 判準驗證器。**不常用，需要時才裝到專案**；設定檔與行程狀態檔含個資，已 .gitignore | Python 3（腳本）；Node.js＋Playwright（verify-gatev.js，走系統 Chrome） |
 | **cbm-guard** | codebase-memory-mcp（程式碼知識圖譜）查詢的機械閘：**它的數字很容易看起來很成功**——精確、可複製、有來源，唯獨是錯的。在查詢當下攔截五類會誤導的用法（EXISTS 綁定變數位置錯→結果恆為全部或零**且不報錯**、計數沒跑對照組、節點數被當成實體數、孤兒查詢高估數倍、Route 節點在 attribute routing 框架下建不出來），並把「框架反射入口被誤判成死碼」泛化成設定（MediatR／EF Core／Spring／Angular 皆同型）。另含**索引新鮮度檢查**——cbm 的查詢結果不帶新鮮度標記，對過期索引查會拿到已刪除的檔案且看起來完全正常。**零設定即可用**，專案事實（實測數字／替代工具／已標註的孤兒檔）走 `cbm-guard.config.json` | Node.js（hook）＋ Python 3（新鮮度檢查）；需 codebase-memory-mcp |
 
 ---
@@ -102,7 +103,8 @@ plugins/
 ├─ deliver-report/                   對外產物六件套（交付訊息／測試報告 DOCX／工作日報／確認清單／交付前自檢／WBS 時程）
 ├─ fable-quote/                      寓意科技報價單產生器（模板套版、含稅自動算）
 ├─ harness/                          開發流程制度安裝器與健檢（/harness:init 五層生成＋階段閘＋init-verify＋冷啟探針；學習迴路；/harness:review；hook 範本、agent 與知識容器骨架、條件式入口提醒）
-└─ cbm-guard/                        codebase-memory-mcp 查詢機械閘（七類判準＋索引新鮮度；專案相依走 config，零設定亦可用）
+├─ cbm-guard/                        codebase-memory-mcp 查詢機械閘（七類判準＋索引新鮮度；專案相依走 config，零設定亦可用）
+└─ travel-advisor/                   旅遊行程顧問與現場導遊（四道閘門＋旅伴設定檔＋現場定位腳本；需要時才裝）
 ```
 
 ## 開發模式（C 折衷）

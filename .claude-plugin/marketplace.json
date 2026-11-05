@@ -69,6 +69,11 @@
       "name": "cbm-guard",
       "source": "./plugins/cbm-guard",
       "description": "codebase-memory-mcp 查詢的機械閘：它的數字很容易看起來很成功——精確、可複製、有來源，唯獨是錯的。在查詢當下攔截五類會誤導的用法（EXISTS 綁定變數位置錯導致結果恆為全部或零且不報錯、計數沒跑對照組、節點數被當成實體數、孤兒查詢高估數倍、Route 節點在 attribute routing 框架下建不出來），並泛化框架反射入口（MediatR／EF Core／Spring／Angular 等）避免被誤判成死碼。另含索引新鮮度檢查——cbm 的查詢結果不帶新鮮度標記，對過期索引查會拿到已刪除的檔案且看起來完全正常。專案相依走 config，零設定亦可用。"
+    },
+    {
+      "name": "travel-advisor",
+      "source": "./plugins/travel-advisor",
+      "description": "旅遊行程顧問與現場導遊：四道閘門（選項盤點／硬約束過濾／查證完備／範圍宣告）＋旅伴設定檔＋現場定位腳本。需要時才裝。"
     }
   ]
 }

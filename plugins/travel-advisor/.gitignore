@@ -1,0 +1,5 @@
+# 個人資料：旅伴的醫療風險標籤、長輩體力、實際行程。repo 是 public，不進 git。
+skills/travel-advisor/config/user-profile.md
+skills/travel-advisor/state/*.md
+# Python 快取
+__pycache__/
