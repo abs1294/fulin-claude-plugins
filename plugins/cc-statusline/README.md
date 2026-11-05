@@ -117,7 +117,7 @@ Claude Code **不支援由 plugin 自動設定主 status line**（plugin.json �
 | `layout` | 版面 |
 |-----------|------|
 | `"columns"`（預設） | **左右分**：左面板（dir／repo／model／cost／tokens／quota）＋右側 agents 與 skills 兩欄，mcp 呼叫固定在 agents 欄底。右欄高度等於左面板列數，所以 agents／mcp 各只看得到 2～3 筆 |
-| `"stacked"` | **上下分**：上半是 3 欄 2 列的狀態面板（第三欄是對齊的小網格：tokens／context 在上、compact／7d-quota 在下，兩條進度條同格起；有 5h 視窗時改成 context／5h 在上、compact／7d 在下，tokens 預設不畫），下半每類一列橫向排滿整個寬度——agents、skills、mcp、crons 依序，項目用 `·` 分隔由新到舊，放不下的收成 `…+N`。沒內容的類別不畫，高度隨活動 5～9 行。mcp 只顯示工具名（server 名在 memory_mcp 列看得到）。終端太窄時上半的欄由右往左逐一降成整列，不會出現左右分那種混合退化 |
+| `"stacked"` | **上下分**：上半是 3 欄 2 列的狀態面板（第三欄是對齊的小網格：tokens／context 在上、compact／7d-quota 在下，兩條進度條同格起；有 5h 視窗時改成 context／5h 在上、compact／7d 在下，tokens 預設不畫），下半每類一列橫向排滿整個寬度——agents、skills、mcp、crons 依序，項目用 `·` 分隔由新到舊，放不下的收成 `…+N`。沒內容的類別不畫，高度隨活動 5～9 行。mcp 只顯示工具名（server 名在 memory_mcp 列看得到）。上半無論終端多窄都維持三格一列，放不下時依序：進度條由 10 格縮到 5 格、拿掉 tokens 的 `(all …)` 總量、把前兩格較寬的一格截斷（尾端顯示 `…`，下限 26／24 格），最後才截第三格 |
 
 說「換成上下分」「切換排版」即由 `/cc-statusline-rows` 代寫；要先試看不改設定檔，設環境變數 `CC_STATUSLINE_LAYOUT=stacked`。有 5h 視窗時仍想看 tokens，在同一個設定檔加 `"tokens_with_5h": true`。
 

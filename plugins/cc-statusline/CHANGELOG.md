@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.8.3] - 2026-11-05
+### Fixed
+- stacked 排版上半狀態面板無論終端多窄都維持三格一列，不再把欄降成整列。放不下時依序：進度條由 10 格縮到 5 格、拿掉 tokens 的 (all …) 總量、把前兩格較寬的一格截斷（尾端顯示 …，下限 26／24 格），最後才截第三格。columns 排版輸出不變
+
 ## [1.8.2] - 2026-11-04
 ### Fixed
 - stacked 排版第三欄改成對齊的小網格：上列 tokens＋context、下列 compact＋7d-quota，「context」補齊成 8 格讓兩條進度條同格起（原本兩列各自串接，compact 起點比下方 7d-quota 偏右 2 格、兩條進度條也不齊）。

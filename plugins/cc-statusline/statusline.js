@@ -1528,51 +1528,85 @@ process.stdin.on('end', () => {
       // about as wide as without one; `tokens_with_5h: true` keeps it, as a
       // fourth sub-column (tokens/compact, 5h/7d, context).
       const compactPart = `${DIM}compact${R} ${compactLabel}`;
-      const tokensPart = `${DIM}tokens${R} ${fmtTok(tokTotal)} ${DIM}(all${R} ${allTok === null ? '--' : fmtTok(allTok)}${DIM})${R}`;
-      // "context" is padded to the width of "7d-quota" so the two bars start
-      // in the same cell when they sit one above the other.
-      const contextPart = `${fit(`${DIM}context${R}`, 8)} ${cc(ctx)}${bar(ctx)} ${ctx}%${R}`;
-      const q5 = showRow('quota') && has5h ? quota5h : '';
-      const q7 = showRow('quota') ? quota7d : '';
-      const subCols = [];
-      if (q5) {
-        if (showRow('usage') && cfgTokensWith5h) subCols.push([tokensPart, compactPart], [q5, q7], [contextPart, '']);
-        else if (showRow('usage')) subCols.push([contextPart, compactPart], [q5, q7]);
-        else subCols.push([q5, q7]);
-      } else {
-        if (showRow('usage')) subCols.push([tokensPart, compactPart]);
-        if (q7) subCols.push([showRow('usage') ? contextPart : '', q7]);
-        else if (showRow('usage')) subCols.push([contextPart, '']);
-      }
-      const subW = subCols.map(c => Math.max(...c.map(dw)));
-      const subRow = (k) => subCols.some(c => c[k])
-        ? subCols.map((c, j) => j < subCols.length - 1 ? fit(c[k], subW[j]) : c[k]).join('   ').replace(/\s+$/, '')
-        : '';
-      const cRow1 = subRow(0);
-      const cRow2 = subRow(1);
+      // Text clip that keeps ANSI styling and counts by code point, with a
+      // visible "…" so a cut value never reads as a complete one.
+      const clipStyled = (str, w) => {
+        if (dw(str) <= w) return str;
+        if (dw(str.replace(/s+$/, '')) <= w) return str.replace(/s+$/, '');
+        let out = '', used = 0;
+        for (const tok of str.match(/\x1b\[[0-9;]*m|[\s\S]/gu) || []) {
+          if (tok[0] === '\x1b') { out += tok; continue; }
+          const cw = isWide(tok.codePointAt(0)) ? 2 : 1;
+          if (used + cw > w - 1) break;
+          out += tok; used += cw;
+        }
+        return `${out}${R}…`;
+      };
+      // The third cell at a given compaction step. Steps run from the full form
+      // (10-cell bars, "(all N)" tokens total) through shorter bars, which lose
+      // nothing because the percentage stays, then without the total.
+      const THIRD_STEPS = [];
+      for (const withAll of [true, false]) for (let len = 10; len >= 5; len--) THIRD_STEPS.push({ withAll, barLen: len });
+      const thirdCell = ({ withAll, barLen }) => {
+        const quotaPart = (label, pct, reset) => `${DIM}${label}${R} ${cc(pct)}${bar(pct, barLen)} ${pct}%${R} ${reset}`;
+        const tokensPart = withAll
+          ? `${DIM}tokens${R} ${fmtTok(tokTotal)} ${DIM}(all${R} ${allTok === null ? '--' : fmtTok(allTok)}${DIM})${R}`
+          : `${DIM}tokens${R} ${fmtTok(tokTotal)}`;
+        // "context" is padded to the width of "7d-quota" so the two bars start
+        // in the same cell when they sit one above the other.
+        const contextPart = `${fit(`${DIM}context${R}`, 8)} ${cc(ctx)}${bar(ctx, barLen)} ${ctx}%${R}`;
+        const q5 = showRow('quota') && has5h ? quotaPart('5h-quota', r5h, reset5hCompact) : '';
+        const q7 = showRow('quota') ? quotaPart('7d-quota', r7d, reset7dCompact) : '';
+        const subCols = [];
+        if (q5) {
+          if (showRow('usage') && cfgTokensWith5h) subCols.push([tokensPart, compactPart], [q5, q7], [contextPart, '']);
+          else if (showRow('usage')) subCols.push([contextPart, compactPart], [q5, q7]);
+          else subCols.push([q5, q7]);
+        } else {
+          if (showRow('usage')) subCols.push([tokensPart, compactPart]);
+          if (q7) subCols.push([showRow('usage') ? contextPart : '', q7]);
+          else if (showRow('usage')) subCols.push([contextPart, '']);
+        }
+        const subW = subCols.map(c => Math.max(...c.map(dw)));
+        const subRow = (k) => subCols.some(c => c[k])
+          ? subCols.map((c, j) => j < subCols.length - 1 ? fit(c[k], subW[j]) : c[k]).join('   ').replace(/\s+$/, '')
+          : '';
+        return [subRow(0), subRow(1)].filter(Boolean);
+      };
       // When one side of the dir/repo | model/cost pair is switched off, the
       // columns layout has already moved the survivor into preSplitRows and
       // blanked the splitRow* cells, so take it from there in that case.
-      const cols = [
-        ...(preSplitRows.length
-          ? [preSplitRows.slice()]
-          : [[splitRow1L, splitRow2L].filter(Boolean), [splitRow1R, splitRow2R].filter(Boolean)]),
-        [cRow1, cRow2].filter(Boolean),
-      ].filter(c => c.length);
-      // Column widths are content-driven; the last column absorbs the slack so
-      // the frame always spans the terminal. When the three do not fit side by
-      // side, the longest prefix that does stays in columns and the remaining
-      // columns' rows go full width underneath (measured: at 150 cells the
-      // tokens/quota column misses by two, so dir/repo and model/cost keep
-      // their pair and only that column drops down).
-      const allW = cols.map(c => Math.max(...c.map(dw)) + 2);
-      let nCols = cols.length;
-      while (nCols > 1 && sum(allW.slice(0, nCols)) + nCols - 1 > INNER) nCols--;
+      const textCols = (preSplitRows.length
+        ? [preSplitRows.slice()]
+        : [[splitRow1L, splitRow2L].filter(Boolean), [splitRow1R, splitRow2R].filter(Boolean)]
+      ).filter(c => c.length);
+      const cellW = c => (c.length ? Math.max(...c.map(dw)) + 2 : 0);
+      // The panel is one row of cells at every terminal width: a cell never
+      // drops to a row of its own (user's rule). Column widths are
+      // content-driven and the last column absorbs the slack so the frame spans
+      // the terminal. When the cells do not fit, the third compacts first, since
+      // that loses only secondary figures; then the widest text cell is clipped
+      // down to its floor; only then is the third cell clipped too.
+      const nCols = textCols.length + (thirdCell(THIRD_STEPS[0]).length ? 1 : 0);
+      const availW = INNER - Math.max(0, nCols - 1);
+      const textNatural = sum(textCols.map(cellW));
+      const third = thirdCell(THIRD_STEPS.find(st => textNatural + cellW(thirdCell(st)) <= availW) || THIRD_STEPS[THIRD_STEPS.length - 1]);
+      const cols = [...textCols, ...(third.length ? [third] : [])];
       const asColumns = nCols > 1;
-      const colW = allW.slice(0, nCols);
-      if (asColumns) colW[nCols - 1] += INNER - (sum(colW) + nCols - 1);
+      const colW = cols.map(cellW);
+      if (asColumns) {
+        const TEXT_FLOORS = [26, 24];
+        const floors = colW.map((w, k) => (k < textCols.length ? Math.min(w, TEXT_FLOORS[k]) : w));
+        while (sum(colW) > availW) {
+          let pick = -1;
+          for (let k = 0; k < colW.length; k++) if (colW[k] > floors[k] && (pick < 0 || colW[k] > colW[pick])) pick = k;
+          if (pick < 0) for (let k = 0; k < colW.length; k++) if (pick < 0 || colW[k] > colW[pick]) pick = k;
+          colW[pick]--;
+        }
+        colW[nCols - 1] += availW - sum(colW);
+      }
       const colRule = (l, m, r) => `${h(l)}${colW.map(w => h(hl(w))).join(h(m))}${h(r)}`;
-      const droppedRows = asColumns ? cols.slice(nCols).flat() : cols.flat();
+      const droppedRows = asColumns ? [] : cols.flat();
 
       // Rows below the panel: memory/mcp health and edited files keep their
       // full-width form, then the activity rows. The columns layout may have
@@ -1649,11 +1683,10 @@ process.stdin.on('end', () => {
         lastIsRule = true;
       }
       if (asColumns) {
-        const shown = cols.slice(0, nCols);
-        const rows = Math.max(...shown.map(c => c.length));
+        const rows = Math.max(...cols.map(c => c.length));
         const lines = [];
         for (let r = 0; r < rows; r++) {
-          lines.push(`${h('│')}${shown.map((c, k) => fit(` ${c[r] || ''}`, colW[k])).join(h('│'))}${h('│')}`);
+          lines.push(`${h('│')}${cols.map((c, k) => ` ${pad(clipStyled(c[r] || '', colW[k] - 2), colW[k] - 2)} `).join(h('│'))}${h('│')}`);
         }
         pushRows(lines);
       }

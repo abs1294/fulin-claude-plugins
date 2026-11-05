@@ -37,7 +37,7 @@ description: 開關 cc-statusline status line 上各列（欄位）的顯示、�
 | 值 | 排版 |
 |----|------|
 | `"columns"`（或 `1`，預設） | 第一套，左右分：左面板＋右側 agents／skills 兩欄，mcp 呼叫在 agents 欄底。欄高跟著左面板列數，固定約 6 格 |
-| `"stacked"`（或 `2`） | 第二套，上下分：上半狀態面板 3 欄 2 列（dir／repo、model／cost、第三欄是對齊的小網格：上列 tokens＋context、下列 compact＋7d-quota，兩條進度條同格起），下半每類一列橫向排滿——順序 agents、skills、mcp、crons，項目以 `·` 分隔、由新到舊，放不下的收成列尾 `…+N`。**空的類別整列不畫**，高度隨活動變動（最少 5 行）。mcp 名稱只留工具名、不帶 server 前綴。終端太窄時上半由右往左把欄降成整列 |
+| `"stacked"`（或 `2`） | 第二套，上下分：上半狀態面板 3 欄 2 列（dir／repo、model／cost、第三欄是對齊的小網格：上列 tokens＋context、下列 compact＋7d-quota，兩條進度條同格起），下半每類一列橫向排滿——順序 agents、skills、mcp、crons，項目以 `·` 分隔、由新到舊，放不下的收成列尾 `…+N`。**空的類別整列不畫**，高度隨活動變動（最少 5 行）。mcp 名稱只留工具名、不帶 server 前綴。上半無論終端多窄都維持三格一列，放不下時依序：進度條由 10 格縮到 5 格、拿掉 tokens 的 `(all …)` 總量、把前兩格較寬的一格截斷（尾端顯示 `…`，下限 26／24 格），最後才截第三格 |
 
 兩套共用同一組列開關；不認得的值回到 `columns`。一次性試看而不動設定檔：環境變數 `CC_STATUSLINE_LAYOUT=stacked`（或 `columns`）優先於設定檔。
 
