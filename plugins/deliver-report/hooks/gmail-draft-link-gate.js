@@ -74,6 +74,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const TIO = require(path.join(__dirname, 'lib', 'transcript-io.js'));   // 不整份讀 transcript（見該檔說明）
 
 const STATE_DIR = path.join(os.homedir(), '.claude', 'deliver-report', 'draft-link-gate');
 
@@ -861,10 +862,9 @@ function resultText(res) {
  */
 function turnBlocks(tp) {
   if (!tp) return null;
-  let raw;
-  try { raw = fs.readFileSync(tp, 'utf8'); } catch (_) { return null; }
-
-  const lines = raw.split('\n');
+  let lines;
+  try { lines = TIO.readTurnLines(tp, isUserPromptLine); } catch (_) { return null; }
+  if (!lines) return null;
 
   // 從尾往前找最後一則真正的使用者輸入。
   let start = -1;

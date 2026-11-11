@@ -112,13 +112,35 @@ function toolLine(c) {
 }
 
 // 對話骨架：以最後一次壓縮摘要為底，接上其後的原話、回覆、工具摘要、agent 回報
+// 分塊讀 transcript（每塊 4 MB、切在換行），每塊的行陣列交給 onBatch；不把整份讀成一個字串。
+// 長 session 的 transcript 可達數百 MB，整檔讀＋split 會讓 hook 進程記憶體不足崩潰（2026-11-11，374 MB 實測）。
+// 與 readFileSync(...).split('\n') 的差別只有：檔尾換行後那個空字串不會送出。
+function readLineBatches(file, onBatch) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(4 * 1024 * 1024);
+    let carry = Buffer.alloc(0);
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, buf.length, null);
+      if (n <= 0) break;
+      const data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n);
+      const nl = data.lastIndexOf(10);
+      if (nl < 0) { carry = Buffer.from(data); continue; }
+      onBatch(data.toString('utf8', 0, nl).split('\n'));
+      carry = Buffer.from(data.subarray(nl + 1));
+    }
+    if (carry.length) onBatch([carry.toString('utf8')]);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function buildDigest(transcriptPath) {
-  const lines = fs.readFileSync(transcriptPath, 'utf8').split('\n');
   const seenTask = new Set();   // 同一則通知會同時記在 queue-operation 與 user 訊息
   const toolNames = new Map();  // tool_use id -> 工具名，給工具回傳標來源
   const keys = [];
   let entries = [];
-  for (const line of lines) {
+  readLineBatches(transcriptPath, (lines) => { for (const line of lines) {
     if (!line) continue;
     let o; try { o = JSON.parse(line); } catch { continue; }
     const m = o.message;
@@ -170,7 +192,7 @@ function buildDigest(transcriptPath) {
         }
       }
     }
-  }
+  } });
   // 超過上限時先丟最舊的工具摘要，原話與回覆保留
   let total = entries.reduce((s, e) => s + e.t.length + 1, 0);
   for (let i = 0; i < entries.length && total > DIGEST_CAP; i++) {

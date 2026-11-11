@@ -8,6 +8,50 @@ const path = require('path');
 // Locked read -> increment -> write of the message counter (lib-state): two
 // prompts' hooks racing unlocked would both read N and both write N+1.
 const { atomicWrite, withFileLock, stateFile } = require('./lib-state');
+
+// Most recent custom-title in the transcript (null if none). Reads backwards in
+// 4 MB chunks and stops at the first match, instead of loading the whole file
+// as one string: long sessions reach hundreds of MB and the whole-file read
+// peaked at ~1.1 GB per prompt on a 360 MB transcript (2026-11-11).
+// Same result as scanning lines from the end: the first line containing the
+// marker wins, even if it fails to parse (then the title is null).
+function lastCustomTitle(file) {
+  const MARK = '"type":"custom-title"';
+  const MARKB = Buffer.from(MARK);
+  const CHUNK = 4 * 1024 * 1024;
+  const fd = fs.openSync(file, 'r');
+  try {
+    let pos = fs.fstatSync(fd).size;
+    let carry = Buffer.alloc(0);
+    const pick = (line) => { let t = null; try { t = JSON.parse(line).customTitle; } catch (e) {} return t; };
+    while (pos > 0) {
+      const len = Math.min(CHUNK, pos);
+      pos -= len;
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, pos);
+      const data = carry.length ? Buffer.concat([buf, carry]) : buf;
+      // Fast skip: no marker in any complete line of this chunk -> keep only the
+      // leading partial line as carry, without decoding every line to a string.
+      const firstNl = data.indexOf(10);
+      if (firstNl < 0 || data.indexOf(MARKB, firstNl + 1) === -1) {
+        carry = Buffer.from(firstNl < 0 ? data : data.subarray(0, firstNl));
+        continue;
+      }
+      let end = data.length;
+      for (let k = len - 1; k >= 0; k--) {
+        if (data[k] !== 10) continue;
+        const line = data.toString('utf8', k + 1, end);
+        end = k;
+        if (line.includes(MARK)) return pick(line);
+      }
+      carry = Buffer.from(data.subarray(0, end));
+    }
+    const first = carry.toString('utf8');
+    return first.includes(MARK) ? pick(first) : null;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 let d = '';
 process.stdin.on('data', c => d += c);
 process.stdin.on('end', () => {
@@ -26,17 +70,7 @@ process.stdin.on('end', () => {
         const title = sumRaw.length > 40 ? sumRaw.slice(0, 39) + '\u2026' : sumRaw;
         if (title && i.session_id) {
           // Find most recent existing custom-title in the transcript to avoid duplicates
-          const raw = fs.readFileSync(i.transcript_path, 'utf8');
-          let lastTitle = null;
-          for (let j = raw.length; j > 0; j = raw.lastIndexOf('\n', j - 1)) {
-            const start = raw.lastIndexOf('\n', j - 1) + 1;
-            const line = raw.slice(start, j);
-            if (line.includes('"type":"custom-title"')) {
-              try { lastTitle = JSON.parse(line).customTitle; } catch (e) {}
-              break;
-            }
-            if (start === 0) break;
-          }
+          const lastTitle = lastCustomTitle(i.transcript_path);
           if (lastTitle !== title) {
             const entry = JSON.stringify({ type: 'custom-title', customTitle: title, sessionId: i.session_id });
             fs.appendFileSync(i.transcript_path, entry + '\n');

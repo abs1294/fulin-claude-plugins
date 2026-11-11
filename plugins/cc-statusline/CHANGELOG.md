@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.8.4] - 2026-11-11
+### Fixed
+- summary-updater 找最近一筆 custom-title 改成從檔尾分塊往回找，不再每次送出訊息都整份讀 transcript（360 MB 實測峰值 1072 MB → 49 MB）。新增 hooks/tests/summary-title.test.js
+
 ## [1.8.3] - 2026-11-05
 ### Fixed
 - stacked 排版上半狀態面板無論終端多窄都維持三格一列，不再把欄降成整列。放不下時依序：進度條由 10 格縮到 5 格、拿掉 tokens 的 (all …) 總量、把前兩格較寬的一格截斷（尾端顯示 …，下限 26／24 格），最後才截第三格。columns 排版輸出不變

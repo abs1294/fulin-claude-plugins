@@ -183,10 +183,18 @@ function buildPrompt(P, seg, sandboxFiles) {
 
 // 讀 transcript 水位線之後到最後一個換行的片段
 function readSegment(tp, wm) {
-  const buf = fs.readFileSync(tp);
+  // 只讀水位線之後的位元組，不把整份 transcript 讀進來（數百 MB 時記憶體不足，2026-11-11）
   let byte = wm.byte || 0, line = wm.line || 0;
-  if (buf.length < byte) { byte = 0; line = 0; } // 被輪替或截斷：從頭讀
-  const rest = buf.subarray(byte);
+  const fd = fs.openSync(tp, 'r');
+  let rest;
+  try {
+    const size = fs.fstatSync(fd).size;
+    if (size < byte) { byte = 0; line = 0; } // 被輪替或截斷：從頭讀
+    rest = Buffer.alloc(size - byte);
+    let got = 0;
+    while (got < rest.length) { const n = fs.readSync(fd, rest, got, rest.length - got, byte + got); if (n <= 0) break; got += n; }
+    rest = rest.subarray(0, got);
+  } finally { fs.closeSync(fd); }
   const nl = rest.lastIndexOf(0x0a);
   if (nl < 0) return { empty: true, fromByte: byte, toByte: byte, fromLine: line + 1, toLine: line };
   const text = rest.subarray(0, nl + 1).toString('utf8');

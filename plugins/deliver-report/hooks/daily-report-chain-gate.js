@@ -34,6 +34,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const TIO = require(path.join(__dirname, 'lib', 'transcript-io.js'));   // 不整份讀 transcript（見該檔說明）
 const { execFileSync } = require('child_process');
 
 const BASE_DIR = path.join(os.homedir(), '.claude', 'daily-report');
@@ -241,10 +242,9 @@ function turnToolUses(tp) {
   if (_turnCache !== undefined) return _turnCache;
   _turnCache = null;
   if (!tp) return null;
-  let raw;
-  try { raw = fs.readFileSync(tp, 'utf8'); } catch (_) { return null; }
-
-  const lines = raw.split('\n');
+  let lines;
+  try { lines = TIO.readTurnLines(tp, isUserPromptLine); } catch (_) { return null; }
+  if (!lines) return null;
   let start = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i]) continue;

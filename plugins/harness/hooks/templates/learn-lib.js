@@ -123,6 +123,28 @@ function newRunId() {
 // ── 檔案 ──
 function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 function ensureDir(d) { fs.mkdirSync(d, { recursive: true }); }
+// 分塊讀大檔（每塊 4 MB、切在換行），每塊的行陣列交給 onBatch；不把整份讀成一個字串。
+// 長 session 的 transcript 可達數百 MB，整檔讀＋split 會讓進程記憶體不足崩潰（2026-11-11，374 MB 實測）。
+// 與 readFileSync(...).split('\n') 的差別只有：檔尾換行後那個空字串不會送出。
+function readLineBatches(file, onBatch) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(4 * 1024 * 1024);
+    let carry = Buffer.alloc(0);
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, buf.length, null);
+      if (n <= 0) break;
+      const data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n);
+      const nl = data.lastIndexOf(10);
+      if (nl < 0) { carry = Buffer.from(data); continue; }
+      onBatch(data.toString('utf8', 0, nl).split('\n'));
+      carry = Buffer.from(data.subarray(nl + 1));
+    }
+    if (carry.length) onBatch([carry.toString('utf8')]);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 function readText(p) { try { return fs.readFileSync(p, 'utf8'); } catch (e) { if (e && e.code === 'ENOENT') return null; throw e; } }
 // 不存在回預設值（複本）；存在但壞掉照樣丟例外——壞檔不能被當成空檔覆寫掉
 function readJson(p, dflt) {
@@ -567,6 +589,7 @@ function cleanup(root) {
 function isChildEnv() { return !!(process.env.HARNESS_LEARN_CHILD || process.env.COMPACT_HANDOFF_CHILD); }
 
 module.exports = {
+  readLineBatches,
   GLOSSARY_CANDIDATES, FLOWS_PATH, QA_KNOWLEDGE_PATH, MEMORY_INDEX_BYTES, MEMORY_INDEX_LINES, indexUsage,
   rootOf, memoryDir, paths, normPath, isInside, realPathOf, realInside, readTextInside, IS_WIN,
   today, addDays, nowIso, newRunId, localDate, pad,

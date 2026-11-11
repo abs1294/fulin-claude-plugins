@@ -7,7 +7,7 @@
  *   --skip-probe：跳過 hooks/templates 的 probe-hooks 全量（兩輪約 10 分鐘），只供開發中快速迭代；完成驗收一律不跳。
  * 結束碼：0＝全數通過；1＝有失敗。最後一行「合計 PASS n / FAIL n」。
  *
- * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、review-collect、ledger-diff、integration、probe
+ * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、transcript-io、review-collect、ledger-diff、integration、probe
  * 不在這裡的：真實端到端（claude -p 跑一次完整 /harness:init），只跑一次當驗收證據，結論記在 docs/learning-loop-design.md §11。
  */
 const fs = require('fs');
@@ -721,6 +721,14 @@ if (want('learn-offline')) {
     for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('learn-offline', m[1] === 'PASS', m[2]); }
     check('learn-offline', r.status === 0, `learn-offline.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
   }
+}
+
+// ── transcript-io：讀 transcript 的 hook／腳本不得整檔讀成字串（80 MB transcript／64 MB heap）──
+if (want('transcript-io')) {
+  const ti = path.join(__dirname, 'lib', 'transcript-io.js');
+  const r = node([ti], { timeout: 600000 });
+  for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('transcript-io', m[1] === 'PASS', m[2]); }
+  check('transcript-io', r.status === 0, `transcript-io.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
 }
 
 // ── review-collect：健檢收集腳本對自行演進實例的 9 處誤判回歸（合成逐字紀錄）──

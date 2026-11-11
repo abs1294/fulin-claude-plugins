@@ -176,6 +176,29 @@ function applyTask(tasks, u, o, c) {
 }
 const TASK_TOOLS = /^(TodoWrite|TaskCreate|TaskUpdate|TaskList)$/;
 
+// 分塊讀 transcript（每塊 4 MB、切在換行），每塊的行陣列交給 onBatch；不把整份讀成一個字串。
+// 長 session 的 transcript 可達數百 MB，整檔讀＋split 會讓 hook 進程記憶體不足崩潰（2026-11-11，374 MB 實測）。
+// 與 readFileSync(...).split('\n') 的差別只有：檔尾換行後那個空字串不會送出。
+function readLineBatches(file, onBatch) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(4 * 1024 * 1024);
+    let carry = Buffer.alloc(0);
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, buf.length, null);
+      if (n <= 0) break;
+      const data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n);
+      const nl = data.lastIndexOf(10);
+      if (nl < 0) { carry = Buffer.from(data); continue; }
+      onBatch(data.toString('utf8', 0, nl).split('\n'));
+      carry = Buffer.from(data.subarray(nl + 1));
+    }
+    if (carry.length) onBatch([carry.toString('utf8')]);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function scan(transcriptPath) {
   const launched = new Map();   // agentId 或背景指令 ID -> description
   const toolUseDesc = new Map(); // tool_use id -> description（Agent 與背景 Bash／PowerShell）
@@ -187,8 +210,7 @@ function scan(transcriptPath) {
   const tasks = new Map();       // 任務 id -> { subject, status }，Map 保留建立順序
   let tasksSource = '';          // 最後一次成功的任務清單工具：TodoWrite 或 Task（系列），決定注入時要 AI 怎麼對回清單
   const decisions = [];
-  const lines = fs.readFileSync(transcriptPath, 'utf8').split('\n');
-  for (const line of lines) {
+  readLineBatches(transcriptPath, (lines) => { for (const line of lines) {
     if (!line) continue;
     // 完成通知可能落在 user 訊息、queue-operation 或 attachment(queued_command) 任一種紀錄，一律從原始行抓
     if (line.includes('task-notification')) {
@@ -262,7 +284,7 @@ function scan(transcriptPath) {
         if (isRealUserPrompt(t)) prompts.push(t.trim());
       }
     }
-  }
+  } });
   const uniqLast = (arr, n) => [...new Set(arr.slice().reverse())].slice(0, n);
   const running = [...launched].filter(([id]) => !finished.has(id)).map(([id, d]) => ({ id, desc: d }));
   // 派出後還沒寫回 tool_result 就被壓縮打斷（來源實例曾在派出 reviewer 後 0.1 秒就被快照），連 ID 都還沒有

@@ -465,7 +465,10 @@ if (require.main === module) {
   try {
     const from = Number(m[1]), to = Number(m[2]);
     const proposals = JSON.parse(fs.readFileSync(pf, 'utf8'));
-    const lines = fs.readFileSync(tp, 'utf8').split('\n').slice(from - 1, to);
+    // 只留 from..to 行；分塊讀，不把整份 transcript 讀成一個字串
+    const lines = [];
+    let no = 0;
+    lib.readLineBatches(tp, (batch) => { for (const l of batch) { no++; if (no >= from && no <= to) lines.push(l); } });
     const entries = lib.extractEntries(lines, from);
     const out = promote({ root: lib.rootOf(__dirname), run: get('--run') || lib.newRunId(), transcriptName: path.basename(tp),
       fromLine: from, toLine: to, proposals, sourceText: entries.map((e) => e.text).join('\n'), entryLines: entries.map((e) => e.line) });

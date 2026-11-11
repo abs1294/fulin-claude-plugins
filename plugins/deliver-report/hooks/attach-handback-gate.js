@@ -22,6 +22,8 @@
  * ★ FAIL-OPEN：transcript 讀不到、解析失敗 → 放行。
  */
 const fs = require('fs');
+const path = require('path');
+const TIO = require(path.join(__dirname, 'lib', 'transcript-io.js'));   // 不整份讀 transcript（見該檔說明）
 
 if (require.main === module) {
   let stdinData = '';
@@ -98,7 +100,8 @@ function main(raw) {
   const tp = payload.transcript_path;
   if (!tp) return allow();
   let lines;
-  try { lines = fs.readFileSync(tp, 'utf8').split('\n'); } catch (_) { return allow(); }
+  try { lines = TIO.readTurnLines(tp, isUserPromptLine); } catch (_) { return allow(); }
+  if (!lines) return allow();
 
   let start = -1;
   for (let i = lines.length - 1; i >= 0; i--) {

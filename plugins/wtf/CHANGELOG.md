@@ -2,6 +2,10 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## [0.18.1] - 2026-11-11
+### Fixed
+- guard-ruler-pasted 改從檔尾往回讀到本回合起點，不再整份讀 transcript（360 MB 實測峰值 1.1 GB → 50 MB，修 Stop 時 heap out of memory）。新增 hooks/tests/transcript-tail.test.js
+
 ## [0.18.0] - 2026-10-09
 ### Changed
 - 修三個讓使用者被重複問寬度的問題：① 標尺未貼閘誤擋（Stop hook 讀紀錄時最後那則回覆還沒寫入；改看 last_assistant_message，舊版 Claude Code 則重讀紀錄最多三次）② 兩輪標尺都問「最後一條沒斷的是哪個數字」（原本第一輪問「哪一條開始斷」方向相反，使用者回 180 被讀成 180 斷了）③ 使用者沒答寬度、改講別的事時不再於回覆尾巴追問，照 80 排；④ 寬度改存使用者層 ~/.claude/wtf/config.json、新增 width.js 統一讀寫（get／set／decline），首次讀取自動從舊版資料夾搬值，升版不再重問；移除隨 plugin 發布的 skills/wtf/config.json；guard-no-execute 白名單改放行 width.js 與使用者層設定檔；⑤ 使用者手打 /wtf 時兩支閘原本都不會跑（斜線指令直接展開、不經 Skill 工具，Redcap session 中模型在 /wtf 後用 python 改檔未被擋）——寬度閘與只解釋閘加掛 UserPromptSubmit：手打 /wtf 會開只解釋閘、寬度未設時把問法附給模型（不擋訊息），送出下一則非 /wtf 訊息即收閘（原本只能等 30 分鐘過期）

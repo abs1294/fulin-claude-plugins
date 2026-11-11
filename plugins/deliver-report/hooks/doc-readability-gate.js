@@ -37,6 +37,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const TIO = require(path.join(__dirname, 'lib', 'transcript-io.js'));   // 不整份讀 transcript（見該檔說明）
 const { execFileSync } = require('child_process');
 
 let stdinData = '';
@@ -187,9 +188,9 @@ function hasTocField(file) {
  */
 function referencedDeliverables(tp, cwd) {
   if (!tp) return [];
-  let raw;
-  try { raw = fs.readFileSync(tp, 'utf8'); } catch (_) { return []; }
-  const lines = raw.split('\n');
+  let lines;
+  try { lines = TIO.readTurnLines(tp, isUserPromptLine); } catch (_) { return []; }
+  if (!lines) return [];
   let start = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
     let o;
@@ -282,10 +283,9 @@ function calledSkillThisTurn(tp) {
   // 回傳 true = 本回合確實調用了 deliver-report skill；
   //       false = 確實沒有；null = 判不出來（呼叫端一律放行）。
   if (!tp) return null;
-  let raw;
-  try { raw = fs.readFileSync(tp, 'utf8'); } catch (_) { return null; }
-
-  const lines = raw.split('\n');
+  let lines;
+  try { lines = TIO.readTurnLines(tp, isUserPromptLine); } catch (_) { return null; }
+  if (!lines) return null;
   // 由後往前找最後一則「真正的使用者輸入」——那是本回合的起點，之後的行都算本回合。
   //
   // ★ 切回合用行位置，不能拿 promptId 去比對 assistant 行。實測本機 transcript

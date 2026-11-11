@@ -35,6 +35,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const TIO = require(path.join(__dirname, 'lib', 'transcript-io.js'));   // 不整份讀 transcript（見該檔說明）
 
 let C;
 try { C = require(path.join(__dirname, 'lib', 'draft-checks.core.js')); } catch (_) { C = null; }
@@ -265,6 +266,48 @@ function evaluateUploads(events, ok, ups, start, solo) {
 function basename(p) { return String(p).split(/[\\/]/).pop(); }
 
 /** 回傳 { problems, items, uploaded, wipeOnly? } 或 null（不歸這支管／判不出） */
+/**
+ * 給 evaluate 的行，不把整份 transcript 讀成字串（數百 MB 時 hook 會記憶體不足崩潰，2026-11-11）。
+ * 兩種觸發都要本回合有「瀏覽器上傳」或「update_draft」呼叫（evaluateUploads 只看本回合的上傳、
+ * crossTurnWipes 只看本回合的 update_draft）；本回合都沒有 → evaluate 必回 null，只讀本回合就能放行（大部分回合走這條）。
+ * 有的話才需要整個 session：分塊掃全檔，只留 collect 會用到的行——使用者輸入行、Gmail 寫入／上傳／導覽呼叫，
+ * 以及這些呼叫的回傳——順序不變（evaluate 只比前後，不看絕對行號）。其餘行在 collect 裡本來就不產生事件。
+ */
+function readForEvaluate(tp) {
+  const turn = TIO.readTurnLines(tp, C.isUserPromptLine);
+  if (turn && !turn.some(mayTrigger)) return [];   // [] → collect 找不到起點 → evaluate 回 null
+  const kept = [];
+  const ids = new Set();
+  TIO.readLineBatches(tp, (batch) => { for (const l of batch) if (keepLine(l, ids)) kept.push(l); });
+  return kept;
+}
+function mayTrigger(l) {
+  if (!l || l.indexOf('"tool_use"') === -1) return false;
+  let o;
+  try { o = JSON.parse(l); } catch (_) { return false; }
+  const c = o && o.type === 'assistant' && o.message && o.message.content;
+  if (!Array.isArray(c)) return false;
+  return c.some((b) => b && b.type === 'tool_use' && (UPLOAD.test(C.safeStr(b.name)) || C.isGmailTool(C.safeStr(b.name), 'update_draft')));
+}
+function keepLine(l, ids) {
+  if (!l) return false;
+  let o;
+  try { o = JSON.parse(l); } catch (_) { return false; }
+  if (C.isUserPromptLine(o)) return true;
+  if (!o || typeof o !== 'object' || o.isSidechain === true) return false;
+  const c = o.message && o.message.content;
+  if (!Array.isArray(c)) return false;
+  let keep = false;
+  for (const b of c) {
+    if (!b || typeof b !== 'object') continue;
+    if (o.type === 'assistant' && b.type === 'tool_use') {
+      const name = C.safeStr(b.name);
+      if (C.isGmailTool(name, C.WRITE_TOOLS) || UPLOAD.test(name) || NAV_TOOL.test(name)) { ids.add(b.id); keep = true; }
+    } else if (o.type === 'user' && b.type === 'tool_result' && ids.has(b.tool_use_id)) keep = true;
+  }
+  return keep;
+}
+
 function evaluate(lines) {
   const { events, errors, start, keys } = collect(lines);
   if (start < 0) return null;
@@ -284,7 +327,8 @@ function main(raw) {
   const tp = payload.transcript_path;
   if (!tp) return allow();
   let lines;
-  try { lines = fs.readFileSync(tp, 'utf8').split('\n'); } catch (_) { return allow(); }
+  try { lines = readForEvaluate(tp); } catch (_) { return allow(); }
+  if (!lines) return allow();
   const r = evaluate(lines);
   if (!r || !r.problems.length) return allow();
 
@@ -305,4 +349,4 @@ function main(raw) {
   emit({ decision: 'block', reason: '【附件上傳數】請先補齊附件再結束。\n' + body });
 }
 
-module.exports = { evaluate };
+module.exports = { evaluate, readForEvaluate };

@@ -41,7 +41,9 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 
 const TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const BASE_DIR_PREFIX = 'Base directory for this skill:';
@@ -262,12 +264,119 @@ function requiredSkillsFor(root, rel) {
 // ── transcript ──────────────────────────────────────────────────────────────
 // 回傳這份 transcript 裡已載入的 skill 名稱集合
 function loadedSkills(text) {
-  const names = new Set();
-  const skillUses = new Map();   // tool_use id → skill 名
-  const okResults = new Set();
-  const errResults = new Set();
-  const add = (n) => { const t = String(n || '').trim(); if (!t) return; names.add(t); if (t.includes(':')) names.add(t.split(':').pop()); };
-  for (const line of String(text).split('\n')) {
+  return collectSkills((onBatch) => onBatch(String(text).split('\n')));
+}
+// 增量讀：上次掃到的位元組位置與當時的掃描狀態記在暫存檔，這次只讀之後新增的行（transcript 只會往後長）。
+// 掃描狀態全是累加（見 feedSkillLines），先掃舊段再掃新段等於整份重掃。
+// 記錄失效（檔變短、檔頭或斷點前 4 KB 對不上＝不是同一份內容）就從頭重掃。斷點只記在完整行之後；
+// 檔尾沒換行的半行照樣算進這次結果，但不寫進記錄。
+// 存記錄時工具回傳 id 只留「已知是 Skill 呼叫」的（工具回傳一定排在呼叫之後），避免記錄隨 session 長大。
+// Why：每次改檔都整份掃一遍，數百 MB 的 transcript 每次都要讀完（2026-11-11）。
+const SCAN_CACHE_DIR = path.join(os.tmpdir(), 'claude-required-skill-scan');
+const FP_BYTES = 4096;
+function fingerprint(fd, offset) {
+  const len = Math.min(FP_BYTES, offset);
+  const head = Buffer.alloc(len);
+  fs.readSync(fd, head, 0, len, 0);
+  const tail = Buffer.alloc(len);
+  fs.readSync(fd, tail, 0, len, offset - len);
+  return crypto.createHash('sha1').update(head).update(tail).digest('hex');
+}
+function cachePath(file) {
+  return path.join(SCAN_CACHE_DIR, crypto.createHash('sha1').update(path.resolve(file).toLowerCase()).digest('hex') + '.json');
+}
+function loadScanCache(file, fd, size) {
+  try {
+    const c = JSON.parse(fs.readFileSync(cachePath(file), 'utf8'));
+    if (!c || c.v !== 1 || !Number.isInteger(c.offset) || c.offset <= 0 || c.offset > size) return null;
+    if (fingerprint(fd, c.offset) !== c.fp) return null;
+    return { offset: c.offset, st: { names: new Set(c.names), skillUses: new Map(c.skillUses), okResults: new Set(c.ok), errResults: new Set(c.err) } };
+  } catch {
+    return null;
+  }
+}
+function saveScanCache(file, fd, offset, st) {
+  try {
+    fs.mkdirSync(SCAN_CACHE_DIR, { recursive: true });
+    const p = cachePath(file);
+    const tmp = p + '.' + process.pid + '.tmp';
+    const keep = (set) => [...set].filter((id) => st.skillUses.has(id));
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, file: path.resolve(file), offset, fp: fingerprint(fd, offset),
+      names: [...st.names], skillUses: [...st.skillUses], ok: keep(st.okResults), err: keep(st.errResults) }));
+    fs.renameSync(tmp, p);
+    pruneScanCache();
+  } catch { /* 記錄寫不進去只是下次重掃 */ }
+}
+// 一份 transcript 一個小檔；超過 300 個時刪掉 14 天沒動的（舊 session 不會再改檔）
+function pruneScanCache() {
+  const names = fs.readdirSync(SCAN_CACHE_DIR);
+  if (names.length <= 300) return;
+  const old = Date.now() - 14 * 86400000;
+  for (const n of names) {
+    try { const p = path.join(SCAN_CACHE_DIR, n); if (fs.statSync(p).mtimeMs < old) fs.unlinkSync(p); } catch { /* 別的進程刪了 */ }
+  }
+}
+// 同 loadedSkills，直接從檔案增量讀，不把整份 transcript 讀成一個字串（數百 MB 時 hook 會記憶體不足崩潰）
+function loadedSkillsFromFile(file, opts) {
+  const useCache = !(opts && opts.noCache);
+  const fd = fs.openSync(file, 'r');
+  try {
+    const size = fs.fstatSync(fd).size;
+    const hit = useCache ? loadScanCache(file, fd, size) : null;
+    const st = hit ? hit.st : newSkillState();
+    const from = hit ? hit.offset : 0;
+    const r = readLineBatches(fd, from, (lines) => feedSkillLines(st, lines));
+    if (useCache && r.committed > from) saveScanCache(file, fd, r.committed, st);
+    if (r.partial) feedSkillLines(st, [r.partial]);   // 半行在存記錄之後才算，不進記錄
+    return finishSkills(st);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+// 從 start 位元組起分塊讀（每塊 4 MB、切在換行），完整行交給 onBatch；不把整份讀成一個字串。
+// 長 session 的 transcript 可達數百 MB，整檔讀＋split 會讓 hook 進程記憶體不足崩潰（2026-11-11，374 MB 實測）。
+// 回傳 committed＝最後一個完整行結束（換行之後）的位置；partial＝檔尾沒換行的半行（交給呼叫端處理）。
+function readLineBatches(fd, start, onBatch) {
+  const buf = Buffer.alloc(4 * 1024 * 1024);
+  let carry = Buffer.alloc(0);
+  let pos = start;
+  let committed = start;
+  for (;;) {
+    const n = fs.readSync(fd, buf, 0, buf.length, pos);
+    if (n <= 0) break;
+    pos += n;
+    const data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n);
+    const nl = data.lastIndexOf(10);
+    if (nl < 0) { carry = Buffer.from(data); continue; }
+    onBatch(data.toString('utf8', 0, nl).split('\n'));
+    committed = pos - (data.length - nl - 1);
+    carry = Buffer.from(data.subarray(nl + 1));
+  }
+  return { committed, partial: carry.length ? carry.toString('utf8') : '' };
+}
+// feed(onBatch)：把 transcript 的行一批一批交給 onBatch
+// 掃描狀態全是累加（集合／對照表只增不減），可以分段掃、存起來下次接著掃（見 loadedSkillsFromFile 的增量讀）
+function newSkillState() {
+  return { names: new Set(), skillUses: new Map(), okResults: new Set(), errResults: new Set() };
+}
+function addSkillName(names, n) { const t = String(n || '').trim(); if (!t) return; names.add(t); if (t.includes(':')) names.add(t.split(':').pop()); }
+function finishSkills(st) {
+  const names = new Set(st.names);
+  for (const [id, n] of st.skillUses) if (st.okResults.has(id) && !st.errResults.has(id)) addSkillName(names, n);
+  return names;
+}
+function collectSkills(feed) {
+  const st = newSkillState();
+  feed((lines) => feedSkillLines(st, lines));
+  return finishSkills(st);
+}
+function feedSkillLines(st, lines) {
+  const names = st.names;
+  const skillUses = st.skillUses;   // tool_use id → skill 名
+  const okResults = st.okResults;
+  const errResults = st.errResults;
+  const add = (n) => addSkillName(names, n);
+  for (const line of lines) {
     if (!line.includes(BASE_DIR_PREFIX) && !line.includes('"Skill"') && !line.includes('tool_result')) continue;
     let o;
     try { o = JSON.parse(line); } catch { continue; }
@@ -290,8 +399,6 @@ function loadedSkills(text) {
       if (b.type === 'tool_result' && b.tool_use_id) (b.is_error ? errResults : okResults).add(b.tool_use_id);
     }
   }
-  for (const [id, n] of skillUses) if (okResults.has(id) && !errResults.has(id)) add(n);
-  return names;
 }
 function isLoaded(skill, names) {
   return names.has(skill.dir) || names.has(skill.name);
@@ -348,9 +455,8 @@ function main() {
     if (!/^[A-Za-z0-9_-]+$/.test(agentId) || !/^[A-Za-z0-9_-]+$/.test(String(input.session_id || ''))) return;
     file = path.join(path.dirname(tp), String(input.session_id), 'subagents', `agent-${agentId}.jsonl`);
   }
-  let text;
-  try { text = fs.readFileSync(file, 'utf8'); } catch { return; }
-  const names = loadedSkills(text);
+  let names;
+  try { names = loadedSkillsFromFile(file); } catch { return; }
   const missing = required.filter((s) => !isLoaded(s, names));
   if (!missing.length) return;
 
@@ -372,7 +478,7 @@ function main() {
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: lines.join('\n') } }));
 }
 
-module.exports = { frontmatter, fmValue, parsePaths, splitTopLevel, expandBraces, matchPath, validatePattern, readSkills, requiredSkillsFor, walkFiles, loadedSkills, isLoaded, projectRoot };
+module.exports = { frontmatter, fmValue, parsePaths, splitTopLevel, expandBraces, matchPath, validatePattern, readSkills, requiredSkillsFor, walkFiles, loadedSkills, loadedSkillsFromFile, isLoaded, projectRoot };
 
 if (require.main === module) {
   try { main(); } catch (e) { failOpen(e); }

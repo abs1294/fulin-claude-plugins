@@ -18,6 +18,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const TIO = require(path.join(__dirname, 'lib', 'transcript-io.js'));   // 不整份讀 transcript（見該檔說明）
 
 let stdinData = '';
 process.stdin.on('data', (c) => (stdinData += c));
@@ -37,7 +38,8 @@ function main(raw) {
   const tp = payload.transcript_path;
   if (!tp) return allow();
   let lines;
-  try { lines = fs.readFileSync(tp, 'utf8').split('\n'); } catch (_) { return allow(); }
+  try { lines = TIO.readTurnLines(tp, isUserPromptLine); } catch (_) { return allow(); }
+  if (!lines) return allow();
 
   // 本回合起點：最後一則真正的使用者輸入（判準同 doc-readability-gate.js 的 isUserPromptLine）
   let start = -1;

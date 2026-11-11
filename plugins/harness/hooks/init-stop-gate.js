@@ -59,14 +59,54 @@ function isRealUser(e) {
   return !c.some((b) => b && b.type === 'tool_result') && c.some((b) => b && b.type === 'text');
 }
 
+// 從 transcript 檔尾以 4 MB 分塊往回讀，讀到第一個 isStart 成立的列（含）就停，回傳該列到檔尾的列（依原順序）。
+// 整檔讀＋逐行 parse 在數百 MB 的 transcript 上會讓 hook 進程記憶體不足崩潰（2026-11-11，374 MB 實測峰值 1141 MB）。
+// 往回讀超過 maxBytes 仍沒遇到就回已讀到的部分。
+function readTurnEntries(file, isStart, maxBytes) {
+  const CHUNK = 4 * 1024 * 1024;
+  const cap = maxBytes || 64 * 1024 * 1024;
+  const fd = fs.openSync(file, 'r');
+  try {
+    let pos = fs.fstatSync(fd).size;
+    let carry = Buffer.alloc(0);
+    let readBytes = 0;
+    const rev = [];
+    while (pos > 0 && readBytes < cap) {
+      const len = Math.min(CHUNK, pos);
+      pos -= len;
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, pos);
+      readBytes += len;
+      const data = Buffer.concat([buf, carry]);
+      let end = data.length;
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i] !== 10) continue;
+        const line = data.toString('utf8', i + 1, end).trim();
+        end = i;
+        if (!line) continue;
+        let o;
+        try { o = JSON.parse(line); } catch { continue; }
+        rev.push(o);
+        if (isStart(o)) return rev.reverse();
+      }
+      carry = data.subarray(0, end);
+    }
+    if (pos === 0 && carry.length) {
+      const line = carry.toString('utf8').trim();
+      if (line) { try { rev.push(JSON.parse(line)); } catch {} }
+    }
+    return rev.reverse();
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 // 本回合（最後一則真正的使用者訊息之後）最後一則有文字的助理訊息
 function lastAssistantText(input) {
   if (typeof input.last_assistant_message === 'string' && input.last_assistant_message.trim()) return input.last_assistant_message;
   const tp = input.transcript_path;
   if (!tp || !fs.existsSync(tp)) return '';
-  const lines = fs.readFileSync(tp, 'utf8').split('\n');
-  const entries = [];
-  for (const l of lines) { if (!l.trim()) continue; try { entries.push(JSON.parse(l)); } catch {} }
+  const entries = readTurnEntries(tp, isRealUser);
   let lastUser = -1;
   entries.forEach((e, i) => { if (isRealUser(e)) lastUser = i; });
   for (let i = entries.length - 1; i > lastUser; i--) {

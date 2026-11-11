@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.5.1] - 2026-11-11
+### Fixed
+- Stop hook 不再把整份 transcript 讀成字串：doc-readability／visual-view／daily-report-chain／gmail-draft-link／attach-handback 改從檔尾往回讀到本回合起點；upload-count 本回合沒有上傳或 update_draft 就只讀本回合，有才分塊掃全檔且只留相關行；daily-draft-gate 找草稿主旨改分塊讀。共用 hooks/lib/transcript-io.js。修長 session（數百 MB transcript）時多支 Stop hook 同時跑 heap out of memory（360 MB 實測每支峰值 1.1 GB → 約 50 MB）。新增 hooks/tests/transcript-io.test.js
+
 ## [2.5.0] - 2026-11-05
 ### Changed
 - 新增 greeting-gate（PreToolUse 硬擋）：稱謂行「Hi X,」下一行直接接正文、不留空行。由來（2026-11-04 實案）：規則自 0.x 起就在 SKILL.md 第一步要點 2 與第三步之三格式段，但只是自律；回覆草稿又寫成「Hi Tina,」＋空行——先是 create_draft 的 body 寫 "Hi Tina,\n\n…"（連線失敗沒建成），Gmail 工具斷線後改在 Chrome 用 javascript_tool 寫 ["Hi Tina,","",…] 進編輯器，兩條路都沒有閘看稱謂行，使用者截圖退件「怎麼又有信第二行是空白，我喜歡第一行 hi寫完下一行直接就是文字」。掃過整個 plugin：SKILL.md 的 7 個範本稱謂行都直接接正文（2.4.0 已改正），daily-report 寄信範本沒有稱謂行，hooks 裡沒有任何稱謂檢查。閘掛兩類工具：① Gmail create_draft／update_draft／reply／send_message——body 第一個非空行是稱謂行、下一行是空行；htmlBody 剝掉引用區與簽名檔後，開頭稱謂行到下一段文字之間 ≥2 個換行（<br><br>、<br>&nbsp;<br>、Gmail 編輯器存的 </div><div><br></div><div>；區塊結尾的 <br> 與連續 </div> 不算、空 <div></div> 不算、碰到清單等區塊標籤就停；只看前 6000 字元，惡意 250 KB 無 > 標籤海 <5 秒）；② 瀏覽器打字類工具（Chrome 擴充 javascript_tool／computer／form_input／browser_batch、Playwright browser_type／browser_evaluate／browser_fill_form／browser_run_code_unsafe）——參數裡任一字串值出現「稱謂＋空行」：真換行、程式碼裡的字面 \n\n（含 \r\n）、<br><br>、逐行陣列 "Hi X,","",；內容不經 Gmail 工具只有參數看得到，判準寬一點，誤擋代價只是拿掉空行。稱謂行＝Hi／Hello／Hey／Dear 開頭（可接稱呼與半形／全形逗號或冒號）或「X 您好／你好」；High、Hidden 不算；只看開頭那一行，引用區裡對方的稱謂與正文中間的 Hi 不管；<p> 分段停在 <p> 交給 paragraph-gate 不重複報。FAIL-OPEN：壞 JSON、空輸入、tool_input 非物件、body 非字串、沒有 tool_name 一律放行。判準在 hooks/lib/draft-checks.core.js 新增 isGreeting／greetingGapText／greetingGapHtml／greetingGapInStrings。新增 hooks/tests/greeting-gate.test.js（95 例：純文字 20、HTML 31、瀏覽器參數 19、hook 子程序 20（含兩個實案輸入原形各一組擋／改正放行）、fail-open 6，含效能）。既有 19 支測試全綠。SKILL.md 第一步要點 2 與第三步之三格式段、README、plugin.json 描述補閘說明。

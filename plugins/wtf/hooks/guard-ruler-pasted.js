@@ -80,9 +80,47 @@ function sleepMs(ms) {
   try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch (e) { /* 睡不了就不睡 */ }
 }
 
+// 只讀本回合：從檔尾每次往回讀 4 MB，碰到最後一則真人輸入（isHumanTurn）就停，回傳該行到檔尾的行
+// （原字串、順序不變）——等於整檔 split 後從那行切到尾，scan 的結果相同。
+// 整份都沒有真人輸入 → 回傳整份的行（scan 本來就從頭看）；往回讀超過 64 MB 還沒找到 → null（放行）。
+// Why：整檔讀成字串在 360 MB 的 transcript 上峰值 1.1 GB，Stop 時多支 hook 同時跑會 heap out of memory（2026-11-11）。
 function readLines() {
   try {
-    return fs.readFileSync(tpath, 'utf8').split('\n');
+    const fd = fs.openSync(tpath, 'r');
+    try {
+      const CHUNK = 4 * 1024 * 1024;
+      const CAP = 64 * 1024 * 1024;
+      let pos = fs.fstatSync(fd).size;
+      let carry = Buffer.alloc(0);
+      let readBytes = 0;
+      const rev = [];
+      while (pos > 0) {
+        if (readBytes >= CAP) return null;
+        const len = Math.min(CHUNK, pos);
+        pos -= len;
+        const buf = Buffer.alloc(len);
+        fs.readSync(fd, buf, 0, len, pos);
+        readBytes += len;
+        const data = carry.length ? Buffer.concat([buf, carry]) : buf;
+        let end = data.length;
+        for (let i = len - 1; i >= 0; i--) {
+          if (data[i] !== 10) continue;
+          const line = data.toString('utf8', i + 1, end);
+          end = i;
+          rev.push(line);
+          if (line.trim()) {
+            let o = null;
+            try { o = JSON.parse(line); } catch (e) { o = null; }
+            if (isHumanTurn(o)) return rev.reverse();
+          }
+        }
+        carry = Buffer.from(data.subarray(0, end));
+      }
+      rev.push(carry.toString('utf8'));
+      return rev.reverse();
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (e) {
     return null;
   }

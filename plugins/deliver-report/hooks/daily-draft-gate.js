@@ -18,6 +18,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const TIO = require(path.join(__dirname, 'lib', 'transcript-io.js'));   // 不整份讀 transcript（見該檔說明）
 const { spawnSync } = require('child_process');
 
 // 載入失敗就退回不剝簽名（行為同修改前）
@@ -50,11 +51,10 @@ function stripHtml(s) {
 // 在 transcript 裡找這份草稿（draftId）的主旨：建立／更新草稿的回傳內容含這個 id 的那次呼叫，取它帶的 subject
 function lookupSubject(tp, draftId) {
   if (!tp || !draftId) return '';
-  let raw;
-  try { raw = fs.readFileSync(tp, 'utf8'); } catch (_) { return ''; }
   const calls = new Map();   // tool_use id → subject
   let found = '';
-  for (const l of raw.split('\n')) {
+  try {
+  TIO.readLineBatches(tp, (batch) => { for (const l of batch) {
     if (!l || (l.indexOf('_draft') === -1 && l.indexOf(draftId) === -1)) continue;
     let o;
     try { o = JSON.parse(l); } catch (_) { continue; }
@@ -71,7 +71,8 @@ function lookupSubject(tp, draftId) {
         if (txt.includes(draftId) && s) found = s;   // 取最後一次帶了主旨的
       }
     }
-  }
+  } });
+  } catch (_) { return ''; }
   return found;
 }
 
