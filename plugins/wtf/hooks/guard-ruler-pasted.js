@@ -152,7 +152,9 @@ function isHumanTurn(o) {
 // S2 修正：原本用 /ruler.js/ 比對，會把 `cat .../ruler.js`、`grep ruler.js`
 // 也當成「跑過標尺」——而用 /wtf 解釋 wtf plugin 自己時正好會做這種事，
 // 於是模型被要求貼一份它根本沒產生的標尺。改為必須是 node 實際執行它。
-const RUN_RULER_RE = new RegExp('\\bnode\\b[^\\n|;&]*\\bruler\\.js\\b');
+// 0.18.2：ruler.js 前面必須是行首、空白、引號或路徑分隔符。原本用 \b，「-」「.」也算邊界，
+// node equiv-wtf-ruler.js 這類檔名以 -ruler.js 結尾的別支腳本被當成跑了標尺、整回合被擋（2026-11-11）。
+const RUN_RULER_RE = /\bnode\b[^\n|;&]*(?:^|[\s"'/\\])ruler\.js\b/;
 
 // S4 修正：兩輪二分法是正常流程，兩輪常落在同一個回合裡。
 // 原本用「整回合跑過沒／整回合貼過沒」兩個總量判斷，第一輪貼了就會

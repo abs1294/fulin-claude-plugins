@@ -127,7 +127,8 @@ if (toolName === 'Bash' || toolName === 'PowerShell') {
     /archify\.mjs\s+(doctor|guide|validate|deliver)\b/, // archify 產圖
     // 量終端機寬度的標尺腳本。寬度閘擋下調用後會叫模型跑它，
     // 不放行的話兩個閘會互鎖：寬度閘要它量寬度，本閘不准它跑量寬度的東西。
-    /\bruler\.js["']?(\s|$)/,
+    // 0.18.2：ruler.js 前面須是行首／空白／引號／路徑分隔符，x-ruler.js 這類別支腳本不算。
+    /(?:^|[\s"'/\\])ruler\.js["']?(\s|$)/,
     // 讀寫寬度設定。整行只能是這一個指令（不准串 ; && | 接別的東西）。
     /^\s*node\s+["']?[^"'\n;&|]*width\.js["']?\s+(get|decline|set\s+\d{1,3})\s*$/,
   ];

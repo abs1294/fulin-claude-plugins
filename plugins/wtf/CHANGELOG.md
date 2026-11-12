@@ -2,6 +2,10 @@
 
 所有版本的變更紀錄。SKILL.md 每次調用都整份進 context，故變更紀錄放這裡不放 SKILL.md。
 
+## [0.18.2] - 2026-11-11
+### Fixed
+- 「是不是在跑 ruler.js」改成 ruler.js 前面必須是行首、空白、引號或路徑分隔符。原本用字界判斷，「-」「.」也算邊界：guard-ruler-pasted 把 `node equiv-wtf-ruler.js` 這類別支腳本當成跑了標尺、整回合擋下（使用者實際被擋兩次）；guard-no-execute 在 /wtf 期間把這類腳本當標尺放行。新增 hooks/tests/ruler-match.test.js（新版 17/17、舊版 8 項轉紅）；真實 transcript 56 份中含 ruler.js 的 76 條指令，71 條判定不變，5 條改變的全是非執行標尺的指令
+
 ## [0.18.1] - 2026-11-11
 ### Fixed
 - guard-ruler-pasted 改從檔尾往回讀到本回合起點，不再整份讀 transcript（360 MB 實測峰值 1.1 GB → 50 MB，修 Stop 時 heap out of memory）。新增 hooks/tests/transcript-tail.test.js
