@@ -51,6 +51,16 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "mcp__claude_ai_Gmail__(send_message|reply|forward)|mcp__claude-in-chrome__(computer|browser_batch|javascript_tool)|mcp__playwright__browser_(click|press_key|evaluate|run_code_unsafe)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/mail-send-gate.js\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
         "matcher": "mcp__claude_ai_Gmail__update_draft",
         "hooks": [
           {

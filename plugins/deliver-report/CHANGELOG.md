@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.6.0] - 2026-11-13
+### Changed
+- 新增 mail-send-gate（PreToolUse 硬擋 Claude 自行寄信）：Gmail send_message／reply／forward、瀏覽器點傳送（Chrome 擴充 ref／action_summary、Playwright element／快照 ref）、網頁腳本點傳送、Gmail 頁 Ctrl+Enter；使用者本回合明講「你按傳送」「直接送出」才放行，「幫我寄給X」不算。起因：2026-11-13 Claude 在瀏覽器代按傳送寄出測試報告。附 19 項實跑測試 hooks/tests/mail-send-gate.test.js。
+
 ## [2.5.1] - 2026-11-11
 ### Fixed
 - Stop hook 不再把整份 transcript 讀成字串：doc-readability／visual-view／daily-report-chain／gmail-draft-link／attach-handback 改從檔尾往回讀到本回合起點；upload-count 本回合沒有上傳或 update_draft 就只讀本回合，有才分塊掃全檔且只留相關行；daily-draft-gate 找草稿主旨改分塊讀。共用 hooks/lib/transcript-io.js。修長 session（數百 MB transcript）時多支 Stop hook 同時跑 heap out of memory（360 MB 實測每支峰值 1.1 GB → 約 50 MB）。新增 hooks/tests/transcript-io.test.js
