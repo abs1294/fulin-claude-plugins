@@ -11,7 +11,9 @@
  *   2. create_draft／update_draft 成功後 → 下一次 update_draft 擋下
  *   3. get_draft 不帶 htmlBody（MINIMAL／PLAIN_TEXT）→ 仍擋
  *   4. get_draft 帶 htmlBody → 放行；放行後再寫一次 → 又要讀
- *   5. 寫入失敗（isError）不記帳；create_draft 永不被擋；壞輸入放行
+ *   5. 寫入失敗（isError）不記帳；壞輸入放行
+ *   6. 2026-11-13 實案：同信串／同主旨還有沒讀回的舊草稿 → create_draft 擋；
+ *      沒讀回就 delete_draft 擋；讀回或刪除成功後銷帳放行
  */
 
 const fs = require('fs');
@@ -94,6 +96,53 @@ console.log('=== 寫入失敗不記帳 ===');
 post('update_draft', { draftId: 'r3', htmlBody: '<div dir="ltr">x</div>' }, { error: 'quota exceeded' }, { isError: true });
 check('isError 的 update_draft 不記 stale:r3', stateHas('stale:r3'), false);
 check('r3 update_draft 放行', pre('r3'), 'allow');
+
+function preWith(tool, toolInput) {
+  const out = run(PRE, { tool_name: 'mcp__claude_ai_Gmail__' + tool, tool_input: toolInput });
+  try {
+    const o = JSON.parse(out);
+    return (o.hookSpecificOutput && o.hookSpecificOutput.permissionDecision === 'deny') ? 'deny' : 'allow';
+  } catch (_) { return 'allow'; }
+}
+
+console.log('=== 2026-11-13 實案：開新草稿再刪舊的，繞過 update_draft 閘 ===');
+// 回覆草稿：replyToMessageId 是原信 id，回傳 threadId 與它相同（第一封信的 message id＝thread id）
+post('create_draft', { replyToMessageId: '1a1ceea9582b7a0d', subject: 'RE: 環境設定', htmlBody: '<div>Dear Tina 您好，<br>v1</div>' },
+  { id: 'rA', messageId: 'mA', threadId: '1a1ceea9582b7a0d' });
+check('建立後記了 staleref thread', stateHas('staleref:rA|thread=1a1ceea9582b7a0d'), true);
+check('建立後記了 staleref reply', stateHas('staleref:rA|reply=1a1ceea9582b7a0d'), true);
+check('建立後記了 staleref subj（剝掉 RE:）', stateHas('staleref:rA|subj=環境設定'), true);
+check('沒讀回就在同信串 create_draft → deny',
+  preWith('create_draft', { replyToMessageId: '1a1ceea9582b7a0d', subject: 'RE: 環境設定', htmlBody: '<div>v2</div>' }), 'deny');
+check('只有主旨相同（RE:/Re：大小寫與全形冒號）也 deny',
+  preWith('create_draft', { subject: 'Re：環境設定', htmlBody: '<div>v2</div>' }), 'deny');
+check('replyToMessageId 對上舊草稿的 threadId 也 deny',
+  preWith('create_draft', { replyToMessageId: '1a1ceea9582b7a0d', subject: '別的主旨', htmlBody: '<div>v2</div>' }), 'deny');
+check('不相干的信（不同信串、不同主旨）→ allow',
+  preWith('create_draft', { replyToMessageId: 'zzz', subject: 'RE: 別的事', htmlBody: '<div>x</div>' }), 'allow');
+check('沒讀回就 delete_draft rA → deny', preWith('delete_draft', { draftId: 'rA' }), 'deny');
+check('不認識的草稿 delete_draft → allow', preWith('delete_draft', { draftId: 'r-nobody' }), 'allow');
+
+post('get_draft', { draftId: 'rA', messageFormat: 'MINIMAL' }, { id: 'rA', snippet: 'v1' });
+check('MINIMAL 讀回不算 → create_draft 仍 deny',
+  preWith('create_draft', { replyToMessageId: '1a1ceea9582b7a0d', subject: 'RE: 環境設定' }), 'deny');
+
+post('get_draft', { draftId: 'rA', messageFormat: 'FULL_CONTENT' }, { id: 'rA', htmlBody: '<div>使用者刪掉稱謂後的 v1</div>' });
+check('FULL_CONTENT 讀回後 staleref 一併銷掉', stateHas('staleref:rA|subj=環境設定'), false);
+check('讀回後同信串 create_draft → allow',
+  preWith('create_draft', { replyToMessageId: '1a1ceea9582b7a0d', subject: 'RE: 環境設定' }), 'allow');
+check('讀回後 delete_draft rA → allow', preWith('delete_draft', { draftId: 'rA' }), 'allow');
+
+console.log('=== 刪除成功就銷帳，不讓已刪的舊稿誤擋 ===');
+post('create_draft', { subject: 'RE: 會議記錄', htmlBody: '<div>x</div>' }, { id: 'rB', messageId: 'mB', threadId: 'tB' });
+check('rB 建立後 create 同主旨 → deny', preWith('create_draft', { subject: '會議記錄' }), 'deny');
+post('delete_draft', { draftId: 'rB' }, {});
+check('delete_draft 成功後 stale:rB 已銷', stateHas('stale:rB'), false);
+check('delete_draft 成功後 staleref 已銷', stateHas('staleref:rB|subj=會議記錄'), false);
+check('刪除後 create 同主旨 → allow', preWith('create_draft', { subject: '會議記錄' }), 'allow');
+post('create_draft', { subject: 'RE: 失敗案', htmlBody: '<div>x</div>' }, { id: 'rC', messageId: 'mC', threadId: 'tC' });
+post('delete_draft', { draftId: 'rC' }, { error: 'not found' }, { isError: true });
+check('delete_draft 失敗不銷帳', stateHas('stale:rC'), true);
 
 console.log('=== 狀態檔壞掉 → 放行（fail-open） ===');
 fs.writeFileSync(path.join(home, '.claude', 'deliver-report', 'draft-link-gate', 'warned.json'), '\uFEFF{broken', 'utf8');

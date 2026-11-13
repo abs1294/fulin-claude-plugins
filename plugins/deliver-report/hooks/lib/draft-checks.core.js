@@ -1244,8 +1244,96 @@ function greetingGapInStrings(obj) {
   return seen[0] || null;
 }
 
+/**
+ * ── 「開新草稿再刪舊的」繞過 stale 閘（gmail-draft-stale-gate 的延伸）──
+ *
+ * 2026-11-13 實案：使用者在 Gmail 介面刪掉草稿開頭的稱謂，模型要改另一處時沒有
+ * update_draft，而是拿自己手上的舊文字 create_draft 開一封新的、再 delete_draft
+ * 刪掉舊的——stale 閘只掛 update_draft，整條路完全沒被攔，使用者的修改被洗掉，
+ * 而且 delete_draft 是永久刪除，原本那一版救不回來。
+ *
+ * 做法：寫入成功時除了 stale:<id>，再記幾筆「這封未讀回草稿的身分」：
+ *   staleref:<id>|thread=<threadId>   回傳的信串
+ *   staleref:<id>|reply=<replyToMessageId>   建立時回覆的那封信
+ *   staleref:<id>|subj=<正規化主旨>
+ * create_draft 前比對這些身分，命中「還沒讀回」的舊草稿就擋；
+ * delete_draft 前看 stale:<id>，沒讀回就擋。讀回帶 htmlBody 或刪除成功時一併銷帳。
+ */
+function normSubject(s) {
+  let t = safeStr(s).trim();
+  // 反覆剝掉回覆／轉寄前綴，「RE: 環境設定」與「環境設定」視為同一封
+  for (let i = 0; i < 5; i++) {
+    const n = t.replace(/^(?:re|fw|fwd|回覆|回复|轉寄|转发)\s*[:：]\s*/i, '');
+    if (n === t) break;
+    t = n;
+  }
+  return t.replace(/\s+/g, ' ').toLowerCase();
+}
+
+// 這次寫入（或即將寫入）的草稿可辨識身分，回傳 ['thread=…','reply=…','subj=…'] 的子集
+function draftRefs(toolInput, resultObj) {
+  const refs = [];
+  const ti = (toolInput && typeof toolInput === 'object') ? toolInput : {};
+  const ro = (resultObj && typeof resultObj === 'object') ? resultObj : {};
+  const thread = safeStr(ro.threadId) || safeStr(ti.threadId);
+  if (thread) refs.push('thread=' + thread);
+  const reply = safeStr(ti.replyToMessageId);
+  if (reply) refs.push('reply=' + reply);
+  const subj = normSubject(ti.subject);
+  if (subj) refs.push('subj=' + subj);
+  return refs;
+}
+
+function addStaleRefs(st, draftId, refs) {
+  let changed = false;
+  for (const r of refs) {
+    const key = 'staleref:' + draftId + '|' + r;
+    if (st.warned.indexOf(key) === -1) { st.warned.push(key); changed = true; }
+  }
+  return changed;
+}
+
+// 讀回／刪除後銷掉這封草稿的 stale 與全部 staleref
+function clearStale(st, draftId) {
+  const before = st.warned.length;
+  const pre = 'staleref:' + draftId + '|';
+  st.warned = st.warned.filter((k) => k !== 'stale:' + draftId && k.indexOf(pre) !== 0);
+  return st.warned.length !== before;
+}
+
+/**
+ * 即將 create_draft 的這封，和哪些「寫入後還沒讀回」的草稿是同一封信？
+ * 比對規則：新草稿的 reply 對上舊草稿的 reply 或 thread（第一封信的 message id 常等於 thread id）、
+ * 或兩者主旨正規化後相同。只回傳 stale:<id> 仍在的（已讀回的不算衝突）。
+ */
+function staleConflicts(st, toolInput) {
+  const ti = (toolInput && typeof toolInput === 'object') ? toolInput : {};
+  const want = new Set();
+  const reply = safeStr(ti.replyToMessageId);
+  if (reply) { want.add('reply=' + reply); want.add('thread=' + reply); }
+  const thread = safeStr(ti.threadId);
+  if (thread) want.add('thread=' + thread);
+  const subj = normSubject(ti.subject);
+  if (subj) want.add('subj=' + subj);
+  if (!want.size) return [];
+  const hits = [];
+  for (const k of st.warned) {
+    if (k.indexOf('staleref:') !== 0) continue;
+    const body = k.slice('staleref:'.length);
+    const bar = body.indexOf('|');
+    if (bar <= 0) continue;
+    const id = body.slice(0, bar);
+    if (!want.has(body.slice(bar + 1))) continue;
+    if (st.warned.indexOf('stale:' + id) === -1) continue;
+    if (hits.indexOf(id) === -1) hits.push(id);
+  }
+  return hits;
+}
+
 
 module.exports = {
+  // 草稿覆蓋防護（gmail-draft-stale-gate）
+  normSubject, draftRefs, addStaleRefs, clearStale, staleConflicts,
   // 簽名檔
   SIGNATURE_MARK, signatureProblem, hasSignature, stripSignature, signatureState, setSignatureState,
   // 引用區與段落標籤（gmail-draft-paragraph-gate）

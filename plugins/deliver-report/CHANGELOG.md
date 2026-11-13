@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.6.1] - 2026-11-13
+### Fixed
+- gmail-draft-stale-gate 擴大掛到 create_draft／delete_draft，堵「不讀回、開一封同信串的新草稿再刪舊的」繞過讀回閘。由來（2026-11-13 實案）：使用者在 Gmail 介面刪掉草稿開頭稱謂，模型改另一處時沒 get_draft，拿自己手上的舊文字 create_draft 開新的、再 delete_draft 刪舊的——原閘只掛 update_draft，整條路沒被攔，稱謂被寫回，且 delete_draft 為永久刪除、使用者那一版救不回。做法：posttool 寫入成功時除 stale:<id> 外另記 staleref:<id>|thread=／reply=／subj=（主旨剝 RE:／Fwd:／回覆:／轉寄: 前綴、不分大小寫與全半形冒號）；create_draft 若與仍未讀回的草稿同信串、同回覆對象（replyToMessageId 也比對舊稿 threadId）或主旨相同即 deny；delete_draft 對未讀回草稿 deny；get_draft 帶 htmlBody 讀回或 delete_draft 成功即一併銷帳，delete 失敗不銷。判準在 hooks/lib/draft-checks.core.js 新增 normSubject／draftRefs／addStaleRefs／clearStale／staleConflicts。hooks.json：PreToolUse 該閘 matcher 加 create_draft|delete_draft、PostToolUse posttool 閘加 delete_draft。SKILL.md 第三步之三要點 6 新增「禁止用開新草稿再刪舊的代替修改」並更新機械閘說明。tests/stale-draft.test.js 新增 18 例（含實案原形），34 例全綠；其餘 24 支測試全綠。
+
 ## [2.6.0] - 2026-11-13
 ### Changed
 - 新增 mail-send-gate（PreToolUse 硬擋 Claude 自行寄信）：Gmail send_message／reply／forward、瀏覽器點傳送（Chrome 擴充 ref／action_summary、Playwright element／快照 ref）、網頁腳本點傳送、Gmail 頁 Ctrl+Enter；使用者本回合明講「你按傳送」「直接送出」才放行，「幫我寄給X」不算。起因：2026-11-13 Claude 在瀏覽器代按傳送寄出測試報告。附 19 項實跑測試 hooks/tests/mail-send-gate.test.js。

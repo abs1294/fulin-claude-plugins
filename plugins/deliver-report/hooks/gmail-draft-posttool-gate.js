@@ -149,9 +149,21 @@ function main(raw) {
   const toolName = C.safeStr(input.tool_name);
   const isWrite = C.isGmailTool(toolName, C.WRITE_TOOLS);
   const isRead = C.isGmailTool(toolName, C.READ_TOOL);
-  if (!isWrite && !isRead) return allow();
+  const isDelete = C.isGmailTool(toolName, 'delete_draft');
+  if (!isWrite && !isRead && !isDelete) return allow();
 
   const toolInput = (input.tool_input && typeof input.tool_input === 'object') ? input.tool_input : {};
+
+  // (I) 刪除成功 → 草稿已不存在，銷掉它的 stale／staleref，避免之後的 create_draft 被已刪的舊稿誤擋
+  if (isDelete) {
+    if (isToolError(input.tool_response)) return allow();
+    const delId = C.safeStr(toolInput.draftId);
+    if (delId) {
+      const st0 = C.readState();
+      if (C.clearStale(st0, delId)) C.writeState(st0);
+    }
+    return allow();
+  }
 
   // 工具失敗（quota exceeded、權限不足…）→ 草稿沒建成，沒有「寄出去收不回來」的風險。
   // 仍對 tool_input 跑檢查只會叫使用者去修一封不存在的草稿（2026-09-18 審查實測：
@@ -201,9 +213,8 @@ function main(raw) {
     }
     // (I) 讀回帶 htmlBody → 銷「上次寫入後尚未讀回」記號，下一次 update_draft 才放行
     if (draftId && res && resultHasHtml(res)) {
-      const stale = 'stale:' + draftId;
-      const i = st.warned.indexOf(stale);
-      if (i !== -1) { st.warned.splice(i, 1); C.writeState(st); }
+      // 連同 staleref（create_draft／delete_draft 比對用的身分）一起銷
+      if (C.clearStale(st, draftId)) C.writeState(st);
       // (J) 讀回的 htmlBody 有沒有簽名檔——原本就沒有的草稿，update 不必保留
       if (C.setSignatureState(st, draftId, C.hasSignature(resultHtml(res)))) C.writeState(st);
     } else if (draftId && res && C.resultHasBody(res)) {
@@ -235,7 +246,14 @@ function main(raw) {
     //     （2026-10-20 實案：使用者在介面手改過的草稿被上一版文字原樣覆蓋）。這裡只記帳、不出聲。
     if (draftId) {
       const stale = 'stale:' + draftId;
-      if (st.warned.indexOf(stale) === -1) { st.warned.push(stale); C.writeState(st); }
+      let changed = false;
+      if (st.warned.indexOf(stale) === -1) { st.warned.push(stale); changed = true; }
+      // 再記這封草稿的身分（信串／回覆對象／主旨），gmail-draft-stale-gate 用來擋
+      // 「不讀回、直接開一封同信串的新草稿再刪舊的」這條繞路（2026-11-13 實案）
+      let resObj = null;
+      try { resObj = JSON.parse(C.resultText(res)); } catch (_) { resObj = null; }
+      if (C.addStaleRefs(st, draftId, C.draftRefs(toolInput, resObj))) changed = true;
+      if (changed) C.writeState(st);
     }
 
     // (C) 掉串：單次觀測判準（自稱 Re: 卻自成一串）
