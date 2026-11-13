@@ -102,7 +102,118 @@ function hasUrl(s) {
   if (!s) return false;
   if (/https?:\/\/\S/i.test(s)) return true;
   if (/\bwww\.[a-z0-9-]+\.[a-z]{2,}/i.test(s)) return true;
+  if (bareDomains(s).length) return true;
   return false;
+}
+
+// 沒有 http／www、但結尾剛好是頂級網域的點號字串——Gmail 一樣會當網址包成連結。
+// 2026-11-13 實案：設定名稱 logging.file.name（.name 是真的頂級網域）被改寫成
+// https://www.google.com/url?q=http://logging.file.name…，原本的 hasUrl 只認 http／www 而漏掉。
+// 只列常見頂級網域：清單外的（.properties／.enabled／.jar…）本來就不會被 Gmail 當網址。
+// 前面接 @（email 網域）、/（路徑）、. 或英數字的不算，避免把 email 與路徑片段重複報。
+const BARE_TLDS = ['com', 'net', 'org', 'io', 'app', 'dev', 'name', 'info', 'biz', 'tw', 'co', 'me',
+                   'ai', 'xyz', 'site', 'online', 'tech', 'cloud', 'page', 'link', 'live', 'pro',
+                   'top', 'cn', 'jp', 'us', 'uk', 'hk', 'sg', 'edu', 'gov', 'mobi', 'tv', 'cc', 'ly'];
+const BARE_DOMAIN_RE = new RegExp(
+  '(?<![A-Za-z0-9_@/.\\-])((?:[A-Za-z0-9-]+\\.)+(?:' + BARE_TLDS.join('|') + '))(?![A-Za-z0-9_\\-]|\\.[A-Za-z])', 'gi');
+function bareDomains(s) {
+  if (!s) return [];
+  const out = [];
+  try {
+    const t = String(s).slice(0, 200000);
+    BARE_DOMAIN_RE.lastIndex = 0;
+    let m;
+    while ((m = BARE_DOMAIN_RE.exec(t)) !== null) {
+      if (out.indexOf(m[1]) === -1) out.push(m[1]);
+      if (out.length >= 10) break;
+    }
+  } catch (_) { return []; }
+  return out;
+}
+
+/**
+ * 草稿「自己寫的正文」轉成逐行純文字：剝掉引用區與簽名檔，依 <br>／<li>／區塊標籤斷行。
+ * 給易讀性掃描（術語首次出現、未解釋的開發術語）與結構檢查用。
+ */
+function ownBodyLines(html) {
+  if (!html) return [];
+  try {
+    let s = stripQuotedRegions(String(html).slice(0, 200000));
+    s = s.replace(/<!--[\s\S]*?-->/g, '');
+    const parts = s.split(/<br\s*\/?>|<\/?(?:div|li|ul|ol|pre|table|tr|td|th)\b[^>]*>|\r?\n/i);
+    return parts.map((p) => p.replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'").replace(/&amp;/g, '&').trim()).filter(Boolean);
+  } catch (_) { return []; }
+}
+
+// 正文（剝掉引用區與簽名檔）裡 <a> 的顯示文字。讀回時與寫入時比對，多出來的就是 Gmail 自己加的連結。
+function ownAnchorTexts(html) {
+  if (!html) return [];
+  try {
+    const s = stripQuotedRegions(String(html).slice(0, 200000));
+    const out = [];
+    const re = /<a\b[^>]*>([\s\S]*?)<\/a\s*>/gi;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+      out.push(m[1].replace(/<[^>]*>/g, '').trim());
+      if (out.length >= 50) break;
+    }
+    return out;
+  } catch (_) { return []; }
+}
+
+/**
+ * 正文是一大片文字、沒有任何結構標記（粗體小標、清單、表格）。
+ * 2026-11-13 實案：回信七段純文字，使用者「很難看出重點」。
+ * 判準：正文純文字 ≥ 400 字且 ≥ 5 行，卻沒有 <b>／<strong>／<ol>／<ul>／<table>。
+ */
+function lacksStructure(html) {
+  if (!html) return false;
+  try {
+    const own = stripQuotedRegions(String(html).slice(0, 200000));
+    if (/<(?:b|strong|ol|ul|table)\b/i.test(own)) return false;
+    const lines = ownBodyLines(html);
+    const len = lines.join('').length;
+    return len >= 400 && lines.length >= 5;
+  } catch (_) { return false; }
+}
+
+/**
+ * 開發術語沒有白話說明：讀者不懂技術時看不懂（2026-11-13 實案：「jar 同目錄的外部檔案，不進 repo」，
+ * 使用者「看不懂」）。readability-scan 的術語檢查只抓 snake_case／camelCase／全大寫，抓不到小寫單字，
+ * 這裡用 references/term-rules.json 的 email_jargon 清單補。前後 30 字內有中文括號說明就算解釋過。
+ * 回傳沒解釋的詞（去重、依出現順序）。只提醒：收件人是工程師時這些詞本來就看得懂。
+ */
+let JARGON = null;
+function emailJargon() {
+  if (JARGON) return JARGON;
+  JARGON = ['repo', 'jar', 'commit', 'branch', 'merge', 'push', 'pull request', 'PR', 'deploy', 'build',
+            'profile', 'config', 'pipeline', 'runtime', 'classpath', 'endpoint', 'payload', 'schema',
+            'migration', 'rollback', 'hotfix', 'staging', 'scheduler', 'cron'];
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'references', 'term-rules.json'), 'utf8'));
+    if (Array.isArray(j.email_jargon) && j.email_jargon.every((x) => typeof x === 'string') && j.email_jargon.length) {
+      JARGON = j.email_jargon;
+    }
+  } catch (_) { /* 用內建清單 */ }
+  return JARGON;
+}
+function unexplainedJargon(lines) {
+  const out = [];
+  try {
+    const text = (lines || []).join('\n').slice(0, 100000);
+    for (const w of emailJargon()) {
+      const re = new RegExp('(?<![A-Za-z0-9_./\\-])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_\\-]|\\.[A-Za-z])', 'i');
+      const m = re.exec(text);
+      if (!m) continue;
+      const after = text.slice(m.index + m[0].length, m.index + m[0].length + 30);
+      const before = text.slice(Math.max(0, m.index - 30), m.index);
+      const glossed = /^\s*[（(][^）)\n]*[一-鿿]/.test(after) || /[一-鿿][^（(\n]{0,20}[（(]\s*$/.test(before);
+      if (!glossed) out.push(m[0]);
+    }
+  } catch (_) { return []; }
+  return out;
 }
 
 /**
@@ -432,6 +543,9 @@ function disallowedTags(html) {
         // 用真正的巢狀深度判斷：只允許一層外層 div
         if (isClose) { if (divDepth > 0) divDepth--; }
         else { divDepth++; if (divDepth > maxDivDepth) maxDivDepth = divDepth; }
+      } else if (tag === 'span' && !/=/.test(attrs)) {
+        // 不帶任何屬性的 <span>：只用來拆開會被 Gmail 當成網址的點號（logging<span>.</span>file<span>.</span>name），
+        // 不影響排版，放行（2026-11-13 實案：不拆就被包成 google.com/url?q= 連結）。帶屬性的 <span> 照報。
       } else if (ALLOWED.indexOf(tag) === -1) {
         pushTag('<' + tag + '>');
       }
@@ -1343,7 +1457,9 @@ module.exports = {
   // 常數
   REWRITE_MARK, WRITE_TOOLS, READ_TOOL, BANNED, STATE_DIR,
   // 工具名 / 取值
-  isGmailTool, draftText, hasUrl, safeStr,
+  isGmailTool, draftText, hasUrl, safeStr, bareDomains,
+  // 草稿正文結構與易讀性（gmail-draft-posttool-gate／gmail-draft-format-gate）
+  ownBodyLines, ownAnchorTexts, lacksStructure, unexplainedJargon, emailJargon,
   // 七項判準
   detachedThreads, detachedReplyDrafts,
   findPlaceholders, disallowedTags, handTypedLists, findMarkdown, scanBanned,

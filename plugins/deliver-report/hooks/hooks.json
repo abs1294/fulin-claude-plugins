@@ -75,6 +75,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gmail-draft-skill-gate.js\"",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gmail-draft-format-gate.js\"",
+            "timeout": 15
+          },
+          {
+            "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/daily-draft-gate.js\"",
             "timeout": 90
           },

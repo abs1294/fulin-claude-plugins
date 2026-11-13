@@ -52,7 +52,8 @@
  *     .content 形狀。resultText() 吃的是 {content:…}，故必須轉接——
  *     少了這步，六項內容檢查會全部拿到空字串而**靜默放行**，
  *     跟現在這支壞掉的 Stop hook 一模一樣，且 bash -n 與 grep 都驗不出來。
- *   輸出: {"hookSpecificOutput":{"hookEventName":"PostToolUse","systemMessage":"…"}}
+ *   輸出: {"systemMessage":"…","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"…"}}
+ *         （additionalContext 給模型、systemMessage 給使用者；見 notify() 的說明）
  *   exit: 一律 0。PostToolUse 無法阻擋（工具已經跑完），exit 2 不被採用。
  *
  * ★ 最高原則：FAIL-OPEN。任何解析失敗、判斷不確定 → 放行，絕不卡住流程。
@@ -76,13 +77,19 @@ process.stdin.on('error', () => allow());
 
 function allow() { process.exit(0); }
 
+// ★ 輸出管道（2026-11-13 修正，官方 hooks 文件確認）：
+//   模型只看得到 hookSpecificOutput.additionalContext（包成 system reminder 放在工具回傳旁）；
+//   systemMessage 是最外層欄位、只顯示給使用者。舊版把 systemMessage 塞在 hookSpecificOutput 裡，
+//   兩邊都不是——2026-11-13 一個 session 建了 7 次帶手打列點的草稿，提醒一次都沒送到模型。
+//   兩個都給：模型照提醒修，使用者也看得到檢查結果。
 function notify(msg) {
   let json;
   try {
     json = JSON.stringify({
+      systemMessage: msg,
       hookSpecificOutput: {
         hookEventName: 'PostToolUse',
-        systemMessage: msg,
+        additionalContext: msg,
       },
     });
   } catch (_) { return allow(); }
@@ -204,6 +211,27 @@ function main(raw) {
         '  修法：改用 htmlBody、可貼內容包 <pre>，body 純文字版換成「完整內容見報告第 N 節」的\n' +
         '  指路句；重建後再 get_draft 確認一次。（SKILL.md 第三步之三）'
       );
+    }
+    // (M) 讀回的正文比寫入時多了 <a>＝Gmail 自己把某段文字包成連結（顯示文字沒變，但變成藍色可點）。
+    //     2026-11-13 實案：htmlBody 寫 <pre>logging.file.name=…</pre>，讀回變成 <a href="…url?q=…">logging.file.name</a>；
+    //     舊版只查「顯示文字裡有沒有 url?q=」，這種「字沒變、被加連結」查不到。
+    if (draftId && res) {
+      const html = resultHtml(res);
+      const pre = 'anchors:' + draftId + '=';
+      const rec = st.warned.find((k) => k.indexOf(pre) === 0);
+      if (html && rec) {
+        const wrote = parseInt(rec.slice(pre.length), 10) || 0;
+        const now = C.ownAnchorTexts(html);
+        if (now.length > wrote) {
+          const extra = now.slice(wrote).filter(Boolean).slice(0, 5);
+          once('autolink:' + draftId + ':' + now.length, () =>
+            `■ 讀回的正文比寫入時多了 ${now.length - wrote} 個連結：${extra.map((t) => '「' + t + '」').join('、') || '（顯示文字空白）'}\n` +
+            '  這是 Gmail 自己把看起來像網址的字串包成 google.com/url?q= 連結——字沒變，但對方看到的是藍色可點的連結。\n' +
+            '  不是要給對方點的，就用不帶屬性的 <span> 拆開點號（logging<span>.</span>file<span>.</span>name）重建，\n' +
+            '  再讀回確認。使用者自己在 Gmail 加的連結就忽略這行。（SKILL.md 第三步之三）'
+          );
+        }
+      }
     }
     // 有效讀回（回傳真的帶內容）→ 把 (A) 的未讀回記號銷掉
     if (draftId && res && C.resultHasBody(res)) {
@@ -356,6 +384,61 @@ function main(raw) {
         '  手打的「1.」「・」在 Gmail 編輯器裡只是文字，使用者增刪一項就得自己重編號、子行也對不齊。\n' +
         '  （SKILL.md 第三步之三 格式）'
       );
+    }
+
+    // (K) 正文一大片文字、沒有任何結構（2026-11-13 實案：使用者「很難看出重點」）
+    if (C.lacksStructure(toolInput.htmlBody)) {
+      once(draftId ? 'struct:' + draftId : null, () =>
+        '□ 正文是一大片文字，沒有粗體小標、清單或表格：對方很難一眼看出重點\n' +
+        '  （2026-11-13 實案：七段純文字的回信，使用者「很難看出重點」）。\n' +
+        '  分節用 <b>一、…</b> 當小標，並列的事用 <ul><li>、要對方回覆的問題用 <ol><li>，\n' +
+        '  結論或要對方注意的那一句加 <b>。（SKILL.md 第三步之三 結構）'
+      );
+    }
+
+    // (L) 讀者可能看不懂的術語（2026-11-13 實案：「jar 同目錄的外部檔案，不進 repo」，使用者「看不懂」）
+    {
+      const lines = C.ownBodyLines(toolInput.htmlBody || '') ;
+      const plain = lines.length ? lines : C.safeStr(toolInput.body).split(/\r?\n/);
+      const jargon = C.unexplainedJargon(plain);
+      let termNotes = [];
+      try {
+        const R = require(path.join(__dirname, 'lib', 'readability-scan.core.js'));
+        termNotes = (R.checkTermOrder(R.unitsFromText(plain, '行')).notes || []).filter((n) => /鐵則15/.test(n));
+      } catch (_) { termNotes = []; }
+      if (jargon.length || termNotes.length) {
+        once(draftId ? 'jargon:' + draftId : null, () =>
+          '□ 正文有讀者可能看不懂的術語（可能誤判，只是提醒）：\n' +
+          (jargon.length ? '  開發術語沒有白話說明：' + jargon.join('、') + '\n' : '') +
+          termNotes.map((n) => '  ' + n + '\n').join('') +
+          '  收件人不是工程師時，改成白話或在第一次出現處加括號說明\n' +
+          '  （例：「repo（程式碼倉庫）」「不提交到 git，所以不會跟著 PR 進到正式版本」）；\n' +
+          '  收件人本來就是開發者、而且這個詞就是他們的用語，就忽略這行。（易讀性鐵則 15）'
+        );
+      }
+    }
+
+    // (A2) 沒有 http／www、但會被 Gmail 當成網址的點號字串（2026-11-13 實案：logging.file.name）
+    {
+      const own = C.stripQuotedRegions(C.safeStr(toolInput.htmlBody));
+      const bare = C.bareDomains(own.replace(/<a\b[^>]*>/gi, ''));
+      if (bare.length) {
+        once(draftId ? 'bare:' + draftId : null, () =>
+          '■ 正文有會被 Gmail 當成網址的字串：' + bare.join('、') + '\n' +
+          '  結尾剛好是頂級網域（.name／.com／.io…），Gmail 建草稿時會把它包成\n' +
+          '  google.com/url?q= 的連結（2026-11-13 實案：設定名稱 logging.file.name 變成藍色連結）。\n' +
+          '  不是要給對方點的網址，就用不帶屬性的 <span> 拆開點號：logging<span>.</span>file<span>.</span>name\n' +
+          '  （htmlBody 也擋不住，只會保住顯示文字）。真的是網址就忽略這行。（SKILL.md 第三步之三）'
+        );
+      }
+    }
+
+    // (M) 記下這次寫入的正文有幾個 <a>，讀回時多出來的就是 Gmail 自己加的連結
+    if (draftId) {
+      const pre = 'anchors:' + draftId + '=';
+      st.warned = st.warned.filter((k) => k.indexOf(pre) !== 0);
+      st.warned.push(pre + C.ownAnchorTexts(toolInput.htmlBody).length);
+      C.writeState(st);
     }
 
     // (H) 內文說有附檔，這次沒帶 attachments——預設流程就是這樣（接著用瀏覽器上傳），提示下一步、不要留給使用者自己拖。

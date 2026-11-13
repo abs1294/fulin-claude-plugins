@@ -8,5 +8,7 @@
     "NTD", "TWD", "USD", "OS", "CPU", "RAM", "GB", "MB", "KB", "TB", "LINE", "FAQ", "EOF", "PS", "NG", "VS", "CEO", "CTO", "CIO", "TBD", "NA", "N/A",
     "Excel", "Word", "PowerPoint", "Outlook", "Teams", "Windows", "Mac", "iOS", "Android", "Google", "Gmail", "GitHub", "Email", "email", "iPhone", "iPad"
   ],
-  "max_list": 12
+  "max_list": 12,
+  "_email_jargon_comment": "信件正文（gmail-draft-posttool-gate 的術語提醒）額外檢查的開發術語：全小寫單字 readability-scan 的術語規則抓不到。2026-11-13 實案：「jar 同目錄的外部檔案，不進 repo」使用者看不懂。前後 30 字內有中文括號說明就算解釋過；只提醒、不擋。",
+  "email_jargon": ["repo", "jar", "commit", "branch", "merge", "push", "pull request", "PR", "deploy", "build", "profile", "config", "pipeline", "runtime", "classpath", "endpoint", "payload", "schema", "migration", "rollback", "hotfix", "staging", "scheduler", "cron"]
 }

@@ -125,7 +125,7 @@ console.log('=== (H) posttool 閘實跑 ===');
     tool_response: toolResponse, tool_use_id: 'u', transcript_path: '', session_id: 's', cwd: '.',
   };
   const r = spawnSync('node', [POST], { input: JSON.stringify(input), encoding: 'utf8' });
-  const msg = (() => { try { return JSON.parse(r.stdout).hookSpecificOutput.systemMessage; } catch (_) { return ''; } })();
+  const msg = (() => { try { return JSON.parse(r.stdout).hookSpecificOutput.additionalContext; } catch (_) { return ''; } })();
   check(/沒帶 attachments/.test(msg) && /整批清掉/.test(msg), 'update_draft 沒帶附件：提醒且點出會清掉既有附件', r.stdout);
 }
 
