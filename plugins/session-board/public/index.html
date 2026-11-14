@@ -1,0 +1,2827 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session 看板</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #FFFFFF; --side: #F7F7F5; --ink: #37352F; --dim: #787774; --faint: #A5A29A;
+    --line: #E9E9E7; --hover: #EFEFED; --active: #E8E7E3; --bubble: #F1F1EF; --code: #F7F6F3;
+    --accent: #2383E2; --accent-ink: #FFFFFF; --amber: #D9730D; --amber-soft: #FBF3DB;
+    --green: #0F7B6C; --red: #E03E3E; --red-soft: #FDEBEC;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif;
+    --mono: "Cascadia Mono", "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #191919; --side: #202020; --ink: #E3E2E0; --dim: #9B9A97; --faint: #6F6E69;
+      --line: #2F2F2F; --hover: #2A2A2A; --active: #333333; --bubble: #2A2A2A; --code: #252525;
+      --accent: #529CCA; --accent-ink: #10202B; --amber: #FFA344; --amber-soft: #3A2E1A;
+      --green: #4DAB9A; --red: #FF7369; --red-soft: #3B2423;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14.5px; line-height: 1.55; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .app { display: grid; grid-template-columns: 296px minmax(0, 1fr); height: 100vh; height: 100dvh; }
+
+  /* ── sidebar ── */
+  .side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .side-top { padding: 14px 12px 10px; display: flex; align-items: center; gap: 8px; }
+  .side-top h1 { margin: 0; font-size: 14px; font-weight: 600; flex: 1; padding-left: 6px; }
+  .btn { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 5px 10px; font-size: 13px; white-space: nowrap; }
+  .btn:hover { background: var(--hover); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.06); background: var(--accent); }
+  .btn.danger { color: var(--red); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .list { flex: 1; overflow-y: auto; padding: 0 6px 16px; min-height: 0; }
+  .group { margin-top: 12px; }
+  .group-head { display: flex; align-items: center; padding: 2px 4px 2px 8px; color: var(--dim); font-size: 12px; font-weight: 600; }
+  .group-head span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group-head button { border: 0; background: none; color: var(--dim); border-radius: 4px; width: 22px; height: 22px; line-height: 1; font-size: 16px; }
+  .group-head button:hover { background: var(--hover); color: var(--ink); }
+  button.item { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 6px; width: 100%; text-align: left; border: 0; background: none; border-radius: 6px; padding: 6px 8px; }
+  button.item:hover { background: var(--hover); }
+  button.item.active { background: var(--active); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 7px; background: var(--faint); }
+  .dot.yours { background: var(--amber); }
+  .dot.done { background: var(--green); }
+  .dot.running { background: var(--green); animation: beat 1.6s ease-in-out infinite; }
+  @keyframes beat { 50% { opacity: .3; } }
+  @media (prefers-reduced-motion: reduce) { .dot.running { animation: none; } }
+  .item .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item.yours .t { font-weight: 600; }
+  .item .m { grid-column: 2; font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item.yours .m { color: var(--amber); }
+  /* Third line: the latest thing you said there, to tell apart sessions of one project. */
+  /* "Kept": comes back after a restart. A tick on the row itself, on the right; pressing it does not open the session. */
+  button.item { grid-template-columns: 14px minmax(0, 1fr) auto; }
+  .item .pin { grid-column: 3; grid-row: 1; align-self: center; width: 15px; height: 15px; border: 1.5px solid var(--faint); border-radius: 3px; display: grid; place-items: center; font-size: 11px; line-height: 1; color: transparent; cursor: pointer; }
+  .item .pin.on { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+  .item .pin:hover { border-color: var(--accent); }
+  .item .said { grid-column: 2; font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item.hid { opacity: .55; }
+  .side-top h1 button { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+  .side-top h1 button:hover { text-decoration: underline; }
+  /* inbox */
+  /* The sources, as a carousel: every card the same size, three in a row (one on a narrow window). When they all fit there is nothing to move, and the arrows and dots are not shown. */
+  .car.fits { grid-template-columns: minmax(0, 1fr); } .car.fits .arrow { display: none; }
+  .car { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; gap: 6px; align-items: center; margin: 4px 0 4px; }
+  .car .arrow { width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--dim); font-size: 16px; line-height: 1; padding: 0; }
+  .car .arrow:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+  .car .arrow:disabled { opacity: .3; cursor: default; }
+  .srcs { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 2px; scrollbar-width: none; padding: 2px; }
+  .srcs::-webkit-scrollbar { display: none; }
+  .src { flex: 0 0 calc((100% - 20px) / 3); box-sizing: border-box; height: 124px; scroll-snap-align: start; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .src b { display: block; font-size: 14px; font-weight: 600; }
+  .src span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--dim); font-size: 12px; line-height: 1.5; margin-top: 2px; overflow-wrap: anywhere; }
+  .src.off b { color: var(--dim); } .src.alarm span { color: var(--red); }
+  .src .btn { margin-top: auto; align-self: flex-start; font-size: 12px; padding: 4px 10px; }
+  /* A source card is also the filter for the list under it: press it to list only that source, again to list all. */
+  button.src { background: var(--bg); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  button.src:hover { background: var(--hover); }
+  button.src.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  button.src.sel b::after { content: "　只看這個"; color: var(--accent); font-weight: 400; font-size: 12px; }
+  /* The three pages of the inbox. */
+  .ptabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 16px; }
+  .ptabs button { border: 0; background: none; padding: 8px 14px; font-size: 14px; color: var(--dim); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .ptabs button:hover { color: var(--ink); }
+  .ptabs button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+  .ptabs small { color: var(--dim); font-weight: 400; margin-left: 4px; }
+  .dots { display: flex; justify-content: center; gap: 6px; margin: 2px 0 12px; }
+  .dots button { width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%; background: var(--line); }
+  .dots button.on { background: var(--accent); }
+  @media (max-width: 640px) { .src { flex-basis: 100%; } }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 8px; }
+  .tabs .btn.on { background: var(--active); font-weight: 600; }
+  .tabs input { flex: 1 1 160px; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; background: var(--bg); color: inherit; font: inherit; font-size: 13px; }
+  button.thr { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 2px 10px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; padding: 9px 6px; }
+  button.thr:hover { background: var(--hover); }
+  .thr .tag { grid-row: 1 / span 2; align-self: start; font-size: 11px; color: var(--dim); border: 1px solid var(--line); border-radius: 4px; padding: 1px 0; text-align: center; margin-top: 2px; }
+  .thr .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* What triage found, in front of the title. */
+  .thr .kind { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; margin-right: 8px; vertical-align: 1px; border: 1px solid var(--line); color: var(--dim); }
+  .thr .kind.todo, .thr .kind.question { color: var(--amber); border-color: var(--amber); }
+  .thr .kind { font-variant-numeric: tabular-nums; }
+  .thr .kind.unsure { border-style: dashed; }   /* under 70%: the judgement itself says it is a guess */
+  .thr .sum { grid-column: 2 / span 2; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .thr.unread .t { font-weight: 600; }
+  .thr .w { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .thr .p { grid-column: 2 / span 2; color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* What can be done with a thread, under the title and always in view: the messages scroll, this does not. */
+  .tbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--line); background: var(--bg); }
+  .tbar label { color: var(--dim); font-size: 13px; white-space: nowrap; }
+  /* The thread's header: a row of actions, a row of properties (as on a task page in Asana or Notion), one line of summary. */
+  .tbar.th { display: block; padding: 10px 20px; }
+  .tb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+  .tb-row + .tb-row { margin-top: 8px; }
+  .tb-sp { flex: 1 1 0; }
+  .tb-row .lnk { border: 0; background: none; padding: 2px 4px; color: var(--dim); font-size: 13px; border-radius: 4px; }
+  .tb-row .lnk:hover { color: var(--ink); background: var(--hover); }
+  .tb-props { gap: 6px 18px; }
+  .propwrap { position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+  .plabel { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .prop { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; max-width: min(100%, 640px); border: 1px solid transparent; background: none; border-radius: 6px; padding: 3px 8px; font-size: 13px; text-align: left; }
+  .prop:hover, .prop[aria-expanded=true] { background: var(--hover); }
+  .prop b { font-weight: 600; white-space: nowrap; }
+  .prop .path { color: var(--faint); font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .prop.empty { color: var(--accent); border: 1px dashed var(--line); }
+  .pval { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 320px; }
+  .pval.mono { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; width: min(460px, calc(100vw - 48px)); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .16); padding: 6px; }
+  .pop h4 { margin: 6px 8px 4px; font-size: 11px; font-weight: 600; color: var(--faint); }
+  .pop hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+  .popitem { display: flex; flex-direction: column; align-items: flex-start; width: 100%; border: 0; background: none; border-radius: 6px; padding: 6px 8px; text-align: left; font-size: 13px; min-width: 0; }
+  .popitem:hover, .popitem:focus-visible { background: var(--hover); }
+  .popitem span { color: var(--faint); font-family: var(--mono); font-size: 11.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .popitem.danger { color: var(--red); }
+  .tbar .pop input { display: block; width: 100%; box-sizing: border-box; flex: none; margin: 2px 0; }
+  .tbar input { flex: 1 1 260px; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; background: var(--bg); color: inherit; font: inherit; font-family: var(--mono); font-size: 13px; }
+  .tbar .note { flex-basis: 100%; color: var(--faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tmsg { margin: 0 0 14px; }
+  /* A chat message you can pick: the whole message is the target, the box shows the state. */
+  .tmsg.pick { cursor: pointer; border-radius: 8px; padding: 6px 8px 6px 34px; margin: 0 -8px 6px -34px; position: relative; }
+  .tmsg.pick:hover { background: var(--hover); }
+  .tmsg.pick.on { background: var(--active); }
+  .tmsg.pick input { position: absolute; left: 10px; top: 9px; width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+  .tbar .count { color: var(--dim); font-size: 13px; white-space: nowrap; }
+  /* A chat thread (Teams, Slack), laid out the way Teams lays one out: theirs on the left with a round
+     avatar, name and time once per run of messages; yours on the right in a tinted bubble; a line with the
+     date where the day changes. The tick that picks a message sits beside its bubble and shows on hover. */
+  .tmsg.chat { display: flex; align-items: flex-start; gap: 10px; margin: 2px 0; padding: 0; border-radius: 0; cursor: default; }
+  .tmsg.chat:hover, .tmsg.chat.on { background: none; }
+  .tmsg.chat.first { margin-top: 14px; }
+  .tmsg.chat.out { flex-direction: row-reverse; }
+  .tc-av { width: 32px; height: 32px; border-radius: 50%; flex: none; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 600; letter-spacing: .02em; margin-top: 18px; }
+  .tc-av.sp { visibility: hidden; height: 0; margin: 0; }
+  .tc-main { min-width: 0; max-width: min(72%, 640px); display: flex; flex-direction: column; align-items: flex-start; }
+  .tmsg.chat.out .tc-main { align-items: flex-end; }
+  .tc-head { font-size: 12px; color: var(--dim); margin: 0 2px 3px; white-space: nowrap; }
+  .tc-head b { font-weight: 600; color: var(--ink); margin-right: 8px; }
+  .tc-row { display: flex; align-items: center; gap: 8px; max-width: 100%; }
+  .tmsg.chat.out .tc-row { flex-direction: row-reverse; }
+  .tmsg.chat .body { background: var(--bubble); border-radius: 6px; padding: 7px 12px; max-width: 100%; min-width: 0; cursor: pointer; }
+  .tmsg.chat.out .body { background: color-mix(in srgb, var(--accent) 16%, var(--bg)); border-radius: 6px; }
+  .tmsg.chat .body:hover { filter: brightness(.97); }
+  .tmsg.chat.on .body { box-shadow: 0 0 0 2px var(--accent); }
+  .tmsg.chat input { position: static; flex: none; width: 16px; height: 16px; margin: 0; border-radius: 50%; accent-color: var(--accent); opacity: 0; cursor: pointer; }
+  .tmsg.chat:hover input, .tmsg.chat.on input, .tmsg.chat input:focus-visible { opacity: 1; }
+  .tc-day { display: flex; align-items: center; gap: 12px; color: var(--dim); font-size: 12px; margin: 20px 0 4px; }
+  .tc-day::before, .tc-day::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .tmsg .who2 { font-size: 12px; color: var(--dim); margin-bottom: 2px; }
+  .tmsg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .tmsg.out { display: flex; flex-direction: column; align-items: flex-end; }
+  .tmsg.out .body { background: var(--bubble); border-radius: 14px; padding: 8px 14px; max-width: 78%; }
+  .rtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .rtable td, .rtable th { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  .rtable th { color: var(--dim); font-weight: 600; font-size: 12px; }
+  .form { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 8px 10px; align-items: center; margin-top: 10px; }
+  .form input, .form select { border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; background: var(--bg); color: inherit; font: inherit; font-size: 13px; min-width: 0; }
+  .form label { color: var(--dim); font-size: 13px; }
+  .list-more { display: block; width: 100%; margin-top: 10px; border: 0; background: none; color: var(--dim); font-size: 12px; text-align: left; padding: 4px 8px; border-radius: 6px; }
+  .list-more:hover { background: var(--hover); color: var(--ink); }
+  .past { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; border-bottom: 1px solid var(--line); padding: 8px 6px; }
+  .past:hover { background: var(--hover); }
+  .past .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .past .p { grid-column: 1; color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .past .acts { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 6px; }
+  .past .acts .btn { padding: 3px 8px; font-size: 12px; }
+  /* Old conversations, one block per folder: the folder's name is the heading; press it to open or close the block. */
+  details.pgroup { border-bottom: 1px solid var(--line); }
+  details.pgroup > summary { display: flex; align-items: baseline; gap: 10px; padding: 9px 6px; cursor: pointer; list-style: none; border-radius: 6px; }
+  details.pgroup > summary::-webkit-details-marker { display: none; }
+  details.pgroup > summary::before { content: "\25B8"; color: var(--dim); width: 12px; flex: none; }
+  details.pgroup[open] > summary::before { content: "\25BE"; }
+  details.pgroup > summary:hover { background: var(--hover); }
+  details.pgroup .pg-name { font-weight: 600; white-space: nowrap; }
+  details.pgroup .pg-n { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  details.pgroup .pg-path { flex: 1; min-width: 0; color: var(--faint); font-size: 12px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  details.pgroup .pg-when { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  details.pgroup .pg-rows { padding: 0 0 6px 22px; }
+  details.pgroup .past:last-of-type { border-bottom: 0; }
+  /* Account limits, always in view at the bottom of the sidebar whatever is open on the right. */
+  .side-quota { padding: 8px 14px 6px; border-top: 1px solid var(--line); font-size: 12px; }
+  .side-quota[hidden] { display: none; }
+  .sq { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 2px 0; }
+  .sq .sl { color: var(--dim); white-space: nowrap; }
+  .sq b { font-variant-numeric: tabular-nums; }
+  .sq .sr { grid-column: 1 / -1; color: var(--faint); margin-top: -1px; }
+  .side-foot { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim); }
+  .side-foot.down { color: var(--red); }
+
+  /* ── main ── */
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .head { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--line); min-height: 56px; }
+  .head .back { display: none; }
+  .head .who { flex: 1; min-width: 0; }
+  .head .who .t { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .head .who .s { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .head .who .s b { font-weight: 600; }
+  .head .who .s b.yours { color: var(--amber); } .head .who .s b.running { color: var(--green); }
+
+  .scroll { flex: 1; overflow-y: auto; min-height: 0; }
+  .scrollwrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .jump { position: absolute; right: 22px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  .jump .btn { border-radius: 16px; box-shadow: 0 2px 10px rgba(0, 0, 0, .14); }
+  .msg.user.flash > div { animation: flash 1.2s ease-out; }
+  @keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 3px transparent; } }
+  .cmds { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .16); max-height: 320px; overflow-y: auto; z-index: 3; padding: 4px; }
+  .cmds[hidden] { display: none; }
+  button.cmd { display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left; border: 0; background: none; border-radius: 5px; padding: 5px 10px; font-family: var(--mono); font-size: 13px; }
+  button.cmd:hover, button.cmd.sel { background: var(--active); }
+  button.cmd .cn { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button.cmd .tag { margin-left: auto; font-family: var(--sans); font-size: 12px; color: var(--dim); white-space: nowrap; }
+  button.cmd .cd { flex: 1; min-width: 0; font-family: var(--sans); font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmd-note { padding: 6px 10px; font-size: 12px; color: var(--dim); }
+  .col { max-width: 820px; margin: 0 auto; padding: 20px 20px 12px; }
+  .msg { margin: 0 0 14px; overflow-wrap: anywhere; }
+  .msg.user { display: flex; justify-content: flex-end; }
+  .msg.user > div { background: var(--bubble); border-radius: 14px; padding: 8px 14px; max-width: 78%; white-space: pre-wrap; }
+  .msg.assistant.streaming { white-space: pre-wrap; }
+  .msg.assistant.streaming::after { content: "\258D"; color: var(--accent); margin-left: 1px; animation: caret 1s steps(2) infinite; }
+  @keyframes caret { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .msg.assistant.streaming::after { animation: none; } }
+  .msg.assistant > :first-child { margin-top: 0; } .msg.assistant > :last-child { margin-bottom: 0; }
+  .msg.assistant p { margin: 0 0 10px; }
+  .msg.assistant h1, .msg.assistant h2, .msg.assistant h3, .msg.assistant h4 { font-size: 15px; font-weight: 600; margin: 18px 0 6px; }
+  .msg.assistant ul, .msg.assistant ol { margin: 0 0 10px; padding-left: 22px; }
+  .msg.assistant li { margin: 2px 0; }
+  .msg.assistant code { font-family: var(--mono); font-size: 12.5px; background: var(--code); border-radius: 4px; padding: 1px 5px; }
+  .msg.assistant pre { background: var(--code); border-radius: 6px; padding: 10px 12px; overflow-x: auto; margin: 0 0 10px; }
+  .msg.assistant pre code { background: none; padding: 0; white-space: pre; }
+  .msg.assistant .tw { overflow-x: auto; margin: 0 0 10px; }
+  .msg.assistant table { border-collapse: collapse; font-size: 13.5px; }
+  .msg.assistant th, .msg.assistant td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+  .msg.assistant th { background: var(--side); font-weight: 600; }
+  .msg.assistant a { color: var(--accent); }
+  .msg.assistant hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+  details.tools { margin: 0 0 14px; font-size: 13px; color: var(--dim); }
+  details.tools summary { cursor: pointer; list-style: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px; padding: 2px 4px; margin-left: -4px; }
+  details.tools summary::-webkit-details-marker { display: none; }
+  details.tools summary::before { content: "\25B8"; display: inline-block; width: 14px; }
+  details.tools[open] summary::before { content: "\25BE"; }
+  details.tools summary:hover { background: var(--hover); }
+  details.tools .tl { padding: 1px 0 1px 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  details.tools b { font-weight: 600; font-family: var(--mono); font-size: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; }
+  .card.perm { border-color: var(--amber); background: var(--amber-soft); }
+  .card.err { border-color: var(--red); background: var(--red-soft); }
+  .card .q { font-weight: 600; margin-bottom: 2px; }
+  .card .d { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; margin-bottom: 10px; }
+  .card .row { display: flex; gap: 8px; }
+  /* A form of questions Claude asked: read-only from a terminal session, fillable in a board conversation. */
+  .card.ask.pending { border-color: var(--amber); background: var(--amber-soft); }
+  .aq { margin-top: 12px; }
+  .aqh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .aqq { font-weight: 600; }
+  .aqm { font-size: 12px; color: var(--dim); }
+  .opt { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; }
+  .opt .ob { color: var(--faint); }
+  .opt .od { color: var(--dim); font-size: 13px; }
+  .opt .ot { flex: 1; min-width: 0; }
+  .opt input[type=radio], .opt input[type=checkbox] { margin-top: 5px; flex: none; }
+  label.opt { cursor: pointer; }
+  .opt input.other { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--bg); color: inherit; font: inherit; }
+  .asknote { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }
+  .asknote > span { flex: 1; min-width: 200px; }
+  .answered { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--line); font-size: 13.5px; overflow-wrap: anywhere; }
+  .answered .ah { font-size: 12px; color: var(--dim); margin-bottom: 2px; }
+  .answered .ar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; padding: 3px 0; }
+  .answered .aq2 { color: var(--dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .answered b { font-weight: 600; color: var(--ink); }
+  .more { text-align: center; color: var(--dim); font-size: 12px; margin-bottom: 16px; }
+  .more .btn { font-size: 12px; }
+  .typing { color: var(--dim); font-size: 13px; margin: 0 0 14px; }
+
+  .foot { border-top: 1px solid var(--line); padding: 12px 20px 16px; }
+  .foot .col { padding: 0; }
+  .composer { display: flex; gap: 8px; align-items: flex-end; border: 1px solid var(--line); border-radius: 10px; padding: 8px 8px 8px 12px; background: var(--bg); }
+  .composer:focus-within { border-color: var(--accent); }
+  /* What is being quoted (a mail, picked chat messages): above the box while you write, inside your bubble once sent -
+     the way a reply shows the message it answers in Teams or Messenger. Your own words are never mixed with it. */
+  .reply { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 6px; padding: 7px 8px 7px 12px; border-left: 3px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 9%, var(--bg)); font-size: 13px; }
+  .reply .rmain { flex: 1; min-width: 0; }
+  .reply .rh { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .reply .rs, .reply .rt { color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .reply .rmain { cursor: pointer; border-radius: 4px; }
+  .reply .rh { display: flex; gap: 8px; }
+  .reply .rh b { overflow: hidden; text-overflow: ellipsis; }
+  .reply .rh span { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--dim); white-space: nowrap; }
+  .reply.open .rt { white-space: pre-wrap; overflow: auto; max-height: 40vh; color: inherit; font-size: 13px; margin-top: 4px; cursor: text; }
+  .reply button { border: 0; background: none; color: var(--dim); border-radius: 4px; padding: 0 6px; font-size: 16px; line-height: 20px; flex: none; }
+  .reply button:hover { background: var(--hover); color: var(--red); }
+  .quoted { display: block; width: 100%; text-align: left; border: 0; border-left: 3px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 10%, var(--bg)); padding: 6px 10px; margin: 0 0 6px; font: inherit; font-size: 13px; color: inherit; cursor: pointer; white-space: normal; }
+  .quoted .rh { font-weight: 600; font-size: 12px; color: var(--dim); display: flex; gap: 8px; }
+  .quoted .rh span { margin-left: auto; font-weight: 400; white-space: nowrap; }
+  .quoted .rt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .quoted.open .rt { white-space: pre-wrap; overflow: auto; max-height: 55vh; cursor: text; }
+  .msg.user .own { white-space: pre-wrap; }
+  .composer textarea { flex: 1; border: 0; outline: 0; resize: none; background: none; color: inherit; font: inherit; max-height: 200px; min-height: 24px; padding: 3px 0; }
+  .note { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--dim); font-size: 13px; }
+  .note > span { flex: 1; min-width: 200px; }
+  .hint { font-size: 12px; color: var(--faint); margin-top: 6px; }
+
+  /* ── figures above a conversation ── */
+  /* The bar that stays put above a scrolling conversation (title, then figures).
+     It is tinted like the sidebar and casts a shadow, so the text scrolling
+     under it does not read as part of it. */
+  .top, .main > .head { background: var(--side); border-bottom: 1px solid var(--line); box-shadow: 0 3px 10px rgba(0, 0, 0, .08); position: relative; z-index: 2; }
+  .top .head { border-bottom: 0; }
+  .info { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: start; padding: 7px 20px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--dim); }
+  .info[hidden] { display: none; }
+  .info .chips { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .info b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .info-more { border: 0; background: none; padding: 0 2px; color: var(--accent); font: inherit; white-space: nowrap; }
+  .info-more:hover { text-decoration: underline; }
+  .info .more-rows { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 12px; padding: 6px 0 2px; border-top: 1px dashed var(--line); margin-top: 4px; }
+  .info .more-rows[hidden] { display: none; }
+  .info .more-rows code { font-family: var(--mono); font-size: 12px; }
+  .more.compact { display: flex; align-items: center; gap: 12px; margin: 22px 0; }
+  .more.compact::before, .more.compact::after { content: ""; flex: 1; border-top: 1px dashed var(--line); }
+
+  /* What a conversation has running besides its reply (subagents, background commands). */
+  /* A background command in the strip can be pressed to see what it has printed. */
+  button.tk { width: 100%; border: 0; background: none; text-align: left; font: inherit; color: inherit; border-radius: 4px; cursor: pointer; }
+  button.tk:hover { background: var(--hover); }
+  .tk.fin { opacity: .7; }
+  .tk .tk-open { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .peek-body .tcmd { font-family: var(--mono); font-size: 12px; background: var(--side); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .peek-body .tstat { color: var(--dim); font-size: 12px; margin: 0 0 8px; }
+  /* Messages waiting for their turn, above the input box. */
+  .queue { border-top: 1px solid var(--line); background: var(--side); padding: 6px 20px; font-size: 13px; max-height: 22vh; overflow-y: auto; }
+  .queue .qrow { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .queue .qn { color: var(--dim); white-space: nowrap; font-size: 12px; }
+  .queue .qt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue button { border: 0; background: none; color: var(--dim); border-radius: 4px; padding: 0 6px; font-size: 14px; line-height: 20px; }
+  .queue button:hover { background: var(--hover); color: var(--red); }
+  .tasks { border-top: 1px solid var(--line); background: var(--side); padding: 6px 20px; font-size: 13px; max-height: 26vh; overflow-y: auto; }
+  .tasks[hidden] { display: none; }
+  .tk { display: flex; align-items: center; gap: 8px; padding: 2px 0; min-width: 0; }
+  .tk .dot { margin-top: 0; flex: none; }
+  .tk-l { font-weight: 600; white-space: nowrap; }
+  .tk-d { flex: 1; min-width: 0; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tk-e { color: var(--dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .meter { display: grid; grid-template-columns: 56px minmax(80px, 320px) 48px auto; align-items: center; gap: 12px; padding: 4px 8px; font-size: 13.5px; }
+  .meter .ml, .meter .mr { color: var(--dim); }
+  .meter b { text-align: right; font-variant-numeric: tabular-nums; }
+  .mbar { height: 8px; border-radius: 4px; background: var(--hover); overflow: hidden; }
+  .mfill { height: 100%; background: var(--green); border-radius: 4px; }
+  .mfill.warm { background: var(--amber); } .mfill.hot { background: var(--red); }
+
+  /* ── war room: the month ── */
+  .mhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 8px 6px; }
+  .mhead .mname { font-size: 16px; min-width: 104px; text-align: center; }
+  .mhead .mnote { flex: 1; min-width: 160px; text-align: right; color: var(--dim); font-size: 12px; }
+  .mparts { display: flex; flex-wrap: wrap; gap: 4px 18px; padding: 2px 8px 12px; font-size: 13px; color: var(--dim); }
+  .mparts b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .mcap { font-size: 12px; color: var(--dim); padding: 0 8px 6px; }
+  .bars { display: flex; align-items: flex-end; gap: 3px; height: 132px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+  .bcol { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 0; }
+  .bcol:hover .b { filter: brightness(1.15); }
+  .bars .b { width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; }
+  .bars .b.today { background: var(--amber); }
+  .bars .b.zero { background: var(--line); border-radius: 0; }
+  .axis { display: flex; gap: 3px; padding: 3px 8px 0; font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .axis span { flex: 1; text-align: center; min-width: 0; }
+  .axis .today { color: var(--amber); font-weight: 600; }
+  .mgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
+  .mtable { margin-top: 18px; }
+  .mtable h4 { font-size: 12px; color: var(--dim); font-weight: 600; margin: 0 0 4px; padding: 0 8px; }
+  .trow { display: grid; grid-template-columns: minmax(0, 1fr) 96px 48px 84px; gap: 10px; align-items: baseline; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; padding: 5px 8px; font-size: 13.5px; }
+  button.trow:hover { background: var(--hover); }
+  .trow.cols { font-size: 12px; color: var(--dim); }
+  .trow .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trow .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* The session table has three more columns (compactions, context, messages). */
+  .mtable.wide .trow { grid-template-columns: minmax(0, 1fr) 92px 44px 88px 60px 64px 52px; }
+  /* Per model: what it cost beside how much it was used and at what rate, to tell "dear but little used" from "dear and much used". */
+  .mtable.models .trow { grid-template-columns: minmax(110px, 1fr) 92px 50px 70px 50px 70px 70px 78px 78px 84px; }
+  .mtable.models { margin-bottom: 8px; }
+  .mexplain { color: var(--faint); font-size: 12px; margin: 4px 8px 14px; }
+  @media (max-width: 1100px) { .mtable.models .trow { grid-template-columns: minmax(80px, 1fr) 86px 62px 64px 62px 100px; } .mtable.models .trow > :nth-child(n+6):not(:nth-child(10)) { display: none; } }
+  .trow .t .dot { display: inline-block; margin: 0 8px 1px 0; vertical-align: middle; }
+  @media (max-width: 900px) { .mgrid { grid-template-columns: minmax(0, 1fr); } .mtable.wide .trow { grid-template-columns: minmax(0, 1fr) 88px 40px 64px; } .mtable.wide .trow .n:nth-child(n+4):not(:nth-child(6)) { display: none; } }
+  @media (max-width: 560px) { .trow { grid-template-columns: minmax(0, 1fr) 84px 40px; } .trow .n:last-child { display: none; } }
+
+  /* ── war room ── */
+  .war { max-width: 1040px; margin: 0 auto; padding: 4px 20px 48px; }
+  .war h3 { font-size: 12px; color: var(--dim); font-weight: 600; margin: 24px 0 6px; }
+  .war .quiet { color: var(--dim); font-size: 13px; padding: 8px 0; }
+  .war .liverow, .war button.turn { padding-left: 8px; padding-right: 8px; }
+  .urow { display: grid; grid-template-columns: minmax(0, 1fr) 76px 76px 60px 60px 76px; gap: 12px; align-items: center; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; padding: 7px 8px; font-size: 13.5px; }
+  button.urow:hover { background: var(--hover); }
+  .urow.cols { font-size: 12px; color: var(--dim); }
+  .urow .ut { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .urow .ut .dot { margin-top: 0; flex: none; }
+  .urow .ut span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .urow .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  @media (max-width: 720px) { .urow { grid-template-columns: minmax(0, 1fr) 64px 52px 64px; } .urow .opt { display: none; } }
+  .side-nav { padding: 0 6px 4px; border-bottom: 1px solid var(--line); }
+  .pulse { display: flex; align-items: flex-end; gap: 32px; padding: 16px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .kpi .n { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 12px; color: var(--dim); }
+  .kpi.main .n { color: var(--green); } .kpi.main.zero .n { color: var(--ink); }
+  .kpi.warn .n { color: var(--amber); }
+  .kpi .names { font-size: 12px; color: var(--dim); max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .liverow { display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-bottom: 1px solid var(--line); min-width: 0; }
+  .liverow.stuck { background: var(--red-soft); }
+  .liverow .dot { margin-top: 0; flex: none; }
+  .liverow.stuck .dot { background: var(--red); }
+  .liverow .lt { font-weight: 600; flex: 0 1 auto; min-width: 60px; max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip { flex: none; font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--hover); white-space: nowrap; }
+  .chip.bad { background: var(--red); color: #fff; }
+  .liverow .ld { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .liverow .le { flex: none; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .liverow.stuck .le { color: var(--red); font-weight: 600; }
+  .split { display: grid; grid-template-columns: 400px minmax(0, 1fr); flex: 1; min-height: 0; }
+  .turns { overflow-y: auto; border-right: 1px solid var(--line); min-height: 0; }
+  button.turn { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; padding: 9px 16px; }
+  button.turn:hover { background: var(--hover); }
+  button.turn.active { background: var(--active); }
+  .turn .r1 { display: flex; gap: 8px; align-items: center; }
+  .turn .r1 .dot { margin-top: 0; flex: none; }
+  .turn .tt { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .turn .tm { flex: none; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .turn .r2 { display: flex; gap: 8px; font-size: 13px; color: var(--dim); margin-top: 2px; padding-left: 16px; }
+  .turn .pp { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .turn .nn { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .rcpt { overflow-y: auto; min-height: 0; }
+  .rcpt .in { max-width: 780px; padding: 20px; }
+  .rcpt h2 { font-size: 19px; font-weight: 700; margin: 0 0 4px; overflow-wrap: anywhere; }
+  .rcpt .sub { color: var(--dim); font-size: 13px; margin-bottom: 14px; }
+  dl.meta { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 4px 14px; margin: 0 0 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+  dl.meta dt { color: var(--dim); } dl.meta dd { margin: 0; overflow-wrap: anywhere; }
+  details.flow { border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; }
+  details.flow > summary { padding: 9px 14px; font-weight: 600; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+  details.flow > summary small { font-weight: 400; color: var(--dim); }
+  details.flow > .fb { padding: 12px 14px; border-top: 1px solid var(--line); max-height: 52vh; overflow: auto; }
+  details.flow .said { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .step { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; font-size: 13px; padding: 2px 0; }
+  .step .st { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .step .sx { overflow-wrap: anywhere; color: var(--dim); }
+  .step .sx b { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+  .usage { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .usage .n { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .usage .l { font-size: 12px; color: var(--dim); }
+  .blank { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--dim); font-size: 13px; padding: 24px; text-align: center; }
+  @media (max-width: 900px) {
+    .split { grid-template-columns: minmax(0, 1fr); }
+    .split.picked .turns { display: none; }
+    .split:not(.picked) .rcpt { display: none; }
+    dl.meta { grid-template-columns: auto minmax(0, 1fr); }
+    .usage { grid-template-columns: repeat(2, 1fr); }
+    .liverow .ld { display: none; }
+  }
+
+  /* ── files mentioned in a conversation, and their preview panel ── */
+  .fp { color: var(--accent); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+  code.fp { text-decoration: none; box-shadow: inset 0 -1px 0 var(--accent); }
+  .fp:hover { background: var(--hover); }
+  #peek { position: fixed; top: 0; right: 0; bottom: 0; width: min(820px, 58vw); background: var(--bg); border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0, 0, 0, .14); display: flex; flex-direction: column; z-index: 4; }
+  #peek[hidden] { display: none; }
+  /* The left edge is a handle: drag it to make the preview wider or narrower. */
+  #peekGrip { position: absolute; left: -5px; top: 0; bottom: 0; width: 10px; cursor: ew-resize; z-index: 1; touch-action: none; }
+  #peekGrip::after { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 2px; background: transparent; transition: background .12s; }
+  #peekGrip:hover::after, #peekGrip:focus-visible::after, #peek.dragging #peekGrip::after { background: var(--accent); }
+  #peekGrip:focus-visible { outline: none; }
+  /* While dragging, the document inside must not swallow the mouse, and nothing should get selected. */
+  #peek.dragging .peek-body { pointer-events: none; }
+  body.resizing { user-select: none; cursor: ew-resize; }
+  .peek-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .peek-head .who { flex: 1 1 220px; min-width: 0; }
+  .peek-head .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .peek-head .s { font-size: 12px; color: var(--dim); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  .peek-body { flex: 1; min-height: 0; overflow: auto; }
+  .peek-body iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .peek-body img { max-width: 100%; display: block; margin: 16px auto; }
+  .peek-body pre { margin: 0; padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .peek-body .msg { padding: 16px 20px; margin: 0; }
+  .peek-note { padding: 8px 16px; font-size: 12px; color: var(--dim); border-bottom: 1px solid var(--line); }
+  @media (max-width: 720px) { #peek { width: 100vw; } }
+
+  /* ── home / new ── */
+  .pane { max-width: 640px; margin: 0 auto; padding: 48px 20px; }
+  .pane h2 { font-size: 22px; font-weight: 700; margin: 0 0 6px; }
+  .pane p.lead { color: var(--dim); margin: 0 0 24px; }
+  .pane h3 { font-size: 12px; color: var(--dim); font-weight: 600; margin: 24px 0 6px; }
+  .choice { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; padding: 9px 6px; }
+  .choice:hover { background: var(--hover); }
+  .choice .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .choice .p { color: var(--dim); font-size: 12px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+  label.choice { cursor: pointer; }
+  .choice input[type=checkbox] { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); flex: none; }
+  .choice .btn { flex: none; }
+  .keepbar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .switch { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .switch input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+  .switch b { display: block; font-weight: 600; }
+  .switch span { display: block; color: var(--dim); font-size: 13px; }
+  .pathrow { display: flex; gap: 8px; margin-top: 8px; }
+  .pathrow input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; background: var(--bg); color: inherit; font: inherit; font-family: var(--mono); font-size: 13px; }
+  .bad { color: var(--red); font-size: 13px; margin-top: 8px; }
+
+  #said { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 80px); background: var(--ink); color: var(--bg); border-radius: 8px; padding: 8px 14px; font-size: 13px; max-width: min(92vw, 640px); transition: transform .15s ease-out; z-index: 5; }
+  #said.on { transform: translate(-50%, 0); }
+  #said.bad { background: var(--red); color: #fff; }
+  @media (prefers-reduced-motion: reduce) { #said { transition: none; } }
+
+  @media (max-width: 720px) {
+    .app { grid-template-columns: minmax(0, 1fr); }
+    .app.viewing .side { display: none; }
+    .app:not(.viewing) .main { display: none; }
+    .head .back { display: inline-block; }
+    .head, .foot { padding-left: 12px; padding-right: 12px; }
+    .col { padding-left: 12px; padding-right: 12px; }
+    .msg.user > div { max-width: 90%; }
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="side">
+    <div class="side-top">
+      <h1><button type="button" id="homeBtn" title="回到首頁：誰在等你、沒開著的對話">Sessions</button></h1>
+      <button class="btn primary" id="newBtn" type="button">＋ 新對話</button>
+    </div>
+    <div class="side-nav">
+      <button class="item" id="warBtn" type="button"><span class="dot" id="warDot"></span><span class="t">戰情室</span><span class="m" id="warSub">所有 session 現在在做什麼</span></button>
+      <button class="item" id="pastBtn" type="button"><span class="dot" style="visibility:hidden"></span><span class="t">舊對話</span><span class="m" id="pastSub">找回沒開著的對話，接著做</span></button>
+      <button class="item" id="inboxBtn" type="button"><span class="dot" id="inboxDot"></span><span class="t">收件</span><span class="m" id="inboxSub">Gmail、Slack、Teams 收到的訊息</span></button>
+      <button class="item" id="setBtn" type="button"><span class="dot" style="visibility:hidden"></span><span class="t">設定</span></button>
+    </div>
+    <nav class="list" id="list" aria-label="所有 session"></nav>
+    <div class="side-quota" id="sideQuota" hidden></div>
+    <div class="side-foot" id="sideFoot"></div>
+  </aside>
+  <section class="main" id="main"></section>
+</div>
+<aside id="peek" hidden aria-label="檔案預覽">
+  <div id="peekGrip" role="separator" aria-orientation="vertical" aria-label="拖拉調整預覽寬度" tabindex="0" title="拖拉調整寬度，按兩下恢復預設"></div>
+  <div class="peek-head">
+    <div class="who"><div class="t" id="peekName"></div><div class="s" id="peekPath"></div></div>
+    <button class="btn" id="peekOpen" type="button">用預設程式開啟</button>
+    <button class="btn" id="peekReveal" type="button">在檔案總管顯示</button>
+    <button class="btn" id="peekCopy" type="button">複製路徑</button>
+    <button class="btn" id="peekClose" type="button" aria-label="關閉預覽">✕</button>
+  </div>
+  <div class="peek-body" id="peekBody"></div>
+</aside>
+<div id="said" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+// A "choose a folder" button for a path field: opens the Windows folder window (on this computer, by the board),
+// and puts what was chosen into the field. Typing a path stays possible. then(path) runs after a choice.
+function folderButton(input, then) {
+  const b = el('button', 'btn', '選擇資料夾…'); b.type = 'button'; b.title = '跳出 Windows 的資料夾視窗來選（視窗可能開在瀏覽器後面）';
+  b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = '請在跳出的視窗裡選…';
+    try { const r = await api('/api/pick-folder', {}); if (r.data.path) { input.value = r.data.path; input.dispatchEvent(new Event('input', { bubbles: true })); if (then) then(r.data.path); } }
+    catch (e) { say('看板程序沒有回應', true); }
+    b.disabled = false; b.textContent = '選擇資料夾…';
+  });
+  return b;
+}
+
+const STATUS = { waiting: '等你回應', busy: '執行中', background: '背景工作中', idle: '做完了', unknown: '狀態不明' };
+const statusText = (s) => s.group === 'stale' ? '閒置' : s.group === 'quiet' ? '沒有新訊息' : s.status === 'idle' ? (s.owner === 'board' ? '有新回覆' : '做完了，等你指示') : (STATUS[s.status] || STATUS.unknown);
+
+function ago(ms) {
+  const m = Math.floor(Math.max(0, ms) / 60000);
+  if (m < 1) return '剛剛';
+  if (m < 60) return m + ' 分鐘';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + ' 小時';
+  return Math.floor(h / 24) + ' 天';
+}
+
+async function api(path, body) {
+  const opt = { headers: { 'x-board-token': TOKEN } };
+  if (body !== undefined) { opt.method = 'POST'; opt.headers['content-type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  const res = await fetch(path, opt);
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  return { status: res.status, ok: res.ok, data: data || {} };
+}
+
+let saidTimer = 0;
+function say(text, bad) {
+  const s = $('said');
+  s.textContent = text;
+  s.className = 'on' + (bad ? ' bad' : '');
+  clearTimeout(saidTimer);
+  saidTimer = setTimeout(() => { s.className = ''; }, bad ? 9000 : 3500);
+}
+
+/* ── markdown: escape everything first, then add a fixed set of tags ── */
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function inline(s) {
+  const codes = [];
+  s = s.replace(/`([^`\n]+)`/g, (m, c) => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  // Links. Written ones first, set aside so the bare-address pass below cannot link inside them.
+  const links = [];
+  const keep = (html) => { links.push(html); return '\u0001' + (links.length - 1) + '\u0001'; };
+  const a = (href, text) => '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + text + '</a>';
+  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, text, href) => keep(a(href, text)));
+  // A bare address becomes a link too. It ends at whitespace or full-width
+  // punctuation; trailing sentence punctuation is left outside the link.
+  s = s.replace(/https?:\/\/[^\s<>"'　-〿＀-￯]+/g, (url) => {
+    const tail = (/(?:&quot;|&gt;|[.,;:!?)\]}'])+$/.exec(url) || [''])[0];
+    const href = tail ? url.slice(0, -tail.length) : url;
+    return href.length > 10 ? keep(a(href, href)) + tail : url;
+  });
+  s = s.replace(/\u0001(\d+)\u0001/g, (m, i) => links[Number(i)]);
+  return s.replace(/\u0000(\d+)\u0000/g, (m, i) => '<code>' + codes[Number(i)] + '</code>');
+}
+function md(src) {
+  const parts = esc(String(src)).split(/^```[^\n]*$/m);
+  let html = '';
+  parts.forEach((part, idx) => {
+    if (idx % 2) { html += '<pre><code>' + part.replace(/^\n/, '').replace(/\n$/, '') + '</code></pre>'; return; }
+    const lines = part.split('\n');
+    let para = [], list = null;
+    const flushP = () => { if (para.length) { html += '<p>' + para.map(inline).join('<br>') + '</p>'; para = []; } };
+    const flushL = () => { if (list) { html += '<' + list.tag + '>' + list.items.map((i) => '<li>' + inline(i) + '</li>').join('') + '</' + list.tag + '>'; list = null; } };
+    const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      const h = /^(#{1,4})\s+(.*)$/.exec(l);
+      const ul = /^\s*[-*]\s+(.*)$/.exec(l);
+      const ol = /^\s*\d+[.)]\s+(.*)$/.exec(l);
+      if (/^\s*\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && lines[i + 1].includes('-')) {
+        flushP(); flushL();
+        let t = '<div class="tw"><table><thead><tr>' + cells(l).map((c) => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>';
+        i += 2;
+        for (; i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i]); i++) t += '<tr>' + cells(lines[i]).map((c) => '<td>' + inline(c) + '</td>').join('') + '</tr>';
+        i--;
+        html += t + '</tbody></table></div>';
+      } else if (h) { flushP(); flushL(); html += '<h' + (h[1].length + 1) + '>' + inline(h[2]) + '</h' + (h[1].length + 1) + '>'; }
+      else if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) { flushP(); flushL(); html += '<hr>'; }
+      else if (ul || ol) { flushP(); const tag = ul ? 'ul' : 'ol'; if (!list || list.tag !== tag) { flushL(); list = { tag, items: [] }; } list.items.push((ul || ol)[1]); }
+      else if (!l.trim()) { flushP(); flushL(); }
+      else { flushL(); para.push(l); }
+    }
+    flushP(); flushL();
+  });
+  return html;
+}
+
+/* ── state ── */
+let sessions = [];
+// Conversations opened on the board in which nothing has been sent yet. Not sessions yet: they are in no list
+// and no count - only the chat view of the one you are typing in knows them. Left without sending, they are closed.
+let unstarted = [];
+let listShape = '';
+let active = null;        // sessionId being viewed
+let view = 'home';        // home | new | chat
+let items = [];           // messages of the active session, as drawn
+let pending = new Map();  // requestId -> permission event
+let liveStatus = '';      // status of the active board conversation, from its stream
+let stream = null;
+let histShape = '';
+let histMore = false, histLoading = false, histReadyAt = 0;   // older items exist; a load of them is under way; when scrolling may start asking for them
+let histMax = 120, histLimit = 3000;   // how many items of the conversation are asked for; grows with "load earlier"
+let down = false;
+let confirming = false;   // the takeover confirmation is showing
+let homeShape = '';
+
+const cur = () => sessions.find((s) => s.sessionId === active) || unstarted.find((s) => s.sessionId === active) || null;
+
+/* ── sidebar ── */
+function drawList() {
+  $('warBtn').classList.toggle('active', view === 'war');
+  $('setBtn').classList.toggle('active', view === 'settings');
+  $('inboxBtn').classList.toggle('active', view === 'inbox');
+  $('pastBtn').classList.toggle('active', view === 'past');
+  const shape = JSON.stringify(sessions.map((s) => [s.sessionId, s.title, s.group, s.status, s.owner, s.cwd, s.kept, s.hidden, s.lastUser])) + active + showHidden;
+  if (shape !== listShape) {
+    listShape = shape;
+    const list = $('list');
+    const keep = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.sid : null;
+    list.textContent = '';
+    const groups = new Map();
+    const hiddenCount = sessions.filter((s) => s.hidden).length;
+    for (const s of sessions) { if (s.hidden && !showHidden && s.sessionId !== active) continue; const k = s.cwd || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(s); }
+    for (const [cwd, rows] of groups) {
+      const g = el('div', 'group');
+      const head = el('div', 'group-head');
+      const name = el('span', '', rows[0].folder || '(沒有資料夾)');
+      name.title = cwd;
+      head.append(name);
+      if (cwd) {
+        const add = el('button', '', '+');
+        add.type = 'button';
+        add.title = '在 ' + cwd + ' 開新對話';
+        add.setAttribute('aria-label', add.title);
+        add.addEventListener('click', () => createIn(cwd));
+        head.append(add);
+      }
+      g.append(head);
+      for (const s of rows) {
+        const b = el('button', 'item ' + s.group + (s.sessionId === active ? ' active' : ''));
+        b.type = 'button';
+        b.dataset.sid = s.sessionId;
+        const m = el('span', 'm');
+        m.dataset.since = s.since;
+        m.dataset.label = statusText(s) + (s.owner === 'terminal' ? (s.headless ? ' · 背景' : ' · 終端機') : '') + '';
+        b.append(el('span', 'dot ' + s.group), el('span', 't', s.title), m);
+        if (s.hidden) b.classList.add('hid');
+        // Only real terminal windows can be kept (the board says which: s.kept is true or false for those).
+        if (typeof s.kept === 'boolean') {
+          const pin = el('span', 'pin' + (s.kept ? ' on' : ''), '✓');
+          pin.setAttribute('role', 'checkbox'); pin.setAttribute('aria-checked', String(s.kept)); pin.tabIndex = 0;
+          pin.setAttribute('aria-label', '常駐：' + s.title);
+          pin.title = s.kept ? '常駐：關機或重開機後會開回來。按一下取消' : '不常駐：關機後不會開回來。按一下改成常駐';
+          const flip = async (e) => {
+            e.stopPropagation(); e.preventDefault();
+            const r = await api('/api/keep/set', { sessionId: s.sessionId, keep: !s.kept });
+            if (!r.ok) return say(r.data.error || '改不了', true);
+            s.kept = r.data.kept; listShape = ''; drawList(); if (view === 'chat' && active === s.sessionId) drawHead();
+          };
+          pin.addEventListener('click', flip);
+          pin.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') flip(e); });
+          b.append(pin);
+        }
+        if (s.lastUser) { const said = el('span', 'said', '你：' + s.lastUser); said.title = s.lastUser; b.append(said); }
+        b.addEventListener('click', () => openChat(s.sessionId));
+        g.append(b);
+      }
+      list.append(g);
+    }
+    if (!sessions.length) list.append(el('div', 'group-head', '還沒有任何 session'));
+    if (sessions.some((s) => typeof s.kept === 'boolean')) { const lg = el('div', 'hint', '右邊打勾的是常駐：關機後會開回來'); lg.style.padding = '8px 8px 0'; list.append(lg); }
+    if (hiddenCount) {
+      const more = el('button', 'list-more', showHidden ? '收起已隱藏的 ' + hiddenCount + ' 個' : '已隱藏 ' + hiddenCount + ' 個 · 顯示'); more.type = 'button';
+      more.addEventListener('click', () => { showHidden = !showHidden; drawList(); });
+      list.append(more);
+    }
+    if (keep) { const again = list.querySelector('[data-sid="' + CSS.escape(keep) + '"]'); if (again) again.focus(); }
+    const n = sessions.filter((s) => s.group === 'yours').length;
+    document.title = (n ? '(' + n + ') ' : '') + 'Session 看板';
+  }
+  const now = Date.now();
+  for (const m of document.querySelectorAll('#list .item .m')) m.textContent = m.dataset.label + ' · ' + ago(now - Number(m.dataset.since));
+}
+
+/* ── main: home ── */
+function drawHome() {
+  view = 'home'; active = null; closeStream(); setPlace('');
+  $('app').classList.remove('viewing');
+  const main = $('main');
+  main.textContent = '';
+  const pane = el('div', 'pane');
+  const yours = sessions.filter((s) => s.group === 'yours');
+  pane.append(el('h2', '', yours.length ? yours.length + ' 個 session 在等你' : '沒有 session 在等你'));
+  pane.append(el('p', 'lead', '從左邊選一個 session 看它的對話，或開一個新對話。'));
+  for (const s of yours) {
+    const b = el('button', 'choice');
+    b.type = 'button';
+    b.append(el('span', 'dot yours'), el('span', 't', s.title), el('span', 'p', s.folder));
+    b.addEventListener('click', () => openChat(s.sessionId));
+    pane.append(b);
+  }
+  drawKeep(pane);
+  drawPast(pane);
+  // Inside a scrolling block like every other page. Put straight into the main area (a flex column), the pane
+  // took the width of its longest line and pushed the page wider than the window once the lists had long
+  // titles in them, and a list longer than the window could not be scrolled (measured 2026-11-13: 936px in an 809px window).
+  const homeScroll = el('div', 'scroll'); homeScroll.style.scrollbarGutter = 'stable';
+  homeScroll.append(pane);
+  main.append(homeScroll);
+  listShape = '';
+  drawList();
+}
+
+/* ── main: old conversations ──
+   The same lists the first page has, on a page of their own with a fixed way in
+   from the sidebar: on a wide window nothing led back to the first page once a
+   session was open, so the lists could not be found (2026-11-13). */
+function drawPastPage() {
+  view = 'past'; active = null; closeStream(); setPlace('past');
+  const { pane } = inboxShell('舊對話', '沒開著的對話：找出來，在終端機或看板接著做', drawHome);
+  pane.append(el('p', 'lead', '「終端機」會開一個視窗用原本的啟動參數接續那個對話；「看板」則搬進這一頁接續。對話內容都還在。關機或重開機時被中斷的，會列在最上面「上次看板停止時還開著的」，那裡可以讓它自動接著做完。'));
+  drawKeep(pane);
+  drawPast(pane);
+}
+const redrawLists = () => { if (view === 'home') drawHome(); else if (view === 'past') drawPastPage(); };
+
+/* ── home: sessions to bring back ──
+   keep.restorable: terminal sessions that were open when the board last stopped
+   (a shutdown, a restart) and that you had not closed yourself.
+   keep.closed: ones you closed; not brought back, but one click away. */
+let showHidden = false;
+let keep = { restorable: [], closed: [], autoContinue: true };
+let keepContinue = null;   // the "pick up where it was cut off" tick; null = as the setting says
+const keepOff = new Set();   // unticked in the list
+const keepShape = () => keep.restorable.map((k) => k.sessionId).join() + '/' + keep.closed.map((k) => k.sessionId).join();
+async function loadKeep() {
+  try { const r = await api('/api/keep'); if (r.ok) keep = r.data; } catch (e) {}
+}
+const folderName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || '';
+async function bringBack(ids, to) {
+  if (!ids.length) return say('沒有勾選任何 session', true);
+  let r;
+  try { r = await api('/api/keep/restore', { sessionIds: ids, to, continue: keepContinue === null ? keep.autoContinue !== false : keepContinue }); } catch (e) { return say('看板程序沒有回應', true); }
+  if (!r.ok) return say(r.data.error || '開不回來', true);
+  const d = r.data, bad = d.failed.map((f) => (f.title || f.sessionId.slice(0, 8)) + '：' + f.error).join('；');
+  say((d.done.length ? '已' + (to === 'board' ? '搬進看板 ' : '開回終端機視窗 ') + d.done.length + ' 個' + (to === 'board' ? '' : '，幾秒後會出現在左邊') + ((d.continued || []).length ? '；其中 ' + d.continued.length + ' 個做到一半的已請它接著做' : '') : '') + (bad ? (d.done.length ? '。' : '') + '沒開成的：' + bad : ''), !d.done.length);
+  await loadKeep(); await poll(); redrawLists();
+}
+/* ── home: conversations that are not open now ──
+   The last 30 days, newest first. The search looks at the title, the folder,
+   and the first and latest thing you said - not at the whole conversation. */
+let pastQ = '', pastTimer = 0, pastSeq = 0;
+const pastOpen = new Set(), pastAll = new Set();   // folders whose block is open; folders shown in full
+const PAST_PER_FOLDER = 6;
+async function openPast(d, to) {
+  let r;
+  try { r = await api('/api/past/open', { sessionId: d.sessionId, to }); } catch (e) { return say('看板程序沒有回應', true); }
+  if (!r.ok) return say(r.data.error || '開不了', true);
+  say(to === 'board' ? '已搬進看板' : '已在新的終端機視窗接續「' + (d.title || d.folder) + '」，幾秒後會出現在左邊');
+  await poll();
+  if (to === 'board') openChat(d.sessionId); else fillPast();
+}
+function pastRow(x) {
+  const row = el('div', 'past');
+  const acts = el('div', 'acts');
+  const mk = (label, tip, fn) => { const b = el('button', 'btn', label); b.type = 'button'; b.title = tip; b.addEventListener('click', async () => { b.disabled = true; await fn(); b.disabled = false; }); acts.append(b); };
+  mk('終端機', '開一個終端機視窗接續這個對話', () => openPast(x, 'terminal'));
+  mk('看板', '搬進看板，在這一頁接續', () => openPast(x, 'board'));
+  mk('隱藏', '從這份清單拿掉（對話紀錄不會刪）', async () => { await api('/api/hide', { sessionId: x.sessionId, hidden: true }); fillPast(); });
+  row.append(el('div', 't', x.title || '(沒有標題)'), acts, el('div', 'p', when(x.at) + (x.last ? ' · 你：' + x.last : '')));
+  row.title = x.cwd + (x.last ? '\n你最後說：' + x.last : '');
+  return row;
+}
+async function fillPast() {
+  const box = $('pastRows');
+  if (!box) return;
+  const seq = ++pastSeq;
+  let r;
+  try { r = await api('/api/past?q=' + encodeURIComponent(pastQ)); } catch (e) { r = { ok: false }; }
+  if (seq !== pastSeq || !$('pastRows')) return;   // a newer search has been sent meanwhile
+  box.textContent = '';
+  if (!r.ok) { box.append(el('div', 'hint', '讀不到，看板程序沒有回應。')); return; }
+  const d = r.data;
+  if ($('pastSub')) $('pastSub').textContent = '最近 ' + d.days + ' 天有 ' + d.total + ' 個沒開著的';
+  // By folder: the folder a conversation ran in is how one is told from another. Folders with the latest activity first.
+  const groups = new Map();
+  for (const x of d.items) { const k = x.cwd || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+  $('pastNote').textContent = (pastQ ? '符合「' + pastQ + '」的有 ' + d.matched + ' 個' : '最近 ' + d.days + ' 天共 ' + d.items.length + ' 個') + '，在 ' + groups.size + ' 個資料夾。按資料夾名稱展開。搜尋比對標題、資料夾、你說的第一句與最後一句。';
+  const one = groups.size === 1;
+  for (const [cwd, list] of groups) {
+    const g = el('details', 'pgroup');
+    g.open = one || !!pastQ || pastOpen.has(cwd);
+    g.addEventListener('toggle', () => { if (g.open) pastOpen.add(cwd); else pastOpen.delete(cwd); });
+    const sum = el('summary');
+    const pth = el('span', 'pg-path', '\u200e' + cwd); pth.title = cwd;
+    sum.append(el('span', 'pg-name', list[0].folder || '(沒有資料夾)'), el('span', 'pg-n', list.length + ' 個'), pth, el('span', 'pg-when', '最近 ' + when(list[0].at)));
+    const rows = el('div', 'pg-rows');
+    g.append(sum, rows);
+    const shown = pastQ || pastAll.has(cwd) ? list : list.slice(0, PAST_PER_FOLDER);
+    for (const x of shown) rows.append(pastRow(x));
+    if (shown.length < list.length) {
+      const more = el('button', 'list-more', '這個資料夾還有 ' + (list.length - shown.length) + ' 個 · 全部顯示'); more.type = 'button';
+      more.addEventListener('click', () => { pastAll.add(cwd); fillPast(); });
+      rows.append(more);
+    }
+    box.append(g);
+  }
+  if (!d.items.length) box.append(el('div', 'hint', pastQ ? '沒有符合的對話。' : '沒有其他對話。'));
+  if (d.hidden) {
+    const back = el('button', 'list-more', '有 ' + d.hidden + ' 個對話被你隱藏了 · 全部顯示回來'); back.type = 'button';
+    back.addEventListener('click', async () => { await api('/api/hide', { clear: true }); await poll(); fillPast(); });
+    box.append(back);
+  }
+}
+function drawPast(pane) {
+  pane.append(el('h3', '', '沒開著的對話'));
+  const row = el('div', 'pathrow');
+  const input = el('input'); input.type = 'search'; input.value = pastQ; input.placeholder = '搜尋舊對話：標題、資料夾、你說過的話'; input.setAttribute('aria-label', '搜尋舊對話'); input.style.fontFamily = 'inherit';
+  input.addEventListener('input', () => { pastQ = input.value.trim(); clearTimeout(pastTimer); pastTimer = setTimeout(fillPast, 300); });
+  row.append(input);
+  const note = el('div', 'hint'); note.id = 'pastNote';
+  const rows = el('div'); rows.id = 'pastRows'; rows.style.marginTop = '8px';
+  pane.append(row, note, rows);
+  setTimeout(fillPast, 0);   // after the caller has put the pane on the page: fillPast finds its place by id
+}
+
+function drawKeep(pane) {
+  if (keep.restorable.length) {
+    pane.append(el('h3', '', '上次看板停止時還開著的終端機 session（' + keep.restorable.length + ' 個）'));
+    const cut = keep.restorable.filter((k) => k.interrupted).length;
+    pane.append(el('div', 'hint', '關機或重開機前還開著、而且不是你自己關掉的終端機 session。勾選要還原的，會各開回一個終端機視窗，對話從原本的地方接續。' + (cut ? '其中 ' + cut + ' 個標「做到一半」的是工作進行中被中斷的。' : '')));
+    for (const k of keep.restorable) {
+      const row = el('label', 'choice');
+      const cb = el('input'); cb.type = 'checkbox'; cb.checked = !keepOff.has(k.sessionId);
+      cb.addEventListener('change', () => { if (cb.checked) keepOff.delete(k.sessionId); else keepOff.add(k.sessionId); });
+      row.append(cb, el('span', 't', k.title || 'session ' + k.sessionId.slice(0, 8)), el('span', 'p', (k.interrupted ? '做到一半 · ' : '') + folderName(k.cwd) + ' · 最後開著 ' + when(k.lastSeen)));
+      row.title = k.cwd + '\n啟動指令：' + k.command;
+      pane.append(row);
+    }
+    const picked = () => keep.restorable.map((k) => k.sessionId).filter((id) => !keepOff.has(id));
+    const bar = el('div', 'keepbar');
+    const mk = (label, cls, fn) => { const b = el('button', 'btn' + (cls ? ' ' + cls : ''), label); b.type = 'button'; b.addEventListener('click', async () => { b.disabled = true; await fn(); b.disabled = false; }); bar.append(b); return b; };
+    // Restoring puts a session back where it was: these were terminal windows, so they come back as terminal windows.
+    // (A conversation on the board is not in this list at all: it stays on the board across a restart by itself.)
+    mk('還原', 'primary', () => bringBack(picked(), 'terminal')).title = '每個 session 開回一個終端機視窗，用它原本的啟動參數';
+    mk('不用了', '', async () => {
+      const ids = picked(); if (!ids.length) return say('沒有勾選任何 session', true);
+      await api('/api/keep/forget', { sessionIds: ids }); await loadKeep(); redrawLists();
+      say('已從清單移除 ' + ids.length + ' 個。對話紀錄還在，要用時在終端機輸入 claude --resume');
+    }).title = '把勾選的從這份清單移除';
+    if (cut) {
+      const lab = el('label', 'hint'); lab.style.display = 'flex'; lab.style.gap = '8px'; lab.style.alignItems = 'center'; lab.style.cursor = 'pointer';
+      const c2 = el('input'); c2.type = 'checkbox'; c2.checked = keepContinue === null ? keep.autoContinue !== false : keepContinue;
+      c2.addEventListener('change', () => { keepContinue = c2.checked; });
+      lab.append(c2, '做到一半的，開回來後自動請它接著做完（會送一句話給它，等於你回來說「繼續」）');
+      bar.append(lab);
+    }
+    pane.append(bar);
+  }
+  if (keep.closed.length) {
+    pane.append(el('h3', '', '你最近關掉的（不會自動開回來）'));
+    for (const k of keep.closed) {
+      const row = el('div', 'choice');
+      const again = el('button', 'btn', '重新開啟'); again.type = 'button';
+      again.addEventListener('click', async () => { again.disabled = true; await bringBack([k.sessionId], 'terminal'); });
+      row.append(el('span', 't', k.title || 'session ' + k.sessionId.slice(0, 8)), el('span', 'p', folderName(k.cwd) + ' · ' + when(k.closedAt) + ' 關掉'), again);
+      row.title = k.cwd;
+      pane.append(row);
+    }
+  }
+}
+
+/* ── main: new conversation ── */
+function drawNew() {
+  view = 'new'; active = null; closeStream(); setPlace('');
+  $('app').classList.add('viewing');
+  const main = $('main');
+  main.textContent = '';
+  const head = el('div', 'head');
+  const back = el('button', 'btn back', '←'); back.type = 'button'; back.addEventListener('click', drawHome);
+  const who = el('div', 'who'); who.append(el('div', 't', '新對話'), el('div', 's', '選一個資料夾，Claude 會在那裡工作'));
+  head.append(back, who);
+  const scroll = el('div', 'scroll');
+  const pane = el('div', 'pane');
+  pane.style.paddingTop = '28px';
+  const pick = el('button', 'btn primary', '選擇資料夾…'); pick.type = 'button';
+  const bad = el('div', 'bad');
+  pick.addEventListener('click', async () => {
+    pick.disabled = true; pick.textContent = '請在跳出的視窗裡選…';
+    try {
+      const r = await api('/api/pick-folder', {});
+      if (r.data.path) await createIn(r.data.path, bad);
+    } catch (e) { bad.textContent = '看板程序沒有回應。'; }
+    pick.disabled = false; pick.textContent = '選擇資料夾…';
+  });
+  pane.append(pick);
+  const row = el('div', 'pathrow');
+  const input = el('input'); input.type = 'text'; input.placeholder = '或貼上資料夾的完整路徑，例如 C:\\work\\myproject'; input.setAttribute('aria-label', '資料夾路徑');
+  const go = el('button', 'btn', '開始'); go.type = 'button';
+  const start = () => { if (input.value.trim()) createIn(input.value.trim(), bad); };
+  go.addEventListener('click', start);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') start(); });
+  row.append(input, go);
+  pane.append(row, bad);
+  const folders = [...new Map(sessions.filter((s) => s.cwd).map((s) => [s.cwd, s.folder])).entries()];
+  if (folders.length) pane.append(el('h3', '', '用過的資料夾'));
+  for (const [cwd, folder] of folders) {
+    const b = el('button', 'choice'); b.type = 'button';
+    b.append(el('span', 't', folder), el('span', 'p', cwd));
+    b.addEventListener('click', () => createIn(cwd, bad));
+    pane.append(b);
+  }
+  scroll.append(pane);
+  main.append(head, scroll);
+  listShape = '';
+  drawList();
+}
+
+async function createIn(cwd, badEl) {
+  const r = await api('/api/new', { cwd });
+  if (!r.ok) { const msg = r.data.error || '開不了新對話'; if (badEl) badEl.textContent = msg; else say(msg, true); return; }
+  await poll();
+  openChat(r.data.sessionId);
+}
+
+/* ── main: inbox ──
+   Messages fetched from Gmail, Slack and Teams, as threads. A thread is "new"
+   until it has a folder (given by a route, or by hand), then "routed", then
+   "done" when you close it. The board fetches and sorts; replying is not done here. */
+let inboxCar = 0;   // which source card the carousel stands on
+let inboxPage = 'msgs';   // msgs | routes | settings: which of the inbox's three pages is showing
+let inboxPick = { id: null, set: new Set() };   // the messages ticked in the thread being looked at
+let inboxShape = '';   // what the part above the rows was drawn from
+let inboxCounts = null, inboxTab = 'valid', inboxSource = '', inboxQ = '', inboxOpen = null, inboxData = null, inboxTimer = 0;
+const SRC_NAME = { gmail: 'Gmail', slack: 'Slack', teams: 'Teams' };
+function inboxShell(title, sub, onBack) {
+  $('app').classList.add('viewing');
+  const main = $('main'); main.textContent = '';
+  const head = el('div', 'head');
+  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '返回'); back.addEventListener('click', onBack);
+  const who = el('div', 'who'); who.append(el('div', 't', title), el('div', 's', sub));
+  head.append(back, who);
+  const scroll = el('div', 'scroll');
+  /* Room for the scrollbar is kept whether or not there is one: the inbox's pages differ in length, and without this the content got 15px wider and moved sideways on every switch to a short page (measured 2026-11-13: 512.7px with the bar, 528px without). */
+  scroll.style.scrollbarGutter = 'stable';
+  const pane = el('div', 'pane'); pane.style.paddingTop = '24px'; pane.style.maxWidth = '820px';
+  scroll.append(pane); main.append(head, scroll);
+  listShape = ''; drawList();
+  return { head, pane };
+}
+function drawInbox() {
+  view = 'inbox'; active = null; inboxOpen = null; closeStream(); setPlace('inbox');
+  const { head, pane } = inboxShell('收件', 'Gmail、Slack、Teams 收到的訊息，分派到資料夾', drawHome);
+  const fetchBtn = el('button', 'btn primary', '現在抓取'); fetchBtn.type = 'button'; fetchBtn.id = 'inboxFetch';
+  fetchBtn.addEventListener('click', async () => {
+    fetchBtn.disabled = true; fetchBtn.textContent = '抓取中…';
+    let r; try { r = await api('/api/inbox/poll', {}); } catch (e) { r = { ok: false, data: {} }; }
+    fetchBtn.disabled = false; fetchBtn.textContent = '現在抓取';
+    if (!r.ok) return say('抓取沒有完成，看板程序沒有回應', true);
+    const parts = (r.data.results || []).map((x) => SRC_NAME[x.source] + '：' + (x.error ? '失敗（' + x.error + '）' : x.skipped ? '略過（' + x.reason + '）' : '新增 ' + x.ingested + ' 則'));
+    const tg = r.data.triage;
+    if (tg) parts.push(tg.error && !tg.done ? '判讀失敗（' + tg.error + '）' : tg.done ? '判讀 ' + tg.done + ' 串：有效 ' + ((tg.byCategory.todo || 0) + (tg.byCategory.question || 0)) + '、無效 ' + ((tg.byCategory.fyi || 0) + (tg.byCategory.noise || 0)) + (tg.left ? '，還有 ' + tg.left + ' 串下次判讀' : '') : '沒有新的要判讀');
+    say(parts.join('；'), (r.data.results || []).some((x) => x.error));
+    await fillInbox(); poll();
+  });
+  head.append(fetchBtn);
+  const box = el('div'); box.id = 'inboxBox'; pane.append(box);
+  fillInbox();
+}
+async function fillInbox() {
+  const box = $('inboxBox'); if (!box) return;
+  const params = new URLSearchParams(); if (inboxTab === 'done') params.set('status', 'done'); else { params.set('open', '1'); params.set('triage', inboxTab); } if (inboxSource) params.set('source', inboxSource); if (inboxQ) params.set('q', inboxQ);
+  let r; try { r = await api('/api/inbox?' + params); } catch (e) { r = { ok: false }; }
+  if (!$('inboxBox') || view !== 'inbox' || inboxOpen) return;
+  if (!r.ok || !r.data.status) { box.textContent = ''; box.append(el('p', 'lead', '讀不到收件資料，看板程序沒有回應。')); return; }
+  inboxData = r.data;
+  const typing = document.activeElement && box.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName);
+  // Rebuilt only when something shown above the rows has changed: rebuilding it
+  // on every refresh would take away the box you are typing in, and would put
+  // the carousel back where it stood while you are moving it.
+  const shape = JSON.stringify([r.data.status.gmail, r.data.status.slack, r.data.status.teams, r.data.status.settings, r.data.status.last && r.data.status.last.at, r.data.status.counts, r.data.routes, inboxTab, inboxSource, inboxPage]);
+  if (box.firstChild && (typing || shape === inboxShape)) return drawThreadRows();
+  inboxShape = shape;
+  box.textContent = '';
+  const st = r.data.status;
+  // Three pages, by tabs at the top, so that routes and settings are not found only by scrolling past every message.
+  const ptabs = el('div', 'ptabs'); ptabs.setAttribute('role', 'tablist');
+  for (const [key, label, n] of [['msgs', '訊息', st.counts.valid], ['routes', '路由', (r.data.routes || []).length], ['settings', '抓取設定', null]]) {
+    const b = el('button', inboxPage === key ? 'on' : '', label); b.type = 'button'; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(inboxPage === key));
+    if (n != null) b.append(el('small', '', String(n)));
+    b.addEventListener('click', () => { inboxPage = key; fillInbox(); });
+    ptabs.append(b);
+  }
+  box.append(ptabs);
+  const ms = el('div'); ms.hidden = inboxPage !== 'msgs'; box.append(ms);
+  // sources
+  const srcs = el('div', 'srcs');
+  const card = (name, on, text, bad) => { const key = name.toLowerCase(); const c = el('button', 'src' + (on ? '' : ' off') + (bad ? ' alarm' : '') + (inboxSource === key ? ' sel' : '')); /* 'alarm', not 'bad': .bad is the page's error line, with its own margin and size */ c.type = 'button'; const sp = el('span', '', text); sp.title = text; const n = st.counts.bySource[key] || 0; c.append(el('b', '', name + (on ? '' : '　未啟用') + (n ? '　' + n + ' 串' : '')), sp); c.setAttribute('aria-label', name); c.setAttribute('aria-pressed', String(inboxSource === key)); c.title = inboxSource === key ? '現在只列 ' + name + ' 的訊息。再按一次列出全部來源' : '按一下，下面只列 ' + name + ' 的訊息'; c.addEventListener('click', () => { inboxSource = inboxSource === key ? '' : key; fillInbox(); }); srcs.append(c); return c; };
+  const last = (st.last && st.last.results) || [];
+  const res = (s) => { const x = last.find((y) => y.source === s); return x ? (x.error ? '上次失敗：' + x.error : x.skipped ? x.reason : '上次新增 ' + x.ingested + ' 則') : ''; };
+  const g = st.gmail;
+  const gc = card('Gmail', g.configured && !g.needsReauth, g.needsReauth ? '授權已失效，要重新連接才抓得到信' : !g.hasClient ? '要先放一個 Google 的 OAuth 用戶端檔，才能連接（按「連接 Gmail」看放哪裡）' : !g.configured ? '還沒有連接' : (g.account ? g.account + ' · ' : '') + (g.label ? '只抓標籤「' + g.label + '」' : '所有收到的信') + '，最近 ' + g.days + ' 天' + (res('gmail') ? ' · ' + res('gmail') : ''), g.needsReauth);
+  // Not a button inside a button (the card is one): a link-like control that keeps its own click.
+  const conn = el('span', 'btn', g.needsReauth || !g.configured ? '連接 Gmail' : '重新連接'); conn.setAttribute('role', 'button'); conn.tabIndex = 0;
+  conn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); conn.click(); } });
+  conn.title = '開 Google 的登入頁，授權看板「唯讀」讀取信件。授權只存在這台電腦';
+  conn.addEventListener('click', async (e) => {
+    e.stopPropagation();   // the card under it is the source filter
+    const x = await api('/api/inbox/gmail/connect', {});
+    if (!x.ok) return say(x.data.error || '開不了登入頁', true);
+    window.open(x.data.url, '_blank', 'noopener');
+    say('已開啟 Google 的登入頁。完成後回到這裡，會自動開始抓信');
+  });
+  gc.append(conn);
+  card('Slack', st.slack.configured && st.slack.routes > 0, !st.slack.configured ? '還沒有設定權杖（下面「抓取設定」）' : !st.slack.routes ? '還沒有任何 Slack 路由（要抓哪個頻道）' : st.slack.routes + ' 個頻道' + (res('slack') ? ' · ' + res('slack') : ''));
+  card('Teams', st.teams.configured, !st.teams.configured ? '這台電腦沒有 Teams 桌面版（個人帳戶）的本機資料' : '讀這台電腦上 Teams 桌面版的紀錄' + (st.teams.selfKnown ? '' : ' · 沒設定你自己的編號，你說的話會被當成對方說的') + (res('teams') ? ' · ' + res('teams') : ''));
+  // carousel: arrows move one card, dots jump to a card; where it stood is kept across the periodic redraw
+  const car = el('div', 'car'), dots = el('div', 'dots');
+  const prev = el('button', 'arrow', '‹'), next = el('button', 'arrow', '›');
+  prev.type = next.type = 'button'; prev.setAttribute('aria-label', '上一個來源'); next.setAttribute('aria-label', '下一個來源');
+  const cards = [...srcs.children];
+  const step = () => (cards[1] ? cards[1].offsetLeft - cards[0].offsetLeft : srcs.clientWidth);
+  const at = () => Math.round(srcs.scrollLeft / (step() || 1));
+  const sync = () => {
+    inboxCar = at();
+    prev.disabled = srcs.scrollLeft <= 1;
+    next.disabled = srcs.scrollLeft + srcs.clientWidth >= srcs.scrollWidth - 1;
+    [...dots.children].forEach((d, i) => d.classList.toggle('on', i === inboxCar));
+  };
+  /* Set outright, not animated: a smooth scroll took 1.5 s to arrive in one browser (measured 2026-11-13), and a button that answers late reads as broken. */ const go = (i) => { srcs.scrollLeft = Math.max(0, i) * step(); sync(); };
+  prev.addEventListener('click', () => go(at() - 1));
+  next.addEventListener('click', () => go(at() + 1));
+  /* One dot per place the carousel can stand, not per card: with two cards in view, three cards have two places. Made once the cards have their size. */ const mkDots = () => { dots.textContent = ''; car.classList.remove('fits'); let places = Math.max(1, Math.round((srcs.scrollWidth - srcs.clientWidth) / (step() || 1)) + 1); if (places === 1) { car.classList.add('fits'); places = Math.max(1, Math.round((srcs.scrollWidth - srcs.clientWidth) / (step() || 1)) + 1); if (places > 1) car.classList.remove('fits'); } for (let i = 0; i < places && places > 1; i++) { const d = el('button'); d.type = 'button'; d.setAttribute('aria-label', '第 ' + (i + 1) + ' 頁，共 ' + places + ' 頁'); d.addEventListener('click', () => go(i)); dots.append(d); } };
+  srcs.addEventListener('scroll', sync, { passive: true });
+  car.append(prev, srcs, next);
+  ms.append(car, dots);
+  setTimeout(() => { mkDots(); srcs.scrollLeft = inboxCar * step(); sync(); }, 0);
+  /* The window changing width changes how many cards are in view, and so how many places there are. */
+  if (window.ResizeObserver) new ResizeObserver(() => { if (srcs.isConnected) { mkDots(); sync(); } }).observe(srcs);
+  ms.append(el('div', 'hint', (inboxSource ? '只列 ' + SRC_NAME[inboxSource] + ' 的訊息（再按一次那張卡片列出全部）　·　' : '按上面的卡片可以只看那個來源　·　') + (st.settings.pollMinutes ? '每 ' + st.settings.pollMinutes + ' 分鐘自動抓一次' : '不會自動抓，要按「現在抓取」') + (st.last ? '　·　上次抓取 ' + when(st.last.at) : '　·　看板啟動後還沒抓過')
+    + (!st.settings.triage ? '　·　自動判讀已關閉' : st.last && st.last.triage ? (st.last.triage.error ? '　·　判讀失敗：' + st.last.triage.error : st.last.triage.done ? '　·　剛判讀 ' + st.last.triage.done + ' 串' : '') : '')));
+  // filters
+  const tabs = el('div', 'tabs');
+  const c = st.counts;
+  const tab = (key, label) => { const b = el('button', 'btn' + (inboxTab === key ? ' on' : ''), label); b.type = 'button'; b.addEventListener('click', () => { inboxTab = key; fillInbox(); }); tabs.append(b); };
+  // Valid = yours to handle (someone wants you to do, decide or answer something). Judged right after each fetch.
+  tab('valid', '有效 ' + c.valid); tab('invalid', '無效 ' + c.invalid);
+  if (c.pending || inboxTab === 'pending') tab('pending', '還沒判讀 ' + c.pending);
+  tab('done', '已完成 ' + c.done);
+  const find = el('input'); find.type = 'search'; find.value = inboxQ; find.placeholder = '搜尋主旨、對方、內容'; find.setAttribute('aria-label', '搜尋收件');
+  find.addEventListener('input', () => { inboxQ = find.value.trim(); clearTimeout(inboxTimer); inboxTimer = setTimeout(fillInbox, 300); });
+  tabs.append(find);
+  ms.append(tabs);
+  const rows = el('div'); rows.id = 'thrRows'; ms.append(rows);
+  drawThreadRows();
+  // routes
+  const rb = el('div'); rb.hidden = inboxPage !== 'routes';
+  rb.append(el('p', 'lead', '路由決定哪個來源的訊息自動分派到哪個資料夾。新抓進來的訊息才會比對；已經抓進來的不會回頭重新分派。'));
+  rb.append(el('div', 'hint', '比對值：Gmail 填標籤名稱（信全部都會抓，帶這個標籤的自動分派）、Slack 填頻道編號（例如 C0123ABCD，機器人要先加入那個頻道）、Teams 填對話編號（Teams 會抓所有對話，路由只決定分派）。'));
+  if ((r.data.routes || []).length) {
+    const tb = el('table', 'rtable'); const hr = el('tr'); for (const h of ['來源', '比對值', '客戶', '系統', '資料夾', '']) hr.append(el('th', '', h)); tb.append(hr);
+    for (const x of r.data.routes) {
+      const tr = el('tr'); for (const v of [SRC_NAME[x.source], x.source_ref, x.customer || '', x.system || '', x.root_folder || '（不分派）']) tr.append(el('td', '', v));
+      const del = el('button', 'btn', '刪除'); del.type = 'button'; del.addEventListener('click', async () => { await api('/api/inbox/route/delete', { routeId: x.id }); fillInbox(); });
+      const td = el('td'); td.append(del); tr.append(td); tb.append(tr);
+    }
+    rb.append(tb);
+  }
+  const rf = el('div', 'form'); const fields = {};
+  const fsel = el('select'); for (const s of ['gmail', 'slack', 'teams']) { const o = el('option', '', SRC_NAME[s]); o.value = s; fsel.append(o); } fields.source = fsel;
+  rf.append(el('label', '', '來源'), fsel);
+  for (const [k, label, ph] of [['source_ref', '比對值', '標籤名稱／頻道編號／對話編號'], ['customer', '客戶', '可不填'], ['system', '系統', '可不填'], ['root_folder', '分派到資料夾', '完整路徑，例如 C:\\work\\myproject；不填就只標記不分派']]) { const i = el('input'); i.type = 'text'; i.placeholder = ph; fields[k] = i; if (k === 'root_folder') { const w = el('div', 'pathrow'); w.style.marginTop = '0'; i.style.flex = '1'; w.append(i, folderButton(i)); rf.append(el('label', '', label), w); } else rf.append(el('label', '', label), i); }
+  const addR = el('button', 'btn primary', '加入路由'); addR.type = 'button';
+  addR.addEventListener('click', async () => {
+    const body = {}; for (const k of Object.keys(fields)) body[k] = fields[k].value;
+    const x = await api('/api/inbox/route', body);
+    if (!x.ok) return say(x.data.error || '加不進去', true);
+    say('已加入。下次抓取時生效；已經抓進來的訊息不會回頭重新分派'); for (const k of Object.keys(fields)) if (k !== 'source') fields[k].value = ''; fillInbox();
+  });
+  rf.append(el('span'), addR); rb.append(rf);
+  if (!(r.data.routes || []).length) rb.insertBefore(el('div', 'hint', '還沒有任何路由。'), rb.children[2] || null);
+  box.append(rb);
+  // settings
+  const sb = el('div'); sb.hidden = inboxPage !== 'settings';
+  sb.append(el('p', 'lead', '多久抓一次、往回抓幾天，以及各來源需要的帳號資訊。'));
+  const sf = el('div', 'form'); const sv = {};
+  for (const [k, label, ph, type] of [['me', '你的信箱與名字', '用逗號分開，例如 me@example.com, Ming Wang, 王小明（Gmail 帳號本身會自動算進去）', 'text'], ['pollMinutes', '每幾分鐘抓一次', '0 表示不自動抓', 'number'], ['gmailLabel', 'Gmail 只抓這個標籤', '留空＝所有收到的信都抓', 'text'], ['gmailDays', 'Gmail 往回幾天', '', 'number'],
+    ['teamsSelfId', '你的 Teams 編號', '用來分辨哪些話是你說的', 'text'], ['teamsDays', 'Teams 往回幾天', '', 'number'], ['slackToken', 'Slack 機器人權杖', st.settings.slackToken || 'xoxb-…', 'password'], ['slackSelfId', '你的 Slack 編號', '例如 U0123ABCD', 'text']]) {
+    const i = el('input'); i.type = type; i.placeholder = ph; if (k !== 'slackToken') i.value = st.settings[k]; i.autocomplete = 'off'; sv[k] = i; sf.append(el('label', '', label), i);
+  }
+  const saveS = el('button', 'btn primary', '儲存'); saveS.type = 'button';
+  saveS.addEventListener('click', async () => {
+    const body = { triage: $('inboxTriage').checked }; for (const k of Object.keys(sv)) if (k !== 'slackToken' || sv[k].value) body[k] = sv[k].type === 'number' ? Number(sv[k].value) : sv[k].value;
+    const x = await api('/api/inbox/settings', body);
+    if (!x.ok) return say(x.data.error || '存不進去', true);
+    sv.slackToken.value = ''; say('已儲存'); fillInbox();
+  });
+  const tg = el('input'); tg.type = 'checkbox'; tg.checked = st.settings.triage !== false; tg.style.justifySelf = 'start'; tg.style.width = '16px'; tg.style.height = '16px'; tg.id = 'inboxTriage';
+  const tgl = el('label', '', '收件後自動判讀'); tgl.htmlFor = 'inboxTriage'; tgl.title = '每次抓取後，用小模型判斷新進來的訊息是不是要你處理。會用到一點額度（實測 12 串約 $0.008）';
+  sf.append(tgl, tg);
+  sf.append(el('span'), saveS); sb.append(sf);
+  sb.append(el('div', 'hint', '判讀時認定是你本人的：' + ((st.identities || []).join('、') || '（還沒有。連上 Gmail 後會自動有那個帳號）') + '。由這些寄出或署名的內容算你自己寫的，出現在別人來信的引文裡也不會被當成你的待辦。改了之後，提到你的訊息串會重新判讀一次。'));
+  sb.append(el('div', 'hint', '這些設定與 Slack 權杖存在這台電腦上看板的資料庫裡，不會傳到別的地方。'));
+  box.append(sb);
+}
+function drawThreadRows() {
+  const rows = $('thrRows'); if (!rows || !inboxData) return;
+  rows.textContent = '';
+  const KIND = { todo: '要你做', question: '等你回', fyi: '知會', noise: '雜訊' };
+  const list = inboxData.threads.filter((t) => inboxTab === 'done' ? t.status === 'done' : t.status !== 'done');
+  for (const t of list) {
+    const b = el('button', 'thr' + (t.unread ? ' unread' : '')); b.type = 'button';
+    const tt = el('span', 't');
+    // Is it yours, and how sure: "是 92%" / "不是 80%". The kind (what sort of thing it is) follows in the tooltip and the thread.
+    if (t.triage) {
+      const yes = t.triage === 'todo' || t.triage === 'question';
+      const k = el('span', 'kind ' + t.triage, (yes ? '是' : '不是') + (t.triage_conf != null ? ' ' + t.triage_conf + '%' : ''));
+      k.title = (yes ? '是你該處理的' : '不是你該處理的') + '（' + (KIND[t.triage] || t.triage) + '）' + (t.triage_conf != null ? '，' + t.triage_conf + '% 把握' : '');
+      if (t.triage_conf != null && t.triage_conf < 70) k.classList.add('unsure');
+      tt.append(k);
+    }
+    tt.append(t.triage_title || t.subject || t.sender || '(沒有主旨)');
+    b.append(el('span', 'tag', SRC_NAME[t.source]), tt, el('span', 'w', when(t.last_activity)));
+    if (t.triage_summary) { const s = el('span', 'sum', t.triage_summary); s.title = t.triage_summary; b.append(s); }
+    b.append(
+      el('span', 'p', (t.root_folder ? '→ ' + folderName(t.root_folder) : '待分派') + (t.customer ? ' · ' + t.customer + (t.system ? '／' + t.system : '') : '') + ' · ' + (t.sender || '') + ' · ' + t.messages + ' 則 · ' + (t.latest || '').replace(/\s+/g, ' ')));
+    b.title = (t.subject || '') + '\n' + (t.sender || '') + (t.triage_summary ? '\n判讀：' + t.triage_summary : '');
+    b.addEventListener('click', () => drawThread(t.thread_id));
+    rows.append(b);
+  }
+  if (!list.length) rows.append(el('div', 'hint', inboxQ || inboxSource ? '沒有符合的訊息。' : inboxTab === 'done' ? '還沒有標成完成的。' : inboxTab === 'valid' ? '目前沒有要你處理的訊息。' : inboxTab === 'pending' ? '都判讀過了。' : '沒有被判成無效的訊息。'));
+}
+async function drawThread(id) {
+  view = 'inbox'; inboxOpen = id;
+  let r; try { r = await api('/api/inbox/thread?id=' + encodeURIComponent(id)); } catch (e) { r = { ok: false }; }
+  if (inboxOpen !== id) return;
+  if (!r.ok) { say('讀不到這串訊息', true); return drawInbox(); }
+  const t = r.data;
+  const { head, pane } = inboxShell(t.subject || t.sender || '(沒有主旨)', SRC_NAME[t.source] + ' · ' + (t.sender || '') + ' · ' + t.items.length + ' 則 · ' + ({ new: '待分派', routed: '已分派', done: '已完成' }[t.status] || t.status), drawInbox);
+  const toList = el('button', 'btn', '← 收件'); toList.type = 'button'; toList.title = '回到收件清單'; toList.addEventListener('click', drawInbox);
+  const doneBtn = el('button', 'btn', t.status === 'done' ? '重新開啟' : '標成完成'); doneBtn.type = 'button';
+  doneBtn.addEventListener('click', async () => { await api('/api/inbox/done', { id, done: t.status !== 'done' }); say(t.status === 'done' ? '已重新開啟' : '已標成完成。對方再傳新訊息時會自己回到未完成'); poll(); drawInbox(); });
+  // The thread's header, in rows: what you can do with it, then what is known about it. The folder is a property:
+  // click it, choose, and the thread is dispatched there - there is no form to fill in and no button to confirm.
+  const row = el('div', 'tbar th');
+  // What is carried over: a mail thread whole (with Gmail's ids), a chat thread only the messages ticked below.
+  const mail = t.source === 'gmail';
+  /* Kept while you stay on this thread: dispatching redraws the page, and the ticks must survive that. */
+  if (inboxPick.id !== id) inboxPick = { id, set: new Set() };
+  const picked = inboxPick.set;
+  const ids = () => t.items.filter((m) => picked.has(m.id)).map((m) => m.id);
+  const open = el('button', 'btn primary'); open.type = 'button';
+  const copy = el('button', 'btn'); copy.type = 'button';
+  const count = el('span', 'count');
+  const assign = async (folder) => {
+    const x = await api('/api/inbox/assign', { id, folder });
+    if (!x.ok || !x.data.ok) return say((x.data && x.data.error) || '沒有分派成功', true);
+    say(folder ? '已分派到 ' + folder : '已取消分派'); drawThread(id);
+  };
+  // ── the folder ──
+  const baseName = (p) => String(p).split(/[\\/]/).filter(Boolean).pop() || p;
+  const wrap = el('span', 'propwrap');
+  const folderBtn = el('button', 'prop' + (t.root_folder ? '' : ' empty')); folderBtn.type = 'button'; folderBtn.id = 'thrFolder'; folderBtn.setAttribute('aria-haspopup', 'true'); folderBtn.setAttribute('aria-expanded', 'false');
+  if (t.root_folder) { folderBtn.append(el('b', '', baseName(t.root_folder)), el('span', 'path', t.root_folder)); folderBtn.title = t.root_folder + '\n點一下改到別的資料夾'; }
+  else { folderBtn.textContent = '＋ 指定資料夾'; folderBtn.title = '選這串訊息要交給哪個資料夾（對話會開在那裡）'; }
+  const pop = el('div', 'pop'); pop.hidden = true; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', '分派到資料夾');
+  const away = (e) => { if (!row.isConnected) return document.removeEventListener('mousedown', away); if (!wrap.contains(e.target)) closePop(); };
+  const closePop = () => { pop.hidden = true; folderBtn.setAttribute('aria-expanded', 'false'); document.removeEventListener('mousedown', away); };
+  const openPop = () => {
+    pop.textContent = '';
+    const known = [...new Set(sessions.map((x) => x.cwd).filter(Boolean))].filter((c) => c !== t.root_folder).slice(0, 8);
+    if (known.length) pop.append(el('h4', '', '你開過 session 的資料夾'));
+    for (const cwd of known) { const b = el('button', 'popitem'); b.type = 'button'; b.append(el('b', '', baseName(cwd)), el('span', '', cwd)); b.title = cwd; b.addEventListener('click', () => { closePop(); assign(cwd); }); pop.append(b); }
+    if (known.length) pop.append(el('hr'));
+    const other = el('button', 'popitem', '選擇其他資料夾…'); other.type = 'button'; other.title = '跳出 Windows 的資料夾視窗來選（視窗可能開在瀏覽器後面）';
+    other.addEventListener('click', async () => {
+      other.disabled = true; other.textContent = '請在跳出的視窗裡選…';
+      let p = ''; try { p = (await api('/api/pick-folder', {})).data.path || ''; } catch (e) { say('看板程序沒有回應', true); }
+      closePop(); if (p) assign(p);
+    });
+    const typed = el('input'); typed.type = 'text'; typed.placeholder = '或貼上完整路徑，按 Enter'; typed.autocomplete = 'off'; typed.setAttribute('aria-label', '資料夾的完整路徑');
+    typed.addEventListener('keydown', (e) => { if (e.key === 'Enter' && typed.value.trim()) { closePop(); assign(typed.value.trim()); } });
+    pop.append(other, typed);
+    if (t.root_folder) { const off = el('button', 'popitem danger', '取消分派'); off.type = 'button'; off.addEventListener('click', () => { closePop(); assign(''); }); pop.append(el('hr'), off); }
+    pop.hidden = false; folderBtn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('mousedown', away);
+    const first = pop.querySelector('button, input'); if (first) first.focus();
+  };
+  folderBtn.addEventListener('click', () => (pop.hidden ? openPop() : closePop()));
+  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden) { e.stopPropagation(); closePop(); folderBtn.focus(); } });
+  wrap.append(el('span', 'plabel', '資料夾'), folderBtn, pop);
+  // ── what can be done ──
+  const tail = (d) => (d.signatures ? '，簽名檔已移除' : '') + (d.attachError ? '，附檔沒有抓到（' + d.attachError + '）' : d.attachments ? '，附檔 ' + d.attachments + ' 個已存到這台電腦' : '') + (d.images ? '，信裡的圖片 ' + d.images + ' 張已換成圖檔路徑' : '');
+  const refresh = () => {
+    const n = picked.size, have = mail || n > 0;
+    open.textContent = mail ? '帶整封信開新對話' : n ? '帶選取的 ' + n + ' 則開新對話' : '開新對話';
+    open.disabled = !have;
+    open.title = !have ? '先在下面點選要帶入的訊息' : !t.root_folder ? '先指定資料夾，才知道對話要開在哪' : '在「' + baseName(t.root_folder) + '」開一個新對話，內容放進輸入框（不會自動送出）' + (mail ? '。簽名檔會拿掉，附檔會存到這台電腦' : '');
+    copy.textContent = mail ? '複製' : n ? '複製 ' + n + ' 則' : '複製';
+    copy.disabled = !have;
+    copy.title = (mail ? '把整封信' : '把選取的訊息') + '複製成文字，可以貼到已經開著的 session' + (mail ? '。簽名檔會拿掉，附檔會存到這台電腦並列出路徑' : '');
+    count.textContent = mail ? '' : n ? '已選 ' + n + ' 則' : '點訊息來選';
+  };
+  copy.addEventListener('click', async () => {
+    copy.disabled = true; const was = copy.textContent; copy.textContent = '準備中…';
+    let x; try { x = await api('/api/inbox/text', { id, messageIds: ids() }); } catch (e) { x = { ok: false, data: {} }; }
+    copy.textContent = was; refresh();
+    if (!x.ok) return say(x.data.error || '複製不了', true);
+    try { await navigator.clipboard.writeText(x.data.text); say('已複製 ' + sep(x.data.text.length) + ' 個字' + (x.data.left ? '（太長，有 ' + x.data.left + ' 則沒帶入）' : '') + tail(x.data)); }
+    catch (e) { say('瀏覽器不讓這一頁寫入剪貼簿', true); }
+  });
+  open.addEventListener('click', async () => {
+    if (!t.root_folder) { openPop(); return say('先選這串要開在哪個資料夾'); }
+    open.disabled = true; open.textContent = '準備中…';
+    let x; try { x = await api('/api/inbox/open', { id, messageIds: ids() }); } catch (e) { x = { ok: false, data: {} }; }
+    if (!x.ok) { refresh(); return say(x.data.error || '開不了', true); }
+    const d = x.data;
+    carry.set(d.sessionId, { source: SRC_NAME[t.source] || t.source, title: t.subject || t.sender || '', text: d.text,
+      sub: [String(t.sender || '').replace(/^"?([^"<]*?)"?\s*<([^>]+)>$/, (all, n, a) => (n.trim() && n.trim().toLowerCase() !== a.toLowerCase() ? n.trim() + ' <' + a + '>' : a)), (mail ? d.count + ' 封' : d.count + ' 則訊息'), d.attachments ? '附檔 ' + d.attachments + ' 個' : '', d.images ? '圖片 ' + d.images + ' 張' : '', d.signatures ? '簽名檔已移除' : ''].filter(Boolean).join(' · ') });
+    inboxOpen = null; await poll(); await openChat(d.sessionId);
+    drawFoot();
+    say('已開新對話，' + (mail ? '信件' : d.count + ' 則訊息') + '引用在輸入框上方' + (d.attachError ? '（附檔沒有抓到：' + d.attachError + '）' : '') + '。寫下你要它做的事再送出');
+  });
+  doneBtn.textContent = t.status === 'done' ? '重新開啟' : '✓ 標成完成';
+  const acts = el('div', 'tb-row');
+  acts.append(toList, doneBtn, el('span', 'tb-sp'));
+  if (!mail) {
+    const all = el('button', 'lnk', '全選'), none = el('button', 'lnk', '清除'); all.type = none.type = 'button';
+    const setAll = (on) => { picked.clear(); if (on) for (const m of t.items) picked.add(m.id); for (const d of $('main').querySelectorAll('.tmsg.pick')) { d.classList.toggle('on', on); d.querySelector('input').checked = on; } refresh(); };
+    all.addEventListener('click', () => setAll(true)); none.addEventListener('click', () => setAll(false));
+    acts.append(count, all, none);
+  }
+  acts.append(copy, open);
+  // ── what is known ──
+  const props = el('div', 'tb-row tb-props');
+  props.append(wrap);
+  const pair = (label, value, cls, title) => { const w = el('span', 'propwrap'); const v = el('span', 'pval' + (cls ? ' ' + cls : ''), value); v.title = title || value; w.append(el('span', 'plabel', label), v); props.append(w); };
+  const KINDS = { todo: '要你做', question: '等你回', fyi: '知會', noise: '雜訊' };
+  if (t.triage) { const yes = t.triage === 'todo' || t.triage === 'question'; pair('判讀', (yes ? '是你該處理的' : '不是你該處理的') + (t.triage_conf != null ? ' ' + t.triage_conf + '%' : '') + ' · ' + (KINDS[t.triage] || t.triage), '', '小模型的判斷，可能有錯'); }
+  if (t.customer) pair('路由', t.customer + (t.system ? '／' + t.system : ''));
+  if (t.source_ref) pair('比對值', t.source_ref, 'mono', '建路由時填這個值：' + t.source_ref);
+  row.append(acts, props);
+  if (t.triage_summary) { const note = el('div', 'note', t.triage_summary); note.title = t.triage_summary; note.style.marginTop = '6px'; row.append(note); }
+  refresh();
+  $('main').insertBefore(row, $('main').querySelector('.scroll'));
+  // A run of messages: same sender, same day, no more than five minutes apart. Name, avatar and time are shown once per run.
+  const dayOf = (ts) => { const x = new Date(ts); return x.getFullYear() * 10000 + x.getMonth() * 100 + x.getDate(); };
+  const clock = (ts) => new Date(ts).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+  // Two characters to stand for a person: the start of the last word for names in Latin letters (a staff id, a surname), the last two characters otherwise (a given name).
+  const initials = (name) => { const w = String(name || '').trim().split(/\s+/).pop() || '?'; return /^[\x00-\x7f]+$/.test(w) ? w.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '?' : w.slice(-2); };
+  const hue = (name) => { let h = 0; for (const c of String(name || '')) h = (h * 31 + c.codePointAt(0)) % 360; return h; };
+  let prev = null;
+  for (const m of t.items) {
+    if (mail) continue;
+    const who = m.direction === 'out' ? '我' : m.sender || '對方';
+    const newDay = !prev || dayOf(prev.ts) !== dayOf(m.ts);
+    if (newDay) pane.append(el('div', 'tc-day', new Date(m.ts).toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })));
+    const first = newDay || prev.direction !== m.direction || (prev.sender || '') !== (m.sender || '') || m.ts - prev.ts > 5 * 60000;
+    prev = m;
+    const d = el('div', 'tmsg pick chat ' + m.direction + (first ? ' first' : ''));
+    if (m.direction !== 'out') {
+      const av = el('div', 'tc-av' + (first ? '' : ' sp'), first ? initials(who) : '');
+      if (first) { av.style.background = 'hsl(' + hue(who) + ' 45% 45%)'; av.title = who; av.setAttribute('aria-hidden', 'true'); }
+      d.append(av);
+    }
+    const col = el('div', 'tc-main');
+    if (first) { const h = el('div', 'tc-head'); if (m.direction !== 'out') h.append(el('b', '', who)); h.append(clock(m.ts)); col.append(h); }
+    const rowEl = el('div', 'tc-row');
+    // The text comes from whoever wrote to you: escaped first, so nothing in it is taken as markup (inline() only adds links and bold to text that is already escaped).
+    const body = el('div', 'body'); body.innerHTML = inline(esc(m.body.length > 6000 ? m.body.slice(0, 6000) + '\n…（後面還有 ' + sep(m.body.length - 6000) + ' 個字）' : m.body));
+    body.title = who + ' · ' + new Date(m.ts).toLocaleString('zh-TW', { hour12: false }) + '\n點一下勾選，帶進對話時只帶勾選的';
+    const cb = el('input'); cb.type = 'checkbox'; cb.setAttribute('aria-label', '帶入這則訊息：' + who + ' ' + clock(m.ts));
+    const toggle = (on) => { if (on) picked.add(m.id); else picked.delete(m.id); cb.checked = on; d.classList.toggle('on', on); refresh(); };
+    cb.addEventListener('click', (e) => { e.stopPropagation(); toggle(cb.checked); });
+    // A click on the bubble picks it; a click on a link in it, or a drag to select text, does not.
+    body.addEventListener('click', (e) => { if (e.target.closest('a') || String(window.getSelection()).length) return; toggle(!picked.has(m.id)); });
+    if (picked.has(m.id)) { cb.checked = true; d.classList.add('on'); }
+    rowEl.append(body, cb); col.append(rowEl); d.append(col);
+    pane.append(d);
+  }
+  // A mail thread stays a list of whole messages, one under the other.
+  for (const m of mail ? t.items : []) {
+    const d = el('div', 'tmsg ' + m.direction);
+    d.append(el('div', 'who2', (m.direction === 'out' ? '我' : m.sender || '對方') + ' · ' + when(m.ts)));
+    // The text comes from whoever wrote to you: escaped first, so nothing in it is taken as markup (inline() only adds links and bold to text that is already escaped).
+    const body = el('div', 'body'); body.innerHTML = inline(esc(m.body.length > 6000 ? m.body.slice(0, 6000) + '\n…（後面還有 ' + sep(m.body.length - 6000) + ' 個字）' : m.body));
+    d.append(body);
+    if (!mail) {
+      d.classList.add('pick');
+      const cb = el('input'); cb.type = 'checkbox'; cb.setAttribute('aria-label', '帶入這則訊息');
+      const toggle = (on) => { if (on) picked.add(m.id); else picked.delete(m.id); cb.checked = on; d.classList.toggle('on', on); refresh(); };
+      cb.addEventListener('click', (e) => { e.stopPropagation(); toggle(cb.checked); });
+      // A click on the message picks it; a click on a link in it, or a drag to select text, does not.
+      d.addEventListener('click', (e) => { if (e.target.closest('a') || String(window.getSelection()).length) return; toggle(!picked.has(m.id)); });
+      if (picked.has(m.id)) { cb.checked = true; d.classList.add('on'); }
+      d.prepend(cb);
+    }
+    pane.append(d);
+  }
+  const sc = $('main').querySelector('.scroll'); if (sc) sc.scrollTop = sc.scrollHeight;
+  poll();
+}
+
+/* ── main: settings ── */
+async function drawSettings() {
+  view = 'settings'; active = null; closeStream(); setPlace('settings');
+  $('app').classList.add('viewing');
+  const main = $('main');
+  main.textContent = '';
+  const head = el('div', 'head');
+  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', drawHome);
+  const who = el('div', 'who'); who.append(el('div', 't', '設定'), el('div', 's', '存檔後馬上生效'));
+  head.append(back, who);
+  const scroll = el('div', 'scroll');
+  const pane = el('div', 'pane'); pane.style.paddingTop = '28px';
+  scroll.append(pane);
+  main.append(head, scroll);
+  listShape = '';
+  drawList();
+
+  let r;
+  try { r = await api('/api/config'); } catch (e) { r = { ok: false }; }
+  if (view !== 'settings') return;
+  if (!r.ok) { pane.append(el('p', 'lead', '讀不到設定，看板程序沒有回應。')); return; }
+  let saved = r.data.config.pickerStartDir || '';
+
+  pane.append(el('h2', '', '新對話的起始資料夾'));
+  pane.append(el('p', 'lead', '開新對話按「選擇資料夾…」時，那個視窗一開始停在這個資料夾。留空的話由 Windows 決定（通常是上次用的位置）。'));
+  const row = el('div', 'pathrow');
+  const input = el('input'); input.type = 'text'; input.value = saved; input.placeholder = '例如 C:\\work'; input.setAttribute('aria-label', '新對話的起始資料夾');
+  const browse = el('button', 'btn', '選擇資料夾…'); browse.type = 'button';
+  const saveBtn = el('button', 'btn primary', '儲存'); saveBtn.type = 'button';
+  row.append(input, browse, saveBtn);
+  const msg = el('div', 'bad'); msg.setAttribute('role', 'status');
+  const note = el('div', 'hint');
+  const mark = () => { saveBtn.disabled = input.value.trim() === saved; msg.textContent = ''; };
+  const save = async () => {
+    saveBtn.disabled = true;
+    let s;
+    try { s = await api('/api/config', { pickerStartDir: input.value }); } catch (e) { s = { ok: false, data: { error: '看板程序沒有回應' } }; }
+    if (view !== 'settings') return;
+    if (!s.ok) { msg.textContent = s.data.error || '存不進去'; saveBtn.disabled = false; return; }
+    saved = s.data.config.pickerStartDir || '';
+    input.value = saved;
+    mark();
+    say(saved ? '已儲存。下次選資料夾會從 ' + saved + ' 開始' : '已清除，改由 Windows 決定');
+  };
+  input.addEventListener('input', mark);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !saveBtn.disabled) save(); });
+  saveBtn.addEventListener('click', save);
+  browse.addEventListener('click', async () => {
+    browse.disabled = true; browse.textContent = '請在跳出的視窗裡選…';
+    try { const p = await api('/api/pick-folder', {}); if (p.data.path) { input.value = p.data.path; mark(); } } catch (e) { msg.textContent = '看板程序沒有回應。'; }
+    browse.disabled = false; browse.textContent = '選擇資料夾…';
+  });
+  note.textContent = '設定存在看板的資料庫：' + r.data.file;
+  pane.append(row, msg, note);
+  mark();
+
+  const h = el('h2', '', '關機後把 session 開回來'); h.style.marginTop = '40px';
+  pane.append(h);
+  pane.append(el('p', 'lead', '開著的終端機 session 預設都是「常駐」：關機或重開機後，看板首頁會列出它們讓你開回來。你自己關掉的不算。個別 session 可以在它的對話上方關掉常駐。'));
+  const sw = (title, text, on, send, done) => {
+    const l = el('label', 'switch'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = on;
+    const t = el('div'); t.append(el('b', '', title), el('span', '', text));
+    cb.addEventListener('change', async () => {
+      cb.disabled = true;
+      let s;
+      try { s = await api('/api/config', send(cb.checked)); } catch (e) { s = { ok: false, data: { error: '看板程序沒有回應' } }; }
+      cb.disabled = false;
+      if (!s.ok) { cb.checked = !cb.checked; return say(s.data.error || '存不進去', true); }
+      say(done(cb.checked));
+    });
+    l.append(cb, t); pane.append(l);
+  };
+  sw('session 做完或等你時跳通知', (r.data.notifyOwnChain ? '你的 Claude Code 設定裡已經有自己的通知腳本，所以看板的通知保持安靜，不會跳兩次。' : '終端機開的 session 與看板裡的對話，做完一輪或需要你核准時跳 Windows 通知；點通知會切到那個 session 的視窗（看板裡的對話則開到這一頁）。') + ' 開著的時候看板會登錄一個只給目前使用者用的網址類型 sessionboard:，關掉就移除。', !!r.data.notify,
+    (v) => ({ notify: v }), (v) => v ? '已開啟通知' : '已關閉通知，並移除了 sessionboard: 的登錄');
+  sw('登入 Windows 時自動啟動看板', '在你的「啟動」資料夾放一個檔（' + r.data.autoStartFile + '）。關掉就是把那個檔刪除。', !!r.data.autoStart,
+    (v) => ({ autoStart: v }), (v) => v ? '已開啟：下次登入 Windows 看板會自己啟動' : '已關閉：看板要自己用 /session-board 啟動');
+  sw('開回來時，做到一半的自動接著做', '被關機或重開機打斷在工作途中的 session，開回來後看板會替你說一句「接著把被中斷的工作做完」。關掉的話只把它開回來，等你自己說。', r.data.config.autoContinue !== false,
+    (v) => ({ autoContinue: v }), (v) => v ? '已開啟：被打斷的會自動接著做' : '已關閉：開回來後等你指示');
+  sw('看板啟動時自動把常駐的 session 開回終端機', '不問，直接每個開一個終端機視窗。關著的話是列在首頁讓你勾選。兩個都開，才是「重開機後全部自己回來」。', !!r.data.config.autoRestore,
+    (v) => ({ autoRestore: v }), (v) => v ? '已開啟：看板下次啟動會自動開回常駐的 session' : '已關閉：改成列在首頁讓你選');
+}
+
+/* ── quoting ── */
+// Something brought into a conversation from elsewhere (a mail thread, picked chat messages) is kept apart from
+// what you write: it waits above the box while you type, and goes out behind your words between two marks, so
+// that both Claude and this page can tell which part is yours. carry: sessionId -> {source, title, sub, text}.
+const carry = new Map();
+const Q_END = '⟦引用結束⟧';
+const quoteWrap = (words, q) => words.trim() + '\n\n⟦引用 ' + String(q.source).replace(/[⟦⟧｜\n]/g, ' ') + '｜' + String(q.title || '').replace(/[⟦⟧｜\n]/g, ' ').slice(0, 120) + '⟧ 以上是我說的話；從這裡到「' + Q_END + '」是引用的原文，不是我寫的。\n' + q.text.trim() + '\n' + Q_END;
+// -> {words, source, title, text} for a message that carries a quotation, else null.
+function quoteParse(text) {
+  const m = /^([\s\S]*?)\n*⟦引用 ([^｜⟧\n]*)｜([^⟧\n]*)⟧[^\n]*\n([\s\S]*?)\n?⟦引用結束⟧\s*$/.exec(String(text || ''));
+  return m ? { words: m[1].trim(), source: m[2].trim(), title: m[3].trim(), text: m[4] } : null;
+}
+// The first line of what is quoted that says something (not the notes the board put in front, not a "[time] who:" line).
+const quoteSnippet = (text) => { const body = String(text).split(/\n\n/).slice(1).join('\n\n') || String(text); return (body.split('\n').map((l) => l.trim()).find((l) => l && !/^\[[^\]]{6,30}\] .{0,80}[：:]$/.test(l) && !/^\[圖片：/.test(l)) || '').slice(0, 200); };
+
+/* ── main: chat ── */
+// A new conversation you opened and left without saying anything is closed again, so a stray press of "+"
+// does not leave an empty "新對話" behind - also when something was typed but not sent (the user's call,
+// 2026-11-14: a conversation that has not started is not to be listed at all; text brought in from the inbox
+// had kept one in the list for 16 hours). Whether it really is empty is decided by the board, not here.
+let chatOn = null;   // the conversation the chat view is showing
+function leaveIfEmpty(sid) {
+  const s = sessions.find((x) => x.sessionId === sid) || unstarted.find((x) => x.sessionId === sid);
+  if (!s || s.owner !== 'board') return;
+  carry.delete(sid);
+  api('/api/close-empty', { sessionId: sid }).then((r) => { if (r.ok && r.data.ok) poll(); }).catch(() => {});
+}
+// next: the conversation about to be shown, when the chat view is only switching to another one.
+function closeStream(next) { const left = chatOn; chatOn = null; if (left && left !== next) leaveIfEmpty(left); if (stream) { stream.close(); stream = null; } pending = new Map(); liveStatus = ''; liveNode = null; liveText = ''; liveTasks = []; termAgents = []; liveQueue = []; }
+
+// What a conversation has running besides its reply: subagents and background
+// commands. For a board conversation this comes live from Claude Code, with
+// what each one is doing; for a terminal session only the names of the
+// subagents that are running are known (from cc-statusline).
+let liveTasks = [], termAgents = [];
+let liveQueue = [];   // messages of yours waiting for their turn in the conversation on screen: [{id, text}]
+function drawQueue() {
+  const box = $('queue'), s = cur();
+  if (!box) return;
+  box.textContent = '';
+  if (s && s.owner === 'board') liveQueue.forEach((m, i) => {
+    const row = el('div', 'qrow');
+    const x = el('button', '', '×'); x.type = 'button'; x.title = '取消這一則，把文字放回輸入框'; x.setAttribute('aria-label', '取消排隊的第 ' + (i + 1) + ' 則');
+    x.addEventListener('click', async () => {
+      const r = await api('/api/unqueue', { sessionId: s.sessionId, id: m.id });
+      if (!r.ok) return say('它已經送出去了，來不及取消', true);
+      const ta = $('foot') && $('foot').querySelector('textarea');
+      if (ta) { ta.value = ta.value ? ta.value + '\n' + r.data.text : r.data.text; ta.dispatchEvent(new Event('input')); ta.focus(); }
+    });
+    const t = el('span', 'qt', m.text.replace(/\s+/g, ' ')); t.title = m.text;
+    row.append(el('span', 'qn', '排隊 ' + (i + 1) + '／' + liveQueue.length), t, x);
+    box.append(row);
+  });
+  box.hidden = !box.firstChild;
+}
+function drawTasks() {
+  const box = $('tasks'), s = cur();
+  if (!box) return;
+  box.textContent = '';
+  if (s && s.owner === 'board') {
+    for (const t of liveTasks) {
+      // A command whose output file is known is a button: press it to read what it has printed.
+      const row = el(t.canOpen ? 'button' : 'div', 'tk' + (t.done ? ' fin' : ''));
+      if (t.canOpen) { row.type = 'button'; row.addEventListener('click', () => openTaskPeek(s.sessionId, t)); }
+      const e = el('span', 'tk-e');
+      if (t.done) e.textContent = (t.status === 'completed' ? '做完了' : t.status === 'failed' ? '失敗' : t.status === 'killed' ? '被停止' : '結束（' + t.status + '）') + ' · ' + ago(Date.now() - t.endedAt).replace(/^(?!剛剛)(.*)$/, '$1前');
+      else e.dataset.start = t.startedAt;
+      row.append(el('span', 'dot' + (t.done ? '' : ' running')), el('span', 'tk-l', t.kind === 'agent' ? '子代理' + (t.name ? ' ' + t.name : '') : '背景指令'),
+        el('span', 'tk-d', (t.description || '') + (t.lastTool ? '　·　正在用 ' + t.lastTool + (t.toolUses ? '（第 ' + t.toolUses + ' 個動作）' : '') : '')), e);
+      if (t.canOpen) row.append(el('span', 'tk-open', '看輸出 ›'));
+      row.title = (t.description || '') + (t.canOpen ? '\n按一下看它的指令與輸出' : t.kind === 'agent' ? '\n子代理沒有可以直接看的輸出檔' : '');
+      box.append(row);
+    }
+  } else if (termAgents.length) {
+    const row = el('div', 'tk');
+    row.append(el('span', 'dot running'), el('span', 'tk-l', '子代理執行中'), el('span', 'tk-d', termAgents.join('、')));
+    box.append(row);
+  }
+  box.hidden = !box.firstChild;
+  tickTasks();
+}
+function tickTasks() {
+  const now = Date.now();
+  for (const e of document.querySelectorAll('.tk-e[data-start]')) e.textContent = '已跑 ' + dur(now - Number(e.dataset.start));
+}
+
+// at: id of one of your messages to open the conversation at (from the war room).
+async function openChat(sid, at) {
+  closeStream(sid);
+  chatOn = sid;
+  view = 'chat'; active = sid; items = []; histShape = ''; histMax = 120; histMore = false; histLoading = false; histReadyAt = Date.now() + 1200; confirming = false;
+  setPlace(sid);
+  $('app').classList.add('viewing');
+  const main = $('main');
+  main.textContent = '';
+  const head = el('div', 'head'); head.id = 'head';
+  const scroll = el('div', 'scroll'); scroll.id = 'scroll';
+  // Scrolling up toward the start of what is loaded fetches what came before it, with nothing to press.
+  // Not during the first moment after opening: placing the view then would count as scrolling.
+  scroll.addEventListener('scroll', () => { if (Date.now() > histReadyAt && scroll.scrollTop < 600) loadEarlier(); }, { passive: true });
+  const col = el('div', 'col'); col.id = 'col';
+  scroll.append(col);
+  const foot = el('div', 'foot'); foot.id = 'foot';
+  const wrap = el('div', 'scrollwrap');
+  const jump = el('div', 'jump');
+  const up = el('button', 'btn', '↑ 我上一則'); up.type = 'button'; up.title = '跳到我上一次說話的地方；再按一次再往上一則'; up.addEventListener('click', jumpToMine);
+  const next = el('button', 'btn', '↓ 我下一則'); next.type = 'button'; next.title = '跳到我下一次說話的地方；再按一次再往下一則'; next.addEventListener('click', jumpToMineDown);
+  const dn = el('button', 'btn', '↓ 最新'); dn.type = 'button'; dn.title = '跳到最下面'; dn.addEventListener('click', toBottom);
+  jump.append(up, next, dn);
+  wrap.append(scroll, jump);
+  const info = el('div', 'info'); info.id = 'info'; info.hidden = true;
+  const top = el('div', 'top');
+  top.append(head, info);
+  const tasksBox = el('div', 'tasks'); tasksBox.id = 'tasks'; tasksBox.hidden = true;
+  const queueBox = el('div', 'queue'); queueBox.id = 'queue'; queueBox.hidden = true;
+  main.append(top, wrap, tasksBox, queueBox, foot);
+  listShape = '';
+  drawList();
+  drawHead();
+  drawFoot();
+  loadStats(sid);
+  await loadHistory(true);
+  if (active === sid) {
+    const target = typeof at === 'string' && at ? col.querySelector('.msg.user[data-id="' + CSS.escape(at) + '"]') : null;
+    if (target) { const mine = myMessages().find((x) => x.e === target); scroll.scrollTop = mine ? mine.top : 0; flash(target); }
+    else startAtMine();
+  }
+  const s = cur();
+  if (s && s.owner === 'board') {
+    loadCommands(sid);
+    api('/api/seen', { sessionId: sid });
+    stream = new EventSource('/api/stream?sid=' + encodeURIComponent(sid) + '&t=' + encodeURIComponent(TOKEN));
+    const mine = stream;
+    stream.onmessage = (ev) => { if (stream === mine) onLive(JSON.parse(ev.data)); };
+  }
+}
+
+function liveOrListed() { const s = cur(); return s ? (s.owner === 'board' && liveStatus ? liveStatus : s.status) : ''; }
+
+function drawHead() {
+  const s = cur(), head = $('head');
+  if (!head) return;
+  head.textContent = '';
+  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', drawHome);
+  const who = el('div', 'who');
+  if (!s) { who.append(el('div', 't', '這個 session 已經結束了')); head.append(back, who); return; }
+  const st = liveOrListed();
+  const sub = el('div', 's');
+  // "background": this turn is over, but work it started is still running and it will report by itself when that is done.
+  const b = el('b', st === 'busy' || st === 'background' ? 'running' : st === 'waiting' ? 'yours' : '',
+    st === 'busy' ? '執行中' : st === 'background' ? '背景工作中，做完會自己回報' : st === 'waiting' ? '等你回應' : '待命');
+  sub.append(b, ' · ' + (s.owner === 'board' ? '在看板裡' : s.headless ? '背景執行' : '在終端機視窗') + ' · ' + s.cwd);
+  sub.title = s.cwd;
+  who.append(el('div', 't', s.title), sub);
+  head.append(back, who);
+  const add = (label, cls, fn) => { const x = el('button', 'btn' + (cls ? ' ' + cls : ''), label); x.type = 'button'; x.addEventListener('click', fn); head.append(x); return x; };
+  // Off the list, or back on it. Nothing is ended or deleted.
+  add(s.hidden ? '取消隱藏' : '隱藏', '', async () => {
+    const r = await api('/api/hide', { sessionId: s.sessionId, hidden: !s.hidden });
+    if (!r.ok) return say(r.data.error || '改不了', true);
+    const was = s.hidden; await poll();
+    if (was) { drawHead(); say('已放回清單'); } else { say('已從清單隱藏「' + s.title + '」。左邊清單最下面可以再顯示'); drawHome(); }
+  }).title = s.hidden ? '放回左邊的清單' : '從左邊的清單拿掉。session 照常執行，隨時可以再顯示';
+  if (s.owner === 'terminal' && !s.headless && !s.parked) {
+    // Two presses: the first only arms it.
+    let armed = 0;
+    const end = add('結束', 'danger', async () => {
+      if (Date.now() - armed > 5000) { armed = Date.now(); end.textContent = '確定結束？再按一次'; setTimeout(() => { if (end.isConnected) end.textContent = '結束'; }, 5000); return; }
+      end.disabled = true;
+      const r = await api('/api/end', { sessionId: s.sessionId });
+      if (!r.ok) { end.disabled = false; end.textContent = '結束'; return say(r.data.error || '沒有結束', true); }
+      say('已結束「' + s.title + '」' + (r.data.windowClosed ? '，視窗也關了' : '，它的終端機視窗請自己關') + '。對話紀錄還在，首頁可以再開回來');
+      await loadKeep(); await poll(); drawHome();
+    });
+    end.title = '結束這個終端機 session 的程序並關掉它的視窗。對話紀錄保留';
+  }
+  if (s.owner === 'terminal') {
+    if (!s.headless) add('切到視窗', '', async () => say(...focusResult(s, (await api('/api/focus', { sessionId: s.sessionId })).data)));
+    // kept: comes back after a restart. Only real terminal windows have the switch.
+    if (typeof s.kept === 'boolean') {
+      const k = add(s.kept ? '常駐：開' : '常駐：關', '', async () => {
+        const r = await api('/api/keep/set', { sessionId: s.sessionId, keep: !s.kept });
+        if (!r.ok) return say(r.data.error || '改不了', true);
+        s.kept = r.data.kept; listShape = ''; drawHead(); drawList();
+        say(s.kept ? '這個 session 會常駐：關機或重開機後可以開回來' : '這個 session 不常駐：關機後不會出現在還原清單');
+      });
+      k.title = s.kept ? '常駐中：關機或重開機後，看板會列出它讓你開回來。你自己關掉視窗就不再常駐。按一下改成不常駐' : '不常駐：關機後不會出現在還原清單。按一下改成常駐';
+    }
+  } else {
+    if (st === 'busy' || st === 'waiting' || st === 'background') add('停止', 'danger', async () => {
+      const r = await api('/api/stop', { sessionId: s.sessionId });
+      const back = (r.data && r.data.dropped) || [];
+      // What was waiting is not sent after a stop; it comes back to the input box so it is not lost.
+      const ta = $('foot') && $('foot').querySelector('textarea');
+      if (back.length && ta) { ta.value = [ta.value, ...back].filter(Boolean).join('\n'); ta.dispatchEvent(new Event('input')); }
+      say('已停止。' + (back.length ? '排隊中的 ' + back.length + ' 則沒有送出，文字放回輸入框了。' : '再送一則訊息就會接著原本的對話繼續。'));
+    });
+    add('移到終端機', '', async () => {
+      const r = await api('/api/to-terminal', { sessionId: s.sessionId });
+      if (!r.ok) return say(r.data.error || '移不過去', true);
+      say('已在新的終端機視窗開啟這個對話'); await poll(); drawHome();
+    });
+  }
+}
+
+function focusResult(s, r) {
+  if (r.state === 'hit' && r.focused) return ['已切到「' + s.title + '」的視窗', false];
+  if (r.state === 'hit') return ['找到視窗了，但 Windows 沒讓它切到最前面（當時最前面的是 ' + (r.before || '?') + '）', true];
+  if (r.state === 'ambiguous') return ['有兩個以上視窗的標題開頭相同，分不出是哪一個，所以沒有切換', true];
+  if (r.state === 'gone') return ['這個 session 已經結束了', true];
+  if (r.state === 'none') return ['找不到這個 session 的視窗（目前有 ' + (r.windows || 0) + ' 個終端機視窗）', true];
+  return ['切換失敗：' + (r.error || '沒有回應'), true];
+}
+
+function drawFoot() {
+  const s = cur(), foot = $('foot');
+  if (!foot) return;
+  const typed = foot.querySelector('textarea') ? foot.querySelector('textarea').value : '';
+  const hadFocus = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
+  foot.textContent = '';
+  const col = el('div', 'col');
+  foot.append(col);
+  if (!s) return;
+  if (s.owner === 'terminal') {
+    const note = el('div', 'note');
+    if (s.headless) { note.append(el('span', '', '這個 session 在背景執行，沒有自己的視窗，這裡只能看它的對話。')); col.append(note); return; }
+    if (s.parked) { note.append(el('span', '', '這個 session 由 Claude Code 的背景服務執行，終端機視窗只是在看它。這裡只能看對話，不能搬過來。')); col.append(note); return; }
+    if (!confirming) {
+      note.append(el('span', '', '這個 session 開在終端機視窗裡，這裡只能看它的對話。'));
+      const take = el('button', 'btn', '搬到這裡對話'); take.type = 'button';
+      take.addEventListener('click', () => { confirming = true; drawFoot(); });
+      note.append(take);
+    } else {
+      note.append(el('span', '', '搬過來之後，終端機裡的那一個會被結束（視窗會留著，可以自己關）。' + (s.status === 'busy' ? '它現在正在執行，做到一半的工作會中斷。' : '')));
+      const yes = el('button', 'btn primary', '確定搬過來'); yes.type = 'button';
+      const no = el('button', 'btn', '取消'); no.type = 'button';
+      no.addEventListener('click', () => { confirming = false; drawFoot(); });
+      yes.addEventListener('click', async () => {
+        yes.disabled = true;
+        const r = await api('/api/takeover', { sessionId: s.sessionId });
+        confirming = false;
+        if (!r.ok) { say(r.data.error || '搬不過來', true); drawFoot(); return; }
+        say(r.data.windowClosed ? '已搬過來，終端機視窗也關掉了' : '已搬過來。' + (r.data.windowNote || ''), !r.data.windowClosed);
+        await poll(); openChat(s.sessionId);
+      });
+      note.append(yes, no);
+    }
+    col.append(note);
+    return;
+  }
+  const st = liveOrListed();
+  const box = el('div', 'composer');
+  const ta = el('textarea'); ta.rows = 1; ta.value = typed;
+  ta.placeholder = st === 'busy' ? 'Claude 正在執行。可以繼續送，會排隊，輪到了自動送出' : st === 'waiting' ? '上面有卡片等你回覆。也可以先送，會排在這一輪之後' : st === 'background' ? '背景工作還在跑，你仍然可以先說話' : '輸入訊息，Enter 送出，Shift+Enter 換行';
+  ta.setAttribute('aria-label', '訊息');
+  const sendBtn = el('button', 'btn primary', '送出'); sendBtn.type = 'button';
+  // Never blocked: a message sent while Claude is working or waiting for a card joins the queue (lib/chat.js).
+  const blocked = false;
+  sendBtn.disabled = blocked;
+  const fit = () => { ta.style.height = 'auto'; ta.style.height = Math.min(200, ta.scrollHeight) + 'px'; };
+  const go = async () => {
+    const text = ta.value;
+    const q = carry.get(s.sessionId);
+    if (q && !text.trim()) return say('先寫下你要它對這' + (q.source === 'Gmail' ? '封信' : '些訊息') + '做什麼，再送出');
+    if (!text.trim() || sendBtn.disabled) return;
+    const payload = q ? quoteWrap(text, q) : text;
+    // Empty the box BEFORE the request. The "busy" event comes back over the
+    // stream while the request is still in flight and redraws this footer with
+    // whatever the box holds; clearing afterwards cleared the old, detached box
+    // and the sent text stayed on screen (seen 2026-11-12).
+    ta.value = ''; fit(); showCmds();
+    sendBtn.disabled = true;
+    let r;
+    try { r = await api('/api/send', { sessionId: s.sessionId, text: payload }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
+    if (!r.ok) {
+      const box2 = $('foot') && $('foot').querySelector('textarea');
+      if (box2 && !box2.value) box2.value = text;   // not sent: give the text back
+      drawFoot();
+      return say(r.data.error || '送不出去', true);
+    }
+    // Queued: it shows in the strip above the box and enters the conversation when its turn comes (the "sent" event).
+    carry.delete(s.sessionId);
+    if (r.data.queued) { drawFoot(); return; }
+    append({ role: 'user', text: payload.trim() });
+    toBottom();
+    liveStatus = 'busy'; drawHead(); drawFoot();
+  };
+
+  // Slash commands: typing "/pl" lists the commands whose name contains "pl".
+  const pop = el('div', 'cmds'); pop.hidden = true;
+  let shown = [], sel = 0;
+  const pick = (c) => {
+    if (c.terminalOnly) { say('/' + c.name + ' 是終端機裡才有的互動畫面，看板裡不能用。可以按上面的「移到終端機」到終端機用它', true); return; }
+    ta.value = '/' + c.name + ' ';
+    showCmds(); fit(); ta.focus();
+  };
+  function showCmds() {
+    const m = /^\/(\S*)$/.exec(ta.value);
+    const info = cmdCache.get(s.sessionId);   // undefined while the list is still being asked for
+    shown = m ? matchCommands(m[1], info ? info.commands : []) : [];
+    pop.textContent = '';
+    pop.hidden = !m;
+    if (!m) return;
+    if (sel >= shown.length) sel = 0;
+    shown.forEach((c, i) => {
+      const b = el('button', 'cmd' + (i === sel ? ' sel' : ''));
+      b.type = 'button';
+      b.append(el('span', 'cn', '/' + c.name + (c.argumentHint ? ' ' + c.argumentHint : '')));
+      if (c.terminalOnly) b.append(el('span', 'tag', '只能在終端機用'));
+      else if (c.description) { const d = el('span', 'cd', c.description); b.title = c.description; b.append(d); }
+      b.addEventListener('mousedown', (e) => { e.preventDefault(); pick(c); });
+      pop.append(b);
+    });
+    if (!info) pop.append(el('div', 'cmd-note', '正在向 Claude Code 問這個資料夾有哪些指令…'));
+    else if (info.error && !info.commands.length) pop.append(el('div', 'cmd-note', '問不到這個資料夾的指令清單：' + info.error));
+    else if (!shown.length) pop.append(el('div', 'cmd-note', '沒有符合的指令'));
+    const cur = pop.querySelector('.sel'); if (cur) cur.scrollIntoView({ block: 'nearest' });
+  }
+  ta.addEventListener('input', () => { sel = 0; fit(); showCmds(); });
+  ta.addEventListener('blur', () => { pop.hidden = true; });
+  ta.addEventListener('focus', showCmds);
+  ta.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if (!pop.hidden && shown.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); sel = (sel + 1) % shown.length; return showCmds(); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); sel = (sel + shown.length - 1) % shown.length; return showCmds(); }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); return pick(shown[sel]); }
+    }
+    if (e.key === 'Escape' && !pop.hidden) { e.stopPropagation(); pop.hidden = true; return; }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); }
+  });
+  sendBtn.addEventListener('click', go);
+  box.append(ta, sendBtn);
+  col.style.position = 'relative';
+  const q = carry.get(s.sessionId);
+  if (q) {
+    const strip = el('div', 'reply'); strip.setAttribute('role', 'note'); strip.setAttribute('aria-label', '這則訊息會引用的內容');
+    const main = el('div', 'rmain');
+    // Click to read all of what is quoted, click again to fold it. Kept in the entry: this footer is redrawn often.
+    const head = el('div', 'rh'); const more = el('span', '', q.open ? '收合' : '展開全文'); head.append(el('b', '', '引用 ' + q.source + (q.title ? ' · ' + q.title : '')), more);
+    const body = el('div', 'rt', q.open ? q.text : quoteSnippet(q.text));
+    if (q.open) { strip.classList.add('open'); linkFiles(body, s.sessionId); }
+    main.append(head, el('div', 'rs', q.sub || ''), body);
+    main.tabIndex = 0; main.setAttribute('role', 'button'); main.setAttribute('aria-expanded', String(!!q.open));
+    main.title = (q.open ? '點一下收合' : '點一下看全文') + '。送出時這段內容會附在你的話後面，並標明不是你寫的';
+    const flip = () => { if (q.open && String(window.getSelection()).length) return; const at = ta.value; q.open = !q.open; drawFoot(); const t2 = $('foot') && $('foot').querySelector('textarea'); if (t2 && !t2.value) t2.value = at; };
+    main.addEventListener('click', (e) => { if (e.target.closest('a, .fp')) return; flip(); });
+    main.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+    const drop = el('button', '', '×'); drop.type = 'button'; drop.title = '不引用了'; drop.setAttribute('aria-label', '不引用了');
+    drop.addEventListener('click', () => { carry.delete(s.sessionId); drawFoot(); });
+    strip.append(main, drop); col.append(strip);
+    ta.placeholder = '寫下你要它對這' + (q.source === 'Gmail' ? '封信' : '些訊息') + '做什麼，Enter 送出';
+  }
+  col.append(pop, box);
+  fit();
+  if (hadFocus || !blocked) ta.focus();
+}
+
+/* ── slash commands ── */
+const cmdCache = new Map();   // sessionId -> {commands, exact}
+async function loadCommands(sid) {
+  try {
+    const r = await api('/api/commands?sid=' + encodeURIComponent(sid));
+    if (!r.ok) return;
+    cmdCache.set(sid, r.data);
+    // The list may arrive while "/" is already typed: redraw the popup with it.
+    const ta = sid === active && $('foot') ? $('foot').querySelector('textarea') : null;
+    if (ta && document.activeElement === ta) ta.dispatchEvent(new Event('focus'));
+  } catch (e) {}
+}
+// Commands that exist only as interactive screens in the terminal. Claude Code
+// does not report these for a conversation run this way, so they are listed
+// here to answer "why is /plugin not in the list" instead of showing nothing.
+const TERMINAL_ONLY = ['plugin', 'config', 'resume', 'agents', 'mcp', 'permissions', 'hooks', 'status', 'login', 'logout', 'help', 'memory', 'rewind', 'export', 'doctor', 'theme', 'vim', 'ide', 'terminal-setup', 'statusline', 'output-style', 'remote-control', 'add-dir', 'tasks', 'bashes', 'fast', 'effort', 'rename', 'background', 'bg'];
+function matchCommands(q, live) {
+  const have = new Set(live.map((c) => c.name));
+  const all = live.concat(TERMINAL_ONLY.filter((n) => !have.has(n)).map((name) => ({ name, terminalOnly: true })));
+  const k = q.toLowerCase();
+  const rank = (n) => { const x = n.toLowerCase(); return x.startsWith(k) ? 0 : x.split(/[:\-_]/).some((p) => p.startsWith(k)) ? 1 : x.includes(k) ? 2 : 9; };
+  return all.map((c) => ({ c, r: rank(c.name) })).filter((x) => x.r < 9).sort((a, b) => a.r - b.r || a.c.name.length - b.c.name.length || a.c.name.localeCompare(b.c.name)).slice(0, 12).map((x) => x.c);
+}
+
+/* ── jumping to what you said ── */
+function myMessages() {
+  const sc = $('scroll');
+  if (!sc) return [];
+  const base = sc.getBoundingClientRect().top - sc.scrollTop;
+  return [...sc.querySelectorAll('.msg.user')].map((e) => ({ e, top: Math.max(0, e.getBoundingClientRect().top - base - 16) }));
+}
+function flash(e) { e.classList.remove('flash'); void e.offsetWidth; e.classList.add('flash'); }
+// Each press goes one of your messages further up from where the view is now.
+function jumpToMine() {
+  const sc = $('scroll'), list = myMessages();
+  if (!sc || !list.length) return say('這段對話裡還沒有你說的話');
+  let target = null;
+  for (const x of list) if (x.top < sc.scrollTop - 4) target = x;
+  if (!target) {
+    // Nothing of yours above here in what is loaded: fetch what came before, then go on from the same place.
+    if (histMore && histMax < histLimit) { say('往前載入更早的對話…'); loadEarlier().then((ok) => { if (ok) jumpToMine(); }); return; }
+    flash(list[0].e); return say(histMore ? '這已經是這一頁能載入的最早一則' : '這是這段對話裡你最早的一則');
+  }
+  sc.scrollTop = target.top;
+  flash(target.e);
+}
+// The other way: each press goes one of your messages further down. Past your last one, to the bottom.
+function jumpToMineDown() {
+  const sc = $('scroll'), list = myMessages();
+  if (!sc || !list.length) return say('這段對話裡還沒有你說的話');
+  const target = list.find((x) => x.top > sc.scrollTop + 4);
+  // The last stretch may be shorter than the screen: the view cannot go further down than its end, and is there already.
+  if (!target || sc.scrollTop >= sc.scrollHeight - sc.clientHeight - 4) { toBottom(); if (!target) say('下面沒有你說的話了，已經到最新'); else flash(target.e); return; }
+  sc.scrollTop = target.top;
+  flash(target.e);
+}
+// Opening a conversation: start at your last message when the reply after it is
+// longer than the screen, so it can be read downward from there; otherwise the bottom.
+function startAtMine() {
+  const sc = $('scroll'), list = myMessages();
+  if (!sc) return;
+  const last = list[list.length - 1];
+  if (last && last.top < sc.scrollHeight - sc.clientHeight) sc.scrollTop = last.top; else toBottom();
+}
+
+/* ── messages ── */
+const nearBottom = () => { const sc = $('scroll'); return !sc || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 120; };
+const toBottom = () => { const sc = $('scroll'); if (sc) sc.scrollTop = sc.scrollHeight; };
+
+function node(it) {
+  if (it.role === 'user') {
+    const m = el('div', 'msg user'); if (it.id) m.dataset.id = it.id;
+    const q = quoteParse(it.text);
+    if (!q) { m.append(el('div', '', it.text)); linkFiles(m, active); return m; }
+    // Your words in your bubble; what you quoted folded above them, opened by a click.
+    const bubble = el('div');
+    const card = el('button', 'quoted'); card.type = 'button'; card.setAttribute('aria-expanded', 'false'); card.title = '點一下展開引用的原文';
+    const h = el('div', 'rh', '引用 ' + q.source + (q.title ? ' · ' + q.title : '')); const more = el('span', '', '展開'); h.append(more);
+    const body = el('div', 'rt', quoteSnippet(q.text));
+    card.append(h, body);
+    card.addEventListener('click', () => {
+      if (card.classList.contains('open') && String(window.getSelection()).length) return;   // selecting text in the opened quotation does not fold it
+      const on = card.classList.toggle('open'); card.setAttribute('aria-expanded', String(on)); more.textContent = on ? '收合' : '展開';
+      body.textContent = on ? q.text : quoteSnippet(q.text); if (on) linkFiles(body, active);
+    });
+    bubble.append(card, el('div', 'own', q.words));
+    m.append(bubble); linkFiles(bubble.querySelector('.own'), active);
+    return m;
+  }
+  // Where Claude Code compacted the conversation: everything above this line is what it summarized.
+  if (it.role === 'compact') return el('div', 'more compact', '這之前的對話已被壓縮成摘要' + (it.ts ? ' · ' + when(it.ts) : ''));
+  if (it.role === 'assistant') { const m = el('div', 'msg assistant'); m.innerHTML = md(it.text); linkFiles(m, active); return m; }
+  if (it.role === 'ask') return askCard(it);
+  if (it.role === 'answered') {
+    const a = el('div', 'answered');
+    a.append(el('div', 'ah', '你的回答'));
+    for (const p of it.answers) { const row = el('div', 'ar'); row.append(el('span', 'aq2', p.question), el('b', '', p.answer)); a.append(row); }
+    return a;
+  }
+  if (it.role === 'error') { const c = el('div', 'card err'); c.append(el('div', 'q', '出錯了'), el('div', '', it.text)); return c; }
+  return null;
+}
+
+function toolLine(it) { const l = el('div', 'tl'); l.append(el('b', '', it.tool || '動作'), ' ' + (it.text || '')); l.title = it.text || ''; return l; }
+
+// Draws one item at the end of the column. Runs of tool calls fold into one line.
+function place(it) {
+  const col = $('col');
+  if (!col) return;
+  const typing = col.querySelector('.typing');
+  const before = typing || col.querySelector('.card.perm');
+  if (it.role === 'tool') {
+    const prev = before ? before.previousElementSibling : col.lastElementChild;
+    let d = prev && prev.matches && prev.matches('details.tools') ? prev : null;
+    if (!d) { d = el('details', 'tools'); d.append(el('summary')); col.insertBefore(d, before || null); }
+    d.append(toolLine(it));
+    const n = d.querySelectorAll('.tl').length;
+    d.querySelector('summary').textContent = (n > 1 ? n + ' 個動作，最後一個：' : '') + (it.tool || '動作') + ' ' + (it.text || '');
+    return;
+  }
+  const n = node(it);
+  if (n) col.insertBefore(n, before || null);
+}
+
+function append(it) { const stick = nearBottom(); items.push(it); place(it); if (stick) toBottom(); }
+
+function redraw(more) {
+  const col = $('col');
+  if (!col) return;
+  col.textContent = '';
+  // Only the recent end of a conversation is loaded (a transcript can be hundreds of megabytes). Earlier parts on request.
+  if (more) {
+    const box = el('div', 'more');
+    if (histMax < histLimit) {
+      // Normally not needed: scrolling up here loads them. It is what shows that more exist, and the way when the page is too short to scroll.
+      const b = el('button', 'btn', histLoading ? '載入中…' : '載入更早的對話'); b.type = 'button'; b.disabled = histLoading;
+      b.title = '目前載入最近 ' + sep(items.length) + ' 則。往上捲到這裡會自己往前載入';
+      b.addEventListener('click', loadEarlier);
+      box.append(b);
+    } else box.append('已載入最近 ' + sep(items.length) + ' 則，這是這一頁的上限。更早的請在終端機用 claude --resume 開這個對話來看');
+    col.append(box);
+  }
+  if (!items.length && !more) col.append(el('div', 'more', cur() && cur().owner === 'board' ? '在下面輸入第一則訊息' : '這個 session 還沒有對話'));
+  for (const it of items) place(it);
+  markPendingAsk();
+  drawExtras();
+}
+
+// One question of a form, as read-only text: what was asked and what the choices were.
+function questionBlock(q) {
+  const box = el('div', 'aq');
+  const top = el('div', 'aqh');
+  if (q.header) top.append(el('span', 'chip', q.header));
+  top.append(el('span', 'aqq', q.question));
+  if (q.multiSelect) top.append(el('span', 'aqm', '可複選'));
+  box.append(top);
+  return box;
+}
+
+// A question form from the saved conversation (a terminal session's, or an already answered one).
+function askCard(it) {
+  const c = el('div', 'card ask');
+  c.append(el('div', 'q', 'Claude 問了你 ' + it.questions.length + ' 個問題'));
+  for (const q of it.questions) {
+    const box = questionBlock(q);
+    for (const o of q.options) { const row = el('div', 'opt'); const t = el('div'); t.append(el('b', '', o.label)); if (o.description) t.append(el('div', 'od', o.description)); row.append(el('span', 'ob', '•'), t); box.append(row); }
+    c.append(box);
+  }
+  return c;
+}
+
+// The newest thing in a terminal session is an unanswered form: say so, and offer the way to answer it.
+function markPendingAsk() {
+  const col = $('col'), s = cur();
+  if (!col || !s || s.owner !== 'terminal') return;
+  const last = items[items.length - 1];
+  const cards = col.querySelectorAll('.card.ask');
+  const card = cards[cards.length - 1];
+  if (!last || last.role !== 'ask' || !card || card.querySelector('.asknote')) return;
+  card.classList.add('pending');
+  const note = el('div', 'asknote');
+  note.append(el('span', '', s.headless ? '這個 session 正在等這幾題的回答。' : '終端機正在等你回答這幾題。看板不能替終端機裡的 session 作答，請到它的視窗回答。'));
+  if (!s.headless) {
+    const b = el('button', 'btn primary', '到終端機回答'); b.type = 'button';
+    b.addEventListener('click', async () => say(...focusResult(s, (await api('/api/focus', { sessionId: s.sessionId })).data)));
+    note.append(b);
+  }
+  card.append(note);
+}
+
+// A question form in a conversation the board runs: filled in and sent from here.
+function askForm(p) {
+  const c = el('div', 'card perm ask pending');
+  c.dataset.rid = p.requestId;
+  c.append(el('div', 'q', 'Claude 想先問你 ' + p.questions.length + ' 個問題'));
+  const send = el('button', 'btn primary', '送出回答'); send.type = 'button';
+  const skip = el('button', 'btn', '不回答'); skip.type = 'button';
+  const groups = [];
+  p.questions.forEach((q, qi) => {
+    const box = questionBlock(q);
+    const kind = q.multiSelect ? 'checkbox' : 'radio';
+    const inputs = [];
+    const add = (label, description, isOther) => {
+      const row = el('label', 'opt');
+      const inp = el('input'); inp.type = kind; inp.name = 'q' + qi + '-' + p.requestId;
+      const t = el('div', 'ot');
+      let text = null;
+      if (isOther) {
+        text = el('input', 'other'); text.type = 'text'; text.placeholder = '其他（自己寫）'; text.setAttribute('aria-label', '其他回答');
+        text.addEventListener('input', () => { if (text.value.trim()) inp.checked = true; check(); });
+        t.append(text);
+      } else { t.append(el('b', '', label)); if (description) t.append(el('div', 'od', description)); }
+      inp.addEventListener('change', check);
+      row.append(inp, t);
+      box.append(row);
+      inputs.push({ inp, label, text });
+    };
+    for (const o of q.options) add(o.label, o.description, false);
+    add('', '', true);
+    // What this question's answer is right now: the chosen labels, with typed text standing in for "other".
+    groups.push(() => inputs.filter((x) => x.inp.checked).map((x) => (x.text ? x.text.value.trim() : x.label)).filter(Boolean).join(', '));
+    c.append(box);
+  });
+  function check() { send.disabled = !groups.every((g) => g()); }
+  const row = el('div', 'row'); row.style.marginTop = '12px';
+  const done = async (allow) => {
+    send.disabled = skip.disabled = true;
+    const answers = {};
+    p.questions.forEach((q, i) => { answers[q.question] = groups[i](); });
+    const r = await api('/api/permission', { sessionId: active, requestId: p.requestId, allow, answers });
+    if (!r.ok) { say(r.data.error === 'no such request' ? '這個提問已經不在了' : (r.data.error || '送不出去'), true); skip.disabled = false; check(); }
+  };
+  send.addEventListener('click', () => done(true));
+  skip.addEventListener('click', () => done(false));
+  row.append(send, skip);
+  c.append(row);
+  check();
+  return c;
+}
+
+function permCard(p) {
+  const c = el('div', 'card perm');
+  c.dataset.rid = p.requestId;
+  c.append(el('div', 'q', 'Claude 想要執行：' + (p.tool || '一個動作')), el('div', 'd', p.text || ''));
+  const row = el('div', 'row');
+  const yes = el('button', 'btn primary', '允許'); yes.type = 'button';
+  const no = el('button', 'btn', '拒絕'); no.type = 'button';
+  const answer = async (allow) => { yes.disabled = no.disabled = true; const r = await api('/api/permission', { sessionId: active, requestId: p.requestId, allow }); if (!r.ok) say('這個請求已經不在了', true); };
+  yes.addEventListener('click', () => answer(true));
+  no.addEventListener('click', () => answer(false));
+  row.append(yes, no);
+  c.append(row);
+  return c;
+}
+
+// Things that are not part of the saved conversation: approval and question cards, and the "working" line.
+// A card that is already on screen is left alone: redrawing it would wipe what has been filled in.
+function drawExtras() {
+  const col = $('col');
+  if (!col) return;
+  for (const x of col.querySelectorAll('.typing')) x.remove();
+  for (const x of col.querySelectorAll('.card.perm')) if (!pending.has(x.dataset.rid)) x.remove();
+  const writing = liveNode && liveNode.isConnected;   // the reply itself is on screen: no need to also say "working"
+  const st = liveOrListed();
+  if (!writing && cur() && cur().owner === 'board') {
+    const line = st === 'busy' ? 'Claude 正在執行…'
+      : st === 'background' ? '這一輪說完了，但它啟動的背景工作還在跑（見下方）。做完後它會自己接著回報，不用你再說話。' : '';
+    if (line) col.insertBefore(el('div', 'typing', line), col.querySelector('.card.perm'));
+  }
+  for (const p of pending.values()) {
+    if (col.querySelector('.card.perm[data-rid="' + CSS.escape(p.requestId) + '"]')) continue;
+    col.append(Array.isArray(p.questions) && p.questions.length ? askForm(p) : permCard(p));
+  }
+}
+
+// guard: only replace what is drawn if the saved conversation has caught up with
+// it. Right after a reply the transcript can be a moment behind the stream, and
+// redrawing from it then would make the newest message vanish.
+// Asks for the part of the conversation before what is loaded. Resolves true when more was asked for.
+async function loadEarlier() {
+  if (histLoading || !histMore || histMax >= histLimit || view !== 'chat') return false;
+  histLoading = true;
+  const b = document.querySelector('#col .more button');
+  if (b) { b.disabled = true; b.textContent = '載入中…'; }
+  histMax = Math.min(histMax * 3, histLimit);
+  try { await loadHistory(false, false, true); } finally { histLoading = false; }
+  const again = document.querySelector('#col .more button');
+  if (again) { again.disabled = false; again.textContent = '載入更早的對話'; }
+  return true;
+}
+// keepPlace: earlier items were asked for - what you were reading stays where it is on the screen.
+async function loadHistory(jump, guard, keepPlace) {
+  const sid = active;
+  if (!sid) return;
+  let r;
+  try { r = await api('/api/messages?sid=' + encodeURIComponent(sid) + '&max=' + histMax); } catch (e) { return; }
+  if (sid !== active || !r.ok) return;
+  const got = r.data.items || [];
+  histMore = !!r.data.more;
+  if (guard && !r.data.more && got.length < items.filter((i) => i.role !== 'error').length) return;
+  const shape = got.length + ':' + (got.length ? got[got.length - 1].id : '') + ':' + r.data.more;
+  if (shape === histShape) return;
+  histShape = shape;
+  if (r.data.limit) histLimit = r.data.limit;
+  const sc = $('scroll');
+  const fromBottom = sc ? sc.scrollHeight - sc.scrollTop : 0;
+  const stick = !keepPlace && (jump || nearBottom());
+  items = got;
+  redraw(r.data.more);
+  if (stick) toBottom();
+  else if (keepPlace && sc) sc.scrollTop = sc.scrollHeight - fromBottom;
+}
+
+// The reply while it is being written: plain text that grows a few characters
+// at a time. When the whole block arrives it is replaced by the formatted
+// message (tables and bold cannot be laid out correctly from half a sentence).
+let liveNode = null, liveText = '';
+function liveDelta(text) {
+  const col = $('col');
+  if (!col) return;
+  const stick = nearBottom();
+  if (!liveNode || !liveNode.isConnected) {
+    liveNode = el('div', 'msg assistant streaming');
+    liveText = '';
+    for (const x of col.querySelectorAll('.typing')) x.remove();   // text is appearing: "working…" has said its piece
+    col.insertBefore(liveNode, col.querySelector('.card.perm'));
+  }
+  liveText += text;
+  liveNode.textContent = liveText;
+  if (stick) toBottom();
+}
+function liveDone() { if (liveNode) { liveNode.remove(); liveNode = null; liveText = ''; } }
+
+function onLive(ev) {
+  if (ev.type === 'delta') return liveDelta(ev.text);
+  if (ev.type === 'tasks') { liveTasks = Array.isArray(ev.tasks) ? ev.tasks : []; drawTasks(); drawExtras(); return; }
+  if (ev.type === 'queue') { liveQueue = Array.isArray(ev.queue) ? ev.queue : []; drawQueue(); return; }
+  // A queued message whose turn has come: it is in the conversation from now on.
+  if (ev.type === 'sent') { const stick = nearBottom(); append({ role: 'user', text: String(ev.text || '').trim() }); if (stick) toBottom(); liveStatus = 'busy'; drawHead(); return; }
+  if (ev.type === 'thinking') { const t = $('col') && $('col').querySelector('.typing'); if (t) t.textContent = 'Claude 正在思考…'; return; }
+  if (ev.type === 'assistant') { liveDone(); append({ role: 'assistant', text: ev.text }); }
+  else if (ev.type === 'tool') { append({ role: 'tool', tool: ev.tool, text: ev.text }); drawExtras(); }
+  else if (ev.type === 'error') append({ role: 'error', text: ev.text });
+  else if (ev.type === 'permission') { pending.set(ev.requestId, ev); const stick = nearBottom(); drawExtras(); if (stick) toBottom(); }
+  else if (ev.type === 'permission-done') { pending.delete(ev.requestId); drawExtras(); }
+  else if (ev.type === 'state') {
+    const was = liveStatus;
+    liveStatus = ev.status;
+    if (was !== liveStatus) { const stick = nearBottom(); drawHead(); drawFoot(); drawExtras(); if (stick) toBottom(); }
+  } else if (ev.type === 'result') {
+    if (ev.isError && ev.text) append({ role: 'error', text: ev.text });
+    // The transcript now holds this turn: redraw from it, so what is shown is what was saved.
+    const sid = active;
+    api('/api/seen', { sessionId: sid });
+    loadCommands(sid);
+    setTimeout(() => loadStats(sid), 1500);   // cost and message count moved with this turn
+    for (const wait of [800, 4000]) setTimeout(() => { if (sid === active && liveStatus !== 'busy') loadHistory(false, true); }, wait);
+  }
+}
+
+/* ── files mentioned in a conversation ──
+   Anything in a reply that looks like a path is sent to the server, and only
+   the ones that really exist become clickable. Nothing is guessed in the page. */
+const EXT = /\.[A-Za-z0-9]{1,8}(:\d+(-\d+)?(:\d+)?)?$/;
+function looksLikePath(t) {
+  if (!t || t.length > 400 || /[\n<>|*?]/.test(t) || /^(https?:|\/\/)/i.test(t)) return false;
+  if (/^[A-Za-z]:[\\/]/.test(t) || /^~[\\/]/.test(t)) return true;
+  return EXT.test(t) && !/\s{2,}/.test(t) && !/^[-.]/.test(t);   // a relative path needs an extension
+}
+const BARE = /[A-Za-z]:\\[^\s"'`<>|*?　-〿＀-￯]+/g;   // an absolute path in running text ends at a space or full-width punctuation
+
+let fileQueue = [];
+let fileTimer = 0;
+function linkFiles(root, sid) {
+  if (!root) return;
+  for (const c of root.querySelectorAll('code')) {
+    if (c.closest('pre') || c.dataset.fq) continue;
+    const t = c.textContent.trim();
+    if (looksLikePath(t)) { c.dataset.fq = '1'; fileQueue.push({ el: c, raw: t, sid }); }
+  }
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('code, pre, a, .fp, button') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+  const texts = [];
+  while (walker.nextNode()) if (/[A-Za-z]:\\/.test(walker.currentNode.nodeValue)) texts.push(walker.currentNode);
+  for (const node of texts) {
+    const s = node.nodeValue;
+    const frag = document.createDocumentFragment();
+    let last = 0, m;
+    BARE.lastIndex = 0;
+    while ((m = BARE.exec(s))) {
+      const raw = m[0].replace(/[.,;:)\]]+$/, '');
+      if (m.index > last) frag.append(s.slice(last, m.index));
+      const span = el('span', '', raw);
+      span.dataset.fq = '1';
+      frag.append(span);
+      fileQueue.push({ el: span, raw, sid });
+      last = m.index + raw.length;
+      BARE.lastIndex = last;
+    }
+    if (!last) continue;
+    if (last < s.length) frag.append(s.slice(last));
+    node.replaceWith(frag);
+  }
+  clearTimeout(fileTimer);
+  fileTimer = setTimeout(checkFiles, 120);
+}
+
+async function checkFiles() {
+  const batch = fileQueue;
+  fileQueue = [];
+  const bySid = new Map();
+  for (const q of batch) { if (!bySid.has(q.sid)) bySid.set(q.sid, []); bySid.get(q.sid).push(q); }
+  for (const [sid, qs] of bySid) {
+    for (let i = 0; i < qs.length; i += 80) {
+      const part = qs.slice(i, i + 80);
+      let r;
+      try { r = await api('/api/files/check', { sessionId: sid || '', paths: part.map((q) => q.raw) }); } catch (e) { continue; }
+      if (!r.ok) continue;
+      part.forEach((q, k) => {
+        const f = r.data.files[k];
+        if (!f || !q.el.isConnected) return;
+        q.el.classList.add('fp');
+        q.el.tabIndex = 0;
+        q.el.setAttribute('role', 'button');
+        // searched: the reply gave only a name; this is where a file by that name was found.
+        q.el.title = (f.kind === 'dir' ? '開啟資料夾：' : f.searched ? '預覽（依檔名在資料夾裡找到' + (f.others ? '，同名的還有 ' + f.others + ' 個，這是最新的' : '') + '）：' : '預覽：') + f.abs;
+        const go = () => openPeek(f);
+        q.el.addEventListener('click', go);
+        q.el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      });
+    }
+  }
+}
+
+let peekFile = null;
+let peekUrl = '';
+function closePeek() {
+  clearTimeout(taskPeekTimer);
+  $('peek').hidden = true;
+  $('peekBody').textContent = '';
+  if (peekUrl) { URL.revokeObjectURL(peekUrl); peekUrl = ''; }
+  peekFile = null;
+}
+const sizeText = (n) => (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+
+async function openPeek(f) {
+  closePeek();
+  peekFile = f;
+  $('peek').hidden = false;
+  $('peekName').textContent = f.name;
+  $('peekPath').textContent = '‎' + f.abs;   // left-to-right mark: the box is right-to-left so a long path shows its END
+  $('peekPath').title = f.abs;
+  $('peekOpen').hidden = !(f.kind !== 'dir' && f.canOpen);
+  $('peekReveal').textContent = f.kind === 'dir' ? '在檔案總管開啟' : '在檔案總管顯示';
+  const body = $('peekBody');
+  const note = (text) => { body.textContent = ''; body.append(el('div', 'blank', text)); };
+  const q = '?path=' + encodeURIComponent(f.abs);
+  const grab = async (url) => {
+    const res = await fetch(url, { headers: { 'x-board-token': TOKEN } });
+    if (!res.ok) { let msg = ''; try { msg = (await res.json()).error || ''; } catch (e) {} throw new Error(msg || 'HTTP ' + res.status); }
+    return res;
+  };
+  try {
+    if (f.kind === 'dir') return note('這是一個資料夾。按上面的「在檔案總管開啟」。');
+    if (f.kind === 'other') return note('這種檔案不能在這裡預覽。可以按上面的按鈕在檔案總管找到它。');
+    if (f.kind === 'office') note('正在用 Office 把它轉成 PDF 來顯示…第一次大約要 10 到 30 秒，之後會直接顯示。');
+    else note('載入中…');
+    const res = await grab(f.kind === 'office' ? '/api/file/pdf' + q : '/api/file' + q);
+    if (peekFile !== f) return;
+    if (f.kind === 'text') {
+      const text = await res.text();
+      if (peekFile !== f) return;
+      body.textContent = '';
+      if (res.headers.get('X-Truncated') === '1') body.append(el('div', 'peek-note', '檔案很大（' + sizeText(f.size) + '），這裡只顯示前 2 MB。'));
+      if (/\.(md|markdown)$/i.test(f.name)) { const m = el('div', 'msg assistant'); m.innerHTML = md(text); body.append(m); }
+      else body.append(el('pre', '', text));
+      return;
+    }
+    const blob = await res.blob();
+    if (peekFile !== f) return;
+    peekUrl = URL.createObjectURL(blob);
+    body.textContent = '';
+    if (f.kind === 'image') { const img = el('img'); img.alt = f.name; img.src = peekUrl; body.append(img); }
+    else { const fr = el('iframe'); fr.title = f.name; fr.src = peekUrl; body.append(fr); }
+  } catch (e) {
+    if (peekFile === f) note('沒辦法預覽：' + e.message + '。可以改用上面的按鈕開啟它。');
+  }
+}
+
+// A background command in the side panel: its command line, how it stands, and the end of what it has printed.
+// Read again every two seconds while it runs.
+let taskPeekTimer = 0;
+async function openTaskPeek(sid, t) {
+  closePeek();
+  const f = { task: true, id: t.id, sid, name: t.description || '背景指令', abs: '', kind: 'text' };
+  peekFile = f;
+  $('peek').hidden = false;
+  $('peekName').textContent = f.name;
+  $('peekPath').textContent = '背景指令';
+  $('peekOpen').hidden = true;
+  $('peekReveal').textContent = '在檔案總管顯示';
+  const body = $('peekBody');
+  body.textContent = '';
+  const cmd = el('div', 'tcmd'), stat = el('div', 'tstat', '載入中…'), out = el('pre');
+  body.append(cmd, stat, out);
+  const load = async () => {
+    if (peekFile !== f) return;
+    let r; try { r = await api('/api/task?sid=' + encodeURIComponent(sid) + '&id=' + encodeURIComponent(t.id)); } catch (e) { r = { ok: false, data: {} }; }
+    if (peekFile !== f) return;
+    if (!r.ok) { stat.textContent = r.data.error || '讀不到'; return; }
+    const d = r.data;
+    f.abs = d.path || '';
+    $('peekPath').textContent = '\u200e' + (d.path || '背景指令'); $('peekPath').title = d.path || '';
+    cmd.textContent = d.command ? '$ ' + d.command : '（不知道它的指令內容：它是在看板重啟之前啟動的）';
+    stat.textContent = (d.running ? '執行中，已跑 ' + dur(Date.now() - d.startedAt) + '（每 2 秒更新）' : (d.status === 'completed' ? '做完了' : d.status === 'failed' ? '失敗' : '結束：' + d.status) + (d.summary ? '　·　' + d.summary : ''))
+      + '　·　輸出 ' + sizeText(d.size) + (d.truncated ? '，只顯示最後 256 KB' : '') + (d.readError ? '　·　' + d.readError : '');
+    // Stay at the end while you are at the end; if you scrolled up to read, stay where you are.
+    const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+    out.textContent = d.text || (d.running ? '（還沒有輸出）' : '（沒有輸出）');
+    if (atEnd) body.scrollTop = body.scrollHeight;
+    if (d.running) taskPeekTimer = setTimeout(load, 2000);
+  };
+  await load();
+  body.scrollTop = body.scrollHeight;
+}
+
+// Preview width: drag the left edge. Remembered in this browser; double-click the edge for the default.
+const PEEK_KEY = 'session-board.peekWidth';
+const peekLimits = () => ({ min: 320, max: Math.max(320, window.innerWidth - 160) });
+function setPeekWidth(px, remember) {
+  const { min, max } = peekLimits();
+  const w = Math.round(Math.min(max, Math.max(min, px)));
+  $('peek').style.width = w + 'px';
+  if (remember) { try { localStorage.setItem(PEEK_KEY, String(w)); } catch (e) {} }
+  return w;
+}
+(() => {
+  const peek = $('peek'), grip = $('peekGrip');
+  let saved = NaN;
+  try { saved = Number(localStorage.getItem(PEEK_KEY)); } catch (e) {}
+  if (Number.isFinite(saved) && saved > 0) setPeekWidth(saved, false);
+  let dragging = false;
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    try { grip.setPointerCapture(e.pointerId); } catch (x) {}
+    peek.classList.add('dragging'); document.body.classList.add('resizing');
+    e.preventDefault();
+  });
+  grip.addEventListener('pointermove', (e) => { if (dragging) setPeekWidth(window.innerWidth - e.clientX, false); });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    peek.classList.remove('dragging'); document.body.classList.remove('resizing');
+    setPeekWidth(peek.getBoundingClientRect().width, true);
+  };
+  grip.addEventListener('pointerup', end);
+  grip.addEventListener('pointercancel', end);
+  grip.addEventListener('dblclick', () => { peek.style.width = ''; try { localStorage.removeItem(PEEK_KEY); } catch (e) {} });
+  grip.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    setPeekWidth(peek.getBoundingClientRect().width + (e.key === 'ArrowLeft' ? 40 : -40), true);
+  });
+  // A window made narrower must not leave the preview wider than the screen.
+  window.addEventListener('resize', () => { if (peek.style.width) setPeekWidth(parseFloat(peek.style.width), false); });
+})();
+
+$('peekClose').addEventListener('click', closePeek);
+$('peekCopy').addEventListener('click', async () => { if (!peekFile) return; try { await navigator.clipboard.writeText(peekFile.abs); say('路徑已複製'); } catch (e) { say('複製失敗，請手動選取路徑', true); } });
+$('peekOpen').addEventListener('click', async () => { if (!peekFile) return; const r = await api('/api/file/open', { path: peekFile.abs }); say(r.ok ? '已用預設程式開啟' : (r.data.error || '開不了'), !r.ok); });
+$('peekReveal').addEventListener('click', async () => { if (!peekFile) return; const r = await api('/api/file/reveal', { path: peekFile.abs }); say(r.ok ? '已在檔案總管顯示' : (r.data.error || '找不到'), !r.ok); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('peek').hidden) closePeek(); });
+
+/* ── figures above a conversation ── */
+// 12,345 -> "1.2 萬"; 76,750,000 -> "7,675 萬"; 992,932,314 -> "9.9 億". Always with thousands separators.
+// With digits given, exactly that many decimals (money); without, a whole number.
+const sep = (x, digits) => Number(x).toLocaleString('en-US', { minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0 });
+const bigNum = (n) => big(n);
+function big(n) {
+  if (n == null) return '—';
+  const f = (x, d) => Number(x).toLocaleString('en-US', { maximumFractionDigits: d });   // up to d decimals, no trailing zeros
+  if (n >= 1e8) return f(n / 1e8, 1) + ' 億';
+  if (n >= 1e4) return f(n / 1e4, n >= 1e5 ? 0 : 1) + ' 萬';
+  return f(Math.round(n), 0);
+}
+// "~" marks a figure cc-statusline priced with a stand-in rate.
+const money = (c, est) => (c == null ? '—' : (est ? '~' : '') + '$' + (c >= 100 ? sep(Math.round(c)) : c.toFixed(2)));
+
+// Time left until a moment: "5 天 23 時", "3 時 20 分", "12 分".
+function left(ts) {
+  const m = Math.max(0, Math.floor((ts - Date.now()) / 60000));
+  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
+  return d ? d + ' 天 ' + h + ' 時' : h ? h + ' 時 ' + (m % 60) + ' 分' : (m % 60) + ' 分';
+}
+let infoOpen = false;   // whether "more" is open; kept while the figures refresh and across conversations
+async function loadStats(sid) {
+  let r;
+  try { r = await api('/api/stats?sid=' + encodeURIComponent(sid)); } catch (e) { return; }
+  const box = $('info');
+  if (sid !== active || !box || !r.ok) return;
+  const d = r.data;
+  box.textContent = '';
+  // Figures on the left (they wrap among themselves on a narrow window), "more" pinned to the right of the first line.
+  const chips = el('div', 'chips');
+  box.append(chips);
+  const chip = (label, value, title) => { const s = el('span'); s.append(label + ' ', el('b', '', value)); if (title) s.title = title; chips.append(s); };
+  if (d.usage) {
+    if (d.usage.byBoard) {
+      chip('花費', money(d.usage.cost), '這個對話在看板裡累計的金額（含它派出的子代理），是 Claude Code 每輪回報的數字加總');
+      chip('用量', big(d.usage.tok) + ' tokens', '這個對話在看板裡累計的用量，含快取讀寫');
+    } else {
+      chip('花費', money(d.usage.cost, d.usage.estimated), '主對話 ' + money(d.usage.mainCost) + '，子代理 ' + money(d.usage.agentCost) + '（' + d.usage.agentRuns + ' 次）。照官方牌價換算的等值金額，由狀態列外掛計算');
+      chip('用量', big(d.usage.tok) + ' tokens', '主對話 ' + big(d.usage.mainTok) + '，子代理 ' + big(d.usage.agentTok) + '。含快取讀寫');
+    }
+  }
+  if (d.context) {
+    const c = d.context;
+    if (c.pct != null) chip('context', c.pct + '%（' + big(c.tokens) + ' / ' + big(c.window) + '）', '最近一次回覆時送給模型的內容量（輸入加快取），除以這個模型的上限' + (c.assumed ? '。上限是推定的：用量超過 20 萬，只可能是 100 萬的那種' : '') + (c.model ? '。模型 ' + c.model : ''));
+    else chip('context', big(c.tokens) + ' tokens', '最近一次回覆時送給模型的內容量。還不知道這個模型的上限是多少，所以算不出百分比' + (c.model ? '。模型 ' + c.model : ''));
+  }
+  if (d.compacts) chip('壓縮', sep(d.compacts.count) + ' 次', d.compacts.last ? '上次壓縮：' + when(d.compacts.last) : '這個 session 還沒被壓縮過');
+  if (d.messages != null) chip('訊息', sep(d.messages) + ' 則');
+  if (d.agents.running.length) chip('子代理執行中', String(d.agents.running.length), d.agents.running.join('、'));
+  // Account-wide limits: the same for every session, shown here because this is where you are looking.
+  const q = d.quota || {};
+  const stale = q.seenAt && Date.now() - q.seenAt > 10 * 60000 ? '。這是 ' + ago(Date.now() - q.seenAt) + '前看到的數字，之後沒有 session 回報新的' : '';
+  if (q.fiveHour) chip('5 小時額度', q.fiveHour.pct + '%', '整個帳號共用。' + left(q.fiveHour.resetsAt) + '後重置' + stale);
+  if (q.sevenDay) chip('7 天額度', q.sevenDay.pct + '%', '整個帳號共用。' + left(q.sevenDay.resetsAt) + '後重置' + stale);
+  const s0 = cur();
+  if (s0 && s0.owner === 'terminal') { termAgents = d.agents.running; drawTasks(); }
+  const rows = [];
+  // Subagents = helpers this session handed work to (a reviewer, a tester, a searcher...).
+  const runs = d.usage ? d.usage.agentRuns : 0;
+  if (runs || d.agents.kinds.length || d.agents.running.length) {
+    const parts = [];
+    if (runs) parts.push('這個 session 把工作分派給幫手共 ' + runs + ' 次');
+    parts.push(d.agents.running.length ? '現在還在跑的：' + d.agents.running.join('、') : '現在都做完了，沒有在跑的');
+    if (d.agents.kinds.length) parts.push('最近用過的種類：' + d.agents.kinds.join('、'));
+    rows.push(['子代理（幫手）', parts.join('；')]);
+  }
+  if (d.skills.length) rows.push(['常用 skill', d.skills.map((s) => s.name + ' ×' + s.count).join('、')]);
+  if (d.mcp.length) rows.push(['MCP 呼叫', d.mcp.map((m) => m.name + ' ×' + m.count + (m.errors ? '（失敗 ' + m.errors + '）' : '')).join('、')]);
+  if (rows.length || d.edited.length) {
+    // "More" sits at the right end of the same row; what it opens goes underneath, full width.
+    const tog = el('button', 'info-more'); tog.type = 'button';
+    const grid = el('div', 'more-rows');
+    const set = () => { grid.hidden = !infoOpen; tog.textContent = infoOpen ? '收起 ▴' : '更多 ▾'; tog.setAttribute('aria-expanded', String(infoOpen)); };
+    tog.addEventListener('click', () => { infoOpen = !infoOpen; set(); });
+    set();
+    box.append(tog);
+    for (const [k, v] of rows) grid.append(el('span', '', k), el('span', '', v));
+    if (d.edited.length) {
+      const files = el('span');
+      d.edited.forEach((f, i) => { if (i) files.append('、'); files.append(el('code', '', f)); });
+      grid.append(el('span', '', '最近改過的檔案'), files);
+      linkFiles(files, sid);   // the ones that can be found become clickable, like paths in a reply
+    }
+    box.append(grid);
+  }
+  box.hidden = !chips.firstChild;
+}
+
+/* ── war room ── */
+let war = null;          // last /api/warroom answer
+let warShape = '';
+let stopAsk = null;      // sessionId whose "stop?" confirmation is showing
+
+function dur(ms) {
+  const s = Math.floor(Math.max(0, ms) / 1000);
+  if (s < 1) return '<1 秒';
+  if (s < 90) return s + ' 秒';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + ' 分 ' + String(s % 60).padStart(2, '0') + ' 秒';
+  return Math.floor(m / 60) + ' 時 ' + String(m % 60).padStart(2, '0') + ' 分';
+}
+function when(ts) {
+  if (!ts) return '';
+  const d = new Date(ts), n = new Date();
+  const t = d.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === n.toDateString() ? t : String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0') + ' ' + t;
+}
+const doing = (a) => a.state === 'tool' ? '正在用 ' + a.tool : a.state === 'thinking' ? '思考中' : a.state === 'writing' ? '寫回覆中' : '啟動中';
+
+function drawWar() {
+  closeStream();
+  view = 'war'; active = null; war = null; warShape = ''; stopAsk = null; setPlace('war');
+  $('app').classList.add('viewing');
+  const main = $('main');
+  main.textContent = '';
+  const head = el('div', 'head');
+  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', drawHome);
+  const who = el('div', 'who');
+  who.append(el('div', 't', '戰情室'), el('div', 's', '每個月用了多少 token、照 API 牌價值多少錢'));
+  head.append(back, who);
+  const scroll = el('div', 'scroll');
+  const box = el('div', 'war');
+  const sec = (title, id) => { const d = el('div'); d.id = id; box.append(el('h3', '', title), d); };
+  sec('每月用量與 API 等值費用（這台電腦所有 session，含已關閉的與子代理）', 'month');
+  scroll.append(box);
+  main.append(head, scroll);
+  listShape = '';
+  drawList();
+  drawMonth();
+  loadUsage(false);
+  pollWar();
+}
+
+/* ── war room: the month ── */
+const thisMonth = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+let warMonth = thisMonth();
+let showAllSessions = false;
+const TOP_SESSIONS = 15;
+const usageByMonth = new Map();   // 'YYYY-MM' -> figures, or {loading:true}, or {ok:false,error}
+const shiftMonth = (ym, by) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + by, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+
+async function loadUsage(force) {
+  const ym = warMonth;
+  const had = usageByMonth.get(ym);
+  usageByMonth.set(ym, Object.assign({}, had && had.ok ? had : {}, { loading: true }));
+  drawMonth();
+  let r;
+  try { r = await api('/api/usage?month=' + ym + (force ? '&force=1' : '')); } catch (e) { r = { data: { ok: false, error: '看板程序沒有回應' } }; }
+  usageByMonth.set(ym, r.data);
+  drawMonth();
+}
+
+function drawMonth() {
+  const box = $('month');
+  if (!box) return;
+  box.textContent = '';
+  const ym = warMonth, cur = ym === thisMonth();
+  const d = usageByMonth.get(ym) || { loading: true };
+  const [y, mo] = ym.split('-').map(Number);
+
+  const head = el('div', 'mhead');
+  const nav = (label, to, off, title) => { const b = el('button', 'btn', label); b.type = 'button'; b.disabled = off; b.title = title; b.addEventListener('click', () => { warMonth = to; drawMonth(); if (!usageByMonth.get(to) || !usageByMonth.get(to).ok) loadUsage(false); }); return b; };
+  head.append(nav('‹', shiftMonth(ym, -1), false, '上個月'), el('b', 'mname', y + ' 年 ' + mo + ' 月'), nav('›', shiftMonth(ym, 1), cur, cur ? '這已經是本月' : '下個月'));
+  if (!cur) head.append(nav('回到本月', thisMonth(), false, ''));
+  const side = el('span', 'mnote');
+  if (d.loading) side.textContent = d.ok ? '重新計算中…' : '計算中…第一次算一個月大約要幾秒到二十秒';
+  else if (d.ok) side.textContent = '計算於 ' + when(d.computedAt) + '，掃了 ' + sep(d.files) + ' 個檔、' + (d.bytes / 1e9).toFixed(2) + ' GB，花 ' + (d.tookMs / 1000).toFixed(1) + ' 秒';
+  head.append(side);
+  const again = el('button', 'btn', '重新計算'); again.type = 'button'; again.disabled = !!d.loading; again.addEventListener('click', () => loadUsage(true));
+  head.append(again);
+  box.append(head);
+
+  if (!d.ok) { box.append(el('div', 'quiet', d.loading ? '' : '算不出來：' + (d.error || '未知的原因'))); return; }
+  if (d.stale) box.append(el('div', 'bad', '這次重新計算失敗（' + (d.error || '') + '），下面是上一次算出的數字。'));
+  if (!d.priced) box.append(el('div', 'bad', '找不到 cc-statusline 的單價表，所以只有 token 數、沒有金額。'));
+
+  // The headline figures.
+  const kp = el('div', 'pulse'); kp.style.borderBottom = '0'; kp.style.padding = '8px 8px 4px';
+  const kpi = (n, label, title) => { const k = el('div', 'kpi'); k.append(el('div', 'n', n), el('div', 'l', label)); if (title) k.title = title; kp.append(k); };
+  const elapsedDays = cur ? Math.max(1 / 24, (Date.now() - d.from) / 86400000) : d.daysInMonth;
+  kpi(d.priced ? '$' + sep(d.total.cost, 2) : '—', 'API 等值費用', '照官方 API 牌價換算：如果這些用量是走 API 計費要付的金額。不是你訂閱方案實際被收的錢');
+  kpi(bigNum(d.total.tok), '總 tokens', sep(d.total.tok) + ' tokens');
+  if (d.priced) kpi('$' + sep(d.total.cost / elapsedDays, 0), cur ? '每天平均（到現在）' : '每天平均');
+  if (d.priced && cur) kpi('$' + sep(d.total.cost / elapsedDays * d.daysInMonth, 0), '照這個速度到月底', '到目前的金額 ÷ 已過的天數 × 這個月的天數。只是線性推估');
+  box.append(kp);
+  const parts = el('div', 'mparts');
+  for (const [label, v, tip] of [['輸入', d.total.in, '沒有命中快取的輸入'], ['輸出', d.total.out, '模型寫出來的，含思考'], ['寫入快取', d.total.cw, '第一次送進去、被存成快取的內容'], ['讀取快取', d.total.cr, '重複送、命中快取的內容。數量最大但單價最低']]) {
+    const s = el('span'); s.append(label + ' ', el('b', '', bigNum(v))); s.title = tip + '：' + sep(v) + ' tokens'; parts.append(s);
+  }
+  parts.append(el('span', '', sep(d.sessionCount) + ' 個 session、' + sep(d.records) + ' 次模型呼叫'));
+  box.append(parts);
+
+  // One bar per day of the month.
+  const max = Math.max(1e-9, ...d.days.map((x) => (d.priced ? x.cost : x.tok)));
+  const today = cur ? new Date().getDate() : 0;
+  const bars = el('div', 'bars'); bars.setAttribute('role', 'img');
+  bars.setAttribute('aria-label', y + ' 年 ' + mo + ' 月每天的' + (d.priced ? '費用' : 'token 數') + '長條圖，最高的一天是 ' + (d.priced ? '$' + sep(max, 0) : bigNum(max)));
+  const axis = el('div', 'axis');
+  for (const x of d.days) {
+    const v = d.priced ? x.cost : x.tok;
+    const col = el('div', 'bcol');
+    const b = el('div', 'b' + (x.day === today ? ' today' : '') + (v > 0 ? '' : ' zero'));
+    b.style.height = v > 0 ? Math.max(2, Math.round((v / max) * 100)) + '%' : '1px';
+    col.title = mo + '/' + x.day + (x.day === today ? '（今天）' : '') + '：' + (d.priced ? '$' + sep(x.cost, 2) + '，' : '') + bigNum(x.tok) + ' tokens';
+    col.append(b);
+    bars.append(col);
+    axis.append(el('span', x.day === today ? 'today' : '', x.day === 1 || x.day % 5 === 0 || x.day === today ? String(x.day) : ''));
+  }
+  box.append(el('div', 'mcap', '每天的' + (d.priced ? '費用' : 'token 數') + '，最高一天 ' + (d.priced ? '$' + sep(max, 0) : bigNum(max)) + '（滑鼠停在長條上看當天數字）'), bars, axis);
+
+  // Where it went: by model, by project, the costliest sessions.
+  const share = (c) => (d.total.cost > 0 ? Math.round((c / d.total.cost) * 100) + '%' : '—');
+  const table = (title, cols, rows) => {
+    const t = el('div', 'mtable');
+    t.append(el('h4', '', title));
+    const h = el('div', 'trow cols'); cols.forEach((c, i) => h.append(el('span', i ? 'n' : '', c))); t.append(h);
+    for (const r of rows) t.append(r);
+    return t;
+  };
+  const line = (cells, title, onClick) => { const r = el(onClick ? 'button' : 'div', 'trow'); if (onClick) { r.type = 'button'; r.addEventListener('click', onClick); } cells.forEach((c, i) => r.append(c instanceof Node ? c : el('span', i ? 'n' : 't', c))); if (title) r.title = title; return r; };
+  const grid = el('div', 'mgrid'); grid.style.gridTemplateColumns = 'minmax(0, 1fr)';   /* one table in it now that the model table has a row of its own */
+  // The model table, full width. Cost alone does not say why a model is dear:
+  // beside it stand how much it was used (calls, share of all tokens, the four
+  // kinds of token) and its average rate (dollars per million tokens of the mix
+  // it actually ran). High rate with a small share of use = dear but little
+  // used; a large share of use = dear because much used.
+  const useShare = (tok) => (d.total.tok > 0 ? Math.round((tok / d.total.tok) * 100) + '%' : '—');
+  const rate = (m) => (d.priced && m.priced && m.tok > 0 ? '$' + sep((m.cost / m.tok) * 1e6, 2) : '—');
+  const calls = (m) => (m.n == null ? '—' : sep(m.n));
+  const mt = table('各模型', ['模型', '費用', '費用佔比', '呼叫次數', '用量佔比', '輸入', '輸出', '寫入快取', '讀取快取', '每百萬 tokens'], d.models.map((m) =>
+    line([m.model + (m.priced ? (m.exact ? '' : '（暫估單價）') : '（查不到單價）'), d.priced ? '$' + sep(m.cost, 2) : '—', share(m.cost), calls(m), useShare(m.tok), bigNum(m.in), bigNum(m.out), bigNum(m.cw), bigNum(m.cr), rate(m)],
+      m.model + '：共 ' + sep(m.tok) + ' tokens（輸入 ' + sep(m.in) + '、輸出 ' + sep(m.out) + '、寫入快取 ' + sep(m.cw) + '、讀取快取 ' + sep(m.cr) + '）' + (m.n ? '，' + sep(m.n) + ' 次呼叫，平均每次 $' + (m.cost / m.n).toFixed(3) + '、' + sep(Math.round(m.tok / m.n)) + ' tokens' : ''))));
+  mt.classList.add('models');
+  box.append(mt);
+  box.append(el('div', 'mexplain', '用量佔比＝這個模型的 tokens 佔本月全部 tokens 的比例。每百萬 tokens＝費用 ÷ tokens，是它實際跑出來的平均單價（讀取快取很便宜，佔比高會把均價拉低）。費用佔比遠高於用量佔比的是「貴但少用」，兩個都高的是「貴而且多用」。' + (d.models.some((m) => m.n == null) ? '呼叫次數顯示「—」是因為這個月是舊版算的，按「重新計算」就有。' : '')));
+  const topP = d.projects.slice(0, 12), restP = d.projects.slice(12);
+  const pRows = topP.map((p) => line([p.name, d.priced ? '$' + sep(p.cost, 2) : '—', share(p.cost), bigNum(p.tok)], p.path || p.id));
+  if (restP.length) pRows.push(line(['其他 ' + restP.length + ' 個資料夾', d.priced ? '$' + sep(restP.reduce((a, p) => a + p.cost, 0), 2) : '—', share(restP.reduce((a, p) => a + p.cost, 0)), bigNum(restP.reduce((a, p) => a + p.tok, 0))]));
+  grid.append(table('各專案（session 啟動的資料夾）', ['專案', '費用', '佔比', 'tokens'], pRows));
+  box.append(grid);
+  // One table of sessions: what each cost this month, joined with what is known
+  // about the ones that are still open (compactions, context in use, messages).
+  // Every session with usage this month is in it; the open ones are always
+  // shown, the rest beyond the first TOP_SESSIONS on request.
+  const liveBy = new Map(sessions.map((s) => [s.sessionId, s]));
+  const statBy = new Map(((war && war.usage) || []).map((u) => [u.sessionId, u]));
+  const inMonth = new Set(d.sessions.map((s) => s.sessionId));
+  const rows = d.sessions.map((s) => ({ id: s.sessionId, title: s.title, project: s.projectName, cost: s.cost, tok: s.tok, first: s.first, last: s.last }));
+  for (const s of sessions) if (!inMonth.has(s.sessionId)) rows.push({ id: s.sessionId, title: s.title, project: s.folder, cost: null, tok: null });
+  const shownRows = rows.filter((r, i) => showAllSessions || i < TOP_SESSIONS || liveBy.has(r.id));
+  const st = table('各 session（本月費用由高到低，共 ' + sep(rows.length) + ' 個；有圓點的是還開著的）', ['session', '本月費用', '佔比', '本月 tokens', '壓縮', 'context', '訊息'], shownRows.map((r) => {
+    const s = liveBy.get(r.id), u = statBy.get(r.id);
+    const name = el('span', 't');
+    if (s) name.append(el('span', 'dot ' + s.group));
+    name.append((s ? s.title : r.title || 'session ' + r.id.slice(0, 8)) + '　·　' + (r.project || ''));
+    const tip = (r.first ? '本月 ' + when(r.first) + ' 到 ' + when(r.last) + '。' : '這個編號在本月沒有算到用量（可能這個月還沒用，或用量記在它被搬動前的編號下）。')
+      + (s ? '還開著，點了打開對話' : '已經關閉');
+    return line([name, r.cost == null ? '—' : d.priced ? '$' + sep(r.cost, 2) : '—', r.cost == null ? '—' : share(r.cost), r.tok == null ? '—' : bigNum(r.tok),
+      u && u.compacts != null ? sep(u.compacts) + ' 次' : '—', u ? (u.contextPct != null ? u.contextPct + '%' : bigNum(u.context)) : '—', u && u.messages != null ? sep(u.messages) : '—'],
+      tip, s ? () => openChat(r.id) : null);
+  }));
+  st.classList.add('wide');
+  box.append(st);
+  if (rows.length > shownRows.length || showAllSessions) {
+    const more = el('button', 'btn', showAllSessions ? '只顯示前 ' + TOP_SESSIONS + ' 個與還開著的' : '顯示全部 ' + sep(rows.length) + ' 個'); more.type = 'button'; more.style.margin = '10px 8px 0';
+    more.addEventListener('click', () => { showAllSessions = !showAllSessions; drawMonth(); });
+    box.append(more);
+  }
+  if (d.unpricedTok || d.approxTok) box.append(el('div', 'quiet', (d.approxTok ? bigNum(d.approxTok) + ' tokens 用的是相近模型的暫估單價。' : '') + (d.unpricedTok ? bigNum(d.unpricedTok) + ' tokens 查不到單價，沒算進費用。' : '')));
+  if (!cur) box.append(el('div', 'quiet', '過去月份算過一次就存起來。Claude Code 會定期清掉舊的對話紀錄，之後才按「重新計算」數字可能變小。'));
+}
+
+async function pollWar() {
+  let r;
+  try { r = await api('/api/warroom'); } catch (e) { return; }
+  if (view !== 'war' || !r.ok) return;
+  war = r.data;
+  fillWar();
+}
+
+// The war room is the month. What it polls for is the per-session figures
+// (compactions, context, messages) that the session table joins in.
+function fillWar() {
+  if (view !== 'war' || !war) return;
+  const shape = JSON.stringify(war.usage) + sessions.map((s) => s.sessionId + s.group + s.title).join('|');
+  if (shape !== warShape) { warShape = shape; drawMonth(); }
+}
+function tickWar() {}
+
+/* ── staying current ──
+   The page is one file that a browser tab loads once. When the board is
+   updated, an open tab would keep running the old code. So the server says
+   which page file it now has, and a tab that was loaded from a different one
+   reloads itself - unless that would throw away something being typed or
+   answered, in which case it says so and waits to be clicked. Where you were
+   (which conversation, the war room, settings) is kept in the address, so a
+   reload comes back to the same place. */
+let pageTag = null;
+function unsavedWork() {
+  if (pending.size) return true;                                    // an approval or a question form is open
+  for (const x of document.querySelectorAll('textarea, input[type=text]')) if (x.value.trim() && x.id !== 'never') return true;
+  return false;
+}
+function newPageAvailable() {
+  if (!unsavedWork()) { location.reload(); return; }
+  const foot = $('sideFoot');
+  if (foot.dataset.newer) return;
+  foot.dataset.newer = '1';
+  foot.className = 'side-foot';
+  foot.textContent = '';
+  const b = el('button', 'btn primary', '看板有新版，按這裡重新整理'); b.type = 'button';
+  b.title = '你正在輸入或有卡片還沒回覆，所以沒有自動重新整理';
+  b.addEventListener('click', () => location.reload());
+  foot.append(b);
+}
+const setPlace = (hash) => { try { history.replaceState(null, '', location.pathname + location.search + (hash ? '#' + hash : '')); } catch (e) {} };
+
+/* ── account limits in the sidebar ── */
+let sideQuotaData = null;
+function drawSideQuota() {
+  const box = $('sideQuota'), q = sideQuotaData || {};
+  box.textContent = '';
+  const row = (label, w) => {
+    const r = el('div', 'sq');
+    const bar = el('div', 'mbar'); const fill = el('div', 'mfill' + (w.pct >= 90 ? ' hot' : w.pct >= 70 ? ' warm' : '')); fill.style.width = Math.min(100, w.pct) + '%'; bar.append(fill);
+    r.append(el('span', 'sl', label), bar, el('b', '', w.pct + '%'), el('span', 'sr', left(w.resetsAt) + '後重置'));
+    r.title = label + '已用 ' + w.pct + '%，整個帳號所有 session 共用';
+    box.append(r);
+  };
+  if (q.fiveHour) row('5 小時額度', q.fiveHour);
+  if (q.sevenDay) row('7 天額度', q.sevenDay);
+  if (box.firstChild && q.seenAt && Date.now() - q.seenAt > 10 * 60000) box.append(el('div', 'sr', ago(Date.now() - q.seenAt) + '前的數字'));
+  box.hidden = !box.firstChild;
+}
+async function loadSideQuota() {
+  try { const r = await api('/api/quota'); if (r.ok) { sideQuotaData = r.data; drawSideQuota(); } } catch (e) {}
+}
+
+/* ── polling ── */
+function notice(lines) {
+  const main = $('main');
+  main.textContent = '';
+  const pane = el('div', 'pane');
+  pane.append(el('h2', '', lines[0]), el('p', 'lead', lines[1]));
+  main.append(pane);
+}
+
+async function poll() {
+  if (!TOKEN) return notice(['這個網址少了金鑰', '請在 Claude Code 裡輸入 /session-board 重新開啟這一頁。']);
+  try {
+    const r = await api('/api/sessions');
+    if (r.status === 401) return notice(['金鑰不對', '請在 Claude Code 裡輸入 /session-board 重新開啟這一頁。']);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    sessions = r.data.sessions.filter((s) => !s.notStarted);
+    unstarted = r.data.sessions.filter((s) => s.notStarted);
+    if (r.data.page) { if (pageTag === null) pageTag = r.data.page; else if (r.data.page !== pageTag) return newPageAvailable(); }
+    down = false;
+    $('sideFoot').className = 'side-foot';
+    if (!$('sideFoot').dataset.newer) $('sideFoot').textContent = sessions.length + ' 個 session · 更新於 ' + new Date().toLocaleTimeString('zh-TW', { hour12: false });
+    drawList();
+    if (beats % 5 === 0 || !sideQuotaData) loadSideQuota(); else drawSideQuota();   // asked every 15 seconds; the countdown is redrawn every poll
+    if (beats % 5 === 0) await loadKeep();
+    inboxCounts = r.data.inbox;
+    $('inboxBtn').hidden = !inboxCounts;
+    if (inboxCounts) {
+      $('inboxDot').className = 'dot' + (inboxCounts.unread ? ' yours' : '');
+      $('inboxSub').textContent = inboxCounts.valid ? inboxCounts.valid + ' 件要你處理' : inboxCounts.pending ? inboxCounts.pending + ' 串還沒判讀' : '沒有要你處理的';
+      $('inboxDot').className = 'dot' + (inboxCounts.valid ? ' yours' : '');
+      if (view === 'inbox' && !inboxOpen && beats % 5 === 0) fillInbox();
+    }
+    const running = sessions.filter((s) => s.status === 'busy' || s.status === 'background').length;
+    $('warDot').className = 'dot' + (running ? ' running' : '');
+    $('warSub').textContent = running ? running + ' 個正在執行' : '現在沒有 session 在跑';
+    $('warBtn').classList.toggle('active', view === 'war');
+    if (view === 'war') pollWar();
+    if (view === 'chat') {
+      const s = cur();
+      // A terminal session has no stream: its conversation is re-read while you watch it.
+      if (s && s.owner === 'terminal') { drawHead(); loadHistory(false); }
+      if (s && beats % 2 === 0) loadStats(s.sessionId);   // every 6 seconds: this is also where a terminal session's running subagents come from
+      if (!s) { drawHead(); drawFoot(); }
+    } else if (view === 'home') {
+      const shape = sessions.filter((s) => s.group === 'yours').map((s) => s.sessionId + s.title).join('|') + '#' + keepShape();
+      // Not while you are typing in the search box: redrawing would take the box away from under you.
+      const typing = document.activeElement && document.activeElement.type === 'search';
+      if ((shape !== homeShape && !typing) || !$('main').firstChild) { homeShape = shape; drawHome(); }
+    }
+  } catch (e) {
+    if (!down) { down = true; $('sideFoot').className = 'side-foot down'; $('sideFoot').textContent = '看板程序沒有回應，畫面是舊的。輸入 /session-board 重新啟動'; }
+  }
+}
+
+$('newBtn').addEventListener('click', drawNew);
+$('warBtn').addEventListener('click', drawWar);
+$('setBtn').addEventListener('click', drawSettings);
+$('inboxBtn').addEventListener('click', drawInbox);
+$('pastBtn').addEventListener('click', drawPastPage);
+$('homeBtn').addEventListener('click', drawHome);
+setInterval(() => { tickWar(); tickTasks(); }, 1000);
+// Come back to where the address says you were (set by setPlace as you move around).
+// Read before the first poll: that poll draws the home view, which clears the address.
+const startAt = (() => { try { return decodeURIComponent(location.hash.slice(1)); } catch (e) { return ''; } })();
+poll().then(() => {
+  const at = startAt;
+  if (at === 'war') drawWar();
+  else if (at === 'settings') drawSettings();
+  else if (at === 'inbox') drawInbox();
+  else if (at === 'past') drawPastPage();
+  else if (at && sessions.some((s) => s.sessionId === at)) openChat(at);
+  else redrawLists();
+});
+// Every 3 seconds while the tab is showing, every 15 while it is not: the count
+// in the tab title is what gets read when the tab is in the background.
+let beats = 0;
+setInterval(() => { beats++; if (!document.hidden || beats % 5 === 0) poll(); }, 3000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+</script>
+</body>
+</html>
