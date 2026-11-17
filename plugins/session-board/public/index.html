@@ -713,6 +713,9 @@
   .fp:hover { background: var(--hover); }
   #peek { position: fixed; top: 0; right: 0; bottom: 0; width: min(820px, 58vw); background: var(--bg); border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0, 0, 0, .14); display: flex; flex-direction: column; z-index: 4; }
   #peek[hidden] { display: none; }
+  .of-sticky { position: sticky; top: -1px; z-index: 5; background: var(--bg); padding: 13px 0 6px; margin: -12px 0 4px; }
+  .of-sticky.stuck { box-shadow: 0 6px 8px -8px rgba(0, 0, 0, .35); }
+  .of-sticky .pathrow { margin-top: 0; }
   .auto-log { display: grid; gap: 4px; margin: 10px 0 12px; font-size: 13px; color: var(--dim); } .auto-log b { color: var(--ink); } .auto-log .bad { color: var(--red); }
   .set-row { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px 30px; font-size: 13px; color: var(--dim); }
   .nextbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 4px; padding: 8px 12px; border: 1px dashed var(--line); border-radius: var(--r-m); }
@@ -2078,7 +2081,12 @@ function drawOffice(goTo) {
   const note = el('div', 'hint'); note.id = 'ofNote';
   const grid = el('div', 'of-grid'); grid.id = 'ofGrid';
   const foot = el('div'); foot.id = 'ofFoot';
-  pane.append(row, chips, sub, note, grid, foot);
+  // the search and the filters stay at the top while the rooms scroll under them
+  const head = el('div', 'of-sticky'); head.append(row, chips);
+  // a thin shadow under it once the rooms have scrolled under it
+  const sp = (() => { let p = pane; while (p && p !== document.body) { const o = getComputedStyle(p).overflowY; if (o === 'auto' || o === 'scroll') return p; p = p.parentElement; } return null; })();
+  if (sp && !sp.dataset.ofStick) { sp.dataset.ofStick = '1'; sp.addEventListener('scroll', () => { const h = document.querySelector('.of-sticky'); if (h) h.classList.toggle('stuck', sp.scrollTop > 0 && h.getBoundingClientRect().top <= sp.getBoundingClientRect().top + 1); }, { passive: true }); }   // once per scroll area
+  pane.append(head, sub, note, grid, foot);
   officeShape = ''; fillOffice();
   loadOfficePast();
 }
@@ -3094,6 +3102,31 @@ function autoNotice(text) {
   else if (/工作進行到一半時被中斷/.test(t)) { kind = 'resume'; title = '重開後，已請它接著做'; line = '上次做到一半被中斷（關機、重開機或程序結束），看板請它接著做。'; }
   return { kind, title, line, from: m ? m[1] : '' };
 }
+// ── files dropped on the page ──
+let composerDrop = null;   // set by the composer of the conversation on screen
+// a drag that carries files (or may: a Mac screenshot dragged from its thumbnail can say so only by its items)
+function draggingFiles(e) { const dt = e.dataTransfer; if (!dt) return false; const t = [...(dt.types || [])]; return t.includes('Files') || t.includes('public.file-url') || [...(dt.items || [])].some((it) => it.kind === 'file'); }
+const IMG_EXT = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' };
+// the files of a drop; one whose type the browser left empty gets it from its name
+function droppedFiles(dt) {
+  let files = [...((dt && dt.files) || [])];
+  if (!files.length) files = [...((dt && dt.items) || [])].filter((it) => it.kind === 'file').map((it) => it.getAsFile()).filter(Boolean);
+  return files.map((x) => { if (x.type) return x; const t = IMG_EXT[String(x.name || '').split('.').pop().toLowerCase()]; return t ? new File([x], x.name, { type: t, lastModified: x.lastModified }) : x; });
+}
+document.addEventListener('dragover', (e) => {
+  // text dragged into a text box is left to the browser; anything else is taken here, so nothing is opened in place of the board
+  if (!draggingFiles(e) && e.target && e.target.closest && e.target.closest('textarea, input')) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = draggingFiles(e) && composerDrop && view === 'chat' ? 'copy' : 'none';
+});
+document.addEventListener('drop', (e) => {
+  const files = droppedFiles(e.dataTransfer);
+  if (!files.length && !draggingFiles(e) && e.target && e.target.closest && e.target.closest('textarea, input')) return;   // text into a text box
+  e.preventDefault();
+  if (view !== 'chat' || !composerDrop) { if (files.length) say('打開一個對話，再把圖拖進來', true); return; }
+  if (!files.length) { if (draggingFiles(e)) say('這個瀏覽器拿不到拖進來的檔案。Mac 截圖可以改用 ⌘⌃⇧4（圖會進剪貼簿），再到輸入框按 ⌘V 貼上', true); return; }
+  composerDrop(files);
+});
 const MODE_TEXT = {
   default: ['改檔、跑指令前會先問你', '每個會改東西的動作都會先出現核可卡片'],
   acceptEdits: ['改檔不問，跑指令會先問你', '修改檔案直接做；執行指令等其他動作會先出現核可卡片'],
@@ -3134,6 +3167,7 @@ function roleRow(s) {
 }
 
 function drawFoot() {
+  composerDrop = null;   // set again below only when this conversation has a box to type in
   const s = cur(), foot = $('foot');
   if (!foot) return;
   const typed = foot.querySelector('textarea') ? foot.querySelector('textarea').value : '';
@@ -3343,9 +3377,9 @@ function drawFoot() {
     const tags = await takePastedPics(rich.pics, addFiles);
     put(rich.text.replace(/\u0001(\d+)\u0001/g, (m, i) => (tags[Number(i)] ? mark(tags[Number(i)]) : '［這裡原本有一張圖，沒有帶過來］')));
   });
-  box.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); box.classList.add('drop'); } });
+  box.addEventListener('dragover', (e) => { if (draggingFiles(e)) box.classList.add('drop'); });
   box.addEventListener('dragleave', () => box.classList.remove('drop'));
-  box.addEventListener('drop', (e) => { box.classList.remove('drop'); const files = [...((e.dataTransfer && e.dataTransfer.files) || [])]; if (files.length) { e.preventDefault(); addFiles(files); } });
+  composerDrop = (files) => { box.classList.remove('drop'); return addFiles(files); };   // the page-wide drop hands files here
   const imgPick = el('input'); imgPick.type = 'file'; imgPick.accept = 'image/png,image/jpeg,image/gif,image/webp'; imgPick.multiple = true; imgPick.hidden = true;
   imgPick.addEventListener('change', () => { addFiles([...imgPick.files]); imgPick.value = ''; });
   const pickBtn = el('button', 'btn imgbtn', '圖片'); pickBtn.type = 'button'; pickBtn.title = '附上圖片。也可以直接在輸入框按 Ctrl+V 貼上截圖，或把圖檔拖進來'; pickBtn.addEventListener('click', () => imgPick.click());
