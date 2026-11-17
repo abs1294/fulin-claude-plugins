@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.7.1] - 2026-11-17
+### Fixed
+- attach-handback-gate 誤擋：只靠「拖進／拖入」命中、沒有指名誰動手的句子，要同句有信件或附檔語境才算。由來（2026-11-16）：描述產品行為的「拖進不是圖片的檔案會被擋下」被當成叫使用者自己附檔。信件語境＝句子本身有信件字眼（認得「信裡／信中／寄」這類短說法；單一個「信」字不算，相信、信心也有），或這一回合真的動過 Gmail（Gmail 的工具，或瀏覽器開著 mail.google.com；別的服務的同名工具不算）。
+
 ## [2.7.0] - 2026-11-13
 ### Changed
 - 依 2026-11-13 汎銓回信一案的錯誤補強草稿流程。(1) PostToolUse 草稿提醒輸出格式修正：舊版把 systemMessage 塞在 hookSpecificOutput 裡，官方文件確認模型只看得到 hookSpecificOutput.additionalContext、systemMessage 是最外層且只給使用者看——同一 session 建 7 次帶手打列點的草稿，提醒一次都沒送到模型；改為兩者都給。(2) 新 PreToolUse 閘 gmail-draft-skill-gate：session 沒載入過 deliver-report plugin 的任一 skill 就 create_draft → deny；只認 Skill tool_use、skill 載入訊息、使用者 slash command 的 JSON 結構（寫測試時自己的 Bash 指令提到字樣就曾被字串比對誤判為已載入）；放行後記 skillok:<session> 不再讀 transcript。SKILL.md description 與「何時用」放寬：任何要寄給外部的信都適用、不論有無附檔。(3) 新 PreToolUse 閘 gmail-draft-format-gate：只給 body 沒給 htmlBody、或 htmlBody 正文 <br> 手打序號／列點 ≥2 處 → deny（原本只提醒）。(4) 網址偵測補裸網域：bareDomains() 抓結尾是頂級網域的點號字串（logging.file.name），hasUrl 一併採用；PostToolUse 寫入時提醒用不帶屬性的 <span> 拆點號；不帶屬性的 <span> 移出白名單違規。讀回時比對正文 <a> 數量，比寫入時多就提醒（Gmail 自動加連結：字沒變但變藍色連結，舊版只查顯示文字有無 url?q= 查不到）。SKILL.md 更正實測表「htmlBody 顯示文字原封不動」為只保住字、不保證不加連結。(5) 結構提醒：正文 ≥400 字 ≥5 行卻無 <b>／<ol>／<ul>／<table> → 提醒分節加粗；SKILL.md 新增結構寫法規則。(6) 術語提醒：references/term-rules.json 新增 email_jargon（repo、jar、PR、profile…），正文首次出現沒中文括號說明 → 提醒，並併入 readability-scan 鐵則15。(7) SKILL.md 新增：使用者交代的說法寫進信前能查就查，查到有問題先停下告訴使用者、不自行改寫也不照寫；收件人預設沿用原信，原信 To／Cc 以外的人不自己加。新增 tests/draft-format-skill.test.js 44 例；attach-handback.test.js 改讀 additionalContext；全部 26 支測試 exit 0。

@@ -48,6 +48,22 @@ const USER_ACT = new RegExp([
 ].join('|'), 'i');
 const RETRO = /上次|之前|先前|為什麼|為何|沒照|不要|不必|不用|不需要|別再|禁止|已(?:經)?(?:附|上傳|掛)|我已|由工具|無法代附|被當成|當成|誤判|誤擋|命中/;   // 末五個：描述這道閘的判定（2026-11-02 誤擋實案）
 
+// 只靠「拖」這個動詞命中的句子（沒有「你／自行／手動」這類指名誰動手的字），要同句有信件或附檔的語境才算。
+// 2026-11-16 誤判實案：描述產品行為的「拖進不是圖片的檔案會被擋下」命中「檔案＋拖進」，
+//   被當成叫使用者自己附檔，而那回合跟信件、附檔都無關。
+const DRAG = /拖進|拖入|拖曳|拖到|拖上去|拖過去|drag/i;
+const NAMED = new RegExp([
+  '(?:你|您|使用者)[^。！？\n]{0,12}(?:附上|附進|附加|夾帶|上傳|拖)',
+  '(?:自行|手動|(?<![我們])自己)(?:附|上傳|夾帶|拖)',
+].join('|'), 'i');
+const DRAG_ONLY = (bare) => DRAG.test(bare) && !NAMED.test(bare);
+// 信件語境：句子本身有信件字眼（短說法「信裡／信中／寄」也算；單一個「信」字不算——相信、信心），
+// 或這一回合真的動過 Gmail（見 mailCall：Gmail 的工具，或瀏覽器開著 mail.google.com）。不看前一句：前一句提到附件、
+// 下一句描述產品拖放，曾因此誤擋。
+const MAIL_CTX = /附件|附檔|attachment|草稿|信件|回信|郵件|寄出|寄給|再寄|寄送|寄信|信[裡中上]|\bmail\b|\bdraft\b|附上|附加|夾帶/i;
+// 工具名稱只認 Gmail（send_message、_draft 這類名稱別的服務也有，例如 Slack 的 send_message）；瀏覽器寫信看參數裡的 mail.google.com
+const mailCall = (b) => /gmail/i.test(String(b.name || '')) || /mail\.google\.com/i.test(JSON.stringify(b.input || {}));
+
 // 下載附件不用問：問了只是把一件做得到的事丟回去等回覆，工作停在那裡。
 // 判準：同一句是在徵求下載許可——
 //   一般問法（要我／要不要…下載、下載…嗎、可以讓我下載、是否下載）要同句有附件對象；
@@ -81,9 +97,10 @@ function sentences(text) {
 }
 const clip = (s) => (s.length > 80 ? s.slice(0, 80) + '…' : s);
 
-function punts(text) {
+// mailTurn: this turn called a Gmail draft tool
+function punts(text, mailTurn) {
   return sentences(text)
-    .filter(({ s, bare }) => OBJ.test(s) && USER_ACT.test(bare) && !RETRO.test(s))
+    .filter(({ s, bare }) => OBJ.test(s) && USER_ACT.test(bare) && !RETRO.test(s) && (!DRAG_ONLY(bare) || mailTurn || MAIL_CTX.test(s)))
     .map(({ s }) => clip(s));
 }
 
@@ -113,7 +130,7 @@ function main(raw) {
   if (start < 0) return allow();
 
   // 最後一段回覆：最後一次工具呼叫之後的助理文字（中途的過程說明不算，交給使用者的是收尾那段）
-  let finalText = [];
+  let finalText = [], mailTurn = false;
   for (let i = start + 1; i < lines.length; i++) {
     if (!lines[i]) continue;
     let o;
@@ -123,12 +140,12 @@ function main(raw) {
     if (!Array.isArray(c)) continue;
     for (const b of c) {
       if (!b || typeof b !== 'object') continue;
-      if (b.type === 'tool_use') finalText = [];
+      if (b.type === 'tool_use') { finalText = []; if (mailCall(b)) mailTurn = true; }
       else if (b.type === 'text' && typeof b.text === 'string') finalText.push(b.text);
     }
   }
   const text = finalText.join(NL);
-  const hits = punts(text);
+  const hits = punts(text, mailTurn);
   const dl = asksDownload(text);
   if (!hits.length && !dl.length) return allow();
 

@@ -25,8 +25,11 @@ function runStop(finalTexts, opts) {
   const o = opts || {};
   const lines = [{ type: 'user', promptId: 'p1', message: { role: 'user', content: '回信' } }];
   if (o.midText) lines.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: o.midText }] } });
-  lines.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] } });
-  lines.push({ type: 'user', toolUseResult: {}, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } });
+  // the turn's tool calls: o.tools ([{name, input}]) in order, else one o.tool (default Bash)
+  (o.tools || [{ name: o.tool || 'Bash', input: {} }]).forEach((t, k) => {
+    lines.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't' + k, name: t.name, input: t.input || {} }] } });
+    lines.push({ type: 'user', toolUseResult: {}, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't' + k, content: 'ok' }] } });
+  });
   for (const t of finalTexts) lines.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: t }] } });
   const tp = path.join(TMP, 'tr' + (n++) + '.jsonl');
   fs.writeFileSync(tp, lines.map((x) => JSON.stringify(x)).join('\n') + '\n');
@@ -128,6 +131,20 @@ console.log('=== (H) posttool 閘實跑 ===');
   const msg = (() => { try { return JSON.parse(r.stdout).hookSpecificOutput.additionalContext; } catch (_) { return ''; } })();
   check(/沒帶 attachments/.test(msg) && /整批清掉/.test(msg), 'update_draft 沒帶附件：提醒且點出會清掉既有附件', r.stdout);
 }
+
+// 2026-11-16 誤判：描述產品行為的句子（拖進檔案會怎樣），同回合與信件、附檔無關
+expectAllow(['也就是：圖片真的送到 Claude、它看得到內容；貼文字不受影響；拖進不是圖片的檔案會被擋下'], '描述拖放行為的句子不算把附檔丟回');
+expectBlock(['草稿建好了，三個檔案請拖進附件區。'], '有附件語境的「拖進」仍然擋');
+expectBlock(['這三個檔案要你手動附上。'], '指名使用者動手的，沒有信件字眼也擋');
+expectBlock(['草稿建好了。三個檔案請拖進去。'], '這一回合建過草稿，「拖進去」仍然擋', { tool: 'mcp__claude_ai_Gmail__create_draft' });
+expectAllow(['看板改好了，聊天框可以貼圖片和附件。拖進不是圖片的檔案會被擋下'], '前一句提到附件、這一句描述產品拖放，沒動過草稿：放行');
+expectAllow(['## 附件處理\n拖進不是圖片的檔案會被擋下'], '標題提到附件、下一行描述拖放：放行');
+expectAllow(['修好 email 解析。拖到視窗的檔案會被讀取'], 'email 不算 mail');
+expectAllow(['看板改好了。拖進不是圖片的檔案會被擋下'], '別的服務的 send_message（Slack）不算信件回合', { tool: 'mcp__slack__send_message' });
+expectBlock(['三個檔案請拖進去。'], '先建 Gmail 草稿、之後又跑別的工具：整個回合仍算信件回合', { tools: [{ name: 'mcp__claude_ai_Gmail__create_draft' }, { name: 'Bash' }] });
+expectBlock(['三個檔案請拖進去。'], '用瀏覽器開著 Gmail 寫信也算信件回合', { tools: [{ name: 'mcp__claude-in-chrome__navigate', input: { url: 'https://mail.google.com/mail/u/0/#drafts' } }] });
+expectBlock(['檔案拖到信裡再寄。'], '短說法「信裡、寄」也算信件語境');
+expectAllow(['我相信拖進不是圖片的檔案會被擋下，這是看板的行為。'], '單一個「信」字（相信）不算信件語境');
 
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log('\n' + ok + ' passed, ' + bad + ' failed');
