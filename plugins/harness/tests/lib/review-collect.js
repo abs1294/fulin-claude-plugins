@@ -90,6 +90,22 @@ try {
     /* 38 */ U([{ type: 'text', text: '備份分支確認一致就刪除' }, { type: 'text', text: '然後再說一次：備份分支確認一致就刪除' }]),
     // 第 16 項：英文交代（S1:39、S2:5、S3:2），5 個英文詞就超過 16 字，字數上限會整段略過
     /* 39 */ U('always delete the backup branch after verifying'),
+    // 第 18 項（2026-11-17 實例健檢）：常見中文糾正說法要抓到；一般敘述裡的「每次都」「重做」「不對外…」不算
+    /* 40 */ U('檢視表那個不用啊，這是 etl 自動產的，你到底有沒有看啊'),
+    /* 41 */ U('你給我的根本不是啊，好好研究一下上傳格式'),
+    /* 42 */ U('我不是說要先讀規格嗎'),
+    /* 43 */ U('客戶每次都跟我回饋匯入很困難，有沒有更好的做法'),
+    /* 44 */ U('好，照新金額改，那份也通知他重做'),
+    /* 45 */ U('在拿到樣本前，不對「錯在哪」下結論'),
+    // 第 19 項：短變數名＝引號包住的金鑰字串（值全是假的）；heredoc 裡的也算；檔名路徑、短字串、git SHA、grep 樣式不算
+    /* 46 */ TU('k9', 'Bash', { command: "K='mb_FAKE0000000000000000'; curl -s -H \"x-api-key: $K\" http://localhost:3000/api/user/current" }),
+    /* 47 */ TU('k10', 'Bash', { command: 'TOK="Zq8vR2mXk4LpT9wN3bYc7HdF1sJ6gA0e"; curl -H "x-api-key: $TOK" http://localhost/api' }),
+    /* 48 */ TU('k11', 'Bash', { command: "python - <<'PY'\nK='mb_FAKE1111111111111111'\nPY" }),
+    /* 49 */ TU('k12', 'Bash', { command: "MSG='hello'; NAME=\"report_final_version_2026\"; SHA='3f9a1c0b7e2d4a6f8b1c3e5d7f9a0b2c4d6e8f01'; p='apbmt_export_v1.0.0/src/MappingDefinition.php'; grep -E \"K='mb_[A-Za-z0-9]{40}'\" x.log" }),
+    // 第 20 項：屬性與下標的名稱也算（PowerShell $c.ApiKey、c['ApiKey']）；大小寫混的十六進位、結尾副檔名的 sk- 不算
+    /* 50 */ TU('k13', 'PowerShell', { command: "$c = @{}; $c.ApiKey = 'mb_FAKE2222222222222222'; Invoke-RestMethod -Headers @{ 'x-api-key' = $c.ApiKey } http://localhost/api" }),
+    /* 51 */ TU('k14', 'Bash', { command: "python - <<'PY'\nc = {}\nc['ApiKey']='mb_FAKE3333333333333333'\nPY" }),
+    /* 52 */ TU('k15', 'Bash', { command: "H='3F9A1c0B7e2D4a6F8b1C3e5D7f9A0b2C4d6E8f01'; F='sk-abcdef1234567890.json'; N='npm_config_cache_dir_x'" }),
   ];
   put(path.join(tdir, 'S1.jsonl'), main.map((o) => JSON.stringify(o)).join('\n') + '\n');
   // ── 第二個 session（範圍前）：同一句交代再講一次；壓縮摘要與跨 session 訊息裡的同一句話不算 ──
@@ -166,11 +182,21 @@ try {
   check(sed.length === 1 && sed[0].at === at(9) && sed[0]['詞'] === '無', '2 E 沉澱回答', '實得 ' + show(sed));
   // 3 糾正：壓縮摘要與跨 session 的 agent 回報不算，只算使用者自己打的
   const cor = (j.G.corrections || []).map((c) => c.at);
-  check(show(cor) === show([at(4)]), '3 G 糾正偵測', '實得 ' + show(cor));
+  check(show(cor) === show([at(4), at(40), at(41), at(42)]), '3／18 G 糾正偵測（含「到底有沒有」「根本不是」「我不是說」；「每次都」「重做」「不對「…」」不算）', '實得 ' + show(j.G.corrections));
   check((j.E.stopFeedback || []).length === 1 && j.E.stopFeedback[0].at === at(26), '3 附帶：Stop 回饋（isMeta）照算', '實得 ' + show(j.E.stopFeedback));
   // 4 金鑰：grep 樣式、node -e 程式碼、heredoc 內容、{…} 佔位都不算；只剩 sqlcmd -P 那條
   const sec = (j.F.secretsInCommands || []).map((s) => s.at);
-  check(show(sec) === show([at(25)]), '4 F secretsInCommands', '實得 ' + show(j.F.secretsInCommands));
+  check(show(sec) === show([at(25), at(46), at(47), at(48), at(50), at(51)]), '4／19 F secretsInCommands（含 K=\'mb_…\'、TOK="高熵"、heredoc 裡的 K=；路徑、短字串、SHA、grep 樣式不算）', '實得 ' + show(j.F.secretsInCommands));
+  check(!/mb_FAKE|Zq8vR2mXk4/.test(fs.readFileSync(outFile, 'utf8')), '19 輸出不含假金鑰原文', '');
+  // 20 找與遮是同一份判準（key-shape.js）：凡是找得到的寫法，值都會被遮；遮值規則真的接到它（拿掉就轉紅）
+  const KS = require(path.join(path.dirname(SCRIPT), 'key-shape.js'));
+  const forms = ["K='mb_FAKE0000000000000000'", "$c.ApiKey = 'mb_FAKE2222222222222222'", "c['ApiKey']='mb_FAKE3333333333333333'", 'TOK="Zq8vR2mXk4LpT9wN3bYc7HdF1sJ6gA0e"', "a_name_longer_than_forty_one_characters_is_still_a_name_x='mb_FAKE4444444444444444'"];
+  const bad = forms.filter((x) => { const m = x.match(KS.ASSIGN); return !(m && KS.assignHasKey(m[0]) && !/mb_FAKE|Zq8vR2mXk4/.test(KS.redactAssign(x))); });
+  check(bad.length === 0, '20 找得到的寫法，值一定遮得掉（同一份判準）', '沒對上：' + show(bad));
+  const notKeys = ['3F9A1c0B7e2D4a6F8b1C3e5D7f9A0b2C4d6E8f01', 'sk-abcdef1234567890.json', 'npm_config_cache_dir_x', 'report_final_version_2026', 'apbmt_export_v1.0.0/src/MappingDefinition.php'].filter((v) => KS.looksLikeKey(v));
+  check(notKeys.length === 0, '20 十六進位（大小寫混也一樣）、副檔名結尾、設定名稱、路徑不算金鑰', '被當成金鑰：' + show(notKeys));
+  const src = fs.readFileSync(SCRIPT, 'utf8');
+  check(/\[KeyShape\.ASSIGN_REDACT,/.test(src) && /\['變數=金鑰字串', KeyShape\.ASSIGN\]/.test(src), '20 review-collect 的遮值與偵測都接到 key-shape.js', '');
   // 5 必讀：@CONTEXT.md 匯入（舊式只渲染 CLAUDE.md）與新式逐檔注入，都算自動載入
   const subs = j.D.subagents || [];
   const g1 = (subs.find((s) => /agent-sub1/.test(s.file)) || {}).requiredReads || {};

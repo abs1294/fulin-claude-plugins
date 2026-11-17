@@ -2,6 +2,12 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.20.3] - 2026-11-17
+### Fixed
+- review-collect 糾正偵測：2026-11-17 一次實例健檢範圍內的糾正「你到底有沒有看啊」「你給我的根本不是啊」詞表一則都沒命中，反而把「客戶每次都跟我回饋」「通知他重做」記成糾正。詞表分兩層——強詞單獨出現就算，補「到底有沒有」「根本不是／看不懂」「我／你不是說」「我說過」「你沒有看／照／列／顯示…」「為啥沒」「你是不會」「擠牙膏」「白癡」、連打兩個以上問號、開頭就是「不要，」；弱詞（每次都、重做、講過、說過、不要再、怎麼沒、好好研究…）要前後 8 字內有「你／妳／您」才算；「不對」排除「不對外／不對「…」／不對這些」。同一專案全部歷史 259 則使用者發言：舊詞表命中 10 則（約 7 則誤判），新詞表命中 18 則、逐則回原文看都是糾正；健檢範圍內 2 則全誤判 → 12 則。另查到健檢報告引用的 6 個糾正出處有 4 個在 `--since` 之前，本來就不在收集範圍。
+- review-collect 金鑰偵測：新種類「變數=金鑰字串」——任意變數名（`K`、`$TOK`、`$c.ApiKey`、`c['ApiKey']`）＝引號包住的長字串，值要像金鑰（常見前綴 mb_／sk-／ghp_／glpat-／xox?-／AKIA／AIza／eyJ…，或長度 ≥20、大小寫數字都有、相鄰英數字換類比例 ≥0.3）；結尾是副檔名、含金鑰以外字元（括號、冒號、反斜線）、純十六進位都不算。這一種掃整段原文（含 heredoc 與 python -c 程式碼）。同一專案實測：寫進指令的 Metabase 金鑰 16 處由 2 處（只抓到 `$c.ApiKey = '…'` 的名稱=值）→ 16 處全中，新種類在其他 session 誤判 0（不排除副檔名、換類比例連符號一起算時，29 處 `p='…/MappingDefinition.php'` 這類路徑會被誤判）。遮值規則加同一判準。tests 第 18、19 項（舊版腳本跑兩項轉紅）。
+- 「名稱=引號金鑰」的寫法與 looksLikeKey 搬到 skills/review/scripts/key-shape.js，偵測（SECRET_KINDS）與遮值（REDACT_RULES）共用同一份：原本兩份寫法不同，下標寫法 c['ApiKey']='…' 偵測得到卻沒有遮。looksLikeKey 的判斷順序改成先排除副檔名結尾與純十六進位（大小寫混也算），再看常見前綴（前綴後要有數字，npm_config_cache_dir_x 這類設定名不算）或亂碼。tests 第 20 項（三項；拿掉遮值規則轉紅）。
+
 ## [0.20.2] - 2026-11-11
 ### Fixed
 - 讀 transcript 的 hook／腳本不再整檔讀成字串：init-stop-gate、guard-sediment-sweep（Stop 模式）改成從檔尾以 4 MB 分塊往回讀到最後一則使用者訊息為止；compact-snapshot、compact-handoff、guard-required-skill 改成分塊逐行讀（新增 loadedSkillsFromFile，loadedSkills(text) 保留）；learn-lib 新增並匯出 readLineBatches，learn-promote 取行範圍改用它，learn-reflect 的 readSegment 只讀水位線之後的位元組。起因：來源實例 Stop hook 每次整檔讀 374 MB transcript，峰值 1141 MB，記憶體吃緊時 heap out of memory。等價性：真實 transcript 9 份（含 358 MB）新舊輸出逐項相同。新增 tests/lib/transcript-io.js（套件 transcript-io，15 項：等價 8、80 MB transcript／64 MB heap 記憶體 7），git HEAD 舊版 11 項轉紅（5 項 heap out of memory）。同版追加：guard-required-skill 的 loadedSkillsFromFile 改增量讀——上次掃到的位元組位置與掃描狀態記在 `os.tmpdir()/claude-required-skill-scan/`，下次只讀新增的行；檔變短或檔頭／斷點前 4 KB 指紋對不上就重掃，記錄只留 Skill 呼叫的工具回傳 id，超過 300 份刪 14 天沒動的（360 MB 實測冷掃 2181 ms，有記錄 1 ms、追加一列 3 ms；真實 transcript 25 份冷熱＋12 段增長＋改寫共 64 項與 HEAD 版相同）；transcript-io 套件加 1 項（追加後再掃讀入須 < 1 MB），換回分塊從頭掃版本該項轉紅

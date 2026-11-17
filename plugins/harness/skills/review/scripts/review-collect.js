@@ -21,6 +21,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+// name = 'key' : one definition for finding it and for hiding it (see key-shape.js)
+const KeyShape = require('./key-shape');
 
 // ── 參數 ──
 const args = process.argv.slice(2);
@@ -210,6 +212,8 @@ const REDACT_RULES = [
   [/(\bsshpass\s+-p\s*)(?!\$|\*\*\*)\S+/gi, '$1***'],
   [/(\bConvertTo-SecureString\s+(?:-String\s+)?['"]?)(?!\$|\*\*\*)[^'"\s]+/gi, '$1***'],
   [/(\bCookie\s*:\s*)(?!\*\*\*)[^'"\n]+/gi, '$1***'],
+  // 任意變數名＝引號包住、像金鑰的長字串（K='mb_…'、$c.ApiKey='…'、c['ApiKey']='…'）：跟偵測同一份寫法與判準（key-shape.js）
+  [KeyShape.ASSIGN_REDACT, (all, pre, q, v) => (KeyShape.looksLikeKey(v) ? pre + '***' : all)],
 ];
 function redactSoft(t) { let x = String(t); for (const [re, r] of REDACT_RULES) x = x.replace(re, r); return x; }
 // 摘錄（指令、對話、訊息）另把 UUID 也遮掉：UUID 常被拿來當金鑰；出處欄位的 session 編號不經過這裡
@@ -388,7 +392,22 @@ try { files = fs.readdirSync(tdir).filter((f) => f.endsWith('.jsonl')).map((f) =
 // 糾正語氣的詞表只抓得到「不對／重做」這一類；使用者重複交代同一件事時多半是平鋪直敘（來源專案 2026-10-19 實測：
 // 「還沒推就 amend、不要另開 commit」61 次、「備份分支確認一致就刪」28 次，這張表一次都沒命中）。
 // 後面幾個詞（講過、說過、幾次了、每次都、又忘、不要再）抓「使用者自己說他重複講了」；真正的重複交代由 repeatedInstructions 另抓。
-const CORRECTION = /不對|錯了|不是這樣|你漏|漏了|怎麼又|為什麼沒|為什麼不|沒有照|不要這樣|重做|搞錯|講過|說過|幾次了|每次都|又忘|不要再|又來|髒紀錄/;
+// 2026-11-17 一次實例健檢：範圍內的糾正「你到底有沒有看啊」「你給我的根本不是啊」一則都沒命中，
+// 反而把「客戶每次都跟我回饋」「通知他重做」記成糾正。所以分兩層：
+//   強詞：單獨出現就是在糾正（含「到底有沒有」「根本不是」「我／你不是說…嗎」「我說過」「你沒有看／照／列…」「為啥沒」
+//         「你是不會…嗎」「擠牙膏」、連打兩個以上問號、開頭就是「不要，…」）
+//   弱詞：一般敘述也常用（每次都、重做、說過、不要再、怎麼沒、好好研究…），要在前後 8 字內有「你／妳／您」才算
+const CORRECTION = /不對(?![外內於「『]|這|那|此|其|該|任何)|錯了|不是這樣|你漏|漏了|看漏|怎麼又|為什麼沒|為什麼不|為啥(?:沒|不)|為何(?:沒|不)|沒有照|不要這樣|搞錯|幾次了|又忘|又來|髒紀錄|到底有沒有|根本(?:不是|不對|不用|看不懂)|你根本沒|[我你]不是(?:說|講|叫|有說|有講|跟你)|不是(?:叫|跟)你|我(?:剛剛|剛才|之前|早就|已經)?就?(?:說|講)(?:過|了[，,。！!\s你])|你是不會|白癡|擠牙膏|[？?]{2,}|^不要[\s，,。！!]|我說的(?:是|不是)|我要的不是|[你妳您](?:都|又|還)?沒有?(?:看|讀|照|跑|盤|列|做|測|驗|注意|顯示|檢查|確認|處理|改)|[你妳您](?:怎麼|為什麼|幹嘛)(?:又|還|沒|不)/;
+const CORRECTION_WEAK = /每次都|重做|講過|說過|不要再|怎麼沒|好好(?:看|讀|研究|檢查|確認|想)/g;
+function correctionKeyword(t) {
+  const m = t.match(CORRECTION);
+  if (m) return m[0];
+  for (const w of t.matchAll(CORRECTION_WEAK)) {
+    const near = t.slice(Math.max(0, w.index - 8), w.index + w[0].length + 8);
+    if (/[你妳您]/.test(near)) return w[0];
+  }
+  return null;
+}
 // 金鑰寫法：key=／token=／password=／secret= 後面接一段非變數的值、Bearer 權杖、或整段 UUID 當值（實測：K='<UUID>'）
 // 每一種各自比對，一條指令可以記多種；只記種類與出處，不抄值
 const PLACEHOLDER = '(?:dummy|fake|test|sample|placeholder|changeme|example|redacted|masked|xxx+)(?:[-_]?(?:key|id|token|secret))?[\'"]?(?![\\w-])';
@@ -412,6 +431,10 @@ const SECRET_KINDS = [
   // 值不可以是 $變數，也不可以只是 Bearer／Basic／token 這個字本身（實測：Bearer $TOKEN 曾被當成值）
   ['Authorization', /\bAuthorization['"]?\s*[:=]\s*['"]?(?:(?:Bearer|Basic|token)\s+)?(?!\$|(?:Bearer|Basic|token)\b)[^\s'"]{6,}|\b(?:Bearer|Basic)\s+(?!\$)[^\s'"]{12,}/i],
   ['變數=UUID', /\b[A-Za-z_]\w*=['"]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i],
+  // 任意變數名（K、TOK、$k）＝引號包住的長字串；值要另過 looksLikeKey（常見金鑰前綴，或高熵亂碼），見 KIND_VALUE_CHECK
+  // （2026-11-17 實例健檢：K='mb_…' 這種寫法 44 次一次都沒抓到——名稱不含 key／token，值又不是 UUID）
+  // 名稱也可以是屬性或下標：$c.ApiKey = '…'、c['ApiKey']='…'。這一種掃整段原文（含 heredoc 與 python -c 程式碼，見 RAW_KINDS）
+  ['變數=金鑰字串', KeyShape.ASSIGN],
   // PowerShell hashtable、鍵加引號：@{'X-Api-Key'='值'}、@{"password"="值"}
   ['hashtable 鍵', new RegExp('["\']' + SECRET_NAME_STRICT + '["\']\\s*=\\s*["\'](?!\\$)[^"\']{4,}', 'i')],
   ['網址參數', /[?&](?:pw|pwd|sig|access_token|api_key|apikey|token|key|secret|password)=(?!\$)[^\s&'"]{4,}/i],
@@ -472,16 +495,26 @@ function looksLikeSecretValue(v) {
   if (/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(v)) return false;
   return !/^(?:true|false|null|none|undefined|string|number|object)$/i.test(v);
 }
+// 名稱不帶金鑰字的賦值，值本身要像金鑰：判準在 key-shape.js 的 looksLikeKey（排除副檔名、純十六進位，再看常見前綴或亂碼）。
+// 個別種類的值檢查（取代通用的 looksLikeSecretValue）：值取引號內整段，不靠切詞（base64 的 = 會被切掉）
+const KIND_VALUE_CHECK = {
+  '變數=金鑰字串': KeyShape.assignHasKey,
+};
+// 掃整段原文、不先拿掉 heredoc 與程式碼字串的種類：值的形狀檢查夠嚴（looksLikeKey），寫進 python 程式碼裡的真金鑰一樣留在逐字紀錄
+// （2026-11-17 實例健檢：K='mb_…' 有一半寫在 python - <<'EOF' 裡）
+const RAW_KINDS = new Set(['變數=金鑰字串']);
 // 不帶值的種類（私鑰標頭）只看有沒有命中；其餘取命中段的最後一個詞當值檢查形狀
 const VALUELESS_KINDS = new Set(['私鑰']);
 function secretKinds(c) {
-  const s = commandOnly(c);
+  const cmd = commandOnly(c);
   return SECRET_KINDS.filter(([k, re]) => {
+    const s = RAW_KINDS.has(k) ? String(c) : cmd;
     if (VALUELESS_KINDS.has(k)) return re.test(s);
     const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
     for (const m of s.matchAll(g)) {
       // 值後面緊接「.副檔名」就是檔名的一段（f=<session UUID>.jsonl），不是金鑰
       if (/^\.[A-Za-z]\w*/.test(s.slice(m.index + m[0].length))) continue;
+      if (KIND_VALUE_CHECK[k]) { if (KIND_VALUE_CHECK[k](m[0])) return true; continue; }
       if (looksLikeSecretValue(m[0].split(/[=:\s'"]+/).filter(Boolean).pop())) return true;
     }
     return false;
@@ -600,8 +633,8 @@ for (const f of files) {
           closeTurn(); turnStart = where(f, o);
           agg.userTurns++;
           // 只記出處與命中的詞，不抄使用者原話（原話可能貼了金鑰）；判讀時回原文看
-          const cm = t.match(CORRECTION);
-          if (cm) agg.corrections.push({ at: where(f, o), keyword: cm[0] });
+          const ck = correctionKeyword(t);
+          if (ck) agg.corrections.push({ at: where(f, o), keyword: ck });
           // 用一般文字徵求同意也算對齊的線索（實測：「計畫 OK」之後才派工，沒有用選項工具提問）
           if (!sawDispatch && /\bOK\b|同意|沒問題|照做|就這樣|點頭|簽收|就照這個/i.test(t)) approvalBefore = where(f, o);
         }
@@ -981,7 +1014,7 @@ out.G.interrupts = agg.interrupts;
 out.G.corrections = agg.corrections;
 out.G.repeatedInstructions = repeatedInstructions(files);
 if (evalSkipped.size) out.notes.push('略過審查評測集自動起的 headless 審查 session ' + evalSkipped.size + ' 個（不進 B／C／G 統計；全部歷史範圍）：判斷依據＝第一則提問以「請審查這份改動：」開頭且路徑含 review-evals/cases/…/case.diff，加上 entrypoint 是 sdk-cli（逐字紀錄沒有 entrypoint 欄位時只看前者）；要算進來加 --include-eval。編號：' + [...evalSkipped].join('、'));
-out.G.note = 'corrections 只認糾正語氣的詞；repeatedInstructions 是全部歷史裡跨 session 重複出現的片語（messages＝幾則發言、sessions＝幾個 session、inRange＝範圍內幾則），每一條都要回原文看是不是同一件事被反覆交代——是的話一定進提案，而且提案要是自動檢查或流程腳本的預設行為，不是再寫一條規則文字。';
+out.G.note = 'corrections 只認糾正語氣的詞（只看 --since 範圍內的發言；「每次都」「重做」這類一般敘述也常用的詞，要前後 8 字內有「你」才算），沒命中的糾正一樣可能存在，逐條回原文時順便看前後幾則；repeatedInstructions 是全部歷史裡跨 session 重複出現的片語（messages＝幾則發言、sessions＝幾個 session、inRange＝範圍內幾則），每一條都要回原文看是不是同一件事被反覆交代——是的話一定進提案，而且提案要是自動檢查或流程腳本的預設行為，不是再寫一條規則文字。';
 
 // ── H 專案概要 ──
 const sec0 = claudeMd.match(/^## 0\. 專案概要[\s\S]*?(?=^## |(?![\s\S]))/m);
