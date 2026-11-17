@@ -29,7 +29,9 @@ const TEXT = new Set(['.txt', '.md', '.markdown', '.log', '.json', '.jsonl', '.c
 // left out on purpose: a path in a conversation is text an AI wrote, and one
 // click should never be enough to run it.
 // Also left out: what runs something when opened - a page (.html, .svg: scripts, in the browser) and Office files that carry macros.
-const RUNS = new Set(['.svg', '.html', '.htm', '.docm', '.xlsm', '.pptm']);
+// And the old Office formats (.doc, .xls, .ppt) and .rtf: a macro or an embedded object can ride in them with nothing in
+// the name to show it. They can still be looked at here (the preview turns them into a PDF with macros off) and shown in Explorer.
+const RUNS = new Set(['.svg', '.html', '.htm', '.docm', '.xlsm', '.pptm', '.doc', '.xls', '.ppt', '.rtf']);
 const OPENABLE = new Set([...Object.keys(IMAGE), ...OFFICE, '.pdf', '.txt', '.md', '.markdown', '.log', '.json', '.csv', '.tsv', '.xml', '.yml', '.yaml'].filter((x) => !RUNS.has(x)));
 
 function kindOf(file) {
@@ -156,6 +158,7 @@ function check(paths, cwd) {
     const describe = (abs, extra) => {
       try {
         const st = fs.statSync(abs);
+        if (leadsToNetwork(abs)) return null;   // local in name only
         return st.isDirectory() ? { abs, kind: 'dir', name: path.basename(abs) || abs }
           : st.isFile() ? Object.assign({ abs, kind: kindOf(abs), name: path.basename(abs), size: st.size, canOpen: canOpen(abs) }, extra) : null;
       } catch (e) { return null; }
@@ -173,12 +176,18 @@ function check(paths, cwd) {
 }
 
 // An absolute path to an existing regular file, or null.
+// A path that looks local can lead to a network place all the same: a junction or a symbolic link pointing at
+// \\host\share, or a drive letter that is a mapped share. Where it really ends is asked of the system; one that ends on
+// the network is treated as a network path - not opened, not previewed. `real` can be given in tests.
+function leadsToNetwork(abs, real = (x) => fs.realpathSync.native(x)) {
+  try { const r = String(real(abs)); return isNetworkPath(r) || /^\\\\\?\\UNC\\/i.test(r); } catch (e) { return false; }
+}
 function realFile(p) {
   try {
     if (typeof p !== 'string' || isNetworkPath(p) || !path.isAbsolute(p)) return null;
     const abs = path.normalize(p);
     if (isNetworkPath(abs)) return null;   // and not one after normalizing either
-    return fs.statSync(abs).isFile() ? abs : null;
+    return fs.statSync(abs).isFile() && !leadsToNetwork(abs) ? abs : null;
   } catch (e) { return null; }
 }
 
@@ -218,4 +227,4 @@ async function officePdf(abs, convert) {
   return job;
 }
 
-module.exports = { isNetworkPath, kindOf, canOpen, mimeOf, resolve, check, realFile, findByName, searchableRoot, cachePathFor, officePdf, pruneCache, CACHE_DIR, TEXT_LIMIT };
+module.exports = { isNetworkPath, kindOf, canOpen, mimeOf, resolve, check, realFile, findByName, searchableRoot, cachePathFor, officePdf, pruneCache, CACHE_DIR, TEXT_LIMIT, leadsToNetwork };

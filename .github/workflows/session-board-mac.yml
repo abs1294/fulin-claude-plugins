@@ -1,0 +1,66 @@
+name: session-board on macOS
+# The board's macOS parts run for real on GitHub's macOS machine. Started by hand (or by pushing a mac-test/* branch).
+on:
+  workflow_dispatch:
+  push:
+    branches: ['mac-test/**']
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: what this machine is
+        run: sw_vers; node -v; which python3 osascript open launchctl screencapture
+      - name: unit tests
+        working-directory: plugins/session-board
+        run: |
+          node --test tests/*.test.js > /tmp/ut.log 2>&1 || true
+          awk '/^not ok /{p=1;n=0} p{print; n++; if(n>40) p=0} /^  [.][.][.]$/{p=0}' /tmp/ut.log | grep -v "duration_ms" | head -200 || true
+          grep -E "^# (tests|pass|fail)" /tmp/ut.log
+      - name: a stand-in claude on PATH (writes down where and how it was started, then waits)
+        run: |
+          mkdir -p "$HOME/fakebin"
+          cat > "$HOME/fakebin/claude" <<'EOF'
+          #!/bin/zsh
+          echo "pid=$$ cwd=$PWD args=$*" >> "${FAKE_CLAUDE_MARK:-/tmp/fake-claude.log}"
+          sleep 300
+          EOF
+          chmod +x "$HOME/fakebin/claude"
+          sudo ln -sf "$HOME/fakebin/claude" /usr/local/bin/claude
+          which -a claude
+      - name: allow controlling Terminal (no one is here to press OK on the prompt)
+        continue-on-error: true
+        run: |
+          # the processes this run goes through, and the usual ones: each allowed to send Apple Events to Terminal
+          chain=""; p=$$; for i in 1 2 3 4 5 6 7 8; do c=$(ps -o comm= -p $p 2>/dev/null); [ -z "$c" ] && break; chain="$chain|$c"; p=$(ps -o ppid= -p $p | tr -d " "); [ "$p" = "1" ] && break; done
+          echo "process chain: $chain"
+          clients="/usr/bin/osascript $(which node) /bin/bash /bin/zsh /bin/sh $(echo $chain | tr "|" " ")"
+          for db in "$HOME/Library/Application Support/com.apple.TCC/TCC.db" "/Library/Application Support/com.apple.TCC/TCC.db"; do
+            for c in $clients; do
+              case "$c" in /*) t=1 ;; *) continue ;; esac
+              sudo sqlite3 "$db" "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier, flags, last_modified) VALUES ('kTCCServiceAppleEvents', '$c', $t, 2, 3, 1, 0, 'com.apple.Terminal', 0, $(date +%s));" 2>&1 | head -2
+            done
+          done
+          sudo sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" "SELECT client, auth_value, indirect_object_identifier FROM access WHERE service='kTCCServiceAppleEvents';" 2>&1 | head -20
+      - name: the macOS parts, for real
+        working-directory: plugins/session-board
+        env:
+          FAKE_CLAUDE_MARK: /tmp/fake-claude.log
+          SHOTS: ${{ runner.temp }}
+        run: node tests/mac-e2e.js
+      - name: what the stand-in claude saw, and the board's log
+        if: always()
+        run: |
+          cat /tmp/fake-claude.log || true
+          tail -60 "$HOME/.claude/session-board/server.log" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-screen
+          path: ${{ runner.temp }}/mac-screen.png
+          if-no-files-found: ignore

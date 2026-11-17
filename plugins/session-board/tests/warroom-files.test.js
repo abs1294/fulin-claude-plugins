@@ -2,6 +2,7 @@
 // node --test plugins/session-board/tests/warroom-files.test.js
 const test = require('node:test');
 const assert = require('node:assert');
+const WIN_ONLY = { skip: process.platform !== 'win32' && 'Windows only: Windows paths and tools (the Mac side: tests/mac.test.js, tests/mac-e2e.js)' };
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -111,11 +112,11 @@ test('sessionStats splits main and subagent cost and reads the tracker files', (
   assert.deepStrictEqual(st.usage, { cost: 13, tok: 1300, mainCost: 10, mainTok: 1000, agentCost: 3, agentTok: 300, agentRuns: 2, estimated: true });
   assert.deepStrictEqual(st.compacts, { count: 65, last: 1794463735989 });
   assert.strictEqual(st.messages, 614);
-  assert.deepStrictEqual(st.context, { tokens: 125, model: 'm1', window: 0, pct: null, assumed: false });   // what went IN for the newest reply; no known window, so no percentage is invented
+  assert.deepStrictEqual(st.context, { tokens: 125, model: 'm1', effort: '', window: 0, pct: null, assumed: false });   // what went IN for the newest reply; no known window, so no percentage is invented
   const S2 = require('../lib/stats');
-  assert.deepStrictEqual(S2.sessionStats(sid, d, items, { windows: { m1: 1000 } }).context, { tokens: 125, model: 'm1', window: 1000, pct: 13, assumed: false });
+  assert.deepStrictEqual(S2.sessionStats(sid, d, items, { windows: { m1: 1000 } }).context, { tokens: 125, model: 'm1', effort: '', window: 1000, pct: 13, assumed: false });
   const bigItems = [{ role: 'assistant', u: { in: 10, out: 0, cr: 300000, cw: 0, model: 'unknown-model' } }];
-  assert.deepStrictEqual(S2.sessionStats(sid, d, bigItems).context, { tokens: 300010, model: 'unknown-model', window: 1000000, pct: 30, assumed: true });   // over 200K can only be the 1M window
+  assert.deepStrictEqual(S2.sessionStats(sid, d, bigItems).context, { tokens: 300010, model: 'unknown-model', effort: '', window: 1000000, pct: 30, assumed: true });   // over 200K can only be the 1M window
   // A conversation the board runs has no cc-statusline figures: the board's own running totals are used.
   const other = 'eeeeeeee-1111-2222-3333-444455556666';
   assert.deepStrictEqual(S2.sessionStats(other, d, [], { boardUsage: { cost: 0.9, tok: 135 } }).usage, { cost: 0.9, tok: 135, mainCost: 0.9, mainTok: 135, agentCost: 0, agentTok: 0, agentRuns: 0, estimated: false, byBoard: true });
@@ -199,7 +200,7 @@ test('a compaction summary is a marker in the conversation, not something you sa
   assert.deepStrictEqual(W.turnsOf(items).map((t) => t.prompt), ['壓縮前的問題', '壓縮後的問題']);   // not counted as a turn of yours
 });
 
-test('files: kinds, what may be opened, and resolving what was written', () => {
+test('files: kinds, what may be opened, and resolving what was written', WIN_ONLY, () => {
   assert.deepStrictEqual(['a.PNG', 'b.pdf', 'c.docx', 'd.xlsx', 'e.pptx', 'f.md', 'g.cs', 'h.exe', 'README', 'x.zip'].map(F.kindOf),
     ['image', 'pdf', 'office', 'office', 'office', 'text', 'text', 'other', 'text', 'other']);
   // Documents and data open with one click; anything that runs does not.
@@ -277,7 +278,7 @@ test('files.check answers per path, and officePdf caches by content identity', a
   for (const p of [out, out2]) { try { fs.unlinkSync(p); } catch (e) {} }
 });
 
-test('paths an AI wrote: no network paths, and nothing that runs when opened is opened by a click', () => {
+test('paths an AI wrote: no network paths, and nothing that runs when opened is opened by a click', WIN_ONLY, () => {
   for (const p of ['\\\\host\\share\\a.txt', '//host/share/a.txt', '\\\\?\\UNC\\host\\share\\a.txt']) assert.strictEqual(F.resolve(p, 'C:\\work'), null, p);
   assert.strictEqual(F.resolve('C:\\work\\a.txt', ''), 'C:\\work\\a.txt');
   for (const p of ['\\\\host\\share\\a.txt', '//host/share/a.txt']) assert.strictEqual(F.realFile(p), null, p);

@@ -3,6 +3,7 @@
 // History reading and the conversation manager, with a fake claude process.
 const test = require('node:test');
 const assert = require('node:assert');
+const WIN_ONLY = { skip: process.platform !== 'win32' && 'Windows only: Windows paths and tools (the Mac side: tests/mac.test.js, tests/mac-e2e.js)' };
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -99,7 +100,7 @@ test('Channels: a turn, an approval, and what is saved', () => {
   assert.strictEqual(ch.subscribe(c.sessionId, res), true);
   assert.strictEqual(ch.status(c), 'idle');
 
-  assert.deepStrictEqual(ch.send(c.sessionId, '  幫我 建檔  '), { ok: true, queued: false });
+  assert.deepStrictEqual(ch.send(c.sessionId, '  幫我 建檔  '), { ok: true, queued: false, mid: false });
   assert.strictEqual(log.length, 1);
   assert.deepStrictEqual(log[0].args.slice(-2), ['--session-id', c.sessionId]);   // new session: created under the channel's id
   assert.ok(log[0].args.includes('--permission-prompt-tool'));
@@ -124,7 +125,7 @@ test('Channels: a turn, an approval, and what is saved', () => {
   ch.seen(c.sessionId);
   assert.strictEqual(ch.unread(c), false);
 
-  assert.deepStrictEqual(res.events.filter((e) => e.type !== 'tasks' && e.type !== 'queue').map((e) => e.type), ['state', 'state', 'tool', 'permission', 'state', 'permission-done', 'state', 'assistant', 'result', 'state']);
+  assert.deepStrictEqual(res.events.filter((e) => e.type !== 'tasks' && e.type !== 'shell').map((e) => e.type), ['state', 'state', 'tool', 'permission', 'state', 'permission-done', 'state', 'assistant', 'result', 'state']);
   assert.deepStrictEqual(res.events.find((e) => e.type === 'permission'), { type: 'permission', requestId: 'r1', tool: 'Write', text: 'a.txt' });
 
   // Second message: same process, no second spawn.
@@ -233,7 +234,7 @@ test('Channels: the reply is passed on as it is written, and a subagent is not m
   p.out({ type: 'assistant', parent_tool_use_id: 'toolu_1', message: { content: [{ type: 'text', text: '子代理的整段話' }] } });
   p.out({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text: '台北是首都' }] } });
   p.out({ type: 'result', is_error: false });
-  const got = res.events.filter((e) => e.type !== 'state' && e.type !== 'tasks' && e.type !== 'queue');
+  const got = res.events.filter((e) => e.type !== 'state' && e.type !== 'tasks' && e.type !== 'shell');
   assert.deepStrictEqual(got, [
     { type: 'thinking' },
     { type: 'delta', text: '台北是' },
@@ -364,7 +365,7 @@ test('commandsFor asks Claude Code about the folder itself, once, and keeps the 
   ch.shutdown();
 });
 
-test('terminalArgs resumes a conversation that has history and starts one that has none', () => {
+test('terminalArgs resumes a conversation that has history and starts one that has none', WIN_ONLY, () => {
   const { terminalArgs } = require('../server');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-launch-'));
   const sid = '11111111-2222-3333-4444-555555555555';
@@ -399,7 +400,7 @@ test('buildSessions lists board conversations with or without a running process'
   assert.strictEqual(S.buildSessions(o, now).find((s) => s.sessionId === B).group, 'quiet');
 });
 
-test('messages can be sent at any time: while Claude works or waits for a card they queue here and go out one turn at a time', () => {
+test('messages can be sent at any time, and go to Claude Code at once: while it works, and while a card is open', () => {
   const d = tmp();
   const log = [];
   const ch = new Channels(path.join(d, 'channels.json'), { spawn: fakeSpawn(log), transcriptOf: () => null });
@@ -407,45 +408,25 @@ test('messages can be sent at any time: while Claude works or waits for a card t
   const res = listener();
   ch.subscribe(c.sessionId, res);
   const sentToClaude = () => log[0].p.stdin.written.filter((w) => w.type === 'user').map((w) => w.message.content[0].text);
-  const queue = () => (c.queue || []).map((m) => m.text);
 
-  assert.deepStrictEqual(ch.send(c.sessionId, '第一件'), { ok: true, queued: false });
+  assert.deepStrictEqual(ch.send(c.sessionId, '第一件'), { ok: true, queued: false, mid: false });
   const p = log[0].p;
   p.out({ type: 'assistant', message: { content: [{ type: 'text', text: '做到一半' }] } });
-  assert.deepStrictEqual(ch.send(c.sessionId, '第二件'), { ok: true, queued: true, position: 1 });
-  assert.deepStrictEqual(ch.send(c.sessionId, '第三件'), { ok: true, queued: true, position: 2 });
-  assert.deepStrictEqual([sentToClaude(), queue()], [['第一件'], ['第二件', '第三件']]);        // Claude has only the first; the rest wait here
-  // An approval opens: still accepted, still waiting.
+  // while it works: not held back - Claude Code reads it when the action in hand is done, in this same turn
+  assert.deepStrictEqual(ch.send(c.sessionId, '第二件'), { ok: true, queued: false, mid: true });
+  assert.deepStrictEqual([sentToClaude(), (c.queue || []).length, ch.status(c)], [['第一件', '第二件'], 0, 'busy']);
+  // an approval opens: a message sent now goes in as well, and the card is still there to be answered
   p.out({ type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'ls' } } });
   assert.strictEqual(ch.status(c), 'waiting');
-  assert.deepStrictEqual(ch.send(c.sessionId, '第四件'), { ok: true, queued: true, position: 3 });
-  // One is taken back before its turn.
-  const third = c.queue.find((m) => m.text === '第三件').id;
-  assert.strictEqual(ch.unqueue(c.sessionId, third), '第三件');
-  assert.strictEqual(ch.unqueue(c.sessionId, third), null);                                    // gone already
+  assert.deepStrictEqual(ch.send(c.sessionId, '第三件'), { ok: true, queued: false, mid: true });
+  assert.deepStrictEqual([sentToClaude(), c.pending.size], [['第一件', '第二件', '第三件'], 1]);
   ch.answer(c.sessionId, 'r1', true);
-  assert.deepStrictEqual(sentToClaude(), ['第一件']);                                           // answering the card does not jump the queue
-  // The turn ends: the next one goes out by itself, and it is not "your move" yet.
-  p.out({ type: 'result', is_error: false, result: '第一件做完' });
-  assert.deepStrictEqual([sentToClaude(), queue(), ch.status(c)], [['第一件', '第二件'], ['第四件'], 'busy']);
-  p.out({ type: 'result', is_error: false });
-  assert.deepStrictEqual([sentToClaude(), queue(), ch.status(c)], [['第一件', '第二件', '第四件'], [], 'busy']);
-  p.out({ type: 'result', is_error: false });
-  assert.strictEqual(ch.status(c), 'idle');                                                     // nothing waiting: your move
-  assert.strictEqual(log.length, 1);                                                            // all in the one process
-  // What the page was told: the queue as it changed, and each queued message as it went out.
-  assert.deepStrictEqual(res.events.filter((e) => e.type === 'sent').map((e) => e.text), ['第二件', '第四件']);
-  assert.deepStrictEqual(res.events.filter((e) => e.type === 'queue').map((e) => e.queue.length), [0, 1, 2, 3, 2, 1, 0]);
-
-  // Stop means stop: what waits is not sent afterwards, and is handed back once.
-  ch.send(c.sessionId, '第五件'); ch.send(c.sessionId, '第六件'); ch.send(c.sessionId, '第七件');
+  p.out({ type: 'result', is_error: false, result: '做完' });
+  assert.deepStrictEqual([ch.status(c), sentToClaude().length, log.length], ['idle', 3, 1]);   // one turn, one process, nothing sent a second time
+  assert.deepStrictEqual(ch.send(c.sessionId, '第四件'), { ok: true, queued: false, mid: false });   // between turns: an ordinary message
+  assert.strictEqual(res.events.filter((e) => e.type === 'queue').length, 0);    // the board holds nothing back: there is no queue
   assert.strictEqual(ch.stop(c.sessionId), true);
-  assert.deepStrictEqual([queue(), ch.dropped(c.sessionId), ch.dropped(c.sessionId)], [[], ['第六件', '第七件'], []]);
-  // The limit.
-  ch.send(c.sessionId, '重新開始');
-  for (let n = 0; n < 20; n++) assert.strictEqual(ch.send(c.sessionId, 'q' + n).queued, true);
-  assert.strictEqual(ch.send(c.sessionId, '太多了').ok, false);
-  ch.shutdown();
+  assert.strictEqual(typeof ch.unqueue, 'undefined'); assert.strictEqual(typeof ch.dropped, 'undefined');
 });
 
 test('a background command can be looked at: its command line and where its output goes, while it runs and for a while after', () => {
@@ -523,4 +504,93 @@ test('a conversation that has not started is forgotten once no page has it open;
   const again = new Channels(path.join(d, 'channels.json'), { spawn: fakeSpawn([]), transcriptOf: () => transcript });
   assert.strictEqual(again.has(old.sessionId), false);
   ch.shutdown(); again.shutdown();
+});
+
+test('Channels: a conversation can be given a role before anything is said, and is then started and carried on as it', () => {
+  const d = tmp(), home = tmp(), log = [];
+  fs.mkdirSync(path.join(d, '.claude', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(d, '.claude', 'agents', 'qa-engineer.md'), '---\nname: qa-engineer\ndescription: "設計測試案例並驗證功能"\n---\n本文裡的 description: 不算\n');
+  fs.writeFileSync(path.join(d, '.claude', 'agents', 'notes.txt'), 'not a role');
+  fs.mkdirSync(path.join(home, '.claude', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'agents', 'writer.md'), 'x');
+  let has = false;
+  const file = path.join(d, 'c.json');
+  const ch = new Channels(file, { spawn: fakeSpawn(log), transcriptOf: () => (has ? 'x' : null), homeDir: home });
+  // what each is for: the description line at the top of its role file; a file without one has none
+  assert.deepStrictEqual(ch.roles(d), [{ name: 'qa-engineer', from: 'project', desc: '設計測試案例並驗證功能' }, { name: 'writer', from: 'user', desc: '' }]);
+  const c = ch.create(d);
+  assert.strictEqual(ch.setAgent(c.sessionId, 'no-such-role').ok, false);                    // not a role of this folder
+  assert.strictEqual(ch.setAgent(c.sessionId, '--dangerously-skip-permissions').ok, false);  // nor anything that is not a role's name
+  assert.deepStrictEqual(ch.setAgent(c.sessionId, 'qa-engineer'), { ok: true, agent: 'qa-engineer' });
+  ch.send(c.sessionId, '測這一頁');
+  assert.deepStrictEqual(log[0].args.slice(-4), ['--session-id', c.sessionId, '--agent', 'qa-engineer']);
+  // What Claude Code says the folder has is remembered: a plugin's roles are learned this way; built-in helpers are not offered.
+  log[0].p.out({ type: 'system', subtype: 'init', agents: ['claude', 'Explore', 'qa-engineer', 'codex:codex-rescue'] });
+  assert.deepStrictEqual(ch.roles(d).map((r) => r.name + ':' + r.from), ['qa-engineer:project', 'writer:user', 'codex:codex-rescue:plugin']);
+  assert.strictEqual(ch.setAgent(c.sessionId, '').ok, false);                                 // begun: the role stays
+  // Carried on later, by a board that was restarted: still as that role.
+  log[0].p.kill(); has = true;
+  const again = new Channels(file, { spawn: fakeSpawn(log), transcriptOf: () => 'x', homeDir: home });
+  again.send(c.sessionId, '再測一頁');
+  assert.deepStrictEqual(log[1].args.slice(-4), ['--resume', c.sessionId, '--agent', 'qa-engineer']);
+  assert.deepStrictEqual(again.roles(d).map((r) => r.name), ['qa-engineer', 'writer', 'codex:codex-rescue']);
+});
+
+test('pictures go with their message: handed to Claude Code as image blocks before the text, also while it works', () => {
+  const d = tmp();
+  const log = [];
+  const ch = new Channels(path.join(d, 'channels.json'), { spawn: fakeSpawn(log), transcriptOf: () => null });
+  const c = ch.create(d);
+  const pic = { mime: 'image/png', data: 'AAAA' };
+  assert.deepStrictEqual(ch.send(c.sessionId, '看這張', [pic]), { ok: true, queued: false, mid: false });
+  const users = () => log[0].p.stdin.written.filter((w) => w.type === 'user').map((w) => w.message.content);
+  assert.deepStrictEqual(users()[0], [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }, { type: 'text', text: '看這張' }]);
+  assert.strictEqual(ch.send(c.sessionId, '', [pic, pic]).mid, true);                   // while it works: handed over at once
+  assert.deepStrictEqual(users()[1].map((b) => b.type), ['image', 'image']);            // pictures only: no empty text block is added
+  // a conversation whose first message is only a picture still gets a name
+  const c2 = ch.create(d); ch.send(c2.sessionId, '', [pic]);
+  assert.strictEqual(c2.title, '（圖片）');
+});
+
+test('a picture stands where its mark is in the text: the text up to the mark, the picture, then the rest', () => {
+  const { contentOf } = require('../lib/chat');
+  const A = { mime: 'image/png', data: 'AAAA', tag: 1 }, B = { mime: 'image/jpeg', data: 'BBBB', tag: 2 }, C = { mime: 'image/png', data: 'CCCC' };
+  const shape = (c) => c.map((b) => (b.type === 'text' ? JSON.stringify(b.text) : '<' + b.source.data + '>')).join(' ');
+  assert.strictEqual(shape(contentOf('第五點如下［圖1］\n第六點如下［圖2］\n請照改', [A, B])), '"第五點如下［圖1］" <AAAA> "\\n第六點如下［圖2］" <BBBB> "\\n請照改"');
+  assert.strictEqual(shape(contentOf('先看第二張［圖2］再看第一張［圖1］', [A, B])), '"先看第二張［圖2］" <BBBB> "再看第一張［圖1］" <AAAA>');   // by the text, not by the order attached
+  assert.strictEqual(shape(contentOf('看這張［圖1］', [C, A])), '<CCCC> "看這張［圖1］" <AAAA>');                    // one with no place comes first
+  assert.strictEqual(shape(contentOf('記號被刪掉了', [A, B])), '<AAAA> <BBBB> "記號被刪掉了"');                   // its mark deleted: first, as before
+  assert.strictEqual(shape(contentOf('［圖1］跟［圖1］', [A])), '"［圖1］" <AAAA> "跟［圖1］"');                    // a mark written twice: at the first
+  assert.strictEqual(shape(contentOf('只有字，寫了［圖3］也沒有那張圖', [])), '"只有字，寫了［圖3］也沒有那張圖"');
+  assert.strictEqual(shape(contentOf('［圖1］', [A])), '"［圖1］" <AAAA>');
+  assert.strictEqual(shape(contentOf('', [C])), '<CCCC>');
+  // read back from the transcript: the pieces are one text again, the pictures located
+  const H = require('../lib/history');
+  const it = H.itemsOf({ type: 'user', uuid: 'aaaaaaaa-1111-2222-3333-444444444444', message: { content: contentOf('第五點如下［圖1］\n第六點如下［圖2］\n請照改', [A, B]) } })[0];
+  assert.deepStrictEqual([it.text, it.imgAt], ['第五點如下［圖1］\n第六點如下［圖2］\n請照改', [1, 3]]);
+});
+
+test('Channels: a conversation switched to another model runs on it from its next message, and remembers it', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-model-')); const file = path.join(d, 'c.json'); const log = [];
+  const ch = new Channels(file, { spawn: fakeSpawn(log), transcriptOf: () => 'x' });
+  const c = ch.create(d);
+  ch.send(c.sessionId, '第一句');
+  assert.ok(!log[0].args.includes('--model'), 'Claude Code\'s own default at first');
+  assert.deepStrictEqual(ch.setModel(c.sessionId, 'opus'), { ok: false, error: '它還在執行' }, 'not in the middle of a turn');
+  log[0].p.out({ type: 'result', is_error: false });
+  assert.deepStrictEqual(ch.setModel(c.sessionId, 'opus'), { ok: true });
+  assert.deepStrictEqual([c.proc, log[0].p.killed], [null, true], 'the process started on the old model is ended');
+  ch.send(c.sessionId, '第二句');
+  assert.strictEqual(log.length, 2); const a = log[1].args; assert.strictEqual(a[a.indexOf('--model') + 1], 'opus');
+  // effort as well, alone: the model stays
+  log[1].p.out({ type: 'system', subtype: 'init', model: 'claude-opus-5-5', permissionMode: 'auto' }); log[1].p.out({ type: 'result', is_error: false });
+  assert.strictEqual(c.modelSeen, 'claude-opus-5-5', 'the model its process says it runs on');
+  assert.deepStrictEqual(ch.setModel(c.sessionId, undefined, 'high'), { ok: true });
+  ch.send(c.sessionId, '第三句'); const a3 = log[2].args;
+  assert.deepStrictEqual([a3[a3.indexOf('--model') + 1], a3[a3.indexOf('--effort') + 1]], ['opus', 'high']);
+  log[2].p.out({ type: 'result', is_error: false });
+  ch.setModel(c.sessionId, undefined, 'bogus'); assert.strictEqual(c.effort, '', 'an effort Claude Code does not know is dropped');
+  const again = new Channels(file, { spawn: fakeSpawn(log), transcriptOf: () => 'x' });
+  assert.strictEqual(again.get(c.sessionId).model, 'opus', 'kept across a restart of the board');
+  ch.shutdown(); again.shutdown(); fs.rmSync(d, { recursive: true, force: true });
 });

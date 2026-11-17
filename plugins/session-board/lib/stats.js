@@ -8,6 +8,7 @@
 // (null / empty), never a made-up zero.
 const fs = require('fs');
 const path = require('path');
+const baseName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || '';   // either kind of slash (a path written on Windows, read on a Mac)
 const { sidKey } = require('./sessions');
 
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return null; } };
@@ -25,7 +26,7 @@ function usage(sid, stateDir) {
     any = true;
     const c = num(f.cost), t = num(f.tok);
     out.cost += c; out.tok += t;
-    if (path.basename(file).toLowerCase() === (sid + '.jsonl').toLowerCase()) { out.mainCost += c; out.mainTok += t; }
+    if (baseName(file).toLowerCase() === (sid + '.jsonl').toLowerCase()) { out.mainCost += c; out.mainTok += t; }
     else { out.agentCost += c; out.agentTok += t; out.agentRuns++; }
     // cc-statusline marks figures priced with a stand-in rate, or with tokens it could not price.
     if (num(f.unpricedTok) > 0 || num(f.approxTok) > 0) out.estimated = true;
@@ -61,7 +62,7 @@ function sessionStats(sid, stateDir, items, extra = {}) {
   let context = null;
   for (let i = (items || []).length - 1; i >= 0; i--) {
     const u = items[i].u;
-    if (u) { context = { tokens: u.in + u.cr + u.cw, model: u.model || '', window: 0, pct: null, assumed: false }; break; }
+    if (u) { context = { tokens: u.in + u.cr + u.cw, model: u.model || '', effort: u.effort || '', window: 0, pct: null, assumed: false }; break; }
   }
   if (context) {
     // The percentage needs the size of the model's window. Known when a

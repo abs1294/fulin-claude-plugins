@@ -3,6 +3,14 @@
 // time, the timer, and connecting Gmail.
 //
 // Settings live in the board's database under the key "inbox":
+//   enabled        the whole inbox on or off. Off (how a new installation starts): nothing is fetched, nothing is
+//                  judged, and the page does not show the inbox. An installation from before this switch
+//                  existed keeps running as it did: on, with every source on.
+//   attachDays     how many days the attachments of a mail stay on this computer after the mail was last handed
+//                  to a conversation (default 30). Handing it over again fetches what is gone and starts the count anew.
+//   <id>On         one per source (gmailOn, slackOn, teamsOn, …): that source is fetched only when it is on.
+//                  A source is never fetched just because it happens to be available on this computer.
+//   The settings each source needs are named by the source itself (lib/inbox/sources/<id>.js, fields).
 //   me             who you are: your mail addresses and names, separated by commas or line breaks. The Gmail
 //                  account's own address is always counted in, without being written here. Used to file
 //                  mail from those addresses as yours, and to tell triage that what they wrote is not a
@@ -29,12 +37,13 @@ const http = require('http');
 const crypto = require('crypto');
 const config = require('../config');
 const DB = require('../db');
-const { Inbox, SOURCES } = require('./store');
+const { Inbox } = require('./store');
 const Src = require('./sources');
-const TeamsDb = require('./teams-localdb');
 const Triage = require('./triage');
 
-const DEFAULTS = { me: '', triage: true, pollMinutes: 15, gmailLabel: '', gmailDays: 7, teamsSelfId: '', teamsDays: 7, slackToken: '', slackSelfId: '', slackDays: 7 };
+const DEFAULTS = { enabled: false, me: '', triage: true, pollMinutes: 15, attachDays: 30 };
+const PURGE_EVERY_MS = 24 * 3600 * 1000;   // old attachments are cleaned once a day
+for (const x of Src.list) { DEFAULTS[x.id + 'On'] = false; for (const f of x.fields) DEFAULTS[f.key] = f.def; }
 const SECRET_DIR = path.join(os.homedir(), '.customer-hub');
 // A customer-hub .env to take the first settings from, when one is named. Nothing is assumed about where
 // anyone keeps theirs: without SESSION_BOARD_OLD_ENV there is no such import, and the settings start empty.
@@ -57,8 +66,13 @@ class InboxService {
 
   settings() {
     let s = config.value('inbox', null, this.dbFile);
+    if (s && typeof s === 'object' && typeof s.enabled !== 'boolean') {
+      // Settings saved before there were switches: that inbox was fetching every source, and goes on doing so.
+      s = Object.assign({}, s, { enabled: true }, Object.fromEntries(Src.list.map((x) => [x.id + 'On', true])));
+      config.setValue('inbox', s, this.dbFile);
+    }
     if (!s || typeof s !== 'object') {
-      s = {};
+      s = { enabled: false };
       // Taken over once from the system this was ported from.
       try {
         const env = {};
@@ -75,22 +89,42 @@ class InboxService {
     const cur = this.settings(), next = {};
     for (const k of Object.keys(DEFAULTS)) next[k] = cur[k];
     const num = (k, min, max) => { if (patch[k] === undefined) return null; const n = Number(patch[k]); if (!Number.isFinite(n) || n < min || n > max) return k; next[k] = Math.round(n); return null; };
-    const bad = num('pollMinutes', 0, 1440) || num('gmailDays', 1, 365) || num('teamsDays', 1, 90) || num('slackDays', 1, 90);
+    const fields = Src.list.flatMap((x) => x.fields);
+    const bad = [['pollMinutes', 0, 1440], ['attachDays', 1, 3650]].concat(fields.filter((f) => f.type === 'number').map((f) => [f.key, f.min, f.max])).map((a) => num(...a)).find(Boolean);
     if (bad) return { ok: false, error: '數字超出範圍：' + bad };
-    if (typeof patch.triage === 'boolean') next.triage = patch.triage;
+    for (const k of ['enabled', 'triage'].concat(Src.ids.map((id) => id + 'On'))) if (typeof patch[k] === 'boolean') next[k] = patch[k];
     if (typeof patch.me === 'string') {
       const was = cur.me;
       next.me = patch.me.split(/[,，;；\n]+/).map((x) => x.trim()).filter(Boolean).slice(0, 12).join(', ').slice(0, 600);
       // Who you are changed: threads that mention you are judged again, with that known.
       if (next.me !== was) { config.setValue('inbox', next, this.dbFile); this.rejudgeMentions(); }
     }
-    for (const k of ['gmailLabel', 'teamsSelfId', 'slackSelfId', 'slackToken'])   /* (me is handled above: it is a list) */ if (typeof patch[k] === 'string') next[k] = patch[k].trim().slice(0, 300);
+    for (const f of fields) if (f.type !== 'number' && typeof patch[f.key] === 'string') next[f.key] = patch[f.key].trim().slice(0, 300);   // (me is handled above: it is a list)
     config.setValue('inbox', next, this.dbFile);
     return { ok: true };
   }
 
   // The attachments of a mail thread, saved on this computer (see Src.gmailAttachments).
-  attachments(threadId) { return Src.gmailAttachments(this.cfg(), threadId, path.join(path.dirname(this.dbFile), 'attachments'), this.fetch); }
+  attachDir() { return path.join(path.dirname(this.dbFile), 'attachments'); }
+  attachments(threadId) { return Src.gmailAttachments(this.cfg(), threadId, this.attachDir(), this.fetch); }
+
+  // Removes the attachments of threads that have not been handed over for attachDays: a thread's folder goes when
+  // the newest thing in it (a file, or the mark written at each hand-over) is older than that. Only folders named
+  // like a thread id, directly under the attachments folder, are ever touched. -> {removed, bytes, kept}
+  purgeAttachments(now = Date.now()) {
+    const dir = this.attachDir(), limit = (Number(this.settings().attachDays) || DEFAULTS.attachDays) * 86400000;
+    const out = { removed: 0, bytes: 0, kept: 0 };
+    let names = []; try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return out; }
+    for (const d of names) {
+      if (!d.isDirectory() || !/^[0-9a-f]{6,32}$/i.test(d.name)) continue;
+      const p = path.join(dir, d.name);
+      let newest = 0, bytes = 0;
+      try { for (const f of fs.readdirSync(p)) { const st = fs.statSync(path.join(p, f)); newest = Math.max(newest, st.mtimeMs); if (st.isFile()) bytes += st.size; } if (!newest) newest = fs.statSync(p).mtimeMs; } catch (e) { continue; }
+      if (now - newest <= limit) { out.kept++; continue; }
+      try { fs.rmSync(p, { recursive: true, force: true }); out.removed++; out.bytes += bytes; } catch (e) {}
+    }
+    return out;
+  }
 
   cfg() {
     const s = this.settings();
@@ -127,36 +161,43 @@ class InboxService {
   }
   hasCred() { try { const j = JSON.parse(fs.readFileSync(this.credFile(), 'utf8')); const c = j.installed || j.web || j; return !!(c.client_id && c.client_secret); } catch (e) { return false; } }
 
-  // What the page shows about each source. The Slack token itself never leaves the server.
+  enabled() { return this.settings().enabled === true; }
+
+  // What the page shows: the switch, and each source (its own switch, its card, the settings it asks for).
+  // A secret setting (the Slack token) never leaves the server: the page is told only that there is one.
+  // A source that is off is not looked at, not even to see whether it is there.
   status() {
     const s = this.settings(), cfg = this.cfg();
-    const reauth = this.inbox.state('gmail:reauth', null);
-    return {
-      gmail: { configured: Src.gmailConfigured(cfg), hasClient: this.hasCred(), clientFile: path.join(path.dirname(this.tokenFile), 'gmail-credentials.json'), ownToken: fs.existsSync(this.tokenFile), needsReauth: !!reauth, reauthAt: reauth && reauth.at, account: this.inbox.state('gmail:account', ''), routes: this.inbox.enabledRefs('gmail').length, label: s.gmailLabel, days: s.gmailDays },
-      slack: { configured: !!s.slackToken, routes: this.inbox.enabledRefs('slack').length },
-      teams: { configured: TeamsDb.available(), selfKnown: !!(s.teamsSelfId || this.inbox.state('teams:self', '')), selfGuessed: !s.teamsSelfId && !!this.inbox.state('teams:self', '') },
-      settings: Object.assign({}, s, { slackToken: s.slackToken ? '（已設定）' : '' }), identities: this.identities(),
-      last: this.last, running: !!this.running, counts: this.inbox.counts(),
-    };
+    const shown = Object.assign({}, s);
+    const sources = Src.list.map((x) => {
+      for (const f of x.fields) if (f.secret) shown[f.key] = s[f.key] ? '（已設定）' : '';
+      const on = s.enabled === true && s[x.id + 'On'] === true;
+      return Object.assign({ id: x.id, name: x.name, kind: x.kind, on, routes: this.inbox.enabledRefs(x.id).length, routeHint: x.routeHint,
+        fields: x.fields.map((f) => ({ key: f.key, label: f.label, placeholder: f.placeholder || '', type: f.type, secret: !!f.secret, min: f.min, max: f.max })) },
+        on ? x.status(this, s, cfg) : { configured: false, ready: false, text: '沒有開啟' });
+    });
+    const out = { enabled: s.enabled === true, lastPurge: this.lastPurge || null, sources, settings: shown, identities: this.identities(), last: this.last, running: !!this.running, counts: this.inbox.counts() };
+    for (const x of sources) out[x.id] = x;   // also by its key
+    return out;
   }
 
-  // One fetch of every source (or the one named). A second call while one is running gets the same answer.
+  // One fetch of every source that is switched on (or the one named). A second call while one is running gets
+  // the same answer. With the inbox off nothing is read at all, and nothing is remembered as a fetch.
   poll(only) {
     if (this.running) return this.running;
+    const st = this.settings();
+    if (st.enabled !== true) return Promise.resolve({ at: Date.now(), total: 0, results: [], off: true });
     const job = (async () => {
       const cfg = this.cfg(), results = [];
-      for (const src of SOURCES) {
-        if (only && only !== src) continue;
+      for (const x of Src.list) {
+        if (only && only !== x.id) continue;
+        if (st[x.id + 'On'] !== true) { if (only) results.push({ source: x.id, skipped: true, reason: '這個來源沒有開啟', ingested: 0, off: true }); continue; }
         try {
-          if (src === 'gmail') {
-            const r = await Src.pollGmail(this.inbox, cfg, this.fetch);
-            if (!r.skipped) { this.inbox.setState('gmail:reauth', null); if (r.account) this.inbox.setState('gmail:account', r.account); }
-            results.push(r);
-          } else if (src === 'slack') results.push(await Src.pollSlack(this.inbox, cfg, this.fetch));
-          else results.push(Src.pollTeams(this.inbox, cfg));
+          const r = await x.poll(this.inbox, cfg, this.fetch);
+          if (x.done) x.done(this, r);
+          results.push(r);
         } catch (e) {
-          if (e instanceof Src.ReauthError) this.inbox.setState('gmail:reauth', { at: Date.now() });
-          results.push({ source: src, error: String(e.message || e).slice(0, 300), ingested: 0, reauth: e instanceof Src.ReauthError });
+          results.push(Object.assign({ source: x.id, error: String(e.message || e).slice(0, 300), ingested: 0 }, x.failed ? x.failed(this, e) : {}));
         }
       }
       this.last = { at: Date.now(), total: results.reduce((a, r) => a + (r.ingested || 0), 0), results };
@@ -173,8 +214,10 @@ class InboxService {
 
   // Called once a minute by the server: fetches when the interval has passed.
   tick(now = Date.now()) {
-    const every = this.settings().pollMinutes;
-    if (!every || this.running) return false;
+    // Old attachments go whether or not the inbox is on: what was fetched earlier is still on this computer.
+    if (!this.purgedAt || now - this.purgedAt >= PURGE_EVERY_MS) { this.purgedAt = now; try { this.lastPurge = Object.assign({ at: now }, this.purgeAttachments(now)); } catch (e) {} }
+    const st = this.settings(), every = st.pollMinutes;
+    if (st.enabled !== true || !every || this.running) return false;
     if (this.last && now - this.last.at < every * 60000) return false;
     this.poll().catch(() => {});
     return true;
@@ -209,6 +252,7 @@ class InboxService {
           fs.writeFileSync(this.tokenFile, JSON.stringify({ refresh_token: j.refresh_token, scope: j.scope || SCOPE, obtained_at: Date.now() }, null, 1));
           this.inbox.setState('gmail:reauth', null);
           done(200, 'Gmail 已連接（唯讀）');
+          { const st = this.settings(); if (st.enabled === true && !st.gmailOn) this.saveSettings({ gmailOn: true }); }   // connecting it is asking for it
           this.poll('gmail').catch(() => {});
         } catch (e) { done(500, 'Gmail 沒有連接：' + String(e.message || e).slice(0, 200)); }
         finish();

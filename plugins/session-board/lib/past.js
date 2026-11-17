@@ -12,6 +12,7 @@
 // not read the whole conversation.
 const fs = require('fs');
 const path = require('path');
+const baseName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || '';   // either kind of slash (a path written on Windows, read on a Mac)
 const S = require('./sessions');
 
 const DAYS = 30;
@@ -29,6 +30,8 @@ function said(content) {
 }
 
 const USER = Buffer.from('"type":"user"');
+const QUEUED = Buffer.from('"type":"queued_command"');
+const { queuedSaid } = require('./history');
 function scanPiece(buf, skipFirst, out) {
   let start = 0;
   if (skipFirst) { const i = buf.indexOf(10); if (i < 0) return; start = i + 1; }
@@ -38,12 +41,14 @@ function scanPiece(buf, skipFirst, out) {
     const line = buf.subarray(start, end);
     start = end + 1;
     if (line.length < 2) continue;
-    const isUser = line.indexOf(USER) >= 0;
-    if (!isUser && out.cwd) continue;
+    const isUser = line.indexOf(USER) >= 0, isMid = line.indexOf(QUEUED) >= 0;
+    if (!isUser && !isMid && out.cwd) continue;
     let j;
     try { j = JSON.parse(line.toString('utf8')); } catch (e) { continue; }
+    // said while a turn was running: recorded as an attachment, not as a user entry (lib/history.js queuedSaid)
+    if (isMid) { const q = queuedSaid(j); if (q && q.text) { const t = said(q.text); if (t) { if (!out.first) out.first = t; out.last = t; out.lastAt = Date.parse(j.timestamp) || out.lastAt; } } }
     if (!out.cwd && typeof j.cwd === 'string' && j.cwd) out.cwd = j.cwd;
-    if (isUser && j.type === 'user' && j.isMeta !== true && !j.isSidechain && j.message) {
+    if (isUser && j.type === 'user' && j.isMeta !== true && !j.isSidechain && !notSaid(j) && j.message) {
       const t = said(j.message.content);
       if (t) { if (!out.first) out.first = t; out.last = t; out.lastAt = Date.parse(j.timestamp) || out.lastAt; }
     }
@@ -69,6 +74,56 @@ function readEnds(file, size) {
   return out;
 }
 
+// When YOU last said something in a conversation (0: never). What the left list is ordered by.
+//
+// Not taken from ends(): that looks at the two ends of the file only, and in a long turn everything Claude did since
+// your last message is far more than the end holds (measured 2026-11-16: of ten open sessions, four came out as
+// "never"). Here the file is read backward from its end until a message of yours is met (at most BACK_CAP). After
+// that only what has been added to the file is read: a session at work grows all the time, and is asked about every
+// second.
+// Not yours: what the board sent in your place - the "carry on" sentences after a restart, a limit or an error.
+const BY_BOARD = /^（看板自動送出）/;
+const BACK_CAP = 96 * 1024 * 1024;
+const GROW_MAX = 8 * 1024 * 1024;       // more than this added at once: read backward again instead
+const { eachLineBackward } = require('./history');
+function saidLineAt(line) {
+  const isUser = line.indexOf(USER) >= 0, isMid = line.indexOf(QUEUED) >= 0;
+  if (!isUser && !isMid) return 0;
+  let j; try { j = JSON.parse(line.toString('utf8')); } catch (e) { return 0; }
+  let text = null, pic = false;
+  if (isMid) { const q = queuedSaid(j); if (q) { text = said(q.text); pic = q.blocks.some((b) => b && b.type === 'image'); } }
+  if (text === null && j.type === 'user' && j.isMeta !== true && !j.isSidechain && !notSaid(j) && j.message) {
+    text = said(j.message.content);
+    pic = Array.isArray(j.message.content) && j.message.content.some((b) => b && b.type === 'image');
+  }
+  if (text === null || (!text && !pic) || BY_BOARD.test(text)) return 0;
+  return Date.parse(j.timestamp) || 0;
+}
+const saidCache = new Map();   // file -> {size: bytes read so far (whole lines only), at}
+function saidAtOf(file) {
+  let st; try { st = fs.statSync(file); } catch (e) { return 0; }
+  const c = saidCache.get(file);
+  if (c && st.size === c.seen) return c.at;
+  if (c && st.size > c.size && st.size - c.size <= GROW_MAX) {
+    // what was added since: read forward, whole lines only (the last one may still be being written)
+    let fd, at = c.at, size = c.size;
+    try {
+      fd = fs.openSync(file, 'r');
+      const len = st.size - c.size, buf = Buffer.allocUnsafe(len);
+      let got = 0; while (got < len) { const n = fs.readSync(fd, buf, got, len - got, c.size + got); if (n <= 0) break; got += n; }
+      let start = 0;
+      for (;;) { const end = buf.indexOf(10, start); if (end < 0 || end >= got) break; const t = saidLineAt(buf.subarray(start, end)); if (t) at = t; start = end + 1; }
+      size = c.size + start;
+    } catch (e) { return c.at; } finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
+    saidCache.set(file, { size, seen: st.size, at });
+    return at;
+  }
+  let at = 0;
+  eachLineBackward(file, BACK_CAP, (line) => { const t = saidLineAt(line); if (t) { at = t; return false; } return true; });
+  saidCache.set(file, { size: st.size, seen: st.size, at });
+  return at;
+}
+
 const cache = new Map();   // file -> {size, mtimeMs, ends}
 function ends(file, st) {
   if (!st) { try { st = fs.statSync(file); } catch (e) { return { cwd: '', first: '', last: '', lastAt: 0 }; } }
@@ -78,6 +133,12 @@ function ends(file, st) {
   cache.set(file, { size: st.size, mtimeMs: st.mtimeMs, ends: e });
   return e;
 }
+
+// An entry filed as "user" that nobody said: the summary Claude Code writes when it compacts a conversation
+// (isCompactSummary), and anything else it marks as there for the record only. A compaction is often the last
+// thing in the transcript of a session that was sitting idle - taking it for "your message, still unanswered"
+// made four idle sessions get the "carry on" sentence after the restart of 2026-11-15.
+const notSaid = (e) => e.isCompactSummary === true || e.isVisibleInTranscriptOnly === true;
 
 // Was this conversation cut off in the middle of a turn? Read from the end of its transcript: the last thing
 // in it is either Claude finishing a reply (not cut off), or something Claude still owed an answer to - your
@@ -93,9 +154,11 @@ function interrupted(file) {
     const lines = b.subarray(0, got).toString('utf8').split('\n');
     if (size > len) lines.shift();   // the first line of a piece cut out of the middle is half a line
     for (const line of lines) {
-      if (line.indexOf('"type":"user"') < 0 && line.indexOf('"type":"assistant"') < 0) continue;
+      if (line.indexOf('"type":"user"') < 0 && line.indexOf('"type":"assistant"') < 0 && line.indexOf('"type":"queued_command"') < 0) continue;
       let e; try { e = JSON.parse(line); } catch (x) { continue; }
-      if ((e.type !== 'user' && e.type !== 'assistant') || e.isSidechain || e.isMeta || !e.message) continue;
+      // something you said while a turn was running counts as a message of yours still owed an answer
+      { const q = queuedSaid(e); if (q) { last = { type: 'user', message: { content: q.text || '（圖片）' } }; continue; } }
+      if ((e.type !== 'user' && e.type !== 'assistant') || e.isSidechain || e.isMeta || notSaid(e) || !e.message) continue;
       last = e;
     }
   } catch (e) { return false; } finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
@@ -134,7 +197,7 @@ function files(projectsDir, since) {
 function describe(f) {
   const e = ends(f.file, f);
   const t = S.cachedTitles(f.file);
-  return { sessionId: f.sessionId, cwd: e.cwd, folder: e.cwd ? path.basename(e.cwd) : '', title: t.custom || t.ai || e.first || '', named: !!(t.custom || t.ai), first: e.first, last: e.last, at: f.mtimeMs, size: f.size };
+  return { sessionId: f.sessionId, cwd: e.cwd, folder: e.cwd ? baseName(e.cwd) : '', title: t.custom || t.ai || e.first || '', named: !!(t.custom || t.ai), first: e.first, last: e.last, at: f.mtimeMs, size: f.size };
 }
 
 // o: {projectsDir, exclude: Set of session ids (open now, hidden), q, limit, now}
@@ -165,4 +228,4 @@ function find(projectsDir, sid) {
   return f ? describe(f) : null;
 }
 
-module.exports = { interrupted, list, find, lastSaid, said, ends, DAYS };
+module.exports = { interrupted, list, find, lastSaid, said, ends, saidAtOf, DAYS };

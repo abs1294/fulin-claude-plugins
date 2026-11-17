@@ -27,6 +27,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const baseName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || '';   // either kind of slash (a path written on Windows, read on a Mac)
 
 const ym = process.argv[2] || '';
 const m = /^(\d{4})-(\d{2})$/.exec(ym);
@@ -95,7 +96,15 @@ const projOf = (file) => path.relative(root, file).split(path.sep)[0];
 // n: how many API messages (calls to the model) went into the bucket.
 const zero = () => ({ in: 0, out: 0, cw: 0, cr: 0, tok: 0, cost: 0, n: 0 });
 const total = zero();
-const days = new Map(), models = new Map(), projects = new Map(), sessions = new Map(), titles = new Map();
+const days = new Map(), models = new Map(), projects = new Map(), sessions = new Map(), titles = new Map(), roles = new Map();
+// Who did the work a transcript holds: '' for a conversation itself, else the role of the subagent (or team member)
+// whose own record it is. Claude Code keeps those under <session>/subagents/agent-<id>.jsonl, with the role beside
+// it in agent-<id>.meta.json (agentType; a team member's own name is in agentType and its role in customAgentType).
+const roleOf = (p) => {
+  if (!path.relative(root, p).split(path.sep).includes('subagents')) return { role: '', team: false };
+  try { const j = JSON.parse(fs.readFileSync(p.replace(/.jsonl$/, '.meta.json'), 'utf8')); return { role: String(j.customAgentType || j.agentType || '?').slice(0, 80), team: !!j.teamName }; }
+  catch (e) { return { role: '?', team: false }; }
+};
 const seen = new Set();
 let records = 0, duplicates = 0, unpricedTok = 0, approxTok = 0, bytes = 0, reused = 0, readBytes = 0;
 const add = (map, key, extra) => { let v = map.get(key); if (!v) { v = Object.assign(zero(), extra); map.set(key, v); } return v; };
@@ -113,13 +122,17 @@ const add = (map, key, extra) => { let v = map.get(key); if (!v) { v = Object.as
 //   dups    how many repeats of those messages the file held
 //   titles  {sessionId: [title, isCustom]}
 //   cwd     a working directory that encodes to the project folder's name
+//   role    whose record the file is: '' a conversation's own, else the subagent's role (roleOf); team: a team member's
+//   as      for a conversation's own record: the role it was started as, when it was
 // Prices are applied afterwards, from the entries: the price table can change.
-const USAGE = Buffer.from('"usage"'), AI = Buffer.from('"aiTitle"'), CUSTOM = Buffer.from('"customTitle"');
+const USAGE = Buffer.from('"usage"'), AI = Buffer.from('"aiTitle"'), CUSTOM = Buffer.from('"customTitle"'), AS = Buffer.from('"agentSetting"');
 function onLine(st, ids, line) {
   const hasUsage = line.indexOf(USAGE) >= 0;
-  if (!hasUsage && line.indexOf(AI) < 0 && line.indexOf(CUSTOM) < 0) return;
+  if (!hasUsage && line.indexOf(AI) < 0 && line.indexOf(CUSTOM) < 0 && line.indexOf(AS) < 0) return;
   let j;
   try { j = JSON.parse(line.toString('utf8')); } catch (e) { return; }
+  // A conversation started as a role (claude --agent, which is how the board starts one) says so in its own record.
+  if (j.type === 'agent-setting' && typeof j.agentSetting === 'string') { st.as = j.agentSetting.slice(0, 80); return; }
   // What a session was about, for the list of the month's costliest sessions.
   if (j.type === 'custom-title' && typeof j.customTitle === 'string' && j.sessionId) { st.titles[j.sessionId] = [j.customTitle, 1]; return; }
   if (j.type === 'ai-title' && typeof j.aiTitle === 'string' && j.sessionId) { const cur = st.titles[j.sessionId]; if (!cur || !cur[1]) st.titles[j.sessionId] = [j.aiTitle, 0]; return; }
@@ -191,7 +204,7 @@ for (const f of files) {
   const old = kept.get(f.p);
   kept.delete(f.p);
   let st;
-  if (old && old.st.proj === proj && old.size === f.size && old.mtime === f.mtimeMs) { st = old.st; reused++; }
+  if (old && old.st.proj === proj && old.size === f.size && old.mtime === f.mtimeMs) { st = old.st; reused++; if (typeof st.role !== 'string') { Object.assign(st, roleOf(f.p)); changed.push({ f, st }); } }
   else {
     if (old && old.st.proj === proj && f.size >= old.st.offset) {
       st = old.st;
@@ -199,6 +212,7 @@ for (const f of files) {
       if (st.tail) st.recs.length -= st.tail;
       if (st.tailDups) st.dups -= st.tailDups;
     } else st = { proj, offset: 0, recs: [], dups: 0, titles: {}, cwd: '' };
+    if (typeof st.role !== 'string') Object.assign(st, roleOf(f.p));
     readFrom(f, st);
     changed.push({ f, st });
   }
@@ -217,7 +231,10 @@ if (db) {
 }
 
 // ── adding up ──
+// Subagents' own records first: should a message ever stand in both a conversation and a subagent's record, it is the subagent's.
+states.sort((a, b) => (a.role === '' ? 1 : 0) - (b.role === '' ? 1 : 0));
 for (const st of states) {
+  let counted = false;
   duplicates += st.dups;
   if (st.cwd && !projPath.has(st.proj)) projPath.set(st.proj, st.cwd);
   for (const [sid, [t, custom]] of Object.entries(st.titles)) { const cur = titles.get(sid); if (custom || !cur || !cur.custom) titles.set(sid, { t, custom: !!custom }); }
@@ -237,7 +254,14 @@ for (const st of states) {
     const s = sessions.get(sid);
     if (ts < s.first) s.first = ts;
     if (ts > s.last) s.last = ts;
+    const who = add(roles, st.role || st.as || '', { runs: 0, team: 0, models: {}, projects: {} });
+    who.in += part.in; who.out += part.out; who.cw += part.cw; who.cr += part.cr; who.tok += part.tok; who.cost += part.cost; who.n += 1;
+    who.models[r.key] = (who.models[r.key] || 0) + part.cost;
+    who.projects[st.proj] = (who.projects[st.proj] || 0) + part.cost;
+    counted = true;
   }
+  // runs: how many records (one conversation, or one subagent sent out) had usage in the month; team: how many of them were team members.
+  if (counted) { const who = roles.get(st.role || st.as || ''); who.runs++; if (st.team) who.team++; }
 }
 
 const list = (map, name, limit) => [...map.entries()].map(([k, v]) => Object.assign({ [name]: k }, v)).sort((a, b) => b.cost - a.cost || b.tok - a.tok).slice(0, limit || 1000);
@@ -251,7 +275,11 @@ process.stdout.write(JSON.stringify({
   days: Array.from({ length: daysInMonth }, (_, i) => Object.assign({ day: i + 1 }, days.get(i + 1) || zero())),
   models: list(models, 'model'),
   // path: the real folder when it could be recovered; name: its last part, or the encoded name when not.
-  projects: list(projects, 'id').map((p) => Object.assign(p, { path: projPath.get(p.id) || '', name: projPath.has(p.id) ? path.basename(projPath.get(p.id)) : p.id })),
-  sessions: list(sessions, 'sessionId', 500).map((s) => Object.assign(s, { title: (titles.get(s.sessionId) || {}).t || '', projectName: projPath.has(s.project) ? path.basename(projPath.get(s.project)) : s.project })),
+  projects: list(projects, 'id').map((p) => Object.assign(p, { path: projPath.get(p.id) || '', name: projPath.has(p.id) ? baseName(projPath.get(p.id)) : p.id })),
+  sessions: list(sessions, 'sessionId', 500).map((s) => Object.assign(s, { title: (titles.get(s.sessionId) || {}).t || '', projectName: projPath.has(s.project) ? baseName(projPath.get(s.project)) : s.project })),
+  // role: '' is the conversations themselves. models / projects: where that role's cost went, largest first.
+  roles: list(roles, 'role').map((r) => Object.assign(r, {
+    models: Object.entries(r.models).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([model, cost]) => ({ model, cost })),
+    projects: Object.entries(r.projects).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, cost]) => ({ name: projPath.has(id) ? baseName(projPath.get(id)) : id, cost })) })),
   sessionCount: sessions.size,
 }));

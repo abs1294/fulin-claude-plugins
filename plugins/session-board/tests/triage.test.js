@@ -102,6 +102,7 @@ test('judging follows fetching, and can be turned off', async () => {
   const d = tmp();
   let asked = 0;
   const svc = new InboxService({ db: path.join(d, 'b.db'), secretDir: d, oldEnv: '', fetch: async () => ({ ok: true, json: async () => ({}) }), triageRun: async (p) => { asked++; return { ok: true, text: '[{"i":1,"category":"question","title":"t","summary":"s"}]' }; } });
+  svc.saveSettings({ enabled: true, slackOn: true });
   seed(svc.inbox, 1);
   const r = await svc.poll('slack');                                         // a fetch of anything: what waits is judged after it
   assert.deepStrictEqual([asked, r.triage.done, svc.status().counts.valid], [1, 1, 1]);

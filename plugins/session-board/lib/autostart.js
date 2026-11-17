@@ -16,9 +16,14 @@ function script(node, startJs) {
   return 'CreateObject("WScript.Shell").Run "' + q(node) + ' ' + q(startJs) + '", 0, False\r\n';
 }
 
-function isOn(dir = startupDir()) { try { return !!dir && fs.existsSync(fileIn(dir)); } catch (e) { return false; } }
+const MAC = process.platform === 'darwin';
+const Mac = MAC ? require('./mac') : null;
+// On a Mac: a LaunchAgent (~/Library/LaunchAgents/com.fulin.session-board.plist, RunAtLoad) instead of the Startup folder.
+function isOn(dir = startupDir()) {
+  if (MAC && !dir) return Mac.agentOn('start'); try { return !!dir && fs.existsSync(fileIn(dir)); } catch (e) { return false; } }
 
 function set(on, startJs, dir = startupDir(), node = process.execPath) {
+  if (MAC && !dir) return Mac.setAgent('start', on, startJs);   // a folder given (the tests): only that folder, as on Windows
   if (!dir) return { ok: false, error: '找不到 Windows 的「啟動」資料夾' };
   try {
     if (on) fs.writeFileSync(fileIn(dir), '﻿' + script(node, startJs), 'utf16le');
@@ -29,6 +34,9 @@ function set(on, startJs, dir = startupDir(), node = process.execPath) {
 
 // The plugin's folder changes with every update, so a file written by an older
 // version points at a start.js that may be gone. Called when the board starts.
-function refresh(startJs, dir = startupDir()) { return isOn(dir) ? set(true, startJs, dir) : { ok: true, on: false }; }
+function refresh(startJs, dir = startupDir()) {
+  if (MAC && !dir) return Mac.agentOn('start') ? Mac.setAgent('start', true, startJs) : { ok: true, on: false }; return isOn(dir) ? set(true, startJs, dir) : { ok: true, on: false }; }
 
-module.exports = { isOn, set, refresh, script, startupDir, NAME };
+// What the settings page shows as the file: the LaunchAgent on a Mac.
+const fileShown = () => (MAC ? Mac.agentFile('start') : path.join(startupDir(), NAME));
+module.exports = { isOn, set, refresh, script, startupDir, NAME, fileShown };

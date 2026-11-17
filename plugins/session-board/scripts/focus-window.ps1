@@ -16,12 +16,17 @@
 #
 # Modes:
 #   focus (default)  find the window by title and bring it to the front
-#   find             find it and report its handle, without touching it
+#   find             find it and report its handle, without touching it.
+#                    With -ProcId N the window is first looked up through the
+#                    console that process sits in, which needs no title at all:
+#                    a session that has not been given a prompt yet has no
+#                    title to match (measured 2026-11-15, its window was left
+#                    open). Titles are only the fallback then.
 #   close -Hwnd N    ask that window to close (WM_CLOSE). Used after a session
 #                    was moved to the board, when the pane only shows "process
 #                    exited". A window with several tabs asks the user first;
 #                    that is Windows Terminal's own confirmation.
-param([string]$Payload, [string]$Mode = "focus", [string]$Hwnd = "")
+param([string]$Payload, [string]$Mode = "focus", [string]$Hwnd = "", [string]$ProcId = "")
 
 $ErrorActionPreference = "SilentlyContinue"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -39,7 +44,6 @@ if ($Mode -ne "close") {
   } catch {
     Out-Result @{ state = "error"; error = "bad payload" }
   }
-  if ($titles.Count -eq 0) { Out-Result @{ state = "none"; windows = 0; reason = "no title known for this session" } }
 }
 
 Add-Type @"
@@ -62,6 +66,12 @@ public class SbFocus {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
+  [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr h);
+  [DllImport("kernel32.dll")] public static extern bool FreeConsole();
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool AttachConsole(uint pid);
+  [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
 }
 "@
 
@@ -79,6 +89,30 @@ if ($Mode -eq "close") {
   Start-Sleep -Milliseconds 600
   Out-Result @{ state = "closed"; stillOpen = [bool][SbFocus]::IsWindow($h) }
 }
+
+function Test-Terminal([IntPtr]$hw) {
+  if ($hw -eq [IntPtr]::Zero) { return $false }
+  $c = New-Object System.Text.StringBuilder 256
+  [void][SbFocus]::GetClassName($hw, $c, 256)
+  return $c.ToString() -eq "CASCADIA_HOSTING_WINDOW_CLASS"
+}
+
+# The terminal window a process lives in, by way of its console: the console's
+# own (hidden) window is owned by the Windows Terminal window that hosts it.
+if ($Mode -eq "find" -and $ProcId) {
+  $n = [uint32]0
+  if ([uint32]::TryParse($ProcId, [ref]$n) -and $n -gt 0) {
+    [void][SbFocus]::FreeConsole()
+    if ([SbFocus]::AttachConsole($n)) {
+      $c = [SbFocus]::GetConsoleWindow()
+      [void][SbFocus]::FreeConsole()
+      foreach ($h in @([SbFocus]::GetAncestor($c, 3), [SbFocus]::GetWindow($c, 4), [SbFocus]::GetParent($c), [SbFocus]::GetAncestor($c, 2))) {
+        if (Test-Terminal $h) { Out-Result @{ state = "hit"; hwnd = $h.ToInt64(); by = "console" } }
+      }
+    }
+  }
+}
+if ($titles.Count -eq 0) { Out-Result @{ state = "none"; windows = 0; reason = "no title known for this session" } }
 
 $wins = New-Object System.Collections.ArrayList
 $cb = [SbFocus+EnumProc]{

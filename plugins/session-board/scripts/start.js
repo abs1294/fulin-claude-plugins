@@ -11,11 +11,14 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { getToken, portFromArgs, HOST, DATA_DIR } = require('../server');
 
-// Windows only: the board finds and moves Windows Terminal windows, and reads Windows-only places.
-if (process.platform !== 'win32') { console.error('session-board 只支援 Windows（這台是 ' + process.platform + '）。'); process.exit(1); }
+// Windows and macOS (lib/mac.js). Elsewhere it is not known to work.
+if (process.platform !== 'win32' && process.platform !== 'darwin') { console.error('session-board 支援 Windows 與 macOS（這台是 ' + process.platform + '）。'); process.exit(1); }
 const port = portFromArgs(process.argv);
 const args = new Set(process.argv.slice(2));
 const LOG = path.join(DATA_DIR, 'server.log');
+// A board stopped on purpose is marked, so that the keep-alive task (lib/keepalive.js) leaves it stopped.
+const { STOPPED_MARK } = require('../lib/keepalive');
+const markStopped = () => { try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(STOPPED_MARK, String(Date.now())); } catch (e) {} };
 
 function request(method, p, token, body) {
   return new Promise((resolve) => {
@@ -48,7 +51,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     process.exit(running ? 0 : 1);
   }
   if (args.has('--stop')) {
-    if (!running) { console.log('not running'); return; }
+    if (!running) { markStopped(); console.log('not running'); return; }
     // The server refuses to stop while a conversation it runs is working or has
     // background work going: stopping would end that work. --force overrides.
     const r = await request('POST', '/api/shutdown', token, { force: args.has('--force') });
@@ -60,9 +63,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       process.exit(2);
     }
     for (let i = 0; i < 20 && await ping(); i++) await sleep(150);
-    console.log(await ping() ? 'still running' : 'stopped');
+    const still = await ping();
+    if (!still) markStopped();
+    console.log(still ? 'still running' : 'stopped');
     return;
   }
+  // --keepalive: what the scheduled task runs every few minutes. Nothing to do when the board is there, or when it
+  // was stopped on purpose. Any other start means you want it running: the mark goes.
+  if (args.has('--keepalive')) { if (running || fs.existsSync(STOPPED_MARK)) return; }
+  else { try { fs.unlinkSync(STOPPED_MARK); } catch (e) {} }
 
   if (!running) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -85,6 +94,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log(url);
   if (args.has('--open')) {
     // "start" needs the empty title argument, or it takes the URL as the title.
-    spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    if (process.platform === 'darwin') spawn('open', [url], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
+    else spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true }).on('error', () => {}).unref();
   }
 })();

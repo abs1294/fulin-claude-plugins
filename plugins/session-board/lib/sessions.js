@@ -12,6 +12,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const baseName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || '';   // either kind of slash (a path written on Windows, read on a Mac)
 
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const DEFAULTS = {
@@ -275,7 +276,11 @@ function buildSessions(opts = {}, now = Date.now()) {
     // The registry is not a documented format: take a field only when it has
     // the type this code relies on, otherwise fall back.
     const name = typeof r.name === 'string' ? r.name : '';
-    const title = candidates[0] || name || (ch && ch.title) || (ch ? '新對話' : `session ${r.sessionId.slice(0, 8)}`);
+    // o.titles: the names conversations had on the board before they were moved to a terminal ({sessionId: title}).
+    // A terminal session that has no title of its own yet would otherwise show the name Claude Code makes up for it
+    // ("supplier-code-d9"), and the conversation you just moved could not be found in the list (2026-11-16).
+    const moved = !ch && o.titles && typeof o.titles[r.sessionId] === 'string' ? o.titles[r.sessionId] : '';
+    const title = candidates[0] || moved || name || (ch && ch.title) || (ch ? '新對話' : `session ${r.sessionId.slice(0, 8)}`);
     const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
     const since = num(r.statusUpdatedAt) || num(r.updatedAt) || num(r.startedAt) || now;
     const status = typeof r.status === 'string' ? r.status : 'unknown';
@@ -307,7 +312,7 @@ function buildSessions(opts = {}, now = Date.now()) {
       startedAt: num(r.startedAt),
       kind: typeof r.kind === 'string' ? r.kind : '',
       cwd,
-      folder: cwd ? path.basename(cwd) : '',
+      folder: cwd ? baseName(cwd) : '',
       branch: cwd ? gitBranch(cwd) : '',
       // Where this session can be talked to in a browser: its Remote Control
       // page on claude.ai, present only while the session is connected to it.

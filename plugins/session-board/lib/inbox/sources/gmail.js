@@ -1,27 +1,22 @@
 'use strict';
-// The three fetchers. Each one reads its source, turns what it finds into the
-// same shape, and hands it to Inbox.ingest; none of them writes anything back
-// to its source. Ported from customer-hub (src/gmail-poll.js, src/pollers/*).
+// One source of the inbox. What a source is, for lib/inbox/index.js (see lib/inbox/sources/index.js):
+//   id, name       its key ('gmail') and the name people read ('Gmail')
+//   kind           'mail': a thread is handed over whole. 'chat': the messages to hand over are ticked.
+//   routeHint      what a route of this source is matched on
+//   fields         the settings it needs: [{key, label, placeholder, type: text|number|password, min, max, def, secret}]
+//   status(svc, s, cfg) -> {configured, ready, text, alarm?, action?, ...}   what the page shows on its card
+//   poll(inbox, cfg, fetchImpl) -> {source, ingested, skipped?, reason?, error?, ...}   reads; never writes back
+//   done(svc, result), failed(svc, error) -> extra fields of the result   (both optional)
+// It is fetched only when the inbox is on AND this source is switched on (settings "<id>On").
 //
-//   gmail  Gmail's HTTP interface, with the OAuth client and token customer-hub
-//          already has in ~/.customer-hub (read from there, never rewritten).
-//          Fetches the threads under the labels of the enabled Gmail routes.
-//   slack  Slack's HTTP interface with a bot token; the channels of the
-//          enabled Slack routes.
-//   teams  the Teams desktop app's local cache (lib/inbox/teams-localdb.js);
-//          every conversation found, no route needed.
-//
-// cfg: what lib/inbox/index.js builds from the settings. fetchImpl can be
-// replaced in tests.
+// Gmail's HTTP interface, read-only. Every received mail is fetched, unless the settings keep to one label.
+// The OAuth client and the token: see credFile() and tokenFile in lib/inbox/index.js.
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
-const { htmlToText } = require('./text');
-const TeamsDb = require('./teams-localdb');
+const { htmlToText } = require('../text');
 
 const DAY = 86400000;
 
-// ── Gmail ──
 // credFile: the OAuth client file; where it is looked for is decided in lib/inbox/index.js (credFile()).
 function gmailSecrets(dir, tokenFile, credFile) {
   const read = (p) => JSON.parse(fs.readFileSync(p, 'utf8').replace(/^﻿/, ''));
@@ -157,8 +152,12 @@ async function gmailAttachments(cfg, threadId, destDir, fetchImpl = fetch) {
       taken.add(file.toLowerCase()); x.path = file; out.inline.push(x);
     });
   }
+  // Handed over now: the days these files are kept count from this moment (InboxService.purgeAttachments reads
+  // the newest time in the folder). A file already here is not written again, so the folder gets a mark of its own.
+  if (out.files.length || out.inline.length) { try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, KEPT_MARK), String(Date.now())); } catch (e) {} }
   return out;
 }
+const KEPT_MARK = '.kept';
 const header = (m, name) => (((m.payload && m.payload.headers) || []).find((h) => String(h.name).toLowerCase() === name) || {}).value || '';
 
 async function pollGmail(inbox, cfg, fetchImpl = fetch) {
@@ -231,106 +230,25 @@ async function pollGmail(inbox, cfg, fetchImpl = fetch) {
   return { source: 'gmail', ingested, own, routed, reactivated, threads: threadIds.size, listed: listedMessages, listedThreads: listed.size, incremental, scope, days, account: me };
 }
 
-// ── Slack ──
-async function pollSlack(inbox, cfg, fetchImpl = fetch) {
-  const token = String(cfg.slackToken || '').trim();
-  if (!token) return { source: 'slack', skipped: true, reason: '還沒有設定 Slack 權杖', ingested: 0 };
-  const channels = inbox.enabledRefs('slack');
-  if (!channels.length) return { source: 'slack', skipped: true, reason: '還沒有任何 Slack 路由（要抓哪個頻道）', ingested: 0 };
-  const api = async (method, params) => {
-    const url = new URL('https://slack.com/api/' + method);
-    for (const [k, v] of Object.entries(params)) if (v != null) url.searchParams.set(k, String(v));
-    const j = await (await fetchImpl(url.toString(), { headers: { authorization: 'Bearer ' + token } })).json();
-    if (!j.ok) throw new Error('Slack ' + method + ' 失敗：' + (j.error || 'unknown'));
-    return j;
-  };
-  const self = String(cfg.slackSelfId || '').trim();
-  const oldest = Math.floor((Date.now() - (cfg.slackDays || 7) * DAY) / 1000);
-  const take = (channel, m) => {
-    if (!m.text || !m.text.trim()) return false;
-    const mine = !!self && m.user === self;
-    return inbox.ingest({ source: 'slack', threadId: 'slack:' + channel + ':' + (m.thread_ts || m.ts), sourceMsgId: 'slack:' + channel + ':' + m.ts, sourceRef: channel,
-      from: m.user || (mine ? '(我)' : '(對方)'), subject: 'Slack · ' + channel, bodyText: m.text, direction: mine ? 'out' : 'in', quiet: mine, ts: Math.floor(Number(m.ts) * 1000) }).ingested;
-  };
-  let ingested = 0;
-  const errors = [];
-  for (const ch of channels) {
-    try {
-      const roots = [];
-      let cursor;
-      for (let page = 0; page < 50; page++) {
-        const r = await api('conversations.history', { channel: ch, oldest, limit: 200, cursor });
-        const msgs = (r.messages || []).filter((m) => m.type === 'message' && (!m.subtype || m.subtype === 'thread_broadcast')).reverse();
-        for (const m of msgs) { if (m.reply_count > 0 && m.thread_ts) roots.push(m.thread_ts); if (take(ch, m)) ingested++; }
-        cursor = r.response_metadata && r.response_metadata.next_cursor;
-        if (!r.has_more || !cursor) break;
-      }
-      // conversations.history does not return the replies of a thread: they are asked for per thread.
-      for (const root of roots) {
-        let rc;
-        for (let page = 0; page < 20; page++) {
-          const r = await api('conversations.replies', { channel: ch, ts: root, limit: 200, cursor: rc });
-          for (const m of (r.messages || []).filter((x) => x.type === 'message' && x.ts !== root)) if (take(ch, m)) ingested++;
-          rc = r.response_metadata && r.response_metadata.next_cursor;
-          if (!r.has_more || !rc) break;
-        }
-      }
-    } catch (e) { errors.push(ch + '：' + e.message); }
-  }
-  return Object.assign({ source: 'slack', ingested, channels: channels.length }, errors.length ? { error: errors.join('；') } : {});
-}
-
-// ── Teams ──
-// Which account is yours, when nobody said: you are in every conversation of
-// your own Teams, each other person in a few. So the sender who appears in the
-// most conversations is you - taken only when it is in at least three, and in
-// clearly more than anyone else. creatorsByThread: Map of thread -> Set of creator ids.
-function guessTeamsSelf(creatorsByThread) {
-  const n = new Map();
-  for (const set of creatorsByThread.values()) for (const c of set) n.set(c, (n.get(c) || 0) + 1);
-  const top = [...n.entries()].sort((a, b) => b[1] - a[1]);
-  if (!top.length || top[0][1] < 3) return '';
-  if (top[1] && top[1][1] * 2 > top[0][1]) return '';
-  return top[0][0];
-}
-function pollTeams(inbox, cfg) {
-  const dir = cfg.teamsDir || TeamsDb.defaultLevelDbDir();
-  if (!TeamsDb.available(dir)) return { source: 'teams', skipped: true, reason: '這台電腦沒有 Teams 桌面版（個人帳戶）的本機資料', ingested: 0 };
-  const since = Date.now() - (cfg.teamsDays || 7) * DAY;
-  const known = inbox.state('teams:files', {});
-  let res;
-  try { res = TeamsDb.readTeamsMessages({ dir, sinceMs: since, knownFiles: Object.keys(known).length ? known : null }); }
-  catch (e) { return { source: 'teams', error: '讀本機 Teams 資料失敗：' + e.message, ingested: 0 }; }
-  const byThread0 = new Map();
-  for (const m of res.messages) { if (!byThread0.has(m.threadKey)) byThread0.set(m.threadKey, new Set()); if (m.creator) byThread0.get(m.threadKey).add(m.creator); }
-  let self = String(cfg.teamsSelfId || '').trim().replace(/^8:live:/, '');
-  let guessed = '';
-  if (!self) { guessed = guessTeamsSelf(byThread0) || inbox.state('teams:self', ''); if (guessed) { self = guessed.replace(/^8:(live|orgid):/, ''); inbox.setState('teams:self', guessed); } }
-  const byThread = new Map();
-  for (const m of res.messages) { if (!m.contentText) continue; if (!byThread.has(m.threadKey)) byThread.set(m.threadKey, []); byThread.get(m.threadKey).push(m); }
-  let ingested = 0, failed = 0;
-  for (const [key, msgs] of byThread) {
-    const threadId = 'teams:' + key;
-    // Teams writes new messages first and fills in older history later, so a
-    // strict "newer than the last one" would lose what is filled in. Look back
-    // three days; a message already taken is recognised by its id.
-    const from = Math.max(since, inbox.lastTs(threadId) - 3 * DAY);
-    const others = [...new Set(msgs.filter((m) => !(self && (m.creator || '').includes(self)) && m.fromName).map((m) => m.fromName))];
-    const oneOnOne = key.replace(/^19:/, '').startsWith('uni01_');
-    const title = oneOnOne ? 'Teams · ' + (others[0] || '(對方)') : others.length ? 'Teams 群組 · ' + others.slice(0, 3).join('、') + (others.length > 3 ? ' 等 ' + others.length + ' 人' : '') : 'Teams 群組';
-    for (const m of msgs) {
-      if (!m.ts || m.ts <= from) continue;
-      const mine = !!self && (m.creator || '').includes(self);
-      try {
-        const r = inbox.ingest({ source: 'teams', threadId, sourceMsgId: 'teams:' + key + ':' + (m.msgId || m.ts), sourceRef: key, from: oneOnOne ? others[0] || '(對方)' : title, msgFrom: m.fromName || '',
-          subject: title, bodyText: m.contentText, direction: mine ? 'out' : 'in', quiet: mine, ts: m.ts });
-        if (r.ingested) ingested++;
-      } catch (e) { failed++; }
-    }
-  }
-  // A file is marked as read only when everything from it went in: a table file never changes again, so marking it early would lose its messages for good.
-  if (!failed && res.files.length) inbox.setState('teams:files', Object.fromEntries(res.files.map((f) => [f.fname, { size: f.size, mtime: f.mtime }])));
-  return Object.assign({ source: 'teams', ingested, threads: byThread.size, selfKnown: !!self, selfGuessed: guessed || undefined }, failed ? { error: failed + ' 則寫入失敗，下次重試' } : {});
-}
-
-module.exports = { safeName, gmailAttachments, guessTeamsSelf, pollGmail, pollSlack, pollTeams, gmailConfigured, gmailBody, ReauthError };
+module.exports = {
+  id: 'gmail', name: 'Gmail', kind: 'mail',
+  routeHint: '標籤名稱（信全部都會抓，帶這個標籤的自動分派）',
+  fields: [
+    { key: 'gmailLabel', label: 'Gmail 只抓這個標籤', placeholder: '留空＝所有收到的信都抓', type: 'text', def: '' },
+    { key: 'gmailDays', label: 'Gmail 往回幾天', placeholder: '', type: 'number', min: 1, max: 365, def: 7 },
+  ],
+  status(svc, s, cfg) {
+    const reauth = svc.inbox.state('gmail:reauth', null), configured = gmailConfigured(cfg), hasClient = svc.hasCred(), account = svc.inbox.state('gmail:account', '');
+    const text = reauth ? '授權已失效，要重新連接才抓得到信'
+      : !hasClient ? '要先放一個 Google 的 OAuth 用戶端檔，才能連接（按「連接 Gmail」看放哪裡）'
+      : !configured ? '還沒有連接'
+      : (account ? account + ' · ' : '') + (s.gmailLabel ? '只抓標籤「' + s.gmailLabel + '」' : '所有收到的信') + '，最近 ' + s.gmailDays + ' 天';
+    return { configured, ready: configured && !reauth, alarm: !!reauth, text, hasClient, clientFile: path.join(path.dirname(svc.tokenFile), 'gmail-credentials.json'), ownToken: fs.existsSync(svc.tokenFile),
+      needsReauth: !!reauth, reauthAt: reauth && reauth.at, account, label: s.gmailLabel, days: s.gmailDays,
+      action: { label: reauth || !configured ? '連接 Gmail' : '重新連接', api: '/api/inbox/gmail/connect', title: '開 Google 的登入頁，授權看板「唯讀」讀取信件。授權只存在這台電腦', said: '已開啟 Google 的登入頁。完成後回到這裡，會自動開始抓信' } };
+  },
+  poll: (inbox, cfg, fetchImpl) => pollGmail(inbox, cfg, fetchImpl),
+  done(svc, r) { if (!r.skipped) { svc.inbox.setState('gmail:reauth', null); if (r.account) svc.inbox.setState('gmail:account', r.account); } },
+  failed(svc, e) { const reauth = e instanceof ReauthError; if (reauth) svc.inbox.setState('gmail:reauth', { at: Date.now() }); return { reauth }; },
+  safeName, gmailAttachments, pollGmail, gmailConfigured, gmailBody, ReauthError,
+};

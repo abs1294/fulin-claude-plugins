@@ -36,6 +36,7 @@ const reg = (args) => execFileSync('reg.exe', args, { windowsHide: true, stdio: 
 function isRegistered() { try { return reg(['query', KEY + '\\shell\\open\\command', '/ve']).includes(VBS); } catch (e) { return false; } }
 
 function register(pluginRoot, node = process.execPath) {
+  if (process.platform !== 'win32') return { ok: false, error: '點通知跳到 session 只在 Windows 有' };   // a Mac: nothing is registered, no file written
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(VBS, '﻿' + vbsText(node, path.join(pluginRoot, 'scripts', 'focus-click.js')), 'utf16le');

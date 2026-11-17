@@ -38,6 +38,20 @@ function scan(ym, run) {
   });
 }
 
+// A finished month scanned again (`now`) against what is on record for it (`had`). When the new scan covers what the
+// old one did (its cost is at least 99.5% of it), it replaces the record. When it finds less - part of that month's
+// conversations have been cleared away since - the record's totals, days, models, projects and sessions are kept, and
+// only the per-role figures are taken from the new scan, marked as covering part of the month (rolesCover: the cost
+// they add up to), so the page can say so instead of showing a table that silently does not add up.
+function keepMost(had, now) {
+  const a = Number(had && had.total && had.total.cost) || 0, b = Number(now && now.total && now.total.cost) || 0;
+  if (!had || !had.ok || b >= a * 0.995) return now;
+  const out = Object.assign({}, had, { rescannedAt: now.computedAt });
+  if (Array.isArray(now.roles) && now.roles.length && !(Array.isArray(had.roles) && had.roles.length && !had.rolesCover)) { out.roles = now.roles; out.rolesCover = b; }
+  else if (!Array.isArray(had.roles)) { out.roles = []; out.rolesCover = 0; }   // looked for, none to be had: not asked for again
+  return out;
+}
+
 class Monthly {
   constructor(opts = {}) {
     this.dbFile = opts.db || DB.DB_FILE;
@@ -94,6 +108,14 @@ class Monthly {
     return true;
   }
 
+  // The months on record that were written before there were per-role figures get them: scanned again, once each,
+  // one after another. Called at start. -> the months asked for
+  async addRoles() {
+    const todo = this.stored().map((m) => m.month).filter((ym) => { const d = this._disk(ym); return d && !Array.isArray(d.roles); });
+    for (const ym of todo) { try { await this.get(ym, true); } catch (e) {} }
+    return todo;
+  }
+
   // {ok, ...figures, stale?} - or {ok:false, error}.
   async get(ym, force) {
     if (!valid(ym)) return { ok: false, error: 'month must be YYYY-MM' };
@@ -110,6 +132,9 @@ class Monthly {
         const last = this.mem.get(ym) || this._disk(ym);
         return last ? Object.assign({}, last, { stale: true, error: data.error }) : data;
       }
+      // A finished month that is on record already: Claude Code clears old conversations away, so a later scan can find
+      // less than the first one did. What was found before is never replaced by less - see keepMost().
+      if (!current) { const had = this._disk(ym); if (had) data = keepMost(had, data); }
       this.mem.set(ym, data);
       // Only a finished month is written down: the current one keeps changing.
       if (!current) { try { this._write(this._db(), data, false); } catch (e) {} }
@@ -120,4 +145,4 @@ class Monthly {
   }
 }
 
-module.exports = { Monthly, ymOf, valid, FRESH_MS };
+module.exports = { Monthly, ymOf, valid, FRESH_MS, keepMost };

@@ -19,6 +19,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { spawn } = require('child_process');
 
 const IDLE_MS = 15 * 60 * 1000;
@@ -27,7 +28,34 @@ const UNSTARTED_MS = 2 * 60 * 1000;   // how long a conversation nothing was sen
 const CLAUDE_BIN = process.env.SESSION_BOARD_CLAUDE || 'claude';
 
 const DONE_KEEP_MS = 10 * 60 * 1000;   // how long a background command stays listed after it ends
-const QUEUE_MAX = 20;   // messages that may wait for their turn in one conversation
+// A message as the list of blocks Claude is given. A picture with a tag N stands where the text says "［圖N］": the
+// text up to and including that mark, then the picture, then the rest - so Claude sees each picture at the place it
+// was pasted. Pictures the text does not name (attached with the button, or their mark deleted) come first, in order.
+const PIC_MARK = /(［圖\d{1,2}］)/;
+function contentOf(text, images) {
+  const img = (x) => ({ type: 'image', source: { type: 'base64', media_type: x.mime, data: x.data } });
+  const list = Array.isArray(images) ? images : [];
+  const byTag = new Map();
+  for (const x of list) if (x.tag && !byTag.has(x.tag) && String(text).includes('［圖' + x.tag + '］')) byTag.set(x.tag, x);
+  const content = list.filter((x) => byTag.get(x.tag) !== x).map(img);
+  let buf = '';
+  for (const part of String(text).split(PIC_MARK)) {
+    buf += part;
+    const m = /^［圖(\d{1,2})］$/.exec(part), x = m && byTag.get(Number(m[1]));
+    if (!x) continue;
+    byTag.delete(Number(m[1]));                      // a mark written twice: the picture goes at the first
+    content.push({ type: 'text', text: buf }, img(x)); buf = '';
+  }
+  if (buf.trim() || !content.length) content.push({ type: 'text', text: buf });
+  return content;
+}
+
+
+
+// A role's name as Claude Code writes it: letters, digits, '-', '_', '.', and ':' between a plugin and its role.
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];   // claude --effort
+const ROLE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/;
+const BUILT_IN_ROLES = new Set(['claude', 'Plan', 'Explore', 'general-purpose', 'statusline-setup', 'claude-code-guide']);
 
 class Channels {
   constructor(file, opts = {}) {
@@ -42,6 +70,11 @@ class Channels {
     this.windowsFile = path.join(path.dirname(file), 'models.json');
     this.modelWindows = {};
     try { const j = JSON.parse(fs.readFileSync(this.windowsFile, 'utf8')); if (j && typeof j === 'object' && !Array.isArray(j)) this.modelWindows = j; } catch (e) {}
+    // The agent roles Claude Code said a folder has, the last time a conversation was started there (see roles()).
+    this.rolesFile = path.join(path.dirname(file), 'roles.json');
+    this.rolesSeen = {};
+    try { const j = JSON.parse(fs.readFileSync(this.rolesFile, 'utf8')); if (j && typeof j === 'object' && !Array.isArray(j)) this.rolesSeen = j; } catch (e) {}
+    this.homeDir = opts.homeDir || os.homedir();
     this.quotaSnap = null;   // the account limits as last reported to a conversation run here
     this.wakeGraceMs = opts.wakeGraceMs === undefined ? 6000 : opts.wakeGraceMs;   // see status()
     // Slash commands per folder, asked from Claude Code itself (see commandsFor).
@@ -64,6 +97,14 @@ class Channels {
       sessionId: c.sessionId, cwd: c.cwd, title: c.title, createdAt: c.createdAt,
       lastResultAt: c.lastResultAt, lastSeenAt: c.lastSeenAt, changedAt: c.changedAt,
       cost: c.cost, tok: c.tok,
+      // set by a schedule: start without asking for approvals; start as a copy of another session (see _start)
+      skipPermissions: c.skipPermissions || undefined, forkOf: c.forkOf || undefined,
+      // what you ran with "!" and have not sent yet (noteShell)
+      shellNotes: c.shellNotes && c.shellNotes.length ? c.shellNotes : undefined, shellSeq: c.shellSeq || undefined,
+      // the agent role this conversation runs as (see roles()); none = an ordinary conversation
+      agent: c.agent || undefined,
+      model: c.model || undefined, effort: c.effort || undefined, modelSeen: c.modelSeen || undefined,   // the model it was switched to (setModel); none = Claude Code's default
+      mode: c.mode || undefined,   // the permission mode its process last said it runs in
     }));
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
@@ -92,6 +133,43 @@ class Channels {
     return c;
   }
 
+  // The agent roles a conversation in this folder can be started as: [{name, from}], from = 'project' (the folder's
+  // .claude/agents), 'user' (~/.claude/agents), 'plugin' (brought by a plugin). Two sources, joined: the role files,
+  // read now; and the list Claude Code itself reported the last time a conversation was started in the folder, which
+  // is the only place a plugin's roles show (so those appear after the first conversation there). The built-in
+  // helpers (search, planning ...) are left out: they are not something to hand a piece of work to.
+  roles(cwd) {
+    const names = (dir) => { try { return fs.readdirSync(dir).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3)).filter((n) => ROLE_NAME.test(n)); } catch (e) { return []; } };
+    const project = names(path.join(cwd, '.claude', 'agents')), user = names(path.join(this.homeDir, '.claude', 'agents'));
+    const seen = Array.isArray(this.rolesSeen[String(cwd).toLowerCase()]) ? this.rolesSeen[String(cwd).toLowerCase()].filter((n) => typeof n === 'string' && ROLE_NAME.test(n)) : [];
+    const out = new Map();
+    for (const n of project) out.set(n, 'project');
+    for (const n of user) if (!out.has(n)) out.set(n, 'user');
+    for (const n of seen) if (!out.has(n) && n.includes(':')) out.set(n, 'plugin');
+    // What each is for: the description line at the top of its role file. A plugin's role file is in that plugin's installed folder.
+    const desc = (file) => { try { const fd = fs.openSync(file, 'r'); const b = Buffer.alloc(8192); const n = fs.readSync(fd, b, 0, 8192, 0); fs.closeSync(fd); const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(b.toString('utf8', 0, n)); const m = head && /^description:\s*(.+)$/m.exec(head[1]); return m ? m[1].trim().replace(/^["'>|]+\s*|["']+$/g, '').replace(/\s+/g, ' ').slice(0, 200) : ''; } catch (e) { return ''; } };
+    let installed = null;
+    const pluginFile = (name) => {
+      const [plugin, role] = name.split(':');
+      if (installed === null) { try { installed = JSON.parse(fs.readFileSync(path.join(this.homeDir, '.claude', 'plugins', 'installed_plugins.json'), 'utf8')).plugins || {}; } catch (e) { installed = {}; } }
+      for (const [id, list] of Object.entries(installed)) { if (id.split('@')[0] !== plugin) continue; for (const x of Array.isArray(list) ? list : []) { const f = x && x.installPath ? path.join(x.installPath, 'agents', role + '.md') : ''; if (f && fs.existsSync(f)) return f; } }
+      return '';
+    };
+    const fileOf = (name, from) => (from === 'project' ? path.join(cwd, '.claude', 'agents', name + '.md') : from === 'user' ? path.join(this.homeDir, '.claude', 'agents', name + '.md') : pluginFile(name));
+    return [...out.entries()].filter(([n]) => !BUILT_IN_ROLES.has(n)).map(([name, from]) => { const f = fileOf(name, from); return { name, from, desc: f ? desc(f) : '' }; });
+  }
+
+  // Sets (or with '' clears) the role of a conversation. Only before anything was said in it: a conversation does not change role halfway.
+  setAgent(sid, name) {
+    const c = this.map.get(sid);
+    if (!c) return { ok: false, error: '這不是看板裡的對話' };
+    if (!this.isEmpty(c)) return { ok: false, error: '對話已經開始了，角色只能在送出第一句話之前選' };
+    if (name && !this.roles(c.cwd).some((r) => r.name === name)) return { ok: false, error: '這個資料夾沒有這個角色：' + String(name).slice(0, 80) };
+    c.agent = name || undefined;
+    this._save();
+    return { ok: true, agent: c.agent || '' };
+  }
+
   // Forget a channel. The session itself (its transcript) is untouched.
   // Takes a conversation off the board only if nothing was ever said in it: no message sent or waiting,
   // no process started, no reply, no transcript. For the "+" pressed and then left alone. -> whether it was removed.
@@ -103,7 +181,7 @@ class Channels {
   // A conversation that has not started: nothing was ever sent in it. It is a place to type the first message,
   // not a session yet - the list does not show it, and one nobody is looking at is forgotten (see _reap).
   isEmpty(c) {
-    if (c.title || c.proc || c.lastResultAt || (c.queue && c.queue.length) || c.pending.size || c.tasks.size) return false;
+    if (c.title || c.proc || c.lastResultAt || c.pending.size || c.tasks.size || (c.shellNotes && c.shellNotes.length)) return false;
     return !this.transcriptOf(c.sessionId, c.cwd);
   }
 
@@ -114,6 +192,7 @@ class Channels {
     for (const res of c.listeners) { try { res.end(); } catch (e) {} }
     this.map.delete(sid);
     this._save();
+    if (this.onGone) { try { this.onGone(sid); } catch (e) {} }
     return true;
   }
 
@@ -222,6 +301,18 @@ class Channels {
   _emit(c, ev) {
     const line = 'data: ' + JSON.stringify(ev) + '\n\n';
     for (const res of c.listeners) { try { res.write(line); } catch (e) {} }
+    this._noteStatus(c);
+  }
+
+  // Whoever wants to know when a conversation goes from one state to another (the notification centre) sets
+  // onStatus(c, from, to); onGone(sessionId) is called when one is taken off the board. Told at the moment it
+  // happens - everything that changes a conversation's state passes through _emit.
+  _noteStatus(c) {
+    if (!this.onStatus) return;
+    const to = this.status(c), from = c.lastStatus || 'idle';
+    if (to === from) return;
+    c.lastStatus = to;
+    try { this.onStatus(c, from, to); } catch (e) {}
   }
 
   _setState(c, state) {
@@ -235,8 +326,8 @@ class Channels {
     c.listeners.add(res);
     res.write('data: ' + JSON.stringify({ type: 'state', status: this.status(c) }) + '\n\n');
     res.write('data: ' + JSON.stringify({ type: 'tasks', tasks: this._taskList(c) }) + '\n\n');
-    res.write('data: ' + JSON.stringify({ type: 'queue', queue: c.queue || [] }) + '\n\n');
     for (const p of c.pending.values()) res.write('data: ' + JSON.stringify(this._permissionEvent(p)) + '\n\n');
+    res.write('data: ' + JSON.stringify({ type: 'shell', notes: c.shellNotes || [] }) + '\n\n');
     res.on('close', () => c.listeners.delete(res));
     return true;
   }
@@ -257,7 +348,17 @@ class Channels {
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio'];
     // A session with a transcript is resumed; a new one is created under the id
     // the channel already has, so the page knows the id before the first reply.
-    args.push(this.transcriptOf(c.sessionId, c.cwd) ? '--resume' : '--session-id', c.sessionId);
+    // A copy of another session (forkOf) starts from that session's conversation under its own id, the first
+    // time; once it has a transcript of its own it is carried on like any other.
+    const has = this.transcriptOf(c.sessionId, c.cwd);
+    if (!has && c.forkOf) args.push('--resume', c.forkOf, '--fork-session', '--session-id', c.sessionId);
+    else args.push(has ? '--resume' : '--session-id', c.sessionId);
+    if (c.skipPermissions) args.push('--dangerously-skip-permissions');
+    // Given every time, also when carrying a conversation on (measured 2026-11-15: both a new and a resumed one answer as the role).
+    if (c.agent && ROLE_NAME.test(c.agent)) args.push('--agent', c.agent);
+    // The model it runs on, when one was chosen for it (setModel); otherwise Claude Code's own default.
+    if (c.model && /^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,60}$/.test(c.model)) args.push('--model', c.model);
+    if (c.effort && EFFORTS.includes(c.effort)) args.push('--effort', c.effort);
     const p = this.spawn(CLAUDE_BIN, args, { cwd: c.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     c.proc = p;
     c.buf = '';
@@ -274,7 +375,17 @@ class Channels {
       }
     });
     p.stderr.on('data', (d) => { c.stderr = (c.stderr + d).slice(-2000); });
-    p.on('error', (e) => { c.stderr = String(e.message || e); });
+    // The process could not be started at all (claude is not installed, or not found from here), or broke off in a way
+    // that gives no exit: without this the conversation kept its "working" look for ever and took no further message.
+    p.on('error', (e) => {
+      c.stderr = String((e && e.message) || e);
+      if (c.proc !== p) return;
+      c.proc = null; c.pending.clear();
+      if (c.tasks.size) { c.tasks.clear(); this._emit(c, { type: 'tasks', tasks: [] }); }
+      this._emit(c, { type: 'error', text: (e && e.code === 'ENOENT' ? '啟動不了 Claude Code：找不到 claude 這個程式。請開一個終端機確認打 claude 能執行（還沒安裝，或看板啟動時的 PATH 裡沒有它），再把訊息送一次。' : '啟動不了 Claude Code：' + c.stderr.slice(0, 300)) });
+      this._setState(c, 'off');
+      this._save();
+    });
     p.on('exit', (code) => {
       if (Number.isInteger(p.pid)) this.deadPids.add(p.pid);
       if (c.proc !== p) return;
@@ -318,6 +429,14 @@ class Channels {
     // A turn can begin without a message from you: when background work
     // finishes, Claude Code starts one itself. Anything from the main thread
     // while the channel thinks it is idle means exactly that.
+    // The permission mode this process runs in (default, acceptEdits, auto, bypassPermissions, plan …): shown on the page,
+    // so that whether it will ask before changing a file is not a surprise.
+    if (e.type === 'system' && e.subtype === 'init' && typeof e.permissionMode === 'string' && e.permissionMode !== c.mode) { c.mode = e.permissionMode.slice(0, 40); this._save(); }
+    if (e.type === 'system' && e.subtype === 'init' && typeof e.model === 'string' && e.model !== c.modelSeen) { c.modelSeen = e.model.slice(0, 60); this._save(); }   // the model its process says it runs on
+    if (e.type === 'system' && e.subtype === 'init' && Array.isArray(e.agents)) {
+      const list = e.agents.filter((n) => typeof n === 'string').slice(0, 300), key = String(c.cwd).toLowerCase();
+      if (JSON.stringify(this.rolesSeen[key] || []) !== JSON.stringify(list)) { this.rolesSeen[key] = list; try { fs.writeFileSync(this.rolesFile, JSON.stringify(this.rolesSeen, null, 2)); } catch (x) {} }
+    }
     if (c.state !== 'busy' && ((e.type === 'system' && e.subtype === 'init') || e.type === 'stream_event' || e.type === 'assistant')) this._setState(c, 'busy');
     if (e.type === 'stream_event') {
       const ev = e.event || {};
@@ -331,11 +450,11 @@ class Channels {
       return;
     }
     if (e.type === 'assistant' && e.message && Array.isArray(e.message.content)) {
-      const { toolSummary } = require('./history');
+      const { toolSummary, toolDetail } = require('./history');
       for (const b of e.message.content) {
         if (b && b.type === 'text' && typeof b.text === 'string' && b.text.trim()) this._emit(c, { type: 'assistant', text: b.text });
         // A question form shows up as its own card when the request to answer it arrives, not as a tool line.
-        else if (b && b.type === 'tool_use' && b.name !== 'AskUserQuestion') this._emit(c, { type: 'tool', tool: String(b.name || ''), text: toolSummary(b.input) });
+        else if (b && b.type === 'tool_use' && b.name !== 'AskUserQuestion') this._emit(c, { type: 'tool', tool: String(b.name || ''), text: toolSummary(b.input), detail: toolDetail(b.name, b.input) });
       }
     } else if (e.type === 'control_request' && e.request && e.request.subtype === 'can_use_tool') {
       c.pending.set(e.request_id, e);
@@ -365,64 +484,67 @@ class Channels {
       if (tok >= c.procTok) { c.tok += tok - c.procTok; c.procTok = tok; }
       c.lastResultAt = Date.now();
       this._emit(c, { type: 'result', isError: !!e.is_error, text: e.is_error ? String(e.result || '') : '' });
-      // The turn is over. Something waiting in the queue goes next; only with nothing waiting is it your move.
-      if (c.queue && c.queue.length) {
-        c.state = 'idle';   // for _pump only: the turn that was in the way is over
-        if (!this._pump(c)) { c.changedAt = Date.now(); this._emit(c, { type: 'state', status: this.status(c) }); }
-      } else this._setState(c, 'idle');
+      this._setState(c, 'idle');   // the turn is over: your move
       this._save();
     }
   }
 
-  send(sid, text) {
+  // images: pictures that go with the message, [{mime, data}] (data: base64), already checked by the caller. They
+  // are handed to Claude Code as image blocks, each at its mark in the text (contentOf), the rest before the text.
+  // What you ran yourself with "!" since your last message (server.js /api/shell): kept here, in memory only, and put in
+  // front of the next message so that Claude knows what was run and what it printed. -> the note's id
+  noteShell(sid, note) {
+    const c = this.map.get(sid);
+    if (!c) return null;
+    if (!Array.isArray(c.shellNotes)) c.shellNotes = [];
+    c.shellSeq = (c.shellSeq || 0) + 1;
+    // (kept as it will be handed over: the end of each output - also what is written to the board's own file)
+    const end = (s) => { s = String(s == null ? '' : s); const n = require('./shell').NOTE_LIMIT; return s.length > n ? s.slice(s.length - n) : s; };
+    c.shellNotes.push({ id: c.shellSeq, command: String(note.command || ''), stdout: end(note.stdout), stderr: end(note.stderr), code: note.code === undefined ? null : note.code, at: Date.now() });
+    if (c.shellNotes.length > 10) c.shellNotes.shift();
+    this._shellChanged(c);
+    return c.shellSeq;
+  }
+  // id null: all of them. -> whether anything was thrown away
+  dropShell(sid, id) {
+    const c = this.map.get(sid);
+    if (!c || !Array.isArray(c.shellNotes)) return false;
+    const n = c.shellNotes.length;
+    c.shellNotes = id == null ? [] : c.shellNotes.filter((x) => x.id !== id);
+    if (c.shellNotes.length < n) this._shellChanged(c);
+    return c.shellNotes.length < n;
+  }
+  // The page is told (it shows them at the end of the conversation, also after a reload), and they are written down
+  // with the conversation, so that a restart of the board does not lose what you ran and have not sent yet.
+  _shellChanged(c) { this._emit(c, { type: 'shell', notes: c.shellNotes || [] }); this._save(); }
+
+  send(sid, text, images) {
     const c = this.map.get(sid);
     if (!c) return { ok: false, error: 'no such channel' };
-    // A message can be sent at any time. While Claude is working, or an approval or a question is open,
-    // it waits in the board's own queue and goes out when its turn comes: one message, one turn, in the
-    // order sent. Kept here rather than handed to Claude Code at once (which would also queue it, but
-    // merges everything sent during a turn into one next turn, and nothing sent can be taken back):
-    // what waits here can be seen and withdrawn.
-    if (!Array.isArray(c.queue)) c.queue = [];
-    if ((c.state === 'busy' && c.proc) || c.pending.size || c.queue.length) {
-      if (c.queue.length >= QUEUE_MAX) return { ok: false, error: '排隊的訊息已經有 ' + QUEUE_MAX + ' 則，先等它消化一些' };
-      c.queueSeq = (c.queueSeq || 0) + 1;
-      c.queue.push({ id: c.queueSeq, text });
-      this._emit(c, { type: 'queue', queue: c.queue });
-      this._pump(c);   // nothing in the way after all (a queue left from a process that ended): it goes now
-      return { ok: true, queued: true, position: c.queue.length };
-    }
-    return this._deliver(c, text);
+    if (Array.isArray(c.shellNotes) && c.shellNotes.length) { text = require('./shell').noteText(c.shellNotes) + '\n' + String(text || ''); c.shellNotes = []; this._shellChanged(c); }
+    const imgs = Array.isArray(images) && images.length ? images : null;
+    // A message can be sent at any time, and it is handed to Claude Code at once - also while Claude is working, and
+    // while an approval or a question is open. Claude Code takes it in as soon as the action in hand is done, in the
+    // SAME turn: it does not wait for the turn to end. Measured 2026-11-16 on 2.1.325: a message written while the
+    // first of three commands ran was read when that command finished, and Claude stopped the other two as told;
+    // two messages and a picture written together were all read in that turn; so was one written while an approval
+    // request was open. (The board used to hold such messages in a queue of its own until the turn ended, on the
+    // belief that Claude Code would only merge them into the next turn. It does not.)
+    // -> {ok, queued: false, mid}   mid: it went in while a turn was running
+    const mid = !!c.proc && (c.state === 'busy' || c.pending.size > 0);
+    const r = this._deliver(c, text, imgs);
+    return r.ok ? Object.assign(r, { mid }) : r;
   }
 
-  // Takes a queued message back. -> its text, or null.
-  unqueue(sid, id) {
-    const c = this.map.get(sid);
-    const i = c && Array.isArray(c.queue) ? c.queue.findIndex((m) => m.id === id) : -1;
-    if (i < 0) return null;
-    const [m] = c.queue.splice(i, 1);
-    this._emit(c, { type: 'queue', queue: c.queue });
-    return m.text;
-  }
-
-  // Sends the first queued message if nothing is in the way. -> whether one was sent.
-  _pump(c) {
-    if (!c.queue || !c.queue.length || (c.state === 'busy' && c.proc) || c.pending.size) return false;
-    const m = c.queue.shift();
-    const r = this._deliver(c, m.text);
-    if (!r.ok) { c.queue.unshift(m); this._emit(c, { type: 'error', text: '排隊的訊息送不出去：' + r.error }); return false; }
-    this._emit(c, { type: 'sent', text: m.text });
-    this._emit(c, { type: 'queue', queue: c.queue });
-    return true;
-  }
-
-  _deliver(c, text) {
+  _deliver(c, text, images) {
     if (!c.proc) {
       try { this._start(c); } catch (e) { return { ok: false, error: String(e.message || e) }; }
     }
-    if (!c.title) c.title = text.replace(/\s+/g, ' ').trim().slice(0, 60);
+    // (what you ran yourself with "!" stands in front of the message - see send() - and is not what the conversation is about)
+    if (!c.title) c.title = text.replace(/^(?:\s*<bash-(?:input|stdout|stderr)>[\s\S]*?<\/bash-(?:input|stdout|stderr)>)+/, '').replace(/\s+/g, ' ').trim().slice(0, 60) || '（圖片）';
     c.lastActivity = Date.now();
     c.lastSeenAt = Date.now();
-    c.proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n');
+    c.proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: contentOf(text, images) } }) + '\n');
     this._setState(c, 'busy');
     this._save();
     return { ok: true, queued: false };
@@ -455,27 +577,35 @@ class Channels {
     c.changedAt = Date.now();
     this._emit(c, { type: 'permission-done', requestId, allow: !!allow });
     this._emit(c, { type: 'state', status: this.status(c) });
-    return { ok: true };   // the turn goes on; what is queued waits for it to end
+    return { ok: true };   // the turn goes on
   }
 
   // End the process. The session stays; the next message resumes it.
+  // Run this conversation on another model from its next message on: the process it has now (started with the old
+  // model) is ended, when it is not in the middle of a turn. -> {ok, error?}
+  // effort: also given (undefined = left as it is).
+  setModel(sid, model, effort) {
+    const c = this.map.get(sid);
+    if (!c) return { ok: false, error: 'no such channel' };
+    if (c.proc && (c.state === 'busy' || c.pending.size)) return { ok: false, error: '它還在執行' };
+    if (model !== undefined) c.model = String(model || '');
+    if (effort !== undefined) c.effort = EFFORTS.includes(effort) ? effort : '';
+    if (c.proc) { const p = c.proc; c.proc = null; try { p.stdin.end(); } catch (e) {} try { p.kill(); } catch (e) {} this._setState(c, 'off'); }
+    this._save();
+    return { ok: true };
+  }
+
   stop(sid) {
     const c = this.map.get(sid);
     if (!c || !c.proc) return false;
     const p = c.proc;
     c.proc = null;
     c.pending.clear();
-    // Stopping means stop: what was queued is not sent after it. It is handed back (dropped()) for the page to return to the input box.
-    c.droppedTexts = (c.queue || []).map((m) => m.text);
-    if (c.queue && c.queue.length) { c.queue = []; this._emit(c, { type: 'queue', queue: [] }); }
     if (c.tasks.size) { c.tasks.clear(); this._emit(c, { type: 'tasks', tasks: [] }); }
     try { p.kill(); } catch (e) {}
     this._setState(c, 'off');
     return true;
   }
-
-  // What stop() took out of the queue, once.
-  dropped(sid) { const c = this.map.get(sid); const d = (c && c.droppedTexts) || []; if (c) c.droppedTexts = []; return d; }
 
   // The slash commands available in one folder: [{name, description, argumentHint}].
   //
@@ -559,4 +689,4 @@ class Channels {
   }
 }
 
-module.exports = { Channels, IDLE_MS };
+module.exports = { Channels, IDLE_MS, contentOf };

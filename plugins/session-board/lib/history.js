@@ -48,6 +48,7 @@ function eachLineBackward(file, cap, onLine) {
 
 const USER_MARK = Buffer.from('"type":"user"');
 const ASSISTANT_MARK = Buffer.from('"type":"assistant"');
+const QUEUED_MARK = Buffer.from('"type":"queued_command"');   // something said while a turn was running (queuedSaid)
 
 // Text the harness puts into user turns that the person did not type.
 const NOT_TYPED = /^\s*<(system-reminder|task-notification|local-command-|command-name|command-message|command-args|user-prompt-submit-hook)/;
@@ -67,6 +68,65 @@ function toolSummary(input) {
   return '';
 }
 
+// What a tool call was asked to do, in full enough to check it afterwards: the command of a Bash call, the content
+// a Write put in a file, what an Edit replaced with what; for anything else its plain inputs. Bounded, since a
+// file written can be large. '' when there is nothing to show.
+function toolDetail(name, input) {
+  if (!input || typeof input !== 'object') return '';
+  const cut = (v, n) => { const t = String(v); return t.length > n ? t.slice(0, n) + '\n…（還有 ' + (t.length - n) + ' 個字沒有顯示）' : t; };
+  const s = (k) => (typeof input[k] === 'string' ? input[k] : '');
+  let out;
+  if (s('command')) out = (s('description') ? '# ' + s('description') + '\n' : '') + cut(s('command'), 4000);
+  else if (name === 'Write' && s('file_path')) out = s('file_path') + '\n\n' + cut(s('content'), 4000);
+  else if (s('file_path') && (s('old_string') || s('new_string'))) out = s('file_path') + '\n\n－ 原本\n' + cut(s('old_string'), 2000) + '\n\n＋ 改成\n' + cut(s('new_string'), 2000);
+  else out = Object.entries(input).filter(([, v]) => ['string', 'number', 'boolean'].includes(typeof v) && v !== '').map(([k, v]) => k + ': ' + cut(v, 800)).join('\n');
+  return out.slice(0, 9000);
+}
+
+// The detail of one tool call of a transcript, found by the id the page has for it ("<entry uuid>:<block index>").
+// Read backward from the end, at most `cap` bytes. -> {tool, detail} or null.
+function toolDetailAt(file, itemId, cap = 64 * 1024 * 1024) {
+  const m = /^([0-9a-f-]{8,64}):(\d{1,3})$/i.exec(String(itemId || ''));
+  if (!m || !file) return null;
+  const needle = Buffer.from('"uuid":"' + m[1] + '"');
+  let hit = null;
+  eachLineBackward(file, cap, (line) => {
+    if (line.indexOf(needle) < 0) return true;
+    let e; try { e = JSON.parse(line.toString('utf8')); } catch (x) { return true; }
+    if (e.uuid !== m[1] || !e.message || !Array.isArray(e.message.content)) return true;
+    const b = e.message.content[Number(m[2])];
+    if (b && b.type === 'tool_use') hit = { tool: String(b.name || ''), detail: toolDetail(b.name, b.input) };
+    return false;
+  });
+  return hit;
+}
+
+// One picture of a message of a transcript: the entry by its uuid, the block by its index. Read backward from the
+// end, at most `cap` bytes. -> {mime, bytes} or null.
+function imageAt(file, uuid, index, cap = 256 * 1024 * 1024) {
+  if (!file || !/^[0-9a-f-]{8,64}$/i.test(String(uuid)) || !(Number(index) >= 0)) return null;
+  const needle = Buffer.from('"uuid":"' + uuid + '"');
+  let hit = null;
+  eachLineBackward(file, cap, (line) => {
+    if (line.indexOf(needle) < 0) return true;
+    let e; try { e = JSON.parse(line.toString('utf8')); } catch (x) { return true; }
+    if (e.uuid !== uuid) return true;
+    const list = e.message && Array.isArray(e.message.content) ? e.message.content : e.attachment && Array.isArray(e.attachment.prompt) ? e.attachment.prompt : null;   // a message, or one taken in mid-turn
+    if (!list) return true;
+    const b = list[Number(index)];
+    const src = b && b.type === 'image' && b.source;
+    if (src && src.type === 'base64' && typeof src.data === 'string' && /^image\/(png|jpeg|gif|webp)$/.test(String(src.media_type))) hit = { mime: src.media_type, bytes: Buffer.from(src.data, 'base64') };
+    return false;
+  });
+  return hit;
+}
+
+// The paths of a SendUserFile call: [string], at most 40.
+function handedFiles(input) {
+  const l = input && Array.isArray(input.files) ? input.files : [];
+  return l.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().slice(0, 1000)).slice(0, 40);
+}
+
 // The questions of an AskUserQuestion call, reduced to what is shown: Claude
 // asking you to choose, as a form with a few options per question.
 function questionsOf(input) {
@@ -79,8 +139,28 @@ function questionsOf(input) {
   }));
 }
 
+// What you said while a turn was running. Claude Code does not write that as a "user" entry: it is an attachment of
+// type "queued_command", its `prompt` a string or a list of blocks (text, pictures). The same record is used for
+// things nobody typed - a background task reporting, a message from another session or from an agent - which are
+// told apart by commandMode and by how the text begins. -> {text, blocks} or null
+const NOT_SAID_MID = /^\s*<(task-notification|agent-message|cross-session|system-reminder|local-command-|command-name|command-message|command-args|user-prompt-submit-hook)/;
+function queuedSaid(e) {
+  const a = e && e.type === 'attachment' && !e.isSidechain && e.attachment && e.attachment.type === 'queued_command' ? e.attachment : null;
+  if (!a || (a.commandMode && a.commandMode !== 'prompt')) return null;
+  const blocks = typeof a.prompt === 'string' ? [{ type: 'text', text: a.prompt }] : Array.isArray(a.prompt) ? a.prompt : [];
+  const text = blocks.filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).reduce((a, t) => a + (a && !/［圖\d{1,2}］$/.test(a) ? '\n' : '') + t, '').trim();
+  if (NOT_SAID_MID.test(text)) return null;
+  return text || blocks.some((b) => b && b.type === 'image') ? { text, blocks } : null;
+}
+
 // One transcript entry -> zero or more display items.
 function itemsOf(e) {
+  const q = queuedSaid(e);
+  if (q) {
+    const imgAt = q.blocks.map((b, i) => (b && b.type === 'image' ? i : -1)).filter((i) => i >= 0);
+    const it = { id: typeof e.uuid === 'string' ? e.uuid : '', role: 'user', text: q.text, mid: true, ts: typeof e.timestamp === 'string' ? Date.parse(e.timestamp) || 0 : 0 };
+    return [imgAt.length ? Object.assign(it, { images: imgAt.length, imgAt }) : it];
+  }
   if (!e || e.isSidechain || e.isMeta || !e.message) return [];
   const ts = typeof e.timestamp === 'string' ? Date.parse(e.timestamp) || 0 : 0;
   const id = typeof e.uuid === 'string' ? e.uuid : '';
@@ -93,9 +173,14 @@ function itemsOf(e) {
   // marker instead, so the page can draw a line where the compaction happened.
   if (e.type === 'user' && e.isCompactSummary) return [{ id, role: 'compact', ts }];
   if (e.type === 'user') {
+    // (pieces that end in a picture's mark were one text, cut where the picture stands: put together again as they were)
     const text = blocks.filter((b) => b && b.type === 'text' && typeof b.text === 'string' && !NOT_TYPED.test(b.text))
-      .map((b) => b.text).join('\n').trim();
-    if (text) out.push({ id, role: 'user', text, ts });
+      .map((b) => b.text).reduce((a, t) => a + (a && !/［圖\d{1,2}］$/.test(a) ? '\n' : '') + t, '').trim();
+    // pictures sent with it (pasted in a terminal, or sent from the board): counted, not carried - they can be megabytes
+    // The pictures themselves are fetched one at a time when the message is drawn (imageAt below): imgAt says which
+    // blocks of the entry they are.
+    const imgAt = blocks.map((b, i) => (b && b.type === 'image' ? i : -1)).filter((i) => i >= 0);
+    if (text || imgAt.length) out.push(imgAt.length ? { id, role: 'user', text, images: imgAt.length, imgAt, ts } : { id, role: 'user', text, ts });
     // The answers to a question form. They come back as a tool result whose
     // sentence varies ("Your questions have been answered: ..." in one place,
     // "The user answered: ..." in another, both seen 2026-11-12), so the
@@ -113,13 +198,18 @@ function itemsOf(e) {
     const mu = e.message.usage;
     const n = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
     const u = mu && typeof mu === 'object' && typeof e.message.id === 'string'
-      ? { mid: e.message.id, model: typeof e.message.model === 'string' ? e.message.model : '', in: n(mu.input_tokens), out: n(mu.output_tokens), cr: n(mu.cache_read_input_tokens), cw: n(mu.cache_creation_input_tokens) }
+      ? { mid: e.message.id, model: typeof e.message.model === 'string' ? e.message.model : '', effort: typeof e.effort === 'string' ? e.effort.slice(0, 12) : '', in: n(mu.input_tokens), out: n(mu.output_tokens), cr: n(mu.cache_read_input_tokens), cw: n(mu.cache_creation_input_tokens) }
       : undefined;
     blocks.forEach((b, i) => {
       if (!b) return;
       if (b.type === 'text' && typeof b.text === 'string' && b.text.trim()) out.push({ id: id + ':' + i, role: 'assistant', text: b.text, ts, u });
       // A question form is not a tool call to fold away: it is Claude waiting on you.
       else if (b.type === 'tool_use' && b.name === 'AskUserQuestion' && questionsOf(b.input).length) out.push({ id: id + ':' + i, role: 'ask', questions: questionsOf(b.input), ts, u });
+      // Files handed to you (SendUserFile): Claude Code delivers them to its own apps - the desktop and phone ones that
+      // can follow a session - and answers "N files delivered to user". On the board nothing arrived anywhere: the
+      // files are where Claude wrote them, usually its scratch folder. So they are shown as what they are: files, with
+      // their place, to open from here.
+      else if (b.type === 'tool_use' && b.name === 'SendUserFile' && handedFiles(b.input).length) out.push({ id: id + ':' + i, role: 'files', files: handedFiles(b.input), caption: typeof b.input.caption === 'string' ? b.input.caption.slice(0, 600) : '', ts, u });
       else if (b.type === 'tool_use') out.push({ id: id + ':' + i, role: 'tool', tool: String(b.name || ''), text: toolSummary(b.input), ts, u });
     });
   }
@@ -134,10 +224,10 @@ function readHistory(file, o = {}) {
   let count = 0;
   let more = false;
   eachLineBackward(file, cap, (line) => {
-    if (line.indexOf(USER_MARK) < 0 && line.indexOf(ASSISTANT_MARK) < 0) return true;
+    if (line.indexOf(USER_MARK) < 0 && line.indexOf(ASSISTANT_MARK) < 0 && line.indexOf(QUEUED_MARK) < 0) return true;
     let e;
     try { e = JSON.parse(line.toString('utf8')); } catch (x) { return true; }
-    if (e.type !== 'user' && e.type !== 'assistant') return true;
+    if (e.type !== 'user' && e.type !== 'assistant' && e.type !== 'attachment') return true;
     const items = itemsOf(e);
     if (!items.length) return true;
     if (count >= max) { more = true; return false; }
@@ -163,4 +253,4 @@ function cachedHistory(file, o) {
   return res;
 }
 
-module.exports = { eachLineBackward, itemsOf, toolSummary, questionsOf, readHistory, cachedHistory };
+module.exports = { handedFiles, queuedSaid, QUEUED_MARK_TEXT: '"type":"queued_command"', eachLineBackward, itemsOf, toolSummary, toolDetail, toolDetailAt, imageAt, questionsOf, readHistory, cachedHistory };

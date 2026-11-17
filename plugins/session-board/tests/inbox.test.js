@@ -164,7 +164,15 @@ test('InboxService: settings start from the old .env, one fetch at a time, a fai
   fs.writeFileSync(path.join(d, 'token.json'), JSON.stringify({ refresh_token: 'old' }));
   const svc = new InboxService({ db: path.join(d, 'b.db'), secretDir: d, oldEnv: path.join(d, 'old.env'), fetch: async () => json({ error: 'invalid_grant' }) });
   assert.deepStrictEqual([svc.settings().gmailLabel, svc.settings().gmailDays, svc.settings().teamsSelfId, svc.settings().teamsDays, svc.settings().pollMinutes], ['', 7, '8:live:me', 3, 15]);   // the old label is not carried over: all mail is fetched
+  // A new installation: the inbox is off, every source is off, and nothing is read whoever asks.
+  assert.deepStrictEqual([svc.settings().enabled, svc.settings().gmailOn, svc.settings().teamsOn, svc.enabled(), svc.tick()], [false, false, false, false, false]);
+  assert.deepStrictEqual([(await svc.poll()).off, (await svc.poll('gmail')).results.length, svc.last, svc.status().gmail.on, svc.status().gmail.text], [true, 0, null, false, '沒有開啟']);
+  // On, but only the sources switched on are read: Gmail is, Teams is not.
+  assert.strictEqual(svc.saveSettings({ enabled: true, gmailOn: true }).ok, true);
+  assert.deepStrictEqual((await svc.poll('teams')).results.map((x) => [x.source, x.skipped, x.off]), [['teams', true, true]]);
+  svc.last = null;
   assert.strictEqual(svc.saveSettings({ pollMinutes: -1 }).ok, false);
+  assert.strictEqual(svc.saveSettings({ slackDays: 0 }).ok, false);   // a source's own number, checked against the range it names
   assert.strictEqual(svc.saveSettings({ pollMinutes: 0, slackToken: ' xoxb-1 ' }).ok, true);
   assert.deepStrictEqual([svc.settings().pollMinutes, svc.settings().slackToken, svc.status().settings.slackToken], [0, 'xoxb-1', '（已設定）']);   // the token is not sent to the page
   assert.strictEqual(svc.tick(), false);                                    // 0 minutes: only when asked
@@ -273,6 +281,13 @@ test('a mail handed over: signatures out, and the attachments saved on this comp
   const n = asked.length;
   await Src.gmailAttachments({ gmailSecretDir: d }, 'gmail:abc123', dest, fetchImpl);                       // already here: only the thread is asked for again
   assert.strictEqual(asked.length, n + 1);
+  // Each hand-over marks the folder: the days its files are kept count from the last one. Long after, with the
+  // files cleaned away, handing the mail over again fetches them again and marks the folder anew.
+  const mark = path.join(dest, 'abc123', '.kept'), longAgo = new Date(Date.now() - 40 * 86400000);
+  assert.ok(fs.existsSync(mark));
+  fs.utimesSync(mark, longAgo, longAgo); fs.unlinkSync(a.files[0].path);
+  const back = await Src.gmailAttachments({ gmailSecretDir: d }, 'gmail:abc123', dest, fetchImpl);
+  assert.deepStrictEqual([fs.readFileSync(back.files[0].path, 'utf8'), back.files[0].path === a.files[0].path, Date.now() - fs.statSync(mark).mtimeMs < 60000], ['12345', true, true]);
   await assert.rejects(Src.gmailAttachments({ gmailSecretDir: d }, 'gmail:../x', dest, fetchImpl), /不是 Gmail 的討論串編號/);
   const full = inboxThreadText(t, [], a);
   assert.ok(full.text.includes('附檔 2 個，已存到這台電腦，可以直接讀取：') && full.text.includes('- ' + a.files[0].path + '（1 KB') && full.text.includes('- 沒有下載：big.zip（太大（30 MB））'));
@@ -381,4 +396,47 @@ test('a file name made from a name somebody else chose never holds a folder sepa
     assert.strictEqual(path.dirname(path.join(dest, 'm-' + out)), dest);
   }
   assert.deepStrictEqual([Src.safeName('報價單 v2.xlsx'), Src.safeName(''), Src.safeName('...')], ['報價單 v2.xlsx', 'attachment', 'attachment']);
+});
+
+test('settings saved before the switches existed keep the inbox and every source on; the sources are a list', async () => {
+  const d = tmp();
+  const config = require('../lib/config');
+  config.setValue('inbox', { pollMinutes: 5, gmailDays: 3 }, path.join(d, 'b.db'));        // as the earlier version left them
+  const svc = new InboxService({ db: path.join(d, 'b.db'), secretDir: d, oldEnv: '', fetch: async () => json({}) });
+  const s = svc.settings();
+  assert.deepStrictEqual([s.enabled, s.gmailOn, s.slackOn, s.teamsOn, s.pollMinutes, s.gmailDays], [true, true, true, true, 5, 3]);
+  assert.strictEqual(config.value('inbox', null, path.join(d, 'b.db')).enabled, true);     // written down once, not decided again each time
+  svc.saveSettings({ enabled: false });
+  assert.deepStrictEqual([new InboxService({ db: path.join(d, 'b.db'), secretDir: d, oldEnv: '' }).settings().enabled, (await svc.poll()).off], [false, true]);   // turned off stays off
+  // every source says what it is in the same words; the page and the settings are made from this
+  for (const x of Src.list) {
+    assert.deepStrictEqual([typeof x.id, typeof x.name, ['mail', 'chat'].includes(x.kind), typeof x.routeHint, typeof x.poll, typeof x.status, Array.isArray(x.fields)], ['string', 'string', true, 'string', 'function', 'function', true], x.id);
+    for (const f of x.fields) assert.ok(f.key && f.label && ['text', 'number', 'password'].includes(f.type) && f.def !== undefined && (f.type !== 'number' || (f.min <= f.def && f.def <= f.max)), x.id + '.' + f.key);
+  }
+  assert.deepStrictEqual(Src.ids, ['gmail', 'slack', 'teams']);
+  const st = svc.status();
+  assert.deepStrictEqual([st.enabled, st.sources.map((x) => x.id + ':' + x.on).join(' '), st.sources[1].fields.find((f) => f.key === 'slackToken').secret], [false, 'gmail:false slack:false teams:false', true]);
+  assert.strictEqual(svc.inbox.saveRoute({ source: 'line', source_ref: 'x' }).error, '來源只能是 Gmail、Slack、Teams 其中一個');
+});
+
+test('attachments are kept for a set number of days from the last hand-over; handing over again renews them', async () => {
+  const d = tmp(), DAY = 86400000, now = Date.now();
+  const svc = new InboxService({ db: path.join(d, 'b.db'), secretDir: d, oldEnv: '' });
+  const dir = svc.attachDir();
+  const put = (tid, name, ageDays) => { const p = path.join(dir, tid); fs.mkdirSync(p, { recursive: true }); const f = path.join(p, name); fs.writeFileSync(f, 'x'.repeat(10)); const t = new Date(now - ageDays * DAY); fs.utimesSync(f, t, t); return f; };
+  const old = put('aaaaaa01', 'a.pdf', 40), young = put('aaaaaa02', 'b.pdf', 5);
+  const renewed = put('aaaaaa03', 'c.pdf', 40); put('aaaaaa03', '.kept', 2);                 // fetched long ago, handed over again two days ago
+  const notMine = put('not-a-thread', 'keep.txt', 400);                                       // not named like a thread: never touched
+  assert.strictEqual(svc.settings().attachDays, 30);
+  assert.deepStrictEqual(svc.purgeAttachments(now), { removed: 1, bytes: 10, kept: 2 });
+  assert.deepStrictEqual([fs.existsSync(old), fs.existsSync(young), fs.existsSync(renewed), fs.existsSync(notMine)], [false, true, true, true]);
+  assert.deepStrictEqual([svc.saveSettings({ attachDays: 0 }).ok, svc.saveSettings({ attachDays: 3 }).ok], [false, true]);
+  assert.deepStrictEqual(svc.purgeAttachments(now), { removed: 1, bytes: 10, kept: 1 });      // three days: the five-day-old one goes, the one renewed two days ago stays
+  // the board does this by itself, also with the inbox off, and not more often than once a day
+  put('aaaaaa04', 'd.pdf', 9);
+  assert.deepStrictEqual([svc.enabled(), svc.tick(now), fs.existsSync(path.join(dir, 'aaaaaa04')), svc.status().lastPurge.removed], [false, false, false, 1]);
+  put('aaaaaa05', 'e.pdf', 9); svc.tick(now + 23 * 3600000);
+  assert.strictEqual(fs.existsSync(path.join(dir, 'aaaaaa05')), true);
+  svc.tick(now + 25 * 3600000);
+  assert.strictEqual(fs.existsSync(path.join(dir, 'aaaaaa05')), false);
 });

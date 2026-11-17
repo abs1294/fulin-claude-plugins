@@ -37,10 +37,25 @@ const K = require('./lib/keep');
 const autostart = require('./lib/autostart');
 const Past = require('./lib/past');
 const { InboxService } = require('./lib/inbox');
+const Sched = require('./lib/schedule');
+const { Runner } = require('./lib/schedrun');
+const { Watchdog, DEFAULTS: WATCH_DEFAULTS } = require('./lib/watchdog');
+const Budget = require('./lib/budget');
+const Keepalive = require('./lib/keepalive');
+const { Notices } = require('./lib/notices');
 const { stripSignatures } = require('./lib/inbox/text');
 const Notify = require('./lib/notify');
+const Shell = require('./lib/shell');
+const Changes = require('./lib/changes');
+const Aside = require('./lib/aside');
+const { Goal2 } = require('./lib/goal2');
+const Harness = require('./lib/harness');
+const Remote = require('./lib/remote');
+const Plugins = require('./lib/plugins');
+const Rooms = require('./lib/rooms');
+const { Auto } = require('./lib/auto');
 
-const SOURCES_OK = ['gmail', 'slack', 'teams'];
+const SOURCES_OK = require('./lib/inbox/sources').ids;
 const TASK_TAIL = 256 * 1024;   // how much of the end of a background command's output is shown
 const HISTORY_MAX = 3000;   // the most items of one conversation the page will be given
 // What goes from a thread into a conversation. Two kinds of source, two rules
@@ -90,7 +105,7 @@ function inboxThreadText(t, ids, att) {
     lines.unshift(line.length > max ? line.slice(0, max) + '…（太長，後面沒有帶入）' : line); used += line.length;
   }
   const left = picked.length - lines.length;
-  const name = { gmail: 'Gmail', slack: 'Slack', teams: 'Teams' }[t.source] || t.source;
+  const name = (require('./lib/inbox/sources').byId(t.source) || {}).name || t.source;
   const head = [];
   let wanted = [];
   if (mail) {
@@ -175,6 +190,11 @@ function portFromArgs(argv) {
   return Number.isInteger(v) && v > 0 && v < 65536 ? v : DEFAULT_PORT;
 }
 
+// The request came in on the board's own address on this computer (127.0.0.1), not on its Tailscale address - which
+// is how another computer reaches it. Told by the address it ARRIVED on: a request this computer sends to its own
+// Tailscale address counts as remote too, which is what it is from the page's point of view.
+const isLocal = (req) => /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(String(req.socket.localAddress || ''));
+
 function sameToken(got, token) {
   // Shape first: timingSafeEqual throws when the BYTE lengths differ, which a
   // same-length non-ASCII value would cause (seen as a 500 instead of a 401).
@@ -184,8 +204,20 @@ function sameToken(got, token) {
 
 function send(res, code, body, type = 'application/json; charset=utf-8') {
   const data = typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body);
-  res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
   res.end(data);
+}
+
+// The page, with a policy that lets only its own script run. The script tag is given a number made for this one
+// response, and the policy names that number: a script that got into the page some other way (text of a
+// conversation, a file name, a mail) has no such number and is not run. Nothing is loaded from elsewhere; a
+// request may go to this board, and to an https address only to fetch a picture that was pasted as an address.
+function sendPage(res, html) {
+  const nonce = crypto.randomBytes(18).toString('base64');
+  const body = String(html).replace('<script>', '<script nonce="' + nonce + '">');
+  const csp = ["default-src 'none'", "script-src 'nonce-" + nonce + "'", "style-src 'unsafe-inline'", "img-src 'self' data: blob:", "connect-src 'self' https: data:", "frame-src blob: 'self'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'"].join('; ');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': csp, 'X-Frame-Options': 'DENY' });
+  res.end(body);
 }
 
 function readBody(req, limit = 512 * 1024) {
@@ -204,6 +236,10 @@ function readBody(req, limit = 512 * 1024) {
   });
 }
 
+// macOS: the same things done with the Mac's own tools (lib/mac.js). Everything below picks its way by this.
+const MAC = process.platform === 'darwin';
+const Mac = MAC ? require('./lib/mac') : null;
+
 function powershell(script, args, timeout) {
   return new Promise((resolve) => {
     execFile('powershell.exe',
@@ -214,19 +250,24 @@ function powershell(script, args, timeout) {
 }
 
 async function closeWindow(hwnd) {
+  if (MAC) return { state: 'error', error: 'mac: the Terminal tab is left open' };
   const r = await powershell('focus-window.ps1', ['-Mode', 'close', '-Hwnd', String(hwnd)], 15000);
   try { return JSON.parse(r.line); } catch (e) { return { state: 'error', error: 'no result' }; }
 }
 
 // mode: 'focus' brings the window to the front; 'find' only reports its handle.
-async function focusWindow(titles, mode = 'focus') {
-  const payload = Buffer.from(JSON.stringify({ titles }), 'utf8').toString('base64');
-  const r = await powershell('focus-window.ps1', ['-Payload', payload, '-Mode', mode], 15000);
+// pid (with 'find'): look the window up through that process's console first; titles are then only the fallback.
+async function focusWindow(titles, mode = 'focus', pid = 0) {
+  // a Mac: the Terminal tab of that process (found by its tty); 'find' has nothing to close afterwards, so it is a miss
+  if (MAC) return mode === 'find' ? { state: 'miss' } : Mac.focus(pid);
+  const payload = Buffer.from(JSON.stringify({ titles: titles || [] }), 'utf8').toString('base64');
+  const r = await powershell('focus-window.ps1', ['-Payload', payload, '-Mode', mode].concat(pid ? ['-ProcId', String(pid)] : []), 15000);
   try { return JSON.parse(r.line); }
   catch (e) { return { state: 'error', error: r.err ? String(r.err.message).slice(0, 200) : 'no result from focus script' }; }
 }
 
 async function pickFolder() {
+  if (MAC) return Mac.pickFolder('選擇要開新對話的資料夾', config.load().pickerStartDir || '');
   const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
   const args = ['-TitleB64', b64('選擇要開新對話的資料夾')];
   const start = config.load().pickerStartDir;   // read each time: a changed setting needs no restart
@@ -246,6 +287,7 @@ async function pickFolder() {
 // cmd /k, not /c: the window stays when claude exits, like a window the user
 // opened by hand.
 function terminalArgs(sid, cwd, hasTranscript, command, dir = path.join(DATA_DIR, 'launch'), prompt = '') {
+  if (MAC) return { mac: Mac.writeLauncher(dir, cwd, sid, command || 'claude', hasTranscript, prompt) };   // a .command file Terminal opens
   return ['-w', 'new', '-d', cwd, 'cmd', '/k', K.writeLauncher(dir, sid, command || 'claude', hasTranscript, prompt)];
 }
 // What a session that was cut off is told when it is opened again.
@@ -253,15 +295,18 @@ const CONTINUE_PROMPT = '（看板自動送出）這個 session 上次是在工�
 // No windowsHide: it is passed on as "start hidden", and the new terminal
 // window then exists but cannot be seen (measured 2026-11-12).
 function openTerminal(args) {
+  if (args && args.mac) return Mac.openTerminal(args.mac);
   spawn('wt.exe', args, { detached: true, stdio: 'ignore', env: K.cleanEnv(process.env) }).on('error', () => {}).unref();
 }
 
 async function commandLines(pids) {
+  if (MAC) return Mac.commandLines(pids);
   const r = await powershell('proc-cmdline.ps1', ['-Pids', pids.join(',')], 20000);
   try { return JSON.parse(Buffer.from(r.line, 'base64').toString('utf8')); } catch (e) { return {}; }
 }
 
 async function convertOffice(src, dst) {
+  if (MAC) return Mac.convertOffice(src, dst);
   const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
   const r = await powershell('office-to-pdf.ps1', ['-InB64', b64(src), '-OutB64', b64(dst)], 120000);
   try { return JSON.parse(r.line); }
@@ -271,8 +316,19 @@ async function convertOffice(src, dst) {
 const isDir = (p) => { try { return typeof p === 'string' && path.isAbsolute(p) && fs.statSync(p).isDirectory(); } catch (e) { return false; } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Everything the server does outside its own process. A test hands in its own (deps.out) so that no window is opened,
+// no program started, nothing written to the registry and no process ended while the routes are exercised.
+const REAL_OUT = { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify,
+  kill: (pid) => process.kill(pid), exit: (code) => process.exit(code), gitRun: execFile, btw: (sid, cwd, question) => Aside.ask(sid, cwd, question, { env: K.cleanEnv(process.env) }), shell: (command, cwd) => Shell.run(command, cwd) };
+
 function createServer(token, port, deps = {}) {
+  // eslint-disable-next-line no-shadow
+  const { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside } = Object.assign({}, REAL_OUT, deps.out);
   const allowedHosts = new Set([`${HOST}:${port}`, `localhost:${port}`]);
+  // Who may talk to the board at all: this computer, and - when reaching it through Tailscale is switched on - only the
+  // devices of your own Tailscale account (lib/remote.js). Checked before anything else, the key after it.
+  const gate = deps.gate || new Remote.Gate();
+  let remote = null;   // {server, ip, name} while the board also listens on this computer's Tailscale address
   const pageFile = path.join(__dirname, 'public', 'index.html');
   const page = () => fs.readFileSync(pageFile);
   const pageTag = () => { try { const st = fs.statSync(pageFile); return VERSION + ':' + st.size + ':' + Math.round(st.mtimeMs); } catch (e) { return VERSION; } };
@@ -283,14 +339,99 @@ function createServer(token, port, deps = {}) {
   // terminal windows: not background runs, and not a window that is merely
   // watching a background job (reopening that would run the job twice).
   const keeper = deps.keeper || null;
-  const keepable = (s) => s.owner === 'terminal' && !s.headless && !s.parked && !!s.cwd;
+  // What is kept across a shutdown: a session you have a terminal window for. That includes one that Claude Code's
+  // background service runs while your window watches it ("parked") - to you it is a session open in a terminal,
+  // and nothing else brings it back after a restart (2026-11-15: the one session of that kind was the one left out).
+  const keepable = (s) => s.owner === 'terminal' && !s.headless && !!s.cwd;
   // Messages fetched from Gmail, Slack and Teams (lib/inbox). Only the real server has it: it reads the user's own accounts.
   const inbox = deps.inbox || null;
+  const schedules = deps.schedules || new Sched.Schedules();
+  let runner = null;   // made further down, once what it needs exists
   if (inbox) { setTimeout(() => inbox.tick(), 20000).unref(); setInterval(() => inbox.tick(), 60000).unref(); }
   const pickedIds = (body) => (Array.isArray(body.messageIds) ? body.messageIds.filter((x) => Number.isInteger(x)).slice(0, 2000) : []);
 
   // Sessions taken off the list by hand. Kept in the database, so it survives a restart.
   const hiddenList = deps.hidden ? deps.hidden.get : () => { const v = config.value('hiddenSessions', []); return Array.isArray(v) ? v : []; };
+  // After how many days with nothing new a session leaves the list by itself (the setting autoHideDays; 0 = never).
+  const TEXT_SIZES = [1, 1.15, 1.3];   // public/index.html SIZES
+  const textSize = () => { const v = config.value('textSize', null); return TEXT_SIZES.includes(v) ? v : null; };
+  const autoHideDays = () => { const v = config.value('autoHideDays', 7); return Number.isInteger(v) && v >= 0 && v <= 365 ? v : 7; };
+  const goal2 = deps.goal2 || new Goal2({ env: K.cleanEnv(process.env) });   // the goal2 plugin's runs, through its own tool (lib/goal2.js)
+  // The 外掛 page (lib/plugins.js). plugin-manager's check takes about a second: kept for five minutes; git for one.
+  const pluginsCache = { pm: null, pmAt: 0, git: null, gitAt: 0 };
+  // Which integrations are on (the setting 'integrations', on lib/plugins.js integrations). Asked often: kept 5 seconds.
+  let integ = { at: 0, v: null };
+  const integrationsNow = () => { if (!integ.v || Date.now() - integ.at > 5000) integ = { at: Date.now(), v: Plugins.integrations((deps.pluginsInstalled || Plugins.installed)(), config.value('integrations', {})) }; return integ.v; };
+  const isOn = (k) => { const x = integrationsNow()[k]; return !!(x && x.on); };
+  // The office's rooms: git, the last tests (qa-webwright), the code index (cbm-guard) of each folder.
+  // git and the tests are read when asked (kept a minute); the index check takes about 20 s, so it runs in the
+  // background, one folder at a time, and its answer is kept half an hour.
+  // The next steps a conversation can be given from the board: a plugin's own command, sent into it. Offered only when
+  // that plugin is installed for the folder (or for the whole user); which ones fit the turn just ended is decided by
+  // the page (it knows what the turn did).
+  const NEXT = [
+    { key: 'commit', plugin: 'git-commit', cmd: '/git-commit:git-commit' },
+    { key: 'review', plugin: 'red-blue-review', cmd: '/red-blue-review:red-blue-review' },
+    { key: 'qa', plugin: 'qa-webwright', cmd: '/qa-webwright:qa-run' },
+    { key: 'deliver', plugin: 'deliver-report', cmd: '/deliver-report:deliver-report' },
+    { key: 'goal', plugin: 'goal2', cmd: '/goal2:goal' },
+  ];
+  const installedFor = (inst, plugin, folder) => {
+    const x = inst[plugin]; if (!x || !folder) return false;
+    const f = path.normalize(folder).toLowerCase();
+    return x.installs.some((i) => i.scope === 'user' || (i.project && (f === path.normalize(i.project).toLowerCase() || f.startsWith(path.normalize(i.project).toLowerCase() + path.sep))));
+  };
+  let instCache = { at: 0, v: {} };
+  const instNow = () => { if (Date.now() - instCache.at > 10000) instCache = { at: Date.now(), v: (deps.pluginsInstalled || Plugins.installed)() }; return instCache.v; };
+  const nextFor = (folder) => { const inst = instNow(); return NEXT.filter((n) => installedFor(inst, n.plugin, folder)).map((n) => ({ key: n.key, cmd: n.cmd })); };
+  const roomCache = new Map();   // folder -> {at, git, qa}
+  const cbmCache = new Map();    // folder -> {at, result} | {checking: true}
+  let cbmBusy = false;
+  const cbmScript = () => { const root = Plugins.rootOf('cbm-guard', (deps.pluginsInstalled || Plugins.installed)()); const f = root && path.join(root, 'scripts', 'cbm_index_freshness.py'); return f && fs.existsSync(f) ? f : null; };
+  // cbm-guard is installed for a project, not for every folder: only those folders are checked
+  const cbmFor = (folder) => { const inst = (deps.pluginsInstalled || Plugins.installed)()['cbm-guard']; return !!inst && inst.installs.some((x) => x.scope === 'user' || (x.project && path.normalize(x.project).toLowerCase() === path.normalize(folder).toLowerCase())); };
+  const cbmNext = () => {
+    if (cbmBusy) return;
+    const folder = [...cbmCache.entries()].find(([, v]) => v.checking && !v.started);
+    const script = cbmScript();
+    if (!folder || !script) return;
+    cbmBusy = true; folder[1].started = true;
+    (deps.cbmCheck || Rooms.cbmCheck)(folder[0], script).then((result) => { cbmCache.set(folder[0], { at: Date.now(), result }); }).finally(() => { cbmBusy = false; cbmNext(); });
+  };
+  const roomFacts = async (folder) => {
+    const out = {};
+    let c = roomCache.get(folder);
+    if (!c || Date.now() - c.at > 60000) { c = { at: Date.now(), git: isOn('git') ? await Rooms.gitOf(folder, { run: deps.pluginsRun }) : null, qa: isOn('qa') ? Rooms.qaOf(folder, { sqlite: require('node:sqlite').DatabaseSync }) : null }; roomCache.set(folder, c); }
+    if (c.git) out.git = c.git;
+    if (c.qa) out.qa = c.qa;
+    if (isOn('cbm') && cbmFor(folder)) {
+      const k = cbmCache.get(folder);
+      if (k && k.result) out.cbm = Object.assign({ at: k.at }, k.result);
+      if (!k || (k.result && Date.now() - k.at > 30 * 60000)) { cbmCache.set(folder, Object.assign({}, k, { checking: true, started: false })); cbmNext(); }
+      if (!out.cbm) out.cbm = { checking: true };
+    }
+    return out;
+  };
+  const pluginsView = async (refresh) => {
+    const inst = (deps.pluginsInstalled || Plugins.installed)();
+    const on = integrationsNow();
+    if (on.versions.on && (refresh || !pluginsCache.pm || Date.now() - pluginsCache.pmAt > 300000)) { pluginsCache.pm = await Plugins.pluginManager(inst, { refresh, run: deps.pluginsRun }); pluginsCache.pmAt = Date.now(); }
+    if (on.git.on && (!pluginsCache.git || Date.now() - pluginsCache.gitAt > 60000)) {
+      const folders = new Set(sessions().map((s) => s.cwd).filter(Boolean));
+      try { for (const x of Past.list({ projectsDir: S.DEFAULTS.projectsDir, limit: 600 }).items || []) if (x.cwd) folders.add(x.cwd); } catch (e) {}
+      pluginsCache.git = await Plugins.gitRepos([...folders].filter(isDir), { run: deps.pluginsRun }); pluginsCache.gitAt = Date.now();
+    }
+    const harnessProjects = !on.harness.on ? [] : [...new Set(((inst.harness && inst.harness.installs) || []).map((x) => x.project).filter(Boolean))].filter(isDir).map((p) => Object.assign({ folder: p, name: path.basename(p) }, Harness.stateOf(p))).filter((x) => x.installed);
+    const g = on.goal2.on ? await goal2.list() : { installed: false, runs: [] };
+    return {
+      integrations: on,
+      installed: Object.values(inst).map((x) => ({ name: x.name, version: x.newest, description: x.description, projects: x.installs.filter((i) => i.project).length, user: x.installs.some((i) => i.scope === 'user') })),
+      pm: on.versions.on ? pluginsCache.pm : null, git: on.git.on ? pluginsCache.git : null, harness: harnessProjects, harnessOn: on.harness.on, daily: on.daily.on ? Plugins.dailyReport(inst) : { installed: false },
+      selfHeal: on.selfHeal.on ? { installed: true, on: !fs.existsSync(Plugins.selfHealOff()) } : { installed: false },
+      goal2: { installed: g.installed, runs: (g.runs || []).slice(0, 6), running: (g.runs || []).filter((x) => x.alive).length, total: (g.runs || []).length },
+    };
+  };
+  const asideBusy = new Set();   // sessions with a side question being answered right now
   const setHidden = deps.hidden ? deps.hidden.set : (v) => config.setValue('hiddenSessions', v);
 
   // Several tabs polling at once share one scan.
@@ -307,32 +448,55 @@ function createServer(token, port, deps = {}) {
       // says: while this process still holds the child's handle, Windows
       // reports the pid as existing, and the child's registry file stays behind.
       const pidAlive = (pid) => !channels.deadPids.has(pid) && S.pidAlive(pid);
-      const list = S.buildSessions({ channels: views, pidAlive }, now);
+      const list = S.buildSessions({ channels: views, pidAlive, titles: config.value('movedTitles', {}) }, now);
       if (keeper) for (const s of list) if (keepable(s)) s.kept = keeper.isKept(s.sessionId);
+      for (const s of list) if (s.cwd) s.next = nextFor(s.cwd);
       const hidden = new Set(hiddenList());
+      const quietDays = autoHideDays(), shownAt = config.value('shownAt', {}) || {};
       for (const s of list) {
+        // When anything was last written to its transcript: what "busy, but nothing has happened for a while" is told by.
+        try { const f = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir); if (f) s.activeAt = Math.round(fs.statSync(f).mtimeMs); } catch (e) {}
         // Opened but nothing sent yet: the page keeps it out of every list (it is shown only to the one typing in it).
         if (s.owner === 'board' && channels.isEmpty) { const c = channels.get(s.sessionId); if (c && channels.isEmpty(c)) s.notStarted = true; }
+        if (s.owner === 'board') { const c = channels.get(s.sessionId); if (c && c.agent) s.agent = c.agent; }   // the role it runs as
+        // Whether it asks before acting: what its process said (after the first message), else what it will be started with.
+        if (s.owner === 'board') { const c = channels.get(s.sessionId); if (c) { s.mode = c.skipPermissions ? 'bypassPermissions' : c.mode || ''; if (!s.mode) s.modeDefault = defaultMode(); s.model = c.model || ''; s.effort = c.effort || ''; s.modelSeen = c.modelSeen || ''; } }
         if (hidden.has(s.sessionId)) s.hidden = true;
+        // When you last said something in it: what the left list is ordered by (lib/past.js saidAtOf; after the first look only what was added to the transcript is read).
+        try { const f = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir); if (f) s.saidAt = Past.saidAtOf(f); } catch (e) {}
         // The line under the name: the latest thing you said. The status line's
         // record of it where there is one, else the end of the transcript.
         // (The status line also records what Claude Code put in your place, e.g. <task-notification>: not something you said.)
+        // Nothing new in it for a number of days (a setting; 7 unless changed, 0 = never): it leaves the list by itself.
+        // "New" is anything written to its transcript, anything you said, a change of its state - or your putting it
+        // back on the list (shownAt). One that is working or waiting for you is never hidden.
+        if (!s.hidden && quietDays > 0 && !['busy', 'waiting', 'background'].includes(s.status)) {
+          const last = Math.max(s.activeAt || 0, s.saidAt || 0, s.since || 0, Number(shownAt[s.sessionId]) || 0);
+          if (last && now - last > quietDays * 86400000) { s.hidden = true; s.autoHidden = Math.floor((now - last) / 86400000); }
+        }
         if (!s.lastUser || /^\s*</.test(s.lastUser)) { try { s.lastUser = Past.lastSaid(S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir)); } catch (e) {} }
       }
       cache = { at: now, list };
     }
     return cache.list;
   };
+  // The permission mode Claude Code starts in on this computer, from the user's own settings (read at most once a minute).
+  let dm = { at: 0, v: '' };
+  const defaultMode = () => { if (Date.now() - dm.at > 60000) { let v = ''; try { const j = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8')); v = String((j.permissions && j.permissions.defaultMode) || ''); } catch (e) {} dm = { at: Date.now(), v }; } return dm.v; };
   const find = (sid) => { fresh(); return sessions().find((x) => x.sessionId === sid); };
   let looking = false;
   const watch = async () => {
     if (!keeper || looking) return;
     looking = true;
     try {
-      const need = keeper.observe(sessions().filter(keepable).map((s) => ({ sessionId: s.sessionId, cwd: s.cwd, title: s.title, pid: s.pid })), Date.now(), readEnded());
+      const open = sessions().filter(keepable);
+      const parked = new Set(open.filter((s) => s.parked).map((s) => s.sessionId));
+      const need = keeper.observe(open.map((s) => ({ sessionId: s.sessionId, cwd: s.cwd, title: s.title, pid: s.pid })), Date.now(), readEnded());
       if (need.length) {
-        const lines = await commandLines(need.map((n) => n.pid));
-        for (const n of need) if (lines[n.pid]) keeper.setCommand(n.sessionId, lines[n.pid]);
+        // A parked session's process is the background worker, not what you typed to start it: it comes back the way
+        // sessions in its folder are started. The others come back with their own command line.
+        const lines = await commandLines(need.filter((n) => !parked.has(n.sessionId)).map((n) => n.pid));
+        for (const n of need) { if (parked.has(n.sessionId)) keeper.setCommand(n.sessionId, keeper.defaultCommand(n.cwd)); else if (lines[n.pid]) keeper.setCommand(n.sessionId, lines[n.pid]); }
       }
     } catch (e) {} finally { looking = false; }
   };
@@ -360,30 +524,229 @@ function createServer(token, port, deps = {}) {
   };
   if (keeper) {
     // The first look tells which sessions are open now; only then is "was open last time and is not now" known.
+    // Each step on its own: one that fails (a registry file half written, a folder that is gone, a terminal that will not
+    // open) is written to the log and the rest still happens - an error here used to end the board as it started.
+    const step = async (what, fn) => { try { await fn(); } catch (e) { console.error(new Date().toISOString() + ' at start, ' + what + ' failed: ' + String((e && e.stack) || e).slice(0, 600)); } };
     setTimeout(async () => {
-      await watch();
-      autostart.refresh(path.join(__dirname, 'scripts', 'start.js'));
-      if (config.load().autoRestore) { const r = keeper.restorable(); if (r.length) await restore(r.map((x) => x.sessionId), 'terminal', config.load().autoContinue); }
+      await step('the first look at the sessions', () => watch());
+      await step('refreshing the start-at-login file', () => autostart.refresh(path.join(__dirname, 'scripts', 'start.js')));
+      await step('refreshing the keep-alive file', () => Keepalive.refresh(path.join(__dirname, 'scripts', 'start.js')));
+      await step('bringing the kept sessions back', async () => { if (config.load().autoRestore) { const r = keeper.restorable(); if (r.length) await restore(r.map((x) => x.sessionId), 'terminal', config.load().autoContinue); } });
     }, 3000).unref();
     setInterval(watch, 10000).unref();
     // A finished month is saved without anyone having to open it.
     setTimeout(() => monthly.ensurePrevious(), 60000).unref();
+    setTimeout(() => { monthly.addRoles().catch(() => {}); }, 120000).unref();   // months stored before there were per-role figures
     setInterval(() => monthly.ensurePrevious(), 6 * 3600000).unref();
   }
   const monthly = deps.monthly || new Monthly();
   const statsExtra = (sid) => ({ windows: channels.modelWindows, boardUsage: channels.get(sid) });
   const quota = () => readQuota([channels.quotaSnap]);
 
+  // ── schedules: what the runner needs from the board ──
+  // The mode a session runs in, from the end of its transcript ("bypassPermissions", "auto", …).
+  const modeOf = (s) => {
+    try {
+      const f = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir); if (!f) return '';
+      const size = fs.statSync(f).size, len = Math.min(size, 512 * 1024), fd = fs.openSync(f, 'r'), b = Buffer.allocUnsafe(len);
+      try { fs.readSync(fd, b, 0, len, size - len); } finally { fs.closeSync(fd); }
+      const m = [...b.toString('utf8').matchAll(/"type":"permission-mode","permissionMode":"([A-Za-z]+)"/g)].pop();
+      return m ? m[1] : '';
+    } catch (e) { return ''; }
+  };
+  // What became of a message handed to a session, by the mark put in it: 'delivered' when the receiver's transcript
+  // holds it as a message given to its Claude, 'held' when it holds the note that the message is being kept back
+  // for its user's approval, '' when neither is there yet. The mark alone proves nothing: the "held" note quotes
+  // the start of the message, mark included (2026-11-15: a held message was reported as delivered that way).
+  const peerSeen = (s, mark) => {
+    // Read in pieces from up to 16 MB before the end: a session writes a lot after a message arrives (612 KB in
+    // three minutes, measured 2026-11-15 - the line looked for was already outside a 256 KB tail), and a whole
+    // transcript must never be read at once.
+    let fd;
+    try {
+      const f = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir); if (!f) return '';
+      const size = fs.statSync(f).size, PIECE = 1024 * 1024; fd = fs.openSync(f, 'r');
+      const b = Buffer.allocUnsafe(PIECE); let pos = Math.max(0, size - 16 * PIECE), rest = '', held = false;
+      while (pos < size) {
+        const n = fs.readSync(fd, b, 0, Math.min(PIECE, size - pos), pos); if (n <= 0) break; pos += n;
+        const lines = (rest + b.toString('utf8', 0, n)).split('\n'); rest = lines.pop();
+        for (const line of lines) {
+          if (!line.includes(mark)) continue;
+          if (line.includes('"type":"user"') && line.includes('cross-session-message')) return 'delivered';
+          if (line.includes('Held peer message')) held = true;
+        }
+      }
+      return held ? 'held' : '';
+    } catch (e) { return ''; } finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
+  };
+  // The permission mode a terminal session runs in: what its transcript last recorded, and for a session that
+  // has not written one yet (just opened), what it was started with.
+  const sessionMode = async (s) => {
+    const m = modeOf(s); if (m) return m;
+    const known = keeper && keeper.get && keeper.get(s.sessionId);
+    let cmd = known && known.command ? known.command : '';
+    if (!cmd && s.pid) { try { cmd = (await commandLines([s.pid]))[s.pid] || ''; } catch (e) {} }
+    return /--dangerously-skip-permissions/.test(cmd) ? 'bypassPermissions' : '';
+  };
+  // Hands a message to a session that is open in a terminal. The board is not a Claude session, so it starts
+  // a small one with no window whose only job is to pass the message on with Claude Code's own
+  // session-to-session messaging; it is started in the same permission mode as the receiver, because a
+  // receiver holds a message from a session of another mode until its user approves (measured 2026-11-14).
+  // Then the receiver's transcript is watched for the mark: only that shows its Claude was given the message.
+  const peer = deps.peer || (async (s, text, mark) => { const mode = await sessionMode(s); return new Promise((resolve) => {
+    const name = String(s.name || '').trim();
+    if (!name) return resolve({ state: 'failed', note: '那個 session 沒有可以指定的名稱' });
+    if (sessions().filter((x) => x.owner === 'terminal' && String(x.name || '').trim() === name).length > 1) return resolve({ state: 'failed', note: '有兩個以上開著的 session 都叫「' + name + '」，分不出要送給哪一個' });
+    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'haiku', '--no-session-persistence']
+      .concat(mode === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : mode ? ['--permission-mode', mode] : []);
+    let p; try { p = spawn('claude', args, { cwd: DATA_DIR, env: K.cleanEnv(process.env), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }); } catch (e) { return resolve({ state: 'failed', note: String(e.message || e).slice(0, 120) }); }
+    let buf = '', sent = false, finished = false;
+    const end = (r) => { if (finished) return; finished = true; clearTimeout(timer); try { p.kill(); } catch (e) {} resolve(r); };
+    const timer = setTimeout(() => end({ state: 'failed', note: '代發的程序超過 90 秒沒有回應' }), 90000);
+    p.on('error', (e) => end({ state: 'failed', note: String(e.message || e).slice(0, 120) }));
+    p.stdout.on('data', (d) => { buf += d; let k; while ((k = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, k); buf = buf.slice(k + 1); if (line.includes('tool_result') && /success\\*":\s*true/.test(line)) sent = true; } });
+    p.on('exit', async () => {
+      if (finished) return;
+      end(sent ? { state: 'sent' } : { state: 'failed', note: '代發的程序沒有把訊息送出去' });   // whether it was taken: peerSeen, asked again on every round
+    });
+    p.stdin.end('用 SendMessage 工具把下面「要送的話」原封不動送給名為 ' + name + ' 的 session（to 就填 ' + name + '）。只做這一件事，不要改寫、不要加任何內容；送完只回覆工具回傳的結果。\n\n要送的話：\n' + text);
+  }); });
+  // Ends the terminal process of a session so that the board may carry it on, then closes its (now empty) window.
+  const takeOver = async (s) => {
+    const win = await focusWindow(s.titleCandidates, 'find', s.pid);   // now, while the title still identifies it
+    if (s.parked) return { ok: false, error: '它由 Claude Code 的背景服務執行，搬過來會變成兩邊同時跑' };
+    if (!s.pid || s.owner !== 'terminal') return { ok: false, error: '它不是開在終端機裡' };
+    const reg = S.readRegistry(S.DEFAULTS.sessionsDir).find((r) => r.sessionId === s.sessionId && r.pid === s.pid);
+    if (!reg) return { ok: false, error: '它剛剛變動了' };
+    if (reg.status === 'busy') return { ok: false, error: '它正在執行，搬過來會中斷做到一半的工作' };
+    try { osKill(s.pid); } catch (e) {}
+    for (let i = 0; i < 40 && S.pidAlive(s.pid); i++) await sleep(150);
+    if (S.pidAlive(s.pid)) return { ok: false, error: '終端機裡的那個程序沒有結束' };
+    fresh();
+    let windowClosed = false;
+    if (win.state === 'hit' && win.hwnd) { const r = await closeWindow(win.hwnd); windowClosed = r.state === 'closed' && !r.stillOpen; }
+    return { ok: true, windowClosed };
+  };
+  // The notification centre (lib/notices.js): what is waiting for you now, each notice open until it is over. It is
+  // NOT fed by tell() below - a Windows notification says something just happened and is gone; the centre keeps a
+  // state, opened and closed by the events themselves.
+  const notices = deps.notices || new Notices();
+  const titleOf = (sid, fallback) => { try { fresh(); const s = sessions().find((x) => x.sessionId === sid); return (s && s.title) || fallback || ''; } catch (e) { return fallback || ''; } };
+  // 1. Conversations the board runs: told by lib/chat.js the moment their state changes or they are taken off.
+  channels.onStatus = (c, from, to) => { if (channels.isEmpty && channels.isEmpty(c)) return; notices.status({ sessionId: c.sessionId, title: c.title || '新對話' }, from, to); };
+  channels.onGone = (sid) => { notices.gone(sid); };
+  // 2. Sessions in a terminal: Claude Code rewrites ~/.claude/sessions/<pid>.json whenever one changes state and
+  // removes it when the session ends. The folder is watched: Windows reports each write as it happens (measured
+  // 2026-11-16: new -> idle -> busy -> idle of one short turn, each within the same second). No timer looks at it.
+  const reg = new Map();   // registry file -> {sid, status}
+  const readReg = (f) => { try { const j = JSON.parse(fs.readFileSync(path.join(S.DEFAULTS.sessionsDir, f), 'utf8')); return j && typeof j.sessionId === 'string' ? { sid: j.sessionId, status: String(j.status || '') } : null; } catch (e) { return null; } };
+  const KNOWN = new Set(['idle', 'busy', 'waiting', 'background']);
+  const onRegistry = (f) => {
+    if (!/^\d+\.json$/.test(String(f || ''))) return;
+    const was = reg.get(f), now = readReg(f);
+    if (!now) {                                            // gone, or being written: a file that is really gone ends its session
+      if (was && !fs.existsSync(path.join(S.DEFAULTS.sessionsDir, f))) { reg.delete(f); if (!channels.has(was.sid)) notices.gone(was.sid); }
+      return;
+    }
+    reg.set(f, now);
+    if (channels.has(now.sid) || !KNOWN.has(now.status)) return;          // the board's own are told by 1.; a state not known here says nothing
+    const from = was && was.sid === now.sid && KNOWN.has(was.status) ? was.status : '';
+    if (from && from !== now.status) notices.status({ sessionId: now.sid, title: titleOf(now.sid, 'session ' + now.sid.slice(0, 8)) }, from, now.status);
+  };
+  const reconcile = () => { try { fresh(); return notices.reconcile(sessions()); } catch (e) { return 0; } };
+  let regWatch = null;
+  const watchRegistry = () => {
+    try {
+      for (const f of fs.readdirSync(S.DEFAULTS.sessionsDir)) if (/^\d+\.json$/.test(f)) { const r = readReg(f); if (r) reg.set(f, r); }   // how things stand, without calling any of it news
+      regWatch = fs.watch(S.DEFAULTS.sessionsDir, (ev, f) => { try { onRegistry(f); } catch (e) {} });
+      // A watcher can fail (the folder replaced, the system out of handles). It is set up again, and since events may
+      // have been lost meanwhile, the table is checked against the sessions as they are.
+      regWatch.on('error', () => { try { regWatch.close(); } catch (e) {} regWatch = null; const t = setTimeout(() => { watchRegistry(); reconcile(); }, 5000); if (t.unref) t.unref(); });
+      if (regWatch.unref) regWatch.unref();
+    } catch (e) { regWatch = null; }
+  };
+  if (!deps.noSchedules && !deps.noTimers) { watchRegistry(); const t = setTimeout(reconcile, 6000); if (t.unref) t.unref(); }   // once, at start: what ended while the board was off
+  const tell = (title, text) => {
+    if (config.value('notify', true) === false) return;
+    if (MAC) { Mac.notify(title, text); return; }
+    const b64 = (x) => Buffer.from(String(x), 'utf8').toString('base64');
+    try { spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(__dirname, 'scripts', 'toast.ps1'), '-TitleB64', b64(title), '-MsgB64', b64(text)], { detached: true, stdio: 'ignore', windowsHide: true }).on('error', () => {}).unref(); } catch (e) {}
+  };
+  runner = deps.noSchedules ? null : new Runner(schedules, { goal: goal2, sessions, channels, isDir, peer, peerCheck: deps.peerCheck || peerSeen, takeOver, tell: deps.tell || tell, newId: () => crypto.randomUUID() });
+  if (runner && !deps.noTimers) { const t = setInterval(() => { runner.tick(); }, 20000); if (t.unref) t.unref(); setTimeout(() => { runner.tick(); }, 4000).unref(); }
+  // Sessions that stopped moving - stuck, out of quota, cut off by an error on the server's side (lib/watchdog.js):
+  // told to you, and where the settings say so, asked to carry on when the cause is gone.
+  const viewTickets = new Map();   // id -> {abs, office, name, exp}: see /api/view
+  // Every installed plugin of this marketplace brought up to date with plugin-manager's own tool. -> {ok, summary, error}
+  const updatePlugins = async () => {
+    const inst = (deps.pluginsInstalled || Plugins.installed)(); const root = Plugins.rootOf('plugin-manager', inst);
+    if (!root) return { ok: false, error: '這台電腦沒有裝 plugin-manager' };
+    const x = await new Promise((resolve) => (deps.pluginsRun || execFile)(process.execPath, [path.join(root, 'scripts', 'update-all.js'), '--apply', '--json'], { windowsHide: true, timeout: 600000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (err, o, e) => resolve({ ok: !err, out: String(o || ''), err: String(e || (err && err.message) || '') })));
+    pluginsCache.pmAt = 0;
+    let j = null; try { j = JSON.parse(x.out); } catch (e) {}
+    return { ok: x.ok, summary: j && j.summary ? j.summary : '', error: x.ok ? '' : (x.err || x.out).trim().slice(-400) };
+  };
+  const watchSettings = () => { const v = config.value('watchdog', {}); return Object.assign({}, WATCH_DEFAULTS, v && typeof v === 'object' ? v : {}); };
+  const dog = deps.noSchedules ? null : new Watchdog({ open: (n) => notices.open(n), resolve: (kind, sid, by) => notices.close(kind + ':' + sid, by), sessions, channels, peer, peerCheck: deps.peerCheck || peerSeen, tell: deps.tell || tell, settings: watchSettings, quota,
+    transcript: (s) => { try { return S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir) || ''; } catch (e) { return ''; } },
+    recall: () => config.value('watchdogState', null), remember: (st) => config.setValue('watchdogState', st) });
+  // The monthly budget (lib/budget.js): looked at every ten minutes against this month's figure; said once per point per month.
+  const budgetCheck = async () => {
+    try {
+      const st = Budget.clean(config.value('budget', {})); if (!st.monthly) return;
+      const now = new Date(), r = await monthly.get(ymOf(now), false);
+      if (!r || !r.ok || !r.priced || !r.total) return;
+      const d = Budget.decide({ month: r.month, cost: r.total.cost, day: now.getDate(), daysInMonth: r.daysInMonth, settings: st, state: config.value('budgetState', null) });
+      notices.closeKind('budget', 'month over', 'budget:' + r.month + ':');   // last month's are over
+      if (d.tell) {
+        config.setValue('budgetState', d.state); (deps.tell || tell)(d.tell.title, d.tell.text);
+        const over = d.pct >= 100;
+        if (over) notices.close('budget:' + r.month + ':warn', 'superseded');
+        notices.open({ key: 'budget:' + r.month + ':' + (over ? '100' : 'warn'), kind: 'budget', title: d.tell.title, text: d.tell.text });
+      }
+    } catch (e) {}
+  };
+  if (!deps.noSchedules && !deps.noTimers) { const t = setInterval(budgetCheck, 600000); if (t.unref) t.unref(); setTimeout(budgetCheck, 45000).unref(); }
+  const auto = new Auto({   // always there (its switches and log); it acts only on its timer, which tests leave off
+    settings: () => config.value('auto', {}),
+    recall: () => config.value('autoState', null), remember: (st) => config.setValue('autoState', st),
+    cbmFolders: () => { if (!isOn('cbm') || !cbmScript()) return []; const x = instNow()['cbm-guard']; return x ? [...new Set(x.installs.map((i) => i.project).filter(Boolean))].filter(isDir) : []; },
+    cbmCheck: (folder) => (deps.cbmCheck || Rooms.cbmCheck)(folder, cbmScript()),
+    rebuild: (fix) => (deps.rebuildIndex || Rooms.rebuildIndex)(fix),
+    forget: (folder) => cbmCache.delete(folder),
+    update: () => (isOn('versions') ? updatePlugins() : Promise.resolve({ ok: true, summary: '' })),
+    harnessDue: () => { if (!isOn('harness')) return []; const x = instNow().harness; return x ? [...new Set(x.installs.map((i) => i.project).filter(Boolean))].filter(isDir).map((p) => ({ folder: p, name: path.basename(p), st: Harness.stateOf(p) })).filter((p) => p.st.installed && p.st.due && p.st.due.length) : []; },
+    startReview: async (folder) => { try { const c = channels.create(path.resolve(folder)); const r = channels.send(c.sessionId, '/harness:review'); fresh(); return r && r.ok === false ? r : { ok: true }; } catch (e) { return { ok: false, error: String(e.message || e) }; } },
+    tell: (t, x) => (deps.tell || tell)(t, x),
+  });
+  if (!deps.noSchedules && !deps.noTimers) { const t = setInterval(() => { auto.tick(); }, 600000); if (t.unref) t.unref(); setTimeout(() => { auto.tick(); }, 90000).unref(); }
+  if (dog && !deps.noTimers) { const t = setInterval(() => { dog.tick(); }, 30000); if (t.unref) t.unref(); setTimeout(() => { dog.tick(); }, 15000).unref(); }
+
   const server = http.createServer(async (req, res) => {
     try {
+      if (!(await gate.allows(req.socket.remoteAddress))) return send(res, 403, { error: 'not one of your devices' });
       if (!allowedHosts.has(String(req.headers.host || ''))) return send(res, 403, { error: 'bad host' });
       const url = new URL(req.url, `http://${HOST}:${port}`);
       const p = url.pathname;
       const q = url.searchParams;
 
-      if (req.method === 'GET' && (p === '/' || p === '/index.html')) return send(res, 200, page(), 'text/html; charset=utf-8');
+      if (req.method === 'GET' && (p === '/' || p === '/index.html')) return sendPage(res, page().toString('utf8'));
       if (req.method === 'GET' && p === '/api/ping') return send(res, 200, { app: 'session-board', version: VERSION, pid: process.pid });
       if (!p.startsWith('/api/')) return send(res, 404, { error: 'not found' });
+
+      // A PDF in the preview (also an Office file turned into one): the browser's PDF viewer saves what it shows under
+      // the last part of its address, so it gets an address that ends in the file's name - a ticket the page asked for
+      // with its token (POST /api/file/ticket): one file, ten minutes, read-only, sent inline as a PDF and nothing else.
+      // An iframe cannot send the token header, and the token is never put into an address.
+      if (req.method === 'GET' && p.startsWith('/api/view/')) {
+        const id = p.split('/')[3] || '', t = viewTickets.get(id);
+        if (!t || t.exp < Date.now()) { viewTickets.delete(id); return send(res, 404, { error: '這個預覽網址已經過期，請重新開一次預覽' }); }
+        let file = t.abs;
+        if (t.office) { const r = await F.officePdf(t.abs, convertOffice); if (!r.ok) return send(res, 500, { error: r.error }); file = r.file; }
+        else if (!F.realFile(t.abs) || F.kindOf(t.abs) !== 'pdf') return send(res, 404, { error: '找不到這個檔案' });
+        res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': "inline; filename=\"" + t.name.replace(/[^\x20-\x7e]|["\\]/g, '_') + "\"; filename*=UTF-8''" + encodeURIComponent(t.name), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
+        return fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+      }
 
       // EventSource cannot set a header, so the stream alone takes the token from the query.
       const given = p === '/api/stream' ? String(q.get('t') || '') : String(req.headers['x-board-token'] || '');
@@ -394,7 +757,7 @@ function createServer(token, port, deps = {}) {
         // opened before the file changed sees a different value and reloads
         // itself; otherwise it keeps running old code until someone presses F5
         // (which is how "the links still are not clickable" happened, 2026-11-13).
-        if (p === '/api/sessions') return send(res, 200, { now: Date.now(), version: VERSION, page: pageTag(), sessions: sessions(), inbox: inbox ? inbox.inbox.counts() : null });
+        if (p === '/api/sessions') return send(res, 200, { now: Date.now(), version: VERSION, page: pageTag(), features: { platform: process.platform, textSize: textSize(), fork: config.value('showFork', false) === true, goal2: isOn('goal2') && !!goal2.root(), integrations: Object.fromEntries(Object.entries(integrationsNow()).map(([k, x]) => [k, x.on])) }, sessions: sessions(), inbox: inbox && inbox.enabled() ? inbox.inbox.counts() : null /* null: the inbox is off, the page does not show it */, noticeOpen: notices.openCount() + schedules.noticeCount(), schedNotices: schedules.noticeCount() });
         if (p === '/api/inbox') {
           if (!inbox) return send(res, 200, { threads: [], status: null });
           return send(res, 200, { threads: inbox.inbox.threads({ status: q.get('status') || '', triage: q.get('triage') || '', open: q.get('open') === '1', source: q.get('source') || '', q: String(q.get('q') || '').slice(0, 100), limit: 200 }), status: inbox.status(), routes: inbox.inbox.routes() });
@@ -434,13 +797,73 @@ function createServer(token, port, deps = {}) {
           }
           return send(res, 200, Object.assign({ ok: true, text, size, truncated }, info));
         }
-        if (p === '/api/config') return send(res, 200, { config: config.load(), file: config.CONFIG_FILE, autoStart: autostart.isOn(), autoStartFile: path.join(autostart.startupDir(), autostart.NAME),
-          notify: config.value('notify', true) !== false, notifyClick: Notify.isRegistered(), notifyOwnChain: Notify.ownChainPresent() });
+        if (p === '/api/config') return send(res, 200, { config: config.load(), file: config.CONFIG_FILE, keepAlive: Keepalive.isOn(), keepAliveEvery: Keepalive.EVERY_MIN, autoStart: autostart.isOn(), autoStartFile: autostart.fileShown ? autostart.fileShown() : path.join(autostart.startupDir(), autostart.NAME),
+          notify: config.value('notify', true) !== false, notifyClick: Notify.isRegistered(), notifyOwnChain: Notify.ownChainPresent(), showFork: config.value('showFork', false) === true, autoHideDays: autoHideDays(), integrations: integrationsNow(),
+          remote: Object.assign({ on: config.value('remoteTailscale', false) === true }, server.remoteState(), q.get('devices') === '1' ? { tailscale: await (deps.remoteInfo || Remote.info)() } : {}) });
         // Conversations of the last 30 days that are not open now, newest first; q searches title, folder and what you said first and last.
         if (p === '/api/past') {
           const exclude = new Set([...sessions().map((s) => s.sessionId), ...hiddenList()]);
           return send(res, 200, Object.assign(Past.list({ projectsDir: S.DEFAULTS.projectsDir, exclude, q: String(q.get('q') || '').slice(0, 100), limit: 600 })   /* all of them: the page lists them by folder */, { days: Past.DAYS, hidden: hiddenList().length }));
         }
+        // What one tool call of a conversation actually did (lib/history.js toolDetailAt): asked for when its line is opened.
+        // One picture of a message, out of the session's transcript (lib/history.js imageAt): asked for when the message is drawn.
+        if (p === '/api/image') {
+          const s = find(String(q.get('sid') || ''));
+          if (!s) return send(res, 404, { error: 'session not found' });
+          const file = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir);
+          const im = file ? require('./lib/history').imageAt(file, String(q.get('id') || ''), Number(q.get('i'))) : null;
+          if (!im) return send(res, 404, { error: '找不到這張圖' });
+          res.writeHead(200, { 'Content-Type': im.mime, 'Content-Length': im.bytes.length, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+          return res.end(im.bytes);
+        }
+        if (p === '/api/tool') {
+          const s = find(String(q.get('sid') || ''));
+          if (!s) return send(res, 404, { error: 'session not found' });
+          const file = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir);
+          const d = file ? require('./lib/history').toolDetailAt(file, String(q.get('id') || '')) : null;
+          return send(res, d ? 200 : 404, d || { error: '找不到這個動作的紀錄' });
+        }
+        // What a session changed (lib/changes.js): the files it edited or wrote, read out of its own transcript - and,
+        // apart from that, what is uncommitted in its folder according to git, whoever changed it.
+        if (p === '/api/changes' || p === '/api/changes/file' || p === '/api/changes/git' || p === '/api/changes/gitfile') {
+          const s = find(String(q.get('sid') || ''));
+          if (!s) return send(res, 404, { error: 'session not found' });
+          if (p === '/api/changes/git') return send(res, 200, isDir(s.cwd) ? await Changes.gitChanges(s.cwd, gitRun) : { repo: false, reason: '這個 session 的資料夾已經不存在' });
+          if (p === '/api/changes/gitfile') { const r = isDir(s.cwd) ? await Changes.gitFileDiff(s.cwd, String(q.get('path') || ''), gitRun) : { ok: false, error: '這個 session 的資料夾已經不存在' }; return send(res, r.ok ? 200 : 404, r); }
+          const file = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir);
+          if (p === '/api/changes') return send(res, 200, file ? await Changes.summary(file, s.cwd) : { files: [], adds: 0, dels: 0 });
+          const d = file ? await Changes.detail(file, String(q.get('path') || '')) : null;
+          return send(res, d ? 200 : 404, d || { error: '這個 session 沒有改過這個檔案' });
+        }
+        // Looked at: first made true to the sessions as they are (an event may have been lost), then listed.
+        if (p === '/api/notices') { const fixed = reconcile(); return send(res, 200, { open: notices.openList(), closed: notices.closedList(60), schedule: schedules.notices(), reconciled: fixed }); }
+        if (p === '/api/budget') return send(res, 200, { settings: Budget.clean(config.value('budget', {})), state: config.value('budgetState', null) });
+        if (p === '/api/watchdog') return send(res, 200, { on: !!dog, settings: watchSettings(), log: dog ? dog.log() : [] });
+        if (p === '/api/auto') return send(res, 200, { on: !!auto, settings: auto ? auto.settings() : {}, log: auto ? auto.log() : [] });
+        // goal2's runs (lib/goal2.js): the list, and one in detail. The run is named by its id; its folder is only ever
+        // the one goal2 itself listed.
+        // The harness plugin's state in the folders the office shows (lib/harness.js): only folders the board itself knows
+        // - those of open sessions and of the conversations of the last 30 days - and only files under their .claude/harness.
+        if (p === '/api/rooms') {
+          const want = String(q.get('cwd') || '').split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 60);
+          const facts = {};
+          for (const w of want) if (isDir(w)) facts[w] = await roomFacts(w);
+          return send(res, 200, { facts });
+        }
+        if (p === '/api/harness' && !isOn('harness')) return send(res, 200, { states: {} });
+        if (p === '/api/harness') {
+          const known = new Set(sessions().map((s) => String(s.cwd || '').toLowerCase()));
+          try { for (const x of Past.list({ projectsDir: S.DEFAULTS.projectsDir, limit: 600 }).items || []) known.add(String(x.cwd || '').toLowerCase()); } catch (e) {}
+          const want = String(q.get('cwd') || '').split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 60);
+          const states = {};
+          for (const w of want) states[w] = known.has(w.toLowerCase()) && isDir(w) ? Harness.stateOf(w) : { installed: false };
+          return send(res, 200, { states });
+        }
+        if (p === '/api/plugins') return send(res, 200, await pluginsView(false));
+        if ((p === '/api/goals' || p === '/api/goals/status') && !isOn('goal2')) return send(res, p === '/api/goals' ? 200 : 404, p === '/api/goals' ? { installed: false, runs: [] } : { ok: false, error: 'goal2 的整合已在設定裡關閉' });
+        if (p === '/api/goals') { const l = await goal2.list(); return send(res, 200, { installed: l.installed, version: l.version || '', error: l.error || '', runs: l.runs || [] }); }
+        if (p === '/api/goals/status') { const r = await goal2.status(String(q.get('id') || '')); return send(res, r.ok ? 200 : 404, r); }
+        if (p === '/api/schedules') return send(res, 200, { schedules: schedules.list(), runs: !!runner, notices: schedules.notices(), log: schedules.runs(20) });
         if (p === '/api/keep') {
           if (!keeper) return send(res, 200, { restorable: [], closed: [], autoContinue: true });
           // interrupted: it was in the middle of a turn when it stopped (lib/past.js).
@@ -450,7 +873,9 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/commands') {
           const c = channels.get(String(q.get('sid') || ''));
           if (!c) return send(res, 404, { commands: [], error: '這不是看板裡的對話' });
-          return send(res, 200, await channels.commandsFor(c.cwd));
+          const list = await channels.commandsFor(c.cwd);
+          // the board's own: Claude Code has no /btw when it runs without a terminal (lib/aside.js)
+          return send(res, 200, Object.assign({}, list, { commands: [{ name: 'btw', description: '順便問一句：用這個對話的內容回答，但不記進對話（由看板提供）', argumentHint: '<要問的話>' }].concat((list.commands || []).filter((x) => x.name !== 'btw')) }));
         }
         if (p === '/api/warroom') {
           const now = Date.now();
@@ -465,6 +890,18 @@ function createServer(token, port, deps = {}) {
         // browser displays inertly are sent, each with its exact type and nosniff:
         // an .html file goes out as text/plain, never as a page, because a page
         // served from this address could read the token.
+        // A file as it is, to be saved by the browser: what "open with the default program" becomes on another computer.
+        // Any kind (a .docx, a .zip ...), up to 500 MB; never a network path (lib/files.js realFile). It is only ever sent as
+        // something to save, not shown, so the browser does not run what is in it.
+        if (p === '/api/file/download') {
+          const abs = F.realFile(q.get('path'));
+          if (!abs) return send(res, 404, { error: '找不到這個檔案' });
+          const size = fs.statSync(abs).size;
+          if (size > 500 * 1024 * 1024) return send(res, 413, { error: '檔案超過 500 MB，請用別的方式拿' });
+          const name = path.basename(abs);
+          res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': size, 'Content-Disposition': "attachment; filename=\"" + name.replace(/[^\x20-\x7e]|["\\]/g, '_') + "\"; filename*=UTF-8''" + encodeURIComponent(name), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+          return fs.createReadStream(abs).on('error', () => res.destroy()).pipe(res);
+        }
         if (p === '/api/file') {
           const abs = F.realFile(q.get('path'));
           if (!abs) return send(res, 404, { error: '找不到這個檔案' });
@@ -512,18 +949,35 @@ function createServer(token, port, deps = {}) {
 
       if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
       if (!/^application\/json/.test(String(req.headers['content-type'] || ''))) return send(res, 415, { error: 'json only' });
-      const body = await readBody(req);
+      let body = await readBody(req, p === '/api/send' ? 48 * 1024 * 1024 : undefined);   // a message may carry pictures
       const sid = typeof body.sessionId === 'string' ? body.sessionId : '';
 
+      // What happens on this computer's screen is not done for a request from another computer: nobody is there to see it.
+      // what happens on this computer's screen - a window brought forward, opened or closed, a file opened, a folder picker -
+      // is refused from another computer (to a terminal, an old conversation or a kept one opened in a terminal, a session ended)
+      const onThisScreen = ['/api/focus', '/api/pick-folder', '/api/file/open', '/api/file/reveal', '/api/to-terminal', '/api/end', '/api/takeover'].includes(p)
+        || ((p === '/api/past/open' || p === '/api/keep/restore') && body.to !== 'board');
+      if (onThisScreen && !isLocal(req)) return send(res, 403, { ok: false, error: '這個動作會發生在看板那台電腦的螢幕上，從別台電腦不能用' });
       if (p === '/api/focus') {
         const s = find(sid);
         if (!s) return send(res, 404, { state: 'gone', error: 'session not running' });
-        return send(res, 200, await focusWindow(s.titleCandidates));
+        return send(res, 200, await focusWindow(s.titleCandidates, 'focus', s.pid));
       }
       if (p === '/api/send') {
         const text = typeof body.text === 'string' ? body.text : '';
-        if (!text.trim()) return send(res, 400, { ok: false, error: 'empty message' });
-        const r = channels.send(sid, text);
+        // Pictures: a few, of the kinds Claude takes, each within its size limit. Refused with a reason, not dropped silently.
+        const images = [];
+        if (Array.isArray(body.images)) {
+          if (body.images.length > 8) return send(res, 400, { ok: false, error: '一則訊息最多 8 張圖' });
+          for (const x of body.images) {
+            if (!x || !/^image\/(png|jpeg|gif|webp)$/.test(String(x.mime)) || typeof x.data !== 'string' || !/^[A-Za-z0-9+/]+=*$/.test(x.data.slice(0, 200))) return send(res, 400, { ok: false, error: '有一張圖的格式不支援（只收 PNG、JPEG、GIF、WebP）' });
+            if (x.data.length > 6.9 * 1024 * 1024) return send(res, 400, { ok: false, error: '有一張圖超過 5 MB' });
+            const tag = Number(x.tag);
+            images.push(Number.isInteger(tag) && tag >= 1 && tag <= 99 ? { mime: String(x.mime), data: x.data, tag } : { mime: String(x.mime), data: x.data });
+          }
+        }
+        if (!text.trim() && !images.length) return send(res, 400, { ok: false, error: 'empty message' });
+        const r = channels.send(sid, text, images);
         fresh();
         return send(res, r.ok ? 200 : 409, r);
       }
@@ -532,11 +986,146 @@ function createServer(token, port, deps = {}) {
         fresh();
         return send(res, r.ok ? 200 : 404, r);
       }
-      if (p === '/api/stop') { const ok = channels.stop(sid); fresh(); return send(res, 200, { ok, dropped: channels.dropped ? channels.dropped(sid) : [] }); }
+      // A command you typed yourself (a line beginning with "!"), run in the conversation's folder as you; what it printed
+      // is kept and handed to Claude with your next message, as a terminal session does (lib/shell.js).
+      if (p === '/api/shell') {
+        const c = channels.get(sid);
+        if (!c) return send(res, 404, { ok: false, error: '這不是看板裡的對話。終端機裡的 session 請直接在它的視窗打指令' });
+        const command = typeof body.command === 'string' ? body.command.trim() : '';
+        if (!command) return send(res, 400, { ok: false, error: '沒有指令' });
+        if (command.length > 8000) return send(res, 400, { ok: false, error: '指令太長（上限 8000 字）' });
+        if (!isDir(c.cwd)) return send(res, 400, { ok: false, error: '這個對話的資料夾已經不存在：' + c.cwd });
+        const r = await runShell(command, c.cwd);
+        const id = channels.noteShell(sid, { command, stdout: r.stdout, stderr: r.stderr, code: r.code });
+        return send(res, 200, Object.assign({}, r, { ok: true, ran: r.ok, id, cwd: c.cwd }));
+      }
+      // Not for Claude after all (a password was in it): what was kept is thrown away.
+      if (p === '/api/shell/drop') return send(res, 200, { ok: channels.dropShell(sid, body.id === undefined ? null : Number(body.id)) });
+      // A question on the side (lib/aside.js): any session that has a transcript, also a terminal one and a busy one.
+      if (p === '/api/btw') {
+        const s = find(sid);
+        if (!s) return send(res, 404, { ok: false, error: '找不到這個 session' });
+        const question = typeof body.question === 'string' ? body.question.trim() : '';
+        if (!question) return send(res, 400, { ok: false, error: '「/btw」後面要接你想順便問的話' });
+        if (question.length > Aside.QUESTION_MAX) return send(res, 400, { ok: false, error: '問題太長（上限 ' + Aside.QUESTION_MAX + ' 字）' });
+        if (!S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir)) return send(res, 400, { ok: false, error: '這個對話還沒有內容，沒有東西可以拿來回答' });
+        if (!isDir(s.cwd)) return send(res, 400, { ok: false, error: '這個 session 的資料夾已經不存在：' + s.cwd });
+        if (asideBusy.has(sid)) return send(res, 409, { ok: false, error: '上一個順便問的還在回答，等它回來再問' });
+        asideBusy.add(sid);
+        let r; try { r = await askAside(sid, s.cwd, question); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; } finally { asideBusy.delete(sid); }
+        return send(res, r.ok ? 200 : 502, r);
+      }
+      // Plugins (lib/plugins.js): check again (asks the marketplace for its newest versions), bring everything up to date
+      // (plugin-manager's update-all.js --apply: what /plugin-manager-update does after you approve its list), self-heal on/off.
+      if ((p === '/api/goals/start' || p === '/api/goals/stop') && !isOn('goal2')) return send(res, 409, { ok: false, error: 'goal2 的整合已在設定裡關閉' });
+      if (p === '/api/plugins/update' && !isOn('versions')) return send(res, 409, { ok: false, error: '版本檢查的整合已在設定裡關閉' });
+      if (p === '/api/plugins/self-heal' && !isOn('selfHeal')) return send(res, 409, { ok: false, error: 'self-heal 的整合已在設定裡關閉' });
+      // the daily report switched on for one project (lib/plugins.js enableDaily): only a project deliver-report is installed for
+      if (p === '/api/daily/enable') {
+        if (!isOn('daily')) return send(res, 409, { ok: false, error: '日報的整合已在設定裡關閉' });
+        const d = Plugins.dailyReport((deps.pluginsInstalled || Plugins.installed)());
+        const proj = d.could.find((x) => path.normalize(x).toLowerCase() === path.normalize(String(body.project || '')).toLowerCase());
+        if (!proj) return send(res, 404, { ok: false, error: '這個專案沒有裝 deliver-report，或已經啟用了' });
+        const r = Plugins.enableDaily(proj, body.recipients, body.cc);
+        return send(res, r.ok ? 200 : 400, r);
+      }
+      if (p === '/api/plugins/refresh') return send(res, 200, await pluginsView(true));
+      if (p === '/api/plugins/update') {
+        const inst = (deps.pluginsInstalled || Plugins.installed)(); const root = Plugins.rootOf('plugin-manager', inst);
+        if (!root) return send(res, 400, { ok: false, error: '這台電腦沒有裝 plugin-manager' });
+        const u = await updatePlugins();
+        return send(res, u.ok ? 200 : 500, u);
+      }
+      if (p === '/api/plugins/self-heal') { if (typeof body.on !== 'boolean') return send(res, 400, { ok: false, error: '要給 on: true 或 false' }); return send(res, 200, Plugins.setSelfHeal(body.on)); }
+      // A goal handed to goal2 now (lib/goal2.js start), from the 外掛 page.
+      if (p === '/api/goals/start') {
+        const cwd = typeof body.cwd === 'string' ? body.cwd.trim() : '', task = typeof body.task === 'string' ? body.task.trim() : '', cond = typeof body.condition === 'string' ? body.condition.trim() : '';
+        if (!isDir(cwd)) return send(res, 400, { ok: false, error: '這個資料夾不存在：' + cwd.slice(0, 200) });
+        if (!task) return send(res, 400, { ok: false, error: '請寫下要它做什麼' });
+        if (!cond) return send(res, 400, { ok: false, error: '請寫下完成條件：做到什麼程度、怎麼檢查算完成' });
+        const r = await goal2.start(task.slice(0, 20000), cond.slice(0, 3500), path.resolve(cwd));
+        return send(res, r.ok ? 200 : 400, r);
+      }
+      if (p === '/api/goals/stop') { const r = await goal2.stop(String(body.id || '')); return send(res, r.ok ? 200 : 409, r); }
+      // A board conversation's model and effort, from its next message on (lib/chat.js setModel).
+      if (p === '/api/model') {
+        const model = body.model === undefined ? undefined : String(body.model), effort = body.effort === undefined ? undefined : String(body.effort);
+        if (model !== undefined && !/^(|fable|opus|sonnet|haiku|claude-[a-z0-9.-]{1,40})$/.test(model)) return send(res, 400, { ok: false, error: '模型只能是 fable、opus、sonnet、haiku，或留空用預設' });
+        if (effort !== undefined && !/^(|low|medium|high|xhigh|max)$/.test(effort)) return send(res, 400, { ok: false, error: 'effort 只能是 low、medium、high、xhigh、max，或留空用預設' });
+        const r = channels.setModel ? channels.setModel(sid, model, effort) : { ok: false, error: 'not supported' };
+        fresh();
+        return send(res, r.ok ? 200 : r.error === 'no such channel' ? 404 : 409, r.error === '它還在執行' ? { ok: false, error: '它這一輪還在跑，等它做完或先停止再換' } : r);
+      }
+      if (p === '/api/auto') {
+        const cur = Object.assign({}, config.value('auto', {}));
+        for (const k of ['cbm', 'update', 'harness']) if (typeof body[k] === 'boolean') cur[k] = body[k];
+        if (body.updateAt !== undefined) { if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(String(body.updateAt))) return send(res, 400, { ok: false, error: '時間要寫成 09:00 這樣' }); cur.updateAt = String(body.updateAt); }
+        config.setValue('auto', cur);
+        return send(res, 200, { ok: true, settings: auto ? auto.settings() : cur });
+      }
+      if (p === '/api/rooms/reindex') {
+        if (!isOn('cbm')) return send(res, 409, { ok: false, error: 'cbm-guard 的整合是關著的' });
+        const k = cbmCache.get(String(body.cwd || ''));
+        const fix = k && k.result && k.result.fixes.find((x) => x.includes('/' + String(body.repo || '') + '"'));
+        if (!fix) return send(res, 404, { ok: false, error: '這個 repo 沒有待重建的索引（請先等檢查跑完）' });
+        const r = await (deps.rebuildIndex || Rooms.rebuildIndex)(fix);
+        if (r.ok) { cbmCache.set(String(body.cwd), { checking: true, started: false }); cbmNext(); }
+        return send(res, r.ok ? 200 : 500, r);
+      }
+      if (p === '/api/file/ticket') {
+        const abs = F.realFile(body.path);
+        const kind = abs ? F.kindOf(abs) : '';
+        if (!abs || (kind !== 'pdf' && kind !== 'office')) return send(res, 404, { error: '找不到這個 PDF 或 Office 檔案' });
+        const now = Date.now();
+        for (const [k, v] of viewTickets) if (v.exp < now) viewTickets.delete(k);
+        if (viewTickets.size > 200) viewTickets.clear();
+        const id = crypto.randomBytes(18).toString('hex');
+        const name = kind === 'office' ? path.basename(abs).replace(/\.[^.]+$/, '') + '.pdf' : path.basename(abs);
+        viewTickets.set(id, { abs, office: kind === 'office', name, exp: now + 10 * 60000 });
+        return send(res, 200, { ok: true, url: '/api/view/' + id + '/' + encodeURIComponent(name) });
+      }
+      if (p === '/api/stop') { const ok = channels.stop(sid); fresh(); return send(res, 200, { ok }); }
       if (p === '/api/close-empty') { const ok = channels.removeIfEmpty ? channels.removeIfEmpty(sid) : false; if (ok) fresh(); return send(res, 200, { ok }); }
-      if (p === '/api/unqueue') { const text = channels.unqueue(sid, Number(body.id)); return send(res, text == null ? 404 : 200, { ok: text != null, text }); }
-      if (p === '/api/seen') { channels.seen(sid); fresh(); return send(res, 200, { ok: true }); }
+
+      if (p === '/api/seen') { channels.seen(sid); notices.seen(sid); fresh(); return send(res, 200, { ok: true }); }
       if (p === '/api/pick-folder') return send(res, 200, { path: await pickFolder() });
+      if (p === '/api/notices/dismiss') return send(res, 200, { ok: notices.closeId(body.id, 'dismissed') });
+      if (p === '/api/notices/clear-closed') return send(res, 200, { ok: true, removed: notices.clearClosed() });
+      // You opened this session on the page: "finished, have a look" is over.
+      if (p === '/api/notices/seen-session') return send(res, 200, { ok: true, closed: notices.seen(sid) });
+      if (p === '/api/budget') {
+        const m = Number(body.monthly), w = body.warnPct === undefined ? Budget.DEFAULTS.warnPct : Number(body.warnPct);
+        if (!Number.isFinite(m) || m < 0 || m > 1000000) return send(res, 400, { ok: false, error: '預算要是 0 以上的數字（0 表示不設預算）' });
+        if (!Number.isFinite(w) || w < 10 || w > 99) return send(res, 400, { ok: false, error: '警示門檻要在 10 到 99 之間' });
+        const next = Budget.clean({ monthly: m, warnPct: w });
+        config.setValue('budget', next);
+        config.setValue('budgetState', null);   // a new budget: what was said about the old one no longer counts
+        notices.closeKind('budget', 'budget changed');
+        budgetCheck();
+        return send(res, 200, { ok: true, settings: next });
+      }
+      // A copy of a conversation, on the board: it starts from what the original holds now and goes its own way; the
+      // original is not touched (Claude Code's --fork-session, see lib/chat.js _start).
+      if (p === '/api/fork') {
+        // A feature that is off unless switched on in the settings (showFork): the page then has no button for it, and the address refuses.
+        if (config.value('showFork', false) !== true) return send(res, 403, { ok: false, error: '「開分身」已經在設定裡關閉。要用的話到設定頁打開' });
+        const s = find(sid);
+        if (!s) return send(res, 404, { ok: false, error: '找不到這個 session' });
+        if (!S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir)) return send(res, 400, { ok: false, error: '它還沒有對話內容，沒有東西可以複製' });
+        const c = channels.create(s.cwd, crypto.randomUUID());
+        c.forkOf = s.sessionId; c.title = ('分身：' + (s.title || '')).slice(0, 60);
+        if (channels._save) channels._save();
+        fresh();
+        return send(res, 200, { ok: true, sessionId: c.sessionId });
+      }
+      if (p === '/api/watchdog') {
+        const next = watchSettings();
+        for (const k of ['stuck', 'limitResume', 'errorRetry', 'modelSwitch']) if (typeof body[k] === 'boolean') next[k] = body[k];
+        if (body.switchTo !== undefined) { const m = String(body.switchTo); if (!/^(opus|sonnet|haiku|fable|claude-[a-z0-9.-]{1,40})$/.test(m)) return send(res, 400, { ok: false, error: '換成哪個模型：opus、sonnet、haiku，或完整的模型名稱' }); next.switchTo = m; }
+        if (body.stuckMinutes !== undefined) { const n = Number(body.stuckMinutes); if (!Number.isFinite(n) || n < 2 || n > 240) return send(res, 400, { ok: false, error: '分鐘數要在 2 到 240 之間' }); next.stuckMinutes = Math.round(n); }
+        config.setValue('watchdog', next);
+        return send(res, 200, { ok: true, settings: next });
+      }
       if (p === '/api/config') {
         const patch = {};
         for (const k of ['pickerStartDir', 'autoRestore', 'autoContinue']) if (Object.prototype.hasOwnProperty.call(body, k)) patch[k] = body[k];
@@ -544,6 +1133,31 @@ function createServer(token, port, deps = {}) {
         if (r.ok && typeof body.autoStart === 'boolean') {
           const a = autostart.set(body.autoStart, path.join(__dirname, 'scripts', 'start.js'));
           if (!a.ok) return send(res, 500, a);
+        }
+        if (r.ok && typeof body.keepAlive === 'boolean') {
+          const k = Keepalive.set(body.keepAlive, path.join(__dirname, 'scripts', 'start.js'));
+          if (!k.ok) return send(res, 500, k);
+        }
+        if (r.ok && typeof body.showFork === 'boolean') config.setValue('showFork', body.showFork);
+        if (r.ok && body.integrations && typeof body.integrations === 'object') {
+          const cur = Object.assign({}, config.value('integrations', {}));
+          for (const x of Plugins.INTEGRATIONS) if (typeof body.integrations[x.key] === 'boolean') cur[x.key] = body.integrations[x.key];
+          config.setValue('integrations', cur); integ.at = 0; pluginsCache.pmAt = 0; pluginsCache.gitAt = 0;
+        }
+        if (r.ok && typeof body.remoteTailscale === 'boolean') {
+          const x = await server.setRemote(body.remoteTailscale);
+          if (!x.ok) return send(res, 400, { ok: false, error: x.error });
+          config.setValue('remoteTailscale', body.remoteTailscale);
+        }
+        if (r.ok && body.textSize !== undefined) {
+          const v = Number(body.textSize);
+          if (!TEXT_SIZES.includes(v)) return send(res, 400, { ok: false, error: '字級只能是 ' + TEXT_SIZES.join('、') });
+          config.setValue('textSize', v);
+        }
+        if (r.ok && body.autoHideDays !== undefined) {
+          const n = Number(body.autoHideDays);
+          if (!Number.isInteger(n) || n < 0 || n > 365) return send(res, 400, { ok: false, error: '天數要是 0 到 365 的整數（0 表示不自動隱藏）' });
+          config.setValue('autoHideDays', n); fresh();
         }
         // Notifications: the setting, and the address scheme a click on one goes through.
         if (r.ok && typeof body.notify === 'boolean') {
@@ -595,12 +1209,40 @@ function createServer(token, port, deps = {}) {
         }
         return send(res, 404, { error: 'not found' });
       }
+      if (p === '/api/schedule/save') {
+        // "After the 5-hour quota resets": the reset time as it stands now, a minute after, as a one-off. (What goal2's
+        // delaylocal does - but kept by the board, so Claude Code does not have to stay open until then.)
+        if (body.kind === 'reset') {
+          const fh = quota().fiveHour;
+          if (!fh || !fh.resetsAt || fh.resetsAt <= Date.now()) return send(res, 400, { ok: false, error: '現在沒有 5 小時額度在計時（沒用到、或已經重置了），不用等，直接選一個時間就好' });
+          const t = new Date(fh.resetsAt + 60000), pad = (n) => String(n).padStart(2, '0');
+          body = Object.assign({}, body, { kind: 'once', date: t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate()), at: pad(t.getHours()) + ':' + pad(t.getMinutes()) });
+        }
+        const c = Sched.clean(body, isDir);
+        if (!c.ok) return send(res, 400, { ok: false, error: c.error });
+        if (c.value.target === 'session' && !c.value.sessionTitle) { const s = find(c.value.sessionId); if (s) c.value.sessionTitle = s.title || ''; }
+        if (c.value.target === 'goal' && (!isOn('goal2') || !(await goal2.list()).installed)) return send(res, 400, { ok: false, error: '這台電腦沒有裝 goal2，不能交辦 goal' });
+        if (c.value.agent && !channels.roles(c.value.cwd).some((r) => r.name === c.value.agent)) return send(res, 400, { ok: false, error: '這個資料夾沒有「' + c.value.agent + '」這個角色' });
+        return send(res, 200, { ok: true, id: schedules.save(c.value, body.id) });
+      }
+      if (p === '/api/schedule/toggle') return send(res, 200, { ok: schedules.setEnabled(body.id, body.enabled === true) });
+      if (p === '/api/schedule/delete') return send(res, 200, { ok: schedules.remove(body.id) });
+      if (p === '/api/schedule/run') {
+        const s = schedules.get(body.id);
+        if (!s || !runner) return send(res, 404, { ok: false, error: '找不到這筆排程' });
+        const now = Date.now(); const r = await runner.fire(s, now, now);
+        fresh();
+        return send(res, 200, r.ok ? { ok: true, sessionId: r.sessionId, status: r.status } : { ok: false, error: r.error || '沒有執行成功' });
+      }
+      if (p === '/api/schedule/notice') { if (!runner) return send(res, 404, { ok: false, error: '排程沒有在執行' }); const r = await runner.act(body.id, String(body.action || '')); fresh(); return send(res, 200, r); }
       if (p === '/api/hide') {
         // {clear: true} brings every hidden session back; otherwise one session is hidden or shown.
         if (body.clear === true) { setHidden([]); fresh(); return send(res, 200, { ok: true, hidden: 0 }); }
         if (!/^[0-9a-f-]{8,64}$/i.test(sid)) return send(res, 400, { ok: false, error: '沒有指定 session' });
         const cur = hiddenList().filter((x) => x !== sid);
         if (body.hidden === true) cur.push(sid);
+        // Put back on the list: the days of quiet are counted from now, so that it does not hide itself again at once.
+        else { const t = Object.assign({}, config.value('shownAt', {})); delete t[sid]; t[sid] = Date.now(); const keys = Object.keys(t); for (const k of keys.slice(0, Math.max(0, keys.length - 500))) delete t[k]; config.setValue('shownAt', t); }
         setHidden(cur.slice(-500));
         fresh();
         return send(res, 200, { ok: true, hidden: cur.length });
@@ -628,8 +1270,8 @@ function createServer(token, port, deps = {}) {
         // The pid about to be ended must, right now, be registered to this very session.
         const reg = S.readRegistry(S.DEFAULTS.sessionsDir).find((r) => r.sessionId === sid && r.pid === s.pid);
         if (!reg) return send(res, 409, { ok: false, error: '這個 session 剛剛變動了，分不出哪個程序是它的，所以沒有結束任何東西' });
-        const win = await focusWindow(s.titleCandidates, 'find');
-        try { process.kill(s.pid); } catch (e) {}
+        const win = await focusWindow(s.titleCandidates, 'find', s.pid);
+        try { osKill(s.pid); } catch (e) {}
         for (let i = 0; i < 40 && S.pidAlive(s.pid); i++) await sleep(150);
         if (S.pidAlive(s.pid)) return send(res, 500, { ok: false, error: '那個程序沒有結束，請到它的視窗按兩次 Ctrl+C' });
         if (keeper) keeper.markClosed(sid, Date.now(), { cwd: s.cwd, title: s.title });
@@ -660,6 +1302,7 @@ function createServer(token, port, deps = {}) {
         const abs = F.realFile(body.path);
         if (!abs) return send(res, 404, { ok: false, error: '找不到這個檔案' });
         if (!F.canOpen(abs)) return send(res, 400, { ok: false, error: '為了安全，這種檔案不從看板直接開啟。可以用「在檔案總管顯示」找到它' });
+        if (MAC) { const o = await Mac.openFile(abs); return send(res, o.ok ? 200 : 500, o); }
         spawn('explorer.exe', [abs], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
         return send(res, 200, { ok: true });
       }
@@ -668,10 +1311,22 @@ function createServer(token, port, deps = {}) {
         let abs = null;
         try { if (typeof body.path === 'string' && !F.isNetworkPath(body.path) && path.isAbsolute(body.path) && fs.existsSync(body.path)) abs = path.normalize(body.path); } catch (e) {}
         if (!abs) return send(res, 404, { ok: false, error: '找不到這個路徑' });
-        const isFolder = fs.statSync(abs).isDirectory();
-        spawn('explorer.exe', isFolder ? [abs] : ['/select,' + abs], { detached: true, stdio: 'ignore', windowsVerbatimArguments: false }).on('error', () => {}).unref();
-        return send(res, 200, { ok: true });
+        // Opened by a script that then brings the Explorer window to the front (scripts/reveal.ps1): started from here
+        // directly it opens behind the browser, since the board is a background program.
+        if (MAC) { const m = await Mac.reveal(abs); return send(res, m.state === 'shown' ? 200 : 500, Object.assign({ ok: m.state === 'shown' }, m)); }
+        const r = await powershell('reveal.ps1', ['-PathB64', Buffer.from(abs, 'utf8').toString('base64')], 15000);
+        let j = {}; try { j = JSON.parse(r.line); } catch (e) {}
+        if (j.state === 'failed' || !j.state) { spawn('explorer.exe', fs.statSync(abs).isDirectory() ? [abs] : ['/select,' + abs], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref(); return send(res, 200, { ok: true, front: false }); }
+        return send(res, 200, { ok: true, front: j.state === 'front' });
       }
+      // The roles a conversation in a folder can be started as, and choosing one for a conversation not yet begun.
+      if (p === '/api/roles') {
+        const c = sid ? channels.get(sid) : null;
+        const cwd = c ? c.cwd : typeof body.cwd === 'string' ? body.cwd : '';
+        if (!isDir(cwd)) return send(res, 200, { ok: true, roles: [] });
+        return send(res, 200, { ok: true, roles: channels.roles(path.resolve(cwd)), agent: c && c.agent ? c.agent : '' });
+      }
+      if (p === '/api/role') { const r = channels.setAgent(sid, typeof body.agent === 'string' ? body.agent : ''); if (r.ok) fresh(); return send(res, r.ok ? 200 : 400, r); }
       if (p === '/api/new') {
         if (!isDir(body.cwd)) return send(res, 400, { ok: false, error: '這個資料夾不存在：' + String(body.cwd || '').slice(0, 200) });
         const c = channels.create(path.resolve(body.cwd));
@@ -689,8 +1344,8 @@ function createServer(token, port, deps = {}) {
         if (!reg) return send(res, 409, { ok: false, error: '這個 session 剛剛變動了，請再試一次' });
         // Find its window now, while the title still identifies it; once the
         // process is gone the pane only says "process exited".
-        const win = await focusWindow(s.titleCandidates, 'find');
-        try { process.kill(s.pid); } catch (e) {}
+        const win = await focusWindow(s.titleCandidates, 'find', s.pid);
+        try { osKill(s.pid); } catch (e) {}
         for (let i = 0; i < 40 && S.pidAlive(s.pid); i++) await sleep(150);
         if (S.pidAlive(s.pid)) return send(res, 500, { ok: false, error: '終端機裡的那個程序沒有結束，為了不讓同一個 session 兩邊同時跑，沒有接手' });
         const c = channels.create(s.cwd, sid);
@@ -714,9 +1369,13 @@ function createServer(token, port, deps = {}) {
         const cwd = c.cwd;
         const known = keeper && keeper.get(sid);
         const args = terminalArgs(sid, cwd, !!S.findTranscript(sid, cwd, S.DEFAULTS.projectsDir), known ? known.command : 'claude');
+        // its name goes with it (lib/sessions.js o.titles); the last 200 are remembered
+        if (c.title) { const t = Object.assign({}, config.value('movedTitles', {})); delete t[sid]; t[sid] = String(c.title).slice(0, 120); const keys = Object.keys(t); for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete t[k]; config.setValue('movedTitles', t); }
         channels.remove(sid);
         fresh();
-        openTerminal(args);
+        // a Mac says whether Terminal opened; if not, you are told how to pick it up (the conversation is on disk)
+        const o = await openTerminal(args);
+        if (o && o.ok === false) return send(res, 500, { ok: false, error: o.error + '。對話紀錄還在，可以在終端機用 claude --resume ' + sid + ' 接回' });
         return send(res, 200, { ok: true });
       }
       // Take a conversation off the board. Its history stays on disk (claude --resume <id>).
@@ -730,7 +1389,7 @@ function createServer(token, port, deps = {}) {
         if (active.length && body.force !== true) return send(res, 409, { ok: false, active });
         send(res, 200, { ok: true });
         channels.shutdown();
-        setTimeout(() => process.exit(0), 100);
+        setTimeout(() => osExit(0), 100);
         return;
       }
       return send(res, 404, { error: 'not found' });
@@ -739,6 +1398,26 @@ function createServer(token, port, deps = {}) {
     }
   });
   server.channels = channels;
+  // Also listen on this computer's Tailscale address (and only there), or stop doing so. -> {ok, listening, ip, name, error}
+  server.setRemote = async (on) => {
+    // off: not waited for - the request asking may have come through this very listener (it would wait for itself), and an
+    // open stream (/api/stream) never ends on its own. Stopped taking new connections now; the ones it has are cut a moment
+    // later, after this request has had its answer.
+    if (!on) { if (remote) { const r = remote; remote = null; r.server.close(() => {}); const cut = setTimeout(() => { if (r.server.closeAllConnections) r.server.closeAllConnections(); }, 300); if (cut.unref) cut.unref(); } return { ok: true, listening: false }; }
+    if (remote) return { ok: true, listening: true, ip: remote.ip, name: remote.name };
+    const i = await (deps.remoteInfo || Remote.info)();
+    if (!i.ok) return { ok: false, listening: false, error: i.why };
+    if (!i.ip) return { ok: false, listening: false, error: 'Tailscale 沒有給這台電腦 100.x 的位址' };
+    const s2 = http.createServer(server.listeners('request')[0]);
+    const err = await new Promise((res) => { s2.once('error', (e) => res(e)); s2.listen(port, i.ip, () => res(null)); });
+    if (err) return { ok: false, listening: false, error: err.code === 'EADDRINUSE' ? '這個位址的 ' + port + ' 已經被別的程式占用' : String(err.message || err) };
+    for (const h of [i.ip, i.name, i.name.split('.')[0]]) if (h) allowedHosts.add(h + ':' + port);
+    remote = { server: s2, ip: i.ip, name: i.name };
+    gate.refresh().catch(() => {});
+    return { ok: true, listening: true, ip: i.ip, name: i.name };
+  };
+  server.remoteState = () => (remote ? { listening: true, ip: remote.ip, name: remote.name, port } : { listening: false, port });
+  server.on('close', () => { if (remote) { try { remote.server.close(); } catch (e) {} remote = null; } });
   return server;
 }
 
@@ -755,7 +1434,8 @@ if (require.main === module) {
   try { if (config.value('notify', true) !== false) Notify.register(__dirname); } catch (e) {}
   server.listen(port, HOST, () => {
     console.log(`session-board ${VERSION} listening on http://${HOST}:${port}/?t=${token}`);
+    if (config.value('remoteTailscale', false) === true) server.setRemote(true).then((x) => console.log(x.ok ? `  and on Tailscale: http://${x.ip}:${port}/ (your own devices only)` : '  Tailscale: not listening - ' + x.error)).catch(() => {});
   });
 }
 
-module.exports = { createServer, terminalArgs, readEnded, inboxThreadText, getToken, portFromArgs, DEFAULT_PORT, HOST, DATA_DIR, TOKEN_FILE };
+module.exports = { sendPage, createServer, terminalArgs, readEnded, inboxThreadText, getToken, portFromArgs, DEFAULT_PORT, HOST, DATA_DIR, TOKEN_FILE };

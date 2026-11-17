@@ -16,7 +16,8 @@
 //   inbox_state    what each fetcher needs to remember between runs.
 const DB = require('../db');
 
-const SOURCES = ['gmail', 'slack', 'teams'];
+const Sources = require('./sources');
+const SOURCES = Sources.ids;   // the sources there are: lib/inbox/sources/index.js
 const BODY_MAX = 200000;
 
 function open(file) {
@@ -54,8 +55,8 @@ class Inbox {
   }
   saveRoute(r) {
     const source = String(r.source || ''), ref = String(r.source_ref || '').trim();
-    if (!SOURCES.includes(source)) return { ok: false, error: '來源只能是 gmail、slack 或 teams' };
-    if (!ref) return { ok: false, error: '請填這個來源用來比對的值（Gmail 標籤名稱、Slack 頻道編號或 Teams 對話編號）' };
+    if (!SOURCES.includes(source)) return { ok: false, error: '來源只能是 ' + Sources.list.map((x) => x.name).join('、') + ' 其中一個' };
+    if (!ref) return { ok: false, error: '請填這個來源用來比對的值：' + Sources.byId(source).routeHint };
     const s = (v) => { const t = String(v == null ? '' : v).trim(); return t || null; };
     this.db.prepare(`INSERT INTO inbox_route (source, source_ref, label, customer, system, root_folder, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(source, source_ref) DO UPDATE SET label = excluded.label, customer = excluded.customer, system = excluded.system, root_folder = excluded.root_folder, enabled = excluded.enabled`)

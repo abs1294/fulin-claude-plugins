@@ -36,7 +36,8 @@ const finish = () => {
     out = N.decide(input, { enabled: config.value('notify', true) !== false, ownChain: N.ownChainPresent(), entrypoint: regEntry && typeof regEntry.entrypoint === 'string' ? regEntry.entrypoint : '', onBoard, title: String(title).slice(0, 60) });
     if (out.show && !dry) {
       const b64 = (s) => Buffer.from(String(s), 'utf8').toString('base64');
-      spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(__dirname, 'toast.ps1'),
+      if (process.platform === 'darwin') require('child_process').spawnSync('osascript', ['-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run', String(out.title).slice(0, 200), String(out.message).slice(0, 400)], { timeout: 5000 });
+      else spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(__dirname, 'toast.ps1'),
         '-TitleB64', b64(out.title), '-MsgB64', b64(out.message), '-Sid', sid, '-Scheme', N.SCHEME], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     }
   } catch (e) { out = { show: false, why: String(e.message || e).slice(0, 120) }; }
