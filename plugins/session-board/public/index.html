@@ -3915,7 +3915,9 @@ async function drawAutoSettings(pane, sw) {
 // Which ones: what the turn did. Files changed (Edit / Write …) -> commit, review, and QA where qa-webwright is
 // installed; a document made (.docx .xlsx .pptx .pdf) -> a delivery message; always -> hand it to a goal.
 // A board conversation is sent the command; for a terminal session it is copied, to paste into its window.
-const NEXT_TEXT = { commit: ['commit', '用 git-commit 把這次的改動提交（它會先審查、再問你）'], review: ['對抗審查', '用 red-blue-review 對這次的改動做紅藍對抗審查'], qa: ['跑 QA', '用 qa-webwright 測這次改到的功能'], deliver: ['寫交付訊息', '用 deliver-report 把這次產出的檔案寫成交付訊息'], goal: ['交給 goal 做到完成', '用 goal2 定完成條件，交給 goal 引擎在背景做到完成'] };
+const NEXT_TEXT = { commit: ['commit', '用 git-commit 把這次的改動提交（它會先審查、再問你）'], review: ['對抗審查', '用 red-blue-review 對這次的改動做紅藍對抗審查'], qa: ['跑 QA', '用 qa-webwright 測這次改到的功能'], deliver: ['寫交付訊息', '用 deliver-report 把這次產出的檔案寫成交付訊息'], goal: ['交給 goal2…', '用 goal2 定完成條件、在背景做到完成。按下去會在輸入框放好 /goal2:goal，你在後面寫要做到完成的事再送出'] };
+// these need what to do written after them: put in the box to write it, never sent bare
+const NEXT_NEEDS_TASK = new Set(['goal']);
 const EDIT_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
 function drawNext() {
   const col = $('col'); if (!col) return;
@@ -3940,8 +3942,21 @@ function drawNext() {
   bar.append(el('span', 'nb-l', '下一步'));
   for (const a of acts) {
     const [label, tip] = NEXT_TEXT[a.key] || [a.key, a.cmd];
-    const b = el('button', 'btn', label); b.type = 'button'; b.title = tip + '\n送出：' + a.cmd;
+    const b = el('button', 'btn', label); b.type = 'button'; b.title = tip + '\n' + (NEXT_NEEDS_TASK.has(a.key) ? '放進輸入框：' : '送出：') + a.cmd;
     b.addEventListener('click', async () => {
+      if (NEXT_NEEDS_TASK.has(a.key)) {
+        const box = $('foot') && $('foot').querySelector('textarea');
+        if (s.owner !== 'board' || !box) { try { await navigator.clipboard.writeText(a.cmd + ' '); say('已複製「' + a.cmd + '」，貼到它的終端機視窗，後面寫要做到完成的事'); } catch (e) { say('複製不了，請手動輸入：' + a.cmd + ' <要做到完成的事>', true); } return; }
+        const lead = a.cmd + ' ';
+        const rest = box.value.replace(/^\s+/, '');
+        // already there (typed by you too, with or without the space after it): not added again
+        const has = rest === a.cmd || (rest.startsWith(a.cmd) && /^\s/.test(rest.slice(a.cmd.length)));
+        box.value = has ? (rest === a.cmd ? lead : rest) : lead + rest;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+        box.focus(); box.setSelectionRange(box.value.length, box.value.length);
+        say('在 ' + a.cmd + ' 後面寫要做到完成的事，再送出');
+        return;
+      }
       if (s.owner !== 'board') { try { await navigator.clipboard.writeText(a.cmd); say('已複製「' + a.cmd + '」，貼到它的終端機視窗'); } catch (e) { say('複製不了，請手動輸入：' + a.cmd, true); } return; }
       b.disabled = true; const r = await api('/api/send', { sessionId: s.sessionId, text: a.cmd }); if (!r.ok) { b.disabled = false; return say(r.data.error || '送不出去', true); }
       bar.remove(); say('已送出 ' + a.cmd);

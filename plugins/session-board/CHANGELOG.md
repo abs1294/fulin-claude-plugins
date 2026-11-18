@@ -2,6 +2,12 @@
 
 格式依 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)，最新在上。
 
+## [0.2.3] - 2026-11-18
+
+### Fixed
+
+- 對話「下一步」的 goal 按鈕按下去只送出光禿禿的 /goal2:goal，goal2 回「後面沒有接任務內容」。改成把 /goal2:goal 放進輸入框、游標停在後面讓你寫要做到完成的事；終端機 session 則複製這段。按鈕改叫「交給 goal2…」，跟 Claude Code 內建的 /goal 分開。
+
 ## [0.2.2] - 2026-11-17
 
 ### Fixed
