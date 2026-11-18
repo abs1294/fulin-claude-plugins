@@ -100,7 +100,7 @@
   .bell-pop .bp-head span { margin-left: auto; }
   .bell-pop details > summary { cursor: pointer; font-size: 13px; color: var(--dim); padding: 8px 14px 4px; list-style: none; } .bell-pop details > summary::-webkit-details-marker { display: none; }
   .bell-pop details > summary::before { content: "\25B8  "; } .bell-pop details[open] > summary::before { content: "\25BE  "; }
-  .bell-pop .list-more { margin: 6px 14px 0; }
+  .bell-pop .list-more { margin: 6px 14px 0; width: calc(100% - 28px); }   /* 100% and the side margins: wider than the box, which then slid sideways */
   .side-top h1 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; padding-left: 6px; }
   .btn { border: 1px solid var(--line); background: var(--bg); border-radius: var(--r-m); padding: 5px 10px; font-size: 14px; white-space: nowrap; }
   .btn:hover { background: var(--hover); }
@@ -188,12 +188,14 @@
     .dots { gap: 0; }
     .dots button { width: 28px; height: 28px; background: none; position: relative; border-radius: 0; }
     .dots button::after { content: ""; position: absolute; inset: 10.5px; border-radius: 50%; background: var(--line); }
+    .dots button.on { background: none; }
     .dots button.on::after { background: var(--accent); }
     input[type=checkbox], input[type=radio] { width: 26px; height: 26px; }
     /* (the boxes in a row of settings, of rooms and of options have their own size further down: outranked here, not by order) */
     html body .switch input, html body .choice input[type=checkbox], html body .opt input[type=checkbox], html body .opt input[type=radio] { width: 26px; height: 26px; }
     select, input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=hidden]) { min-height: 40px; }
     button.modelbtn, #homeBtn { min-height: 40px; }
+    html body .head .who .t .tt { padding-top: 5px; padding-bottom: 5px; }   /* the name, pressed to rename it: taller by its padding (a flex box would lose its "…") */
   }
   @media (max-width: 640px) { .src { flex-basis: 100%; } }
   .tabs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 8px; }
@@ -227,8 +229,8 @@
   .room.wait { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber); }
   .room.stuck { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); }
   .room-head { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px 8px; }
-  .room-head b { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .room-head span { margin-left: auto; color: var(--dim); font-size: 13px; white-space: nowrap; }
+  .room-head b { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 4em; }   /* the name keeps room: the counts give way first */
+  .room-head span { margin-left: auto; color: var(--dim); font-size: 13px; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .room-head button { border: 0; background: none; color: var(--dim); border-radius: var(--r-s); padding: 0 6px; font-size: 16px; line-height: 20px; }
   .room-head button:hover { background: var(--hover); color: var(--ink); }
   .desks { display: flex; flex-direction: column; border-top: 1px solid var(--line); flex: 1; min-height: 0; overflow-y: auto; }
@@ -405,6 +407,7 @@
   /* one line always: whichever does not fit is cut with an ellipsis (the folder path first); the full text is in the hover */
   .head .who .sline { display: flex; gap: 16px; align-items: baseline; }
   .head .who .sline > .s { min-width: 0; flex: 0 1 auto; } .head .who .sline > .s.mode { flex: 0 1 auto; max-width: 60%; }
+  .head .more-acts { display: none; }
   .head .who .s b.yours { color: var(--amber); } .head .who .s b.running { color: var(--green); }
 
   .scroll { flex: 1; overflow-y: auto; min-height: 0; }
@@ -900,7 +903,7 @@
   .switch { display: flex; align-items: flex-start; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
   .switch input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); flex: none; }
   .switch b { display: block; font-weight: 600; }
-  .switch span { display: block; color: var(--dim); font-size: 14px; }
+  .switch span { display: block; color: var(--dim); font-size: 14px; overflow-wrap: anywhere; }
   .pathrow { display: flex; gap: 8px; margin-top: 8px; }
   .pathrow input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-m); padding: 6px 10px; background: var(--bg); color: inherit; font: inherit; font-family: var(--mono); font-size: 14px; }
   .bad { color: var(--red); font-size: 14px; margin-top: 8px; }
@@ -916,6 +919,40 @@
     .app.viewing .side { display: none; }
     .app:not(.viewing) .main { display: none; }
     .head .back { display: inline-block; }
+    /* a page's heading: back and the name on one row (they took a row each) */
+    .head { min-height: 0; padding-top: 8px; padding-bottom: 8px; row-gap: 8px; }
+    .head .who { flex: 1 1 0; }
+    .head .back { width: 40px; height: 40px; padding: 0; flex: none; }
+    .head .who .t { font-size: 15px; }
+    .head .who .s, .head .who .sline { font-size: 12px; }
+    /* a conversation: one row (back, name, ⋯); its actions and figures behind ⋯ */
+    .head.chat { flex-wrap: wrap; }
+    .head.chat .who { min-width: calc(100% - 112px); }   /* back, the name and ⋯ fill the first row: what ⋯ opens starts on the next */
+    .head.chat .more-acts { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; font-size: 20px; flex: none; }
+    .head.chat:not(.open) > .btn:not(.back):not(.more-acts), .head.chat:not(.open) > .modes { display: none; }
+    .head.chat:not(.open) .who .sline > .s.mode { display: none; }   /* the permission mode: shown with what ⋯ opens */
+    .app:not(.acts-open) #info { display: none !important; }
+    /* jumping: one round "↓", only when away from the bottom */
+    .jump { right: 14px; bottom: 10px; }
+    .jump .btn:not(.to-new) { display: none; }
+    .scrollwrap:not(.away) .jump { display: none; }
+    .jump .to-new { width: 44px; height: 44px; padding: 0; border-radius: 50%; font-size: 0; display: inline-flex; align-items: center; justify-content: center; }
+    .jump .to-new::before { content: "\2193"; font-size: 20px; }
+    /* a terminal session's foot: one short row */
+    .foot .note { font-size: 13px; flex-wrap: nowrap; } .foot .note > span { flex: 1 1 auto; min-width: 0; } .foot .note .btn { flex: none; }
+    /* the list: the conversations first - the places in two columns, smaller; the line at the bottom left out */
+    .side-nav { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2px 4px; padding: 2px 6px 6px; }
+    .side-nav button.item { padding: 6px 8px; }
+    .side-nav .item .m { font-size: 12px; }
+    .side-quota { padding: 6px 12px 4px; }
+    .side-foot { display: none; }
+    /* the office's filters: one row that slides */
+    .of-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; padding-bottom: 2px; }
+    .of-chips::-webkit-scrollbar { display: none; }
+    .of-chips > * { flex: none; }
+    /* runs (schedule, goal): the name on a row of its own, in full */
+    .lg { grid-template-columns: auto auto minmax(0, 1fr) auto; }
+    .lg .lm { grid-column: 1 / -1; grid-row: 2; white-space: normal; overflow: visible; overflow-wrap: anywhere; }   /* a long path breaks */
     .head, .foot { padding-left: 12px; padding-right: 12px; }
     .col { padding-left: 12px; padding-right: 12px; }
     .msg.user > div { max-width: 90%; }
@@ -3188,7 +3225,7 @@ async function openChat(sid, at) {
   // another conversation: the file preview belonged to the one left, so it closes
   if (active !== sid && !$('peek').hidden) closePeek();
   chatOn = sid;
-  view = 'chat'; active = sid; items = []; histShape = ''; histMax = 120; histMore = false; histLoading = false; histReadyAt = Date.now() + 1200; confirming = false;
+  view = 'chat'; active = sid; items = []; histShape = ''; histMax = 120; histMore = false; histLoading = false; histReadyAt = Date.now() + 1200; confirming = false; actsOpen = false;
   setPlace(sid);
   $('app').classList.add('viewing');
   const main = $('main');
@@ -3205,7 +3242,7 @@ async function openChat(sid, at) {
   const jump = el('div', 'jump');
   const up = el('button', 'btn', '↑ 我上一則'); up.type = 'button'; up.title = '跳到我上一次說話的地方；再按一次再往上一則'; up.addEventListener('click', jumpToMine);
   const next = el('button', 'btn', '↓ 我下一則'); next.type = 'button'; next.title = '跳到我下一次說話的地方；再按一次再往下一則'; next.addEventListener('click', jumpToMineDown);
-  const dn = el('button', 'btn', '↓ 最新'); dn.type = 'button'; dn.title = '跳到最下面'; dn.addEventListener('click', toBottom);
+  const dn = el('button', 'btn to-new', '↓ 最新'); dn.type = 'button'; dn.title = '跳到最下面'; dn.setAttribute('aria-label', '跳到最新'); dn.addEventListener('click', toBottom);
   // To the top of what is loaded now. (Getting near the top is what fetches earlier messages; this jump itself does not
   // set that off - it goes to the oldest that is here, and stays there. Scrolling up from there loads more, as always.)
   const first = el('button', 'btn', '↑ 最舊'); first.type = 'button'; first.title = '跳到目前載入的最上面；已經在最上面時再按一次，載入更早的對話'; first.addEventListener('click', async () => {
@@ -3216,6 +3253,10 @@ async function openChat(sid, at) {
   });
   jump.append(first, up, next, dn);
   wrap.append(scroll, jump);
+  // away from the bottom (on a phone only "↓" is shown, and only then)
+  const AWAY_PX = 400;   // this far from the bottom, "↓" shows (on a phone, the only jump there is)
+  const away = () => wrap.classList.toggle('away', scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > AWAY_PX);
+  scroll.addEventListener('scroll', away, { passive: true });
   const info = el('div', 'info'); info.id = 'info'; info.hidden = true;
   const top = el('div', 'top');
   top.append(head, info);
@@ -3283,6 +3324,15 @@ function drawHead() {
   } else
   who.append(titled(s), sub);
   head.append(back, who);
+  // On a phone the heading is one row - back, the name, "⋯" (as the Claude app has it): the buttons below and the figures
+  // of the conversation are behind "⋯". On a wider screen "⋯" is not shown and everything is as it was.
+  {
+    const more = el('button', 'btn more-acts', '⋯'); more.type = 'button';
+    more.setAttribute('aria-label', '這個對話的動作與數字'); more.setAttribute('aria-expanded', String(actsOpen));
+    const show = () => { head.classList.toggle('open', actsOpen); more.setAttribute('aria-expanded', String(actsOpen)); const app = $('app'); if (app) app.classList.toggle('acts-open', actsOpen); };
+    more.addEventListener('click', () => { actsOpen = !actsOpen; show(); });
+    head.classList.add('chat'); head.append(more); show();
+  }
   const add = (label, cls, fn) => { const x = el('button', 'btn' + (cls ? ' ' + cls : ''), label); x.type = 'button'; x.addEventListener('click', fn); head.append(x); return x; };
   // (the list used to have a "+" beside each folder's name; it is one list now, so the way in is here)
   { const cb = add('改了什麼', '', () => openChanges(s)); cb.title = '這個 session 改過哪些檔案、每個檔案改了什麼；以及它的資料夾裡還沒 commit 的變更'; }
@@ -4974,6 +5024,7 @@ const TAB_ICON = "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2
 let moving = '';        // the conversation being moved to a terminal window right now (see the 移到終端機 button)
 let infoOpen = false;   // whether "more" is open; kept while the figures refresh and across conversations
 let openMore = null;    // opens or closes it (set when the stats row is drawn)
+let actsOpen = false;   // on a phone: the conversation's actions and figures shown (behind "⋯" in its heading); closed for each conversation opened
 let moreSet = null;     // redraws whether it can open (it has something in it) and whether it is open
 async function loadStats(sid) {
   let r;
@@ -5377,7 +5428,8 @@ function newPageAvailable() {
   b.addEventListener('click', () => location.reload());
   foot.append(b);
 }
-const setPlace = (hash) => { try { history.replaceState(null, '', location.pathname + location.search + (hash ? '#' + hash : '')); } catch (e) {} };
+const setPlace = (hash) => { let at = location.hash.replace(/^#/, ""); try { at = decodeURIComponent(at); } catch (e) {} if (at !== String(hash || "")) closeBell();   // another page (not a redraw of the same one): the notices box does not stay over it
+ try { history.replaceState(null, '', location.pathname + location.search + (hash ? '#' + hash : '')); } catch (e) {} };
 
 /* ── account limits in the sidebar ── */
 let sideQuotaData = null;
