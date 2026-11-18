@@ -414,6 +414,21 @@ function createServer(token, port, deps = {}) {
   // hideProgramFolders is its own rule ("一律不列出"): it hides whatever is in those folders, whether or not
   // hideProgramSessions is on.
   const inHiddenFolder = (cwd) => inFolders(cwd, pref('hideProgramFolders'));
+  // Whether a conversation's first message was content blocks (the form the board sends): it never changes once it is
+  // written, so it is read once per session - not on every poll, while the conversation keeps growing.
+  const firstForm = new Map();   // transcript file -> true | false (only once a first message was found)
+  // Kept by transcript file, not by session id alone: a session that comes to be written to another file (moved to
+  // another folder) is read again from that file.
+  const firstIsBlocks = (sid, cwd) => {
+    let f = null; try { f = S.findTranscript(sid, cwd, S.DEFAULTS.projectsDir); } catch (e) {}
+    if (!f) return false;
+    if (firstForm.has(f)) return firstForm.get(f);
+    let v = null;
+    try { const e = Past.ends(f); if (typeof e.blocks === 'boolean') v = e.blocks; } catch (e) {}
+    if (v === null) return false;   // nothing written yet: asked again next time
+    firstForm.set(f, v); if (firstForm.size > 2000) firstForm.delete(firstForm.keys().next().value);
+    return v;
+  };
   const autoHideDays = () => { const v = config.value('autoHideDays', 7); return Number.isInteger(v) && v >= 0 && v <= 365 ? v : 7; };
   // One fixed question to a small model about a text (lib/decide.js): "is something left undone?" for the goal2 next step, and
   // any other question file. Which model: the setting decideModel (read on each call).
@@ -501,7 +516,7 @@ function createServer(token, port, deps = {}) {
       for (const s of list) {
         if (inHiddenFolder(s.cwd)) { s.folderHidden = true; s.programHidden = true; }
         if (s.owner === 'board') continue;
-        let blocks = false; if (s.entrypoint && s.entrypoint !== 'cli') { try { const f = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir); if (f) blocks = Past.ends(f).blocks === true; } catch (e) {} }
+        let blocks = false; if (s.entrypoint && s.entrypoint !== 'cli') blocks = firstIsBlocks(s.sessionId, s.cwd);
         if (byProgram(s.sessionId, s.entrypoint, known, blocks)) { s.byProgram = true; if (hideProg) s.programHidden = true; }
       }
       if (keeper) for (const s of list) if (keepable(s)) s.kept = keeper.isKept(s.sessionId);
@@ -860,8 +875,9 @@ function createServer(token, port, deps = {}) {
           const exclude = new Set([...sessions().map((s) => s.sessionId), ...hiddenList()]);
           const known = boardStarted(), hideProg = pref('hideProgramSessions');
           const hide = q.get('programs') === '1' ? null : (d) => inHiddenFolder(d.cwd) || (hideProg && byProgram(d.sessionId, d.entry, known, d.blocks));
-          const pl = Past.list({ projectsDir: S.DEFAULTS.projectsDir, exclude, hide, q: String(q.get('q') || '').slice(0, 100), limit: 600 });   /* all of them: the page lists them by folder */
-          const given = customTitles(); for (const x of pl.items) if (given[x.sessionId]) { x.title = given[x.sessionId]; x.named = true; }   // a name given on the board, here too
+          const given = customTitles();
+          const pl = Past.list({ projectsDir: S.DEFAULTS.projectsDir, exclude, hide, names: given, q: String(q.get('q') || '').slice(0, 100), limit: 600 });   /* all of them: the page lists them by folder */
+          for (const x of pl.items) if (given[x.sessionId]) { x.title = given[x.sessionId]; x.named = true; }   // a name given on the board, here too
           return send(res, 200, Object.assign(pl, { days: Past.DAYS, hidden: hiddenList().length }));
         }
         // What one tool call of a conversation actually did (lib/history.js toolDetailAt): asked for when its line is opened.
@@ -1013,7 +1029,8 @@ function createServer(token, port, deps = {}) {
 
       // What happens on this computer's screen is not done for a request from another computer: nobody is there to see it.
       // what happens on this computer's screen - a window brought forward, opened or closed, a file opened, a folder picker -
-      // is refused from another computer (to a terminal, an old conversation or a kept one opened in a terminal, a session ended)
+      // is refused from another computer (to a terminal, an old conversation or a kept one opened in a terminal, a session ended,
+      // a terminal session taken over by the board - its window is closed)
       const onThisScreen = ['/api/focus', '/api/pick-folder', '/api/file/open', '/api/file/reveal', '/api/to-terminal', '/api/end', '/api/takeover'].includes(p)
         || ((p === '/api/past/open' || p === '/api/keep/restore') && body.to !== 'board');
       if (onThisScreen && !isLocal(req)) return send(res, 403, { ok: false, error: '這個動作會發生在看板那台電腦的螢幕上，從別台電腦不能用' });
@@ -1231,17 +1248,10 @@ function createServer(token, port, deps = {}) {
           if (!x.ok) return send(res, 400, { ok: false, error: x.error });
           config.setValue('remoteTailscale', body.remoteTailscale);
         }
-        if (r.ok && body.textSize !== undefined) {
-          const v = Number(body.textSize);
-          if (!TEXT_SIZES.includes(v)) return send(res, 400, { ok: false, error: '字級只能是 ' + TEXT_SIZES.join('、') });
-          config.setValue('textSize', v);
-        }
+        // (the values below were checked at the top of this handler)
+        if (r.ok && body.textSize !== undefined) config.setValue('textSize', Number(body.textSize));
         if (r.ok && given.length) { for (const k of given) config.setValue(k, body[k]); fresh(); }
-        if (r.ok && body.autoHideDays !== undefined) {
-          const n = Number(body.autoHideDays);
-          if (!Number.isInteger(n) || n < 0 || n > 365) return send(res, 400, { ok: false, error: '天數要是 0 到 365 的整數（0 表示不自動隱藏）' });
-          config.setValue('autoHideDays', n); fresh();
-        }
+        if (r.ok && body.autoHideDays !== undefined) { config.setValue('autoHideDays', Number(body.autoHideDays)); fresh(); }
         // Notifications: the setting, and the address scheme a click on one goes through.
         if (r.ok && typeof body.notify === 'boolean') {
           config.setValue('notify', body.notify);

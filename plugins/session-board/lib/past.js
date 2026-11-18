@@ -222,7 +222,9 @@ function list(o) {
     const d = describe(f);
     if (!d.cwd || !d.first) continue;
     if (o.hide && o.hide(d)) { hidden++; continue; }
-    if (q && !(d.title + '\n' + d.folder + '\n' + d.first + '\n' + d.last).toLowerCase().includes(q)) continue;
+    // o.names: names given on the board ({sessionId: name}) - found by them too, not only by Claude Code's titles
+    const given = o.names && typeof o.names[d.sessionId] === 'string' ? o.names[d.sessionId] : '';
+    if (q && !(given + '\n' + d.title + '\n' + d.folder + '\n' + d.first + '\n' + d.last).toLowerCase().includes(q)) continue;
     matched++;
     if (items.length < limit) items.push(d);
   }

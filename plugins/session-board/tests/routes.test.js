@@ -358,10 +358,13 @@ test('settings kept in the board: the left column, the office, sessions a progra
   // one wrong value in a save: nothing of it is saved
   assert.strictEqual((await post('/api/config', { hideProgramSessions: true, decideModel: 'not a model!' })).status, 400);
   assert.strictEqual((await get('/api/config')).json.prefs.hideProgramSessions, false, 'the right value next to a wrong one was not saved either');
-  const sizeWas = (await get('/api/config')).json.textSize;
-  assert.strictEqual((await post('/api/config', { textSize: 1.3, autoHideDays: 3, decideModel: 'not a model!' })).status, 400);
-  const after = (await get('/api/config')).json;
-  assert.deepStrictEqual([after.textSize, after.autoHideDays !== 3], [sizeWas, true], 'the older settings in the same save are not written either');
+  const sizeNow = async () => (await get('/api/sessions')).json.features.textSize;   // the text size is reported with the sessions
+  const sizeWas = await sizeNow(), daysWas = (await get('/api/config')).json.autoHideDays;
+  assert.strictEqual(typeof daysWas, 'number', 'there is a value to compare with');
+  const otherDays = daysWas === 3 ? 4 : 3, otherSize = sizeWas === 1.3 ? 1 : 1.3;
+  assert.strictEqual((await post('/api/config', { textSize: otherSize, autoHideDays: otherDays, decideModel: 'not a model!' })).status, 400);
+  const after = { textSize: await sizeNow(), autoHideDays: (await get('/api/config')).json.autoHideDays };
+  assert.deepStrictEqual([after.textSize, after.autoHideDays], [sizeWas, daysWas], 'the older settings in the same save are not written either (compared with what they were)');
   assert.strictEqual((await post('/api/config', { autoHideDays: 999, hideProgramSessions: true })).status, 400);
   assert.strictEqual((await get('/api/config')).json.prefs.hideProgramSessions, false, 'a wrong older value stops the new ones too');
   assert.strictEqual((await post('/api/config', { hideProgramSessions: true })).status, 200);

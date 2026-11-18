@@ -49,6 +49,9 @@ test('past: what you said is read from the two ends of a transcript, however lon
   assert.deepStrictEqual(Past.list({ projectsDir: d, q: 'REDCAP' }).items.map((x) => x.sessionId), [SID(2)]);
   assert.deepStrictEqual(Past.list({ projectsDir: d, q: '延長線' }).items.map((x) => x.sessionId), [SID(1)]);   // title and first sentence
   assert.strictEqual(Past.list({ projectsDir: d, q: '中間說的話' }).matched, 0);                               // the middle is not searched
+  // a name given on the board finds it too (it is not in the transcript)
+  assert.deepStrictEqual(Past.list({ projectsDir: d, q: '我的專案名', names: { [SID(2)]: '我的專案名 X' } }).items.map((x) => x.sessionId), [SID(2)]);
+  assert.strictEqual(Past.list({ projectsDir: d, q: '我的專案名' }).matched, 0, 'without the names it is not found');
   assert.deepStrictEqual(Past.list({ projectsDir: d, exclude: new Set([SID(1)]) }).items.map((x) => x.sessionId), [SID(2)]);
   assert.strictEqual(Past.find(d, SID(4)).first, '兩個月前');                 // by id, whatever its age
   assert.strictEqual(Past.find(d, '..\\x'), null);

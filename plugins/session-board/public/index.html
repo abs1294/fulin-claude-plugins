@@ -1162,6 +1162,9 @@ function drawList() {
   $('plugBtn').hidden = true;   // 2026-11-17: no longer in the left column - a page to look at sped nothing up; reached from the settings
   if (pluginsData) { const n = pluginsData.harness.reduce((k, h) => k + (h.pendingCount ? 1 : 0) + (h.due.length ? 1 : 0), 0) + (pluginsData.pm && pluginsData.pm.behind ? pluginsData.pm.behind.length : 0); $('plugSub').textContent = n ? n + ' 件要你處理' : 'goal2、harness、版本、git…'; $('plugDot').className = 'dot' + (n ? ' yours' : ''); }
   { const c = officeCounts(); $('officeDot').className = 'dot' + (c.wait || c.stuck ? ' yours' : c.run ? ' running' : ''); $('officeSub').textContent = [c.wait ? c.wait + ' 個等你回應' : '', c.stuck ? c.stuck + ' 個可能卡住' : '', c.run ? c.run + ' 個執行中' : ''].concat(pastCount ? [pastCount] : []).filter(Boolean).join('、') || '每個資料夾一間：開著的、沒開著的'; }
+  // A name being typed into one of the list's items: the list itself is not redrawn under it (a refresh would take the
+  // box away, and what was typed with it); the counts above still are. It is drawn again as soon as the box is closed.
+  if (document.querySelector('.side .rename-in')) return;
   const shape = JSON.stringify(sessions.map((s) => [s.sessionId, s.title, s.group, s.status, s.owner, s.cwd, s.kept, s.hidden, s.lastUser, s.saidAt])) + active + showHidden;
   if (shape !== listShape) {
     listShape = shape;
@@ -3237,7 +3240,9 @@ document.addEventListener('dragover', (e) => {
   // text dragged into a text box is left to the browser; anything else is taken here, so nothing is opened in place of the board
   if (!draggingFiles(e) && e.target && e.target.closest && e.target.closest('textarea, input')) return;
   e.preventDefault();
-  if (e.dataTransfer) e.dataTransfer.dropEffect = draggingFiles(e) && composerDrop && view === 'chat' ? 'copy' : 'none';
+  // Files are let through everywhere (the drop then says where to put them instead, when it is not a conversation);
+  // 'none' would make the browser skip the drop altogether, and that note would never be shown.
+  if (e.dataTransfer) e.dataTransfer.dropEffect = draggingFiles(e) ? 'copy' : 'none';
 });
 document.addEventListener('drop', (e) => {
   const files = droppedFiles(e.dataTransfer);
@@ -4593,10 +4598,14 @@ function renameIn(host, s, after) {
   let done = false;
   const finish = async (save) => {
     if (done) return; done = true;
-    if (!save) { host.textContent = ''; host.append(...was); return; }
+    // closed without a new name (Esc, or the save refused): what was there comes back, and the list is drawn again
+    // at once with whatever changed while the box was open
+    const back = () => { host.textContent = ''; host.append(...was); listShape = ''; drawList(); };
+    if (!save) return back();
     const name = inp.value.trim();
     let r; try { r = await api('/api/rename', { sessionId: s.sessionId, name }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
-    if (!r.ok) { host.textContent = ''; host.append(...was); return say(r.data.error || '改不了名', true); }
+    if (!r.ok) { back(); return say(r.data.error || '改不了名', true); }
+    host.textContent = ''; host.append(...was);   // the box closed first, so the list can be drawn again with the new name
     s.title = r.data.name || s.title; s.titleSource = r.data.name ? 'board' : '';
     say(r.data.name ? '已改名為「' + r.data.name + '」' + (r.data.synced ? '，也告訴了 Claude Code（/rename）' : '') : '已恢復自動的標題');
     listShape = ''; await poll(); if (after) after();
