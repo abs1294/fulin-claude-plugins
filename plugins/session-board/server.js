@@ -56,6 +56,7 @@ const Remote = require('./lib/remote');
 const Plugins = require('./lib/plugins');
 const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
+const Rewind = require('./lib/rewind');
 const { Auto } = require('./lib/auto');
 
 const SOURCES_OK = require('./lib/inbox/sources').ids;
@@ -1358,6 +1359,30 @@ function createServer(token, port, deps = {}) {
       }
       // A copy of a conversation, on the board: it starts from what the original holds now and goes its own way; the
       // original is not touched (Claude Code's --fork-session, see lib/chat.js _start).
+      // A message of a board conversation edited and sent again: the conversation is carried on from just before that
+      // message, as a new board conversation that is sent the new words; the old one is closed (its transcript stays,
+      // under 沒開著), and its name, model, effort and role go with it. A turn in progress is stopped first.
+      if (p === '/api/rewind') {
+        const c = channels.get(sid);
+        if (!c) return send(res, 400, { ok: false, error: '只有看板裡的對話可以編輯重送' });
+        const text = typeof body.text === 'string' ? body.text : '';
+        if (!text.trim()) return send(res, 400, { ok: false, error: '改好的訊息是空的' });
+        const file = S.findTranscript(sid, c.cwd, S.DEFAULTS.projectsDir);
+        if (!file) return send(res, 400, { ok: false, error: '這個對話還沒有紀錄' });
+        const rp = Rewind.resumePoint(file, body.at);
+        if (!rp.ok) return send(res, 400, rp);
+        channels.stop(sid);
+        const n = channels.create(c.cwd, crypto.randomUUID());
+        if (rp.at) { n.forkOf = sid; n.resumeAt = rp.at; }
+        for (const k of ['title', 'model', 'effort', 'agent', 'skipPermissions']) if (c[k]) n[k] = c[k];
+        const t = Object.assign({}, customTitles()); if (t[sid]) { t[n.sessionId] = t[sid]; config.setValue('customTitles', t); }
+        if (channels._save) channels._save();
+        const r = channels.send(n.sessionId, text);
+        if (r && r.ok === false) { channels.remove(n.sessionId); fresh(); return send(res, 500, { ok: false, error: r.error || '送不出去' }); }
+        channels.remove(sid);
+        fresh();
+        return send(res, 200, { ok: true, sessionId: n.sessionId, fromStart: !rp.at });
+      }
       if (p === '/api/fork') {
         // A feature that is off unless switched on in the settings (showFork): the page then has no button for it, and the address refuses.
         if (config.value('showFork', false) !== true) return send(res, 403, { ok: false, error: '「開分身」已經在設定裡關閉。要用的話到設定頁打開' });

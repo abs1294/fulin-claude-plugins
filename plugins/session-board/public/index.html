@@ -56,8 +56,6 @@
   #unfoldBtn { font-size: 22px; line-height: 1; padding: 4px 10px 8px; min-width: 38px; }
   /* renaming in place */
   .rename-in { font: inherit; width: 100%; box-sizing: border-box; border: 1px solid var(--accent, #2563EB); border-radius: var(--r-s); padding: 2px 6px; background: var(--bg); color: inherit; }
-  .who .t .ren { border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 14px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
-  .who .t .ren:hover { color: inherit; }
   /* the office: starred rooms first, rooms dragged into your own order */
   .of-sec { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--dim); margin: 6px 0 -4px; }
   .of-sec button { border: 0; background: none; color: var(--accent, #2563EB); cursor: pointer; font: inherit; font-weight: 500; padding: 0; }
@@ -66,6 +64,7 @@
   .room[draggable="true"] .room-head { cursor: grab; }
   .room.dragging { opacity: .45; }
   .room.drop-before { box-shadow: -4px 0 0 0 var(--accent, #2563EB); }
+  .room.drop-after { box-shadow: 4px 0 0 0 var(--accent, #2563EB); }
   /* the bell, and the list it opens */
   .bell { position: relative; border: 0; background: none; color: var(--dim); width: 32px; height: 32px; border-radius: var(--r-m); display: grid; place-items: center; padding: 0; flex: none; }
   .bell:hover, .bell[aria-expanded="true"] { background: var(--hover); color: var(--ink); }
@@ -376,7 +375,11 @@
   .head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 20px; border-bottom: 1px solid var(--line); min-height: 56px; }
   .head .back { display: none; }
   .head .who { flex: 1 1 260px; min-width: 0; }
-  .head .who .t { font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .head .who .t { font-weight: 600; font-size: 16px; display: flex; align-items: center; min-width: 0; }
+  /* the name: cut short with "…"; pressed, it turns into a box to rename it (a text cursor and a faint ground say so) */
+  .head .who .t .tt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; border-radius: var(--r-s); padding: 0 4px; margin-left: -4px; }
+  .head .who .t .tt:hover { background: var(--hover); }
+  .head .who .t .tt:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .head .who .s { font-size: 13px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .head .who .s b { font-weight: 600; }
   /* one line always: whichever does not fit is cut with an ellipsis (the folder path first); the full text is in the hover */
@@ -402,6 +405,15 @@
   .msg { margin: 0 0 14px; overflow-wrap: anywhere; }
   .msg.user { display: flex; justify-content: flex-end; }
   .msg.user > div { background: var(--bubble); border-radius: var(--r-l); padding: 8px 14px; max-width: 78%; white-space: pre-wrap; }
+  /* edit and send again (a board conversation): a quiet word left of your bubble, seen on hover; always on a touch screen */
+  .msg.user .edit-msg { align-self: flex-end; flex: none; margin-right: 6px; border: 0; background: none; color: var(--faint); font-size: 13px; padding: 4px 6px; border-radius: var(--r-s); cursor: pointer; opacity: 0; transition: opacity .12s; }
+  .msg.user:hover .edit-msg, .msg.user .edit-msg:focus-visible { opacity: 1; }
+  .msg.user .edit-msg:hover { background: var(--hover); color: var(--ink); }
+  @media (hover: none) { .msg.user .edit-msg { opacity: .8; } }
+  .msg.user > div.edit-box { width: 78%; white-space: normal; display: flex; flex-direction: column; gap: 8px; }
+  .edit-box textarea { font: inherit; width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid var(--accent, #2563EB); border-radius: var(--r-s); padding: 6px 8px; background: var(--bg); color: inherit; }
+  .edit-box .edit-row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .edit-box .hint { font-size: 13px; color: var(--dim); }
   .msg.assistant.streaming { white-space: pre-wrap; }
   .msg.assistant.streaming::after { content: "\258D"; color: var(--accent); margin-left: 1px; animation: caret 1s steps(2) infinite; }
   @keyframes caret { 50% { opacity: 0; } }
@@ -1518,7 +1530,7 @@ function drawNew() {
   const go = el('button', 'btn', '開始'); go.type = 'button';
   const start = () => { if (input.value.trim()) createIn(input.value.trim(), bad); };
   go.addEventListener('click', start);
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') start(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) start(); });   // not while an input method picks characters
   row.append(input, go);
   pane.append(row, bad);
   const folders = [...new Map(sessions.filter((s) => s.cwd).map((s) => [s.cwd, s.folder])).entries()];
@@ -1822,7 +1834,7 @@ async function drawThread(id) {
       closePop(); if (p) assign(p);
     });
     const typed = el('input'); typed.type = 'text'; typed.placeholder = '或貼上完整路徑，按 Enter'; typed.autocomplete = 'off'; typed.setAttribute('aria-label', '資料夾的完整路徑');
-    typed.addEventListener('keydown', (e) => { if (e.key === 'Enter' && typed.value.trim()) { closePop(); assign(typed.value.trim()); } });
+    typed.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && typed.value.trim()) { closePop(); assign(typed.value.trim()); } });
     pop.append(other, typed);
     if (t.root_folder) { const off = el('button', 'popitem danger', '取消分派'); off.type = 'button'; off.addEventListener('click', () => { closePop(); assign(''); }); pop.append(el('hr'), off); }
     pop.hidden = false; folderBtn.setAttribute('aria-expanded', 'true');
@@ -1998,7 +2010,7 @@ async function drawSettings() {
     say(saved ? '已儲存。下次選資料夾會從 ' + saved + ' 開始' : '已清除，改由 Windows 決定');
   };
   input.addEventListener('input', mark);
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !saveBtn.disabled) save(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && !saveBtn.disabled) save(); });
   saveBtn.addEventListener('click', save);
   browse.addEventListener('click', async () => {
     browse.disabled = true; browse.textContent = '請在跳出的視窗裡選…';
@@ -2291,14 +2303,19 @@ function fillOffice() {
     if (cwd && !officeQ) {
       box.draggable = true; box.dataset.cwd = cwd; box.title = '拖曳可以調整房間的順序';
       box.addEventListener('dragstart', (e) => { officeDrag = cwd; box.classList.add('dragging'); try { e.dataTransfer.setData('text/x-room', cwd); e.dataTransfer.effectAllowed = 'move'; } catch (x) {} });
-      box.addEventListener('dragend', () => { officeDrag = ''; box.classList.remove('dragging'); for (const x of grid.querySelectorAll('.drop-before')) x.classList.remove('drop-before'); });
-      box.addEventListener('dragover', (e) => { if (!officeDrag || officeDrag === cwd || isFav(r) !== favs.includes(low(officeDrag))) return; e.preventDefault(); box.classList.add('drop-before'); });
-      box.addEventListener('dragleave', () => box.classList.remove('drop-before'));
+      // dragged forward (toward the end) it goes after the room it is let go on; dragged back, before it - so the first can
+      // become the last, and the mark shows on the side it will go
+      const after = () => { const at = (c) => sorted.findIndex((x) => low(x.cwd) === low(c)); return at(officeDrag) < at(cwd); };
+      const unmark = () => box.classList.remove('drop-before', 'drop-after');
+      box.addEventListener('dragend', () => { officeDrag = ''; box.classList.remove('dragging'); for (const x of grid.querySelectorAll('.drop-before, .drop-after')) x.classList.remove('drop-before', 'drop-after'); });
+      box.addEventListener('dragover', (e) => { if (!officeDrag || officeDrag === cwd || isFav(r) !== favs.includes(low(officeDrag))) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; box.classList.add(after() ? 'drop-after' : 'drop-before'); });
+      box.addEventListener('dragleave', unmark);
       box.addEventListener('drop', (e) => {
         if (!officeDrag || officeDrag === cwd || isFav(r) !== favs.includes(low(officeDrag))) return;   // only within its own part
-        e.preventDefault(); e.stopPropagation(); box.classList.remove('drop-before');
+        e.preventDefault(); e.stopPropagation(); unmark();
+        const late = after();
         const list = sorted.map((x) => x.cwd).filter((x) => x && low(x) !== low(officeDrag));
-        list.splice(list.findIndex((x) => low(x) === low(cwd)), 0, officeDrag);
+        list.splice(list.findIndex((x) => low(x) === low(cwd)) + (late ? 1 : 0), 0, officeDrag);
         saveOrder(list);
       });
     }
@@ -3131,6 +3148,7 @@ function drawTasks() {
   // the row itself: not shown when nothing in it is (an empty bar that could still be pressed)
   const chipRow = $('agentChip') && $('agentChip').parentElement;
   if (chipRow) chipRow.hidden = ![...chipRow.children].some((c) => !c.hidden);
+  if (moreSet) moreSet();   // rows came or went under 更多: whether the row can open follows
   tickTasks();
 }
 function tickTasks() {
@@ -3203,13 +3221,21 @@ function liveOrListed() { const s = cur(); return s ? (s.owner === 'board' && li
 
 // The conversation's name in its heading, with the button that renames it (kept by the board above every other title).
 function titled(s) {
-  const tl = el('div', 't', s.title);
-  const ren = el('button', 'ren', '✎'); ren.type = 'button'; ren.title = '改名（看板會記住，不會被自動標題蓋掉；留空＝恢復自動標題）'; ren.setAttribute('aria-label', '改名'); ren.addEventListener('click', () => renameIn(tl, s, drawHead)); tl.append(ren);
+  // the name itself is pressed to rename it: it turns into a box in place (no separate button)
+  const tl = el('div', 't'), tt = el('span', 'tt', s.title);
+  tt.setAttribute('role', 'button'); tt.tabIndex = 0; tt.title = '按一下改名（看板會記住，不會被自動標題蓋掉；留空＝恢復自動標題）';
+  const go = () => renameIn(tl, s, drawHead);
+  tt.addEventListener('click', go);
+  tt.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  tl.append(tt);
   return tl;
 }
 function drawHead() {
   const s = cur(), head = $('head');
   if (!head) return;
+  // the name being typed in the heading: not redrawn under it (a terminal session's news redraws the heading every
+  // few seconds, which took the box away before a word was typed); drawn again when the box closes (renameIn)
+  if (head.querySelector('.rename-in')) return;
   head.textContent = '';
   const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', drawHome);
   const who = el('div', 'who');
@@ -3463,6 +3489,9 @@ function droppedFiles(dt) {
   return files.map((x) => { if (x.type) return x; const t = IMG_EXT[String(x.name || '').split('.').pop().toLowerCase()]; return t ? new File([x], x.name, { type: t, lastModified: x.lastModified }) : x; });
 }
 document.addEventListener('dragover', (e) => {
+  // a drag that a part of the page already takes (a room of the office being moved into place) is left to it: setting
+  // 'none' here would make the browser refuse that drop, and the room jumped back where it was
+  if (e.defaultPrevented) return;
   // text dragged into a text box is left to the browser; anything else is taken here, so nothing is opened in place of the board
   if (!draggingFiles(e) && e.target && e.target.closest && e.target.closest('textarea, input')) return;
   e.preventDefault();
@@ -3669,7 +3698,7 @@ function drawFoot() {
   ta.addEventListener('blur', () => { pop.hidden = true; });
   ta.addEventListener('focus', showCmds);
   ta.addEventListener('keydown', (e) => {
-    if (e.isComposing) return;
+    if (e.isComposing || e.keyCode === 229) return;   // an input method picking characters (Safari: 229 on the Enter that ends it)
     if (!pop.hidden && shown.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); sel = (sel + 1) % shown.length; return showCmds(); }
       if (e.key === 'ArrowUp') { e.preventDefault(); sel = (sel + shown.length - 1) % shown.length; return showCmds(); }
@@ -3926,7 +3955,7 @@ function node(it) {
     const pics = picsOf(it);
     // Sent while Claude was working: it is read when the action in hand is done, in the same turn.
     const midNote = null;   // sent while it worked: nothing said about it (the box itself already says so before you send)
-    if (!q) { const own = el('div', '', it.text); if (pics) own.prepend(pics); m.append(own); linkFiles(m, active); if (midNote) m.append(midNote); return m; }
+    if (!q) { const own = el('div', '', it.text); if (pics) own.prepend(pics); m.append(own); linkFiles(m, active); if (midNote) m.append(midNote); addEdit(m, it, pics); return m; }
     // Your words in your bubble; what you quoted folded above them, opened by a click.
     const bubble = el('div');
     // Not a <button>: the paths in what is quoted (a mail's attachments) are made clickable, and that is not done inside a button.
@@ -3944,6 +3973,7 @@ function node(it) {
     });
     bubble.append(card, el('div', 'own', q.words)); if (pics) bubble.append(pics);
     m.append(bubble); linkFiles(bubble.querySelector('.own'), active); if (midNote) m.append(midNote);
+    addEdit(m, it, pics);
     return m;
   }
   // Where Claude Code compacted the conversation: everything above this line is what it summarized.
@@ -3963,6 +3993,46 @@ function node(it) {
   }
   if (it.role === 'error') { const c = el('div', 'card err'); c.append(el('div', 'q', '出錯了'), el('div', '', it.text)); return c; }
   return null;
+}
+
+// Edit a message you sent and send it again (a board conversation): it turns into a box in place; sent, the
+// conversation is carried on from just before it as a new one (the old one goes to 沒開著, see /api/rewind). Not for a
+// message with pictures: they would not be sent again, and that would go unnoticed.
+function addEdit(m, it, pics) {
+  const s = cur();
+  if (!s || s.owner !== 'board' || !it.id || pics || it.images || it.imgAt) return;
+  const b = el('button', 'edit-msg', '編輯'); b.type = 'button';
+  b.title = '改這則訊息再送一次：正在進行的回覆會停下，對話從這則之前重來（原本的對話收進「沒開著」，不會刪掉）';
+  b.addEventListener('click', () => editMsg(m, it));
+  m.prepend(b);
+}
+function editMsg(m, it) {
+  if (m.querySelector('.edit-box')) return;
+  const was = [...m.childNodes];
+  const box = el('div', 'edit-box'), ta = el('textarea');
+  ta.value = it.text || ''; ta.rows = Math.min(12, Math.max(2, ta.value.split('\n').length + 1)); ta.setAttribute('aria-label', '改好的訊息');
+  const row = el('div', 'edit-row'), cancel = el('button', 'btn', '取消'), go = el('button', 'btn primary', '送出，從這則重來');
+  cancel.type = 'button'; go.type = 'button';
+  row.append(cancel, go);
+  box.append(ta, el('div', 'hint', '送出後，正在進行的回覆會停下，對話從這則之前接著跑。原本的對話收進「沒開著」，不會刪掉。Enter 送出、Shift+Enter 換行、Esc 取消。'), row);
+  m.textContent = ''; m.append(box); m.classList.add('editing');
+  ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  const close = () => { m.textContent = ''; m.append(...was); m.classList.remove('editing'); };
+  cancel.addEventListener('click', close);
+  ta.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;   // an input method picking characters
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go.click(); }
+  });
+  go.addEventListener('click', async () => {
+    const text = ta.value;
+    if (!text.trim()) return say('改好的訊息是空的', true);
+    go.disabled = cancel.disabled = ta.disabled = true; go.textContent = '重來中…';
+    let r; try { r = await api('/api/rewind', { sessionId: active, at: it.id, text }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
+    if (!r.ok || !r.data || r.data.ok === false) { go.disabled = cancel.disabled = ta.disabled = false; go.textContent = '送出，從這則重來'; return say((r.data && r.data.error) || '沒辦法重來', true); }
+    await poll(); openChat(r.data.sessionId);
+    say(r.data.fromStart ? '已用改好的訊息重新開始這個對話' : '已從這則之前重來。原本的對話在「沒開著」裡');
+  });
 }
 
 // The pictures of a message, as small images in its bubble; a press shows one large, another press makes it small
@@ -4835,7 +4905,7 @@ function renameIn(host, s, after) {
     if (done) return; done = true;
     // closed without a new name (Esc, or the save refused): what was there comes back, and the list is drawn again
     // at once with whatever changed while the box was open
-    const back = () => { host.textContent = ''; host.append(...was); listShape = ''; drawList(); };
+    const back = () => { host.textContent = ''; host.append(...was); listShape = ''; drawList(); if (host.closest('#head')) drawHead(); };
     if (!save) return back();
     const name = inp.value.trim();
     let r; try { r = await api('/api/rename', { sessionId: s.sessionId, name }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
@@ -4845,7 +4915,8 @@ function renameIn(host, s, after) {
     say(r.data.name ? '已改名為「' + r.data.name + '」' + (r.data.synced ? '，也告訴了 Claude Code（/rename）' : '') : '已恢復自動的標題');
     listShape = ''; await poll(); if (after) after();
   };
-  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); } });
+  // while an input method is choosing characters (注音, 倉頡…), Enter picks one and Esc drops it: neither saves nor closes
+  inp.addEventListener('keydown', (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); } });
   inp.addEventListener('blur', () => finish(true));
   inp.addEventListener('click', (e) => e.stopPropagation());
 }
@@ -4855,6 +4926,7 @@ const TAB_ICON = "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2
 let moving = '';        // the conversation being moved to a terminal window right now (see the 移到終端機 button)
 let infoOpen = false;   // whether "more" is open; kept while the figures refresh and across conversations
 let openMore = null;    // opens or closes it (set when the stats row is drawn)
+let moreSet = null;     // redraws whether it can open (it has something in it) and whether it is open
 async function loadStats(sid) {
   let r;
   try { r = await api('/api/stats?sid=' + encodeURIComponent(sid)); } catch (e) { return; }
@@ -4933,12 +5005,20 @@ async function loadStats(sid) {
     // "More" sits at the right end of the same row; what it opens goes underneath, full width.
     // the whole row of figures opens and closes it (what is a control of its own in the row - the model - keeps its own click)
     const grid = el('div', 'more-rows');
-    const set = () => { grid.hidden = !infoOpen; chips.setAttribute('aria-expanded', String(infoOpen)); chips.classList.toggle('open', infoOpen); };
+    // nothing in it (a new conversation: no subagent, command, skill or file yet): the row does not open at all - no
+    // pointer, not a button - rather than opening onto an empty box. drawTasks calls set() again as rows come and go.
+    const any = () => [...grid.children].some((e) => !e.hidden);
+    const set = () => {
+      const can = any();
+      grid.hidden = !infoOpen || !can;
+      chips.classList.toggle('opens', can); chips.classList.toggle('open', infoOpen && can);
+      if (can) { chips.setAttribute('role', 'button'); chips.tabIndex = 0; chips.setAttribute('aria-expanded', String(infoOpen)); chips.title = '按一下看更多（背景工作、子代理、常用 skill、最近改過的檔案…）'; }
+      else { chips.removeAttribute('role'); chips.removeAttribute('tabindex'); chips.removeAttribute('aria-expanded'); chips.title = ''; }
+    };
+    moreSet = set;
     openMore = (v) => { infoOpen = !!v; set(); };
-    chips.classList.add('opens'); chips.setAttribute('role', 'button'); chips.tabIndex = 0; chips.title = '按一下看更多（背景工作、子代理、常用 skill、最近改過的檔案…）';
-    chips.addEventListener('click', (e) => { if (e.target.closest('button, a, input, select, textarea')) return; infoOpen = !infoOpen; set(); });
-    chips.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === chips) { e.preventDefault(); infoOpen = !infoOpen; set(); } });
-    set();
+    chips.addEventListener('click', (e) => { if (!any() || e.target.closest('button, a, input, select, textarea')) return; infoOpen = !infoOpen; set(); });
+    chips.addEventListener('keydown', (e) => { if (any() && (e.key === 'Enter' || e.key === ' ') && e.target === chips) { e.preventDefault(); infoOpen = !infoOpen; set(); } });
     for (const [k, v] of rows) grid.append(el('span', '', k), v instanceof Node ? v : el('span', '', v));
     if (d.edited.length) {
       const files = el('span');
@@ -4947,7 +5027,7 @@ async function loadStats(sid) {
       linkFiles(files, sid);   // the ones that can be found become clickable, like paths in a reply
     }
     box.append(grid);
-    drawTasks();   // the background work: the item in the row and its rows here
+    drawTasks();   // the background work: the item in the row and its rows here (then set(): whether there is anything to open)
   }
   box.hidden = !chips.firstChild;
 }

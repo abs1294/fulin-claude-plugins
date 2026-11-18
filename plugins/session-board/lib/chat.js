@@ -98,7 +98,7 @@ class Channels {
       lastResultAt: c.lastResultAt, lastSeenAt: c.lastSeenAt, changedAt: c.changedAt,
       cost: c.cost, tok: c.tok,
       // set by a schedule: start without asking for approvals; start as a copy of another session (see _start)
-      skipPermissions: c.skipPermissions || undefined, forkOf: c.forkOf || undefined,
+      skipPermissions: c.skipPermissions || undefined, forkOf: c.forkOf || undefined, resumeAt: c.resumeAt || undefined,
       // what you ran with "!" and have not sent yet (noteShell)
       shellNotes: c.shellNotes && c.shellNotes.length ? c.shellNotes : undefined, shellSeq: c.shellSeq || undefined,
       // the agent role this conversation runs as (see roles()); none = an ordinary conversation
@@ -355,7 +355,8 @@ class Channels {
     // A copy of another session (forkOf) starts from that session's conversation under its own id, the first
     // time; once it has a transcript of its own it is carried on like any other.
     const has = this.transcriptOf(c.sessionId, c.cwd);
-    if (!has && c.forkOf) args.push('--resume', c.forkOf, '--fork-session', '--session-id', c.sessionId);
+    // ... and from a given entry of it (resumeAt: a message edited and sent again, see lib/rewind.js), not its end
+    if (!has && c.forkOf) args.push('--resume', c.forkOf, ...(c.resumeAt && /^[0-9a-f-]{36}$/i.test(c.resumeAt) ? ['--resume-session-at', c.resumeAt] : []), '--fork-session', '--session-id', c.sessionId);
     else args.push(has ? '--resume' : '--session-id', c.sessionId);
     if (c.skipPermissions) args.push('--dangerously-skip-permissions');
     // Given every time, also when carrying a conversation on (measured 2026-11-15: both a new and a resumed one answer as the role).

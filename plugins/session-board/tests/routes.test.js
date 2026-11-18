@@ -712,6 +712,40 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
   assert.strictEqual((await post('/api/close', { sessionId: fk.json.sessionId })).json.ok, true);
   assert.strictEqual((await post('/api/close', { sessionId: fk.json.sessionId })).json.ok, false);
 
+  // a message edited and sent again: carried on from the reply before it, as a new board conversation; the old one closed
+  const RW = (await post('/api/new', { cwd: WORK })).json.sessionId;
+  {
+    const dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK)), ts = new Date().toISOString();
+    fs.writeFileSync(path.join(dir, RW + '.jsonl'), [
+      line({ type: 'user', uuid: uuid(81), parentUuid: null, sessionId: RW, cwd: WORK, timestamp: ts, message: { role: 'user', content: '第一句' } }),
+      line({ type: 'assistant', uuid: uuid(82), parentUuid: uuid(81), sessionId: RW, cwd: WORK, timestamp: ts, message: { role: 'assistant', content: [{ type: 'text', text: '好' }] } }),
+      line({ type: 'user', uuid: uuid(83), parentUuid: uuid(82), sessionId: RW, cwd: WORK, timestamp: ts, message: { role: 'user', content: '第二句' } }),
+    ].join('\n') + '\n');
+  }
+  assert.strictEqual((await post('/api/rewind', { sessionId: T1, at: uuid(83), text: 'x' })).status, 400, 'a terminal session: not the board\'s to carry on');
+  assert.strictEqual((await post('/api/rewind', { sessionId: RW, at: uuid(83), text: '  ' })).status, 400, 'nothing to send');
+  assert.strictEqual((await post('/api/rewind', { sessionId: RW, at: uuid(99), text: 'x' })).status, 400, 'not in its transcript');
+  assert.strictEqual((await post('/api/rewind', { sessionId: RW, at: uuid(82), text: 'x' })).status, 400, 'a reply is not yours to edit');
+  const procsAt = procs.length;
+  const rw = await post('/api/rewind', { sessionId: RW, at: uuid(83), text: '改過的第二句' });
+  assert.strictEqual(rw.status, 200); assert.strictEqual(rw.json.fromStart, false);
+  const rwNew = channels.get(rw.json.sessionId);
+  assert.deepStrictEqual([rwNew.forkOf, rwNew.resumeAt, channels.get(RW)], [RW, uuid(82), null], 'from the reply before it; the old one closed');
+  const rwArgs = procs.slice(procsAt).map((x) => x.args).find((a) => a.includes('--resume-session-at'));
+  assert.ok(rwArgs, 'started from that entry');
+  assert.deepStrictEqual(rwArgs.slice(rwArgs.indexOf('--resume'), rwArgs.indexOf('--resume') + 6), ['--resume', RW, '--resume-session-at', uuid(82), '--fork-session', '--session-id']);
+  const rwSent = procs[procs.length - 1].p.stdin.written.find((w) => w && w.type === 'user');
+  assert.ok(rwSent && JSON.stringify(rwSent).includes('改過的第二句'), 'the new words sent');
+  // the first message edited: a conversation that starts afresh (nothing to carry on from)
+  {
+    const dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK));
+    fs.copyFileSync(path.join(dir, RW + '.jsonl'), path.join(dir, rw.json.sessionId + '.jsonl'));
+  }
+  const rw2 = await post('/api/rewind', { sessionId: rw.json.sessionId, at: uuid(81), text: '重新開始' });
+  assert.strictEqual(rw2.status, 200); assert.strictEqual(rw2.json.fromStart, true);
+  assert.strictEqual(channels.get(rw2.json.sessionId).forkOf, undefined);
+  await post('/api/stop', { sessionId: rw2.json.sessionId }); await post('/api/close', { sessionId: rw2.json.sessionId });
+
   const e = await post('/api/new', { cwd: WORK });
   assert.strictEqual((await post('/api/close-empty', { sessionId: e.json.sessionId })).json.ok, true);
 });
