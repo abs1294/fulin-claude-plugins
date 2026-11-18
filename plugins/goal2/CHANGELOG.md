@@ -2,6 +2,10 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.6.0] - 2026-11-18
+### Changed
+- goal skill 加接續模式（/goal2:goal 不接任務＝從本對話前幾輪整理目標，問題與啟動照設定檔）與無人值守模式（--unattended：不問問題、每題採建議並寫進脈絡與約束、一律直接啟動；看板排程送出時自動加）
+
 ## [0.5.8] - 2026-10-22
 ### Fixed
 - goal skill 新增 2a-2 有效性前提實查（會讓整份產出作廢的前提在 grill 前實跑查完）、禁止條件式 grill 題目；例外只能是局部的，會讓產出作廢的 blocker 改為中止條件（engine.js exceptionRules：引擎寫帳本【中止】後自己 --stop 終止 run）；propose-flow 與 delaylocal 同步
