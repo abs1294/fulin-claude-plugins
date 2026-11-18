@@ -157,7 +157,7 @@ function callClaude(prompt, o = {}) {
   return new Promise((resolve) => {
     const cwd = o.cwd || path.join(os.homedir(), '.claude', 'session-board', 'triage');
     try { fs.mkdirSync(cwd, { recursive: true }); } catch (e) {}
-    const args = ['-p', '--model', o.model || 'haiku', '--output-format', 'json', '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands', '--tools', '', '--system-prompt', SYSTEM];
+    const args = ['-p', '--model', o.model || 'haiku', '--output-format', 'json', '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands', '--tools', '', '--system-prompt', o.system || SYSTEM];
     let child;
     try { child = spawn('claude', args, { cwd, env: cleanEnv(process.env), windowsHide: true, shell: false }); }
     catch (e) { return resolve({ ok: false, error: '啟動不了 claude：' + String(e.message || e).slice(0, 120) }); }

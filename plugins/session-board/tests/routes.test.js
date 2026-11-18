@@ -355,7 +355,9 @@ test('goal2 runs: listed, one in detail, a running one stopped - only runs goal2
   const runs = [{ runId: '20261116090000-goal-aaaa', runDir: DIR('20261116090000-goal-aaaa'), skill: 'goal', status: 'done', alive: false, cwd: WORK, condition: '測試全過' }, { runId: '20261117090000-goal-bbbb', runDir: DIR('20261117090000-goal-bbbb'), skill: 'delaylocal', status: 'running', alive: true, cwd: WORK, condition: '報表產出' }];
   const run = (exe, args, opts, cb) => { calls.push(args.slice(1).join(' ')); const a = args[1]; if (a === '--list') return cb(null, JSON.stringify({ ok: true, plugin_version: '0.5.8', runs })); if (a === '--status') return cb(null, JSON.stringify({ ok: true, status: 'done', goal_verdict: 'met', total_cost_usd: 0.4, progress_md: '# 進度', run_dir: args[2], secret_extra: 'x' })); if (a === '--stop') return cb(null, JSON.stringify({ ok: true })); cb(new Error('unexpected')); };
   const g = new Goal2({ root: path.join(HOME, 'goal2-plugin'), run });
-  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, out, goal2: g, pluginsInstalled: () => ({ goal2: { name: 'goal2', installs: [] } }) });
+  const judgeAsked = [];
+  const judge = new (require('../lib/judge').Judge)({ run: async (prompt) => { judgeAsked.push(prompt); return /還沒改/.test(prompt) ? { ok: true, text: '{"unfinished": 0.9, "items": ["第 9 封"]}' } : /逾時/.test(prompt) ? { ok: false, error: '判讀逾時（60 秒）' } : { ok: true, text: '{"unfinished": 0.05, "items": []}' }; } });
+  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, out, goal2: g, judge, pluginsInstalled: () => ({ goal2: { name: 'goal2', installs: [] } }) });
   await new Promise((r) => s2.listen(p2, '127.0.0.1', r));
   const via = (pp, body) => new Promise((resolve) => { const b = body ? Buffer.from(JSON.stringify(body)) : null; const q2 = http.request({ host: '127.0.0.1', port: p2, path: pp, method: b ? 'POST' : 'GET', headers: Object.assign({ 'x-board-token': TOKEN }, b ? { 'content-type': 'application/json' } : {}) }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve({ status: res.statusCode, json: JSON.parse(d) })); }); if (b) q2.write(b); q2.end(); });
   asked.add('GET /api/goals'); asked.add('GET /api/goals/status'); asked.add('POST /api/goals/stop');
@@ -372,6 +374,15 @@ test('goal2 runs: listed, one in detail, a running one stopped - only runs goal2
   assert.strictEqual((await via('/api/goals/stop', { id: '../x' })).status, 409);
   assert.strictEqual((await via('/api/goals/stop', { id: '20261117090000-goal-bbbb' })).status, 200);
   assert.ok(calls.includes('--stop ' + DIR('20261117090000-goal-bbbb')));
+  // is work left in this reply? (whether to offer goal2): one model call per message, kept
+  asked.add('POST /api/next/judge');
+  const j1 = await via('/api/next/judge', { key: 's|7', text: '第 9 封還沒改' });
+  assert.deepStrictEqual([j1.status, j1.json.show, j1.json.items], [200, true, ['第 9 封']]);
+  await via('/api/next/judge', { key: 's|7', text: '第 9 封還沒改' });
+  assert.strictEqual(judgeAsked.length, 1, 'the same message is not asked twice');
+  assert.strictEqual((await via('/api/next/judge', { key: 's|8', text: '全部做完了' })).json.show, false);
+  assert.deepStrictEqual([(await via('/api/next/judge', { key: 's|9', text: '逾時' })).status], [502]);
+  assert.strictEqual((await via('/api/next/judge', { key: 's|10' })).status, 400, 'no text');
   s2.close(); if (s2.closeAllConnections) s2.closeAllConnections();
   // not installed: the page is told so and shows nothing
   const none = new Goal2({ root: null }); assert.deepStrictEqual(await none.list(), { installed: false, runs: [] });

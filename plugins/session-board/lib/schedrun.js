@@ -36,6 +36,9 @@ const CONFIRM_MS = 3 * 60 * 1000;    // how long a message handed to a terminal 
 
 const GOAL_WORD = { done: '達成', unverified: '做完但沒驗證到', impossible: '判定做不到', timeout: '超過時限', budget: '超過預算', stopped: '被停止', failed: '失敗', spawn_failed: '沒啟動成功', unknown: '狀態不明' };
 const WHERE = { new: '新對話', resume: '看板接續', board: '送進看板裡的對話', peer: '送進終端機裡的 session', fork: '分身', takeover: '搬到看板' };
+// A schedule's text that hands the work to goal2: marked unattended, so goal2 does not stop to ask questions nobody is
+// there to answer (its decisions go by its own suggestions, and it starts without waiting).
+const unattended = (text) => String(text).replace(/^(\s*\/goal2:goal)(?=\s|$)(?!\s+--unattended\b)/, '$1 --unattended');
 
 class Runner {
   constructor(store, ops) { this.store = store; this.ops = ops; this.busy = false; }
@@ -83,7 +86,7 @@ class Runner {
       if (s.skipPermissions) c.skipPermissions = true;
       if (how === 'new' && s.agent) c.agent = s.agent;   // the role the schedule names, for the conversation it starts
       if (forkOf) c.forkOf = forkOf;
-      const r = ch.send(c.sessionId, s.prompt);
+      const r = ch.send(c.sessionId, unattended(s.prompt));
       if (r && r.ok === false) return fail('送不進對話：' + (r.error || ''));
       return done('running', how, c.sessionId);
     };
@@ -106,7 +109,7 @@ class Runner {
       if (force === 'fork') return copy();
       if (force === 'takeover') return await move();
       const mark = '#' + run;
-      const p = await this.ops.peer(live, '【看板排程「' + s.name + '」' + mark + '】\n' + s.prompt, mark);
+      const p = await this.ops.peer(live, '【看板排程「' + s.name + '」' + mark + '】\n' + unattended(s.prompt), mark);
       // Sent: whether the session took it is seen in its transcript, a little later (settle).
       if (p.state === 'sent') { this.store.updateRun(run, { status: 'sent', how: 'peer', sessionId: s.sessionId, note: '已送出，等那個 session 收下' }); return { ok: true, run, status: 'sent', sessionId: s.sessionId }; }
       return this.undelivered(s, run, 'failed', '送不過去：' + (p.note || ''));
@@ -171,4 +174,4 @@ class Runner {
 // '11/15 09:00' in this computer's time, put together by hand: toLocaleString's shape differs between computers' locale data
 const stamp = (t) => { const d = new Date(t), p = (n) => String(n).padStart(2, '0'); return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); };
 
-module.exports = { Runner, LATE_MS, WHERE };
+module.exports = { Runner, LATE_MS, WHERE, unattended };

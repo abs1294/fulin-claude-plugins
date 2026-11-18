@@ -5,7 +5,15 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { Schedules, clean, lastDue } = require('../lib/schedule');
-const { Runner, LATE_MS } = require('../lib/schedrun');
+const { Runner, LATE_MS, unattended } = require('../lib/schedrun');
+
+test('a schedule that hands work to goal2 marks it unattended: nobody is there to answer its questions', () => {
+  assert.strictEqual(unattended('/goal2:goal 修好第 9、10 封'), '/goal2:goal --unattended 修好第 9、10 封');
+  assert.strictEqual(unattended('/goal2:goal'), '/goal2:goal --unattended', 'bare: goal2 takes the goal from the conversation');
+  assert.strictEqual(unattended('  /goal2:goal\n修好'), '  /goal2:goal --unattended\n修好');
+  assert.strictEqual(unattended('/goal2:goal --unattended 修好'), '/goal2:goal --unattended 修好', 'not marked twice');
+  for (const t of ['/goal2:goals x', '每天整理日報', '請跑 /goal2:goal x']) assert.strictEqual(unattended(t), t, 'anything else is sent as it is');
+});
 
 const made = [];
 const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-run-')); made.push(d); return d; };

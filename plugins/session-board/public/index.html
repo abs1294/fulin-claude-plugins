@@ -3913,11 +3913,27 @@ async function drawAutoSettings(pane, sw) {
 
 // ── next steps: a plugin's command sent into the conversation, offered under a turn that is over ──
 // Which ones: what the turn did. Files changed (Edit / Write …) -> commit, review, and QA where qa-webwright is
-// installed; a document made (.docx .xlsx .pptx .pdf) -> a delivery message; always -> hand it to a goal.
+// installed; a document made (.docx .xlsx .pptx .pdf) -> a delivery message; the turn's last reply says something is
+// left undone -> hand it to goal2 (sent bare: goal2 0.6.0 takes the goal from the conversation itself).
 // A board conversation is sent the command; for a terminal session it is copied, to paste into its window.
-const NEXT_TEXT = { commit: ['commit', '用 git-commit 把這次的改動提交（它會先審查、再問你）'], review: ['對抗審查', '用 red-blue-review 對這次的改動做紅藍對抗審查'], qa: ['跑 QA', '用 qa-webwright 測這次改到的功能'], deliver: ['寫交付訊息', '用 deliver-report 把這次產出的檔案寫成交付訊息'], goal: ['交給 goal2…', '用 goal2 定完成條件、在背景做到完成。按下去會在輸入框放好 /goal2:goal，你在後面寫要做到完成的事再送出'] };
-// these need what to do written after them: put in the box to write it, never sent bare
-const NEXT_NEEDS_TASK = new Set(['goal']);
+const NEXT_TEXT = { commit: ['commit', '用 git-commit 把這次的改動提交（它會先審查、再問你）'], review: ['對抗審查', '用 red-blue-review 對這次的改動做紅藍對抗審查'], qa: ['跑 QA', '用 qa-webwright 測這次改到的功能'], deliver: ['寫交付訊息', '用 deliver-report 把這次產出的檔案寫成交付訊息'], goal: ['交給 goal2 做完', '這一輪還有沒做完的事：goal2 從這段對話整理出要完成的目標與完成條件（照它的設定先問你問題），再在背景做到完成'] };
+// <unfinished> (tests/next.test.js reads this part)
+const UNFINISHED = /還沒(有)?(做|完成|處理|改|修|驗證|測|跑)|尚未(完成|處理|驗證|實作|修)|未完成|沒做完|剩下的|待辦|待處理|還差|還缺|沒有驗證到/g;
+const NEGATED = /沒有|已無|並無|不再|無/;   // 「沒有未完成的」「並沒有任何未完成」「已無待辦」: nothing is left
+function saysUnfinished(text) {
+  const t = String(text || '');
+  for (const m of t.matchAll(UNFINISHED)) {
+    // what comes before it in the same clause (back to the last punctuation, at most 10 characters)
+    const before = t.slice(Math.max(0, m.index - 10), m.index).split(/[，。；、！？：,.;!?:\n]/).pop();
+    if (!NEGATED.test(before)) return true;
+  }
+  return false;
+}
+// The same reply text -> the same key, whether or not it has its id yet (a live reply gets one only when the history
+// is read again): so it is judged once, and one turn's answer is never taken for another's.
+function textKey(t) { let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36) + '-' + t.length; }
+// </unfinished>
+const judged = new Map();   // sessionId|message id -> the judge's answer ('asking' while it is asked)
 const EDIT_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/;
 function drawNext() {
   const col = $('col'); if (!col) return;
@@ -3932,7 +3948,24 @@ function drawNext() {
   if (!turn.length) { if (old) old.remove(); return; }
   const changed = turn.some((it) => it.role === 'tool' && EDIT_TOOLS.test(it.tool));
   const made = turn.some((it) => /\.(docx|xlsx|pptx|pdf)\b/i.test(String(it.text || '')));
-  const want = new Set(['goal']); if (changed) { want.add('commit'); want.add('review'); want.add('qa'); } if (made) want.add('deliver');
+  // goal2: only when the turn's last reply says work is left (judged by the small model, once per message; the word
+  // list above is the fallback when it cannot be asked). Until the answer is in, the other steps are shown alone.
+  const lastAsst = turn.filter((it) => it.role === 'assistant').pop();
+  const lastSaid = lastAsst ? String(lastAsst.text || '') : '';
+  let goalSay = null;
+  if (lastAsst && lastSaid.trim() && s.next.some((n) => n.key === 'goal')) {
+    const jk = s.sessionId + '|' + textKey(lastSaid);
+    const j = judged.get(jk);
+    if (j === undefined || (j.retryAt && Date.now() > j.retryAt)) {
+      judged.set(jk, 'asking');
+      api('/api/next/judge', { key: jk, text: lastSaid }).then((r) => {
+        judged.set(jk, r.ok ? r.data : { fallback: saysUnfinished(lastSaid), retryAt: Date.now() + 10 * 60 * 1000 });
+        if (judged.size > 300) judged.delete(judged.keys().next().value);
+        if (cur() && cur().sessionId === s.sessionId) drawNext();
+      }).catch(() => { judged.set(jk, { fallback: saysUnfinished(lastSaid), retryAt: Date.now() + 10 * 60 * 1000 }); if (cur() && cur().sessionId === s.sessionId) drawNext(); });
+    } else if (j !== 'asking') goalSay = j.fallback !== undefined ? (j.fallback ? { items: [] } : null) : (j.show ? j : null);
+  }
+  const want = new Set(goalSay ? ['goal'] : []); if (changed) { want.add('commit'); want.add('review'); want.add('qa'); } if (made) want.add('deliver');
   const acts = s.next.filter((n) => want.has(n.key));
   const shape = s.sessionId + '|' + acts.map((a) => a.key).join(',') + '|' + (items[items.length - 1] || {}).id;
   if (old && old.dataset.shape === shape) { col.append(old); return; }
@@ -3942,21 +3975,9 @@ function drawNext() {
   bar.append(el('span', 'nb-l', '下一步'));
   for (const a of acts) {
     const [label, tip] = NEXT_TEXT[a.key] || [a.key, a.cmd];
-    const b = el('button', 'btn', label); b.type = 'button'; b.title = tip + '\n' + (NEXT_NEEDS_TASK.has(a.key) ? '放進輸入框：' : '送出：') + a.cmd;
+    const b = el('button', 'btn', label); b.type = 'button'; b.title = tip + '\n送出：' + a.cmd;
+    if (a.key === 'goal' && goalSay && goalSay.items && goalSay.items.length) b.title = '看起來還沒做完：\n' + goalSay.items.map((x) => '・' + x).join('\n') + '\n\n' + b.title;
     b.addEventListener('click', async () => {
-      if (NEXT_NEEDS_TASK.has(a.key)) {
-        const box = $('foot') && $('foot').querySelector('textarea');
-        if (s.owner !== 'board' || !box) { try { await navigator.clipboard.writeText(a.cmd + ' '); say('已複製「' + a.cmd + '」，貼到它的終端機視窗，後面寫要做到完成的事'); } catch (e) { say('複製不了，請手動輸入：' + a.cmd + ' <要做到完成的事>', true); } return; }
-        const lead = a.cmd + ' ';
-        const rest = box.value.replace(/^\s+/, '');
-        // already there (typed by you too, with or without the space after it): not added again
-        const has = rest === a.cmd || (rest.startsWith(a.cmd) && /^\s/.test(rest.slice(a.cmd.length)));
-        box.value = has ? (rest === a.cmd ? lead : rest) : lead + rest;
-        box.dispatchEvent(new Event('input', { bubbles: true }));
-        box.focus(); box.setSelectionRange(box.value.length, box.value.length);
-        say('在 ' + a.cmd + ' 後面寫要做到完成的事，再送出');
-        return;
-      }
       if (s.owner !== 'board') { try { await navigator.clipboard.writeText(a.cmd); say('已複製「' + a.cmd + '」，貼到它的終端機視窗'); } catch (e) { say('複製不了，請手動輸入：' + a.cmd, true); } return; }
       b.disabled = true; const r = await api('/api/send', { sessionId: s.sessionId, text: a.cmd }); if (!r.ok) { b.disabled = false; return say(r.data.error || '送不出去', true); }
       bar.remove(); say('已送出 ' + a.cmd);

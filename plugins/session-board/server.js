@@ -49,6 +49,7 @@ const Shell = require('./lib/shell');
 const Changes = require('./lib/changes');
 const Aside = require('./lib/aside');
 const { Goal2 } = require('./lib/goal2');
+const { Judge } = require('./lib/judge');
 const Harness = require('./lib/harness');
 const Remote = require('./lib/remote');
 const Plugins = require('./lib/plugins');
@@ -321,6 +322,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const REAL_OUT = { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify,
   kill: (pid) => process.kill(pid), exit: (code) => process.exit(code), gitRun: execFile, btw: (sid, cwd, question) => Aside.ask(sid, cwd, question, { env: K.cleanEnv(process.env) }), shell: (command, cwd) => Shell.run(command, cwd) };
 
+// The next steps a conversation can be given from the board: a plugin's own command, sent into it. Offered only when
+// that plugin is installed for the folder (or for the whole user); which ones fit the turn just ended is decided by
+// the page (it knows what the turn did).
+const NEXT = [
+  { key: 'commit', plugin: 'git-commit', cmd: '/git-commit:git-commit' },
+  { key: 'review', plugin: 'red-blue-review', cmd: '/red-blue-review:red-blue-review' },
+  { key: 'qa', plugin: 'qa-webwright', cmd: '/qa-webwright:qa-run' },
+  { key: 'deliver', plugin: 'deliver-report', cmd: '/deliver-report:deliver-report' },
+  { key: 'goal', plugin: 'goal2', cmd: '/goal2:goal', min: '0.6.0' },   // bare: goal2 0.6.0 takes the goal from the conversation itself
+];
+const installedFor = (inst, plugin, folder) => {
+  const x = inst[plugin]; if (!x || !folder) return false;
+  const f = path.normalize(folder).toLowerCase();
+  return x.installs.some((i) => i.scope === 'user' || (i.project && (f === path.normalize(i.project).toLowerCase() || f.startsWith(path.normalize(i.project).toLowerCase() + path.sep))));
+};
+const vAtLeast = (v, min) => !min || String(v || '').localeCompare(min, undefined, { numeric: true }) >= 0;
+// The steps offered for a folder, from what is installed ({name: {newest, installs}}).
+const nextSteps = (inst, folder) => NEXT.filter((n) => installedFor(inst, n.plugin, folder) && vAtLeast(inst[n.plugin].newest, n.min)).map((n) => ({ key: n.key, cmd: n.cmd }));
+
 function createServer(token, port, deps = {}) {
   // eslint-disable-next-line no-shadow
   const { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside } = Object.assign({}, REAL_OUT, deps.out);
@@ -356,6 +376,7 @@ function createServer(token, port, deps = {}) {
   const TEXT_SIZES = [1, 1.15, 1.3];   // public/index.html SIZES
   const textSize = () => { const v = config.value('textSize', null); return TEXT_SIZES.includes(v) ? v : null; };
   const autoHideDays = () => { const v = config.value('autoHideDays', 7); return Number.isInteger(v) && v >= 0 && v <= 365 ? v : 7; };
+  const judge = deps.judge || new Judge();   // "is something left undone?" for the goal2 next step (lib/judge.js)
   const goal2 = deps.goal2 || new Goal2({ env: K.cleanEnv(process.env) });   // the goal2 plugin's runs, through its own tool (lib/goal2.js)
   // The 外掛 page (lib/plugins.js). plugin-manager's check takes about a second: kept for five minutes; git for one.
   const pluginsCache = { pm: null, pmAt: 0, git: null, gitAt: 0 };
@@ -366,24 +387,9 @@ function createServer(token, port, deps = {}) {
   // The office's rooms: git, the last tests (qa-webwright), the code index (cbm-guard) of each folder.
   // git and the tests are read when asked (kept a minute); the index check takes about 20 s, so it runs in the
   // background, one folder at a time, and its answer is kept half an hour.
-  // The next steps a conversation can be given from the board: a plugin's own command, sent into it. Offered only when
-  // that plugin is installed for the folder (or for the whole user); which ones fit the turn just ended is decided by
-  // the page (it knows what the turn did).
-  const NEXT = [
-    { key: 'commit', plugin: 'git-commit', cmd: '/git-commit:git-commit' },
-    { key: 'review', plugin: 'red-blue-review', cmd: '/red-blue-review:red-blue-review' },
-    { key: 'qa', plugin: 'qa-webwright', cmd: '/qa-webwright:qa-run' },
-    { key: 'deliver', plugin: 'deliver-report', cmd: '/deliver-report:deliver-report' },
-    { key: 'goal', plugin: 'goal2', cmd: '/goal2:goal' },
-  ];
-  const installedFor = (inst, plugin, folder) => {
-    const x = inst[plugin]; if (!x || !folder) return false;
-    const f = path.normalize(folder).toLowerCase();
-    return x.installs.some((i) => i.scope === 'user' || (i.project && (f === path.normalize(i.project).toLowerCase() || f.startsWith(path.normalize(i.project).toLowerCase() + path.sep))));
-  };
   let instCache = { at: 0, v: {} };
   const instNow = () => { if (Date.now() - instCache.at > 10000) instCache = { at: Date.now(), v: (deps.pluginsInstalled || Plugins.installed)() }; return instCache.v; };
-  const nextFor = (folder) => { const inst = instNow(); return NEXT.filter((n) => installedFor(inst, n.plugin, folder)).map((n) => ({ key: n.key, cmd: n.cmd })); };
+  const nextFor = (folder) => nextSteps(instNow(), folder).filter((n) => n.key !== 'goal' || isOn('goal2'));   // goal2 switched off in the settings: not offered
   const roomCache = new Map();   // folder -> {at, git, qa}
   const cbmCache = new Map();    // folder -> {at, result} | {checking: true}
   let cbmBusy = false;
@@ -1047,6 +1053,13 @@ function createServer(token, port, deps = {}) {
         return send(res, r.ok ? 200 : 400, r);
       }
       if (p === '/api/goals/stop') { const r = await goal2.stop(String(body.id || '')); return send(res, r.ok ? 200 : 409, r); }
+      // Is something left undone in this reply? (lib/judge.js: one Haiku call per message, kept) -> whether to offer goal2
+      if (p === '/api/next/judge') {
+        if (!body.key || typeof body.text !== 'string') return send(res, 400, { ok: false, error: '缺 key 或 text' });
+        if (!isOn('goal2')) return send(res, 409, { ok: false, error: 'goal2 的整合已在設定裡關閉' });
+        const r = await judge.ask(String(body.key), body.text);
+        return send(res, r.ok ? 200 : 502, r);
+      }
       // A board conversation's model and effort, from its next message on (lib/chat.js setModel).
       if (p === '/api/model') {
         const model = body.model === undefined ? undefined : String(body.model), effort = body.effort === undefined ? undefined : String(body.effort);
@@ -1438,4 +1451,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { sendPage, createServer, terminalArgs, readEnded, inboxThreadText, getToken, portFromArgs, DEFAULT_PORT, HOST, DATA_DIR, TOKEN_FILE };
+module.exports = { sendPage, createServer, nextSteps, terminalArgs, readEnded, inboxThreadText, getToken, portFromArgs, DEFAULT_PORT, HOST, DATA_DIR, TOKEN_FILE };
