@@ -93,6 +93,7 @@ function sessionStats(sid, stateDir, items, extra = {}) {
     // good for: who is running now, and which kinds were used recently.
     agents: {
       running: agentList.filter((a) => a.status === 'running').map((a) => String(a.name || '')).slice(0, 12),
+      runningAt: agentList.filter((a) => a.status === 'running').map((a) => num(a.started)).slice(0, 12),   // when each began: matched to the descriptions read from the transcript
       kinds: [...new Set(agentList.map((a) => String(a.name || '')).filter(Boolean))].slice(0, 8),
     },
     skills: top(readJson(file('skills', '.json')), 6),

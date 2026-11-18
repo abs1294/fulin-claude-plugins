@@ -39,7 +39,7 @@ test('Terminal: opened with open -a Terminal; the tab found by the session tty a
   const a = stand(); assert.deepStrictEqual(await M.openTerminal('/d/x.command', { run: a.run }), { ok: true }); assert.deepStrictEqual(a.calls, [['open', '-a', 'Terminal', '/d/x.command']]);
   const b = stand([{ err: new Error('x'), errOut: 'Unable to find application named Terminal' }]); assert.strictEqual((await M.openTerminal('/d/x.command', { run: b.run })).ok, false);
   const c = stand([{ out: 'ttys004\n' }, { out: 'hit\n' }]);
-  assert.deepStrictEqual(await M.focus(4321, { run: c.run }), { state: 'hit' });
+  assert.deepStrictEqual(await M.focus(4321, { run: c.run }), { state: 'hit', focused: true }, 'found = in front: the script activates Terminal');
   assert.deepStrictEqual(c.calls[0], ['ps', '-o', 'tty=', '-p', '4321']);
   assert.strictEqual(c.calls[1][0], 'osascript'); assert.strictEqual(c.calls[1][c.calls[1].length - 1], '/dev/ttys004', 'the tty is an argument, not part of the script');
   const d = stand([{ out: '??\n' }]); assert.strictEqual((await M.focus(1, { run: d.run })).state, 'miss', 'no terminal (a background process)');

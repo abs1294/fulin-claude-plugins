@@ -316,6 +316,10 @@ class Channels {
   }
 
   _setState(c, state) {
+    // a change of permission mode asked for while it was busy (setBypass): the process is ended once the turn is over
+    if (state === 'idle' && c.restartWhenIdle && c.proc && !c.pending.size) {
+      c.restartWhenIdle = false; const p = c.proc; c.proc = null; try { p.stdin.end(); } catch (e) {} try { p.kill(); } catch (e) {} state = 'off';
+    }
     if (c.state !== state) { c.state = state; c.changedAt = Date.now(); }
     this._emit(c, { type: 'state', status: this.status(c) });
   }
@@ -593,6 +597,24 @@ class Channels {
     if (c.proc) { const p = c.proc; c.proc = null; try { p.stdin.end(); } catch (e) {} try { p.kill(); } catch (e) {} this._setState(c, 'off'); }
     this._save();
     return { ok: true };
+  }
+
+  // Run this conversation without asking for approvals (bypassPermissions), or back to the default, from its next
+  // process on. A collaboration needs it: a session holds a SendMessage from a session of another permission mode
+  // until its user approves it, and a board conversation has no one to approve (measured 2026-11-18: a claude -p
+  // conversation in bypass received one at once; in auto the same message was held and never delivered). An idle
+  // process is ended now; a busy one as soon as its turn is over. -> {ok, now: true | false (after this turn)}
+  setBypass(sid, on) {
+    const c = this.map.get(sid);
+    if (!c) return { ok: false, error: 'no such channel' };
+    c.skipPermissions = !!on;
+    let now = true;
+    if (c.proc) {
+      if (c.state === 'busy' || c.pending.size) { c.restartWhenIdle = true; now = false; }
+      else { const p = c.proc; c.proc = null; try { p.stdin.end(); } catch (e) {} try { p.kill(); } catch (e) {} this._setState(c, 'off'); }
+    }
+    this._save();
+    return { ok: true, now };
   }
 
   stop(sid) {

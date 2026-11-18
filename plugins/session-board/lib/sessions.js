@@ -278,7 +278,7 @@ function buildSessions(opts = {}, now = Date.now()) {
     const name = typeof r.name === 'string' ? r.name : '';
     // o.titles: the names conversations had on the board before they were moved to a terminal ({sessionId: title}).
     // A terminal session that has no title of its own yet would otherwise show the name Claude Code makes up for it
-    // ("supplier-code-d9"), and the conversation you just moved could not be found in the list (2026-11-16).
+    // ("project-b-d9"), and the conversation you just moved could not be found in the list (2026-11-16).
     const moved = !ch && o.titles && typeof o.titles[r.sessionId] === 'string' ? o.titles[r.sessionId] : '';
     // o.customTitles: names given on the board ({sessionId: name}). They come first: the status line's summary is
     // rewritten as the conversation goes on, and would otherwise replace a name you gave a few messages later.
@@ -291,6 +291,9 @@ function buildSessions(opts = {}, now = Date.now()) {
     out.push({
       sessionId: r.sessionId,
       name,
+      // The name Claude Code registered it under - what other sessions SendMessage to. A board conversation's `name`
+      // is left empty above (it is not a window title), but while its process runs it has one of these too.
+      addr: typeof r0.name === 'string' ? r0.name : '',
       title,
       titleSource: given ? 'board' : summary ? 'summary' : tt.custom ? 'custom-title' : tt.ai ? 'ai-title' : 'name',
       // how it was started (the registry's entrypoint): 'cli' = a terminal window; 'sdk-cli' and the like = a program

@@ -1,0 +1,17 @@
+{
+  "namePattern": "合作{id}-{short}",
+  "ledgerDir": ".claude/collab",
+  "sections": {
+    "goal": "目標",
+    "members": "成員與分工",
+    "interfaces": "介面清單",
+    "promises": "承諾清單",
+    "pending": "待你裁定",
+    "decisions": "使用者裁定",
+    "verify": "驗證紀錄",
+    "rules": "合作規則"
+  },
+  "doneMarks": ["✓", "✅", "已跟上", "已確認", "ok", "OK", "v", "V"],
+  "timelineTailBytes": 4194304,
+  "timelineMax": 200
+}

@@ -51,8 +51,9 @@
   .side-rail .btn { width: 36px; height: 36px; padding: 0; justify-content: center; }
   .side-rail .rail-n { min-width: 22px; height: 22px; border-radius: 11px; background: var(--dot-wait, #EA580C); color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0 6px; }
   .side-rail .rail-n[hidden] { display: none; }
-  .fold-btn { border: 0; background: none; color: var(--dim); cursor: pointer; padding: 4px 6px; border-radius: var(--r-s); font-size: 16px; line-height: 1; }
+  .fold-btn { border: 0; background: none; color: var(--dim); cursor: pointer; padding: 2px 8px 6px; border-radius: var(--r-s); font-size: 24px; line-height: 1; min-width: 34px; min-height: 34px; }
   .fold-btn:hover { background: var(--hover); color: inherit; }
+  #unfoldBtn { font-size: 22px; line-height: 1; padding: 4px 10px 8px; min-width: 38px; }
   /* renaming in place */
   .rename-in { font: inherit; width: 100%; box-sizing: border-box; border: 1px solid var(--accent, #2563EB); border-radius: var(--r-s); padding: 2px 6px; background: var(--bg); color: inherit; }
   .who .t .ren { border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 14px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
@@ -117,9 +118,11 @@
   .item.stuck .dot { background: var(--dot-stuck); animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot-stuck) 28%, transparent); } .item.stuck .m { color: var(--red); }
   .dot.done { background: var(--dot-run); }
   /* working: a ring that keeps spreading out from it (the dot itself stays full, never fades) */
-  .dot.running { background: var(--dot-run); animation: beat 1.8s ease-out infinite; }
-  @keyframes beat { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dot-run) 55%, transparent); } 100% { box-shadow: 0 0 0 7px transparent; } }
-  @media (prefers-reduced-motion: reduce) { .dot.running { animation: none; } }
+  .dot.running { background: var(--dot-run); animation: beat 1.6s ease-out infinite; }
+  /* only the ring moves (a dot that grows and shrinks looked bad): a little wider and stronger than it was */
+  @keyframes beat { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dot-run) 70%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
+  /* no movement asked for: the running dot still differs from an idle one, by a slow fade instead */
+  @media (prefers-reduced-motion: reduce) { .dot.running { animation: fade 2.4s ease-in-out infinite; } @keyframes fade { 50% { opacity: .45; } } }
   .item .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item.yours .t { font-weight: 600; }
   .item .m .fold { font-weight: 600; color: var(--ink); opacity: .75; }
@@ -594,6 +597,10 @@
   .info b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
   .info-more { border: 0; background: none; padding: 0 2px; color: var(--accent); font: inherit; white-space: nowrap; }
   .info-more:hover { text-decoration: underline; }
+  .opens { cursor: pointer; border-radius: var(--r-s); }
+  .opens:hover { background: var(--hover); }
+  .opens:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .task-chip { cursor: inherit; }
   .info .more-rows { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 12px; padding: 6px 0 2px; border-top: 1px dashed var(--line); margin-top: 4px; }
   .info .more-rows[hidden] { display: none; }
   .info .more-rows code { font-family: var(--mono); font-size: 13px; }
@@ -609,7 +616,11 @@
   .peek-body .tcmd { font-family: var(--mono); font-size: 13px; background: var(--side); border: 1px solid var(--line); border-radius: var(--r-m); padding: 8px 10px; margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .peek-body .tstat { color: var(--dim); font-size: 13px; margin: 0 0 8px; }
   /* Messages waiting for their turn, above the input box. */
-  .tasks { border-top: 1px solid var(--line); background: var(--side); padding: 6px 20px; font-size: 14px; max-height: 26vh; overflow-y: auto; }
+  .tasks { border-top: 1px solid var(--line); background: var(--side); padding: 6px 20px; font-size: 14px; max-height: 26vh; overflow-y: auto; position: relative; }
+  .task-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--bg); color: inherit; font: inherit; cursor: pointer; padding: 2px 10px; border-radius: 999px; }
+  .task-chip:hover { background: var(--hover); }
+  .task-chip .dot { margin-top: 0; }
+  .task-rows { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .tasks[hidden] { display: none; }
   .tk { display: flex; align-items: center; gap: 8px; padding: 2px 0; min-width: 0; }
   .tk .dot { margin-top: 0; flex: none; }
@@ -745,6 +756,27 @@
   .fp:hover { background: var(--hover); }
   #peek { position: fixed; top: 0; right: 0; bottom: 0; width: min(820px, 58vw); background: var(--bg); border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0, 0, 0, .14); display: flex; flex-direction: column; z-index: 4; }
   #peek[hidden] { display: none; }
+  /* collaborations */
+  .collab-new { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .collab-new .lab { font-size: 13px; color: var(--dim); margin: 14px 0 6px; }
+  .collab-pick { display: flex; flex-direction: column; gap: 6px; }
+  .cp-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 140px 200px; gap: 8px; align-items: center; }
+  .cp-who { min-width: 0; display: flex; flex-direction: column; } .cp-who .t, .cp-who .m { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .cp-who .m { font-size: 12px; color: var(--dim); }
+  .cp-opt { margin: 14px 0; } .collab-new select { max-width: 100%; }
+  .collab-item { display: block; width: 100%; text-align: left; background: none; border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 12px; margin: 6px 0; cursor: pointer; color: inherit; font: inherit; }
+  .collab-item:hover { background: var(--hover); } .collab-item .m { font-size: 13px; color: var(--dim); margin-top: 2px; }
+  .collab-members { display: flex; flex-direction: column; gap: 6px; }
+  .cm-row { display: grid; grid-template-columns: 14px 120px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
+  .cm-role { font-weight: 600; } .cm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .cm-st { font-size: 13px; color: var(--dim); }
+  .banner.warn { border-color: var(--dot-wait, #d97706); }
+  .cmd-line { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+  .collab-open { padding: 6px 10px; border-left: 3px solid var(--line); margin: 4px 0; }
+  .collab-open.behind { border-left-color: var(--dot-stuck, #dc2626); color: var(--dot-stuck, #dc2626); }
+  .collab-decide { border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px; margin: 8px 0; } .collab-decide .q { font-weight: 600; margin-bottom: 6px; }
+  .collab-msg { border-left: 3px solid var(--line); padding: 4px 10px; margin: 6px 0; } .collab-msg.in { border-left-color: var(--dot-run, #16a34a); }
+  .collab-msg .cmh { font-size: 12px; color: var(--dim); } .collab-msg .cmt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+  .collab-ledger { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); border-radius: var(--r-m); padding: 12px; font-size: 13px; max-height: 60vh; overflow: auto; }
+  @media (max-width: 700px) { .cp-row { grid-template-columns: 20px minmax(0, 1fr); } .cp-row input:not([type]) { grid-column: 2; } .cm-row { grid-template-columns: 14px minmax(0, 1fr); } }
   .of-sticky { position: sticky; top: -1px; z-index: 5; background: var(--bg); padding: 13px 0 6px; margin: -12px 0 4px; }
   .of-sticky.stuck { box-shadow: 0 6px 8px -8px rgba(0, 0, 0, .35); }
   .of-sticky .pathrow { margin-top: 0; }
@@ -877,6 +909,7 @@
       <button class="item" id="warBtn" type="button"><span class="dot" id="warDot"></span><span class="t">戰情室</span><span class="m" id="warSub">每月用量與費用</span></button>
       <button class="item" id="officeBtn" type="button"><span class="dot" id="officeDot"></span><span class="t">辦公室</span><span class="m" id="officeSub">每個資料夾一間：開著的、沒開著的</span></button>
       <button class="item" id="plugBtn" type="button"><span class="dot" id="plugDot"></span><span class="t">外掛</span><span class="m" id="plugSub">goal2、harness、版本、git…</span></button>
+      <button class="item" id="collabBtn" type="button"><span class="dot" id="collabDot"></span><span class="t">合作</span><span class="m" id="collabSub">幾個 session 一起完成一個目標</span></button>
       <button class="item" id="schedBtn" type="button"><span class="dot" id="schedDot"></span><span class="t">排程</span><span class="m" id="schedSub">到點自動做一件事</span></button>
 
       <button class="item" id="inboxBtn" type="button"><span class="dot" id="inboxDot"></span><span class="t">收件</span><span class="m" id="inboxSub">Gmail、Slack、Teams 收到的訊息</span></button>
@@ -953,7 +986,7 @@ const ICONS = {
   '▸': '<path d="m9 18 6-6-6-6"/>',
 };
 // On a Mac the page says the Mac's names for things (features.platform comes from the board).
-const OS_WORDS = [[/檔案總管/g, 'Finder'], [/登入 Windows/g, '登入 Mac'], [/Windows Terminal/g, 'Terminal'], [/Windows 通知/g, '系統通知'], [/Windows 的「啟動」資料夾/g, 'LaunchAgent'], [/「啟動」資料夾/g, 'LaunchAgent'], [/Windows 的工作排程/g, 'launchd']];
+const OS_WORDS = [[/檔案總管/g, 'Finder'], [/登入 Windows/g, '登入 Mac'], [/Windows Terminal/g, 'Terminal'], [/Windows 通知/g, '系統通知'], [/Windows 的「啟動」資料夾/g, 'LaunchAgent'], [/「啟動」資料夾/g, 'LaunchAgent'], [/Windows 的工作排程/g, 'launchd'], [/Windows 的資料夾視窗/g, 'macOS 的資料夾視窗'], [/由 Windows 決定/g, '由 macOS 決定'], [/Windows 沒讓它/g, 'macOS 沒讓它']];
 let PLATFORM = '';   // set from the board's answer (features.platform)
 function osWord(t) { if (typeof t !== 'string' || PLATFORM !== 'darwin') return t; for (const [a, b] of OS_WORDS) t = t.replace(a, b); return t; }
 const ICON_START = /^([←→↑↓＋✕⇄↻▸])(?:\s+|$)/;
@@ -977,7 +1010,7 @@ const el = (tag, cls, text) => {
 // and puts what was chosen into the field. Typing a path stays possible. then(path) runs after a choice.
 function folderButton(input, then) {
   if (REMOTE) { const x = el('span'); x.hidden = true; return x; }   // the Windows folder window would open on the other computer's... this computer's screen
-  const b = el('button', 'btn', '選擇資料夾…'); b.type = 'button'; b.title = '跳出 Windows 的資料夾視窗來選（視窗可能開在瀏覽器後面）';
+  const b = el('button', 'btn', '選擇資料夾…'); b.type = 'button'; b.title = osWord('跳出 Windows 的資料夾視窗來選（視窗可能開在瀏覽器後面）');
   b.addEventListener('click', async () => {
     b.disabled = true; b.textContent = '請在跳出的視窗裡選…';
     try { const r = await api('/api/pick-folder', {}); if (r.data.path) { input.value = r.data.path; input.dispatchEvent(new Event('input', { bubbles: true })); if (then) then(r.data.path); } }
@@ -1011,7 +1044,7 @@ async function api(path, body) {
 let saidTimer = 0;
 function say(text, bad) {
   const s = $('said');
-  s.textContent = text;
+  s.textContent = osWord(text);   // on a Mac, in its words (Finder, Terminal …) like the rest of the page
   s.className = 'on' + (bad ? ' bad' : '');
   clearTimeout(saidTimer);
   saidTimer = setTimeout(() => { s.className = ''; }, bad ? 9000 : 3500);
@@ -1158,6 +1191,7 @@ function drawList() {
   $('inboxBtn').classList.toggle('active', view === 'inbox');
   $('officeBtn').classList.toggle('active', view === 'office');
   $('schedBtn').classList.toggle('active', view === 'sched');
+  $('collabBtn').classList.toggle('active', view === 'collab');
   $('plugBtn').classList.toggle('active', view === 'plugins');
   $('plugBtn').hidden = true;   // 2026-11-17: no longer in the left column - a page to look at sped nothing up; reached from the settings
   if (pluginsData) { const n = pluginsData.harness.reduce((k, h) => k + (h.pendingCount ? 1 : 0) + (h.due.length ? 1 : 0), 0) + (pluginsData.pm && pluginsData.pm.behind ? pluginsData.pm.behind.length : 0); $('plugSub').textContent = n ? n + ' 件要你處理' : 'goal2、harness、版本、git…'; $('plugDot').className = 'dot' + (n ? ' yours' : ''); }
@@ -1781,7 +1815,7 @@ async function drawThread(id) {
     if (known.length) pop.append(el('h4', '', '你開過 session 的資料夾'));
     for (const cwd of known) { const b = el('button', 'popitem'); b.type = 'button'; b.append(el('b', '', baseName(cwd)), el('span', '', cwd)); b.title = cwd; b.addEventListener('click', () => { closePop(); assign(cwd); }); pop.append(b); }
     if (known.length) pop.append(el('hr'));
-    const other = el('button', 'popitem', '選擇其他資料夾…'); other.type = 'button'; if (REMOTE) other.hidden = true; other.title = '跳出 Windows 的資料夾視窗來選（視窗可能開在瀏覽器後面）';
+    const other = el('button', 'popitem', '選擇其他資料夾…'); other.type = 'button'; if (REMOTE) other.hidden = true; other.title = osWord('跳出 Windows 的資料夾視窗來選（視窗可能開在瀏覽器後面）');
     other.addEventListener('click', async () => {
       other.disabled = true; other.textContent = '請在跳出的視窗裡選…';
       let p = ''; try { p = (await api('/api/pick-folder', {})).data.path || ''; } catch (e) { say('看板程序沒有回應', true); }
@@ -2538,6 +2572,158 @@ function schedWhen(s) {
   if (s.kind === 'weekly') return '每週' + String(s.days).split(',').map((d) => WEEK[Number(d)]).join('、') + ' ' + s.at;
   return '每隔 ' + s.everyHours + ' 小時';
 }
+// ── collaborations: two or more sessions on one goal (server: lib/collab.js) ──
+// The list, with a form to start one; preselect: a session to tick (the 「＋ 合作」 of a conversation).
+async function drawCollab(preselect) {
+  view = 'collab'; active = null; closeStream(); setPlace('collab');
+  const { pane } = inboxShell('合作', '幾個 session 一起完成一個目標：它們用 Claude Code 的 SendMessage 直接互傳，共用一份帳本，你的裁定由看板原話轉給每一個', drawHome);
+  let r; try { r = await api('/api/collabs'); } catch (e) { r = { ok: false, data: {} }; }
+  if (view !== 'collab') return;
+  if (!r.ok) { pane.append(el('p', 'lead', '讀不到合作清單。')); return; }
+  const list = r.data.collabs || [];
+  const act = list.filter((c) => c.state === 'active');
+  $('collabSub').textContent = act.length ? act.length + ' 個進行中' : '幾個 session 一起完成一個目標';
+  // starting one
+  const form = el('div', 'collab-new');
+  form.append(el('h2', '', '開一個合作'));
+  const goal = el('textarea'); goal.rows = 3; goal.style.width = '100%'; goal.placeholder = '共同目標，例如：ALPHA 與 BETA 對齊增量同步的規格，並完成雙方聯合測試'; goal.setAttribute('aria-label', '共同目標');
+  form.append(el('div', 'lab', '共同目標'), goal);
+  form.append(el('div', 'lab', '成員（勾 2 個以上；角色是其他成員怎麼稱呼它，負責什麼寫它那一半）'));
+  const cands = sessions.filter((s) => !s.headless && !s.notStarted && !s.programHidden);
+  const rows = [];
+  const tbl = el('div', 'collab-pick');
+  for (const s of cands) {
+    const row = el('div', 'cp-row');
+    const ck = el('input'); ck.type = 'checkbox'; ck.checked = s.sessionId === preselect; ck.setAttribute('aria-label', '加入：' + (s.title || s.sessionId));
+    const role = el('input'); role.placeholder = '角色，例如 ALPHA'; role.value = folderName(s.cwd); role.setAttribute('aria-label', '角色');
+    const does = el('input'); does.placeholder = '負責什麼'; does.setAttribute('aria-label', '負責什麼');
+    const lab = el('div', 'cp-who'); lab.append(el('span', 't', s.title || s.sessionId.slice(0, 8)), el('span', 'm', folderName(s.cwd) + ' · ' + (s.owner === 'board' ? '看板對話' : '終端機') + (s.name ? ' · ' + s.name : '')));
+    row.append(ck, lab, role, does); tbl.append(row);
+    rows.push({ s, ck, role, does });
+  }
+  if (!cands.length) tbl.append(el('p', 'hint', '現在沒有可以加入的 session（背景執行的、還沒開始的不列）。'));
+  form.append(tbl);
+  const folder = el('select'); folder.setAttribute('aria-label', '帳本放在哪個資料夾');
+  const fillFolders = () => {
+    const was = folder.value; folder.textContent = '';
+    const dirs = [...new Set(rows.filter((x) => x.ck.checked).map((x) => x.s.cwd))];
+    for (const d of dirs) { const o = el('option', '', d); o.value = d; folder.append(o); }
+    if (dirs.includes(was)) folder.value = was;
+  };
+  rows.forEach((x) => x.ck.addEventListener('change', fillFolders)); fillFolders();
+  form.append(el('div', 'lab', '帳本放在（成員的資料夾之一，檔案是 .claude/collab/<編號>.md）'), folder);
+  const by = el('input'); by.type = 'checkbox'; by.checked = r.data.bypassDefault !== false; by.id = 'collabBypass';
+  const byl = el('label', '', ' 看板對話改成「全部不問，直接做」（bypass）'); byl.htmlFor = 'collabBypass';
+  const byRow = el('div', 'cp-opt'); byRow.append(by, byl, el('div', 'hint', '成員的權限模式要一樣，訊息才送得到：模式不同時，收到的一方會把訊息扣住等它的使用者核可，看板對話沒有人能核可，就永遠送不到（實測）。終端機 session 的模式看板改不了，模式不一致時下面會警告。'));
+  form.append(byRow);
+  const go = el('button', 'btn primary', '開始合作'); go.type = 'button';
+  const msg = el('div', 'hint');
+  go.addEventListener('click', async () => {
+    const members = rows.filter((x) => x.ck.checked).map((x) => ({ sessionId: x.s.sessionId, role: x.role.value.trim(), does: x.does.value.trim() }));
+    if (!goal.value.trim()) return say('要寫共同目標', true);
+    if (members.length < 2) return say('要勾 2 個以上的 session', true);
+    go.disabled = true; msg.textContent = '建立中：寫帳本、替看板對話改名、送合作說明給每一位…';
+    let x; try { x = await api('/api/collab/create', { goal: goal.value.trim(), folder: folder.value, bypass: by.checked, members }); } catch (e) { x = { ok: false, data: { error: '看板程序沒有回應' } }; }
+    go.disabled = false;
+    if (!x.ok) { msg.textContent = ''; return say(x.data.error || '建不起來', true); }
+    say('合作 #' + x.data.id + ' 開始了');
+    drawCollabOne(x.data.id, x.data.results);
+  });
+  form.append(go, msg);
+  // the ones there are
+  const h = el('h2', '', '合作（' + list.length + '）'); h.style.marginTop = '32px';
+  pane.append(h);
+  if (!list.length) pane.append(el('p', 'hint', '還沒有合作。'));
+  for (const c of list) {
+    const b = el('button', 'collab-item'); b.type = 'button';
+    b.append(el('div', 't', '#' + c.id + '　' + c.goal.split('\n')[0].slice(0, 80)), el('div', 'm', (c.state === 'active' ? '進行中' : '已結束') + ' · ' + c.members.map((m) => m.role + (m.live ? '' : '（沒開著）')).join('、') + (c.modesAgree ? '' : ' · ⚠ 權限模式不一致')));
+    b.addEventListener('click', () => drawCollabOne(c.id));
+    pane.append(b);
+  }
+  pane.append(form);
+  if (preselect) goal.focus();
+}
+
+const MODE_WORD = { bypassPermissions: 'bypass（全部不問）', auto: 'auto', acceptEdits: 'acceptEdits', default: 'default', plan: 'plan' };
+// One collaboration: members, what is open in the ledger, decisions to make, the messages between them, the ledger.
+async function drawCollabOne(id, results) {
+  view = 'collab'; active = null; closeStream(); setPlace('collab-' + id);
+  const { pane } = inboxShell('合作 #' + id, '成員、帳本裡還開著的、要你裁定的、它們之間的訊息', () => drawCollab());
+  let r; try { r = await api('/api/collab?id=' + id); } catch (e) { r = { ok: false, data: {} }; }
+  if (view !== 'collab') return;
+  if (!r.ok) { pane.append(el('p', 'lead', r.data.error || '讀不到這個合作。')); return; }
+  const c = r.data;
+  pane.append(el('p', 'lead collab-goal', c.goal));
+  const ledgerLine = el('div', 'hint'); ledgerLine.append('帳本：', el('code', '', c.ledger), c.state === 'active' ? '' : '　（已結束）'); pane.append(ledgerLine);
+  if (results && results.length) {
+    const box = el('div', 'banner'); box.append(el('div', '', '剛才做了什麼：'));
+    for (const x of results) box.append(el('div', '', x.role + '：' + [x.bypass ? '權限 ' + (x.bypass === 'now' ? '已改成 bypass' : x.bypass === 'after-turn' ? '這輪做完後改成 bypass' : x.bypass) : '', x.rename === 'sent' ? '已送 /rename ' + x.name : x.rename === 'by-you' ? '要你在它的視窗打 /rename（見下方）' : x.rename === 'after-turn' ? '它正在忙：這輪做完後送 /rename ' + x.name : '改名：' + x.rename, '合作說明 ' + (x.brief === 'sent' ? '已送出' : x.brief === 'after-turn' ? '這輪做完後送' : '沒送到' + (x.note ? '（' + x.note + '）' : ''))].filter(Boolean).join('；')));
+    pane.append(box);
+  }
+  if (!c.modesAgree && c.modesUnknown && c.modesUnknown.length && c.modes.length <= 1) pane.append(el('div', 'banner warn', '⚠ 看不出 ' + c.modesUnknown.join('、') + ' 用的權限模式（終端機 session 要做過一件事才會記下來）。模式和其他成員不同的話，訊息會被扣住送不到；請確認它和其他成員用同一種模式。'));
+  else if (!c.modesAgree) pane.append(el('div', 'banner warn', '⚠ 成員的權限模式不一樣（' + c.modes.map((m) => MODE_WORD[m] || m).join('、') + '）。模式不同時，收到訊息的一方會把它扣住等它的使用者核可：終端機 session 會跳出來問你，看板對話沒有人能核可，訊息就永遠送不到。請讓它們用同一種模式。'));
+  // members
+  pane.append(el('h2', '', '成員'));
+  const mt = el('div', 'collab-members');
+  for (const m of c.members) {
+    const row = el('div', 'cm-row');
+    const st = !m.live ? '沒開著' : m.status === 'busy' ? '忙' : m.status === 'waiting' ? '等你' : '閒';
+    row.append(el('span', 'dot' + (m.status === 'busy' ? ' running' : m.status === 'waiting' ? ' yours' : '')),
+      el('span', 'cm-role', m.role), el('span', 'cm-name', (m.actualName || '（還沒有名字）') + (m.actualName && m.actualName !== m.name ? '　預定：' + m.name : '')),
+      el('span', 'cm-st', st + ' · ' + (m.owner === 'board' ? '看板對話' : '終端機') + ' · ' + (MODE_WORD[m.mode] || m.mode || '模式不明')));
+    const open = el('button', 'btn', '打開'); open.type = 'button'; open.addEventListener('click', () => openChat(m.sessionId)); row.append(open);
+    mt.append(row);
+  }
+  pane.append(mt);
+  const cmds = (c.renameCommands || []).filter((x) => !x.done);
+  if (cmds.length) {
+    const box = el('div', 'banner'); box.append(el('div', '', '終端機 session 的名字看板改不了（訊息裡的斜線指令不會執行），請到它的視窗貼上這一行：'));
+    for (const x of cmds) { const line = el('div', 'cmd-line'); const code = el('code', '', x.command); const cp = el('button', 'btn', '複製'); cp.type = 'button'; cp.addEventListener('click', async () => { try { await navigator.clipboard.writeText(x.command); say('已複製，貼到「' + x.role + '」的終端機視窗'); } catch (e) { say('複製不了，請手動輸入：' + x.command, true); } }); line.append(x.role + '：', code, cp); box.append(line); }
+    pane.append(box);
+  }
+  // what is open in the ledger
+  const o = c.open || { promises: [], pending: [], interfaces: [] };
+  const left = o.promises.filter((p) => !p.done), behind = o.interfaces.filter((i) => i.behind.length);
+  pane.append(el('h2', '', '還開著的（' + (left.length + behind.length) + '）'));
+  if (!left.length && !behind.length) pane.append(el('p', 'hint', '帳本裡沒有沒做完的承諾，也沒有還沒跟上的介面。'));
+  for (const p of left) pane.append(el('div', 'collab-open', '承諾 · ' + (p.who || '（沒寫誰）') + '：' + p.text));
+  for (const i of behind) { const d = el('div', 'collab-open behind', '介面 · ' + i.name + (i.version ? '（' + i.version + '）' : '') + '：' + i.behind.join('、') + ' 還沒跟上'); pane.append(d); }
+  // decisions
+  const pend = o.pending.filter((p) => !p.done);
+  pane.append(el('h2', '', '要你裁定（' + pend.length + '）'));
+  if (!pend.length) pane.append(el('p', 'hint', '目前沒有。成員會把要你決定的事寫進帳本「待你裁定」。'));
+  for (const p of pend) {
+    const box = el('div', 'collab-decide');
+    const ta = el('textarea'); ta.rows = 2; ta.style.width = '100%'; ta.placeholder = '你的回答（會原話寫進帳本並送給每一位成員）'; ta.setAttribute('aria-label', '回答：' + p.question);
+    const b = el('button', 'btn primary', '送出裁定'); b.type = 'button';
+    b.addEventListener('click', async () => {
+      if (!ta.value.trim()) return say('要寫回答', true);
+      b.disabled = true; let x; try { x = await api('/api/collab/decide', { id: c.id, question: p.question, answer: ta.value }); } catch (e) { x = { ok: false, data: { error: '看板程序沒有回應' } }; }
+      b.disabled = false; if (!x.ok) return say(x.data.error || '送不出去', true);
+      say('已寫進帳本，並送給 ' + x.data.results.filter((y) => y.state === 'sent').length + ' / ' + x.data.results.length + ' 位成員'); drawCollabOne(c.id);
+    });
+    box.append(el('div', 'q', p.question), ta, b); pane.append(box);
+  }
+  // the messages between them
+  const tl = c.timeline || [];
+  pane.append(el('h2', '', '它們之間的訊息（' + tl.length + '）'));
+  if (!tl.length) pane.append(el('p', 'hint', '還沒有。成員用 SendMessage 互傳的，和收到的，都會列在這裡。'));
+  for (const x of tl.slice().reverse()) {
+    const row = el('div', 'collab-msg ' + x.dir);
+    const when = x.at ? new Date(x.at).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+    row.append(el('div', 'cmh', when + '　' + (x.dir === 'out' ? x.member + ' → ' + x.peer + (x.delivered ? '　✓ 對方收到' : '') : x.member + ' ← ' + x.peer)), el('div', 'cmt', x.text));
+    pane.append(row);
+  }
+  // the ledger itself
+  pane.append(el('h2', '', '帳本全文'));
+  pane.append(el('pre', 'collab-ledger', c.ledgerMissing ? '（帳本檔不見了：' + c.ledger + '）' : c.ledgerText));
+  if (c.state === 'active') {
+    const end = el('button', 'btn', '結束合作'); end.type = 'button'; end.title = '只是標成已結束，不動任何 session、不刪帳本；成員的權限模式也維持現在的樣子';
+    end.addEventListener('click', async () => { let x; try { x = await api('/api/collab/end', { id: c.id }); } catch (e) { x = { ok: false, data: { error: '看板程序沒有回應' } }; } if (!x.ok) return say(x.data.error || '改不了', true); say('合作 #' + c.id + ' 已結束'); drawCollabOne(c.id); });
+    pane.append(end);
+  }
+}
+
 async function drawSched() {
   view = 'sched'; active = null; closeStream(); setPlace('sched');
   const { pane } = inboxShell('排程', '到點自動在某個資料夾、或接續某個 session 做一件事', drawHome);
@@ -2885,15 +3071,15 @@ function closeStream(next) { const left = chatOn; chatOn = null; if (left && lef
 // commands. For a board conversation this comes live from Claude Code, with
 // what each one is doing; for a terminal session only the names of the
 // subagents that are running are known (from cc-statusline).
-let liveTasks = [], termAgents = [];
+let liveTasks = [], termAgents = [], termAgentsAt = [], termAgentDetail = [];
 function drawTasks() {
-  const box = $('tasks'), s = cur();
-  if (!box) return;
-  box.textContent = '';
+  const s = cur();
+  const bar = $('tasks'); if (bar) { bar.textContent = ''; bar.hidden = true; }   // (the bar under the conversation is no longer used)
+  const box = document.createElement('div');
   if (s && s.owner === 'board') {
     for (const t of liveTasks) {
       // A command whose output file is known is a button: press it to read what it has printed.
-      const row = el(t.canOpen ? 'button' : 'div', 'tk' + (t.done ? ' fin' : ''));
+      const row = el(t.canOpen ? 'button' : 'div', 'tk' + (t.done ? ' fin' : '')); row.dataset.kind = t.kind === 'agent' ? 'agent' : 'bash';
       if (t.canOpen) { row.type = 'button'; row.addEventListener('click', () => openTaskPeek(s.sessionId, t)); }
       const e = el('span', 'tk-e');
       if (t.done) e.textContent = (t.status === 'completed' ? '做完了' : t.status === 'failed' ? '失敗' : t.status === 'killed' ? '被停止' : '結束（' + t.status + '）') + ' · ' + ago(Date.now() - t.endedAt).replace(/^(?!剛剛)(.*)$/, '$1前');
@@ -2905,11 +3091,46 @@ function drawTasks() {
       box.append(row);
     }
   } else if (termAgents.length) {
-    const row = el('div', 'tk');
-    row.append(el('span', 'dot running'), el('span', 'tk-l', '子代理執行中'), el('span', 'tk-d', termAgents.join('、')));
-    box.append(row);
+    // a terminal session: only the names of its running subagents are known (cc-statusline) - one row each, so the
+    // count in the stats row is theirs
+    // what each is doing: from its transcript (detail), matched by kind, oldest first; one without a match shows its kind only
+    const left = termAgentDetail.slice();
+    termAgents.forEach((name, n) => {
+      // the description of the same kind whose start is closest to when cc-statusline saw this one begin
+      const at = Number(termAgentsAt[n]) || 0;
+      let i = -1, best = Infinity;
+      left.forEach((x, j) => { if (x.kind !== name) return; const gap = at && x.startedAt ? Math.abs(x.startedAt - at) : 1e15 + j; if (gap < best) { best = gap; i = j; } });
+      const dd = i >= 0 ? left.splice(i, 1)[0] : null;
+      const row = el('div', 'tk'); row.dataset.kind = 'agent'; const e = el('span', 'tk-e'); if (dd && dd.startedAt) e.dataset.start = dd.startedAt;
+      row.append(el('span', 'dot running'), el('span', 'tk-l', '子代理 ' + name), el('span', 'tk-d', dd && dd.description ? dd.description : ''), e);
+      row.title = dd && dd.description ? dd.description : '它在做什麼沒有記在對話紀錄的最後一段裡';
+      box.append(row);
+    });
   }
-  box.hidden = !box.firstChild;
+  // In the stats row: subagents and background commands, one item each, shown only while one of them is running; their
+  // rows under "更多", shown while there is any to list. A terminal session's background commands cannot be seen from
+  // here: neither is shown for them.
+  const all = [...box.children];
+  const terminal = !!(s && s.owner !== 'board');
+  for (const [kind, word, itemId, listId] of [['agent', '子代理', 'agentChip', 'agentRows'], ['bash', '背景指令', 'bashChip', 'bashRows']]) {
+    const rows = all.filter((r) => r.dataset.kind === kind);
+    const running = rows.filter((r) => r.querySelector('.dot.running')).length;
+    const unseen = terminal && kind === 'bash';
+    const item = $(itemId), holder = $(listId);
+    if (item) {
+      item.hidden = unseen || !running;
+      item.textContent = '';
+      if (!item.hidden) { item.append(el('span', 'dot running'), word + ' ', el('b', '', running + ' 個執行中')); item.title = word + '：' + running + ' 個在跑。按這一列看細節'; }
+    }
+    if (holder) {
+      const none = unseen || !rows.length;
+      holder.hidden = none; if (holder.previousElementSibling) holder.previousElementSibling.hidden = none;
+      holder.textContent = ''; if (!none) holder.append(...rows);
+    }
+  }
+  // the row itself: not shown when nothing in it is (an empty bar that could still be pressed)
+  const chipRow = $('agentChip') && $('agentChip').parentElement;
+  if (chipRow) chipRow.hidden = ![...chipRow.children].some((c) => !c.hidden);
   tickTasks();
 }
 function tickTasks() {
@@ -3015,6 +3236,7 @@ function drawHead() {
   // (the list used to have a "+" beside each folder's name; it is one list now, so the way in is here)
   { const cb = add('改了什麼', '', () => openChanges(s)); cb.title = '這個 session 改過哪些檔案、每個檔案改了什麼；以及它的資料夾裡還沒 commit 的變更'; }
   if (s.cwd) { const nb = add('＋ 同資料夾', '', () => createIn(s.cwd)); nb.title = '在同一個資料夾開新對話：' + s.cwd; }
+  if (!s.headless) { const cb2 = add('＋ 合作', '', () => drawCollab(s.sessionId)); cb2.title = '跟其他 session 一起完成一個目標：它們直接互傳訊息、共用一份帳本'; }
   // Off the list, or back on it. Nothing is ended or deleted.
   // Hiding is not done by hand any more: a session with nothing new for the number of days in the settings leaves the
   // list by itself. What is left here is the way back.
@@ -3060,7 +3282,9 @@ function drawHead() {
     }
   } else {
     if (st === 'busy' || st === 'waiting' || st === 'background') add('停止', 'danger', async () => {
-      await api('/api/stop', { sessionId: s.sessionId });
+      let r; try { r = await api('/api/stop', { sessionId: s.sessionId }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
+      // the board answers 200 with ok:false when there was nothing running to stop
+      if (!r.ok || r.data.ok === false) return say(r.data.error || '它現在沒有在跑，沒有東西可以停', true);
       say('已停止。再送一則訊息就會接著原本的對話繼續。');
     });
     // Ends the conversation here: its process stops and it leaves the board. What was said stays on disk.
@@ -3093,7 +3317,8 @@ function drawHead() {
 
 function focusResult(s, r) {
   if (r.state === 'hit' && r.focused) return ['已切到「' + s.title + '」的視窗', false];
-  if (r.state === 'hit') return ['找到視窗了，但 Windows 沒讓它切到最前面（當時最前面的是 ' + (r.before || '?') + '）', true];
+  if (r.state === 'hit') return ['找到視窗了，但 Windows 沒讓它切到最前面' + (r.before ? '（當時最前面的是 ' + r.before + '）' : ''), true];
+  if (r.state === 'miss') return [r.error || '找不到它的視窗', true];   // macOS: no Terminal tab with its tty
   if (r.state === 'ambiguous') return ['有兩個以上視窗的標題開頭相同，分不出是哪一個，所以沒有切換', true];
   if (r.state === 'gone') return ['這個 session 已經結束了', true];
   if (r.state === 'none') return ['找不到這個 session 的視窗（目前有 ' + (r.windows || 0) + ' 個終端機視窗）', true];
@@ -3222,6 +3447,7 @@ function autoNotice(text) {
   if (m) { kind = 'model'; const to = m[2].replace(/^./, (x) => x.toUpperCase()); title = '已自動換成 ' + to; line = m[1] + ' 的用量額度用完了，這個對話改用 ' + to + ' 接著做剛才的事，之後也都用 ' + to + '。要換別的模型或 effort，按上方統計列的「模型」。'; }
   else if (/用量額度用完而停下，現在額度已經重置/.test(t)) { kind = 'limit'; title = '額度回來了，已請它接著做'; line = '剛才因為用量額度用完而停下，額度重置後看板請它把沒做完的做完。'; }
   else if (/被 API 那一端的暫時性錯誤中斷/.test(t)) { kind = 'error'; title = '被錯誤中斷，已請它再試一次'; line = 'API 那一端暫時出錯，看板請它從中斷的地方再試。'; }
+  else if (/^（看板自動送出）【合作 #\d+】/.test(t)) { kind = 'collab'; const n = /【合作 #(\d+)】/.exec(t)[1]; title = '合作 #' + n + '：看板送來的合作訊息'; line = t.replace(/^（看板自動送出）【合作 #\d+】/, '').trim().split('\n')[0].slice(0, 120); }
   else if (/工作進行到一半時被中斷/.test(t)) { kind = 'resume'; title = '重開後，已請它接著做'; line = '上次做到一半被中斷（關機、重開機或程序結束），看板請它接著做。'; }
   return { kind, title, line, from: m ? m[1] : '' };
 }
@@ -3510,7 +3736,13 @@ function drawFoot() {
   const pickBtn = el('button', 'btn imgbtn', '圖片'); pickBtn.type = 'button'; pickBtn.title = '附上圖片。也可以直接在輸入框按 Ctrl+V 貼上截圖，或把圖檔拖進來'; pickBtn.addEventListener('click', () => imgPick.click());
   drawImgs();
   col.append(strip);
-  box.append(ta, imgPick, pickBtn, sendBtn);
+  // While it is working: a stop button beside the send button (the same stop as the one above: the turn ends there;
+  // a next message carries on the same conversation)
+  if (st === 'busy' || st === 'waiting' || st === 'background') {
+    const stopBtn = el('button', 'btn danger', '停止'); stopBtn.type = 'button'; stopBtn.title = '停止它現在做的事。再送一則訊息就會接著原本的對話繼續';
+    stopBtn.addEventListener('click', async () => { stopBtn.disabled = true; let r; try { r = await api('/api/stop', { sessionId: s.sessionId }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; } if (!r.ok || r.data.ok === false) { stopBtn.disabled = false; return say(r.data.error || '它現在沒有在跑，沒有東西可以停', true); } say('已停止。再送一則訊息就會接著原本的對話繼續。'); });
+    box.append(ta, imgPick, pickBtn, stopBtn, sendBtn);
+  } else box.append(ta, imgPick, pickBtn, sendBtn);
   col.style.position = 'relative';
   if (s.notStarted && !sentOnce.has(s.sessionId)) col.append(roleRow(s));
   const q = carry.get(s.sessionId);
@@ -4580,7 +4812,10 @@ async function savePref(patch) {
   features.prefs = Object.assign({}, prefs(), patch);   // shown at once; the board's answer then settles it
   let r; try { r = await api('/api/config', patch); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
   if (!r.ok) { say(r.data.error || '存不進去', true); poll(); return false; }
-  if (r.data.prefs) features.prefs = r.data.prefs;
+  // An older board program takes the request (200) but does not know these settings and keeps none of them: its answer
+  // has no prefs. Said so, and the page goes back to what is really stored - not shown as saved and then undone.
+  if (!r.data.prefs) { say('這個看板還是舊的程式，不認得這個設定，沒有存下來。重啟看板後才能用', true); features.prefs = undefined; poll(); return false; }
+  features.prefs = r.data.prefs;
   return true;
 }
 // The left column, folded or not (the setting sidebarCollapsed).
@@ -4619,6 +4854,7 @@ let pastCount = '';     // "N not open", for the caption of the office entry (se
 const TAB_ICON = "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'24%2040%20208%20176'%20preserveAspectRatio%3D'none'%20fill%3D'%23EA580C'%3E%3Cpath%20d%3D'M216%2C40H40A16%2C16%2C0%2C0%2C0%2C24%2C56V200a16%2C16%2C0%2C0%2C0%2C16%2C16H216a16%2C16%2C0%2C0%2C0%2C16-16V56A16%2C16%2C0%2C0%2C0%2C216%2C40Zm-8%2C96H188.64L159%2C188a8%2C8%2C0%2C0%2C1-6.95%2C4h-.46a8%2C8%2C0%2C0%2C1-6.89-4.84L103%2C89.92%2C79%2C132a8%2C8%2C0%2C0%2C1-7%2C4H48a8%2C8%2C0%2C0%2C1%2C0-16H67.36L97.05%2C68a8%2C8%2C0%2C0%2C1%2C14.3.82L153%2C166.08l24-42.05a8%2C8%2C0%2C0%2C1%2C6.95-4h24a8%2C8%2C0%2C0%2C1%2C0%2C16Z'%2F%3E%3C%2Fsvg%3E", TAB_ICON_WAIT = "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'24%2040%20208%20176'%20preserveAspectRatio%3D'none'%20fill%3D'%23EA580C'%3E%3Cpath%20d%3D'M216%2C40H40A16%2C16%2C0%2C0%2C0%2C24%2C56V200a16%2C16%2C0%2C0%2C0%2C16%2C16H216a16%2C16%2C0%2C0%2C0%2C16-16V56A16%2C16%2C0%2C0%2C0%2C216%2C40Zm-8%2C96H188.64L159%2C188a8%2C8%2C0%2C0%2C1-6.95%2C4h-.46a8%2C8%2C0%2C0%2C1-6.89-4.84L103%2C89.92%2C79%2C132a8%2C8%2C0%2C0%2C1-7%2C4H48a8%2C8%2C0%2C0%2C1%2C0-16H67.36L97.05%2C68a8%2C8%2C0%2C0%2C1%2C14.3.82L153%2C166.08l24-42.05a8%2C8%2C0%2C0%2C1%2C6.95-4h24a8%2C8%2C0%2C0%2C1%2C0%2C16Z'%2F%3E%3Cellipse%20cx%3D'196'%20cy%3D'74'%20rx%3D'40'%20ry%3D'34'%20fill%3D'%23EF4444'%20stroke%3D'%23fff'%20stroke-width%3D'14'%2F%3E%3C%2Fsvg%3E";
 let moving = '';        // the conversation being moved to a terminal window right now (see the 移到終端機 button)
 let infoOpen = false;   // whether "more" is open; kept while the figures refresh and across conversations
+let openMore = null;    // opens or closes it (set when the stats row is drawn)
 async function loadStats(sid) {
   let r;
   try { r = await api('/api/stats?sid=' + encodeURIComponent(sid)); } catch (e) { return; }
@@ -4671,33 +4907,39 @@ async function loadStats(sid) {
   }
   if (d.compacts) chip('壓縮', sep(d.compacts.count) + ' 次', d.compacts.last ? '上次壓縮：' + when(d.compacts.last) : '這個 session 還沒被壓縮過');
   if (d.messages != null) chip('訊息', sep(d.messages) + ' 則');
-  if (d.agents.running.length) chip('子代理執行中', String(d.agents.running.length), d.agents.running.join('、'));
+  // subagents and background commands: an item each, shown while one is running; details under "更多" (drawTasks fills both)
+  for (const id of ['agentChip', 'bashChip']) { const x = el('span', 'task-chip'); x.id = id; chips.append(x); }
   // (The account-wide limits are not repeated here: they are at the bottom of the left column, the same for every session.)
   const q = d.quota || {};
   const stale = q.seenAt && Date.now() - q.seenAt > 10 * 60000 ? '。這是 ' + ago(Date.now() - q.seenAt) + '前看到的數字，之後沒有 session 回報新的' : '';
   const s0 = cur();
-  if (s0 && s0.owner === 'terminal') { termAgents = d.agents.running; drawTasks(); }
+  if (s0 && s0.owner === 'terminal') { termAgents = d.agents.running; termAgentsAt = Array.isArray(d.agents.runningAt) ? d.agents.runningAt : []; termAgentDetail = Array.isArray(d.agents.detail) ? d.agents.detail : []; }
   const rows = [];
   // Subagents = helpers this session handed work to (a reviewer, a tester, a searcher...).
   const runs = d.usage ? d.usage.agentRuns : 0;
   if (runs || d.agents.kinds.length || d.agents.running.length) {
     const parts = [];
     if (runs) parts.push('這個 session 把工作分派給幫手共 ' + runs + ' 次');
-    parts.push(d.agents.running.length ? '現在還在跑的：' + d.agents.running.join('、') : '現在都做完了，沒有在跑的');
+    // (what is running now is in the 子代理 row above)
     if (d.agents.kinds.length) parts.push('最近用過的種類：' + d.agents.kinds.join('、'));
-    rows.push(['子代理（幫手）', parts.join('；')]);
+    if (parts.length) rows.push(['子代理紀錄', parts.join('；')]);
   }
   if (d.skills.length) rows.push(['常用 skill', d.skills.map((s) => s.name + ' ×' + s.count).join('、')]);
   if (d.mcp.length) rows.push(['MCP 呼叫', d.mcp.map((m) => m.name + ' ×' + m.count + (m.errors ? '（失敗 ' + m.errors + '）' : '')).join('、')]);
-  if (rows.length || d.edited.length) {
+  {   // the background work's rows are here (shown while there is any to list)
+    const agentRows = el('div', 'task-rows'); agentRows.id = 'agentRows';
+    const bashRows = el('div', 'task-rows'); bashRows.id = 'bashRows';
+    rows.unshift(['子代理', agentRows], ['背景指令', bashRows]);
     // "More" sits at the right end of the same row; what it opens goes underneath, full width.
-    const tog = el('button', 'info-more'); tog.type = 'button';
+    // the whole row of figures opens and closes it (what is a control of its own in the row - the model - keeps its own click)
     const grid = el('div', 'more-rows');
-    const set = () => { grid.hidden = !infoOpen; tog.textContent = infoOpen ? '收起 ▴' : '更多 ▾'; tog.setAttribute('aria-expanded', String(infoOpen)); };
-    tog.addEventListener('click', () => { infoOpen = !infoOpen; set(); });
+    const set = () => { grid.hidden = !infoOpen; chips.setAttribute('aria-expanded', String(infoOpen)); chips.classList.toggle('open', infoOpen); };
+    openMore = (v) => { infoOpen = !!v; set(); };
+    chips.classList.add('opens'); chips.setAttribute('role', 'button'); chips.tabIndex = 0; chips.title = '按一下看更多（背景工作、子代理、常用 skill、最近改過的檔案…）';
+    chips.addEventListener('click', (e) => { if (e.target.closest('button, a, input, select, textarea')) return; infoOpen = !infoOpen; set(); });
+    chips.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === chips) { e.preventDefault(); infoOpen = !infoOpen; set(); } });
     set();
-    box.append(tog);
-    for (const [k, v] of rows) grid.append(el('span', '', k), el('span', '', v));
+    for (const [k, v] of rows) grid.append(el('span', '', k), v instanceof Node ? v : el('span', '', v));
     if (d.edited.length) {
       const files = el('span');
       d.edited.forEach((f, i) => { if (i) files.append('、'); files.append(el('code', '', f)); });
@@ -4705,6 +4947,7 @@ async function loadStats(sid) {
       linkFiles(files, sid);   // the ones that can be found become clickable, like paths in a reply
     }
     box.append(grid);
+    drawTasks();   // the background work: the item in the row and its rows here
   }
   box.hidden = !chips.firstChild;
 }
@@ -5104,6 +5347,7 @@ $('bellBtn').addEventListener('click', () => { if ($('bellPop').hidden) drawNoti
 $('inboxBtn').addEventListener('click', drawInbox);
 $('officeBtn').addEventListener('click', drawOffice);
 $('schedBtn').addEventListener('click', drawSched);
+$('collabBtn').addEventListener('click', () => drawCollab());
 $('plugBtn').addEventListener('click', () => drawPlugins());
 $('homeBtn').addEventListener('click', drawHome);
 setInterval(() => { tickWar(); tickTasks(); tickOffice(); tickSched(); }, 1000);
@@ -5130,6 +5374,8 @@ function noKey() {
   else if (at === 'past') drawPastPage();
   else if (at === 'office') drawOffice();
   else if (at === 'sched') drawSched();
+  else if (at === 'collab') drawCollab();
+  else if (/^collab-\d+$/.test(at)) drawCollabOne(Number(at.slice(7)));
   else if (at === 'plugins') drawPlugins();
   else if (at === 'notices') { redrawLists(); drawNotices(); }
   else if (at && sessions.some((s) => s.sessionId === at)) openChat(at);

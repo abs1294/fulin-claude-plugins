@@ -92,7 +92,7 @@ test('where a run goes depends on what the session is doing', async () => {
   b.open.push({ sessionId: SID, owner: 'board', cwd: d });
   r = await fire(mk({})); assert.deepStrictEqual([S.runs(1)[0].how, b.sent.pop()[0]], ['board', SID]);
   // open in a terminal: handed over session to session, with a mark the receiver's transcript can be searched for
-  b.open[0] = { sessionId: SID, owner: 'terminal', cwd: d, name: 'supplier-code-8c', pid: 1 };
+  b.open[0] = { sessionId: SID, owner: 'terminal', cwd: d, name: 'project-b-8c', pid: 1 };
   r = await fire(mk({}));
   assert.deepStrictEqual([r.status, S.runs(1)[0].how, b.sent.length, b.ops.peerCalls.length], ['sent', 'peer', 0, 1]);    // handed over; not yet known to be taken
   assert.ok(b.ops.peerCalls[0][1].startsWith('【看板排程「跟進」' + b.ops.peerCalls[0][2] + '】\n接著做') && b.ops.peerCalls[0][2] === '#' + S.runs(1)[0].id);

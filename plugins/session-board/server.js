@@ -50,10 +50,12 @@ const Changes = require('./lib/changes');
 const Aside = require('./lib/aside');
 const { Goal2 } = require('./lib/goal2');
 const { Decider } = require('./lib/decide');
+const Agents = require('./lib/agents');
 const Harness = require('./lib/harness');
 const Remote = require('./lib/remote');
 const Plugins = require('./lib/plugins');
 const Rooms = require('./lib/rooms');
+const Collab = require('./lib/collab');
 const { Auto } = require('./lib/auto');
 
 const SOURCES_OK = require('./lib/inbox/sources').ids;
@@ -387,6 +389,10 @@ function createServer(token, port, deps = {}) {
     officeCollapseOthers: { def: false, ok: isBool, why: '只能是開或關' },    // the rooms that are not starred folded up
     hideProgramSessions: { def: false, ok: isBool, why: '只能是開或關' },     // sessions a program started (not you) kept out of the lists
     hideProgramFolders: { def: [], ok: isPaths, why: '要是資料夾路徑的清單' }, // and every session in these folders
+    // collaborations: the name each member is given ({id} the collaboration, {short} the member's short name; empty =
+    // the one in collab/config.json), and whether board conversations are switched to bypass when they join
+    collabNamePattern: { def: '', ok: (v) => typeof v === 'string' && v.length <= 60 && !/[\r\n]/.test(v) && (v === '' || v.includes('{id}')), why: '要包含 {id}，60 字以內、一行' },
+    collabBypass: { def: true, ok: isBool, why: '只能是開或關' },
     decideModel: { def: 'haiku', ok: (v) => typeof v === 'string' && /^(haiku|sonnet|opus|fable|claude-[a-z0-9.-]{1,40})$/.test(v), why: '模型只能是 haiku、sonnet、opus、fable 或 claude- 開頭的名稱' },
   };
   const pref = (k) => { const v = config.value(k, PREFS[k].def); return PREFS[k].ok(v) ? v : PREFS[k].def; };
@@ -547,6 +553,7 @@ function createServer(token, port, deps = {}) {
         if (!s.lastUser || /^\s*</.test(s.lastUser)) { try { s.lastUser = Past.lastSaid(S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir)); } catch (e) {} }
       }
       cache = { at: now, list };
+      try { trackCollabNames(list); } catch (e) {}   // a collaboration member whose name changed: ledger and the others told (after the list is kept: telling a member asks for it)
     }
     return cache.list;
   };
@@ -697,6 +704,145 @@ function createServer(token, port, deps = {}) {
     if (win.state === 'hit' && win.hwnd) { const r = await closeWindow(win.hwnd); windowClosed = r.state === 'closed' && !r.stillOpen; }
     return { ok: true, windowClosed };
   };
+  // ── collaborations (lib/collab.js): two or more sessions on one goal, talking to each other directly ──
+  // Kept in the board's database (setting 'collabs'): [{id, goal, createdAt, folder, ledger, state, bypass,
+  //   members: [{sessionId, cwd, owner, role, short, does, name (the one given), seenName (the one it has now), names}]}]
+  const collabList = () => { const v = config.value('collabs', []); return Array.isArray(v) ? v.filter((c) => c && Number.isInteger(c.id) && Array.isArray(c.members)) : []; };
+  const saveCollabs = (list) => config.setValue('collabs', list);
+  // A member's permission mode: a board conversation by what it runs (or will run) with, a terminal session by its transcript.
+  const memberMode = (m, s) => {
+    if (m.owner === 'board') { const c = channels.get(m.sessionId); return c ? (c.skipPermissions ? 'bypassPermissions' : c.mode || defaultMode()) : ''; }
+    return s ? modeOf(s) : '';
+  };
+  const collabView = (c, list) => {
+    const members = c.members.map((m) => { const s = list.find((x) => x.sessionId === m.sessionId); return Object.assign({}, m, { live: !!s, status: s ? s.status : 'gone', actualName: s ? String(s.addr || s.name || '') : '', mode: memberMode(m, s), title: s ? s.title : '' }); });
+    const modes = [...new Set(members.map((m) => m.mode).filter(Boolean))];
+    // a live member whose mode cannot be read yet (a terminal session that has not written it): not taken as agreeing
+    const modesUnknown = members.filter((m) => m.live && !m.mode).map((m) => m.role);
+    return Object.assign({}, c, { members, modes, modesUnknown, modesAgree: modes.length <= 1 && !modesUnknown.length });
+  };
+  // A message to a member: a board conversation is written to; a terminal session is reached through Claude Code's own
+  // session-to-session messaging (peer), with a mark to find it by in its transcript.
+  const tellMember = async (m, text) => {
+    if (m.owner === 'board') { const r = channels.send(m.sessionId, text); return r.ok ? { state: 'sent' } : { state: 'failed', note: String(r.error || '') }; }
+    const s = sessions().find((x) => x.sessionId === m.sessionId);
+    if (!s || !s.pid) return { state: 'failed', note: '那個終端機 session 現在沒有開著' };
+    const mark = '〔合作 ' + Date.now().toString(36) + '〕';
+    try { return await peer(s, text + '\n' + mark, mark); } catch (e) { return { state: 'failed', note: String((e && e.message) || e).slice(0, 120) }; }
+  };
+  // Every refresh: a member whose name (what the others SendMessage to) changed - the ledger's members section is
+  // rewritten, and, unless it only took the name it was given, the others are told the new one.
+  const trackCollabNames = (list) => {
+    const all = collabList(); const told = []; let changed = false;
+    for (const c of all) {
+      if (c.state !== 'active') continue;
+      for (const m of c.members) {
+        const s = list.find((x) => x.sessionId === m.sessionId); const now = s ? String(s.addr || s.name || '') : '';
+        if (!now || now === m.seenName) continue;
+        const was = m.seenName || ''; m.seenName = now; m.names = [...new Set([...(Array.isArray(m.names) ? m.names : []), now])].slice(-20); changed = true;
+        told.push({ c, m, was, tell: !!was && now !== m.name });
+      }
+    }
+    // A board conversation that was busy when it joined: its name and brief were held back (written in the middle of a
+    // turn, then the process restarted for the new mode, they could be lost). Sent once it is idle.
+    for (const c of all) {
+      if (c.state !== 'active') continue;
+      for (const m of c.members) {
+        if (!m.pending || m.owner !== 'board') continue;
+        const ch = channels.get(m.sessionId); if (!ch) { delete m.pending; changed = true; continue; }
+        if (channels.status(ch) !== 'idle') continue;
+        delete m.pending; changed = true;
+        channels.send(m.sessionId, '/rename ' + m.name);
+        tellMember(m, Collab.briefText(c, m)).catch(() => {});
+      }
+    }
+    if (!changed) return;
+    saveCollabs(all);
+    const st = Collab.settings();
+    for (const { c, m, was, tell } of told) {
+      // read right before the write and only the members section replaced: a member writing the ledger at the same
+      // moment keeps what it wrote anywhere else (lib/collab.js writeSection re-reads under the same rule)
+      try { Collab.writeSection(c.ledger, st.sections.members, Collab.membersBlock(c)); } catch (e) {}
+      if (tell) { const text = Collab.renamedText(c, m, was); for (const o of c.members) if (o.sessionId !== m.sessionId) tellMember(o, text).catch(() => {}); }
+    }
+  };
+  // A new collaboration. body: {goal, folder?, bypass?, members: [{sessionId, role, short?, does?}]} -> {status, ...}
+  const createCollab = async (body) => {
+    const goal = String(body.goal || '').trim().slice(0, 2000);
+    if (!goal) return { status: 400, ok: false, error: '要寫共同目標' };
+    const raw = Array.isArray(body.members) ? body.members : [];
+    if (raw.length < 2 || raw.length > 8) return { status: 400, ok: false, error: '要選 2 到 8 個 session' };
+    const list = sessions(), members = [], seen = new Set();
+    for (const x of raw) {
+      const id = String((x && x.sessionId) || '');
+      if (!/^[0-9a-f-]{36}$/i.test(id) || seen.has(id)) return { status: 400, ok: false, error: '成員清單不對：' + id.slice(0, 40) };
+      seen.add(id);
+      const s = list.find((y) => y.sessionId === id);
+      if (!s) return { status: 404, ok: false, error: '找不到這個 session：' + id.slice(0, 8) };
+      if (s.headless) return { status: 400, ok: false, error: '「' + (s.title || id.slice(0, 8)) + '」在背景執行、沒有自己的視窗，不能加入合作' };
+      let role = Collab.oneLine(x && x.role, 40) || Collab.oneLine(path.basename(s.cwd || ''), 40) || id.slice(0, 8);   // one line: no breaks or table bars in the ledger
+      while (members.some((m) => m.role === role)) role += '2';
+      members.push({ sessionId: id, cwd: s.cwd, owner: s.owner === 'board' ? 'board' : 'terminal', role, short: Collab.oneLine(x && x.short, 20), does: Collab.oneLine(x && x.does, 300) });
+    }
+    // the ledger goes in one of the members' folders (the first's unless another of theirs is chosen)
+    const folder = body.folder ? String(body.folder) : members[0].cwd;
+    const samePath = (a, b) => process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b);
+    if (!members.some((m) => samePath(m.cwd, folder)) || !isDir(folder)) return { status: 400, ok: false, error: '帳本要放在其中一個成員的資料夾' };
+    const all = collabList(); const st = Collab.settings(); const pattern = pref('collabNamePattern') || st.namePattern;
+    let cid = all.reduce((k, c) => Math.max(k, c.id), 0) + 1;
+    for (let i = 0; i < 1000 && fs.existsSync(path.join(folder, st.ledgerDir || '.claude/collab', cid + '.md')); i++) cid++;   // ledgers left from an earlier database are kept, not reused
+    for (const m of members) { let n = Collab.fixedName(pattern, cid, m.short || m.role); while (members.some((o) => o !== m && o.name === n)) n += '2'; m.name = n; m.names = []; }
+    const ledger = path.join(folder, st.ledgerDir || '.claude/collab', cid + '.md');
+    if (fs.existsSync(ledger)) return { status: 409, ok: false, error: '帳本檔已經存在，不覆蓋：' + ledger };
+    const c = { id: cid, goal, createdAt: Date.now(), folder, ledger, members, state: 'active', bypass: body.bypass !== false };
+    try { fs.mkdirSync(path.dirname(ledger), { recursive: true }); fs.writeFileSync(ledger, Collab.ledgerText(c), { flag: 'wx' }); } catch (e) { return { status: 500, ok: false, error: '帳本寫不進去：' + String(e.message || e).slice(0, 160) }; }
+    all.push(c); saveCollabs(all);
+    // each member: the permission mode they all need (board conversations), the name it is given, the brief
+    const results = [];
+    for (const m of members) {
+      const r = { sessionId: m.sessionId, role: m.role, name: m.name };
+      if (m.owner === 'board') {
+        let later = false;
+        if (c.bypass) { const b = channels.setBypass(m.sessionId, true); r.bypass = b.ok ? (b.now ? 'now' : 'after-turn') : 'failed: ' + b.error; later = b.ok && !b.now; }
+        // busy: its process is restarted after this turn (the new mode) - what is written now could go with it, so the
+        // name and the brief are sent once it is idle (trackCollabNames)
+        if (later) { m.pending = true; r.rename = 'after-turn'; r.brief = 'after-turn'; results.push(r); continue; }
+        const rn = channels.send(m.sessionId, '/rename ' + m.name); r.rename = rn.ok ? 'sent' : 'failed: ' + rn.error;
+      } else r.rename = 'by-you';   // a terminal session: only its user can type /rename (a slash command in a message is not run)
+      const t = await tellMember(m, Collab.briefText(c, m)); r.brief = t.state; if (t.note) r.note = t.note;
+      results.push(r);
+    }
+    // only the 'send later' marks are written back: names tracked while the brief was being sent (seenName, names) stay
+    if (members.some((m) => m.pending)) { const cur = collabList(); const i = cur.findIndex((x) => x.id === cid); if (i >= 0) { for (const cm of cur[i].members) { const m = members.find((x) => x.sessionId === cm.sessionId); if (m && m.pending) cm.pending = true; } saveCollabs(cur); } }
+    fresh();
+    return { status: 200, ok: true, id: cid, ledger, results };
+  };
+  const collabDetail = (cid) => {
+    const c = collabList().find((x) => x.id === cid); if (!c) return null;
+    const v = collabView(c, sessions());
+    let ledgerText = ''; try { ledgerText = fs.readFileSync(c.ledger, 'utf8'); } catch (e) {}
+    const files = c.members.map((m) => { let file = null; try { file = S.findTranscript(m.sessionId, m.cwd, S.DEFAULTS.projectsDir); } catch (e) {} return { role: m.role, file, name: m.name, seenName: m.seenName, names: m.names }; });   // the names: who sent a message to whom
+    return Object.assign(v, {
+      ledgerText, ledgerMissing: !ledgerText, open: Collab.readLedger(ledgerText, c), timeline: Collab.timeline(files),
+      renameCommands: c.members.filter((m) => m.owner === 'terminal').map((m) => ({ sessionId: m.sessionId, role: m.role, command: '/rename ' + m.name, done: m.seenName === m.name })),
+    });
+  };
+  // The user's answer to a question in the ledger: written in word for word, and every member told.
+  const decideCollab = async (cid, question, answer) => {
+    const all = collabList(); const c = all.find((x) => x.id === cid);
+    if (!c) return { status: 404, ok: false, error: '找不到這個合作' };
+    if (c.state !== 'active') return { status: 409, ok: false, error: '這個合作已經結束' };
+    const q = String(question || '').trim(), a = String(answer || '').trim();
+    if (!q || !a) return { status: 400, ok: false, error: '要有題目和回答' };
+    if (a.length > 4000) return { status: 400, ok: false, error: '回答太長（最多 4000 字）' };
+    let t; try { t = fs.readFileSync(c.ledger, 'utf8'); } catch (e) { return { status: 404, ok: false, error: '帳本檔不見了：' + c.ledger }; }
+    if (!Collab.readLedger(t, c).pending.some((p) => !p.done && p.question === q)) return { status: 404, ok: false, error: '帳本「待你裁定」裡沒有這一題（或已經裁定過）' };
+    fs.writeFileSync(c.ledger, Collab.answerDecision(t, q, a, Date.now()));
+    const text = Collab.decisionText(c, q, a); const results = [];
+    for (const m of c.members) { const r = await tellMember(m, text); results.push({ role: m.role, state: r.state, note: r.note || '' }); }
+    return { status: 200, ok: true, results };
+  };
+
   // The notification centre (lib/notices.js): what is waiting for you now, each notice open until it is over. It is
   // NOT fed by tell() below - a Windows notification says something just happened and is gone; the centre keeps a
   // state, opened and closed by the events themselves.
@@ -938,6 +1084,9 @@ function createServer(token, port, deps = {}) {
         if ((p === '/api/goals' || p === '/api/goals/status') && !isOn('goal2')) return send(res, p === '/api/goals' ? 200 : 404, p === '/api/goals' ? { installed: false, runs: [] } : { ok: false, error: 'goal2 的整合已在設定裡關閉' });
         if (p === '/api/goals') { const l = await goal2.list(); return send(res, 200, { installed: l.installed, version: l.version || '', error: l.error || '', runs: l.runs || [] }); }
         if (p === '/api/goals/status') { const r = await goal2.status(String(q.get('id') || '')); return send(res, r.ok ? 200 : 404, r); }
+        // collaborations: the list, and one in full (members now, the ledger, what is open in it, the messages between them)
+        if (p === '/api/collabs') { const list = sessions(); return send(res, 200, { collabs: collabList().map((c) => collabView(c, list)).reverse(), bypassDefault: pref('collabBypass') }); }
+        if (p === '/api/collab') { const d = collabDetail(Number(q.get('id'))); return d ? send(res, 200, d) : send(res, 404, { ok: false, error: '找不到這個合作' }); }
         if (p === '/api/schedules') return send(res, 200, { schedules: schedules.list(), runs: !!runner, notices: schedules.notices(), log: schedules.runs(20) });
         if (p === '/api/keep') {
           if (!keeper) return send(res, 200, { restorable: [], closed: [], autoContinue: true });
@@ -1002,7 +1151,10 @@ function createServer(token, port, deps = {}) {
           if (!s) return send(res, 404, { error: 'session not found' });
           const file = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir);
           const items = file ? cachedHistory(file, { max: W.TURN_ITEMS }).items : [];
-          return send(res, 200, Object.assign(sessionStats(s.sessionId, S.DEFAULTS.stateDir, items, statsExtra(s.sessionId)), { quota: quota() }));
+          const st = sessionStats(s.sessionId, S.DEFAULTS.stateDir, items, statsExtra(s.sessionId));
+          // a terminal session: what each running subagent is doing, from its transcript (lib/agents.js)
+          if (s.owner === 'terminal' && file && st.agents) { try { st.agents.detail = Agents.running(file); } catch (e) {} }
+          return send(res, 200, Object.assign(st, { quota: quota() }));
         }
         if (p === '/api/quota') return send(res, 200, quota());
         // Tokens and API-equivalent cost for a calendar month, all sessions on this machine.
@@ -1123,6 +1275,15 @@ function createServer(token, port, deps = {}) {
         return send(res, r.ok ? 200 : 400, r);
       }
       if (p === '/api/goals/stop') { const r = await goal2.stop(String(body.id || '')); return send(res, r.ok ? 200 : 409, r); }
+      // collaborations (lib/collab.js)
+      if (p === '/api/collab/create') { const r = await createCollab(body); const { status } = r; delete r.status; return send(res, status, r); }
+      if (p === '/api/collab/decide') { const r = await decideCollab(Number(body.id), body.question, body.answer); const { status } = r; delete r.status; return send(res, status, r); }
+      if (p === '/api/collab/end') {
+        const all = collabList(); const c = all.find((x) => x.id === Number(body.id));
+        if (!c) return send(res, 404, { ok: false, error: '找不到這個合作' });
+        c.state = 'ended'; c.endedAt = Date.now(); saveCollabs(all);
+        return send(res, 200, { ok: true });
+      }
       // A question (by its id: a file in questions/, or the user's own in ~/.claude/session-board/questions) about a text.
       // Only an id is taken from the page, never a path: the page cannot make the board read a file of its choosing.
       if (p === '/api/decide') {

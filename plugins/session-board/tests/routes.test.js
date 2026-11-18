@@ -997,6 +997,90 @@ test('辦公室房間：git、最近的測試、程式碼索引（qa-webwright�
   fs.rmSync(proj, { recursive: true, force: true });
 });
 
+test('collaborations: started (ledger, names, bypass, briefs), read back, a decision passed on, ended', async () => {
+  for (const r of ['GET /api/collabs', 'GET /api/collab', 'POST /api/collab/create', 'POST /api/collab/decide', 'POST /api/collab/end']) asked.add(r);
+  const B = (await post('/api/new', { cwd: WORK })).json.sessionId;
+  const TT = uuid(77); terminalSession(TT); await new Promise((r) => setTimeout(r, 1100));   // a terminal session of its own (the earlier tests end theirs)
+  // what is refused
+  assert.strictEqual((await post('/api/collab/create', { goal: '', members: [{ sessionId: B }, { sessionId: TT }] })).status, 400, 'a goal');
+  assert.strictEqual((await post('/api/collab/create', { goal: 'x', members: [{ sessionId: B }] })).status, 400, 'two members at least');
+  assert.strictEqual((await post('/api/collab/create', { goal: 'x', members: [{ sessionId: B }, { sessionId: uuid(99) }] })).status, 404, 'a session that is not there');
+  assert.strictEqual((await post('/api/collab/create', { goal: 'x', folder: HOME, members: [{ sessionId: B }, { sessionId: TT }] })).status, 400, 'the ledger only in a member\'s folder');
+  const n0 = procs.length;
+  const r = await post('/api/collab/create', { goal: '對齊增量同步規格', members: [{ sessionId: B, role: 'ALPHA', does: '推送端' }, { sessionId: TT, role: 'BETA', does: '接收端' }] });
+  assert.strictEqual(r.status, 200, JSON.stringify(r.json));
+  const id = r.json.id, ledger = r.json.ledger;
+  assert.strictEqual(ledger, path.join(WORK, '.claude', 'collab', id + '.md'));
+  const text = fs.readFileSync(ledger, 'utf8');
+  for (const want of ['## 目標', '對齊增量同步規格', '## 成員與分工', '合作' + id + '-ALPHA', '合作' + id + '-BETA', '| 介面 | 提供方 | 版本／最後改動 | ALPHA | BETA |', '## 承諾清單', '## 待你裁定', '## 使用者裁定', '## 合作規則']) assert.ok(text.includes(want), 'ledger has ' + want);
+  const byRole = Object.fromEntries(r.json.results.map((x) => [x.role, x]));
+  assert.deepStrictEqual([byRole.ALPHA.rename, byRole.ALPHA.brief, byRole.BETA.rename], ['sent', 'sent', 'by-you'], JSON.stringify(r.json.results));
+  assert.ok(['now', 'after-turn'].includes(byRole.ALPHA.bypass));
+  // the board conversation: started without approvals, told its name and the brief
+  assert.strictEqual(channels.get(B).skipPermissions, true);
+  const started = procs.slice(n0).find((x) => x.args.includes('--dangerously-skip-permissions'));
+  assert.ok(started, 'its process runs in bypass');
+  const said = started.p.stdin.written.map((w) => JSON.stringify(w)).join('\n');
+  assert.ok(said.includes('/rename 合作' + id + '-ALPHA'), 'renamed');
+  assert.ok(said.includes('【合作 #' + id + '】') && said.includes('合作' + id + '-BETA') && said.includes(ledger.replace(/\\/g, '\\\\')), 'brief: the other member by name, and the ledger');
+  // the list and one in full
+  const l = (await get('/api/collabs')).json;
+  assert.ok(l.collabs.some((c) => c.id === id && c.state === 'active' && c.members.length === 2));
+  const d = (await get('/api/collab?id=' + id)).json;
+  assert.deepStrictEqual([d.goal, d.ledgerMissing, d.members.map((m) => m.role)], ['對齊增量同步規格', false, ['ALPHA', 'BETA']]);
+  assert.deepStrictEqual(d.renameCommands.map((x) => x.command), ['/rename 合作' + id + '-BETA'], 'the terminal session: the line to paste');
+  assert.strictEqual((await get('/api/collab?id=999')).status, 404);
+  // the terminal member's name changes (its process restarted): the ledger's members section and the others told
+  const regFile = fs.readdirSync(path.join(CLAUDE, 'sessions')).map((n) => path.join(CLAUDE, 'sessions', n)).find((x) => { try { return JSON.parse(fs.readFileSync(x, 'utf8')).sessionId === TT; } catch (e) { return false; } });
+  const reg = JSON.parse(fs.readFileSync(regFile, 'utf8')); const firstName = reg.name;
+  await get('/api/sessions'); await new Promise((r) => setTimeout(r, 1100)); await get('/api/sessions');   // seen once under its first name: nobody told
+  const toldBefore = started.p.stdin.written.map((w) => JSON.stringify(w)).filter((s) => s.includes('現在叫')).length;
+  reg.name = 'project-b-zz'; fs.writeFileSync(regFile, JSON.stringify(reg));
+  await new Promise((r) => setTimeout(r, 1100)); await get('/api/sessions'); await new Promise((r) => setTimeout(r, 300));
+  assert.ok(fs.readFileSync(ledger, 'utf8').includes('`project-b-zz`（預定 `合作' + id + '-BETA`）'), 'the ledger has the new name');
+  const toldNow = started.p.stdin.written.map((w) => JSON.stringify(w)).filter((s) => s.includes('現在叫 project-b-zz') && s.includes(firstName));
+  assert.deepStrictEqual([toldBefore, toldNow.length], [0, 1], 'the board member told once, with the old and new name');
+  reg.name = firstName; fs.writeFileSync(regFile, JSON.stringify(reg));
+  // a question in the ledger, answered: written word for word and sent to every member
+  fs.writeFileSync(ledger, fs.readFileSync(ledger, 'utf8').replace('## 待你裁定\n', '## 待你裁定\n\n- [ ] 髒資料誰處理？\n'));
+  assert.deepStrictEqual((await get('/api/collab?id=' + id)).json.open.pending, [{ done: false, question: '髒資料誰處理？' }]);
+  assert.strictEqual((await post('/api/collab/decide', { id, question: '沒有這題', answer: 'x' })).status, 404);
+  const dec = await post('/api/collab/decide', { id, question: '髒資料誰處理？', answer: '視為業務端的髒資料，人工處理' });
+  assert.strictEqual(dec.status, 200, JSON.stringify(dec.json));
+  const after = fs.readFileSync(ledger, 'utf8');
+  assert.ok(after.includes('- [x] 髒資料誰處理？') && after.includes('使用者原話：視為業務端的髒資料，人工處理'));
+  assert.ok(started.p.stdin.written.map((w) => JSON.stringify(w)).join('\n').includes('視為業務端的髒資料，人工處理'), 'passed on to the board conversation');
+  assert.strictEqual((await post('/api/collab/decide', { id, question: '髒資料誰處理？', answer: 'again' })).status, 404, 'decided once');
+  // ended: kept, marked; no more decisions
+  assert.strictEqual((await post('/api/collab/end', { id })).status, 200);
+  assert.strictEqual((await get('/api/collab?id=' + id)).json.state, 'ended');
+  assert.strictEqual((await post('/api/collab/decide', { id, question: 'x', answer: 'y' })).status, 409);
+  assert.strictEqual((await post('/api/collab/end', { id: 999 })).status, 404);
+  assert.strictEqual((await post('/api/collab/create', { goal: 'again', members: [{ sessionId: B, role: 'ALPHA' }, { sessionId: TT, role: 'BETA' }] })).json.id, id + 1, 'numbered on');
+  // a ledger left from an earlier database where the next one would go: skipped, not overwritten and not refused
+  const leftOver = path.join(WORK, '.claude', 'collab', (id + 2) + '.md'); fs.writeFileSync(leftOver, '舊的帳本');
+  const skip = await post('/api/collab/create', { goal: 'third', members: [{ sessionId: B, role: 'ALPHA' }, { sessionId: TT, role: 'BETA' }] });
+  assert.deepStrictEqual([skip.status, skip.json.id, fs.readFileSync(leftOver, 'utf8')], [200, id + 3, '舊的帳本']);
+  // a member whose permission mode cannot be read (a terminal session that has not written it yet): not taken as agreeing
+  const d3 = (await get('/api/collab?id=' + skip.json.id)).json;
+  const beta = d3.members.find((m) => m.role === 'BETA');
+  if (!beta.mode) assert.deepStrictEqual([d3.modesAgree, d3.modesUnknown], [false, ['BETA']], 'unknown is not agreeing');
+  // a board conversation that is busy when it joins: its name and brief wait until it is idle (its process is restarted
+  // for the new mode after the turn - what is written in the middle of it could go with it)
+  const C2 = (await post('/api/new', { cwd: WORK })).json.sessionId;
+  await post('/api/send', { sessionId: C2, text: 'busy' });
+  const ch2 = channels.get(C2); ch2.state = 'busy';
+  const busy = await post('/api/collab/create', { goal: 'fourth', members: [{ sessionId: C2, role: 'GAMMA' }, { sessionId: TT, role: 'BETA' }] });
+  const g = busy.json.results.find((x) => x.role === 'GAMMA');
+  assert.deepStrictEqual([g.rename, g.brief], ['after-turn', 'after-turn'], JSON.stringify(busy.json.results));
+  const written = () => procs.filter((x) => x.args.includes(C2) || (x.p.stdin.written || []).some((w) => JSON.stringify(w).includes('busy'))).flatMap((x) => x.p.stdin.written).map((w) => JSON.stringify(w)).join('\n');
+  assert.ok(!written().includes('/rename 合作' + busy.json.id + '-GAMMA'), 'not sent while it is busy');
+  ch2.state = 'idle'; await get('/api/sessions'); await new Promise((r) => setTimeout(r, 1100)); await get('/api/sessions'); await new Promise((r) => setTimeout(r, 300));
+  assert.ok(written().includes('/rename 合作' + busy.json.id + '-GAMMA') && written().includes('【合作 #' + busy.json.id + '】'), 'sent once it is idle');
+  const left = (await get('/api/collab?id=' + busy.json.id)).json.members.find((m) => m.role === 'GAMMA');
+  assert.ok(!left.pending, 'and not again');
+});
+
 test('no address is left without a test', WIN_ONLY, () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8').split('\n');
   const postFrom = src.findIndex((l) => l.includes("if (req.method !== 'POST') return send(res, 405"));

@@ -57,7 +57,9 @@ async function focus(pid, o) {
   const r = await osa(['on run argv', 'tell application "Terminal"', 'repeat with w in windows', 'repeat with t in tabs of w',
     'if tty of t is (item 1 of argv) then', 'set selected of t to true', 'set index of w to 1', 'activate', 'return "hit"', 'end if',
     'end repeat', 'end repeat', 'end tell', 'return "miss"', 'end run'], [tty], o);
-  return r.ok && /hit/.test(r.out) ? { state: 'hit' } : { state: 'miss', error: r.ok ? '找不到它的 Terminal 分頁' : r.err.slice(0, 200) };
+  // the script selects the tab, puts its window first and activates Terminal: found is in front (the page reads
+  // {state:'hit'} without focused as "found but not brought forward", which is only a Windows case)
+  return r.ok && /hit/.test(r.out) ? { state: 'hit', focused: true } : { state: 'miss', error: r.ok ? '找不到它的 Terminal 分頁' : r.err.slice(0, 200) };
 }
 
 async function notify(title, text, o) { return osa(['on run argv', 'display notification (item 2 of argv) with title (item 1 of argv)', 'end run'], [String(title).slice(0, 200), String(text).slice(0, 400)], o); }

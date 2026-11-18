@@ -103,7 +103,7 @@ test('sessionStats splits main and subagent cost and reads the tracker files', (
     'C:\\p\\sub\\agent-a2.jsonl': { cost: 1, tok: 100 } } });
   w(`claude-compacts-${k}.json`, { count: 65, last: 1794463735989 });
   w(`claude-msgcount-${k}`, '614\n');
-  w(`claude-agents-${k}.json`, { x: { name: 'qa-engineer', status: 'done' }, y: { name: 'code-reviewer', status: 'running' } });
+  w(`claude-agents-${k}.json`, { x: { name: 'qa-engineer', status: 'done' }, y: { name: 'code-reviewer', status: 'running', started: 1794924700213 } });
   w(`claude-skills-${k}.json`, { 'git-commit': { count: 6, last: 9 }, 'code-review': { count: 8, last: 1 } });
   w(`claude-mcp-${k}.json`, { 'playwright__browser_tabs': { count: 32, errors: 2, last: 5 } });
   w(`claude-files-${k}.json`, ['a.py', 'b.cs']);
@@ -123,7 +123,7 @@ test('sessionStats splits main and subagent cost and reads the tracker files', (
   assert.strictEqual(S2.sessionStats(other, d, [], { boardUsage: { cost: 0, tok: 0 } }).usage, null);
   assert.strictEqual(S2.sessionStats(sid, d, items, { boardUsage: { cost: 99, tok: 99 } }).usage.cost, 13);   // cc-statusline's figure wins when it exists
   assert.deepStrictEqual(S2.sessionStats(other, d, []).compacts, { count: 0, last: 0 });
-  assert.deepStrictEqual(st.agents, { running: ['code-reviewer'], kinds: ['qa-engineer', 'code-reviewer'] });
+  assert.deepStrictEqual(st.agents, { running: ['code-reviewer'], runningAt: [1794924700213], kinds: ['qa-engineer', 'code-reviewer'] });
   assert.strictEqual(st.usage.agentRuns, 2);   // how many were ever started comes from here, not from the pruned list
   assert.deepStrictEqual(st.skills.map((s) => s.name + s.count), ['code-review8', 'git-commit6']);
   assert.deepStrictEqual(st.mcp, [{ name: 'playwright__browser_tabs', count: 32, last: 5, errors: 2 }]);
