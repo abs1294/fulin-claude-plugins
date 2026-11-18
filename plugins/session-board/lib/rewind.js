@@ -6,26 +6,33 @@
 // (with --fork-session, under a new id; the original is left as it was). Measured 2026-11-18 on 2.1.327: a two-turn
 // conversation carried on from the first reply knew only what was said before it.
 //
-// The place is the newest reply (an "assistant" entry) before the message, found by walking back its parentUuid
-// chain; none (the first message) means a conversation that starts afresh. A message from before the last compaction
-// cannot be gone back to: Claude Code holds only the summary of what came before it.
+// The place is the newest whole place before the message, found by walking back its parentUuid chain: a reply in
+// words that calls no tool (the end of a turn), or a tool's result (a message said while it worked, or after it was
+// stopped, comes after one). Measured 2026-11-18 on 2.1.327, carrying a conversation on from: a tool's result - it
+// knew the tool's output; the call of a tool before its result - no error, but the call was gone (it "had not seen"
+// the output); a reply's thinking part (one reply is written as several entries) - it knew the output that came after
+// that point, so where such a place really ends cannot be told. None (the first message) means a conversation that
+// starts afresh. A message from before the last compaction cannot be gone back to: Claude Code holds only the summary
+// of what came before it.
 const fs = require('fs');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// -> {ok: true, at: '<assistant uuid>' | null} | {ok: false, error}
+// -> {ok: true, at: '<uuid of the whole place>' | null} | {ok: false, error}
 function resumePoint(file, uuid) {
   if (!UUID.test(String(uuid || ''))) return { ok: false, error: '缺少要編輯的那則訊息' };
   let text;
   try { text = fs.readFileSync(file, 'utf8'); } catch (e) { return { ok: false, error: '讀不到這個對話的紀錄' }; }
-  const by = new Map();
+  const by = new Map(), calling = new Set();   // calling: the replies (message ids) that call a tool in any of their entries
   let lastCompact = -1, line = 0, at = -1;
   for (const raw of text.split('\n')) {
     line++;
     if (!raw.trim()) continue;
     let e; try { e = JSON.parse(raw); } catch (x) { continue; }
     if (!e || typeof e.uuid !== 'string') continue;
-    by.set(e.uuid, { type: e.type, parent: typeof e.parentUuid === 'string' ? e.parentUuid : null, line, said: said(e) });
+    const mid = e.type === 'assistant' && e.message && typeof e.message.id === 'string' ? e.message.id : '';
+    if (mid && Array.isArray(e.message.content) && e.message.content.some((b) => b && b.type === 'tool_use')) calling.add(mid);
+    by.set(e.uuid, { type: e.type, parent: typeof e.parentUuid === 'string' ? e.parentUuid : null, line, said: said(e), whole: whole(e), mid });
     if ((e.type === 'system' && e.subtype === 'compact_boundary') || (e.type === 'user' && e.isCompactSummary)) lastCompact = line;
     if (e.uuid === uuid) at = line;
   }
@@ -36,10 +43,19 @@ function resumePoint(file, uuid) {
   for (let p = me.parent, n = 0; p && n < 100000; n++) {
     const e = by.get(p);
     if (!e) break;
-    if (e.type === 'assistant') return { ok: true, at: p };
+    if (e.whole && !(e.mid && calling.has(e.mid))) return { ok: true, at: p };   // words of a reply that goes on to call a tool: part of a reply, not its end
     p = e.parent;
   }
   return { ok: true, at: null };
+}
+
+// a whole place to carry on from: a reply in words that calls no tool, or a tool's result (one entry by itself; the
+// reply it belongs to is judged in resumePoint: one written as several entries that calls a tool is not whole anywhere)
+function whole(e) {
+  if (e.isSidechain || !e.message || !Array.isArray(e.message.content)) return false;
+  const c = e.message.content, has = (t) => c.some((b) => b && b.type === t);
+  if (e.type === 'assistant') return has('text') && !has('tool_use');
+  return e.type === 'user' && has('tool_result');
 }
 
 // what you typed: a user entry of words (not a tool's result, not a summary, not a notice), or one said while it worked

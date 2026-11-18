@@ -38,10 +38,17 @@
   button { font: inherit; color: inherit; cursor: pointer; }
   button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-  .app { display: grid; grid-template-columns: 324px minmax(0, 1fr); height: calc(100vh / var(--z, 1)); height: calc(100dvh / var(--z, 1)); }
+  .app { display: grid; grid-template-columns: var(--side-w, 324px) minmax(0, 1fr); height: calc(100vh / var(--z, 1)); height: calc(100dvh / var(--z, 1)); }
 
   /* ── sidebar ── */
-  .side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; position: relative; }
+  /* the left column's edge: dragged to make it wider or narrower (kept in the settings), a double click puts it back */
+  .side-edge { position: absolute; top: 0; right: -4px; width: 8px; height: 100%; cursor: col-resize; z-index: 6; touch-action: none; }
+  .side-edge::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .12s; }
+  .side-edge:hover::after, .side-edge.on::after, .side-edge:focus-visible::after { background: var(--accent); }
+  .side-edge:focus-visible { outline: none; }
+  body.side-dragging, body.side-dragging * { cursor: col-resize !important; user-select: none !important; }
+  .app.folded .side-edge { display: none; }
   .side-top { padding: 14px 12px 10px; display: flex; align-items: center; gap: 8px; }
   /* the left column folded away: a thin rail with the way back and what waits for you */
   .app.folded { grid-template-columns: 48px minmax(0, 1fr); }
@@ -889,6 +896,7 @@
 
   @media (max-width: 720px) {
     .app { grid-template-columns: minmax(0, 1fr); }
+    .side-edge { display: none; }
     .app.viewing .side { display: none; }
     .app:not(.viewing) .main { display: none; }
     .head .back { display: inline-block; }
@@ -907,6 +915,7 @@
 <body>
 <div class="app" id="app">
   <aside class="side">
+    <div class="side-edge" id="sideEdge" role="separator" aria-orientation="vertical" aria-label="左欄寬度" tabindex="0" title="拖曳調整左欄寬度；雙擊恢復預設"></div>
     <div class="side-rail" id="sideRail">
       <button class="btn" id="unfoldBtn" type="button" aria-label="展開左欄" title="展開左欄（Ctrl+B）">»</button>
       <span class="rail-n" id="railN" hidden title="等你回應的 session"></span>
@@ -4891,7 +4900,33 @@ async function savePref(patch) {
 // The left column, folded or not (the setting sidebarCollapsed).
 $('foldBtn').addEventListener('click', () => setFold(true));
 $('unfoldBtn').addEventListener('click', () => setFold(false));
-function applyFold() { const app = $('app'); if (app) app.classList.toggle('folded', !!prefs().sidebarCollapsed); }
+function applyFold() { const app = $('app'); if (app) app.classList.toggle('folded', !!prefs().sidebarCollapsed); applySideWidth(); }
+// The left column's width (the setting sidebarWidth): dragged at its edge, with the arrow keys there, a double click
+// puts the default back. Seen while dragging, saved when let go.
+const SIDE_W = { min: 240, max: 640, def: 324 };
+const sideClamp = (w) => Math.max(SIDE_W.min, Math.min(SIDE_W.max, Math.round(Number(w) || SIDE_W.def)));
+function applySideWidth(w) {
+  // while the edge is being dragged, the saved width (put back by a refresh of the settings) does not undo the drag
+  if (w === undefined && document.body.classList.contains('side-dragging')) return;
+  const app = $('app'); if (app) app.style.setProperty('--side-w', sideClamp(w === undefined ? prefs().sidebarWidth : w) + 'px');
+}
+function saveSideWidth(w) { const v = sideClamp(w); features.prefs = Object.assign({}, prefs(), { sidebarWidth: v }); applySideWidth(v); savePref({ sidebarWidth: v }); }
+(function sideEdge() {
+  const edge = $('sideEdge'); if (!edge) return;
+  const zoom = () => Number(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1;
+  edge.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const app = $('app'), left = app.getBoundingClientRect().left;
+    let w = sideClamp(prefs().sidebarWidth);
+    edge.setPointerCapture(e.pointerId); edge.classList.add('on'); document.body.classList.add('side-dragging');
+    const move = (ev) => { w = sideClamp((ev.clientX - left) / zoom()); applySideWidth(w); };
+    const up = () => { edge.removeEventListener('pointermove', move); edge.removeEventListener('pointerup', up); edge.removeEventListener('pointercancel', up); edge.classList.remove('on'); document.body.classList.remove('side-dragging'); if (w !== sideClamp(prefs().sidebarWidth)) saveSideWidth(w); };
+    edge.addEventListener('pointermove', move); edge.addEventListener('pointerup', up); edge.addEventListener('pointercancel', up);
+  });
+  edge.addEventListener('dblclick', () => saveSideWidth(SIDE_W.def));
+  edge.addEventListener('keydown', (e) => { const d = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0; if (!d) return; e.preventDefault(); saveSideWidth(sideClamp(prefs().sidebarWidth) + d); });
+})();
 function setFold(on) { features.prefs = Object.assign({}, prefs(), { sidebarCollapsed: on }); applyFold(); savePref({ sidebarCollapsed: on }); }
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'B') && prefs().sidebarShortcut !== false) { e.preventDefault(); setFold(!prefs().sidebarCollapsed); }

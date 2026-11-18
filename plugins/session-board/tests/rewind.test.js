@@ -24,7 +24,7 @@ test('the newest reply before the message; none for the first; refused before a 
   ].join('\n'));
   assert.deepStrictEqual(R.resumePoint(f, U(4)), { ok: true, at: U(2) }, 'past the system line to the reply before it');
   assert.deepStrictEqual(R.resumePoint(f, U(1)), { ok: true, at: null }, 'the first message: start afresh');
-  assert.deepStrictEqual(R.resumePoint(f, U(7)), { ok: true, at: U(5) }, 'said while it worked: from the reply before it');
+  assert.deepStrictEqual(R.resumePoint(f, U(7)), { ok: true, at: U(6) }, 'said while it worked: after the tool result, not at the call before it (measured: the call would be gone)');
   assert.strictEqual(R.resumePoint(f, U(6)).ok, false, 'a tool result is not yours to edit');
   assert.strictEqual(R.resumePoint(f, U(99)).ok, false, 'not in the transcript');
   assert.strictEqual(R.resumePoint(f, 'nope').ok, false, 'not an id');
@@ -39,5 +39,27 @@ test('the newest reply before the message; none for the first; refused before a 
   assert.deepStrictEqual(R.resumePoint(f, U(12)), { ok: true, at: U(11) });
   assert.strictEqual(R.resumePoint(f, U(10)).ok, false, 'the summary is not yours to edit');
   assert.strictEqual(R.resumePoint(path.join(d, 'none.jsonl'), U(1)).ok, false, 'no transcript');
+  // a reply's thinking part is not a place to carry on from (where it really ends cannot be told): past it
+  const g = path.join(d, 'think.jsonl');
+  fs.writeFileSync(g, [
+    L({ type: 'user', uuid: U(21), parentUuid: null, message: { role: 'user', content: '一' } }),
+    L({ type: 'assistant', uuid: U(22), parentUuid: U(21), message: { id: 'm', content: [{ type: 'text', text: '好' }] } }),
+    L({ type: 'user', uuid: U(23), parentUuid: U(22), message: { role: 'user', content: '二' } }),
+    L({ type: 'assistant', uuid: U(24), parentUuid: U(23), message: { id: 'n', content: [{ type: 'thinking', thinking: '…' }] } }),
+    L({ type: 'user', uuid: U(25), parentUuid: U(24), message: { role: 'user', content: '三' } }),
+  ].join('\n'));
+  assert.deepStrictEqual(R.resumePoint(g, U(25)), { ok: true, at: U(22) });
+  // one reply written as two entries, words then a tool call (same message id), stopped before the tool's result: its
+  // words are part of a reply, not its end - past them
+  const h = path.join(d, 'split.jsonl');
+  fs.writeFileSync(h, [
+    L({ type: 'user', uuid: U(31), parentUuid: null, message: { role: 'user', content: '一' } }),
+    L({ type: 'assistant', uuid: U(32), parentUuid: U(31), message: { id: 'a', content: [{ type: 'text', text: '好' }] } }),
+    L({ type: 'user', uuid: U(33), parentUuid: U(32), message: { role: 'user', content: '二' } }),
+    L({ type: 'assistant', uuid: U(34), parentUuid: U(33), message: { id: 'b', content: [{ type: 'text', text: '我來跑一下' }] } }),
+    L({ type: 'assistant', uuid: U(35), parentUuid: U(34), message: { id: 'b', content: [{ type: 'tool_use', id: 't9', name: 'Bash', input: {} }] } }),
+    L({ type: 'user', uuid: U(36), parentUuid: U(35), message: { role: 'user', content: '三' } }),
+  ].join('\n'));
+  assert.deepStrictEqual(R.resumePoint(h, U(36)), { ok: true, at: U(32) });
   fs.rmSync(d, { recursive: true, force: true });
 });

@@ -1,47 +1,21 @@
 ---
 name: session-board
-description: 開啟、查看狀態或停止「session 看板」——一個只聽本機的網頁，左邊是這台電腦所有 Claude Code session 的清單，右邊是對話，可以直接在頁面上開新對話、打字、核准動作，也能切到終端機 session 的視窗。當使用者說「/session-board」、「開 session 看板」、「打開看板」、「我有哪些 session 開著」、「哪個 session 在等我」、「看板沒反應／看板掛了」、「關掉看板」、「看板網址是什麼」時觸發。
+description: 啟動「session 看板」並用瀏覽器打開——一個只聽本機的網頁，左邊是這台電腦所有 Claude Code session 的清單，右邊是對話。沒在跑就啟動（背景常駐），已經在跑就直接打開。當使用者打「/session-board」、說「開 session 看板」、「打開看板」、「啟動看板」、「看板網址是什麼」、「我有哪些 session 開著」、「哪個 session 在等我」時觸發。只負責啟動：要停止或查狀態不要叫這個（一叫就會啟動），直接跑 scripts/start.js --stop／--status。
+allowed-tools: Bash(node:*), Bash(echo:*)
 ---
 
-# session-board
+# session-board：啟動看板
 
-看板是一個常駐的本機程序（`server.js`，只聽 127.0.0.1），頁面網址帶一組金鑰。這個 skill 只負責啟動、查狀態、停止，三件事都用同一支腳本。
+這個 skill 一載入就已經執行了啟動腳本（`scripts/start.js --open`）：沒在跑就啟動、在跑就沿用，並用預設瀏覽器開啟頁面。結果如下：
 
-## 開啟（預設動作）
+!`node "${CLAUDE_PLUGIN_ROOT}/scripts/start.js" --open 2>&1 || echo "START-FAILED exit $?"`
 
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/start.js" --open
-```
+## 回報
 
-- 沒在跑就啟動（背景常駐，關掉這個 session 也不會停），已經在跑就直接用現有的。
-- `--open` 會用預設瀏覽器開啟頁面。
-- 腳本印出兩行：版本與程序編號、帶金鑰的網址。把網址原樣給使用者（他可以加到書籤）。
-
-啟動失敗時腳本會印出記錄檔位置（`~/.claude/session-board/server.log`）並以非零結束；讀那個檔的最後幾行找原因，最常見是 4317 埠被別的程式佔用，可以改用 `--port <埠號>`。
-
-## 查狀態
-
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/start.js" --status
-```
-
-在跑會印版本、程序編號與網址；沒在跑印 `not running` 並以 1 結束。
-
-## 停止
-
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/start.js" --stop
-```
-
-停止看板會一併結束看板裡所有對話的程序，連同進行中的回合與背景工作（對話內容不會消失，下次送訊息會接續，但被打斷的工作不會自己回來）。因此只要有對話正在執行、等使用者回答，或有背景工作在跑，這個指令會拒絕、以結束碼 2 結束，並列出是哪幾個對話。
-
-遇到拒絕時：把清單原樣告訴使用者，等它們做完再停。**不要自行加 `--force`**；只有使用者明講「不管，直接停」才加。重啟看板（先停再開）同樣適用。
+- **成功**（上面有 `session-board <版本> (pid …)` 與一行網址）：只回報版本與網址，網址原樣給使用者（可以加到書籤）。不要再跑一次啟動腳本。
+- **失敗**（上面有 `START-FAILED`）：讀 `~/.claude/session-board/server.log` 的最後幾行找原因，把錯誤原文給使用者。最常見是 4317 埠被別的程式佔用：可以用 `node "${CLAUDE_PLUGIN_ROOT}/scripts/start.js" --open --port <其他埠號>` 改用別的埠。
+- 不要替使用者解讀看板上的內容（那是他自己看的畫面）。
 
 ## 更新 plugin 之後
 
-看板程序載入的是啟動當時的程式。plugin 更新後要先 `--stop` 再開一次，新版才會生效；`--status` 印的版本就是正在跑的版本。
-
-## 回報時不要做的事
-
-- 不要替使用者解讀看板上的內容（那是他自己看的畫面）；只回報「開了沒、網址、版本」。
-- 「點了某一列卻沒切過去」不要猜原因：頁面底部那行訊息會寫明是找不到視窗、標題分不出來，還是 Windows 沒讓它切上來（附當時最前面的是哪個程式）。請使用者把那行訊息貼回來。
+上面若印出的版本比 plugin 的版本舊，表示正在跑的是更新前的看板：新版要先停再開才會生效（`node "${CLAUDE_PLUGIN_ROOT}/scripts/start.js" --stop`，再打一次 /session-board）。停止被拒絕時照腳本印的說明：把清單告訴使用者，不要自己加 `--force`。

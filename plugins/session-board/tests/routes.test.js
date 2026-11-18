@@ -329,7 +329,7 @@ test('settings kept in the board: the left column, the office, sessions a progra
   assert.strictEqual((await post('/api/config', { sidebarCollapsed: true, officeFavorites: [WORK], officeOrder: [WORK, HOME] })).status, 200);
   const f = (await get('/api/sessions')).json.features.prefs;
   assert.deepStrictEqual([f.sidebarCollapsed, f.officeFavorites, f.officeOrder], [true, [WORK], [WORK, HOME]], 'sent with the list');
-  for (const [k, v] of [['sidebarCollapsed', 'yes'], ['officeFavorites', 'C:\\x'], ['hideProgramFolders', [5]], ['decideModel', 'gpt-4']]) assert.strictEqual((await post('/api/config', { [k]: v })).status, 400, k);
+  for (const [k, v] of [['sidebarCollapsed', 'yes'], ['officeFavorites', 'C:\\x'], ['hideProgramFolders', [5]], ['decideModel', 'gpt-4'], ['sidebarWidth', 100], ['sidebarWidth', 900], ['sidebarWidth', 300.5]]) assert.strictEqual((await post('/api/config', { [k]: v })).status, 400, k);
   // a conversation a program started (entrypoint sdk-cli), one the board started, one of yours
   const PROG = uuid(71), MINE = uuid(72), BOARDS = uuid(73);
   const OTHER = path.join(HOME, 'tools'); fs.mkdirSync(OTHER, { recursive: true });
@@ -746,6 +746,57 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
   assert.strictEqual(channels.get(rw2.json.sessionId).forkOf, undefined);
   await post('/api/stop', { sessionId: rw2.json.sessionId }); await post('/api/close', { sessionId: rw2.json.sessionId });
 
+  // what goes with it, and what does not: a conversation that is working (its process ends before the new one starts),
+  // with a name you gave it, notes of "!" not yet sent, and a title
+  {
+    const cfg = require('../lib/config');
+    const R3 = (await post('/api/new', { cwd: WORK })).json.sessionId;
+    const dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK));
+    fs.copyFileSync(path.join(dir, RW + '.jsonl'), path.join(dir, R3 + '.jsonl'));
+    await post('/api/send', { sessionId: R3, text: '在跑' });
+    const c3 = channels.get(R3);
+    c3.title = '舊的標題'; c3.shellNotes = [{ id: 1, command: 'echo shell-note-1', stdout: 'shell-note-1', stderr: '', code: 0, at: Date.now() }]; c3.shellSeq = 1;
+    cfg.setValue('customTitles', Object.assign({}, cfg.value('customTitles', {}), { [R3]: '我取的名字' }));
+    const oldProc = c3.proc; assert.ok(oldProc, 'it has a process');
+    const order = []; oldProc.once('exit', () => order.push('old ended'));
+    const at = procs.length;
+    const r3 = await post('/api/rewind', { sessionId: R3, at: uuid(83), text: '改過' });
+    assert.strictEqual(r3.status, 200, JSON.stringify(r3.json));
+    order.push('new started:' + (procs.length > at));
+    assert.deepStrictEqual(order, ['old ended', 'new started:true'], 'the old process ended before the answer (and the new one started)');
+    const n3 = channels.get(r3.json.sessionId);
+    assert.strictEqual(n3.title, '舊的標題', 'carried on: its title goes with it');
+    assert.strictEqual(cfg.value('customTitles', {})[n3.sessionId], '我取的名字', 'the name you gave it goes with it');
+    const said3 = procs.slice(at).map((x) => JSON.stringify(x.p.stdin.written)).join('\n');
+    assert.ok(said3.includes('echo shell-note-1') && said3.includes('改過'), 'the "!" notes not yet sent go in front of the new words');
+    // started afresh (the first message edited): not the old title; the name you gave it still goes with it
+    fs.copyFileSync(path.join(dir, RW + '.jsonl'), path.join(dir, n3.sessionId + '.jsonl'));
+    const r4 = await post('/api/rewind', { sessionId: n3.sessionId, at: uuid(81), text: '從頭' });
+    assert.strictEqual(r4.status, 200);
+    assert.notStrictEqual(channels.get(r4.json.sessionId).title, '舊的標題', 'started afresh: the title comes from the new words');
+    assert.strictEqual(cfg.value('customTitles', {})[r4.json.sessionId], '我取的名字');
+    // the new words cannot be sent: the new conversation and the name written for it are taken away again
+    fs.copyFileSync(path.join(dir, RW + '.jsonl'), path.join(dir, r4.json.sessionId + '.jsonl'));
+    const realSend = channels.send;
+    channels.send = (sid, text) => (channels.get(sid) && channels.get(sid).forkOf ? { ok: false, error: '送不出去（測試）' } : realSend.call(channels, sid, text));
+    const before5 = channels.list().length;
+    const r5 = await post('/api/rewind', { sessionId: r4.json.sessionId, at: uuid(83), text: 'x' });
+    channels.send = realSend;
+    assert.deepStrictEqual([r5.status, /原本的對話已停下/.test(r5.json.error)], [500, true]);
+    assert.strictEqual(channels.list().length, before5, 'no new conversation left behind');
+    assert.ok(channels.get(r4.json.sessionId), 'the old one is still there');
+    const leftNames = Object.keys(cfg.value('customTitles', {})).filter((k) => !channels.get(k) && cfg.value('customTitles', {})[k] === '我取的名字' && k !== R3 && k !== n3.sessionId);
+    assert.deepStrictEqual(leftNames, [], 'the name written for the new one is gone');
+    // pressed twice: the second waits its turn rather than carrying the same one on again
+    await post('/api/send', { sessionId: r4.json.sessionId, text: '又在跑' });
+    const p6 = channels.get(r4.json.sessionId).proc; const realKill = p6.kill; p6.kill = () => { setTimeout(() => p6.emit('exit', null), 200); };
+    const [a6, b6] = await Promise.all([post('/api/rewind', { sessionId: r4.json.sessionId, at: uuid(83), text: '一' }), post('/api/rewind', { sessionId: r4.json.sessionId, at: uuid(83), text: '二' })]);
+    p6.kill = realKill;
+    assert.deepStrictEqual([a6.status, b6.status].sort(), [200, 409]);
+    for (const x of [a6, b6]) if (x.status === 200) { await post('/api/stop', { sessionId: x.json.sessionId }); await post('/api/close', { sessionId: x.json.sessionId }); }
+    cfg.setValue('customTitles', Object.fromEntries(Object.entries(cfg.value('customTitles', {})).filter(([, v]) => v !== '我取的名字')));
+  }
+
   const e = await post('/api/new', { cwd: WORK });
   assert.strictEqual((await post('/api/close-empty', { sessionId: e.json.sessionId })).json.ok, true);
 });
@@ -1064,6 +1115,9 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
   assert.deepStrictEqual([d.goal, d.ledgerMissing, d.members.map((m) => m.role)], ['對齊增量同步規格', false, ['ALPHA', 'BETA']]);
   assert.deepStrictEqual(d.renameCommands.map((x) => x.command), ['/rename 合作' + id + '-BETA'], 'the terminal session: the line to paste');
   assert.strictEqual((await get('/api/collab?id=999')).status, 404);
+  // a member of a collaboration under way is not edited and sent again (a new conversation would drop out of it)
+  const rwc = await post('/api/rewind', { sessionId: B, at: uuid(1), text: 'x' });
+  assert.deepStrictEqual([rwc.status, /合作/.test(rwc.json.error)], [409, true]);
   // the terminal member's name changes (its process restarted): the ledger's members section and the others told
   const regFile = fs.readdirSync(path.join(CLAUDE, 'sessions')).map((n) => path.join(CLAUDE, 'sessions', n)).find((x) => { try { return JSON.parse(fs.readFileSync(x, 'utf8')).sessionId === TT; } catch (e) { return false; } });
   const reg = JSON.parse(fs.readFileSync(regFile, 'utf8')); const firstName = reg.name;

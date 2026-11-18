@@ -74,7 +74,7 @@
 
 ## 使用
 
-在 Claude Code 裡輸入 `/session-board`，或直接跑：
+在 Claude Code 裡輸入 `/session-board`：一打就啟動看板並用瀏覽器打開（已經在跑就直接打開），回給你網址。也可以直接跑腳本；停止與查狀態只有腳本（停止時看板裡有對話在跑會拒絕並列出是哪幾個，加 `--force` 才會硬停）：
 
 ```bash
 node plugins/session-board/scripts/start.js --open     # 啟動並開啟頁面

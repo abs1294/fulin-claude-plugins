@@ -57,6 +57,7 @@ const Plugins = require('./lib/plugins');
 const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
 const Rewind = require('./lib/rewind');
+const rewinding = new Set();   // the board conversations being carried on from an edited message right now (/api/rewind)
 const { Auto } = require('./lib/auto');
 
 const SOURCES_OK = require('./lib/inbox/sources').ids;
@@ -384,6 +385,7 @@ function createServer(token, port, deps = {}) {
   const isPaths = (v) => Array.isArray(v) && v.length <= 500 && v.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 400);
   const PREFS = {
     sidebarCollapsed: { def: false, ok: isBool, why: '只能是開或關' },        // the left column folded away
+    sidebarWidth: { def: 324, ok: (v) => Number.isInteger(v) && v >= 240 && v <= 640, why: '要是 240 到 640 的整數（像素）' },   // the left column's width, dragged at its edge
     sidebarShortcut: { def: true, ok: isBool, why: '只能是開或關' },          // Ctrl+B folds / unfolds it
     officeFavorites: { def: [], ok: isPaths, why: '要是資料夾路徑的清單' },    // rooms starred: shown first
     officeOrder: { def: [], ok: isPaths, why: '要是資料夾路徑的清單' },        // the order rooms were dragged into
@@ -1367,18 +1369,40 @@ function createServer(token, port, deps = {}) {
         if (!c) return send(res, 400, { ok: false, error: '只有看板裡的對話可以編輯重送' });
         const text = typeof body.text === 'string' ? body.text : '';
         if (!text.trim()) return send(res, 400, { ok: false, error: '改好的訊息是空的' });
+        // a member of a collaboration under way: the others write to it by its name and the ledger lists its id - a new
+        // conversation in its place would drop out of it
+        if (collabList().some((x) => x.state !== 'ended' && x.members.some((m) => m.sessionId === sid))) return send(res, 409, { ok: false, error: '這個對話正在合作中，換成新對話會讓其他成員找不到它。要改的話，先在合作頁結束這個合作' });
         const file = S.findTranscript(sid, c.cwd, S.DEFAULTS.projectsDir);
         if (!file) return send(res, 400, { ok: false, error: '這個對話還沒有紀錄' });
         const rp = Rewind.resumePoint(file, body.at);
         if (!rp.ok) return send(res, 400, rp);
-        channels.stop(sid);
+        // its process ended before the new one reads its transcript (it could still be writing to it). One at a time for
+        // a conversation (pressed twice, the second would carry the same one on again), and it must still be there after
+        // the wait (closed meanwhile: nothing to carry on)
+        if (rewinding.has(sid)) return send(res, 409, { ok: false, error: '這個對話正在重來，等一下' });
+        rewinding.add(sid);
+        try {
+          const old = c.proc;
+          channels.stop(sid);
+          if (old && old.exitCode == null) await new Promise((done) => { const t = setTimeout(done, 3000); old.once('exit', () => { clearTimeout(t); done(); }); });
+        } finally { rewinding.delete(sid); }
+        if (channels.get(sid) !== c) return send(res, 409, { ok: false, error: '這個對話在停下來的時候被關掉了，沒有重來' });
         const n = channels.create(c.cwd, crypto.randomUUID());
         if (rp.at) { n.forkOf = sid; n.resumeAt = rp.at; }
-        for (const k of ['title', 'model', 'effort', 'agent', 'skipPermissions']) if (c[k]) n[k] = c[k];
-        const t = Object.assign({}, customTitles()); if (t[sid]) { t[n.sessionId] = t[sid]; config.setValue('customTitles', t); }
+        // its settings go with it; its title only when it carries on (started afresh, the title comes from the new words);
+        // what you ran with "!" and had not sent yet goes with the new words (send() puts it in front of them)
+        for (const k of ['model', 'effort', 'agent', 'skipPermissions'].concat(rp.at ? ['title'] : [])) if (c[k]) n[k] = c[k];
+        if (Array.isArray(c.shellNotes) && c.shellNotes.length) { n.shellNotes = c.shellNotes.slice(); n.shellSeq = c.shellSeq; }
+        const named = customTitles()[sid];
+        if (named) config.setValue('customTitles', Object.assign({}, customTitles(), { [n.sessionId]: named }));
         if (channels._save) channels._save();
         const r = channels.send(n.sessionId, text);
-        if (r && r.ok === false) { channels.remove(n.sessionId); fresh(); return send(res, 500, { ok: false, error: r.error || '送不出去' }); }
+        if (r && r.ok === false) {
+          channels.remove(n.sessionId);
+          if (named) { const t = Object.assign({}, customTitles()); delete t[n.sessionId]; config.setValue('customTitles', t); }
+          fresh();
+          return send(res, 500, { ok: false, error: (r.error || '送不出去') + '。原本的對話已停下，還在清單上，沒有關掉' });
+        }
         channels.remove(sid);
         fresh();
         return send(res, 200, { ok: true, sessionId: n.sessionId, fromStart: !rp.at });

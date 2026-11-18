@@ -59,7 +59,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       console.log('NOT stopped: ' + r.body.active.length + ' conversation(s) on the board would lose work:');
       const word = { busy: 'working', waiting: 'waiting for your answer', background: 'has background work running' };
       for (const a of r.body.active) console.log('  - ' + (word[a.status] || a.status) + (a.tasks ? ' (' + a.tasks + ' task(s))' : '') + ': ' + String(a.title || a.sessionId).slice(0, 60));
-      console.log('Wait for them to finish, or run again with --force to stop anyway.');
+      // Read by whoever ran it - often an assistant asked to "close the board": the choice to end that work is the user's.
+      console.log('Wait for them to finish. --force stops anyway and ends that work; add it only when the user has said to stop regardless (an assistant must not add it on its own - tell the user this list instead).');
       process.exit(2);
     }
     for (let i = 0; i < 20 && await ping(); i++) await sleep(150);
