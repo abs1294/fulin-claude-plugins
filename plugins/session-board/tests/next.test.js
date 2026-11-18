@@ -28,6 +28,9 @@ test('the goal2 step is offered only when the last reply says something is left 
   assert.notStrictEqual(textKey('第 9 封還沒改'), textKey('第 10 封還沒改'));
   assert.strictEqual(saysUnfinished('並沒有任何未完成的項目'), false, 'a negation further back in the same clause');
   assert.strictEqual(saysUnfinished('沒有測試失敗，第 3 項還沒改'), true, 'a negation in another clause does not count');
+  // a negation counts only right before the words, not as part of what the clause is about
+  for (const t of ['無法登入的問題還沒修', '沒有測試的那支還沒跑', '不再報錯的那段還沒驗證']) assert.strictEqual(saysUnfinished(t), true, t);
+  assert.strictEqual(saysUnfinished('目前已無任何待辦'), false);
   const left = ['第 9、10 封還沒改，剩下的明天做。', '尚未驗證 Mac 上的拖放。', '待辦：清 .bak。', '還差兩支測試。', '這幾項還沒有驗證。'];
   const none = ['已經推上 GitHub，工作區乾淨。', '測試 171 項全過。', '還沒 push，要推的話回 push。', '已修好，接下來要等同事回報。',
     '沒有未完成的項目', '已無待辦事項', '剩餘 token 還夠', '沒有剩下的事了', '目前無待辦。', ''];

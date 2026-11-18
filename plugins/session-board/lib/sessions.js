@@ -280,7 +280,10 @@ function buildSessions(opts = {}, now = Date.now()) {
     // A terminal session that has no title of its own yet would otherwise show the name Claude Code makes up for it
     // ("supplier-code-d9"), and the conversation you just moved could not be found in the list (2026-11-16).
     const moved = !ch && o.titles && typeof o.titles[r.sessionId] === 'string' ? o.titles[r.sessionId] : '';
-    const title = candidates[0] || moved || name || (ch && ch.title) || (ch ? '新對話' : `session ${r.sessionId.slice(0, 8)}`);
+    // o.customTitles: names given on the board ({sessionId: name}). They come first: the status line's summary is
+    // rewritten as the conversation goes on, and would otherwise replace a name you gave a few messages later.
+    const given = o.customTitles && typeof o.customTitles[r.sessionId] === 'string' ? o.customTitles[r.sessionId] : '';
+    const title = given || candidates[0] || moved || name || (ch && ch.title) || (ch ? '新對話' : `session ${r.sessionId.slice(0, 8)}`);
     const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
     const since = num(r.statusUpdatedAt) || num(r.updatedAt) || num(r.startedAt) || now;
     const status = typeof r.status === 'string' ? r.status : 'unknown';
@@ -289,7 +292,9 @@ function buildSessions(opts = {}, now = Date.now()) {
       sessionId: r.sessionId,
       name,
       title,
-      titleSource: summary ? 'summary' : tt.custom ? 'custom-title' : tt.ai ? 'ai-title' : 'name',
+      titleSource: given ? 'board' : summary ? 'summary' : tt.custom ? 'custom-title' : tt.ai ? 'ai-title' : 'name',
+      // how it was started (the registry's entrypoint): 'cli' = a terminal window; 'sdk-cli' and the like = a program
+      entrypoint: ch ? 'board' : typeof r.entrypoint === 'string' ? r.entrypoint : '',
       titleCandidates: candidates,
       status,
       // A board conversation is yours when it wants an approval or has a reply

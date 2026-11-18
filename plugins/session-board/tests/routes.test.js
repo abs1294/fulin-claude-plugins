@@ -302,6 +302,88 @@ test('goal2 and harness switched off in the settings: gone from their addresses'
   await new Promise((r) => setTimeout(r, 5200));
 });
 
+test('a name given on the board stays above every other title; empty gives the automatic one back', async () => {
+  asked.add('POST /api/rename');
+  const of = async (sid) => { await new Promise((r) => setTimeout(r, 1100)); return (await get('/api/sessions')).json.sessions.find((x) => x.sessionId === sid); };
+  const before = await of(T1);
+  assert.strictEqual((await post('/api/rename', { sessionId: T1, name: '  我的   名字 ' })).json.name, '我的 名字');
+  const named = await of(T1);
+  assert.deepStrictEqual([named.title, named.titleSource], ['我的 名字', 'board']);
+  // the status line's summary (rewritten as the conversation goes on) does not take it back
+  const stateDir = S.DEFAULTS.stateDir;
+  if (stateDir) { fs.mkdirSync(stateDir, { recursive: true }); fs.writeFileSync(path.join(stateDir, 'claude-summary-' + S.sidKey(T1) + '.txt'), '新的摘要\n'); }
+  assert.strictEqual((await of(T1)).title, '我的 名字');
+  assert.strictEqual((await post('/api/rename', { sessionId: T1, name: '' })).status, 200);
+  const back = await of(T1);
+  assert.notStrictEqual(back.titleSource, 'board'); assert.notStrictEqual(back.title, '我的 名字');
+  if (stateDir) fs.unlinkSync(path.join(stateDir, 'claude-summary-' + S.sidKey(T1) + '.txt'));
+  assert.strictEqual((await post('/api/rename', { sessionId: '../x', name: 'a' })).status, 400);
+  assert.strictEqual((await post('/api/rename', { sessionId: T1, name: 5 })).status, 400);
+  assert.ok(before.title);
+});
+
+test('settings kept in the board: the left column, the office, sessions a program started', async () => {
+  const config = require('../lib/config');
+  const cfg = (await get('/api/config')).json.prefs;
+  assert.deepStrictEqual([cfg.sidebarCollapsed, cfg.sidebarShortcut, cfg.officeFavorites, cfg.hideProgramSessions, cfg.decideModel], [false, true, [], false, 'haiku'], 'the defaults');
+  assert.strictEqual((await post('/api/config', { sidebarCollapsed: true, officeFavorites: [WORK], officeOrder: [WORK, HOME] })).status, 200);
+  const f = (await get('/api/sessions')).json.features.prefs;
+  assert.deepStrictEqual([f.sidebarCollapsed, f.officeFavorites, f.officeOrder], [true, [WORK], [WORK, HOME]], 'sent with the list');
+  for (const [k, v] of [['sidebarCollapsed', 'yes'], ['officeFavorites', 'C:\\x'], ['hideProgramFolders', [5]], ['decideModel', 'gpt-4']]) assert.strictEqual((await post('/api/config', { [k]: v })).status, 400, k);
+  // a conversation a program started (entrypoint sdk-cli), one the board started, one of yours
+  const PROG = uuid(71), MINE = uuid(72), BOARDS = uuid(73);
+  const OTHER = path.join(HOME, 'tools'); fs.mkdirSync(OTHER, { recursive: true });
+  const write = (sid, cwd, entry) => {
+    const dir = path.join(CLAUDE, 'projects', S.encodeCwd(cwd)); fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, sid + '.jsonl'), line({ type: 'user', sessionId: sid, cwd, entrypoint: entry, timestamp: new Date().toISOString(), message: { role: 'user', content: '問一題 ' + sid.slice(-2) } }) + '\n');
+  };
+  write(PROG, OTHER, 'sdk-cli'); write(MINE, OTHER, 'cli'); write(BOARDS, OTHER, 'sdk-cli');
+  // an older board conversation (before the board remembered its own): its first message is content blocks, as the board sends them
+  const OLDB = uuid(74); { const dir = path.join(CLAUDE, 'projects', S.encodeCwd(OTHER)); fs.writeFileSync(path.join(dir, OLDB + '.jsonl'), line({ type: 'user', sessionId: OLDB, cwd: OTHER, entrypoint: 'sdk-cli', timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'text', text: '看板開的舊對話' }] } }) + '\n'); }
+  config.setValue('boardStarted', [BOARDS]);
+  const past = async (qs) => JSON.stringify((await get('/api/past' + (qs || ''))).json);
+  assert.ok((await past()).includes(PROG), 'off: everything is listed');
+  assert.strictEqual((await post('/api/config', { hideProgramSessions: true })).status, 200);
+  const p = (await get('/api/past')).json, ps = JSON.stringify(p.items);
+  assert.deepStrictEqual([ps.includes(PROG), ps.includes(MINE), ps.includes(BOARDS), ps.includes(OLDB), p.programHidden >= 1], [false, true, true, true, true], 'only the one a program started is left out');
+  assert.ok((await past('?programs=1')).includes(PROG), 'shown when asked for');
+  // a folder named: everything in it is left out
+  assert.strictEqual((await post('/api/config', { hideProgramFolders: [OTHER] })).status, 200);
+  const q = JSON.stringify((await get('/api/past')).json.items);
+  assert.deepStrictEqual([q.includes(MINE), q.includes(BOARDS)], [false, false]);
+  // the folder list is its own rule: it still hides with the program switch off
+  assert.strictEqual((await post('/api/config', { hideProgramSessions: false })).status, 200);
+  const qOff = JSON.stringify((await get('/api/past')).json.items);
+  assert.deepStrictEqual([qOff.includes(MINE), qOff.includes(PROG)], [false, false], 'a folder named is left out whether or not the switch is on');
+  // one wrong value in a save: nothing of it is saved
+  assert.strictEqual((await post('/api/config', { hideProgramSessions: true, decideModel: 'not a model!' })).status, 400);
+  assert.strictEqual((await get('/api/config')).json.prefs.hideProgramSessions, false, 'the right value next to a wrong one was not saved either');
+  const sizeWas = (await get('/api/config')).json.textSize;
+  assert.strictEqual((await post('/api/config', { textSize: 1.3, autoHideDays: 3, decideModel: 'not a model!' })).status, 400);
+  const after = (await get('/api/config')).json;
+  assert.deepStrictEqual([after.textSize, after.autoHideDays !== 3], [sizeWas, true], 'the older settings in the same save are not written either');
+  assert.strictEqual((await post('/api/config', { autoHideDays: 999, hideProgramSessions: true })).status, 400);
+  assert.strictEqual((await get('/api/config')).json.prefs.hideProgramSessions, false, 'a wrong older value stops the new ones too');
+  assert.strictEqual((await post('/api/config', { hideProgramSessions: true })).status, 200);
+  // an open session a program started: marked, and hidden while the setting is on
+  const regFile = fs.readdirSync(path.join(CLAUDE, 'sessions')).map((n) => path.join(CLAUDE, 'sessions', n)).find((x) => JSON.parse(fs.readFileSync(x, 'utf8')).sessionId === T2);
+  const reg = JSON.parse(fs.readFileSync(regFile, 'utf8')); const was = reg.entrypoint; reg.entrypoint = 'sdk-cli'; fs.writeFileSync(regFile, JSON.stringify(reg));
+  await new Promise((r) => setTimeout(r, 1100));
+  const t2 = (await get('/api/sessions')).json.sessions.find((x) => x.sessionId === T2);
+  assert.deepStrictEqual([t2.entrypoint, t2.byProgram, t2.programHidden], ['sdk-cli', undefined, undefined], 'its first message is content blocks, as the board sends them: taken for the board\'s own');
+  // started through the Agent SDK (claude-mem sets sdk-ts): a program's, even with content blocks
+  reg.entrypoint = 'sdk-ts'; fs.writeFileSync(regFile, JSON.stringify(reg));
+  await new Promise((r) => setTimeout(r, 1100));
+  const t2s = (await get('/api/sessions')).json.sessions.find((x) => x.sessionId === T2);
+  assert.deepStrictEqual([t2s.entrypoint, t2s.byProgram, t2s.programHidden], ['sdk-ts', true, true], 'an SDK session is a program\'s whatever form its messages take');
+  await post('/api/config', { hideProgramFolders: [WORK] }); await new Promise((r) => setTimeout(r, 1100));
+  const t2b = (await get('/api/sessions')).json.sessions.find((x) => x.sessionId === T2);
+  reg.entrypoint = was; fs.writeFileSync(regFile, JSON.stringify(reg));
+  assert.deepStrictEqual([t2b.byProgram, t2b.programHidden], [true, true], 'in a folder named: hidden');
+  await post('/api/config', { sidebarCollapsed: false, officeFavorites: [], officeOrder: [], hideProgramSessions: false, hideProgramFolders: [] });
+  config.setValue('boardStarted', []);
+});
+
 test('a session with nothing new for the set number of days leaves the list by itself', async () => {
   const config = require('../lib/config');
   assert.strictEqual((await get('/api/config')).json.autoHideDays, 7, 'seven days unless changed');
@@ -356,8 +438,8 @@ test('goal2 runs: listed, one in detail, a running one stopped - only runs goal2
   const run = (exe, args, opts, cb) => { calls.push(args.slice(1).join(' ')); const a = args[1]; if (a === '--list') return cb(null, JSON.stringify({ ok: true, plugin_version: '0.5.8', runs })); if (a === '--status') return cb(null, JSON.stringify({ ok: true, status: 'done', goal_verdict: 'met', total_cost_usd: 0.4, progress_md: '# 進度', run_dir: args[2], secret_extra: 'x' })); if (a === '--stop') return cb(null, JSON.stringify({ ok: true })); cb(new Error('unexpected')); };
   const g = new Goal2({ root: path.join(HOME, 'goal2-plugin'), run });
   const judgeAsked = [];
-  const judge = new (require('../lib/judge').Judge)({ run: async (prompt) => { judgeAsked.push(prompt); return /還沒改/.test(prompt) ? { ok: true, text: '{"unfinished": 0.9, "items": ["第 9 封"]}' } : /逾時/.test(prompt) ? { ok: false, error: '判讀逾時（60 秒）' } : { ok: true, text: '{"unfinished": 0.05, "items": []}' }; } });
-  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, out, goal2: g, judge, pluginsInstalled: () => ({ goal2: { name: 'goal2', installs: [] } }) });
+  const decider = new (require('../lib/decide').Decider)({ userDir: path.join(HOME, 'no-questions'), run: async (prompt) => { judgeAsked.push(prompt); return /還沒改/.test(prompt) ? { ok: true, text: '{"answer": 0.9, "items": ["第 9 封"]}' } : /逾時/.test(prompt) ? { ok: false, error: '判斷逾時（60 秒）' } : { ok: true, text: '{"answer": 0.05, "items": []}' }; } });
+  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, out, goal2: g, decider, pluginsInstalled: () => ({ goal2: { name: 'goal2', installs: [] } }) });
   await new Promise((r) => s2.listen(p2, '127.0.0.1', r));
   const via = (pp, body) => new Promise((resolve) => { const b = body ? Buffer.from(JSON.stringify(body)) : null; const q2 = http.request({ host: '127.0.0.1', port: p2, path: pp, method: b ? 'POST' : 'GET', headers: Object.assign({ 'x-board-token': TOKEN }, b ? { 'content-type': 'application/json' } : {}) }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve({ status: res.statusCode, json: JSON.parse(d) })); }); if (b) q2.write(b); q2.end(); });
   asked.add('GET /api/goals'); asked.add('GET /api/goals/status'); asked.add('POST /api/goals/stop');
@@ -375,14 +457,19 @@ test('goal2 runs: listed, one in detail, a running one stopped - only runs goal2
   assert.strictEqual((await via('/api/goals/stop', { id: '20261117090000-goal-bbbb' })).status, 200);
   assert.ok(calls.includes('--stop ' + DIR('20261117090000-goal-bbbb')));
   // is work left in this reply? (whether to offer goal2): one model call per message, kept
-  asked.add('POST /api/next/judge');
-  const j1 = await via('/api/next/judge', { key: 's|7', text: '第 9 封還沒改' });
-  assert.deepStrictEqual([j1.status, j1.json.show, j1.json.items], [200, true, ['第 9 封']]);
-  await via('/api/next/judge', { key: 's|7', text: '第 9 封還沒改' });
-  assert.strictEqual(judgeAsked.length, 1, 'the same message is not asked twice');
-  assert.strictEqual((await via('/api/next/judge', { key: 's|8', text: '全部做完了' })).json.show, false);
-  assert.deepStrictEqual([(await via('/api/next/judge', { key: 's|9', text: '逾時' })).status], [502]);
-  assert.strictEqual((await via('/api/next/judge', { key: 's|10' })).status, 400, 'no text');
+  asked.add('POST /api/next/judge'); asked.add('POST /api/decide');
+  const j1 = await via('/api/next/judge', { text: '第 9 封還沒改' });
+  assert.deepStrictEqual([j1.status, j1.json.show, j1.json.items, j1.json.unfinished], [200, true, ['第 9 封'], 0.9]);
+  await via('/api/next/judge', { key: 'anything the page says', text: '第 9 封還沒改' });
+  assert.strictEqual(judgeAsked.length, 1, 'the same text is not asked twice, whatever key the page sends');
+  assert.strictEqual((await via('/api/next/judge', { text: '全部做完了' })).json.show, false);
+  assert.deepStrictEqual([(await via('/api/next/judge', { text: '逾時' })).status], [502]);
+  assert.strictEqual((await via('/api/next/judge', {})).status, 400, 'no text');
+  // any question by its id; never a path the page chose
+  const dq = await via('/api/decide', { question: 'unfinished', text: '第 9 封還沒改' });
+  assert.deepStrictEqual([dq.status, dq.json.question, dq.json.answer, dq.json.yes], [200, 'unfinished', 0.9, true]);
+  for (const bad of ['../../secret', 'C:\\x.json', '']) assert.strictEqual((await via('/api/decide', { question: bad, text: 'x' })).status, 400, bad);
+  assert.strictEqual((await via('/api/decide', { question: 'no-such-question', text: 'x' })).status, 502);
   s2.close(); if (s2.closeAllConnections) s2.closeAllConnections();
   // not installed: the page is told so and shows nothing
   const none = new Goal2({ root: null }); assert.deepStrictEqual(await none.list(), { installed: false, runs: [] });

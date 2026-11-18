@@ -43,6 +43,28 @@
   /* ── sidebar ── */
   .side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   .side-top { padding: 14px 12px 10px; display: flex; align-items: center; gap: 8px; }
+  /* the left column folded away: a thin rail with the way back and what waits for you */
+  .app.folded { grid-template-columns: 48px minmax(0, 1fr); }
+  .app.folded .side > :not(.side-rail) { display: none; }
+  .side-rail { display: none; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0; }
+  .app.folded .side-rail { display: flex; }
+  .side-rail .btn { width: 36px; height: 36px; padding: 0; justify-content: center; }
+  .side-rail .rail-n { min-width: 22px; height: 22px; border-radius: 11px; background: var(--dot-wait, #EA580C); color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0 6px; }
+  .side-rail .rail-n[hidden] { display: none; }
+  .fold-btn { border: 0; background: none; color: var(--dim); cursor: pointer; padding: 4px 6px; border-radius: var(--r-s); font-size: 16px; line-height: 1; }
+  .fold-btn:hover { background: var(--hover); color: inherit; }
+  /* renaming in place */
+  .rename-in { font: inherit; width: 100%; box-sizing: border-box; border: 1px solid var(--accent, #2563EB); border-radius: var(--r-s); padding: 2px 6px; background: var(--bg); color: inherit; }
+  .who .t .ren { border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 14px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
+  .who .t .ren:hover { color: inherit; }
+  /* the office: starred rooms first, rooms dragged into your own order */
+  .of-sec { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--dim); margin: 6px 0 -4px; }
+  .of-sec button { border: 0; background: none; color: var(--accent, #2563EB); cursor: pointer; font: inherit; font-weight: 500; padding: 0; }
+  .room-head .star { border: 0; background: none; cursor: pointer; font-size: 16px; line-height: 1; color: var(--faint); padding: 0 2px; }
+  .room-head .star.on { color: #D97706; }
+  .room[draggable="true"] .room-head { cursor: grab; }
+  .room.dragging { opacity: .45; }
+  .room.drop-before { box-shadow: -4px 0 0 0 var(--accent, #2563EB); }
   /* the bell, and the list it opens */
   .bell { position: relative; border: 0; background: none; color: var(--dim); width: 32px; height: 32px; border-radius: var(--r-m); display: grid; place-items: center; padding: 0; flex: none; }
   .bell:hover, .bell[aria-expanded="true"] { background: var(--hover); color: var(--ink); }
@@ -841,7 +863,12 @@
 <body>
 <div class="app" id="app">
   <aside class="side">
+    <div class="side-rail" id="sideRail">
+      <button class="btn" id="unfoldBtn" type="button" aria-label="展開左欄" title="展開左欄（Ctrl+B）">»</button>
+      <span class="rail-n" id="railN" hidden title="等你回應的 session"></span>
+    </div>
     <div class="side-top">
+      <button class="fold-btn" id="foldBtn" type="button" aria-label="收起左欄" title="收起左欄（Ctrl+B）">«</button>
       <h1><button type="button" id="homeBtn" title="回到首頁：誰在等你、沒開著的對話">Sessions</button></h1>
       <button class="bell" id="bellBtn" type="button" aria-label="通知" aria-haspopup="dialog" aria-expanded="false" title="通知：現在還沒處理的事"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v3.6L4.3 16a1 1 0 0 0 .9 1.5h13.6a1 1 0 0 0 .9-1.5L18 12.6V9a6 6 0 0 0-6-6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9.8 20a2.3 2.3 0 0 0 4.4 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="badge" id="bellN" hidden></span></button>
       <button class="btn primary" id="newBtn" type="button"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>新對話</button>
@@ -1167,6 +1194,8 @@ function drawList() {
         // Nothing about it is written on the row.
         if (s.lastUser) { const byBoard = /^s*（看板自動送出）/.test(s.lastUser); const said = el('span', 'said', byBoard ? '看板：' + autoNotice(s.lastUser).title : '你：' + s.lastUser); said.title = s.lastUser; b.append(said); }
         b.addEventListener('click', () => openChat(s.sessionId));
+        b.addEventListener('contextmenu', (e) => { e.preventDefault(); const t = b.querySelector('.t'); if (t) renameIn(t, s); });
+        if (s.hiddenWhy === 'program') b.title = s.folderHidden ? '在「一律不列出的資料夾」裡' : '其他程式開的 session（設定裡選了不列出）';
         g.append(b);
       }
       list.append(g);
@@ -1179,6 +1208,7 @@ function drawList() {
     }
     if (keep) { const again = list.querySelector('[data-sid="' + CSS.escape(keep) + '"]'); if (again) again.focus(); }
     const n = sessions.filter((s) => s.group === 'yours').length;
+    { const rn = $('railN'); if (rn) { rn.hidden = !n; rn.textContent = n > 99 ? '99+' : String(n); } }
     document.title = (n ? '(' + n + ') ' : '') + 'Session 看板';
     // the tab's icon says the same thing at a glance: an amber dot while something waits for you
     { const ic = $('tabIcon'), want = n ? TAB_ICON_WAIT : TAB_ICON; if (ic && ic.getAttribute('href') !== want) ic.setAttribute('href', want); }
@@ -1981,6 +2011,31 @@ async function drawSettings() {
       if (!x.ok) return say(x.data.error || '存不進去', true);
       say(n ? '已儲存：' + n + ' 天沒有新動作就自動隱藏' : '已儲存：不自動隱藏'); await poll();
     });
+    const P = r.data.prefs || {};
+    sw('隱藏其他程式開的 session', '不是你在終端機或看板開的，而是其他程式自己用 Claude Code 開的（例如 claude-mem、goal2 的引擎、harness 的審查、測試），不列在左欄、辦公室與舊對話裡。看板與看板排程開的對話照常顯示。被藏起來的，清單最下面仍可以點開來看。', !!P.hideProgramSessions,
+      (v) => ({ hideProgramSessions: v }), (v) => v ? '已開啟：其他程式開的 session 不列出' : '已關閉：全部列出');
+    pane.append(el('p', 'lead', '另外，這些資料夾裡的 session 一律不列出，不管上面的開關、也不管是誰開的（包括你在看板開的）。一行一個完整路徑：'));
+    const ta = el('textarea'); ta.rows = 3; ta.style.width = '100%'; ta.value = (P.hideProgramFolders || []).join('\n'); ta.setAttribute('aria-label', '一律不列出的資料夾');
+    const tb = el('button', 'btn', '儲存資料夾'); tb.type = 'button';
+    tb.addEventListener('click', async () => { const list = ta.value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean); tb.disabled = true; const ok = await savePref({ hideProgramFolders: list }); tb.disabled = false; if (ok) { say(list.length ? '已儲存：' + list.length + ' 個資料夾不列出' : '已清空'); poll(); } });
+    pane.append(ta, tb);
+  }
+  {
+    const h2 = el('h2', '', '版面'); h2.style.marginTop = '40px'; pane.append(h2);
+    const P = r.data.prefs || {};
+    sw('Ctrl+B 收起／展開左欄', '左欄頂端的「«」也可以收起；收起後剩一條細邊，有「»」展開鈕和等你回應的數字。', P.sidebarShortcut !== false,
+      (v) => ({ sidebarShortcut: v }), (v) => { features.prefs = Object.assign({}, prefs(), { sidebarShortcut: v }); return v ? '已開啟 Ctrl+B' : '已關閉 Ctrl+B'; });
+    sw('辦公室只展開我的最愛', '標了星的房間照常顯示，其他房間收成一列，要看再按「展開」。沒有標星的房間時不影響。', !!P.officeCollapseOthers,
+      (v) => ({ officeCollapseOthers: v }), (v) => { features.prefs = Object.assign({}, prefs(), { officeCollapseOthers: v }); return v ? '已開啟：其他房間收起' : '已關閉：全部展開'; });
+  }
+  {
+    const h2 = el('h2', '', '小模型判斷'); h2.style.marginTop = '40px'; pane.append(h2);
+    pane.append(el('p', 'lead', '「下一步」要不要出現「交給 goal2 做完」，是把最後一則回覆交給小模型回答一題（題目在看板資料夾的 questions/unfinished.json；要改題目，放一份同名檔到 ~/.claude/session-board/questions/）。這裡選用哪個模型。'));
+    const row = el('div', 'pathrow'), sel = el('select'); sel.setAttribute('aria-label', '判斷用的模型');
+    for (const m of ['haiku', 'sonnet', 'opus']) { const o = el('option', '', m); o.value = m; sel.append(o); }
+    sel.value = (r.data.prefs || {}).decideModel || 'haiku';
+    sel.addEventListener('change', async () => { if (await savePref({ decideModel: sel.value })) say('已儲存：判斷用 ' + sel.value); });
+    row.append(sel); pane.append(row);
   }
   {
     const h2 = el('h2', '', '從另一台電腦操作'); h2.style.marginTop = '40px'; pane.append(h2);
@@ -2101,11 +2156,11 @@ function drawOffice(goTo) {
   loadOfficePast();
 }
 // The conversations that are not open (the last 30 days; the search is done by the board, over what you said too).
-let officeQ = '', officeTimer = 0, officePast = null, officePastSeq = 0, officeWhen = '', officeTemp = false;
+let officeQ = '', officeTimer = 0, officePast = null, officePastSeq = 0, officeWhen = '', officeTemp = false, officePrograms = false, officeDrag = '';
 const officeAll = new Set();   // rooms whose not-open conversations are all shown
 async function loadOfficePast() {
   const seq = ++officePastSeq;
-  let r; try { r = await api('/api/past?q=' + encodeURIComponent(officeQ)); } catch (e) { r = { ok: false }; }
+  let r; try { r = await api('/api/past?q=' + encodeURIComponent(officeQ) + (officePrograms ? '&programs=1' : '')); } catch (e) { r = { ok: false }; }
   if (seq !== officePastSeq) return;   // a newer search has been sent meanwhile
   officePast = r.ok ? Object.assign({ stamp: Date.now() }, r.data) : { failed: true, items: [], stamp: Date.now() };
   if (r.ok && !officeQ) pastCount = r.data.total ? '沒開著的 ' + r.data.total + ' 個' : '';
@@ -2129,8 +2184,9 @@ function fillOffice() {
   const inWhen = (WHEN.find((w) => w[0] === officeWhen) || WHEN[0])[2];
   const allOld = base.filter((x) => inWhen(x.at));
   const shape = JSON.stringify([allOpen.map((x) => [x.s.sessionId, x.st, x.s.title, x.s.lastUser, x.s.cwd]), officeFilter, officeQ, officeWhen, officeTemp, [...officeAll], officePast ? officePast.stamp : 0, keep.restorable.length, keep.closed.length]);
-  if (shape === officeShape) { for (const m of grid.querySelectorAll('.ds[data-since]')) m.textContent = m.dataset.text + ago(now - Number(m.dataset.since)); return; }
-  officeShape = shape;
+  const pshape = shape + '|' + JSON.stringify([prefs().officeFavorites, prefs().officeOrder, prefs().officeCollapseOthers]);
+  if (pshape === officeShape) { for (const m of grid.querySelectorAll('.ds[data-since]')) m.textContent = m.dataset.text + ago(now - Number(m.dataset.since)); return; }
+  officeShape = pshape;
   const c = { wait: 0, stuck: 0, run: 0, done: 0, idle: 0 }; for (const x of allOpen) c[x.st]++;
   chips.textContent = '';
   for (const [k, label, n] of [['', '全部', allOpen.length + allOld.length], ['wait', DESK.wait, c.wait], ['stuck', DESK.stuck, c.stuck], ['run', DESK.run, c.run], ['done', DESK.done, c.done], ['idle', DESK.idle, c.idle], ['closed', '沒開著', allOld.length]]) {
@@ -2161,14 +2217,54 @@ function fillOffice() {
   const initials = (t) => { const w = String(t || '').trim(); return /^[\x00-\x7f]/.test(w) ? w.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '?' : [...w].slice(0, 1).join(''); };
   const wasOpen = new Set(keep.restorable.map((k) => k.sessionId)), youClosed = new Set(keep.closed.map((k) => k.sessionId));
   grid.textContent = '';
-  for (const r of [...rooms.values()].sort((a, b) => worst(a) - worst(b) || latest(b) - latest(a))) {
+  // Starred rooms first, then the order you dragged them into; rooms never placed follow by the usual rule
+  // (who needs you, then the latest). The settings officeFavorites / officeOrder / officeCollapseOthers.
+  const P = prefs(), low = (p) => String(p || '').toLowerCase();
+  const favs = (P.officeFavorites || []).map(low), order = (P.officeOrder || []).map(low);
+  const isFav = (r) => !!r.cwd && favs.includes(low(r.cwd));
+  const pos = (r) => { const i = order.indexOf(low(r.cwd)); return i < 0 ? 1e9 : i; };
+  const sorted = [...rooms.values()].sort((a, b) => (isFav(b) - isFav(a)) || (pos(a) - pos(b)) || worst(a) - worst(b) || latest(b) - latest(a));
+  const nFav = sorted.filter(isFav).length, folded = !!P.officeCollapseOthers && !officeQ;
+  const saveOrder = (list) => { const shown = new Set(list.map(low)); savePref({ officeOrder: list.concat((P.officeOrder || []).filter((x) => !shown.has(low(x)))) }).then(() => { officeShape = ''; fillOffice(); }); };
+  if (nFav) grid.append(el('div', 'of-sec', '我的最愛'));
+  let othersHead = false;
+  for (const r of sorted) {
+    if (nFav && !isFav(r) && !othersHead) {
+      othersHead = true;
+      const sec = el('div', 'of-sec', '其他 ' + (sorted.length - nFav) + ' 間');
+      const t = el('button', '', folded ? '展開' : '收起'); t.type = 'button';
+      t.addEventListener('click', () => savePref({ officeCollapseOthers: !folded }).then(() => { officeShape = ''; fillOffice(); }));
+      sec.append(t); grid.append(sec);
+    }
+    if (nFav && folded && !isFav(r)) continue;
     r.open.sort((a, b) => rank[a.st] - rank[b.st]);
     r.old.sort((a, b) => b.at - a.at);
     const w = worst(r), cwd = r.cwd;
     const box = el('section', 'room' + (w === 0 ? ' wait' : w === 1 ? ' stuck' : '') + (r.open.length ? '' : ' quiet'));
     const head = el('div', 'room-head');
     const name = el('b', '', r.folder); name.title = cwd;
+    if (cwd) {
+      const fav = isFav(r), star = el('button', 'star' + (fav ? ' on' : ''), fav ? '★' : '☆'); star.type = 'button';
+      star.title = fav ? '從我的最愛拿掉' : '加到我的最愛（排在最上面）'; star.setAttribute('aria-label', star.title); star.setAttribute('aria-pressed', String(fav));
+      star.addEventListener('click', () => { const cur = P.officeFavorites || []; savePref({ officeFavorites: fav ? cur.filter((x) => low(x) !== low(cwd)) : cur.concat([cwd]) }).then(() => { officeShape = ''; fillOffice(); }); });
+      head.append(star);
+    }
     head.append(name, el('span', '', [r.open.length ? r.open.length + ' 個開著' : '', r.old.length ? r.old.length + ' 個沒開著' : ''].filter(Boolean).join(' · ')));
+    // dragged into place (within its own part: starred among starred, the rest among the rest); not while searching
+    if (cwd && !officeQ) {
+      box.draggable = true; box.dataset.cwd = cwd; box.title = '拖曳可以調整房間的順序';
+      box.addEventListener('dragstart', (e) => { officeDrag = cwd; box.classList.add('dragging'); try { e.dataTransfer.setData('text/x-room', cwd); e.dataTransfer.effectAllowed = 'move'; } catch (x) {} });
+      box.addEventListener('dragend', () => { officeDrag = ''; box.classList.remove('dragging'); for (const x of grid.querySelectorAll('.drop-before')) x.classList.remove('drop-before'); });
+      box.addEventListener('dragover', (e) => { if (!officeDrag || officeDrag === cwd || isFav(r) !== favs.includes(low(officeDrag))) return; e.preventDefault(); box.classList.add('drop-before'); });
+      box.addEventListener('dragleave', () => box.classList.remove('drop-before'));
+      box.addEventListener('drop', (e) => {
+        if (!officeDrag || officeDrag === cwd || isFav(r) !== favs.includes(low(officeDrag))) return;   // only within its own part
+        e.preventDefault(); e.stopPropagation(); box.classList.remove('drop-before');
+        const list = sorted.map((x) => x.cwd).filter((x) => x && low(x) !== low(officeDrag));
+        list.splice(list.findIndex((x) => low(x) === low(cwd)), 0, officeDrag);
+        saveOrder(list);
+      });
+    }
     if (cwd) { const add = el('button', '', '＋'); add.type = 'button'; add.title = '在「' + r.folder + '」開一個新對話'; add.setAttribute('aria-label', add.title); add.addEventListener('click', async () => { const x = await api('/api/new', { cwd }); if (!x.ok) return say(x.data.error || '開不了', true); await poll(); openChat(x.data.sessionId); }); head.append(add); }
     const desks = el('div', 'desks');
     for (const { s: o, st } of r.open) {
@@ -2254,6 +2350,11 @@ function fillOffice() {
     const back = el('button', 'list-more', '有 ' + officePast.hidden + ' 個對話被設成不列出 · 全部顯示回來'); back.type = 'button';
     back.addEventListener('click', async () => { await api('/api/hide', { clear: true }); await poll(); await loadOfficePast(); });
     foot.append(back);
+  }
+  if (officePast && (officePast.programHidden || officePrograms)) {
+    const pb = el('button', 'list-more', officePrograms ? '收起設定裡不列出的對話' : '另有 ' + officePast.programHidden + ' 個對話依設定沒有列出（其他程式開的、或在不列出的資料夾裡）· 顯示'); pb.type = 'button';
+    pb.addEventListener('click', () => { officePrograms = !officePrograms; loadOfficePast(); });
+    foot.append(pb);
   }
   if (!officeTemp && !officeQ && tempN && officeFilter !== 'closed') { const tn = el('div', 'hint', '另有 ' + tempN + ' 個在暫存資料夾裡跑的對話沒有列出（多半是測試）。要看：按上面的「沒開著」。'); tn.style.marginTop = '14px'; foot.append(tn); }
 }
@@ -2876,6 +2977,12 @@ async function openChat(sid, at) {
 
 function liveOrListed() { const s = cur(); return s ? (s.owner === 'board' && liveStatus ? liveStatus : s.status) : ''; }
 
+// The conversation's name in its heading, with the button that renames it (kept by the board above every other title).
+function titled(s) {
+  const tl = el('div', 't', s.title);
+  const ren = el('button', 'ren', '✎'); ren.type = 'button'; ren.title = '改名（看板會記住，不會被自動標題蓋掉；留空＝恢復自動標題）'; ren.setAttribute('aria-label', '改名'); ren.addEventListener('click', () => renameIn(tl, s, drawHead)); tl.append(ren);
+  return tl;
+}
 function drawHead() {
   const s = cur(), head = $('head');
   if (!head) return;
@@ -2897,9 +3004,9 @@ function drawHead() {
     // state on the left, permission mode on the right, on one line (they wrap to two when the window is narrow)
     // model and effort: what it was set to here, else what its process reported, else Claude Code's default
     const line = el('div', 'sline'); line.append(sub, md);
-    who.append(el('div', 't', s.title), line);
+    who.append(titled(s), line);
   } else
-  who.append(el('div', 't', s.title), sub);
+  who.append(titled(s), sub);
   head.append(back, who);
   const add = (label, cls, fn) => { const x = el('button', 'btn' + (cls ? ' ' + cls : ''), label); x.type = 'button'; x.addEventListener('click', fn); head.append(x); return x; };
   // (the list used to have a "+" beside each folder's name; it is one list now, so the way in is here)
@@ -2908,7 +3015,10 @@ function drawHead() {
   // Off the list, or back on it. Nothing is ended or deleted.
   // Hiding is not done by hand any more: a session with nothing new for the number of days in the settings leaves the
   // list by itself. What is left here is the way back.
-  if (s.hidden) add('放回清單', '', async () => {
+  // Left out by a rule in the settings (started by a program, or in a folder listed there): the way back is the
+  // setting, not this session's hide flag - pressing 「放回清單」 would change nothing and say it had.
+  if (s.hidden && s.hiddenWhy === 'program') add('為什麼沒列出', '', () => say(s.folderHidden ? '這個資料夾在設定的「一律不列出的資料夾」裡；要列出，到設定把它拿掉' : '它是其他程式開的，設定裡開了「隱藏其他程式開的 session」；要列出，到設定把它關掉'));
+  else if (s.hidden) add('放回清單', '', async () => {
     const r = await api('/api/hide', { sessionId: s.sessionId, hidden: false });
     if (!r.ok) return say(r.data.error || '改不了', true);
     await poll(); drawHead(); say('已放回清單。從現在起重新計算沒有動作的天數');
@@ -3450,8 +3560,12 @@ function matchCommands(q, live) {
 function myMessages() {
   const sc = $('scroll');
   if (!sc) return [];
-  const base = sc.getBoundingClientRect().top - sc.scrollTop;
-  return [...sc.querySelectorAll('.msg.user')].map((e) => ({ e, top: Math.max(0, e.getBoundingClientRect().top - base - 16) }));
+  // The text size zooms the whole page (html zoom): positions on screen are then that many times the scroll distance,
+  // so they are divided back before being used as a scroll position (at 1.3 a jump landed hundreds of pixels too far,
+  // under the header).
+  const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+  const areaTop = sc.getBoundingClientRect().top;
+  return [...sc.querySelectorAll('.msg.user')].map((e) => ({ e, top: Math.max(0, (e.getBoundingClientRect().top - areaTop) / z + sc.scrollTop - 16) }));
 }
 function flash(e) { e.classList.remove('flash'); void e.offsetWidth; e.classList.add('flash'); }
 // Each press goes one of your messages further up from where the view is now.
@@ -3919,7 +4033,7 @@ async function drawAutoSettings(pane, sw) {
 const NEXT_TEXT = { commit: ['commit', '用 git-commit 把這次的改動提交（它會先審查、再問你）'], review: ['對抗審查', '用 red-blue-review 對這次的改動做紅藍對抗審查'], qa: ['跑 QA', '用 qa-webwright 測這次改到的功能'], deliver: ['寫交付訊息', '用 deliver-report 把這次產出的檔案寫成交付訊息'], goal: ['交給 goal2 做完', '這一輪還有沒做完的事：goal2 從這段對話整理出要完成的目標與完成條件（照它的設定先問你問題），再在背景做到完成'] };
 // <unfinished> (tests/next.test.js reads this part)
 const UNFINISHED = /還沒(有)?(做|完成|處理|改|修|驗證|測|跑)|尚未(完成|處理|驗證|實作|修)|未完成|沒做完|剩下的|待辦|待處理|還差|還缺|沒有驗證到/g;
-const NEGATED = /沒有|已無|並無|不再|無/;   // 「沒有未完成的」「並沒有任何未完成」「已無待辦」: nothing is left
+const NEGATED = /(沒有|已無|並無|不再|無)(任何|什麼|一點)?$/;   // right before the words: 「沒有未完成的」「並沒有任何未完成」「已無待辦」 - nothing is left
 function saysUnfinished(text) {
   const t = String(text || '');
   for (const m of t.matchAll(UNFINISHED)) {
@@ -3943,7 +4057,8 @@ function drawNext() {
   if (!ready) { if (old) old.remove(); return; }
   // the turn just ended: everything after the last thing you said yourself
   let from = items.length - 1;
-  while (from >= 0 && !(items[from].role === 'user' && !/^\s*（看板自動送出）/.test(items[from].text || ''))) from--;
+  // (what the board sent for you - its own notes, and the /rename a name change sends - does not start a turn)
+  while (from >= 0 && !(items[from].role === 'user' && !/^\s*(（看板自動送出）|\/rename\b|<command-name>\/rename)/.test(items[from].text || ''))) from--;
   const turn = items.slice(from + 1);
   if (!turn.length) { if (old) old.remove(); return; }
   const changed = turn.some((it) => it.role === 'tool' && EDIT_TOOLS.test(it.tool));
@@ -3956,14 +4071,17 @@ function drawNext() {
   if (lastAsst && lastSaid.trim() && s.next.some((n) => n.key === 'goal')) {
     const jk = s.sessionId + '|' + textKey(lastSaid);
     const j = judged.get(jk);
-    if (j === undefined || (j.retryAt && Date.now() > j.retryAt)) {
-      judged.set(jk, 'asking');
-      api('/api/next/judge', { key: jk, text: lastSaid }).then((r) => {
+    const again = j && j.retryAt && !j.asking && Date.now() > j.retryAt;
+    if (j === undefined || again) {
+      if (again) j.asking = true; else judged.set(jk, 'asking');
+      api('/api/next/judge', { text: lastSaid }).then((r) => {
         judged.set(jk, r.ok ? r.data : { fallback: saysUnfinished(lastSaid), retryAt: Date.now() + 10 * 60 * 1000 });
         if (judged.size > 300) judged.delete(judged.keys().next().value);
         if (cur() && cur().sessionId === s.sessionId) drawNext();
       }).catch(() => { judged.set(jk, { fallback: saysUnfinished(lastSaid), retryAt: Date.now() + 10 * 60 * 1000 }); if (cur() && cur().sessionId === s.sessionId) drawNext(); });
-    } else if (j !== 'asking') goalSay = j.fallback !== undefined ? (j.fallback ? { items: [] } : null) : (j.show ? j : null);
+    }
+    const now = judged.get(jk);
+    if (now && now !== 'asking') goalSay = now.fallback !== undefined ? (now.fallback ? { items: [] } : null) : (now.show ? now : null);
   }
   const want = new Set(goalSay ? ['goal'] : []); if (changed) { want.add('commit'); want.add('review'); want.add('qa'); } if (made) want.add('deliver');
   const acts = s.next.filter((n) => want.has(n.key));
@@ -4451,6 +4569,42 @@ function left(ts) {
   return d ? d + ' 天 ' + h + ' 時' : h ? h + ' 時 ' + (m % 60) + ' 分' : (m % 60) + ' 分';
 }
 let features = {};      // optional parts of the board that are switched on in the settings ({fork})
+// Settings kept in the board's database (sent with the list as features.prefs; changed through /api/config).
+const prefs = () => features.prefs || {};
+async function savePref(patch) {
+  features.prefs = Object.assign({}, prefs(), patch);   // shown at once; the board's answer then settles it
+  let r; try { r = await api('/api/config', patch); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
+  if (!r.ok) { say(r.data.error || '存不進去', true); poll(); return false; }
+  if (r.data.prefs) features.prefs = r.data.prefs;
+  return true;
+}
+// The left column, folded or not (the setting sidebarCollapsed).
+$('foldBtn').addEventListener('click', () => setFold(true));
+$('unfoldBtn').addEventListener('click', () => setFold(false));
+function applyFold() { const app = $('app'); if (app) app.classList.toggle('folded', !!prefs().sidebarCollapsed); }
+function setFold(on) { features.prefs = Object.assign({}, prefs(), { sidebarCollapsed: on }); applyFold(); savePref({ sidebarCollapsed: on }); }
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'B') && prefs().sidebarShortcut !== false) { e.preventDefault(); setFold(!prefs().sidebarCollapsed); }
+});
+// Renaming a session in place: the name stays above every other title (the board keeps it); empty = the automatic one.
+function renameIn(host, s, after) {
+  const inp = el('input', 'rename-in'); inp.value = s.titleSource === 'board' ? s.title : ''; inp.placeholder = s.title || '名字'; inp.setAttribute('aria-label', '新的名字（留空＝用自動的標題）');
+  const was = [...host.childNodes]; host.textContent = ''; host.append(inp); inp.focus(); inp.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return; done = true;
+    if (!save) { host.textContent = ''; host.append(...was); return; }
+    const name = inp.value.trim();
+    let r; try { r = await api('/api/rename', { sessionId: s.sessionId, name }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
+    if (!r.ok) { host.textContent = ''; host.append(...was); return say(r.data.error || '改不了名', true); }
+    s.title = r.data.name || s.title; s.titleSource = r.data.name ? 'board' : '';
+    say(r.data.name ? '已改名為「' + r.data.name + '」' + (r.data.synced ? '，也告訴了 Claude Code（/rename）' : '') : '已恢復自動的標題');
+    listShape = ''; await poll(); if (after) after();
+  };
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); } });
+  inp.addEventListener('blur', () => finish(true));
+  inp.addEventListener('click', (e) => e.stopPropagation());
+}
 let pastCount = '';     // "N not open", for the caption of the office entry (set when the list of old conversations is read)
 // tab icon (cropped to the glyph, so it fills the 16 px Chrome gives it): the "pulse" glyph of Phosphor Icons (MIT, phosphoricons.com) in #EA580C; a red dot when someone waits
 const TAB_ICON = "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'24%2040%20208%20176'%20preserveAspectRatio%3D'none'%20fill%3D'%23EA580C'%3E%3Cpath%20d%3D'M216%2C40H40A16%2C16%2C0%2C0%2C0%2C24%2C56V200a16%2C16%2C0%2C0%2C0%2C16%2C16H216a16%2C16%2C0%2C0%2C0%2C16-16V56A16%2C16%2C0%2C0%2C0%2C216%2C40Zm-8%2C96H188.64L159%2C188a8%2C8%2C0%2C0%2C1-6.95%2C4h-.46a8%2C8%2C0%2C0%2C1-6.89-4.84L103%2C89.92%2C79%2C132a8%2C8%2C0%2C0%2C1-7%2C4H48a8%2C8%2C0%2C0%2C1%2C0-16H67.36L97.05%2C68a8%2C8%2C0%2C0%2C1%2C14.3.82L153%2C166.08l24-42.05a8%2C8%2C0%2C0%2C1%2C6.95-4h24a8%2C8%2C0%2C0%2C1%2C0%2C16Z'%2F%3E%3C%2Fsvg%3E", TAB_ICON_WAIT = "data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'24%2040%20208%20176'%20preserveAspectRatio%3D'none'%20fill%3D'%23EA580C'%3E%3Cpath%20d%3D'M216%2C40H40A16%2C16%2C0%2C0%2C0%2C24%2C56V200a16%2C16%2C0%2C0%2C0%2C16%2C16H216a16%2C16%2C0%2C0%2C0%2C16-16V56A16%2C16%2C0%2C0%2C0%2C216%2C40Zm-8%2C96H188.64L159%2C188a8%2C8%2C0%2C0%2C1-6.95%2C4h-.46a8%2C8%2C0%2C0%2C1-6.89-4.84L103%2C89.92%2C79%2C132a8%2C8%2C0%2C0%2C1-7%2C4H48a8%2C8%2C0%2C0%2C1%2C0-16H67.36L97.05%2C68a8%2C8%2C0%2C0%2C1%2C14.3.82L153%2C166.08l24-42.05a8%2C8%2C0%2C0%2C1%2C6.95-4h24a8%2C8%2C0%2C0%2C1%2C0%2C16Z'%2F%3E%3Cellipse%20cx%3D'196'%20cy%3D'74'%20rx%3D'40'%20ry%3D'34'%20fill%3D'%23EF4444'%20stroke%3D'%23fff'%20stroke-width%3D'14'%2F%3E%3C%2Fsvg%3E";
@@ -4891,7 +5045,9 @@ async function poll() {
     features = r.data.features || {};
     PLATFORM = features.platform || '';
     syncTextSize(features.textSize);
+    applyFold();
     sessions = r.data.sessions.filter((s) => !s.notStarted);
+    for (const s of sessions) if (s.programHidden) { s.hidden = true; s.hiddenWhy = 'program'; }
     unstarted = r.data.sessions.filter((s) => s.notStarted);
     if (r.data.page) { if (pageTag === null) pageTag = r.data.page; else if (r.data.page !== pageTag) return newPageAvailable(); }
     down = false;

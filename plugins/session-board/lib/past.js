@@ -48,7 +48,12 @@ function scanPiece(buf, skipFirst, out) {
     // said while a turn was running: recorded as an attachment, not as a user entry (lib/history.js queuedSaid)
     if (isMid) { const q = queuedSaid(j); if (q && q.text) { const t = said(q.text); if (t) { if (!out.first) out.first = t; out.last = t; out.lastAt = Date.parse(j.timestamp) || out.lastAt; } } }
     if (!out.cwd && typeof j.cwd === 'string' && j.cwd) out.cwd = j.cwd;
+    // how it was started: 'cli' (a terminal window) anywhere wins - a program's conversation resumed in a terminal is yours
+    if (typeof j.entrypoint === 'string' && j.entrypoint && out.entry !== 'cli') out.entry = j.entrypoint;
     if (isUser && j.type === 'user' && j.isMeta !== true && !j.isSidechain && !notSaid(j) && j.message) {
+      // the first message's form: the board sends what you type as content blocks (stream-json); a program running
+      // `claude -p "..."` is recorded with a plain string. Tells the board's own conversations from programs' runs.
+      if (out.blocks === null) out.blocks = Array.isArray(j.message.content);
       const t = said(j.message.content);
       if (t) { if (!out.first) out.first = t; out.last = t; out.lastAt = Date.parse(j.timestamp) || out.lastAt; }
     }
@@ -56,18 +61,20 @@ function scanPiece(buf, skipFirst, out) {
 }
 
 function readEnds(file, size) {
-  const out = { cwd: '', first: '', last: '', lastAt: 0 };
+  const out = { cwd: '', first: '', last: '', lastAt: 0, entry: '', blocks: null };
   let fd;
   try {
     fd = fs.openSync(file, 'r');
     const read = (pos, len) => { const b = Buffer.allocUnsafe(len); let got = 0; while (got < len) { const n = fs.readSync(fd, b, got, len - got, pos + got); if (n <= 0) break; got += n; } return b.subarray(0, got); };
     if (size <= HEAD + TAIL) scanPiece(read(0, size), false, out);
     else {
-      const head = { cwd: '', first: '', last: '', lastAt: 0 };
+      const head = { cwd: '', first: '', last: '', lastAt: 0, entry: '', blocks: null };
       scanPiece(read(0, HEAD), false, head);
-      const tail = { cwd: head.cwd || 'x', first: '', last: '', lastAt: 0 };
+      const tail = { cwd: head.cwd || 'x', first: '', last: '', lastAt: 0, entry: '', blocks: null };
       scanPiece(read(size - TAIL, TAIL), true, tail);
       out.cwd = head.cwd; out.first = head.first; out.last = tail.last || head.last; out.lastAt = tail.lastAt || head.lastAt;
+      out.entry = head.entry === 'cli' || tail.entry === 'cli' ? 'cli' : head.entry || tail.entry;
+      out.blocks = head.blocks;
     }
   } catch (e) {
   } finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
@@ -197,7 +204,7 @@ function files(projectsDir, since) {
 function describe(f) {
   const e = ends(f.file, f);
   const t = S.cachedTitles(f.file);
-  return { sessionId: f.sessionId, cwd: e.cwd, folder: e.cwd ? baseName(e.cwd) : '', title: t.custom || t.ai || e.first || '', named: !!(t.custom || t.ai), first: e.first, last: e.last, at: f.mtimeMs, size: f.size };
+  return { sessionId: f.sessionId, cwd: e.cwd, folder: e.cwd ? baseName(e.cwd) : '', title: t.custom || t.ai || e.first || '', named: !!(t.custom || t.ai), entry: e.entry || '', blocks: e.blocks === true, first: e.first, last: e.last, at: f.mtimeMs, size: f.size };
 }
 
 // o: {projectsDir, exclude: Set of session ids (open now, hidden), q, limit, now}
@@ -208,17 +215,18 @@ function list(o) {
   const q = String(o.q || '').trim().toLowerCase();
   const limit = o.limit || 40;
   const items = [];
-  let matched = 0;
+  let matched = 0, hidden = 0;
   for (const f of all) {
     // Without a search only the rows shown are read; a search has to look at every one.
     if (!q && items.length >= limit) break;
     const d = describe(f);
     if (!d.cwd || !d.first) continue;
+    if (o.hide && o.hide(d)) { hidden++; continue; }
     if (q && !(d.title + '\n' + d.folder + '\n' + d.first + '\n' + d.last).toLowerCase().includes(q)) continue;
     matched++;
     if (items.length < limit) items.push(d);
   }
-  return { items, total: all.length, matched: q ? matched : null };
+  return { items, total: all.length, matched: q ? matched : null, programHidden: hidden };
 }
 
 // One conversation by id, or null.

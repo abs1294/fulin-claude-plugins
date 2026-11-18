@@ -2,6 +2,25 @@
 
 格式依 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)，最新在上。
 
+## [0.4.0] - 2026-11-18
+
+### Added
+
+- 左欄可以收起：左欄頂端「«」或 Ctrl+B；收起後剩細邊，有「»」展開鈕與等你回應的數字。記住狀態（設定 sidebarCollapsed、sidebarShortcut）。
+- 改名：對話上方名字旁「✎」或左欄項目按右鍵。看板記住你取的名字並排在所有標題之前，不再被 cc-statusline 每次改寫的摘要蓋掉；清空就恢復自動標題；看板裡的對話同時送一次 /rename 給 Claude Code。
+- 辦公室的我的最愛與自訂順序：房間「☆」標成最愛排在最上面，房間可拖曳排序（最愛區、其他區各自排），其他房間可收成一列（設定 officeFavorites、officeOrder、officeCollapseOthers）。
+- 隱藏其他程式開的 session（設定 hideProgramSessions，預設關）：依 Claude Code 記的 entrypoint，不是終端機開的、也不是看板自己開的就不列在左欄、辦公室與舊對話；看板從此記住自己開過的對話，更早的以第一則訊息是內容區塊（看板送的形式）認得。另可指定一律不列出的資料夾（hideProgramFolders）。
+- 小模型判斷做成通用接口 lib/decide.js：題目是 JSON 檔（questions/unfinished.json，使用者可在 ~/.claude/session-board/questions/ 放同名檔覆蓋），可單獨用命令列 `node lib/decide.js --question <題目> < 文字`；看板上 POST /api/decide。模型可在設定選（decideModel）。取代 lib/judge.js。
+
+- 隱藏其他程式開的 session 也認得 Agent SDK 開的（entrypoint sdk-ts／sdk-py，claude-mem 用的就是 sdk-ts）：SDK 送出的訊息也是內容區塊，只看第一則訊息的形式會把它當成看板的對話。
+- goal2 按鈕的判斷題改成只問「剩下的事裡有沒有助理下一輪就能自己接著做、不用等任何人的」，並補上「要你同意／要你先執行／只查了一部分」等反例。實測：原判準對 30 則真實回覆多跳 8 次；改後對另 30 則沒看過的真實回覆一致 27/30、多跳 0 次、漏 3 次（都是邊界或機率遠低於門檻）。
+### Fixed
+
+- 「我上一則／我下一則」在字級放大時跳過頭，訊息跑到上方標頭底下：頁面以 zoom 放大，畫面座標要除以倍率才是捲動距離。
+- goal2 按鈕的字眼退回判斷：否定詞只在緊接著那幾個字前面才算（「無法登入的問題還沒修」不再被判成沒有未完成）。
+- 判斷失敗十分鐘後重問時，按鈕不再先消失再出現（重問期間保留上一個結果）。
+- 判斷結果的快取改由伺服器自己從文字算（不採用頁面送來的 key）；判斷程式丟出錯誤時也記十分鐘的失敗。
+
 ## [0.3.0] - 2026-11-18
 
 ### Changed
