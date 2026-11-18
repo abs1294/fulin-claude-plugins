@@ -38,7 +38,9 @@
   button { font: inherit; color: inherit; cursor: pointer; }
   button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-  .app { display: grid; grid-template-columns: var(--side-w, 324px) minmax(0, 1fr); height: calc(100vh / var(--z, 1)); height: calc(100dvh / var(--z, 1)); }
+  .app { display: grid; grid-template-columns: var(--side-w, 324px) minmax(0, 1fr); height: calc(100vh / var(--zv, var(--z, 1))); height: calc(100dvh / var(--zv, var(--z, 1))); }
+  /* a touch screen: as tall as what is visible (with the keyboard up, the part above it; measured in fitViewport) */
+  @media (pointer: coarse) { .app { height: var(--app-h, calc(100dvh / var(--zv, var(--z, 1)))); } }
 
   /* ── sidebar ── */
   .side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; position: relative; }
@@ -49,12 +51,15 @@
   .side-edge:focus-visible { outline: none; }
   body.side-dragging, body.side-dragging * { cursor: col-resize !important; user-select: none !important; }
   .app.folded .side-edge { display: none; }
+  @media (max-width: 720px) { .fold-btn { display: none; } }   /* a phone: the list is the whole page, there is no column to fold */
   .side-top { padding: 14px 12px 10px; display: flex; align-items: center; gap: 8px; }
   /* the left column folded away: a thin rail with the way back and what waits for you */
-  .app.folded { grid-template-columns: 48px minmax(0, 1fr); }
-  .app.folded .side > :not(.side-rail) { display: none; }
   .side-rail { display: none; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0; }
-  .app.folded .side-rail { display: flex; }
+  @media (min-width: 721px) {   /* not on a phone: folded there (on the computer) would leave it no list */
+    .app.folded { grid-template-columns: 48px minmax(0, 1fr); }
+    .app.folded .side > :not(.side-rail) { display: none; }
+    .app.folded .side-rail { display: flex; }
+  }
   .side-rail .btn { width: 36px; height: 36px; padding: 0; justify-content: center; }
   .side-rail .rail-n { min-width: 22px; height: 22px; border-radius: 11px; background: var(--dot-wait, #EA580C); color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0 6px; }
   .side-rail .rail-n[hidden] { display: none; }
@@ -78,7 +83,7 @@
   .bell.has { color: var(--amber); }
   .bell .badge { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-m); background: var(--amber); color: #fff; font-size: 12px; font-weight: 700; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
   .bell-pop .bp-head b { font-size: 15px; }
-  .bell-pop { position: fixed; z-index: 60; width: min(380px, calc((100vw - 24px) / var(--z, 1))); max-height: min(560px, calc((100vh - 80px) / var(--z, 1))); overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: 0 12px 36px rgba(0, 0, 0, .18); padding: 6px 0 8px; }
+  .bell-pop { position: fixed; z-index: 60; width: min(380px, calc((100vw - 24px) / var(--zv, var(--z, 1)))); max-height: min(560px, calc((100vh - 80px) / var(--zv, var(--z, 1)))); overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: 0 12px 36px rgba(0, 0, 0, .18); padding: 6px 0 8px; }
   .bell-pop .bp-head { display: flex; align-items: baseline; gap: 8px; padding: 8px 14px 6px; } .bell-pop .bp-head span { color: var(--dim); font-size: 13px; }
   .bell-pop h3 { font-size: 13px; color: var(--dim); font-weight: 600; margin: 10px 14px 4px; }
   .bell-pop .hint { padding: 4px 14px 8px; }
@@ -124,11 +129,15 @@
   .item.stuck .dot { background: var(--dot-stuck); animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot-stuck) 28%, transparent); } .item.stuck .m { color: var(--red); }
   .dot.done { background: var(--dot-run); }
   /* working: a ring that keeps spreading out from it (the dot itself stays full, never fades) */
-  .dot.running { background: var(--dot-run); animation: beat 1.6s ease-out infinite; }
-  /* only the ring moves (a dot that grows and shrinks looked bad): a little wider and stronger than it was */
-  @keyframes beat { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dot-run) 70%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
+  .dot.running { background: var(--dot-run); position: relative; }
+  /* only the ring moves (a dot that grows and shrinks looked bad): a copy of the dot behind it that grows to 9px around it
+     and fades. Moved by transform and opacity, which the screen's compositor does alone: the ring was a box-shadow that
+     grew, and every running dot was painted again 60 times a second (2026-11-19: the office page, with its running
+     desks, kept the browser busy about a fifth of the time) */
+  .dot.running::after, .desk.run .face i::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; pointer-events: none; animation: beat 1.6s ease-out infinite; }
+  @keyframes beat { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(2.64); opacity: 0; } }
   /* no movement asked for: the running dot still differs from an idle one, by a slow fade instead */
-  @media (prefers-reduced-motion: reduce) { .dot.running { animation: fade 2.4s ease-in-out infinite; } @keyframes fade { 50% { opacity: .45; } } }
+  @media (prefers-reduced-motion: reduce) { .dot.running::after { animation: none; } .dot.running { animation: fade 2.4s ease-in-out infinite; } @keyframes fade { 50% { opacity: .45; } } }
   .item .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item.yours .t { font-weight: 600; }
   .item .m .fold { font-weight: 600; color: var(--ink); opacity: .75; }
@@ -242,9 +251,9 @@
   .desk .face i { position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--bg); background: var(--faint); }
   .desk.wait .face { background: var(--amber); } .desk.wait .face i { background: var(--amber); }
   .desk.stuck .face { background: var(--red); } .desk.stuck .face i { background: var(--red); }
-  .desk.run .face { background: var(--green); } .desk.run .face i { background: var(--green); animation: beat 1.6s ease-in-out infinite; }
+  .desk.run .face { background: var(--green); } .desk.run .face i { background: var(--green); }
   .desk.done .face { background: var(--accent); } .desk.done .face i { background: var(--accent); }
-  @media (prefers-reduced-motion: reduce) { .desk.run .face i { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .desk.run .face i::after { animation: none; } }
   .desk .dt { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .desk .ds { color: var(--dim); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .desk .tag { font-size: 12px; padding: 1px 8px; border-radius: var(--r-m); background: var(--hover); white-space: nowrap; }
@@ -310,7 +319,7 @@
   .prop.empty { color: var(--accent); border: 1px dashed var(--line); }
   .pval { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 320px; }
   .pval.mono { font-family: var(--mono); font-size: 13px; color: var(--faint); }
-  .pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; width: min(460px, calc((100vw - 48px) / var(--z, 1))); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: 0 8px 24px rgba(0, 0, 0, .16); padding: 6px; }
+  .pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; width: min(460px, calc((100vw - 48px) / var(--zv, var(--z, 1)))); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: 0 8px 24px rgba(0, 0, 0, .16); padding: 6px; }
   .pop h4 { margin: 6px 8px 4px; font-size: 12px; font-weight: 600; color: var(--faint); }
   .pop hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
   .popitem { display: flex; flex-direction: column; align-items: flex-start; width: 100%; border: 0; background: none; border-radius: var(--r-m); padding: 6px 8px; text-align: left; font-size: 14px; min-width: 0; }
@@ -395,7 +404,7 @@
   .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   /* the buttons wrap under the name when they do not fit beside it (a narrow window, or large text) */
   .head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 20px; border-bottom: 1px solid var(--line); min-height: 56px; }
-  .head .back { display: none; }
+  .head .back { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; flex: none; }   /* every page, every screen: back to where you were */
   .head .who { flex: 1 1 260px; min-width: 0; }
   .head .who .t { font-weight: 600; font-size: 16px; display: flex; align-items: center; min-width: 0; }
   /* the name: cut short with "…"; pressed, it turns into a box to rename it (a text cursor and a faint ground say so) */
@@ -446,7 +455,7 @@
   .msg.assistant h1, .msg.assistant h2, .msg.assistant h3, .msg.assistant h4 { font-size: 16px; font-weight: 600; margin: 18px 0 6px; }
   .msg.assistant ul, .msg.assistant ol { margin: 0 0 10px; padding-left: 22px; }
   .msg.assistant li { margin: 2px 0; }
-  .msg.assistant code { font-family: var(--mono); font-size: 13px; background: var(--code); border-radius: var(--r-s); padding: 1px 5px; }
+  .msg.assistant code { font-family: var(--mono); font-size: 13px; background: var(--code); border-radius: var(--r-s); padding: 1px 5px; overflow-wrap: anywhere; }   /* a long one breaks instead of running off the side */
   .msg.assistant pre { background: var(--code); border-radius: var(--r-m); padding: 10px 12px; overflow-x: auto; margin: 0 0 10px; }
   .msg.assistant pre code { background: none; padding: 0; white-space: pre; }
   .msg.assistant .tw { overflow-x: auto; margin: 0 0 10px; position: relative; }
@@ -492,7 +501,7 @@
   /* the model / effort button in a conversation's heading, and its window */
   button.modelbtn { border: 1px solid var(--line); background: var(--bg); border-radius: var(--r-m); padding: 1px 8px; cursor: pointer; font: inherit; color: inherit; }
   button.modelbtn:hover { border-color: var(--accent); }
-  .modelpop { position: fixed; z-index: 70; width: min(380px, calc((100vw - 24px) / var(--z, 1))); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: 0 12px 36px rgba(0, 0, 0, .18); padding: 12px 14px; display: grid; gap: 8px; }
+  .modelpop { position: fixed; z-index: 70; width: min(380px, calc((100vw - 24px) / var(--zv, var(--z, 1)))); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: 0 12px 36px rgba(0, 0, 0, .18); padding: 12px 14px; display: grid; gap: 8px; }
   .modelpop .mp-t { font-weight: 600; font-size: 14px; margin-bottom: 4px; } .modelpop .mp-tip { color: var(--dim); font-size: 12px; margin-top: 4px; } .modelpop .seg { flex-wrap: wrap; } .modelpop .mp-a { display: flex; gap: 8px; }
   /* the 外掛 page */
   .pl-todo { border: 1px solid var(--line); border-radius: var(--r-l); background: var(--side); padding: 6px 0; margin-bottom: 18px; }
@@ -580,13 +589,26 @@
   .imgstrip button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1; padding: 0; }
   .imgstrip .thumb .tag { position: absolute; left: 3px; bottom: 3px; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: var(--r-s); background: rgba(0, 0, 0, .65); color: #fff; }
   .composer.drop { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
-  .composer .imgbtn { padding: 5px 10px; font-size: 14px; }
-  .composer .stopbtn { color: var(--red); display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 40px; height: 33px; min-height: 0; flex: none; }   /* as tall as 圖片 and 送出 beside it */
+  /* the box you type in, as in the chat apps (every screen): a round + on its left (pictures), round icons on its right -
+     send (an arrow), and stop (a square) only while it is working. No words on them: the names are in their labels. */
+  .composer .imgbtn, .composer .sendbtn, .composer .stopbtn { width: 36px; height: 36px; min-height: 0; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .composer .imgbtn { order: -1; border-color: transparent; background: var(--hover); color: var(--ink); }
+  .composer .imgbtn:hover, .composer .imgbtn[aria-expanded="true"] { background: var(--active); }
+  .composer .btn .lbl { display: none; }
+  .composer .btn .ico { display: block; width: 18px; height: 18px; margin: 0; }   /* no gap for words after it (svg.ico has one): it sat 2.4px left of the middle */
+  .composer .stopbtn { color: var(--red); }
   .composer .stopbtn:hover { background: var(--hover); }
+  /* what + opens: above the box, one row per way to add something */
+  .addmenu { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 4; min-width: 260px; max-width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-l); box-shadow: 0 8px 24px rgba(0, 0, 0, .16); padding: 6px; }
+  .addmenu button { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: none; border-radius: var(--r-m); padding: 9px 10px; text-align: left; }
+  .addmenu button:hover, .addmenu button:focus-visible { background: var(--hover); }
+  .addmenu svg { width: 20px; height: 20px; flex: none; color: var(--dim); }
+  .addmenu .am-t { font-weight: 500; } .addmenu .am-s { color: var(--dim); font-size: 13px; }
+  .addmenu .am-tip { color: var(--faint); font-size: 13px; padding: 6px 10px 4px; border-top: 1px solid var(--line); margin-top: 4px; }
   .msg .midnote { font-size: 12px; color: var(--faint); text-align: right; margin-top: 3px; }
   .msg .pics { font-size: 13px; color: var(--dim); margin: 0 0 6px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
   .msg .pics img { height: 120px; max-width: 260px; object-fit: cover; border-radius: var(--r-m); border: 1px solid var(--line); cursor: zoom-in; background: var(--bubble); display: block; }
-  .msg .pics img.big { height: auto; max-height: calc(80vh / var(--z, 1)); max-width: 100%; object-fit: contain; cursor: zoom-out; }
+  .msg .pics img.big { height: auto; max-height: calc(80vh / var(--zv, var(--z, 1))); max-width: 100%; object-fit: contain; cursor: zoom-out; }
   .msg .pics img.loading { width: 120px; opacity: .5; }
   .composer { display: flex; gap: 8px; align-items: flex-end; border: 1px solid var(--line); border-radius: var(--r-m); padding: 8px 8px 8px 12px; background: var(--bg); }
   .composer:focus-within { border-color: var(--accent); }
@@ -600,7 +622,7 @@
   .reply .rh { display: flex; gap: 8px; }
   .reply .rh b { overflow: hidden; text-overflow: ellipsis; }
   .reply .rh span { margin-left: auto; font-weight: 400; font-size: 13px; color: var(--dim); white-space: nowrap; }
-  .reply.open .rt { white-space: pre-wrap; overflow: auto; max-height: calc(40vh / var(--z, 1)); color: inherit; font-size: 14px; margin-top: 4px; cursor: text; }
+  .reply.open .rt { white-space: pre-wrap; overflow: auto; max-height: calc(40vh / var(--zv, var(--z, 1))); color: inherit; font-size: 14px; margin-top: 4px; cursor: text; }
   .reply button { border: 0; background: none; color: var(--dim); border-radius: var(--r-s); padding: 0 6px; font-size: 16px; line-height: 20px; flex: none; }
   .reply button:hover { background: var(--hover); color: var(--red); }
   .quoted { display: block; width: 100%; text-align: left; border: 0; border-left: 3px solid var(--accent); border-radius: var(--r-m); background: color-mix(in srgb, var(--accent) 10%, var(--bg)); padding: 6px 10px; margin: 0 0 6px; font: inherit; font-size: 14px; color: inherit; cursor: pointer; white-space: normal; }
@@ -608,9 +630,10 @@
   .quoted .rh { font-weight: 600; font-size: 13px; color: var(--dim); display: flex; gap: 8px; }
   .quoted .rh span { margin-left: auto; font-weight: 400; white-space: nowrap; }
   .quoted .rt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .quoted.open .rt { white-space: pre-wrap; overflow: auto; max-height: calc(55vh / var(--z, 1)); cursor: text; }
+  .quoted.open .rt { white-space: pre-wrap; overflow: auto; max-height: calc(55vh / var(--zv, var(--z, 1))); cursor: text; }
   .msg.user .own { white-space: pre-wrap; }
-  .composer textarea { flex: 1; border: 0; outline: 0; resize: none; background: none; color: inherit; font: inherit; max-height: 200px; min-height: 24px; padding: 3px 0; }
+  .composer textarea { flex: 1; border: 0; outline: 0; resize: none; background: none; color: inherit; font: inherit; max-height: 200px; min-height: 24px; padding: 6px 2px; }
+  .composer { padding: 6px; gap: 6px; }
   .note { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: var(--dim); font-size: 14px; }
   .note > span { flex: 1; min-width: 200px; }
   .hint { font-size: 13px; color: var(--faint); margin-top: 6px; }
@@ -653,7 +676,7 @@
   .peek-body .tcmd { font-family: var(--mono); font-size: 13px; background: var(--side); border: 1px solid var(--line); border-radius: var(--r-m); padding: 8px 10px; margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .peek-body .tstat { color: var(--dim); font-size: 13px; margin: 0 0 8px; }
   /* Messages waiting for their turn, above the input box. */
-  .tasks { border-top: 1px solid var(--line); background: var(--side); padding: 6px 20px; font-size: 14px; max-height: calc(26vh / var(--z, 1)); overflow-y: auto; position: relative; }
+  .tasks { border-top: 1px solid var(--line); background: var(--side); padding: 6px 20px; font-size: 14px; max-height: calc(26vh / var(--zv, var(--z, 1))); overflow-y: auto; position: relative; }
   .task-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--bg); color: inherit; font: inherit; cursor: pointer; padding: 2px 10px; border-radius: 999px; }
   .task-chip:hover { background: var(--hover); }
   .task-chip .dot { margin-top: 0; }
@@ -768,7 +791,7 @@
   details.flow { border: 1px solid var(--line); border-radius: var(--r-m); margin-top: 12px; }
   details.flow > summary { padding: 9px 14px; font-weight: 600; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
   details.flow > summary small { font-weight: 400; color: var(--dim); }
-  details.flow > .fb { padding: 12px 14px; border-top: 1px solid var(--line); max-height: calc(52vh / var(--z, 1)); overflow: auto; }
+  details.flow > .fb { padding: 12px 14px; border-top: 1px solid var(--line); max-height: calc(52vh / var(--zv, var(--z, 1))); overflow: auto; }
   details.flow .said { white-space: pre-wrap; overflow-wrap: anywhere; }
   .step { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; font-size: 14px; padding: 2px 0; }
   .step .st { color: var(--faint); font-variant-numeric: tabular-nums; }
@@ -791,7 +814,7 @@
   .fp { color: var(--accent); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
   code.fp { text-decoration: none; box-shadow: inset 0 -1px 0 var(--accent); }
   .fp:hover { background: var(--hover); }
-  #peek { position: fixed; top: 0; right: 0; bottom: 0; width: min(820px, calc(58vw / var(--z, 1))); background: var(--bg); border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0, 0, 0, .14); display: flex; flex-direction: column; z-index: 4; }
+  #peek { position: fixed; top: 0; right: 0; bottom: 0; width: min(820px, calc(58vw / var(--zv, var(--z, 1)))); background: var(--bg); border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0, 0, 0, .14); display: flex; flex-direction: column; z-index: 4; }
   #peek[hidden] { display: none; }
   /* collaborations */
   .collab-new { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 8px; }
@@ -812,7 +835,7 @@
   .collab-decide { border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px; margin: 8px 0; } .collab-decide .q { font-weight: 600; margin-bottom: 6px; }
   .collab-msg { border-left: 3px solid var(--line); padding: 4px 10px; margin: 6px 0; } .collab-msg.in { border-left-color: var(--dot-run, #16a34a); }
   .collab-msg .cmh { font-size: 12px; color: var(--dim); } .collab-msg .cmt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
-  .collab-ledger { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); border-radius: var(--r-m); padding: 12px; font-size: 13px; max-height: calc(60vh / var(--z, 1)); overflow: auto; }
+  .collab-ledger { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); border-radius: var(--r-m); padding: 12px; font-size: 13px; max-height: calc(60vh / var(--zv, var(--z, 1))); overflow: auto; }
   @media (max-width: 700px) { .cp-row { grid-template-columns: 20px minmax(0, 1fr); } .cp-row input:not([type]) { grid-column: 2; } .cm-row { grid-template-columns: 14px minmax(0, 1fr); } }
   .of-sticky { position: sticky; top: -1px; z-index: 5; background: var(--bg); padding: 13px 0 6px; margin: -12px 0 4px; }
   .of-sticky.stuck { box-shadow: 0 6px 8px -8px rgba(0, 0, 0, .35); }
@@ -827,9 +850,9 @@
   /* line icons: as big as the text, in its colour, sitting on its baseline */
   svg.ico { width: 1.05em; height: 1.05em; flex: none; vertical-align: -0.17em; }
   svg.ico { margin-right: .3em; } [data-icon-only] > svg.ico, #peekClose > svg.ico { margin-right: 0; }   /* a gap before the words, none when the icon is alone */
-  #peek iframe.htmlview { width: 100%; flex: 1; min-height: calc(75vh / var(--z, 1)); border: 1px solid var(--line); border-radius: var(--r-m); background: #fff; }
+  #peek iframe.htmlview { width: 100%; flex: 1; min-height: calc(75vh / var(--zv, var(--z, 1))); border: 1px solid var(--line); border-radius: var(--r-m); background: #fff; }
   /* a wide window: the preview stands beside the conversation instead of over it (the conversation narrows by its width) */
-  @media (min-width: 1180px) { body:has(#peek:not([hidden])) .app { padding-right: var(--peek-w, 0px); } body:has(#peek:not([hidden])) #peek { box-shadow: none; width: max(320px, min(820px, calc(100vw / var(--z, 1) - var(--side-w, 324px) - 520px))); } }
+  @media (min-width: 1180px) { body:has(#peek:not([hidden])) .app { padding-right: var(--peek-w, 0px); } body:has(#peek:not([hidden])) #peek { box-shadow: none; width: max(320px, min(820px, calc(100vw / var(--zv, var(--z, 1)) - var(--side-w, 324px) - 520px))); } }
   /* The left edge is a handle: drag it to make the preview wider or narrower. */
   #peekGrip { position: absolute; left: -5px; top: 0; bottom: 0; width: 10px; cursor: ew-resize; z-index: 1; touch-action: none; }
   #peekGrip::after { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 2px; background: transparent; transition: background .12s; }
@@ -873,7 +896,7 @@
   pre.diff .dl { display: block; padding: 0 16px; min-height: 1.5em; white-space: pre-wrap; overflow-wrap: anywhere; }
   pre.diff .dl.add { background: rgba(15, 123, 108, .13); } pre.diff .dl.del { background: rgba(224, 62, 62, .13); }
   pre.diff .dl.hunk { color: var(--dim); background: var(--code); } pre.diff .dl.meta { color: var(--faint); }
-  @media (max-width: 720px) { #peek { width: calc(100vw / var(--z, 1)); } }
+  @media (max-width: 720px) { #peek { width: calc(100vw / var(--zv, var(--z, 1))); } }
 
   /* ── home / new ── */
   .pane { max-width: 640px; margin: 0 auto; padding: 48px 20px; }
@@ -908,8 +931,10 @@
   .pathrow input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-m); padding: 6px 10px; background: var(--bg); color: inherit; font: inherit; font-family: var(--mono); font-size: 14px; }
   .bad { color: var(--red); font-size: 14px; margin-top: 8px; }
 
-  #said { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 80px); background: var(--ink); color: var(--bg); border-radius: var(--r-m); padding: 8px 14px; font-size: 14px; max-width: min(calc(92vw / var(--z, 1)), 640px); transition: transform .15s ease-out; z-index: 5; }
+  #said { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 80px); background: var(--ink); color: var(--bg); border-radius: var(--r-m); padding: 8px 14px; font-size: 14px; max-width: min(calc(92vw / var(--zv, var(--z, 1))), 640px); transition: transform .15s ease-out; z-index: 5; }
   #said.on { transform: translate(-50%, 0); }
+  /* the board not answering: a band over the top of every page, on a phone too */
+  #downBar { position: fixed; left: 0; right: 0; top: 0; z-index: 80; padding: 8px 14px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); background: var(--red); color: #fff; font-size: 14px; text-align: center; overflow-wrap: anywhere; }
   #said.bad { background: var(--red); color: #fff; }
   @media (prefers-reduced-motion: reduce) { #said { transition: none; } }
 
@@ -943,7 +968,11 @@
     /* the list: the conversations first - the places in two columns, smaller; the line at the bottom left out */
     .side-nav { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2px 4px; padding: 2px 6px 6px; }
     .side-nav button.item { padding: 6px 8px; }
-    .side-nav .item .m { font-size: 12px; }
+    /* each place on one row (its line beside its name, cut short): the conversations get the room */
+    .side-nav .item { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+    .side-nav .item .dot { align-self: center; }
+    .side-nav .item .t { flex: none; }
+    .side-nav .item .m { font-size: 12px; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .side-quota { padding: 6px 12px 4px; }
     .side-foot { display: none; }
     /* the office's filters: one row that slides */
@@ -963,6 +992,91 @@
     .item .pin { width: 24px; height: 24px; font-size: 15px; }
     .info-more { padding: 8px 12px; }
   }
+
+  /* ── the look (外觀), chosen in the settings: A 清爽 is the colours at the top of this sheet; B, C, D change them and
+     a few shapes. Every colour is a token, so each look also has its dark version (C is dark only). ── */
+  :root[data-skin="b"] {   /* B 溫暖柔和: warm paper, slate blue, round */
+    --r-s: 8px; --r-m: 14px; --r-l: 20px;
+    --bg: #FAF8F4; --side: #F2EEE6; --ink: #2F2B26; --dim: #675F55; --faint: #736A5F;
+    --sb: #D6CDBF; --sb-hover: #B5AC9F;
+    --line: #E6DFD3; --hover: #EDE7DC; --active: #E4DCCD; --bubble: #ECE5D9; --code: #F0EBE2;
+    --accent: #3E5C76; --accent-ink: #FFFFFF; --amber: #95520F; --amber-soft: #F8EBD6;
+    --green: #3D7548; --red: #A8432D; --red-soft: #F7E4DC;
+    --dot-run: #4F8A5B; --dot-wait: #C9752E; --dot-stuck: #C0472F; --dot-idle: #B5AC9F;
+  }
+  :root[data-skin="c"] {   /* C 深色控制台: dark always, monospace figures */
+    color-scheme: dark;
+    --r-s: 4px; --r-m: 6px; --r-l: 8px;
+    --bg: #0F1115; --side: #14171C; --ink: #DDE1E7; --dim: #A3ACB7; --faint: #8A93A0;
+    --sb: #2A313B; --sb-hover: #3A4350;
+    --line: #232A33; --hover: #1A1F27; --active: #1C2433; --bubble: #1E2633; --code: #161A20;
+    --accent: #7AA2F7; --accent-ink: #0F1115; --amber: #FFB54D; --amber-soft: #2A2213;
+    --green: #3FD98A; --red: #FF6B6B; --red-soft: #2E1719;
+    --dot-run: #3FD98A; --dot-wait: #FFB54D; --dot-stuck: #FF6B6B; --dot-idle: #4A5260;
+  }
+  :root[data-skin="d"] {   /* D 原生大字: like the phone's own apps - grouped white rows on grey, blue, bigger text */
+    --r-s: 8px; --r-m: 12px; --r-l: 18px;
+    --bg: #FFFFFF; --side: #F2F2F7; --ink: #1C1C1E; --dim: #4A4A4E; --faint: #6C6C70;
+    --sb: #C7C7CC; --sb-hover: #AEAEB2;
+    --line: #E5E5EA; --hover: #EAEAEF; --active: #E1ECFB; --bubble: #F2F2F7; --code: #F2F2F7;
+    --accent: #0066D6; --accent-ink: #FFFFFF; --amber: #A64B00; --amber-soft: #FFF2E0;
+    --green: #1E7B34; --red: #D70015; --red-soft: #FFEBEA;
+    --dot-run: #1E9A44; --dot-wait: #D96D00; --dot-stuck: #E5262F; --dot-idle: #C7C7CC;
+    --me: #0066D6; --me-ink: #FFFFFF;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-skin="b"] {
+      --bg: #1C1A17; --side: #23201C; --ink: #ECE6DC; --dim: #B8AFA2; --faint: #A0978A;
+      --sb: #4A443B; --sb-hover: #655D52;
+      --line: #36312A; --hover: #2C2823; --active: #37322B; --bubble: #2E2A24; --code: #26231F;
+      --accent: #8FB0CC; --accent-ink: #14202B; --amber: #E9A15C; --amber-soft: #3A2C1B;
+      --green: #82C08D; --red: #EC8E77; --red-soft: #3B2520;
+      --dot-run: #6FCF85; --dot-wait: #F0A35E; --dot-stuck: #F07B62; --dot-idle: #6B655C;
+    }
+    :root[data-skin="d"] {
+      --bg: #1C1C1E; --side: #000000; --ink: #F2F2F7; --dim: #B4B4B9; --faint: #98989E;
+      --sb: #48484A; --sb-hover: #636366;
+      --line: #38383A; --hover: #2C2C2E; --active: #1D3A5F; --bubble: #2C2C2E; --code: #2C2C2E;
+      --accent: #0A84FF; --accent-ink: #00172E; --amber: #FF9F0A; --amber-soft: #3A2A10;
+      --green: #30D158; --red: #FF453A; --red-soft: #3A1A18;
+      --dot-run: #30D158; --dot-wait: #FF9F0A; --dot-stuck: #FF453A; --dot-idle: #636366;
+      --me: #0A6FE0; --me-ink: #FFFFFF;
+    }
+  }
+  /* B: round buttons, soft shadows */
+  :root[data-skin="b"] .btn, :root[data-skin="b"] .seg { border-radius: 999px; }
+  :root[data-skin="b"] .composer { border-radius: 24px; box-shadow: 0 4px 16px rgba(80, 60, 30, .08); }
+  :root[data-skin="b"] button.item { padding: 8px 10px; }
+  :root[data-skin="b"] button.item.active { background: var(--bg); box-shadow: 0 1px 3px rgba(80, 60, 30, .12); }
+  :root[data-skin="b"] .group-head { letter-spacing: .04em; }
+  /* C: the figures and the group names in a monospace face, the group names in capitals */
+  :root[data-skin="c"] .group-head { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+  :root[data-skin="c"] .item .m, :root[data-skin="c"] .item .said { font-family: var(--mono); font-size: 12px; }
+  :root[data-skin="c"] button.item.active { box-shadow: inset 2px 0 0 var(--accent); }
+  :root[data-skin="c"] .hl-c { color: #7F848E; } :root[data-skin="c"] .hl-s { color: #CE9178; } :root[data-skin="c"] .hl-k { color: #569CD6; } :root[data-skin="c"] .hl-n { color: #B5CEA8; } :root[data-skin="c"] .hl-f { color: #DCDCAA; } :root[data-skin="c"] .hl-t { color: #4EC9B0; } :root[data-skin="c"] .hl-p { color: #9CDCFE; }
+  /* D: bigger text, the list as grouped white rows, your messages in blue, a round box to type in */
+  :root[data-skin="d"] body { font-size: 16px; }
+  :root[data-skin="d"] .list { padding: 0 12px 16px; }
+  :root[data-skin="d"] .group-head { padding: 6px 4px 6px 14px; font-size: 13px; font-weight: 500; letter-spacing: .02em; text-transform: uppercase; }
+  :root[data-skin="d"] .list button.item { background: var(--bg); border-radius: 0; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  :root[data-skin="d"] .list button.item:first-of-type { border-top-left-radius: 12px; border-top-right-radius: 12px; }
+  :root[data-skin="d"] .list button.item:last-of-type { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; border-bottom: 0; }
+  :root[data-skin="d"] .list button.item:hover { background: var(--hover); }
+  :root[data-skin="d"] .list button.item.active { background: var(--active); }
+  :root[data-skin="d"] .msg.user > div, :root[data-skin="d"] .tmsg.out .body { background: var(--me); color: var(--me-ink); }
+  :root[data-skin="d"] .composer { border-radius: 22px; }
+  :root[data-skin="d"] .btn.primary { border-radius: 12px; }
+  /* the round buttons of the box you type in stay round, with nothing pushing their icon aside, in every look */
+  :root[data-skin] .composer .imgbtn, :root[data-skin] .composer .sendbtn, :root[data-skin] .composer .stopbtn { padding: 0; border-radius: 50%; }
+  /* the choice of look in the settings: a small picture of each */
+  .skins { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; max-width: 680px; }
+  .skins button { display: grid; gap: 6px; text-align: left; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--bg); padding: 8px; }
+  .skins button.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+  .skins .pv { display: grid; grid-template-columns: 34% 1fr; height: 54px; border-radius: 6px; overflow: hidden; border: 1px solid rgba(128, 128, 128, .25); }
+  .skins .pv i { display: block; } .skins .pv b { display: block; position: relative; }
+  .skins .pv b::after { content: ""; position: absolute; right: 8px; bottom: 8px; width: 42%; height: 12px; border-radius: 6px; background: var(--pv-me); }
+  .skins .nm { font-weight: 600; font-size: 14px; } .skins .ds { font-size: 13px; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -1010,6 +1124,7 @@
 </aside>
 <div id="bellPop" class="bell-pop" role="dialog" aria-label="通知" hidden><div class="bp-head"><b>通知</b><span id="bellSum"></span></div><div id="noticeRows"></div></div>
 <div id="said" role="status" aria-live="polite"></div>
+<div id="downBar" role="alert" hidden></div>
 
 <script>
 'use strict';
@@ -1022,24 +1137,79 @@
 const SIZES = [['小', 1], ['標準', 1.15], ['大', 1.3]];
 const SIZE_DEFAULT = 1.15;
 // A size chosen before the change keeps how it looked: the nearest one that is still offered (0.9 -> 小, 1.5 -> 大).
-function textSize() { let v = 0; try { v = Number(localStorage.getItem('sb.zoom')) || 0; } catch (e) {} if (!v) return SIZE_DEFAULT; return SIZES.reduce((best, x) => Math.abs(x[1] - v) < Math.abs(best - v) ? x[1] : best, SIZES[0][1]); }
-// The size is a setting of the board (its config file, textSize), the same in every browser and on every computer.
+// Two sizes, kept apart: one for a computer, one for a touch screen (a phone, a tablet) - what reads well on one is too
+// big or too small on the other. Which one this page uses is decided by the screen it is on.
+const isTouchScreen = () => { try { return matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } };
+const SIZE_KEY = () => (isTouchScreen() ? 'textSizeTouch' : 'textSize');
+const SIZE_LOCAL = () => (isTouchScreen() ? 'sb.zoomTouch' : 'sb.zoom');
+function textSize() { let v = 0; try { v = Number(localStorage.getItem(SIZE_LOCAL())) || 0; } catch (e) {} if (!v) return SIZE_DEFAULT; return SIZES.reduce((best, x) => Math.abs(x[1] - v) < Math.abs(best - v) ? x[1] : best, SIZES[0][1]); }
+// The size is a setting of the board (its config file: textSize, textSizeTouch), the same in every browser of that kind.
 // This browser keeps a copy only so the page opens at the right size before the board has answered.
-function applyTextSize(v) { try { localStorage.setItem('sb.zoom', String(v)); } catch (e) {} document.documentElement.style.setProperty('--z', String(v)); }
-function setTextSize(v) { applyTextSize(v); features.textSize = v; api('/api/config', { textSize: v }).catch(() => {}); }
+function applyTextSize(v) { try { localStorage.setItem(SIZE_LOCAL(), String(v)); } catch (e) {} document.documentElement.style.setProperty('--z', String(v)); fitViewport(); }
+function setTextSize(v) { applyTextSize(v); features[SIZE_KEY()] = v; api('/api/config', { [SIZE_KEY()]: v }).catch(() => {}); }
 // What the board says, on every round: taken when it differs. Not set there yet: this browser's choice is written there once.
 function syncTextSize(saved) {
-  if (saved == null) { try { if (localStorage.getItem('sb.zoom')) api('/api/config', { textSize: textSize() }).catch(() => {}); } catch (e) {} return; }
+  if (saved == null) { try { if (localStorage.getItem(SIZE_LOCAL())) api('/api/config', { [SIZE_KEY()]: textSize() }).catch(() => {}); } catch (e) {} return; }
   if (saved !== textSize()) { applyTextSize(saved); if (view === 'settings') drawSettings(); }
 }
 document.documentElement.style.setProperty('--z', String(textSize()));
+// The look (外觀): four to choose from, one kept for a phone (skinPhone) and one for everything else (skin), in the board's
+// settings. Not chosen: a phone D, everything else B. A phone is told by its user agent (an iPad, which says it is a Mac,
+// counts as a computer). This browser keeps a copy, so the page opens in its look before the board has answered.
+const SKINS = [
+  ['a', 'A 清爽', '白底灰邊，資訊密', '#F7F7F5', '#FFFFFF', '#E9E9E7'],
+  ['b', 'B 溫暖柔和', '米色暖調、圓角按鈕', '#F2EEE6', '#FAF8F4', '#3E5C76'],
+  ['c', 'C 深色控制台', '深色底、等寬數字', '#14171C', '#0F1115', '#7AA2F7'],
+  ['d', 'D 原生大字', '像手機內建 App，字較大', '#F2F2F7', '#FFFFFF', '#0066D6'],
+];
+const isPhone = () => /iPhone|iPod|Android.+Mobile|Windows Phone|BlackBerry|Opera Mini|IEMobile/i.test(navigator.userAgent);
+const SKIN_KEY = () => (isPhone() ? 'skinPhone' : 'skin');
+const SKIN_DEFAULT = () => (isPhone() ? 'd' : 'b');
+const skinNow = () => document.documentElement.getAttribute('data-skin') || SKIN_DEFAULT();
+function applySkin(v) {
+  const s = /^[abcd]$/.test(v || '') ? v : SKIN_DEFAULT();
+  try { localStorage.setItem(isPhone() ? 'sb.skinPhone' : 'sb.skin', s); } catch (e) {}
+  if (s !== document.documentElement.getAttribute('data-skin')) { document.documentElement.setAttribute('data-skin', s); fitViewport(); }
+}
+// What the board says, on every round: taken when it differs (chosen on another browser of the same kind).
+function syncSkin(saved) { if (typeof saved !== 'string') return; if ((saved || SKIN_DEFAULT()) !== skinNow()) { applySkin(saved); if (view === 'settings') drawSettings(); } }
+{ let v = ''; try { v = localStorage.getItem(isPhone() ? 'sb.skinPhone' : 'sb.skin') || ''; } catch (e) {} document.documentElement.setAttribute('data-skin', /^[abcd]$/.test(v) ? v : SKIN_DEFAULT()); }
+// A touch screen (a phone, a tablet): the keyboard's return key starts a new line there, and the hints say no keys.
+function onTouch() { return isTouchScreen(); }
+// What fitViewport measured: a position read from the page (getBoundingClientRect) per CSS px of this page, and the
+// window's width in CSS px - what a box placed by hand (position: fixed) is set in. Chromium: the text size and the
+// width divided by it; Safari on the iPhone: 1 and the width as it is.
+const VP = { rectPerCss: 1, widthCss: innerWidth };
+// Viewport lengths (100vw, 100dvh) under the page's zoom (the text size): Chromium does not scale them by the zoom, Safari
+// on the iPhone already does (measured on one: 100dvh came out the same as 100%, and dividing by the text size left a
+// quarter of the screen empty). So the divisor is measured here, not assumed: --zv is the text size in Chromium, 1 on the
+// iPhone. And on a touch screen the page is made as tall as what is visible - with the keyboard up, the part above it -
+// in --app-h. Every length here is measured in the same units, so neither engine's way of reporting them matters.
+function fitViewport() {
+  const root = document.documentElement, b = document.body; if (!b) return;
+  const mk = (css) => { const d = document.createElement('div'); d.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;' + css; b.append(d); return d; };
+  const vw = mk('width:100vw;height:1px'), full = mk('right:0;height:1px'), hundred = mk('width:100px;height:1px');
+  const a = vw.getBoundingClientRect().width, w = full.getBoundingClientRect().width, p = hundred.getBoundingClientRect().width;
+  vw.remove(); full.remove(); hundred.remove();
+  if (a > 0 && w > 0) root.style.setProperty('--zv', String(Math.round((a / w) * 1000) / 1000));
+  if (p > 0 && w > 0) { VP.rectPerCss = p / 100; VP.widthCss = w / VP.rectPerCss; }
+  const vv = window.visualViewport;
+  if (vv && onTouch() && w > 0 && p > 0 && innerWidth > 0) {
+    const cssPerScreen = (w / innerWidth) / (p / 100);   // this page's CSS px per screen px
+    root.style.setProperty('--app-h', Math.floor(vv.height * cssPerScreen) + 'px');
+    if (scrollY) scrollTo(0, 0);   // the phone pushed the page up to show the box: it now fits above the keyboard
+  } else root.style.removeProperty('--app-h');
+}
+fitViewport();
+addEventListener('resize', fitViewport);
+if (window.visualViewport) { visualViewport.addEventListener('resize', fitViewport); visualViewport.addEventListener('scroll', () => { if (onTouch() && scrollY) fitViewport(); }); }
 const TOKEN = (() => {
   const q = new URLSearchParams(location.search), t = q.get('t') || '';
   let kept = ''; try { kept = localStorage.getItem('sb.token') || ''; } catch (e) {}
   if (!t) return kept;
   try { localStorage.setItem('sb.token', t); } catch (e) {}
   q.delete('t');
-  try { history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); } catch (e) {}
+  try { history.replaceState(history.state, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); } catch (e) {}
   return t;
 })();
 const $ = (id) => document.getElementById(id);
@@ -1109,7 +1279,18 @@ function ago(ms) {
 async function api(path, body) {
   const opt = { headers: { 'x-board-token': TOKEN } };
   if (body !== undefined) { opt.method = 'POST'; opt.headers['content-type'] = 'application/json'; opt.body = JSON.stringify(body); }
-  const res = await fetch(path, opt);
+  // A read not answered within 30 seconds (the board stopped, or the network to it went away): given up, so a page says
+  // it could not read instead of staying empty for ever. Not an action (POST): some take long on purpose (an update).
+  const stop = body === undefined && typeof AbortController === 'function' ? new AbortController() : null;
+  if (stop) opt.signal = stop.signal;
+  const timer = stop ? setTimeout(() => stop.abort(), 30000) : 0;
+  // The network to the board gone (a phone between networks, the board stopped): answered as a failure with a reason,
+  // never thrown - every caller already shows what went wrong for one that failed, and a button is given back. (Thrown,
+  // it was lost where nothing caught it: the button stayed "working" and nothing was said; seen on an iPhone.)
+  let res;
+  try { res = await fetch(path, opt); } catch (e) {
+    return { status: 0, ok: false, data: { ok: false, error: stop && stop.signal.aborted ? '看板 30 秒沒有回應，稍後再試' : '連不到看板（網路中斷，或看板沒有在跑），稍後再試' } };
+  } finally { clearTimeout(timer); }
   let data = null;
   try { data = await res.json(); } catch (e) {}
   return { status: res.status, ok: res.ok, data: data || {} };
@@ -1565,12 +1746,12 @@ function drawKeep(pane, only) {
 
 /* ── main: new conversation ── */
 function drawNew() {
-  view = 'new'; active = null; closeStream(); setPlace('');
+  view = 'new'; active = null; closeStream(); setPlace('new');
   $('app').classList.add('viewing');
   const main = $('main');
   main.textContent = '';
   const head = el('div', 'head');
-  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', drawHome);
+  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', () => goBack(drawHome));
   const who = el('div', 'who'); who.append(el('div', 't', '新對話'), el('div', 's', '選一個資料夾，Claude 會在那裡工作'));
   head.append(back, who);
   const scroll = el('div', 'scroll');
@@ -1632,7 +1813,7 @@ function inboxShell(title, sub, onBack) {
   $('app').classList.add('viewing');
   const main = $('main'); main.textContent = '';
   const head = el('div', 'head');
-  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '返回'); back.addEventListener('click', onBack);
+  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '返回'); back.addEventListener('click', () => goBack(onBack));
   const who = el('div', 'who'); who.append(el('div', 't', title), el('div', 's', sub));
   head.append(back, who);
   const scroll = el('div', 'scroll');
@@ -1741,7 +1922,8 @@ async function fillInbox() {
   ms.append(car, dots);
   setTimeout(() => { mkDots(); srcs.scrollLeft = inboxCar * step(); sync(); }, 0);
   /* The window changing width changes how many cards are in view, and so how many places there are. */
-  if (window.ResizeObserver) new ResizeObserver(() => { if (srcs.isConnected) { mkDots(); sync(); } }).observe(srcs);
+  // redrawn on the next frame, not inside the observer: redrawing there resized what it watches ("ResizeObserver loop")
+  if (window.ResizeObserver) new ResizeObserver(() => requestAnimationFrame(() => { if (srcs.isConnected) { mkDots(); sync(); } })).observe(srcs);
   ms.append(el('div', 'hint', (inboxSource ? '只列 ' + SRC_NAME[inboxSource] + ' 的訊息（再按一次那張卡片列出全部）　·　' : '按上面的卡片可以只看那個來源　·　') + (st.settings.pollMinutes ? '每 ' + st.settings.pollMinutes + ' 分鐘自動抓一次' : '不會自動抓，要按「現在抓取」') + (st.last ? '　·　上次抓取 ' + when(st.last.at) : '　·　看板啟動後還沒抓過')
     + (!st.settings.triage ? '　·　自動判讀已關閉' : st.last && st.last.triage ? (st.last.triage.error ? '　·　判讀失敗：' + st.last.triage.error : st.last.triage.done ? '　·　剛判讀 ' + st.last.triage.done + ' 串' : '') : '')));
   // filters
@@ -2025,7 +2207,7 @@ async function drawSettings() {
   const main = $('main');
   main.textContent = '';
   const head = el('div', 'head');
-  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', drawHome);
+  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', () => goBack(drawHome));
   const who = el('div', 'who'); who.append(el('div', 't', '設定'), el('div', 's', '存檔後馬上生效'));
   head.append(back, who);
   const scroll = el('div', 'scroll');
@@ -2043,11 +2225,27 @@ async function drawSettings() {
 
   {
     pane.append(el('h2', '', '字級'));
-    pane.append(el('p', 'lead', '整個看板一起放大或縮小，包含左欄、對話和按鈕。只記在這個瀏覽器裡，不影響別台電腦。'));
+    pane.append(el('p', 'lead', isTouchScreen() ? '手機和平板用的字級，整個看板一起放大或縮小。跟電腦分開設定，這裡改了不影響電腦。' : '電腦用的字級，整個看板一起放大或縮小，包含左欄、對話和按鈕。跟手機分開設定，這裡改了不影響手機。'));
     const seg = el('div', 'seg'); seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', '字級');
     const paint = () => { for (const b of seg.children) { const on = Number(b.dataset.v) === textSize(); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } };
     for (const [label, v] of SIZES) { const b = el('button', '', label); b.type = 'button'; b.dataset.v = String(v); b.title = Math.round(v * 100) + '%'; b.addEventListener('click', () => { setTextSize(v); paint(); }); seg.append(b); }
     paint(); pane.append(seg);
+    const gap = el('div'); gap.style.height = '28px'; pane.append(gap);
+  }
+  {
+    pane.append(el('h2', '', '外觀'));
+    const def = SKINS.find((x) => x[0] === SKIN_DEFAULT());
+    pane.append(el('p', 'lead', (isPhone() ? '手機用的外觀，跟電腦分開設定，這裡改了不影響電腦。' : '電腦用的外觀，跟手機分開設定，這裡改了不影響手機。') + '沒選過的話用' + def[1] + '。顏色跟著系統的淺色／深色切換（C 一律深色）。'));
+    const box = el('div', 'skins'); box.setAttribute('role', 'group'); box.setAttribute('aria-label', '外觀');
+    const paint = () => { for (const b of box.children) { const on = b.dataset.v === skinNow(); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } };
+    for (const [v, name, desc, side, mainBg, me] of SKINS) {
+      const b = el('button'); b.type = 'button'; b.dataset.v = v;
+      const pv = el('span', 'pv'); const i = el('i'), m = el('b'); i.style.background = side; m.style.background = mainBg; m.style.setProperty('--pv-me', me); pv.append(i, m);
+      b.append(pv, el('span', 'nm', name + (v === SKIN_DEFAULT() ? '（預設）' : '')), el('span', 'ds', desc));
+      b.addEventListener('click', async () => { const was = skinNow(); applySkin(v); paint(); if (!(await savePref({ [SKIN_KEY()]: v }))) { applySkin(was); paint(); } });
+      box.append(b);
+    }
+    paint(); pane.append(box);
     const gap = el('div'); gap.style.height = '28px'; pane.append(gap);
   }
   pane.append(el('h2', '', '新對話的起始資料夾'));
@@ -2532,14 +2730,14 @@ function openHarness(folder, cwd, hs) {
   body.append(hint);
   body.append(el('div', 'chg-group', '等你核可的學習項目（' + hs.pendingCount + '）'));
   if (!hs.pending.length) body.append(el('div', 'chg-note', '沒有。'));
-  else body.append(el('div', 'chg-note', 'harness 規定只認你在 Claude Code 提示列親手打的字，看板不能代你核可。要處理的話，在這個資料夾的 session 輸入下面那一句（按「複製」）。'));
+  else body.append(el('div', 'chg-note', '這些是 harness 建議改的規則，要你決定接受或不接受。看板不能替你決定：harness 只認你在 Claude Code 裡親手打的字。做法是按「複製核可指令」（接受）或「複製駁回指令」（不接受），到這個專案的 Claude Code 視窗貼上，按 Enter 送出。'));
   for (const x of hs.pending) {
     const card = el('div', 'hp');
     const h = el('div', 'hp-h'); h.append(el('span', 'hp-lv ' + x.level, x.level === 'red' ? '紅區' : x.level === 'green' ? '綠區' : x.level || ''), el('code', '', x.id), el('span', 'hp-t', [x.kind, x.action, x.target].filter(Boolean).join(' · ')));
     card.append(h, el('div', 'hp-s', x.summary));
     if (x.content) { const d = el('details'); d.append(el('summary', '', '建議內容'), el('pre', '', x.content)); card.append(d); }
     const acts = el('div', 'hp-a');
-    for (const [label, word] of [['複製「核可」', '核可 '], ['複製「駁回」', '駁回 ']]) { const b = el('button', 'btn', label); b.type = 'button'; b.addEventListener('click', async () => { try { await navigator.clipboard.writeText(word + x.id); say('已複製「' + word + x.id + '」，到這個資料夾的 session 貼上送出'); } catch (e) { say('複製不了，請自己輸入：' + word + x.id, true); } }); acts.append(b); }
+    for (const [label, word] of [['複製核可指令', '核可 '], ['複製駁回指令', '駁回 ']]) { const b = el('button', 'btn', label); b.type = 'button'; b.title = '把「' + word + x.id + '」複製起來，到這個專案的 Claude Code 視窗貼上送出'; b.addEventListener('click', async () => { try { await navigator.clipboard.writeText(word + x.id); say('已複製「' + word + x.id + '」。到這個專案的 Claude Code 視窗貼上，按 Enter 送出'); } catch (e) { say('複製不了，請自己輸入：' + word + x.id, true); } }); acts.append(b); }
     card.append(acts); body.append(card);
   }
 }
@@ -2573,10 +2771,11 @@ const CLOSED_BY = { answered: '你回應了', stopped: '那一輪停止了', see
 // Notices: what still needs you now. Not a page - a bell at the top of the left column with the number, and under it,
 // when pressed, the list. (#notices, and whatever still calls this, opens it.)
 function bellPlace() {
-  const pop = $('bellPop'), b = $('bellBtn').getBoundingClientRect(), z = textSize();   // the page is scaled as a whole: a fixed box is placed in unscaled units
-  const w = Math.min(380, innerWidth / z - 24);
-  pop.style.top = (b.bottom / z + 6) + 'px';
-  pop.style.left = Math.max(12, Math.min(b.left / z, innerWidth / z - w - 12)) + 'px';
+  // the page is scaled as a whole: a fixed box is placed in this page's own units, measured (see fitViewport)
+  const pop = $('bellPop'), b = $('bellBtn').getBoundingClientRect(), k = VP.rectPerCss, W = VP.widthCss;
+  const w = Math.min(380, W - 24);
+  pop.style.top = (b.bottom / k + 6) + 'px';
+  pop.style.left = Math.max(12, Math.min(b.left / k, W - w - 12)) + 'px';
 }
 function closeBell() { const pop = $('bellPop'); if (pop.hidden) return; pop.hidden = true; $('bellBtn').setAttribute('aria-expanded', 'false'); }
 function drawNotices() {
@@ -3303,7 +3502,7 @@ function drawHead() {
   // few seconds, which took the box away before a word was typed); drawn again when the box closes (renameIn)
   if (head.querySelector('.rename-in')) return;
   head.textContent = '';
-  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', drawHome);
+  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', () => goBack(drawHome));
   const who = el('div', 'who');
   if (!s) { who.append(el('div', 't', moving === active ? '正在移到終端機視窗…' : '這個 session 已經結束了')); head.append(back, who); return; }
   const st = liveOrListed();
@@ -3529,8 +3728,8 @@ function modelPop(anchor, s) {
   const no = el('button', 'btn', '取消'); no.type = 'button'; no.addEventListener('click', () => pop.remove());
   const acts = el('div', 'mp-a'); acts.append(ok, no); pop.append(acts, msg);
   document.body.append(pop);
-  const r = anchor.getBoundingClientRect(), z = textSize();
-  pop.style.top = (r.bottom / z + 6) + 'px'; pop.style.left = Math.max(12, Math.min(r.left / z, innerWidth / z - 380)) + 'px';
+  const r = anchor.getBoundingClientRect(), k = VP.rectPerCss, W = VP.widthCss, w = Math.min(380, W - 24);
+  pop.style.top = (r.bottom / k + 6) + 'px'; pop.style.left = Math.max(12, Math.min(r.left / k, W - w - 12)) + 'px';
   const away = (e) => { if (!pop.contains(e.target) && e.target !== anchor) { pop.remove(); document.removeEventListener('click', away, true); } };
   setTimeout(() => document.addEventListener('click', away, true), 0);
 }
@@ -3656,9 +3855,12 @@ function drawFoot() {
   const st = liveOrListed();
   const box = el('div', 'composer');
   const ta = el('textarea'); ta.rows = 1; ta.value = typed;
-  ta.placeholder = st === 'busy' ? 'Claude 正在執行。現在送出，它做完手上這個動作就會讀到，不用等這一輪結束' : st === 'waiting' ? '上面有卡片等你回覆。也可以直接送訊息，它處理完這個動作就會讀到' : st === 'background' ? '背景工作還在跑，你仍然可以先說話' : '輸入訊息，Enter 送出，Shift+Enter 換行';
+  const touch = onTouch();
+  ta.placeholder = touch ? (st === 'busy' ? '它正在執行，現在說的話它做完這一步就會讀到' : st === 'waiting' ? '上面有卡片等你回覆，也可以直接說' : '輸入訊息')
+    : st === 'busy' ? 'Claude 正在執行。現在送出，它做完手上這個動作就會讀到，不用等這一輪結束' : st === 'waiting' ? '上面有卡片等你回覆。也可以直接送訊息，它處理完這個動作就會讀到' : st === 'background' ? '背景工作還在跑，你仍然可以先說話' : '輸入訊息，Enter 送出，Shift+Enter 換行';
   ta.setAttribute('aria-label', '訊息');
-  const sendBtn = el('button', 'btn primary', '送出'); sendBtn.type = 'button';
+  const sendBtn = el('button', 'btn primary sendbtn'); sendBtn.type = 'button'; sendBtn.setAttribute('aria-label', '送出');
+  sendBtn.innerHTML = '<span class="lbl">送出</span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>';
   // Never blocked: a message sent while Claude is working or waiting for a card is handed to it at once (lib/chat.js).
   const blocked = false;
   sendBtn.disabled = blocked;
@@ -3745,7 +3947,7 @@ function drawFoot() {
   function showCmds() {
     const m = /^\/(\S*)$/.exec(ta.value);
     const info = cmdCache.get(s.sessionId);   // undefined while the list is still being asked for
-    shown = m ? matchCommands(m[1], info ? info.commands : []) : [];
+    shown = m ? matchCommands(m[1], info ? info.commands : [], info && info.usage) : [];
     pop.textContent = '';
     pop.hidden = !m;
     if (!m) return;
@@ -3755,6 +3957,7 @@ function drawFoot() {
       b.type = 'button';
       b.append(el('span', 'cn', '/' + c.name + (c.argumentHint ? ' ' + c.argumentHint : '')));
       if (c.terminalOnly) b.append(el('span', 'tag', '只能在終端機用'));
+      else if (c.used >= 2) { if (c.description) { b.title = c.description; b.append(el('span', 'cd', c.description)); } b.append(el('span', 'tag', '用過 ' + c.used + ' 次')); }
       else if (c.description) { const d = el('span', 'cd', c.description); b.title = c.description; b.append(d); }
       b.addEventListener('mousedown', (e) => { e.preventDefault(); pick(c); });
       pop.append(b);
@@ -3775,7 +3978,8 @@ function drawFoot() {
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); return pick(shown[sel]); }
     }
     if (e.key === 'Escape' && !pop.hidden) { e.stopPropagation(); pop.hidden = true; return; }
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); }
+    // On a phone the keyboard's return key starts a new line (as in the Claude app); the round arrow sends
+    if (e.key === 'Enter' && !e.shiftKey && !onTouch()) { e.preventDefault(); go(); }
   });
   sendBtn.addEventListener('click', go);
   // ── pictures: pasted into the box, dropped on it, or picked. Shown as small previews above the box until sent. ──
@@ -3832,7 +4036,32 @@ function drawFoot() {
   composerDrop = (files) => { box.classList.remove('drop'); return addFiles(files); };   // the page-wide drop hands files here
   const imgPick = el('input'); imgPick.type = 'file'; imgPick.accept = 'image/png,image/jpeg,image/gif,image/webp'; imgPick.multiple = true; imgPick.hidden = true;
   imgPick.addEventListener('change', () => { addFiles([...imgPick.files]); imgPick.value = ''; });
-  const pickBtn = el('button', 'btn imgbtn', '圖片'); pickBtn.type = 'button'; pickBtn.title = '附上圖片。也可以直接在輸入框按 Ctrl+V 貼上截圖，或把圖檔拖進來'; pickBtn.addEventListener('click', () => imgPick.click());
+  const pickBtn = el('button', 'btn imgbtn'); pickBtn.type = 'button';
+  pickBtn.innerHTML = '<span class="lbl">圖片</span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
+  pickBtn.setAttribute('aria-label', '加入圖片或指令'); pickBtn.title = '加入圖片或指令'; pickBtn.setAttribute('aria-haspopup', 'menu'); pickBtn.setAttribute('aria-expanded', 'false');
+  // + opens a short menu above the box (as the chat apps do): a picture from this device, or the / commands
+  const addMenu = el('div', 'addmenu'); addMenu.hidden = true; addMenu.setAttribute('role', 'menu');
+  const ICON = { pic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>',
+    cmd: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 4 9 20"/></svg>' };
+  const menuItem = (icon, t, sub, run) => {
+    const b = el('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.innerHTML = ICON[icon];
+    const w = el('span'); w.append(el('span', 'am-t', t), document.createTextNode('  '), el('span', 'am-s', sub)); b.append(w);
+    b.addEventListener('click', () => { closeAdd(); run(); }); return b;
+  };
+  addMenu.append(
+    menuItem('pic', '上傳圖片', onTouch() ? '從相簿或相機' : '從這台電腦選', () => imgPick.click()),
+    menuItem('cmd', '指令', '這個資料夾能用的 / 指令', () => { ta.value = '/'; ta.focus(); showCmds(); fit(); }));
+  if (!onTouch()) addMenu.append(el('div', 'am-tip', '也可以在輸入框按 Ctrl+V 貼上截圖，或把圖檔拖進來'));
+  const outside = (e) => { if (!addMenu.contains(e.target) && !pickBtn.contains(e.target)) closeAdd(); };
+  const escAdd = (e) => { if (e.key === 'Escape') { closeAdd(); pickBtn.focus(); } };
+  function closeAdd() { addMenu.hidden = true; pickBtn.setAttribute('aria-expanded', 'false'); document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escAdd, true); }
+  pickBtn.addEventListener('click', () => {
+    if (!addMenu.hidden) return closeAdd();
+    addMenu.hidden = false; pickBtn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('pointerdown', outside, true); document.addEventListener('keydown', escAdd, true);
+    addMenu.querySelector('button').focus();
+  });
+  col.append(addMenu);
   drawImgs();
   col.append(strip);
   // While it is working: a stop button beside the send button (the only stop of a conversation - the turn ends there;
@@ -3886,12 +4115,21 @@ async function loadCommands(sid) {
 // does not report these for a conversation run this way, so they are listed
 // here to answer "why is /plugin not in the list" instead of showing nothing.
 const TERMINAL_ONLY = ['plugin', 'config', 'resume', 'agents', 'mcp', 'permissions', 'hooks', 'status', 'login', 'logout', 'help', 'memory', 'rewind', 'export', 'doctor', 'theme', 'vim', 'ide', 'terminal-setup', 'statusline', 'output-style', 'remote-control', 'add-dir', 'tasks', 'bashes', 'fast', 'effort', 'rename', 'background', 'bg'];
-function matchCommands(q, live) {
+// The ones you use most come first (usage: how many times each was run on this computer, counted by the board every few
+// minutes from Claude Code's records - lib/cmduse.js); those that only work in a terminal after the rest.
+function usedTimes(usage) {
+  // Maps, not plain objects: a command called constructor is just a name (an object would answer with its function)
+  const by = new Map(Object.entries(usage || {}).filter(([, v]) => Number.isFinite(v))), short = new Map();
+  for (const [k, v] of by) { const t = k.split(':').pop(); if (t !== k) short.set(t, (short.get(t) || 0) + v); }
+  return (name) => by.get(name) || short.get(name) || 0;
+}
+function matchCommands(q, live, usage) {
+  const used = usedTimes(usage);
   const have = new Set(live.map((c) => c.name));
   const all = live.concat(TERMINAL_ONLY.filter((n) => !have.has(n)).map((name) => ({ name, terminalOnly: true })));
   const k = q.toLowerCase();
   const rank = (n) => { const x = n.toLowerCase(); return x.startsWith(k) ? 0 : x.split(/[:\-_]/).some((p) => p.startsWith(k)) ? 1 : x.includes(k) ? 2 : 9; };
-  return all.map((c) => ({ c, r: rank(c.name) })).filter((x) => x.r < 9).sort((a, b) => a.r - b.r || a.c.name.length - b.c.name.length || a.c.name.localeCompare(b.c.name)).slice(0, 12).map((x) => x.c);
+  return all.map((c) => ({ c, r: rank(c.name), u: used(c.name) })).filter((x) => x.r < 9).sort((a, b) => a.r - b.r || !!a.c.terminalOnly - !!b.c.terminalOnly || b.u - a.u || a.c.name.length - b.c.name.length || a.c.name.localeCompare(b.c.name)).slice(0, 12).map((x) => Object.assign({}, x.c, { used: x.u }));
 }
 
 /* ── jumping to what you said ── */
@@ -4086,7 +4324,7 @@ function editMsg(m, it) {
   const row = el('div', 'edit-row'), cancel = el('button', 'btn', '取消'), go = el('button', 'btn primary', '送出，從這則重來');
   cancel.type = 'button'; go.type = 'button';
   row.append(cancel, go);
-  box.append(ta, el('div', 'hint', '送出後，正在進行的回覆會停下，對話從這則之前接著跑。原本的對話收進「沒開著」，不會刪掉。Enter 送出、Shift+Enter 換行、Esc 取消。'), row);
+  box.append(ta, el('div', 'hint', '送出後，正在進行的回覆會停下，對話從這則之前接著跑。原本的對話收進「沒開著」，不會刪掉。' + (onTouch() ? '' : 'Enter 送出、Shift+Enter 換行、Esc 取消。')), row);
   m.textContent = ''; m.append(box); m.classList.add('editing');
   ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
   const close = () => { m.textContent = ''; m.append(...was); m.classList.remove('editing'); };
@@ -4094,7 +4332,7 @@ function editMsg(m, it) {
   ta.addEventListener('keydown', (e) => {
     if (e.isComposing || e.keyCode === 229) return;   // an input method picking characters
     if (e.key === 'Escape') { e.preventDefault(); close(); }
-    else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go.click(); }
+    else if (e.key === 'Enter' && !e.shiftKey && !onTouch()) { e.preventDefault(); go.click(); }
   });
   go.addEventListener('click', async () => {
     const text = ta.value;
@@ -4870,7 +5108,7 @@ async function openTaskPeek(sid, t) {
 
 // Preview width: drag the left edge. Remembered in this browser; double-click the edge for the default.
 const PEEK_KEY = 'session-board.peekWidth';
-const peekLimits = () => ({ min: 320, max: Math.max(320, window.innerWidth - 160) });
+const peekLimits = () => ({ min: 320, max: Math.max(320, VP.widthCss - 160) });   // in this page's CSS px (see fitViewport)
 function setPeekWidth(px, remember) {
   const { min, max } = peekLimits();
   const w = Math.round(Math.min(max, Math.max(min, px)));
@@ -4891,7 +5129,7 @@ function setPeekWidth(px, remember) {
     peek.classList.add('dragging'); document.body.classList.add('resizing');
     e.preventDefault();
   });
-  grip.addEventListener('pointermove', (e) => { if (dragging) setPeekWidth(window.innerWidth - e.clientX, false); });
+  grip.addEventListener('pointermove', (e) => { if (dragging) setPeekWidth(VP.widthCss - e.clientX / VP.rectPerCss, false); });   // the edge stays under the pointer at any text size
   const end = () => {
     if (!dragging) return;
     dragging = false;
@@ -4976,14 +5214,13 @@ function applySideWidth(w) {
 function saveSideWidth(w) { const v = sideClamp(w); features.prefs = Object.assign({}, prefs(), { sidebarWidth: v }); applySideWidth(v); savePref({ sidebarWidth: v }); }
 (function sideEdge() {
   const edge = $('sideEdge'); if (!edge) return;
-  const zoom = () => Number(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1;
   edge.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     const app = $('app'), left = app.getBoundingClientRect().left;
     let w = sideClamp(prefs().sidebarWidth);
     edge.setPointerCapture(e.pointerId); edge.classList.add('on'); document.body.classList.add('side-dragging');
-    const move = (ev) => { w = sideClamp((ev.clientX - left) / zoom()); applySideWidth(w); };
+    const move = (ev) => { w = sideClamp((ev.clientX - left) / VP.rectPerCss); applySideWidth(w); };
     const up = () => { edge.removeEventListener('pointermove', move); edge.removeEventListener('pointerup', up); edge.removeEventListener('pointercancel', up); edge.classList.remove('on'); document.body.classList.remove('side-dragging'); if (w !== sideClamp(prefs().sidebarWidth)) saveSideWidth(w); };
     edge.addEventListener('pointermove', move); edge.addEventListener('pointerup', up); edge.addEventListener('pointercancel', up);
   });
@@ -5212,7 +5449,7 @@ function drawWar() {
   const main = $('main');
   main.textContent = '';
   const head = el('div', 'head');
-  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', drawHome);
+  const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', () => goBack(drawHome));
   const who = el('div', 'who');
   who.append(el('div', 't', '戰情室'), el('div', 's', '每個月用了多少 token、照 API 牌價值多少錢'));
   head.append(back, who);
@@ -5429,7 +5666,20 @@ function newPageAvailable() {
   foot.append(b);
 }
 const setPlace = (hash) => { let at = location.hash.replace(/^#/, ""); try { at = decodeURIComponent(at); } catch (e) {} if (at !== String(hash || "")) closeBell();   // another page (not a redraw of the same one): the notices box does not stay over it
- try { history.replaceState(null, '', location.pathname + location.search + (hash ? '#' + hash : '')); } catch (e) {} };
+ const url = location.pathname + location.search + (hash ? '#' + hash : '');
+  // another page: a new entry in the browser's history, so its back button comes back here (a redraw of the same page,
+  // the first page drawn, or a page reached through the history itself: the entry is only rewritten)
+  try { if (placeQuiet || at === String(hash || '')) history.replaceState({ sb: placeDepth }, '', url); else { placeDepth++; history.pushState({ sb: placeDepth }, '', url); } } catch (e) {} };
+// How many of the board's own pages are behind this one in this tab (0: opened here directly), and whether moving now
+// should leave the history as it is (while the first page is chosen, and while following the browser's back / forward).
+let placeDepth = (history.state && history.state.sb) || 0, placeQuiet = true;
+// The page's ← : the page before, as the browser's back button would - or, when this tab came straight here, the given one.
+function goBack(fallback) { if (placeDepth > 0) history.back(); else fallback(); }
+window.addEventListener('popstate', (e) => {
+  placeDepth = (e.state && e.state.sb) || 0;
+  let at = ''; try { at = decodeURIComponent(location.hash.slice(1)); } catch (x) {}
+  placeQuiet = true; try { goPlace(at); } finally { placeQuiet = false; }
+});
 
 /* ── account limits in the sidebar ── */
 let sideQuotaData = null;
@@ -5476,13 +5726,14 @@ async function poll() {
     $('schedDot').className = 'dot' + (schedNotices ? ' yours' : ''); $('schedSub').textContent = schedNotices ? schedNotices + ' 則通知等你處理' : '到點自動做一件事';
     features = r.data.features || {};
     PLATFORM = features.platform || '';
-    syncTextSize(features.textSize);
+    syncTextSize(features[SIZE_KEY()]);
+    if (features.prefs) syncSkin(features.prefs[SKIN_KEY()]);
     applyFold();
     sessions = r.data.sessions.filter((s) => !s.notStarted);
     for (const s of sessions) if (s.programHidden) { s.hidden = true; s.hiddenWhy = 'program'; }
     unstarted = r.data.sessions.filter((s) => s.notStarted);
     if (r.data.page) { if (pageTag === null) pageTag = r.data.page; else if (r.data.page !== pageTag) return newPageAvailable(); }
-    down = false;
+    down = false; $('downBar').hidden = true;
     $('sideFoot').className = 'side-foot';
     if (!$('sideFoot').dataset.newer) $('sideFoot').textContent = sessions.length + ' 個 session · 更新於 ' + new Date().toLocaleTimeString('zh-TW', { hour12: false });
     drawList();
@@ -5517,6 +5768,9 @@ async function poll() {
     }
   } catch (e) {
     if (!down) { down = true; $('sideFoot').className = 'side-foot down'; $('sideFoot').textContent = '看板程序沒有回應，畫面是舊的。輸入 /session-board 重新啟動'; }
+    // also at the top of every page: the line above is not seen on a phone (the list's foot is left out there) nor in
+    // a conversation; gone by itself when the board answers again
+    const bar = $('downBar'); bar.textContent = REMOTE ? '連不到看板，畫面是舊的。網路恢復或看板重新啟動後會自己接上' : '看板程序沒有回應，畫面是舊的。在 Claude Code 輸入 /session-board 重新啟動'; bar.hidden = false;
   }
 }
 
@@ -5546,8 +5800,8 @@ function noKey() {
   main.append(box);
   return new Promise(() => {});
 }
-(TOKEN ? poll() : noKey()).then(() => {
-  const at = startAt;
+// The page an address names (#war, #settings, a conversation's id ...): on opening, and on the browser's back / forward.
+function goPlace(at) {
   if (at === 'war') drawWar();
   else if (at === 'settings') drawSettings();
   else if (at === 'inbox') drawInbox();
@@ -5558,9 +5812,12 @@ function noKey() {
   else if (/^collab-\d+$/.test(at)) drawCollabOne(Number(at.slice(7)));
   else if (at === 'plugins') drawPlugins();
   else if (at === 'notices') { redrawLists(); drawNotices(); }
+  else if (at === 'new') drawNew();
   else if (at && sessions.some((s) => s.sessionId === at)) openChat(at);
+  else if (at === '' && view !== 'home') drawHome();
   else redrawLists();
-});
+}
+(TOKEN ? poll() : noKey()).then(() => { goPlace(startAt); placeQuiet = false; });
 // Every 3 seconds while the tab is showing, every 15 while it is not: the count
 // in the tab title is what gets read when the tab is in the background.
 let beats = 0;

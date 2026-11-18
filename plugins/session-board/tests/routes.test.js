@@ -418,6 +418,22 @@ test('a session with nothing new for the set number of days leaves the list by i
   assert.strictEqual((await get('/api/sessions')).json.features.textSize, 1.3);
   assert.strictEqual((await post('/api/config', { textSize: 1.5 })).status, 400, 'only the sizes the page offers');
   assert.strictEqual((await get('/api/sessions')).json.features.textSize, 1.3, 'unchanged by a refused one');
+  // a touch screen's size is kept apart from the computer's: setting one leaves the other as it was
+  assert.strictEqual((await post('/api/config', { textSizeTouch: 1 })).status, 200);
+  const both = (await get('/api/sessions')).json.features;
+  assert.deepStrictEqual([both.textSize, both.textSizeTouch], [1.3, 1]);
+  assert.strictEqual((await post('/api/config', { textSizeTouch: 2 })).status, 400, 'only the sizes the page offers');
+  assert.strictEqual((await get('/api/sessions')).json.features.textSizeTouch, 1);
+  // the look (外觀): not chosen at first (the page then picks D on a phone, B elsewhere); a phone's kept apart
+  const look = async () => { const p = (await get('/api/sessions')).json.features.prefs; return [p.skin, p.skinPhone]; };
+  assert.deepStrictEqual(await look(), ['', '']);
+  assert.strictEqual((await post('/api/config', { skin: 'c' })).status, 200);
+  assert.strictEqual((await post('/api/config', { skinPhone: 'a' })).status, 200);
+  assert.deepStrictEqual(await look(), ['c', 'a']);
+  for (const bad of ['e', 'B', 1, null]) assert.strictEqual((await post('/api/config', { skin: bad })).status, 400, String(bad));
+  assert.deepStrictEqual(await look(), ['c', 'a'], 'unchanged by a refused one');
+  assert.strictEqual((await post('/api/config', { skin: '', skinPhone: '' })).status, 200, 'back to the default');
+  assert.deepStrictEqual(await look(), ['', '']);
 });
 
 test('files Claude hands over are listed as files, with where they are', () => {
@@ -488,7 +504,9 @@ test('harness state of a folder: read from its files, only for folders the board
   const H = path.join(WORK, '.claude', 'harness'); fs.mkdirSync(path.join(H, 'learning'), { recursive: true }); fs.mkdirSync(path.join(H, 'reviews'), { recursive: true });
   fs.writeFileSync(path.join(H, 'README.md'), '# harness');
   fs.writeFileSync(path.join(H, 'learning', 'pending.json'), JSON.stringify({ version: 1, items: [{ id: 'p-1', status: 'pending', level: 'red', kind: 'hook', summary: '要你看' }, { id: 'p-2', status: 'accepted', summary: '舊的' }] }));
-  const day = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  // the date n days ago on this computer's calendar, as lib/harness.js reads it (local midnight): the UTC date was a day
+  // behind between midnight and 8 in Taiwan, and the count one day too many
+  const day = (n) => { const t = new Date(Date.now() - n * 86400000); return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); };
   fs.writeFileSync(path.join(H, 'reviews', day(40) + '.md'), 'old'); fs.writeFileSync(path.join(H, 'reviews', day(3) + '.md'), 'new'); fs.writeFileSync(path.join(H, 'reviews', day(3) + '-ledger.md'), 'ledger');
   fs.writeFileSync(path.join(H, 'learning', 'usage.json'), JSON.stringify({ requests: 500 })); fs.writeFileSync(path.join(H, 'learning', 'health-baseline.json'), JSON.stringify({ baseDate: day(3), requestsAtBase: 150 }));
   const ask2 = async (...cwds) => (await get('/api/harness?cwd=' + enc(cwds.join('\n')))).json.states;
@@ -545,7 +563,25 @@ test('another computer: only through Tailscale, only your own devices', WIN_ONLY
   assert.deepStrictEqual([off.listening, Date.now() - t0 < 1000], [false, true], 'not waiting for the open connection');
   assert.strictEqual(await Promise.race([cut.then(() => 'cut'), new Promise((r) => setTimeout(() => r('still open'), 3000))]), 'cut');
   assert.notStrictEqual(await viaRemote('127.0.0.2:' + s4p), 200, 'no longer listened on');
-  for (const s of [s2, s4]) { s.close(); if (s.closeAllConnections) s.closeAllConnections(); }
+  // switched on, but Tailscale not up yet when the board starts: it keeps trying, and listens as soon as Tailscale is up;
+  // switched off meanwhile: no more tries
+  const cfg = require('../lib/config'); const was = cfg.value('remoteTailscale', false);
+  cfg.setValue('remoteTailscale', true);
+  let up = false, asked = 0; const said = [];
+  const s5p = await freePort(); const s5 = createServer(TOKEN, s5p, { channels, noTimers: true, noSchedules: true, out, remoteInfo: async () => { asked++; return up ? { ok: true, ip: '127.0.0.2', name: 'me.tail.ts.net', devices: [] } : { ok: false, why: 'Tailscale 的狀態是 NoState' }; }, gate: { allows: async () => true, refresh: async () => {} } });
+  await new Promise((r) => s5.listen(s5p, '127.0.0.1', r));
+  const tryNow = s5.keepRemote(60000, (l) => said.push(l));
+  await tryNow(); await tryNow();
+  assert.deepStrictEqual([s5.remoteState().listening, said.length], [false, 1], 'not up: not listening, said once (not on every try)');
+  up = true; await tryNow();
+  assert.deepStrictEqual([s5.remoteState().listening, said.length, /and on Tailscale: http:\/\/127\.0\.0\.2:/.test(said[1])], [true, 2, true], JSON.stringify(said));
+  const r5 = await new Promise((resolve) => http.get({ host: '127.0.0.2', port: s5p, path: '/api/ping', headers: { host: '127.0.0.2:' + s5p } }, (res) => { res.resume(); resolve(res.statusCode); }).on('error', (e) => resolve(e.code)));
+  assert.strictEqual(r5, 200, 'reached through the Tailscale address');
+  const n5 = asked; await tryNow(); assert.strictEqual(asked, n5, 'listening: Tailscale not asked again');
+  await s5.setRemote(false); cfg.setValue('remoteTailscale', false); await tryNow();
+  assert.deepStrictEqual([s5.remoteState().listening, asked], [false, n5], 'switched off: not tried');
+  cfg.setValue('remoteTailscale', was);
+  for (const s of [s2, s4, s5]) { s.close(); if (s.closeAllConnections) s.closeAllConnections(); }
 });
 
 test('外掛 page: one view of the plugins, and its buttons', async () => {

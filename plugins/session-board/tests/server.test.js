@@ -13,7 +13,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const http = require('http');
 const { EventEmitter } = require('events');
-const { createServer, sendPage } = require('../server');
+const { createServer, sendPage, endedReader, readEnded } = require('../server');
 const F = require('../lib/files');
 const { Monthly, keepMost } = require('../lib/monthly');
 const { Channels } = require('../lib/chat');
@@ -148,4 +148,21 @@ test('Channels: a process that cannot be started says so and leaves the conversa
   ch.send(c.sessionId, 'again');
   assert.strictEqual(made.length, 2, 'the next message starts a process again');
   ch.shutdown && ch.shutdown();
+});
+
+test('endedReader: the notes of ended sessions kept in memory, only what was added or rewritten read again', async () => {
+  const fs = require('fs'), path = require('path'), os = require('os');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ended-'));
+  const w = (id, at, reason) => fs.writeFileSync(path.join(d, id + '.json'), JSON.stringify({ sessionId: id, reason, at }));
+  w('aaaaaaaa-1', Date.now(), 'exit'); w('bbbbbbbb-2', Date.now() - 40 * 86400000, 'old');
+  const read = endedReader(d);
+  try {
+    assert.deepStrictEqual([...read().keys()], ['aaaaaaaa-1']);
+    assert.ok(!fs.existsSync(path.join(d, 'bbbbbbbb-2.json')), 'a note over a month old is removed');
+    w('cccccccc-3', Date.now(), 'new'); w('aaaaaaaa-1', Date.now(), 'again');   // one added, one rewritten (ended again)
+    await new Promise((r) => setTimeout(r, 300));
+    const got = (m) => [...m].map(([k, v]) => k + ':' + v.reason).sort();
+    assert.deepStrictEqual(got(read()), ['aaaaaaaa-1:again', 'cccccccc-3:new']);
+    assert.deepStrictEqual(got(read()), got(readEnded(d)), 'the same as reading them all');
+  } finally { read.close(); }
 });

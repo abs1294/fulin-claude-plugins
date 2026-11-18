@@ -25,6 +25,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const S = require('./lib/sessions');
+const CmdUse = require('./lib/cmduse');
 const { cachedHistory } = require('./lib/history');
 const { Channels } = require('./lib/chat');
 const W = require('./lib/warroom');
@@ -170,6 +171,33 @@ function readEnded(dir = path.join(DATA_DIR, 'ended'), now = Date.now()) {
     } catch (e) {}
   }
   return out;
+}
+// readEnded for a board that asks every few seconds: a folder of thousands of notes (one per session that ended - most
+// started by programs) was read in full on every round, about a second of work every 10 seconds (measured 2026-11-19:
+// 12,992 notes, 2.8 s of 30 s). Kept in memory instead: the folder is watched, and only the notes added or rewritten
+// since (the hook rewrites a session's note when it ends again) are read. Read in full once an hour all the same - a
+// change the watch missed, and the notes over a month old removed.
+function endedReader(dir = path.join(DATA_DIR, 'ended'), every = 3600000) {
+  let all = null, at = 0, watcher = null;
+  const dirty = new Set();
+  const one = (n, now) => {
+    const p = path.join(dir, n);
+    try {
+      const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (now - j.at > 30 * 86400000) { fs.unlinkSync(p); all.delete(j.sessionId); return; }
+      if (typeof j.sessionId === 'string' && Number.isFinite(j.at)) all.set(j.sessionId, { reason: String(j.reason || ''), at: j.at });
+    } catch (e) { if (!fs.existsSync(p)) all.delete(n.slice(0, -5)); /* removed: forgotten at once; half written: read again when it changes */ }
+  };
+  const read = (now = Date.now()) => {
+    if (!watcher) {
+      try { fs.mkdirSync(dir, { recursive: true }); watcher = fs.watch(dir, (ev, n) => { if (n) dirty.add(String(n)); else at = 0; }); watcher.on('error', () => { watcher = null; at = 0; }); if (watcher.unref) watcher.unref(); } catch (e) { watcher = null; }
+    }
+    if (!all || !watcher || now - at > every) { dirty.clear(); all = readEnded(dir, now); at = now; return all; }
+    for (const n of [...dirty]) { dirty.delete(n); if (n.endsWith('.json')) one(n, now); }
+    return all;
+  };
+  read.close = () => { try { if (watcher) watcher.close(); } catch (e) {} watcher = null; };
+  return read;
 }
 
 const VERSION = require('./.claude-plugin/plugin.json').version;
@@ -377,8 +405,11 @@ function createServer(token, port, deps = {}) {
   // Sessions taken off the list by hand. Kept in the database, so it survives a restart.
   const hiddenList = deps.hidden ? deps.hidden.get : () => { const v = config.value('hiddenSessions', []); return Array.isArray(v) ? v : []; };
   // After how many days with nothing new a session leaves the list by itself (the setting autoHideDays; 0 = never).
+  // How often each slash command was used on this computer (lib/cmduse.js): the list of commands puts those first.
+  const cmdUse = deps.cmdUse || CmdUse.create({ projectsDir: S.DEFAULTS.projectsDir });
   const TEXT_SIZES = [1, 1.15, 1.3];   // public/index.html SIZES
-  const textSize = () => { const v = config.value('textSize', null); return TEXT_SIZES.includes(v) ? v : null; };
+  // Two sizes: one for a computer (textSize), one for a touch screen - a phone, a tablet (textSizeTouch). Not set: null.
+  const textSize = (key = 'textSize') => { const v = config.value(key, null); return TEXT_SIZES.includes(v) ? v : null; };
   // Settings chosen on the page and kept in the board's database (never written into the program): what each may be,
   // and its value when nothing was chosen. Read on every use, so a change counts at once.
   const isBool = (v) => typeof v === 'boolean';
@@ -396,6 +427,9 @@ function createServer(token, port, deps = {}) {
     // the one in collab/config.json), and whether board conversations are switched to bypass when they join
     collabNamePattern: { def: '', ok: (v) => typeof v === 'string' && v.length <= 60 && !/[\r\n]/.test(v) && (v === '' || v.includes('{id}')), why: '要包含 {id}，60 字以內、一行' },
     collabBypass: { def: true, ok: isBool, why: '只能是開或關' },
+    // the look (外觀 A-D), one for a phone and one for everything else; '' = not chosen: a phone D, the rest B
+    skin: { def: '', ok: (v) => ['', 'a', 'b', 'c', 'd'].includes(v), why: '只能是 a、b、c、d 或空白（用預設）' },
+    skinPhone: { def: '', ok: (v) => ['', 'a', 'b', 'c', 'd'].includes(v), why: '只能是 a、b、c、d 或空白（用預設）' },
     decideModel: { def: 'haiku', ok: (v) => typeof v === 'string' && /^(haiku|sonnet|opus|fable|claude-[a-z0-9.-]{1,40})$/.test(v), why: '模型只能是 haiku、sonnet、opus、fable 或 claude- 開頭的名稱' },
   };
   const pref = (k) => { const v = config.value(k, PREFS[k].def); return PREFS[k].ok(v) ? v : PREFS[k].def; };
@@ -565,13 +599,14 @@ function createServer(token, port, deps = {}) {
   const defaultMode = () => { if (Date.now() - dm.at > 60000) { let v = ''; try { const j = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8')); v = String((j.permissions && j.permissions.defaultMode) || ''); } catch (e) {} dm = { at: Date.now(), v }; } return dm.v; };
   const find = (sid) => { fresh(); return sessions().find((x) => x.sessionId === sid); };
   let looking = false;
+  const ended = deps.readEnded || endedReader();
   const watch = async () => {
     if (!keeper || looking) return;
     looking = true;
     try {
       const open = sessions().filter(keepable);
       const parked = new Set(open.filter((s) => s.parked).map((s) => s.sessionId));
-      const need = keeper.observe(open.map((s) => ({ sessionId: s.sessionId, cwd: s.cwd, title: s.title, pid: s.pid })), Date.now(), readEnded());
+      const need = keeper.observe(open.map((s) => ({ sessionId: s.sessionId, cwd: s.cwd, title: s.title, pid: s.pid })), Date.now(), ended());
       if (need.length) {
         // A parked session's process is the background worker, not what you typed to start it: it comes back the way
         // sessions in its folder are started. The others come back with their own command line.
@@ -976,7 +1011,7 @@ function createServer(token, port, deps = {}) {
         // opened before the file changed sees a different value and reloads
         // itself; otherwise it keeps running old code until someone presses F5
         // (which is how "the links still are not clickable" happened, 2026-11-13).
-        if (p === '/api/sessions') return send(res, 200, { now: Date.now(), version: VERSION, page: pageTag(), features: { platform: process.platform, textSize: textSize(), prefs: prefs(), fork: config.value('showFork', false) === true, goal2: isOn('goal2') && !!goal2.root(), integrations: Object.fromEntries(Object.entries(integrationsNow()).map(([k, x]) => [k, x.on])) }, sessions: sessions(), inbox: inbox && inbox.enabled() ? inbox.inbox.counts() : null /* null: the inbox is off, the page does not show it */, noticeOpen: notices.openCount() + schedules.noticeCount(), schedNotices: schedules.noticeCount() });
+        if (p === '/api/sessions') return send(res, 200, { now: Date.now(), version: VERSION, page: pageTag(), features: { platform: process.platform, textSize: textSize(), textSizeTouch: textSize('textSizeTouch'), prefs: prefs(), fork: config.value('showFork', false) === true, goal2: isOn('goal2') && !!goal2.root(), integrations: Object.fromEntries(Object.entries(integrationsNow()).map(([k, x]) => [k, x.on])) }, sessions: sessions(), inbox: inbox && inbox.enabled() ? inbox.inbox.counts() : null /* null: the inbox is off, the page does not show it */, noticeOpen: notices.openCount() + schedules.noticeCount(), schedNotices: schedules.noticeCount() });
         if (p === '/api/inbox') {
           if (!inbox) return send(res, 200, { threads: [], status: null });
           return send(res, 200, { threads: inbox.inbox.threads({ status: q.get('status') || '', triage: q.get('triage') || '', open: q.get('open') === '1', source: q.get('source') || '', q: String(q.get('q') || '').slice(0, 100), limit: 200 }), status: inbox.status(), routes: inbox.inbox.routes() });
@@ -1101,8 +1136,9 @@ function createServer(token, port, deps = {}) {
           const c = channels.get(String(q.get('sid') || ''));
           if (!c) return send(res, 404, { commands: [], error: '這不是看板裡的對話' });
           const list = await channels.commandsFor(c.cwd);
+          if (cmdUse.started() && !cmdUse.countedAt()) cmdUse.refresh();   // the board running (not a test), not counted yet: started now, in the background
           // the board's own: Claude Code has no /btw when it runs without a terminal (lib/aside.js)
-          return send(res, 200, Object.assign({}, list, { commands: [{ name: 'btw', description: '順便問一句：用這個對話的內容回答，但不記進對話（由看板提供）', argumentHint: '<要問的話>' }].concat((list.commands || []).filter((x) => x.name !== 'btw')) }));
+          return send(res, 200, Object.assign({}, list, { commands: [{ name: 'btw', description: '順便問一句：用這個對話的內容回答，但不記進對話（由看板提供）', argumentHint: '<要問的話>' }].concat((list.commands || []).filter((x) => x.name !== 'btw')), usage: cmdUse.usage() }));
         }
         if (p === '/api/warroom') {
           const now = Date.now();
@@ -1434,7 +1470,7 @@ function createServer(token, port, deps = {}) {
         const given = Object.keys(PREFS).filter((k) => Object.prototype.hasOwnProperty.call(body, k));
         const wrong = given.find((k) => !PREFS[k].ok(body[k]));
         if (wrong) return send(res, 400, { ok: false, error: wrong + '：' + PREFS[wrong].why });
-        if (body.textSize !== undefined && !TEXT_SIZES.includes(Number(body.textSize))) return send(res, 400, { ok: false, error: '字級只能是 ' + TEXT_SIZES.join('、') });
+        for (const k of ['textSize', 'textSizeTouch']) if (body[k] !== undefined && !TEXT_SIZES.includes(Number(body[k]))) return send(res, 400, { ok: false, error: '字級只能是 ' + TEXT_SIZES.join('、') });
         if (body.autoHideDays !== undefined) { const n = Number(body.autoHideDays); if (!Number.isInteger(n) || n < 0 || n > 365) return send(res, 400, { ok: false, error: '天數要是 0 到 365 的整數（0 表示不自動隱藏）' }); }
         const patch = {};
         for (const k of ['pickerStartDir', 'autoRestore', 'autoContinue']) if (Object.prototype.hasOwnProperty.call(body, k)) patch[k] = body[k];
@@ -1459,7 +1495,7 @@ function createServer(token, port, deps = {}) {
           config.setValue('remoteTailscale', body.remoteTailscale);
         }
         // (the values below were checked at the top of this handler)
-        if (r.ok && body.textSize !== undefined) config.setValue('textSize', Number(body.textSize));
+        for (const k of ['textSize', 'textSizeTouch']) if (r.ok && body[k] !== undefined) config.setValue(k, Number(body[k]));
         if (r.ok && given.length) { for (const k of given) config.setValue(k, body[k]); fresh(); }
         if (r.ok && body.autoHideDays !== undefined) { config.setValue('autoHideDays', Number(body.autoHideDays)); fresh(); }
         // Notifications: the setting, and the address scheme a click on one goes through.
@@ -1735,6 +1771,29 @@ function createServer(token, port, deps = {}) {
     return { ok: true, listening: true, ip: i.ip, name: i.name };
   };
   server.remoteState = () => (remote ? { listening: true, ip: remote.ip, name: remote.name, port } : { listening: false, port });
+  // Tailscale may not be up yet when the board starts (at sign-in it often is not): while the setting is on and the board
+  // is not listening there, it tries again every `every` ms, so it is reachable as soon as Tailscale is. `say` gets a line
+  // when the outcome changes. -> a function that runs one try now (and returns its promise)
+  let remoteTimer = null;
+  server.cmdUse = cmdUse;
+  server.on('close', () => { if (ended.close) ended.close(); });
+  server.keepRemote = (every, say) => {
+    let said = '', busy = false;
+    const once = async () => {
+      if (busy || config.value('remoteTailscale', false) !== true || remote) return;
+      busy = true;
+      try {
+        const x = await server.setRemote(true);
+        const line = x.ok ? `  and on Tailscale: http://${x.ip}:${port}/ (your own devices only)` : '  Tailscale: not listening yet - ' + x.error + ' (trying again every ' + Math.round(every / 1000) + ' seconds)';
+        if (line !== said) { said = line; if (say) say(line); }
+      } catch (e) {} finally { busy = false; }
+    };
+    if (remoteTimer) clearInterval(remoteTimer);
+    remoteTimer = setInterval(once, every); if (remoteTimer.unref) remoteTimer.unref();
+    once();
+    return once;
+  };
+  server.on('close', () => { if (remoteTimer) { clearInterval(remoteTimer); remoteTimer = null; } });
   server.on('close', () => { if (remote) { try { remote.server.close(); } catch (e) {} remote = null; } });
   return server;
 }
@@ -1752,8 +1811,9 @@ if (require.main === module) {
   try { if (config.value('notify', true) !== false) Notify.register(__dirname); } catch (e) {}
   server.listen(port, HOST, () => {
     console.log(`session-board ${VERSION} listening on http://${HOST}:${port}/?t=${token}`);
-    if (config.value('remoteTailscale', false) === true) server.setRemote(true).then((x) => console.log(x.ok ? `  and on Tailscale: http://${x.ip}:${port}/ (your own devices only)` : '  Tailscale: not listening - ' + x.error)).catch(() => {});
+    server.keepRemote(30000, (line) => console.log(line));
+    server.cmdUse.start();   // the commands you use most: counted in the background every 15 minutes
   });
 }
 
-module.exports = { sendPage, createServer, nextSteps, terminalArgs, readEnded, inboxThreadText, getToken, portFromArgs, DEFAULT_PORT, HOST, DATA_DIR, TOKEN_FILE };
+module.exports = { sendPage, createServer, nextSteps, terminalArgs, readEnded, endedReader, inboxThreadText, getToken, portFromArgs, DEFAULT_PORT, HOST, DATA_DIR, TOKEN_FILE };
