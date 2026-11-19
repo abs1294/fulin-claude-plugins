@@ -2,7 +2,9 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
-## [2.7.1] - 2026-11-17
+## [2.7.2] - 2026-11-19
+### Changed
+- SKILL.md 第三步之三「格式」區：新增「`<th>`／`<td>` 上允許 `style="padding:上下px 左右px"`」為 `style=` 禁令的唯一例外，並固化 fulin 認可的表格樣式（`<table border="1" cellspacing="0">` + 每個 `<th>`／`<td>` 加 `style="padding:3px 8px"`）。由來（2026-11-19 擁樂三案款項信草稿）：使用者先問「表格的框線呢」（純 `<table>` 無框線像對齊散文），加 `cellpadding="8"` 後又說「字跟框線隔很遠」（`cellpadding` 四邊同寬、Gmail 顯示偏鬆散）；最終指定「左右 padding 8、上下 3」——而 HTML 的 `cellpadding` 無法分左右上下，只能用 CSS `padding` 兩個值的簡寫。只開放 `padding` 一個屬性、只開放在 `<th>`／`<td>` 上；內文段落標籤仍一律禁 `style`（原因不變：使用者在 Gmail 編輯器修字會跑版）。
 ### Fixed
 - attach-handback-gate 誤擋：只靠「拖進／拖入」命中、沒有指名誰動手的句子，要同句有信件或附檔語境才算。由來（2026-11-16）：描述產品行為的「拖進不是圖片的檔案會被擋下」被當成叫使用者自己附檔。信件語境＝句子本身有信件字眼（認得「信裡／信中／寄」這類短說法；單一個「信」字不算，相信、信心也有），或這一回合真的動過 Gmail（Gmail 的工具，或瀏覽器開著 mail.google.com；別的服務的同名工具不算）。
 

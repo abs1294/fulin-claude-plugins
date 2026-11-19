@@ -463,11 +463,38 @@ exit 1＝有硬缺陷要改；exit 0 仍要逐條判斷「提醒」；exit 2＝�
 > PostToolUse 當場提醒了「白名單以外：<p>」卻照樣交付，同一 session 這句提醒出現 9 次都沒被理——
 > 提醒擋不住就硬擋。其餘白名單外的標籤仍由 PostToolUse 閘提醒。
 >
-> **禁止**：`class=`、`style=`、`<span>`、`<div>`（外層那一個除外）、任何 CSS。
+> **禁止**：`class=`、`<span>`、`<div>`（外層那一個除外）、任何內文元素上的 `style=`、任何 CSS。
+>
+> **`style=` 的唯一例外：`<th>`／`<td>` 上允許 `style="padding:上下px 左右px"`**（例如 `padding:3px 8px`）。
+> HTML 的 `cellpadding` 屬性是**單一值、所有邊同寬**，無法分左右上下；要「上下窄、左右寬」的欄距
+> 只能靠這條 CSS。只允許 `padding` 一個屬性、只允許寫在 `<th>`／`<td>` 上；內文段落的 `<b>`／`<li>`／
+> `<a>` 等一律不得加 `style`（那會讓使用者在 Gmail 編輯器修字時跑版）。
 >
 > 實測（2026-09-16 建草稿讀回比對位元組）：`<br>`／`<b>`／`<i>`／`<ul>`／`<li>`／`<table>`
 > 送進去讀回來**一個位元組都沒變**；而 `<p>` 之間留空行會讀回 `</p>\r\n\r\n<p>`，
 > 也就是收件者看到的雙倍行距。
+>
+> **fulin 認可的表格樣式**（2026-11-19 使用者裁定）：
+> ```html
+> <table border="1" cellspacing="0">
+>   <tr>
+>     <th style="padding:3px 8px">欄 1</th>
+>     <th style="padding:3px 8px">欄 2</th>
+>   </tr>
+>   <tr>
+>     <td style="padding:3px 8px">內容</td>
+>     <td style="padding:3px 8px">內容</td>
+>   </tr>
+> </table>
+> ```
+> - `<table border="1" cellspacing="0">`：畫細邊框、格線不重疊。
+> - 每個 `<th>`／`<td>` 都要加 `style="padding:3px 8px"`（上下 3px、左右 8px）。
+> - **為什麼不用 `cellpadding="4"`**：那是四邊同寬，Gmail 顯示會覺得「字跟框線隔很遠、鬆散」
+>   （2026-11-19 實案，使用者原話「padding 有點怪，字跟框線隔很遠」）。上下窄、左右寬的視覺
+>   比較像人手排的表格。
+> - **為什麼不用無框表格**：純 `<table>` 沒 border 時 Gmail 顯示是「對齊的散文」，三案看起來
+>   不像表格（2026-11-19 實案，使用者原話「表格的框線呢」）。
+> - 要再調就改 padding 的兩個數值（例如上下 2 左右 10），不要退回 `cellpadding`。
 
 **寫法範例**（含指令、清單、表格的完整一封）：
 
