@@ -4157,8 +4157,8 @@ function drawFoot() {
       consume(); ta.value = ''; fit(); sendBtn.disabled = true;
       const col = $('col'), stick = nearBottom();
       const wait = shellCard({ command, note: '執行中…（最長 2 分鐘；沒有鍵盤輸入）' }); if (col) { col.append(wait); if (stick) toBottom(); }
-      sendingNow.add(s.sessionId); const sentAt = saveNo;
-      const settled = await draftSettled(); s.draft = '';
+      sendingNow.add(s.sessionId); const sentAt = saveNo; s.draft = '';   // (before waiting, as a send does: words typed meanwhile are not cleared after)
+      const settled = await draftSettled();
       let r; try { r = await api('/api/shell', { sessionId: s.sessionId, command }); } catch (e) { r = { ok: false, data: { error: '看板沒有回應' } }; }
       sendingNow.delete(s.sessionId);
       if (r.ok) afterSent(s, sentAt, settled);   // words typed while it ran stay the draft; the words run do not
