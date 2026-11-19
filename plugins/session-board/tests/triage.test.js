@@ -73,7 +73,9 @@ test('a pass judges what is waiting, stores it, and asks again only when somethi
   assert.ok(Math.abs(all.cost - 0.02) < 1e-9);
   let c = inbox.counts();
   assert.deepStrictEqual([c.valid, c.invalid, c.pending], [4, 11, 0]);        // todo + question of each pass; the rest
-  assert.deepStrictEqual(inbox.threads({ triage: 'valid', open: true }).map((t) => [t.triage, t.triage_conf]), [['todo', 90], ['todo', 90], ['question', 80], ['question', 80]]);   // the surest first
+  const valid = inbox.threads({ triage: 'valid', open: true });
+  assert.deepStrictEqual(valid.map((t) => [t.triage, t.triage_conf]).sort(), [['question', 80], ['question', 80], ['todo', 90], ['todo', 90]]);
+  assert.ok(valid.every((t, i) => !i || valid[i - 1].last_activity >= t.last_activity), 'the newest first, however sure the judgement was');
   assert.strictEqual((await T.runAll(file, { run })).passes, 0);              // nothing new: no call
   assert.strictEqual(calls.length, 2);
   // Your own reply does not ask for a new judgement; a new message from them does, for that thread only.

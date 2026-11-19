@@ -7,7 +7,7 @@
  *   --skip-probe：跳過 hooks/templates 的 probe-hooks 全量（兩輪約 10 分鐘），只供開發中快速迭代；完成驗收一律不跳。
  * 結束碼：0＝全數通過；1＝有失敗。最後一行「合計 PASS n / FAIL n」。
  *
- * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、transcript-io、review-collect、ledger-diff、integration、probe
+ * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、transcript-io、review-collect、flow-current、ledger-diff、integration、probe
  * 不在這裡的：真實端到端（claude -p 跑一次完整 /harness:init），只跑一次當驗收證據，結論記在 docs/learning-loop-design.md §11。
  */
 const fs = require('fs');
@@ -737,6 +737,40 @@ if (want('review-collect')) {
   const r = node([rc], { timeout: 120000 });
   for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('review-collect', m[1] === 'PASS', m[2]); }
   check('review-collect', r.status === 0, `review-collect.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
+}
+
+// ── flow-current：健檢收尾的「目前的 harness 流程圖」完整性檢查（check-flow-diagram.js current）──
+//    要上圖的清單由現況推出：settings 接上的 hook（沒接上的不算）、agents、規則檔、skill、harness/*.md、CLAUDE.md；不需要 init 的快照
+if (want('flow-current')) {
+  const d = tmp('flow-current-');
+  try {
+    const put = (rel, t) => { const p = path.join(d, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, t); };
+    put('CLAUDE.md', '# x\n');
+    put('.claude/settings.json', JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-a.js"' }] }] } }));
+    put('.claude/hooks/guard-a.js', '//');
+    put('.claude/hooks/not-wired.js', '//');
+    put('.claude/agents/qa-engineer.md', '#');
+    put('.claude/harness/02-model-dispatch.md', '#');
+    put('.claude/harness/reviews/2026-11-19.md', '#');
+    put('.claude/skills/bug-hunt/SKILL.md', '#');
+    put('.claude/rules/api.md', '#');
+    const CFD = path.join(INIT, 'scripts', 'check-flow-diagram.js');
+    const empty = path.join(d, 'empty.json'); fs.writeFileSync(empty, '{"nodes":[],"edges":[]}');
+    const r0 = node([CFD, 'current', d, empty]);
+    const listed = (r0.stdout.match(/^  現有  (.+)$/mg) || []).map((l) => l.replace(/^  現有  /, '').trim()).sort();
+    const wantList = ['.claude/agents/qa-engineer.md', '.claude/harness/02-model-dispatch.md', '.claude/hooks/guard-a.js', '.claude/rules/api.md', '.claude/settings.json', '.claude/skills/bug-hunt/SKILL.md', 'CLAUDE.md'];
+    check('flow-current', r0.status === 1 && JSON.stringify(listed) === JSON.stringify(wantList), `空圖 exit 1、清單是現況推出的 7 項（沒接上的 hook、reviews/ 不在內）：exit ${r0.status}，實得 ${JSON.stringify(listed)}`);
+    const labels = ['CLAUDE.md', 'settings.json', 'guard-a.js', 'qa-engineer', '02-model-dispatch', 'bug-hunt/SKILL.md', 'api.md'];
+    const full = { nodes: labels.map((l, i) => ({ id: 'n' + i, label: l })), edges: labels.slice(1).map((l, i) => ({ from: 'n0', to: 'n' + (i + 1) })) };
+    const fj = path.join(d, 'full.json'); fs.writeFileSync(fj, JSON.stringify(full));
+    const r1 = node([CFD, 'current', d, fj]);
+    check('flow-current', r1.status === 0, `每項都是有線的節點 → exit 0：exit ${r1.status}${r1.status ? '\n' + r1.stdout.slice(-600) : ''}`);
+    const part = { nodes: full.nodes.filter((n) => n.label !== 'guard-a.js'), edges: full.edges.filter((e) => e.to !== 'n2') };
+    const pj = path.join(d, 'part.json'); fs.writeFileSync(pj, JSON.stringify(part));
+    const r2 = node([CFD, 'current', d, pj]);
+    check('flow-current', r2.status === 1 && /guard-a/.test(r2.stdout) && /有 1 項不是圖上的節點/.test(r2.stdout), `漏畫接上的 hook → exit 1 並點名：exit ${r2.status}`);
+    check('flow-current', node([CFD, 'current', d]).status === 2, '沒給圖 → exit 2（用法錯）');
+  } finally { rm(d); }
 }
 
 // ── ledger-diff：修正回流帳本的機械讀者（抽帳本宣稱同文的檔名、比對實例與範本）自測 ──

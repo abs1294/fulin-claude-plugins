@@ -127,7 +127,7 @@ class Inbox {
     return this.db.prepare(`SELECT t.*, (SELECT count(*) FROM inbox_message m WHERE m.thread_id = t.thread_id) AS messages,
         (SELECT substr(m.body, 1, 160) FROM inbox_message m WHERE m.thread_id = t.thread_id ORDER BY m.ts DESC LIMIT 1) AS latest,
         CASE WHEN t.last_in_at IS NOT NULL AND t.last_in_at > coalesce(t.seen_at, 0) THEN 1 ELSE 0 END AS unread
-      FROM inbox_thread t ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${o.triage === 'valid' ? 't.triage_conf DESC, ' : ''}t.last_activity DESC LIMIT ?`).all(...args, Math.min(Number(o.limit) || 100, 500));
+      FROM inbox_thread t ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY t.last_activity DESC LIMIT ?`)   /* newest first on every tab (asked 2026-11-19: ordering by how sure the triage was put an 11/10 thread above an 11/18 one) */.all(...args, Math.min(Number(o.limit) || 100, 500));
   }
   counts() {
     const out = { new: 0, routed: 0, done: 0, unread: 0, bySource: {}, valid: 0, invalid: 0, pending: 0 };

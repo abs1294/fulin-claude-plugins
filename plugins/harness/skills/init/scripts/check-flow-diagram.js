@@ -19,6 +19,14 @@
  *       另檢查每張 JSON 圖的每個節點都至少有一條線——沒有線的節點看不出它跟流程哪一步有關
  *       （使用者指出過「知識筆記的讀跟寫都沒有畫出來」）。
  *       也檢查同一張圖裡同一個檔案（agent、hook、文件）只有一個節點。
+ *   node check-flow-diagram.js current <落點目錄> <圖1.json> [<圖2.json> ...]
+ *       /harness:review 收尾畫「目前的 harness 流程圖」時跑。不比快照（健檢時沒有 init 的快照，
+ *       也不該只畫變動）；要上圖的清單是這個專案**現在實際在用的** harness 檔：
+ *       settings.json 本身與它接上的每支 hook 腳本（只算專案裡的檔；沒接上的 hook、hooks/cases/ 這類
+ *       不會被 Claude Code 執行的檔不在清單，要畫也可以用目錄節點）、.claude/agents/*.md、
+ *       .claude/rules/ 底下的規則檔、.claude/skills/<名稱>/SKILL.md、.claude/harness/*.md（不含
+ *       reviews/、learning/ 等子目錄）、CLAUDE.md。清單由現況推出，不寫死檔名。節點有沒有線、
+ *       同一張圖同一檔只有一個節點，判準與 check 相同。
  *
  * 怎樣算「是節點」：
  *   - JSON：只看 nodes[].label。寫在卡片（cards）、線、sublabel 都不算——卡片是圖外的清單，
@@ -65,8 +73,8 @@ const isSelfOutput = r => /^\.claude\/harness\/(flow(-\d+)?\.(json|html|md)|inst
 
 const die = (msg, code = 2) => { console.error(msg); process.exit(code); };
 const [, , cmd, rootArg, ...diagramArgs] = process.argv;
-const USAGE = '用法：\n  node check-flow-diagram.js snapshot <落點目錄>\n  node check-flow-diagram.js check <落點目錄> <圖1.json> [<圖2.json> ...]';
-if (!rootArg || !['snapshot', 'check'].includes(cmd) || (cmd === 'check' && !diagramArgs.length)) die(USAGE);
+const USAGE = '用法：\n  node check-flow-diagram.js snapshot <落點目錄>\n  node check-flow-diagram.js check <落點目錄> <圖1.json> [<圖2.json> ...]\n  node check-flow-diagram.js current <落點目錄> <圖1.json> [<圖2.json> ...]';
+if (!rootArg || !['snapshot', 'check', 'current'].includes(cmd) || (cmd !== 'snapshot' && !diagramArgs.length)) die(USAGE);
 
 const root = path.resolve(rootArg);
 if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) die(`落點不是目錄：${root}`);
@@ -214,8 +222,31 @@ if (cmd === 'snapshot') {
   process.exit(0);
 }
 
+// ---- current：這個專案現在實際在用的 harness 檔（用法見檔頭）----
+function currentHarnessFiles() {
+  const out = new Set();
+  const inside = (p) => { const r = path.relative(root, p); return r && !r.startsWith('..') && !path.isAbsolute(r); };
+  const add = (p) => { try { if (inside(p) && fs.statSync(p).isFile()) out.add(path.relative(root, p).split(path.sep).join('/')); } catch {} };
+  const ls = (d) => { try { return fs.readdirSync(d).map((n) => path.join(d, n)); } catch { return []; } };
+  add(path.join(root, 'CLAUDE.md'));
+  const settings = path.join(root, '.claude', 'settings.json');
+  add(settings);
+  let j = null;
+  try { j = JSON.parse(fs.readFileSync(settings, 'utf8').replace(/^﻿/, '')); } catch {}
+  const SCRIPT = /"([^"]+\.(?:m?js|cjs|py|sh|ps1))"|'([^']+\.(?:m?js|cjs|py|sh|ps1))'|([^"'\s]+\.(?:m?js|cjs|py|sh|ps1))/;
+  for (const arr of Object.values((j && j.hooks) || {})) for (const g of arr || []) for (const h of (g && g.hooks) || []) {
+    const m = String((h && h.command) || '').match(SCRIPT);
+    if (m) add(path.resolve(root, (m[1] || m[2] || m[3]).replace(/\$\{?CLAUDE_PROJECT_DIR\}?/, root)));
+  }
+  for (const f of ls(path.join(root, '.claude', 'agents'))) if (/\.md$/.test(f)) add(f);
+  for (const f of ls(path.join(root, '.claude', 'harness'))) if (/\.md$/.test(f)) add(f);
+  for (const d of ls(path.join(root, '.claude', 'skills'))) add(path.join(d, 'SKILL.md'));
+  for (const f of L.listRuleFiles(root)) add(path.join(root, f));
+  return [...out].sort();
+}
+
 // ---- check ----
-const snap = L.readSnapshot(root);
+const snap = cmd === 'current' ? { takenAt: '（current：不比快照）', files: {} } : L.readSnapshot(root);
 if (!snap) { die(`找不到這個落點的快照（${snapPath}）。快照要在 Phase 0 動任何檔案之前拍：\n  node check-flow-diagram.js snapshot "${root}"\n事後補拍沒有意義——那時 init 的改動已經在裡面了，比不出差異。`); }
 
 const labels = [];
@@ -256,7 +287,8 @@ for (const f of diagramArgs) {
   }
 }
 
-const { files: now, cacheCount, unreadable: nowUnreadable, links, tooLarge } = scan();
+// current 不比對，不必走訪整個專案
+const { files: now, cacheCount, unreadable: nowUnreadable, links, tooLarge } = cmd === 'current' ? { files: {}, cacheCount: 0, unreadable: [], links: [], tooLarge: [] } : scan();
 // 經哪個專案外連結走到（巢狀連結取最長的那段）
 const viaWhich = p => links.filter(l => p === l.rel || p.startsWith(`${l.rel}/`)).sort((a, b) => b.rel.length - a.rel.length)[0];
 const before = snap.files;
@@ -275,18 +307,19 @@ const collapsed = [...new Set([...Object.keys(before), ...Object.keys(now)])]
 const underCollapsed = p => collapsed.some(d => p !== d && p.startsWith(d));
 const seenSide = (o, d) => has(o, d) || Object.keys(o).some(k => k.startsWith(d));
 const changes = [];
-for (const d of collapsed) {
+if (cmd === 'current') for (const p of currentHarnessFiles()) changes.push({ p, kind: '現有' });
+else for (const d of collapsed) {
   if (isUnknown(d) || underCollapsed(d)) continue; // 外層已收成一項，裡層不另報
   const b = seenSide(before, d), n = seenSide(now, d);
   if (b && n) { if (!has(before, d) || !has(now, d) || before[d] !== now[d]) changes.push({ p: d, kind: '修改' }); }
   else changes.push({ p: d, kind: n ? '新增' : '刪除' });
 }
-for (const [p, h] of Object.entries(now)) {
+if (cmd !== 'current') for (const [p, h] of Object.entries(now)) {
   if (isUnknown(p) || collapsed.includes(p) || underCollapsed(p)) continue;
   if (!has(before, p)) changes.push({ p, kind: '新增' });
   else if (before[p] !== h) changes.push({ p, kind: '修改' });
 }
-for (const p of Object.keys(before))
+if (cmd !== 'current') for (const p of Object.keys(before))
   if (!has(now, p) && !isUnknown(p) && !collapsed.includes(p) && !underCollapsed(p)) changes.push({ p, kind: '刪除' });
 changes.sort((a, b) => a.p.localeCompare(b.p));
 
@@ -319,7 +352,8 @@ rest.forEach((c, i) => {
 
 const count = k => changes.filter(c => c.kind === k).length;
 console.log(`落點：${root}\n快照時間：${snap.takenAt}`);
-console.log(`init 之後的變動：新增 ${count('新增')}、修改 ${count('修改')}、刪除 ${count('刪除')}，共 ${changes.length} 項${cacheCount ? `（另排除執行測試產生的快取目錄 ${cacheCount} 個）` : ''}`);
+if (cmd === 'current') console.log(`目前在用的 harness 檔：共 ${changes.length} 項（settings.json 與它接上的 hook、agents、規則檔、專案 skill、.claude/harness/*.md、CLAUDE.md）`);
+else console.log(`init 之後的變動：新增 ${count('新增')}、修改 ${count('修改')}、刪除 ${count('刪除')}，共 ${changes.length} 項${cacheCount ? `（另排除執行測試產生的快取目錄 ${cacheCount} 個）` : ''}`);
 for (const c of changes) {
   const d = coveredByDir(c);
   const lk = viaWhich(c.p);

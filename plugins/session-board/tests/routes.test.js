@@ -979,10 +979,29 @@ test('inbox', async () => {
   bare.close(); if (bare.closeAllConnections) bare.closeAllConnections();
 });
 
+test('a file uploaded for a message: kept under the board\'s folder, never over another, its name only a name', async () => {
+  const a = await post('/api/upload', { name: '..\\..\\報價 v2.pdf', data: Buffer.from('one').toString('base64') });
+  assert.strictEqual(a.status, 200);
+  assert.ok(a.json.path.startsWith(path.join(CLAUDE, 'session-board', 'uploads') + path.sep), 'under the board\'s own folder: ' + a.json.path);
+  assert.strictEqual(path.basename(a.json.path), '報價 v2.pdf', 'what was a path in the name is gone');
+  assert.strictEqual(fs.readFileSync(a.json.path, 'utf8'), 'one');
+  const b = await post('/api/upload', { name: '報價 v2.pdf', data: Buffer.from('two').toString('base64') });
+  assert.strictEqual(path.basename(b.json.path), '報價 v2 (2).pdf'); assert.strictEqual(fs.readFileSync(a.json.path, 'utf8'), 'one', 'the first one is still there');
+  assert.strictEqual((await post('/api/upload', { name: 'x.txt', data: '' })).status, 400, 'empty');
+  assert.strictEqual((await post('/api/upload', { name: 'big.bin', data: Buffer.alloc(31 * 1024 * 1024).toString('base64') })).json.error, '檔案太大（上限 30 MB）');
+});
+
 test('old conversations: listed, opened on the board or in a terminal', WIN_ONLY, async () => {
   const p = await get('/api/past'); assert.strictEqual(p.status, 200);
   const ids = JSON.stringify(p.json); assert.ok(ids.includes(PAST) && ids.includes(PAST2)); assert.ok(!ids.includes(T1), 'what is open now is not an old conversation');
   assert.ok(!JSON.stringify((await get('/api/past?q=' + enc('沒有這種字'))).json).includes(PAST));
+  // which ids written in a page are conversations here: whole, or their first 8 characters; open or not; others left out
+  const LONE = 'abcdef12-0000-4000-8000-000000000077'; transcript(LONE, WORK, Date.now() - 1800000);
+  const w = await post('/api/past/which', { ids: [PAST, T1, 'ABCDEF12', '00000000', uuid(98), '1AC14E77-02E7-4E5D-B744-2EB1AE5198B7', 'zz'] });
+  assert.strictEqual(w.status, 200);
+  assert.deepStrictEqual(Object.keys(w.json.found).sort(), [PAST, T1, 'abcdef12'].sort(), 'whole ids and a short one that fits one; "00000000" fits four: none');
+  assert.deepStrictEqual([w.json.found[PAST].open, w.json.found[T1].open, w.json.found.abcdef12.sessionId], [false, true, LONE]);
+  assert.strictEqual(w.json.found[PAST].cwd, WORK, 'its folder, from its record');
   assert.strictEqual((await post('/api/past/open', { sessionId: uuid(98) })).status, 404);
   assert.strictEqual((await post('/api/past/open', { sessionId: T1 })).status, 409, 'it is open already');
   const n = did.length;

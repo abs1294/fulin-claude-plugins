@@ -163,6 +163,12 @@ try {
   });
   sess('N1', 'cli', [UU(evalPrompt('bug-a')), UU('這是我手貼的審查請求，請先確認再回覆')]);
   sess('N2', 'sdk-cli', [UU('整理今天的待辦清單')]);
+  // ── 健檢自己在背景起的 /doctor、/claude-api prompt-audit（claude -p）：略過；對照組 H3＝使用者在互動 session 親手打 /doctor（照算）
+  //    逐字紀錄的寫法照 2026-11-19 實測（content 是字串，<command-message> 在前）
+  const slash = (name, a) => '<command-message>' + name + '</command-message>\n<command-name>/' + name + '</command-name>' + (a ? '\n<command-args>' + a + '</command-args>' : '');
+  sess('H1', 'sdk-cli', [UU(slash('doctor'))]);
+  sess('H2', 'sdk-cli', [UU(slash('claude-api', 'prompt-audit'))]);
+  sess('H3', 'cli', [UU(slash('doctor'))]);
 
   const outFile = path.join(tdir, 'out.json');
   const r = spawnSync(process.execPath, [SCRIPT, root, '--since', '2026-10-01', '--transcripts', tdir, '--out', outFile], { encoding: 'utf8' });
@@ -250,14 +256,18 @@ try {
   const evalNote = (j.notes || []).find((s) => /審查評測集/.test(s)) || '';
   check(/session 3 個/.test(evalNote) && /sdk-cli/.test(evalNote) && /E1/.test(evalNote) && /E2/.test(evalNote) && /E3/.test(evalNote) && !/N1|N2/.test(evalNote),
     '17 notes 記略過評測 session 的數量、依據與編號', '實得 ' + show(evalNote));
-  check(j.summary.sessions === 3 && j.C.managedDispatch === 1,
-    '17 評測 session 不進 A 的 session 數與 B 的派工；N1／N2 照算（S1+N1+N2＝3）', 'sessions ' + j.summary.sessions + '；managedDispatch ' + j.C.managedDispatch);
+  check(j.summary.sessions === 4 && j.C.managedDispatch === 1,
+    '17 評測 session 不進 A 的 session 數與 B 的派工；N1／N2／H3 照算（S1+N1+N2+H3＝4）', 'sessions ' + j.summary.sessions + '；managedDispatch ' + j.C.managedDispatch);
+  // 21 健檢背景跑的 /doctor、/claude-api prompt-audit 略過並點名；使用者親手打的 /doctor（cli）不略過
+  const hNotes = (j.notes || []).filter((s) => /健檢自己在背景跑/.test(s));
+  check(hNotes.length === 2 && hNotes.some((s) => /\/doctor session：H1/.test(s)) && hNotes.some((s) => /\/claude-api session：H2/.test(s)) && !hNotes.some((s) => /H3/.test(s)),
+    '21 健檢背景跑的 /doctor、prompt-audit 略過；親手打的 /doctor 照算', '實得 ' + show(hNotes));
   const evalGrams = (j.G.repeatedInstructions || []).filter((x) => /審查這份改動|請先cat|不得再轉派|親自執行/.test(x.phrase) || (x.at || []).some((a) => /^E\d/.test(a)));
   check(evalGrams.length === 0, '17 G repeatedInstructions 沒有評測 prompt 的片語', '實得 ' + show(evalGrams));
   const incl = path.join(tdir, 'out-incl.json');
   const ri = spawnSync(process.execPath, [SCRIPT, root, '--since', '2026-10-01', '--transcripts', tdir, '--out', incl, '--include-eval'], { encoding: 'utf8' });
   const ji = ri.status === 0 && fs.existsSync(incl) ? JSON.parse(fs.readFileSync(incl, 'utf8')) : null;
-  check(!!ji && ji.summary.sessions === 6 && !(ji.notes || []).some((s) => /審查評測集/.test(s)), '17 --include-eval 時評測 session 照算（6 個）、不寫略過 note', ji ? 'sessions ' + ji.summary.sessions : 'exit ' + ri.status);
+  check(!!ji && ji.summary.sessions === 7 && !(ji.notes || []).some((s) => /審查評測集/.test(s)), '17 --include-eval 時評測 session 照算（7 個）、不寫略過 note', ji ? 'sessions ' + ji.summary.sessions : 'exit ' + ri.status);
   // 15 候選上限：REVIEW_COLLECT_CAND_CAP=1 時只收第一條、notes 說明、不當掉
   const out2 = path.join(tdir, 'out2.json');
   const r2 = spawnSync(process.execPath, [SCRIPT, root, '--since', '2026-10-01', '--transcripts', tdir, '--out', out2], { encoding: 'utf8', env: Object.assign({}, process.env, { REVIEW_COLLECT_CAND_CAP: '1' }) });

@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.21.0] - 2026-11-19
+### Changed
+- /harness:review：自動檢查一律實跑不再問；/doctor、/insights 改由健檢在背景用 claude -p 自己跑（實測內建指令在 -p 會執行），新增第四軌 /claude-api prompt-audit（發現併進指令帳本）；新增第 7 步收尾畫目前的 harness 流程圖（沿用 init 的 archify＋deliver-report 易讀性自檢）；check-flow-diagram.js 新增 current 模式（上圖清單由現況推出：settings 接上的 hook、agents、規則檔、skill、harness/*.md、CLAUDE.md）；review-collect 略過健檢自己在背景跑的 /doctor、/insights、prompt-audit session；README、05 骨架、phase-6 收尾範本、白話用語表同步；補 flow-current 測試與 review-collect 第 21 項
+
 ## [0.20.3] - 2026-11-17
 ### Fixed
 - review-collect 糾正偵測：2026-11-17 一次實例健檢範圍內的糾正「你到底有沒有看啊」「你給我的根本不是啊」詞表一則都沒命中，反而把「客戶每次都跟我回饋」「通知他重做」記成糾正。詞表分兩層——強詞單獨出現就算，補「到底有沒有」「根本不是／看不懂」「我／你不是說」「我說過」「你沒有看／照／列／顯示…」「為啥沒」「你是不會」「擠牙膏」「白癡」、連打兩個以上問號、開頭就是「不要，」；弱詞（每次都、重做、講過、說過、不要再、怎麼沒、好好研究…）要前後 8 字內有「你／妳／您」才算；「不對」排除「不對外／不對「…」／不對這些」。同一專案全部歷史 259 則使用者發言：舊詞表命中 10 則（約 7 則誤判），新詞表命中 18 則、逐則回原文看都是糾正；健檢範圍內 2 則全誤判 → 12 則。另查到健檢報告引用的 6 個糾正出處有 4 個在 `--since` 之前，本來就不在收集範圍。

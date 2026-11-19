@@ -157,6 +157,8 @@ test('endedReader: the notes of ended sessions kept in memory, only what was add
   w('aaaaaaaa-1', Date.now(), 'exit'); w('bbbbbbbb-2', Date.now() - 40 * 86400000, 'old');
   const read = endedReader(d);
   try {
+    assert.deepStrictEqual([...read().keys()], [], 'the first full read goes on in the background: nothing yet, and no wait');
+    await read.ready();
     assert.deepStrictEqual([...read().keys()], ['aaaaaaaa-1']);
     assert.ok(!fs.existsSync(path.join(d, 'bbbbbbbb-2.json')), 'a note over a month old is removed');
     w('cccccccc-3', Date.now(), 'new'); w('aaaaaaaa-1', Date.now(), 'again');   // one added, one rewritten (ended again)

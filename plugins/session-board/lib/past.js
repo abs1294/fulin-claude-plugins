@@ -238,4 +238,33 @@ function find(projectsDir, sid) {
   return f ? describe(f) : null;
 }
 
-module.exports = { interrupted, list, find, lastSaid, said, ends, saidAtOf, DAYS };
+// Which of these ids - whole, or the first 8 or more characters of one (replies often name a conversation by its
+// first 8: "session `b4a05eb5`") - are conversations on this computer. A short one counts only when it fits exactly one.
+// Only the names in the folders are read (no file is opened or looked at), kept for a minute.
+// -> {key: {sessionId, cwd, folder, title}} for the ones found
+let nameIndex = { at: 0, dir: '', list: [] };
+function which(projectsDir, keys, now = Date.now()) {
+  if (nameIndex.dir !== projectsDir || now - nameIndex.at > 60000) {
+    const list = [];
+    let dirs = []; try { dirs = fs.readdirSync(projectsDir, { withFileTypes: true }); } catch (e) {}
+    for (const d of dirs) {
+      if (!d.isDirectory()) continue;
+      let names = []; try { names = fs.readdirSync(path.join(projectsDir, d.name)); } catch (e) { continue; }
+      for (const n of names) if (n.endsWith('.jsonl') && !n.startsWith('agent-') && /^[0-9a-f]{8}-[0-9a-f-]{27}\.jsonl$/i.test(n)) list.push({ sid: n.slice(0, -6).toLowerCase(), file: path.join(projectsDir, d.name, n) });
+    }
+    nameIndex = { at: now, dir: projectsDir, list };
+  }
+  const out = {};
+  for (const raw of [...new Set((keys || []).map((k) => String(k).toLowerCase()))].slice(0, 50)) {
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/.test(raw)) continue;
+    const hits = nameIndex.list.filter((x) => x.sid.startsWith(raw));
+    if (hits.length !== 1) continue;
+    let st; try { st = fs.statSync(hits[0].file); } catch (e) { continue; }
+    if (!st.size) continue;
+    const d = describe({ file: hits[0].file, sessionId: hits[0].sid, size: st.size, mtimeMs: st.mtimeMs });
+    out[raw] = { sessionId: d.sessionId, cwd: d.cwd, folder: d.folder, title: d.title };
+  }
+  return out;
+}
+
+module.exports = { interrupted, list, find, which, lastSaid, said, ends, saidAtOf, DAYS };

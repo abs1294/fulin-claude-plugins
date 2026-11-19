@@ -579,6 +579,15 @@ for (const f of files) {
     out.notes.push('略過安裝時的冷啟探針 session：' + sid + '（探針會故意觸發擋下）');
     continue;
   }
+  // 健檢自己在背景起的 /doctor、/insights、/claude-api prompt-audit（SKILL.md 第 0 步）：不是使用者的對話。
+  // 判斷＝第一則提問就是那個指令本身（逐字紀錄寫成 <command-name>/doctor</command-name>，2026-11-19 實測）
+  // 而且是 headless 起的（entrypoint sdk-cli；沒有 entrypoint 欄位的舊紀錄只看前者）。使用者在互動 session 親手打 /doctor 不會被略過。
+  if (!args.includes('--include-install') && /<command-name>\/(doctor|insights|claude-api)<\/command-name>/.test(firstText)
+    && (/<command-name>\/(doctor|insights)<\/command-name>/.test(firstText) || /<command-args>\s*prompt-audit/.test(firstText))
+    && (() => { const ents = R.map((o) => o.entrypoint).filter(Boolean); return !ents.length || ents.includes('sdk-cli'); })()) {
+    out.notes.push('略過健檢自己在背景跑的 ' + (firstText.match(/<command-name>(\/[\w-]+)/) || [, '指令'])[1] + ' session：' + sid);
+    continue;
+  }
   // 審查評測集的 headless 審查對話（判斷依據見 isEvalReviewSession）
   if (!args.includes('--include-eval') && isEvalReviewSession(R)) {
     evalSkipped.add(sid);

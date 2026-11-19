@@ -7,7 +7,8 @@
 //   .claude/harness/learning/pending.json         {items: [...]} - what the learning loop proposes; status "pending" =
 //                                                 waiting for you. Approved only by your own words typed in Claude Code
 //                                                 ("核可 <id>"): learn-pending.js refuses an approval that comes from a
-//                                                 tool, so the board shows them and never approves.
+//                                                 tool. The board approves by saying that line in a conversation of the
+//                                                 folder (the page's 核可/駁回 buttons), where learn-approve.js takes it.
 //   .claude/harness/reviews/<YYYY-MM-DD>.md       the report of each health check
 //   .claude/harness/learning/usage.json           {requests} - one more at each turn
 //   .claude/harness/learning/health-baseline.json {baseDate, requestsAtBase} - where the count since the last check starts

@@ -177,8 +177,30 @@ function readEnded(dir = path.join(DATA_DIR, 'ended'), now = Date.now()) {
 // 12,992 notes, 2.8 s of 30 s). Kept in memory instead: the folder is watched, and only the notes added or rewritten
 // since (the hook rewrites a session's note when it ends again) are read. Read in full once an hour all the same - a
 // change the watch missed, and the notes over a month old removed.
+// The full read is done a little at a time, off to the side: read in one go it held the board for 1.3 s three seconds
+// after every start (CPU profile 2026-11-19: readEnded, 12,992 files), long enough for a request to give up waiting.
+// Until it is done, what was there before (nothing, the first time) is answered - only "you ended it yourself" waits.
 function endedReader(dir = path.join(DATA_DIR, 'ended'), every = 3600000) {
-  let all = null, at = 0, watcher = null;
+  let all = null, at = 0, watcher = null, loading = null;
+  const full = (now) => {
+    if (loading) return;
+    dirty.clear();   // what changes from here on is read again after this
+    loading = (async () => {
+      const fresh = new Map();
+      let names = [];
+      try { names = await fs.promises.readdir(dir); } catch (e) {}
+      for (const n of names) {
+        if (!n.endsWith('.json')) continue;
+        const p = path.join(dir, n);
+        try {
+          const j = JSON.parse(await fs.promises.readFile(p, 'utf8'));
+          if (now - j.at > 30 * 86400000) { await fs.promises.unlink(p).catch(() => {}); continue; }
+          if (typeof j.sessionId === 'string' && Number.isFinite(j.at)) fresh.set(j.sessionId, { reason: String(j.reason || ''), at: j.at });
+        } catch (e) {}
+      }
+      all = fresh; at = now; loading = null;
+    })();
+  };
   const dirty = new Set();
   const one = (n, now) => {
     const p = path.join(dir, n);
@@ -192,10 +214,12 @@ function endedReader(dir = path.join(DATA_DIR, 'ended'), every = 3600000) {
     if (!watcher) {
       try { fs.mkdirSync(dir, { recursive: true }); watcher = fs.watch(dir, (ev, n) => { if (n) dirty.add(String(n)); else at = 0; }); watcher.on('error', () => { watcher = null; at = 0; }); if (watcher.unref) watcher.unref(); } catch (e) { watcher = null; }
     }
-    if (!all || !watcher || now - at > every) { dirty.clear(); all = readEnded(dir, now); at = now; return all; }
-    for (const n of [...dirty]) { dirty.delete(n); if (n.endsWith('.json')) one(n, now); }
+    if (!all || !watcher || now - at > every) full(now);
+    if (!all) return new Map();
+    if (!loading) for (const n of [...dirty]) { dirty.delete(n); if (n.endsWith('.json')) one(n, now); }
     return all;
   };
+  read.ready = () => loading || Promise.resolve();   // for tests: the full read under way, if any
   read.close = () => { try { if (watcher) watcher.close(); } catch (e) {} watcher = null; };
   return read;
 }
@@ -935,10 +959,9 @@ function createServer(token, port, deps = {}) {
   const updatePlugins = async () => {
     const inst = (deps.pluginsInstalled || Plugins.installed)(); const root = Plugins.rootOf('plugin-manager', inst);
     if (!root) return { ok: false, error: '這台電腦沒有裝 plugin-manager' };
-    const x = await new Promise((resolve) => (deps.pluginsRun || execFile)(process.execPath, [path.join(root, 'scripts', 'update-all.js'), '--apply', '--json'], { windowsHide: true, timeout: 600000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (err, o, e) => resolve({ ok: !err, out: String(o || ''), err: String(e || (err && err.message) || '') })));
+    const x = await new Promise((resolve) => (deps.pluginsRun || execFile)(process.execPath, [path.join(root, 'scripts', 'update-all.js'), '--apply', '--json'], { windowsHide: true, timeout: 600000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (err, o, e) => resolve({ status: !err ? 0 : typeof err.code === 'number' ? err.code : 1, out: String(o || ''), err: String(e || (err && err.message) || '') })));
     pluginsCache.pmAt = 0;
-    let j = null; try { j = JSON.parse(x.out); } catch (e) {}
-    return { ok: x.ok, summary: j && j.summary ? j.summary : '', error: x.ok ? '' : (x.err || x.out).trim().slice(-400) };
+    return Plugins.updateResult(x.out, x.status, x.err);   // its JSON has rows, not a summary: made into one there
   };
   const watchSettings = () => { const v = config.value('watchdog', {}); return Object.assign({}, WATCH_DEFAULTS, v && typeof v === 'object' ? v : {}); };
   const dog = deps.noSchedules ? null : new Watchdog({ open: (n) => notices.open(n), resolve: (kind, sid, by) => notices.close(kind + ':' + sid, by), sessions, channels, peer, peerCheck: deps.peerCheck || peerSeen, tell: deps.tell || tell, settings: watchSettings, quota,
@@ -1215,7 +1238,7 @@ function createServer(token, port, deps = {}) {
 
       if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
       if (!/^application\/json/.test(String(req.headers['content-type'] || ''))) return send(res, 415, { error: 'json only' });
-      let body = await readBody(req, p === '/api/send' ? 48 * 1024 * 1024 : undefined);   // a message may carry pictures
+      let body = await readBody(req, p === '/api/send' || p === '/api/upload' ? 48 * 1024 * 1024 : undefined);   // a message may carry pictures; an upload, a file
       const sid = typeof body.sessionId === 'string' ? body.sessionId : '';
 
       // What happens on this computer's screen is not done for a request from another computer: nobody is there to see it.
@@ -1229,6 +1252,23 @@ function createServer(token, port, deps = {}) {
         const s = find(sid);
         if (!s) return send(res, 404, { state: 'gone', error: 'session not running' });
         return send(res, 200, await focusWindow(s.titleCandidates, 'focus', s.pid));
+      }
+      // A file of any kind for a message (the composer's + → 上傳檔案, or one dropped in that is not a picture): kept on
+      // this computer, and its path goes into the message for Claude to read - from the phone too, where the file is not
+      // on this computer otherwise. Kept under the board's own folder, not the project's (nothing of it gets committed).
+      if (p === '/api/upload') {
+        const name = String(body.name || '').split(/[\\/]/).pop().replace(/[<>:"|?*\u0000-\u001f]/g, '_').replace(/^\.+/, '').slice(0, 120) || 'file';
+        const data = typeof body.data === 'string' ? Buffer.from(body.data, 'base64') : null;
+        if (!data || !data.length) return send(res, 400, { ok: false, error: '檔案是空的' });
+        if (data.length > 30 * 1024 * 1024) return send(res, 400, { ok: false, error: '檔案太大（上限 30 MB）' });
+        const d = new Date(), day = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        const dir = path.join(DATA_DIR, 'uploads', day);
+        fs.mkdirSync(dir, { recursive: true });
+        const ext = path.extname(name), stem = name.slice(0, name.length - ext.length);
+        let file = path.join(dir, name);
+        for (let i = 2; fs.existsSync(file); i++) file = path.join(dir, stem + ' (' + i + ')' + ext);   // never over another upload
+        fs.writeFileSync(file, data);
+        return send(res, 200, { ok: true, path: file, size: data.length });
       }
       if (p === '/api/send') {
         const text = typeof body.text === 'string' ? body.text : '';
@@ -1602,6 +1642,13 @@ function createServer(token, port, deps = {}) {
         return send(res, 200, { ok: true, hidden: cur.length });
       }
       // Open a conversation that is not open now: in a terminal window, or on the board.
+      // Which ids written in a page are conversations on this computer (for the "carry on" buttons beside them).
+      if (p === '/api/past/which') {
+        const found = Past.which(S.DEFAULTS.projectsDir, Array.isArray(body.ids) ? body.ids : []);
+        const open = new Set(sessions().map((s) => s.sessionId));
+        for (const v of Object.values(found)) v.open = open.has(v.sessionId);
+        return send(res, 200, { ok: true, found });
+      }
       if (p === '/api/past/open') {
         const d = Past.find(S.DEFAULTS.projectsDir, sid);
         if (!d) return send(res, 404, { ok: false, error: '找不到這個對話的紀錄' });

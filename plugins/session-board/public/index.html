@@ -399,6 +399,11 @@
   .sq .sr { grid-column: 1 / -1; color: var(--faint); margin-top: -1px; }
   .side-foot { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); }
   .side-foot.down { color: var(--red); }
+  #sideFoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #sideFootText { flex: 1; min-width: 0; }
+  .side-phone .btn { font-size: 12px; padding: 1px 8px; }
+  .side-phone input { width: 100%; font-size: 12px; }
+  .remote .side-phone { display: none; }   /* opened from the phone: it has the address already */
 
   /* ── main ── */
   .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -458,6 +463,14 @@
   .msg.assistant code { font-family: var(--mono); font-size: 13px; background: var(--code); border-radius: var(--r-s); padding: 1px 5px; overflow-wrap: anywhere; }   /* a long one breaks instead of running off the side */
   .msg.assistant pre { background: var(--code); border-radius: var(--r-m); padding: 10px 12px; overflow-x: auto; margin: 0 0 10px; }
   .msg.assistant pre code { background: none; padding: 0; white-space: pre; }
+  .msg .cw { position: relative; margin: 0 0 10px; }
+  .msg .cw pre { margin: 0; padding-right: 44px; }
+  .msg .cw .ccopy { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--bg); color: var(--dim); cursor: pointer; }
+  .msg .cw .ccopy:hover { color: var(--ink); }
+  .msg .cw .ccopy .ico { width: 16px; height: 16px; margin: 0; }
+  .rsm { display: inline-flex; gap: 6px; margin: 2px 0 2px 6px; vertical-align: middle; flex-wrap: wrap; }
+  .cw + .rsm, .tl > .rsm { display: flex; margin: -4px 0 10px; }
+  .rsm .btn { font-size: 13px; padding: 2px 10px; }
   .msg.assistant .tw { overflow-x: auto; margin: 0 0 10px; position: relative; }
   .msg .tw .tcopy { position: absolute; top: 4px; right: 4px; font-size: 13px; padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--bg); color: var(--dim); opacity: 0; }
   .msg .tw:hover .tcopy, .msg .tw .tcopy:focus-visible { opacity: 1; }
@@ -526,7 +539,8 @@
   .hp-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 13px; } .hp-h code { font-size: 12px; } .hp-h .hp-t { color: var(--dim); font-size: 12px; overflow-wrap: anywhere; }
   .hp-lv { font-size: 12px; padding: 0 7px; border-radius: var(--r-m); background: var(--hover); } .hp-lv.red { background: var(--red-soft); color: var(--red); }
   .hp-s { margin: 6px 0; font-size: 14px; } .hp details summary { cursor: pointer; font-size: 13px; color: var(--dim); } .hp pre { white-space: pre-wrap; font-size: 12px; margin: 6px 0 0; overflow-wrap: anywhere; }
-  .hp-a { display: flex; gap: 8px; margin-top: 8px; }
+  .hp-a { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+  .hp.done { background: var(--side); } .hp-done { font-size: 13px; color: var(--dim); }
   /* goal2's runs */
   .lg.goal .lm .gf { color: var(--dim); font-size: 13px; margin-right: 10px; white-space: nowrap; }
   .lg.goal .acts { display: flex; gap: 8px; } .lg.goal .acts .btn { padding: 3px 9px; font-size: 13px; }
@@ -1107,7 +1121,7 @@
     <div class="of-chips" id="sideChips" aria-label="各狀態的 session 數"></div>
     <nav class="list" id="list" aria-label="所有 session"></nav>
     <div class="side-quota" id="sideQuota" hidden></div>
-    <div class="side-foot" id="sideFoot"></div>
+    <div class="side-foot" id="sideFoot"><span id="sideFootText"></span><span class="side-phone" id="sidePhone"></span></div>
   </aside>
   <section class="main" id="main"></section>
 </div>
@@ -1382,6 +1396,12 @@ function makeHL(esc) {
   return { lines, langOf, html: (text, lang) => lines(text, lang).join('\n') };
 }
 const HL = makeHL((x) => esc(x));
+const approveChats = new Map();   // project folder -> the board conversation its harness approvals were sent in
+// The copy button in the top right corner of every code block of a reply (clicks handled once, on the document).
+const SVG_ATTR = 'viewBox="0 0 24 24" class="ico" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"';
+const COPY_ICO = '<svg ' + SVG_ATTR + '><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+const DONE_ICO = '<svg ' + SVG_ATTR + '><path d="M20 6 9 17l-5-5"/></svg>';
+const COPY_BTN = '<button type="button" class="ccopy" title="複製這段" aria-label="複製這段">' + COPY_ICO + '</button>';
 function md(src) {
   // the language named after each opening fence (```sql), in order: the odd parts below are the code blocks
   const fences = [...String(src).matchAll(/^```([^\n]*)$/mg)].map((m) => m[1].trim().toLowerCase());
@@ -1389,7 +1409,7 @@ function md(src) {
   const parts = esc(String(src)).split(/^```[^\n]*$/m);
   let html = '';
   parts.forEach((part, idx) => {
-    if (idx % 2) { const code = part.replace(/^\n/, '').replace(/\n$/, ''), lang = HL.langOf(fences[idx - 1] || ''); html += '<pre><code>' + (lang && code.length < 200000 ? HL.html(unesc(code), lang) : code) + '</code></pre>'; return; }
+    if (idx % 2) { const code = part.replace(/^\n/, '').replace(/\n$/, ''), lang = HL.langOf(fences[idx - 1] || ''); html += '<div class="cw"><pre><code>' + (lang && code.length < 200000 ? HL.html(unesc(code), lang) : code) + '</code></pre>' + COPY_BTN + '</div>'; return; }
     const lines = part.split('\n');
     let para = [], list = null;
     const flushP = () => { if (para.length) { html += '<p>' + para.map(inline).join('<br>') + '</p>'; para = []; } };
@@ -2629,6 +2649,8 @@ function fillOffice() {
        const g = el('div', 'room-fact' + (rf.git.unpushed ? ' warn' : ''));
        g.append(el('b', '', 'git'), ' ' + [rf.git.unpushed ? rf.git.unpushed + ' 個 commit 沒 push' : '', rf.git.uncommitted ? rf.git.uncommitted + ' 個檔沒 commit' : ''].filter(Boolean).join(' · ') + (rf.git.name && rf.git.root.toLowerCase() !== String(cwd).toLowerCase() ? '（' + rf.git.name + '）' : ''));
        g.title = rf.git.root + (rf.git.branch ? '（' + rf.git.branch + '）' : '') + '\n要 commit 或 push，在這個資料夾的對話裡用 git-commit';
+       g.querySelector('b').after(fixButton('處理', '開一個新對話整理這些改動：先列出改了什麼，要 commit 先問你、push 也先問你', cwd,
+         '這個資料夾（' + rf.git.root + '）' + [rf.git.uncommitted ? '有 ' + rf.git.uncommitted + ' 個檔沒 commit' : '', rf.git.unpushed ? '有 ' + rf.git.unpushed + ' 個 commit 沒 push' : ''].filter(Boolean).join('、') + '。請先列出改了什麼、是哪些工作留下的；要 commit 走 git-commit 流程，commit 和 push 前都先問我。'));
        box.append(g);
      }
      if (rf && rf.qa) {
@@ -2636,6 +2658,8 @@ function fillOffice() {
        const g = el('div', 'room-fact' + (bad ? ' bad' : ''));
        g.append(el('b', '', '測試'), ' ' + t.name + ' · ' + (bad ? t.failed + ' 項失敗／' + t.tests + ' 項' : t.tests + ' 項全過') + ' · ' + when(t.at));
        g.title = '最近幾次瀏覽器測試（qa-webwright）：\n' + t.runs.map((x) => when(x.at) + '  ' + x.name + '  ' + (x.failed ? x.failed + ' 失敗／' : '') + x.tests + ' 項' + (x.skipped ? '，跳過 ' + x.skipped : '')).join('\n');
+       if (bad) g.querySelector('b').after(fixButton('處理', '開一個新對話找出失敗的項目、修好再重跑', cwd,
+         '上一次瀏覽器測試「' + t.name + '」（' + when(t.at) + '）有 ' + t.failed + ' 項失敗（共 ' + t.tests + ' 項）。結果在 tests/e2e/.runs/results.sqlite 或 tests/e2e/reports/。請列出失敗的項目，逐項判斷是程式壞了還是測試本身該更新，修好之後重跑那幾項確認通過；要改測試本身的判準先問我。'));
        box.append(g);
      }
      if (rf && rf.cbm) {
@@ -2646,10 +2670,11 @@ function fillOffice() {
          if (stale.length || missing.length) g.classList.add('warn');
          g.append(el('b', '', '程式碼索引'), ' ' + (stale.length || missing.length ? [stale.length ? stale.length + ' 個過期' : '', missing.length ? missing.length + ' 個缺' : ''].filter(Boolean).join('、') + '（共 ' + c.repos.length + ' 個 repo）' : c.repos.length + ' 個 repo 都是新的'));
          g.title = c.repos.map((x) => x.repo + '：' + (x.state === 'fresh' ? '新' : x.state === 'stale' ? '落後最新 commit ' + x.hours + ' 小時' : '缺（' + x.why + '）')).join('\n') + '\n過期的索引查詢結果看起來跟新的一樣，但會查到已經改掉的東西';
+         let at = g.querySelector('b');   // the buttons go right after the name of the line, at its top left (not on a row of their own)
          for (const x of stale) {
            const b = el('button', 'btn', '重建 ' + x.repo); b.type = 'button'; b.title = '用 cbm-guard 給的指令重建這個 repo 的索引（通常幾秒到一分鐘）';
            b.addEventListener('click', async () => { b.disabled = true; b.textContent = '重建中…'; const r = await api('/api/rooms/reindex', { cwd, repo: x.repo }); if (!r.ok) { b.disabled = false; b.textContent = '重建 ' + x.repo; return say(r.data.error || '重建失敗', true); } say('已重建 ' + x.repo + ' 的索引，正在重新檢查'); roomFacts.delete(cwd); });
-           g.append(b);
+           at.after(b); at = b;
          }
        }
        box.append(g);
@@ -2704,6 +2729,20 @@ async function loadHarness(cwds) {
   for (const c of need) { const st = r.data.states[c] || null, was = harnessOf(c); if (JSON.stringify(was) !== JSON.stringify(st)) changed = true; harnessStates.set(c, { at: Date.now(), state: st }); }
   if (changed && view === 'office') { officeShape = ''; fillOffice(); }
 }
+// A warning in a room comes with its fix: a new conversation in that folder, its first message saying what to do.
+function fixButton(label, tip, cwd, text) {
+  const b = el('button', 'btn', label); b.type = 'button'; b.title = tip;
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const r = await api('/api/new', { cwd });
+    if (!r.ok) { b.disabled = false; return say(r.data.error || '開不了新對話', true); }
+    const x = await api('/api/send', { sessionId: r.data.sessionId, text });
+    await poll(); openChat(r.data.sessionId);
+    say(x.ok ? '已開新對話處理，它有問題會停在這裡等你' : (x.data.error || '送不出去'), !x.ok);
+    b.disabled = false;
+  });
+  return b;
+}
 function openHarness(folder, cwd, hs) {
   closePeek();
   $('peek').hidden = false;
@@ -2730,14 +2769,30 @@ function openHarness(folder, cwd, hs) {
   body.append(hint);
   body.append(el('div', 'chg-group', '等你核可的學習項目（' + hs.pendingCount + '）'));
   if (!hs.pending.length) body.append(el('div', 'chg-note', '沒有。'));
-  else body.append(el('div', 'chg-note', '這些是 harness 建議改的規則，要你決定接受或不接受。看板不能替你決定：harness 只認你在 Claude Code 裡親手打的字。做法是按「複製核可指令」（接受）或「複製駁回指令」（不接受），到這個專案的 Claude Code 視窗貼上，按 Enter 送出。'));
+  else body.append(el('div', 'chg-note', '這些是 harness 建議改的規則，要你決定接受或不接受。按「核可」或「駁回」，看板會在這個專案的一個對話裡替你送出這句話；紅區的建議核可之後，Claude 會在那個對話裡照建議去改，有問題會停在那裡等你。'));
+  // Approving is a line said in a conversation of this folder ("核可 p-…"): harness's own hook (learn-approve.js) takes it
+  // from there as the user's words, exactly as if typed in Claude Code (tried 2026-11-19: status approved, by user-prompt).
+  // One conversation per folder for all of them, so several approvals do not open several conversations.
+  const decide = async (word, x, card) => {
+    const fresh = async () => { const n = await api('/api/new', { cwd }); if (!n.ok) return null; approveChats.set(cwd, n.data.sessionId); return n.data.sessionId; };
+    let sid = approveChats.get(cwd) || await fresh();
+    if (!sid) return say('開不了對話，沒有送出', true);
+    let r = await api('/api/send', { sessionId: sid, text: word + ' ' + x.id });
+    if (!r.ok && approveChats.get(cwd) === sid) { sid = await fresh(); if (sid) r = await api('/api/send', { sessionId: sid, text: word + ' ' + x.id }); }   // that conversation is gone: a new one
+    if (!r.ok) return say((r.data && r.data.error) || '送不出去', true);
+    card.classList.add('done');
+    const acts = card.querySelector('.hp-a'); acts.textContent = '';
+    const see = el('button', 'btn', '看那個對話'); see.type = 'button'; see.addEventListener('click', async () => { closePeek(); await poll(); openChat(sid); });
+    acts.append(el('span', 'hp-done', '已送出「' + word + ' ' + x.id + '」'), see);
+    say('已送出「' + word + ' ' + x.id + '」' + (word === '核可' && x.level === 'red' ? '。Claude 會在那個對話裡照建議去改' : ''));
+  };
   for (const x of hs.pending) {
     const card = el('div', 'hp');
     const h = el('div', 'hp-h'); h.append(el('span', 'hp-lv ' + x.level, x.level === 'red' ? '紅區' : x.level === 'green' ? '綠區' : x.level || ''), el('code', '', x.id), el('span', 'hp-t', [x.kind, x.action, x.target].filter(Boolean).join(' · ')));
     card.append(h, el('div', 'hp-s', x.summary));
     if (x.content) { const d = el('details'); d.append(el('summary', '', '建議內容'), el('pre', '', x.content)); card.append(d); }
     const acts = el('div', 'hp-a');
-    for (const [label, word] of [['複製核可指令', '核可 '], ['複製駁回指令', '駁回 ']]) { const b = el('button', 'btn', label); b.type = 'button'; b.title = '把「' + word + x.id + '」複製起來，到這個專案的 Claude Code 視窗貼上送出'; b.addEventListener('click', async () => { try { await navigator.clipboard.writeText(word + x.id); say('已複製「' + word + x.id + '」。到這個專案的 Claude Code 視窗貼上，按 Enter 送出'); } catch (e) { say('複製不了，請自己輸入：' + word + x.id, true); } }); acts.append(b); }
+    for (const [label, word, cls] of [['核可', '核可', 'btn primary'], ['駁回', '駁回', 'btn']]) { const b = el('button', cls, label); b.type = 'button'; b.title = '在這個專案的對話裡送出「' + word + ' ' + x.id + '」'; b.addEventListener('click', async () => { for (const y of acts.querySelectorAll('button')) y.disabled = true; await decide(word, x, card); if (!card.classList.contains('done')) for (const y of acts.querySelectorAll('button')) y.disabled = false; }); acts.append(b); }
     card.append(acts); body.append(card);
   }
 }
@@ -3999,11 +4054,24 @@ function drawFoot() {
     });
   };
   // tagged: each picture gets a number, to be marked in the text where it belongs. -> the numbers given, one per file (0 = not added)
+  // A file that is not a picture: kept on this computer by the board (/api/upload), and its path put into the message
+  // for Claude to read - from the phone as well, where the file would not be on this computer otherwise.
+  const uploadFile = async (f) => {
+    if (f.size > 30 * 1024 * 1024) return say('「' + f.name + '」太大（上限 30 MB）', true);
+    say('上傳「' + f.name + '」中…');
+    let data;
+    try { data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).replace(/^data:[^,]*,/, '')); fr.onerror = () => rej(fr.error); fr.readAsDataURL(f); }); }
+    catch (e) { return say('讀不到「' + f.name + '」', true); }
+    let r; try { r = await api('/api/upload', { name: f.name, data }); } catch (e) { r = { ok: false, data: {} }; }
+    if (!r.ok) return say('「' + f.name + '」沒有上傳成功：' + ((r.data && r.data.error) || '看板沒有回應'), true);
+    ta.value = (ta.value && !/\n$/.test(ta.value) ? ta.value + '\n' : ta.value) + '附檔：' + r.data.path + '\n';
+    fit(); ta.focus(); say('已上傳「' + f.name + '」，路徑放進輸入框了');
+  };
   const addFiles = async (files, tagged) => {
     const tags = [];
     for (const f of files) {
       tags.push(0);
-      if (!/^image\/(png|jpeg|gif|webp|bmp)$/.test(f.type)) { say('只能貼圖片（PNG、JPEG、GIF、WebP）；「' + (f.name || f.type || '這個檔') + '」不是', true); continue; }
+      if (!/^image\/(png|jpeg|gif|webp|bmp)$/.test(f.type)) { await uploadFile(f); continue; }   // not a picture: sent as a file, by its path
       if (imgs.length >= 8) { say('一則訊息最多 8 張圖', true); break; }
       try { const x = await readImage(f); if (tagged) { x.tag = Math.max(0, ...imgs.map((y) => y.tag || 0)) + 1; tags[tags.length - 1] = x.tag; } imgs.push(x); } catch (e) { say('這張圖讀不進來：' + String(e.message || e).slice(0, 60), true); }
     }
@@ -4036,13 +4104,16 @@ function drawFoot() {
   composerDrop = (files) => { box.classList.remove('drop'); return addFiles(files); };   // the page-wide drop hands files here
   const imgPick = el('input'); imgPick.type = 'file'; imgPick.accept = 'image/png,image/jpeg,image/gif,image/webp'; imgPick.multiple = true; imgPick.hidden = true;
   imgPick.addEventListener('change', () => { addFiles([...imgPick.files]); imgPick.value = ''; });
+  const filePick = el('input'); filePick.type = 'file'; filePick.multiple = true; filePick.hidden = true;
+  filePick.addEventListener('change', async () => { const fs = [...filePick.files]; filePick.value = ''; for (const f of fs) await uploadFile(f); });
   const pickBtn = el('button', 'btn imgbtn'); pickBtn.type = 'button';
   pickBtn.innerHTML = '<span class="lbl">圖片</span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
-  pickBtn.setAttribute('aria-label', '加入圖片或指令'); pickBtn.title = '加入圖片或指令'; pickBtn.setAttribute('aria-haspopup', 'menu'); pickBtn.setAttribute('aria-expanded', 'false');
+  pickBtn.setAttribute('aria-label', '加入圖片、檔案或指令'); pickBtn.title = '加入圖片、檔案或指令'; pickBtn.setAttribute('aria-haspopup', 'menu'); pickBtn.setAttribute('aria-expanded', 'false');
   // + opens a short menu above the box (as the chat apps do): a picture from this device, or the / commands
   const addMenu = el('div', 'addmenu'); addMenu.hidden = true; addMenu.setAttribute('role', 'menu');
   const ICON = { pic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>',
-    cmd: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 4 9 20"/></svg>' };
+    cmd: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 4 9 20"/></svg>',
+    file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>' };
   const menuItem = (icon, t, sub, run) => {
     const b = el('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.innerHTML = ICON[icon];
     const w = el('span'); w.append(el('span', 'am-t', t), document.createTextNode('  '), el('span', 'am-s', sub)); b.append(w);
@@ -4050,8 +4121,9 @@ function drawFoot() {
   };
   addMenu.append(
     menuItem('pic', '上傳圖片', onTouch() ? '從相簿或相機' : '從這台電腦選', () => imgPick.click()),
+    menuItem('file', '上傳檔案', 'PDF、Word、Excel…（Claude 照路徑讀）', () => filePick.click()),
     menuItem('cmd', '指令', '這個資料夾能用的 / 指令', () => { ta.value = '/'; ta.focus(); showCmds(); fit(); }));
-  if (!onTouch()) addMenu.append(el('div', 'am-tip', '也可以在輸入框按 Ctrl+V 貼上截圖，或把圖檔拖進來'));
+  if (!onTouch()) addMenu.append(el('div', 'am-tip', '也可以在輸入框按 Ctrl+V 貼上截圖，或把圖檔、檔案拖進來'));
   const outside = (e) => { if (!addMenu.contains(e.target) && !pickBtn.contains(e.target)) closeAdd(); };
   const escAdd = (e) => { if (e.key === 'Escape') { closeAdd(); pickBtn.focus(); } };
   function closeAdd() { addMenu.hidden = true; pickBtn.setAttribute('aria-expanded', 'false'); document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', escAdd, true); }
@@ -4071,8 +4143,8 @@ function drawFoot() {
     const stopBtn = el('button', 'btn stopbtn'); stopBtn.type = 'button'; stopBtn.title = '停止它現在做的事。再送一則訊息就會接著原本的對話繼續'; stopBtn.setAttribute('aria-label', '停止');
     stopBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor"/></svg>';
     stopBtn.addEventListener('click', async () => { stopBtn.disabled = true; let r; try { r = await api('/api/stop', { sessionId: s.sessionId }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; } if (!r.ok || r.data.ok === false) { stopBtn.disabled = false; return say(r.data.error || '它現在沒有在跑，沒有東西可以停', true); } say('已停止。再送一則訊息就會接著原本的對話繼續。'); });
-    box.append(ta, imgPick, pickBtn, stopBtn, sendBtn);
-  } else box.append(ta, imgPick, pickBtn, sendBtn);
+    box.append(ta, imgPick, filePick, pickBtn, stopBtn, sendBtn);
+  } else box.append(ta, imgPick, filePick, pickBtn, sendBtn);
   col.style.position = 'relative';
   if (s.notStarted && !sentOnce.has(s.sessionId)) col.append(roleRow(s));
   const q = carry.get(s.sessionId);
@@ -4405,6 +4477,20 @@ document.addEventListener('copy', (e) => {
   e.clipboardData.setData('text/plain', sel.toString());
   e.preventDefault();
 });
+// The copy button of a code block: the code as it was written (not the colouring), a tick for a moment after.
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('.ccopy');
+  if (!b) return;
+  const code = b.parentElement.querySelector('pre code'), text = code ? code.textContent : '';
+  try {
+    await navigator.clipboard.writeText(text);
+    b.innerHTML = DONE_ICO; clearTimeout(b._t); b._t = setTimeout(() => { b.innerHTML = COPY_ICO; }, 1500);
+    say('已複製 ' + sep(text.split('\n').length) + ' 行');
+  } catch (x) {
+    const r = document.createRange(); r.selectNodeContents(code); const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    say('瀏覽器不讓直接複製，已幫你把這段選起來，請自己按複製', true);
+  }
+});
 // "Copy the table": on every table of a reply, shown when the pointer is over it (and reachable by Tab).
 document.addEventListener('mouseover', (e) => {
   const tw = e.target.closest && e.target.closest('.msg .tw');
@@ -4429,7 +4515,9 @@ function toolLine(it) {
     if (!l.open || l.dataset.got) return; l.dataset.got = '1';
     let r; try { r = await api('/api/tool?sid=' + encodeURIComponent(sid) + '&id=' + encodeURIComponent(it.id)); } catch (e) { r = { ok: false }; }
     pre.textContent = r.ok && r.data.detail ? r.data.detail : '這個動作沒有更多內容可以顯示。';
+    resumeButtons(l);
   });
+  else l.addEventListener('toggle', () => { if (l.open) resumeButtons(l); }, { once: true });
   return l;
 }
 
@@ -4818,8 +4906,63 @@ const BARE = /[A-Za-z]:\\[^\s"'`<>|*?　-〿＀-￯]+/g;   // an absolute path i
 
 let fileQueue = [];
 let fileTimer = 0;
+// "claude --resume <id>" written in a reply: buttons beside it to carry that conversation on, here or in a terminal.
+// The folder is not taken from the reply (often a guess - a folder name with hyphens has more than one reading): the
+// board finds the conversation's record by its id and opens it in the folder written there (/api/past/open).
+// Written in the ways found in this computer's records (2026-11-19, 400 transcripts): `claude --resume <id>` with other
+// options between (`claude --dangerously-skip-permissions --resume <id>`, claude.exe), in a reply, in what you typed and in
+// a tool's output; and a conversation named by its id alone in code - mostly its first 8 characters ("session `b4a05eb5`").
+// A bare id in code gets buttons only when it is a conversation on this computer, and a short one only when it fits one.
+// `claude --resume` without an id and `claude -c` name no conversation: nothing is added for them.
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const RESUME_RE = new RegExp('\\bclaude(?:\\.exe)?(?:\\s+(?!--resume\\b|-r\\b)[^\\s`]+){0,6}\\s+(?:--resume|-r)\\s+["\']?(' + UUID + ')', 'gi');
+const LONE_ID = new RegExp('^(?:[0-9a-f]{8}|' + UUID + ')$', 'i');
+const resumeKnown = new Map();   // id as written -> {sessionId, title, folder, open} or null (not a conversation here)
+const BLOCKS = 'p, li, td, th, h1, h2, h3, h4, pre, blockquote, .tl';
+async function resumeButtons(root) {
+  if (!root) return;
+  // where each id is written: the block it is in (buttons go at its end; a code block's go below it)
+  const at = new Map();   // block -> Map of id written in it -> the code it is written in (the buttons go right after that), or null
+  const blockOf = (n) => { const b = n.closest(BLOCKS) || root; return b.tagName === 'PRE' && b.closest('.cw') ? b.closest('.cw') : b; };
+  const add = (key, node, code) => { const b = blockOf(node); if (!at.has(b)) at.set(b, new Map()); const k = key.toLowerCase(), m = at.get(b); if (!m.has(k) || (!m.get(k) && code)) m.set(k, code || null); };
+  const blocks = root.matches && root.matches(BLOCKS) ? [root] : [...root.querySelectorAll(BLOCKS)];
+  if (!blocks.length) blocks.push(root);
+  for (const b of blocks) {
+    if (b !== root && b.querySelector('p, li, td, th, pre, blockquote')) continue;   // the innermost blocks only: a list item, not the list around it
+    for (const m of (b.textContent || '').matchAll(RESUME_RE)) {
+      const code = [...b.querySelectorAll('code')].find((c) => !c.closest('pre') && c.textContent.toLowerCase().includes(m[1].toLowerCase()));
+      add(m[1], b, code);
+    }
+  }
+  for (const c of root.querySelectorAll('code')) { const t = c.textContent.trim(); if (LONE_ID.test(t)) add(t, c, c.closest('pre') ? null : c); }
+  if (!at.size) return;
+  const ask = [...new Set([...at.values()].flatMap((m) => [...m.keys()]))].filter((k) => !resumeKnown.has(k));
+  if (ask.length) {
+    let r; try { r = await api('/api/past/which', { ids: ask }); } catch (e) { r = { ok: false }; }
+    if (!r.ok) return;
+    for (const k of ask) resumeKnown.set(k, (r.data.found || {})[k] || null);
+  }
+  for (const [block, keys] of at) for (const [key, code] of keys) {
+    const d = resumeKnown.get(key); if (!d) continue;
+    const mark = (block.dataset.rs || '').split(',').filter(Boolean);
+    if (mark.includes(d.sessionId)) continue;   // one set of buttons per conversation in a block (the same one written twice, or drawn again)
+    block.dataset.rs = mark.concat(d.sessionId).join(',');
+    const box = el('span', 'rsm');
+    const where = (d.title ? d.title.slice(0, 40) + ' · ' : '') + (d.cwd || '');
+    const go = async (to, b) => {
+      if (sessions.some((s) => s.sessionId === d.sessionId)) return openChat(d.sessionId);   // already open: just go to it
+      b.disabled = true; await openPast({ sessionId: d.sessionId, title: d.title || '對話 ' + d.sessionId.slice(0, 8) }, to); b.disabled = false;
+    };
+    // the main way in looks like one (filled, with an arrow): plain grey buttons beside the text read as decoration
+    const opts = d.open ? [['→ 打開這個對話', 'board', '它開著：切過去', true]] : [['→ 看板接續', 'board', '在看板裡接續：' + where, true]].concat(REMOTE ? [] : [['終端機接續', 'terminal', '開一個終端機視窗接續：' + where, false]]);
+    for (const [label, to, tip, main] of opts) { const b = el('button', 'btn' + (main ? ' primary' : ''), label); b.type = 'button'; b.title = tip; b.addEventListener('click', () => go(to, b)); box.append(b); }
+    if (code) code.after(box);   // right beside the command it belongs to
+    else if ((block.classList && block.classList.contains('cw')) || block.tagName === 'PRE') block.after(box); else block.append(box);   // below a block of code or output, not inside it
+  }
+}
 function linkFiles(root, sid) {
   if (!root) return;
+  resumeButtons(root);
   for (const c of root.querySelectorAll('code')) {
     if (c.closest('pre') || c.dataset.fq) continue;
     const t = c.textContent.trim();
@@ -5653,17 +5796,38 @@ function unsavedWork() {
   for (const x of document.querySelectorAll('textarea, input[type=text]')) if (x.value.trim() && x.id !== 'never') return true;
   return false;
 }
+// "The phone's address", always at the bottom of the left column (it was only in 設定, behind a switch): copied on a
+// click and shown, so it can be sent to the phone. The address is the one the board answers on over Tailscale; while
+// that is off or not up yet, it says so and offers the setting.
+(function phoneLink() {
+  const box = $('sidePhone'); if (!box || REMOTE) return;
+  // A small button at the end of the line at the bottom (not a row of its own); copied, it says so and shows nothing more.
+  const b = el('button', 'btn', '手機網址'); b.type = 'button'; b.title = '複製手機要開的網址（手機裝 Tailscale、登入同一個帳號）';
+  b.addEventListener('click', async () => {
+    let x; try { x = await api('/api/config'); } catch (e) { x = { ok: false }; }
+    const m = (x.ok && x.data.remote) || {};
+    if (!m.on || !m.listening) { say(!m.on ? '還沒開「允許從 Tailscale 連進來」，手機連不進來；已打開設定，開關在「從別台連進來」' : 'Tailscale 還沒連上，看板會自己重試；連上後再按一次', true); if (!m.on) drawSettings(); return; }
+    const url = 'http://' + m.ip + ':' + m.port + '/?t=' + TOKEN;
+    try { await navigator.clipboard.writeText(url); say('已複製手機網址。這個網址含看板的金鑰，只傳給你自己的裝置'); }
+    catch (e) {   // the browser would not copy: shown, selected, gone once you click elsewhere
+      const inp = el('input'); inp.type = 'text'; inp.readOnly = true; inp.value = url; inp.setAttribute('aria-label', '手機要開的網址');
+      box.append(inp); inp.select(); inp.addEventListener('blur', () => inp.remove(), { once: true });
+      say('瀏覽器不讓直接複製，網址已選好在左下角，請按 Ctrl+C', true);
+    }
+  });
+  box.append(b);
+})();
 function newPageAvailable() {
   if (!unsavedWork()) { location.reload(); return; }
   const foot = $('sideFoot');
   if (foot.dataset.newer) return;
   foot.dataset.newer = '1';
   foot.className = 'side-foot';
-  foot.textContent = '';
+  const text = $('sideFootText'); text.textContent = '';   // the text part only: the phone button beside it stays
   const b = el('button', 'btn primary', '看板有新版，按這裡重新整理'); b.type = 'button';
   b.title = '你正在輸入或有卡片還沒回覆，所以沒有自動重新整理';
   b.addEventListener('click', () => location.reload());
-  foot.append(b);
+  text.append(b);
 }
 const setPlace = (hash) => { let at = location.hash.replace(/^#/, ""); try { at = decodeURIComponent(at); } catch (e) {} if (at !== String(hash || "")) closeBell();   // another page (not a redraw of the same one): the notices box does not stay over it
  const url = location.pathname + location.search + (hash ? '#' + hash : '');
@@ -5735,7 +5899,7 @@ async function poll() {
     if (r.data.page) { if (pageTag === null) pageTag = r.data.page; else if (r.data.page !== pageTag) return newPageAvailable(); }
     down = false; $('downBar').hidden = true;
     $('sideFoot').className = 'side-foot';
-    if (!$('sideFoot').dataset.newer) $('sideFoot').textContent = sessions.length + ' 個 session · 更新於 ' + new Date().toLocaleTimeString('zh-TW', { hour12: false });
+    if (!$('sideFoot').dataset.newer) $('sideFootText').textContent = sessions.length + ' 個 session · 更新於 ' + new Date().toLocaleTimeString('zh-TW', { hour12: false });
     drawList();
     if (beats % 5 === 0 || !sideQuotaData) loadSideQuota(); else drawSideQuota();   // asked every 15 seconds; the countdown is redrawn every poll
     if (beats % 5 === 0) await loadKeep();
@@ -5767,7 +5931,7 @@ async function poll() {
       if ((shape !== homeShape && !typing) || !$('main').firstChild) { homeShape = shape; drawHome(); }
     }
   } catch (e) {
-    if (!down) { down = true; $('sideFoot').className = 'side-foot down'; $('sideFoot').textContent = '看板程序沒有回應，畫面是舊的。輸入 /session-board 重新啟動'; }
+    if (!down) { down = true; $('sideFoot').className = 'side-foot down'; $('sideFootText').textContent = '看板程序沒有回應，畫面是舊的。輸入 /session-board 重新啟動'; }
     // also at the top of every page: the line above is not seen on a phone (the list's foot is left out there) nor in
     // a conversation; gone by itself when the board answers again
     const bar = $('downBar'); bar.textContent = REMOTE ? '連不到看板，畫面是舊的。網路恢復或看板重新啟動後會自己接上' : '看板程序沒有回應，畫面是舊的。在 Claude Code 輸入 /session-board 重新啟動'; bar.hidden = false;

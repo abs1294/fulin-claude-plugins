@@ -40,6 +40,7 @@
     { "term": "subagent", "say": "分工角色（agent）" },
     { "term": "逐字紀錄", "say": "對話紀錄檔" },
     { "term": "三軌", "say": "寫出是哪三種檢查：制度清單、工具鏈（/doctor）、使用行為（/insights）" },
+    { "term": "四軌", "say": "寫出是哪四種檢查：制度清單、工具鏈（/doctor）、使用行為（/insights）、規則有沒有過時（/claude-api prompt-audit）" },
     { "term": "軌一", "say": "制度清單檢查" },
     { "term": "軌二", "say": "工具鏈檢查（/doctor）" },
     { "term": "軌三", "say": "使用行為檢查（/insights）" },

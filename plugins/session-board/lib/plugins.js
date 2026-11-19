@@ -42,6 +42,26 @@ function rootOf(name, inst, here = path.join(__dirname, '..')) {
   return inst[name] && inst[name].root ? inst[name].root : null;
 }
 
+// What plugin-manager's `update-all.js --apply --json` did, in one line. Its JSON has no summary of its own: rows (one
+// per install; result updated / up_to_date / reinstalled / needs-review / still-behind / failed) and restart (the places
+// whose Claude Code sessions need starting again). Its exit: 0 all done, 3 nothing failed but something is still behind
+// or needs a look, 1 something failed. -> {ok, summary, error, restart}
+function updateResult(stdout, status, stderr) {
+  let j = null; try { j = JSON.parse(stdout); } catch (e) {}
+  if (!j) return { ok: false, summary: '', error: String(stderr || stdout || '').trim().slice(-400) || 'exit ' + status, restart: [] };
+  const rows = (j.rows || []).filter((r) => r && r.result);
+  const of = (...k) => rows.filter((r) => k.includes(r.result));
+  const group = (rs) => { const m = new Map(); for (const r of rs) { const k = r.name + ' ' + (r.oldVersion || '?') + ' → ' + (r.newVersion || r.latest || '?'); m.set(k, (m.get(k) || 0) + 1); } return [...m].map(([k, n]) => k + (n > 1 ? '（' + n + ' 處）' : '')).join('、'); };
+  const parts = [];
+  if (of('updated', 'reinstalled').length) parts.push('更新了 ' + group(of('updated', 'reinstalled')));
+  if (of('needs-review').length) parts.push('更新了但要你看一下設定檔 ' + group(of('needs-review')));
+  if (of('still-behind').length) parts.push('仍落後 ' + group(of('still-behind')));
+  if (of('failed').length) parts.push('失敗 ' + group(of('failed')));
+  const restart = Array.isArray(j.restart) ? j.restart : [];
+  const ok = status === 0 || status === 3;
+  return { ok, summary: parts.join('；'), error: ok ? '' : parts.join('；') || String(stderr || '').trim().slice(-400) || 'exit ' + status, restart };
+}
+
 const run = (file, args, o = {}) => new Promise((resolve) => {
   (o.run || execFile)(o.exe || process.execPath, [file].concat(args), { cwd: o.cwd, windowsHide: true, timeout: o.timeout || 30000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8', env: o.env || process.env },
     (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || (err && err.message) || '') }));
@@ -131,4 +151,4 @@ function integrations(inst, settings) {
   for (const x of INTEGRATIONS) { const installed = !x.plugin || !!inst[x.plugin]; out[x.key] = { on: installed && s[x.key] !== false, installed, name: x.name, what: x.what, plugin: x.plugin }; }
   return out;
 }
-module.exports = { enableDaily, INTEGRATIONS, integrations, installed, rootOf, pluginManager, dailyReport, gitRepos, setSelfHeal, selfHealOff, MKT };
+module.exports = { enableDaily, INTEGRATIONS, integrations, installed, rootOf, updateResult, pluginManager, dailyReport, gitRepos, setSelfHeal, selfHealOff, MKT };
