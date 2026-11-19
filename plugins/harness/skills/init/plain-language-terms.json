@@ -39,11 +39,12 @@
     { "term": "gate", "say": "自動檢查" },
     { "term": "subagent", "say": "分工角色（agent）" },
     { "term": "逐字紀錄", "say": "對話紀錄檔" },
-    { "term": "三軌", "say": "寫出是哪三種檢查：制度清單、工具鏈（/doctor）、使用行為（/insights）" },
+    { "term": "三軌", "say": "健檢現在是四種檢查，寫出是哪四種：制度清單、工具鏈（/doctor）、使用行為（/insights）、規則有沒有過時（/claude-api prompt-audit）" },
     { "term": "四軌", "say": "寫出是哪四種檢查：制度清單、工具鏈（/doctor）、使用行為（/insights）、規則有沒有過時（/claude-api prompt-audit）" },
     { "term": "軌一", "say": "制度清單檢查" },
     { "term": "軌二", "say": "工具鏈檢查（/doctor）" },
     { "term": "軌三", "say": "使用行為檢查（/insights）" },
+    { "term": "軌四", "say": "規則有沒有過時的檢查（/claude-api prompt-audit）" },
     { "term": "帳本", "say": "規則逐條裁決表（留／改寫／刪）" },
     { "term": "收集結果", "say": "健檢腳本抽出來的數字" },
     { "term": "retire_when", "say": "這筆記憶的退場條件" }

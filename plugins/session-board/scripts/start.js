@@ -46,6 +46,8 @@ async function ping() {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Where the server is started from: this plugin's folder, or after --refresh the newest installed version's
+let boardRoot = path.join(__dirname, '..');
 
 (async () => {
   const token = getToken();
@@ -57,15 +59,26 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     process.exit(running ? 0 : 1);
   }
   if (args.has('--refresh')) {
-    // 1. the plugins
+    // 1. the plugins. Given 110 s: this runs inside a skill's "!" command, whose own time limit is not known here
+    //    (HYPOTHESIS: about two minutes) - cut off by that, it would say nothing; cut off by this, it says so. Seen
+    //    2026-11-19: about 50 s with updates to make. Run again, update-all compares every install with the newest
+    //    version again, so what was brought up to date is not done twice (an install cut off half way: HYPOTHESIS that
+    //    it shows as behind and is done again). Stopped this way, `claude plugin update` started by it may still be
+    //    running: the board is then not restarted, so it does not start from a folder being written.
     const Plugins = require('../lib/plugins');
     const pm = Plugins.rootOf('plugin-manager', Plugins.installed());
     if (!pm) console.log('plugins: not updated - plugin-manager is not installed on this computer');
     else {
-      const u = spawnSync(process.execPath, [path.join(pm, 'scripts', 'update-all.js'), '--apply', '--json'], { encoding: 'utf8', timeout: 600000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
-      const x = Plugins.updateResult(u.stdout, u.status, u.stderr || (u.error && u.error.message));
+      const u = spawnSync(process.execPath, [path.join(pm, 'scripts', 'update-all.js'), '--apply', '--json'], { encoding: 'utf8', timeout: 110000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
+      const timedOut = !!(u.error && u.error.code === 'ETIMEDOUT');
+      const x = timedOut ? { ok: false, error: 'took over 110 s and was stopped (an install it started may still be going)', restart: [] }
+        : Plugins.updateResult(u.stdout, u.status, u.stderr || (u.error && u.error.message));
       console.log(x.ok ? 'plugins: ' + (x.summary || 'all up to date') : 'plugins: update failed - ' + x.error);
+      if (timedOut) { console.log(running ? 'board: NOT restarted - it keeps running ' + running.version + '. Run /session-board again in a minute or two.' : 'board: NOT started (it was not running) - run /session-board again in a minute or two.'); process.exit(2); }
       if (x.restart.length) console.log('plugins: Claude Code sessions to start again for the new versions: ' + x.restart.join(', '));
+      // session-board itself may be one of those updated: a new version is a new folder, so the start below runs the
+      // newest one (on the developer's machine, the monorepo copy - the same as here)
+      boardRoot = Plugins.rootOf('session-board', Plugins.installed(), path.join(__dirname, '..')) || boardRoot;
     }
     // 2. the board: stopped (never forced), so the start below runs the code on disk now. Asked a few times: right after
     //    the update the board can be slow to answer (seen 2026-11-19: no answer within the 1.5 s the request waits).
@@ -114,7 +127,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // The log only ever gets a start line and crash output; start it over once it passes 1 MB.
     try { if (fs.statSync(LOG).size > 1048576) fs.truncateSync(LOG, 0); } catch (e) {}
     const out = fs.openSync(LOG, 'a');
-    const child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js'), '--port', String(port)],
+    const child = spawn(process.execPath, [path.join(boardRoot, 'server.js'), '--port', String(port)],
       { detached: true, stdio: ['ignore', out, out], windowsHide: true });
     child.unref();
     for (let i = 0; i < 40 && !(running = await ping()); i++) await sleep(150);
@@ -125,7 +138,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   console.log(`session-board ${running.version} (pid ${running.pid})`);
   // A server started before a plugin update keeps serving the old code.
-  const mine = require('../.claude-plugin/plugin.json').version;
+  const mine = require(path.join(boardRoot, '.claude-plugin', 'plugin.json')).version;
   if (running.version !== mine) console.log(`NOTE: the running server is ${running.version}, this plugin is ${mine}. Run with --stop, then start again, to switch.`);
   console.log(url);
   // 3. Tailscale: the board listens there again by itself when the setting is on (server.js keepRemote); wait for it a little

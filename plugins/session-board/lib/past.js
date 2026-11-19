@@ -240,7 +240,8 @@ function find(projectsDir, sid) {
 
 // Which of these ids - whole, or the first 8 or more characters of one (replies often name a conversation by its
 // first 8: "session `b4a05eb5`") - are conversations on this computer. A short one counts only when it fits exactly one.
-// Only the names in the folders are read (no file is opened or looked at), kept for a minute.
+// Finding them reads only the names in the folders (kept for a minute); each one found is then read for its folder and
+// title (the start and end of its record, as the list of old conversations does) - at most 20 a time.
 // -> {key: {sessionId, cwd, folder, title}} for the ones found
 let nameIndex = { at: 0, dir: '', list: [] };
 function which(projectsDir, keys, now = Date.now()) {
@@ -255,7 +256,7 @@ function which(projectsDir, keys, now = Date.now()) {
     nameIndex = { at: now, dir: projectsDir, list };
   }
   const out = {};
-  for (const raw of [...new Set((keys || []).map((k) => String(k).toLowerCase()))].slice(0, 50)) {
+  for (const raw of [...new Set((keys || []).map((k) => String(k).toLowerCase()))].slice(0, 20)) {
     if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/.test(raw)) continue;
     const hits = nameIndex.list.filter((x) => x.sid.startsWith(raw));
     if (hits.length !== 1) continue;

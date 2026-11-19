@@ -41,7 +41,8 @@ description: 制度健檢——檢查 /harness:init 在專案裝的那套開發�
   claude -p "/claude-api prompt-audit" --output-format json > <系統暫存目錄>/harness-review-<今天>-prompt-audit.json
   ```
 
-  - 內建指令在 `claude -p` 裡照樣會跑（2026-11-19 實測：`/doctor` 約 90 秒、牌價約 0.46 美元，回的 `result` 是完整的檢查表；`/insights` 約 70 秒、約 1.95 美元，`result` 只給報告路徑 `~/.claude/usage-data/report-<日期>-<時間>.html`，內容要開那個檔讀；`/insights` 看的是這台電腦所有專案，不只這個專案）。`prompt-audit` 不停下來問人，直接產出報告與建議的修改（不會改檔）。
+  - 內建指令在 `claude -p` 裡照樣會跑（2026-11-19 實測：`/doctor` 約 90 秒、牌價約 0.46 美元，回的 `result` 是完整的檢查表；`/insights` 約 70 秒、約 1.95 美元，`result` 只給報告路徑 `~/.claude/usage-data/report-<日期>-<時間>.html`，內容要開那個檔讀；`/insights` 看的是這台電腦所有專案，不只這個專案）。`prompt-audit` 還沒實測過：依 claude-api skill 對這個子指令的說明，它不停下來問人、直接產出報告與建議的修改、沒被要求就不改檔（**HYPOTHESIS**，第一次跑時看它的 `result` 確認，對不上就照實寫進報告）。
+  - **Windows 的 Git Bash 會把開頭是 `/` 的參數改寫成路徑**（`"/doctor"` 變成 `C:/Program Files/Git/doctor`，指令照樣跑但送出去的不是 /doctor）：在 Git Bash 跑要在前面加 `MSYS_NO_PATHCONV=1`，或改用 PowerShell 跑。
   - 判斷成敗看 JSON 的 `is_error` 與 `result`，不看 exit code；失敗或逾時，報告寫「軌X 沒跑成：<錯誤原文>」，不准靜默略過。無人值守時也照跑。
   - 這三個子程序會在這個專案的逐字紀錄留下 session；收集腳本認得它們（第一句是 `/doctor`、`/insights`、`/claude-api prompt-audit` 而且是 headless 起的）並略過，不會算進下次健檢的使用數字。
 

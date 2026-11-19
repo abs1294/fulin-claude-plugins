@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.21.1] - 2026-11-19
+### Fixed
+- 審查修正：用語表補「軌四」、「三軌」改指向四種檢查；review SKILL 寫明 Git Bash 下 `claude -p "/doctor"` 要加 `MSYS_NO_PATHCONV=1`，prompt-audit 的行為標成未實測；check-flow-diagram current 也認 `%CLAUDE_PROJECT_DIR%`，以及 settings.local.json 接的 hook（只有權限設定、沒接 hook 的 settings.local.json 不算要畫的）；review-collect 沒有 entrypoint 的舊紀錄照算（不再把使用者親手打的 /doctor 當成健檢自己跑的）；補對應測試
+
 ## [0.21.0] - 2026-11-19
 ### Changed
 - /harness:review：自動檢查一律實跑不再問；/doctor、/insights 改由健檢在背景用 claude -p 自己跑（實測內建指令在 -p 會執行），新增第四軌 /claude-api prompt-audit（發現併進指令帳本）；新增第 7 步收尾畫目前的 harness 流程圖（沿用 init 的 archify＋deliver-report 易讀性自檢）；check-flow-diagram.js 新增 current 模式（上圖清單由現況推出：settings 接上的 hook、agents、規則檔、skill、harness/*.md、CLAUDE.md）；review-collect 略過健檢自己在背景跑的 /doctor、/insights、prompt-audit session；README、05 骨架、phase-6 收尾範本、白話用語表同步；補 flow-current 測試與 review-collect 第 21 項

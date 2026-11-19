@@ -988,6 +988,24 @@ test('a file uploaded for a message: kept under the board\'s folder, never over 
   const b = await post('/api/upload', { name: '報價 v2.pdf', data: Buffer.from('two').toString('base64') });
   assert.strictEqual(path.basename(b.json.path), '報價 v2 (2).pdf'); assert.strictEqual(fs.readFileSync(a.json.path, 'utf8'), 'one', 'the first one is still there');
   assert.strictEqual((await post('/api/upload', { name: 'x.txt', data: '' })).status, 400, 'empty');
+  // a Windows device name is not used as one: with an extension, spaces before it, the superscript digits, CONIN$
+  for (const [n, want] of [['CON.txt', '_CON.txt'], ['nul', '_nul'], ['CON .txt', '_CON .txt'], ['COM¹.log', '_COM¹.log'], ['LPT³', '_LPT³'], ['CONIN$', '_CONIN$'], ['console.txt', 'console.txt']]) {
+    assert.strictEqual(path.basename((await post('/api/upload', { name: n, data: Buffer.from('c').toString('base64') })).json.path), want, n);
+  }
+  // cut to length, then the dots and spaces Windows drops at the end: the path handed back is the file's
+  const long = 'a'.repeat(119) + '. .pdf';
+  const lp = (await post('/api/upload', { name: long, data: Buffer.from('l').toString('base64') })).json.path;
+  assert.ok(!/[. ]$/.test(path.basename(lp)) && fs.existsSync(lp), path.basename(lp));
+  // a file already there by that name is never written over - one put there by something else too ('wx': the write
+  // fails when the file exists, so another process writing the same name in between cannot be overwritten either)
+  const day = path.dirname(a.json.path); fs.writeFileSync(path.join(day, 'same.txt'), 'theirs');
+  const mine = await post('/api/upload', { name: 'same.txt', data: Buffer.from('mine').toString('base64') });
+  assert.strictEqual(path.basename(mine.json.path), 'same (2).txt');
+  assert.strictEqual(fs.readFileSync(path.join(day, 'same.txt'), 'utf8'), 'theirs');
+  // a day over a month old goes at the next upload; this month's stay
+  const up = path.join(CLAUDE, 'session-board', 'uploads'); fs.mkdirSync(path.join(up, '2020-01-01'), { recursive: true }); fs.writeFileSync(path.join(up, '2020-01-01', 'old.txt'), 'x');
+  await post('/api/upload', { name: 'y.txt', data: Buffer.from('y').toString('base64') });
+  assert.ok(!fs.existsSync(path.join(up, '2020-01-01')), 'the old day is gone'); assert.ok(fs.existsSync(a.json.path), 'today\'s are kept');
   assert.strictEqual((await post('/api/upload', { name: 'big.bin', data: Buffer.alloc(31 * 1024 * 1024).toString('base64') })).json.error, '檔案太大（上限 30 MB）');
 });
 

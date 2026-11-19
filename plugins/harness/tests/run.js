@@ -770,6 +770,19 @@ if (want('flow-current')) {
     const r2 = node([CFD, 'current', d, pj]);
     check('flow-current', r2.status === 1 && /guard-a/.test(r2.stdout) && /有 1 項不是圖上的節點/.test(r2.stdout), `漏畫接上的 hook → exit 1 並點名：exit ${r2.status}`);
     check('flow-current', node([CFD, 'current', d]).status === 2, '沒給圖 → exit 2（用法錯）');
+    // 只接在 settings.local.json 的 hook、寫成 %CLAUDE_PROJECT_DIR% 的路徑，一樣算在用（審查 2026-11-19：原本會被靜默排除，漏畫也 exit 0）
+    // settings.local.json 接的是寫在指令裡的 hook（沒有專案裡的腳本）：settings.local.json 本身也要上圖
+    put('.claude/settings.local.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo done' }] }] } }));
+    const r4 = node([CFD, 'current', d, fj]);
+    check('flow-current', r4.status === 1 && /settings\.local\.json/.test(r4.stdout), `settings.local.json 只接了指令式 hook：它本身要上圖：exit ${r4.status}`);
+    // settings.local.json 只有權限設定、沒接 hook：不算要畫的（個人設定，常常只有 permissions）
+    put('.claude/settings.local.json', JSON.stringify({ permissions: { allow: ['Bash(npm test)'] } }));
+    check('flow-current', node([CFD, 'current', d, fj]).status === 0, 'settings.local.json 沒接 hook：不在清單、完整的圖照樣 exit 0');
+    // 路徑用正斜線：%CLAUDE_PROJECT_DIR% 換成落點後在 macOS／Linux 也解得出來
+    put('.claude/settings.local.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node "%CLAUDE_PROJECT_DIR%/.claude/hooks/local-only.js"' }] }] } }));
+    put('.claude/hooks/local-only.js', '//');
+    const r3 = node([CFD, 'current', d, fj]);
+    check('flow-current', r3.status === 1 && /local-only/.test(r3.stdout) && /settings\.local\.json/.test(r3.stdout), `settings.local.json 接的 hook（%CLAUDE_PROJECT_DIR%）也要上圖：exit ${r3.status}`);
   } finally { rm(d); }
 }
 

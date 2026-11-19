@@ -2738,7 +2738,12 @@ function fixButton(label, tip, cwd, text) {
     if (!r.ok) { b.disabled = false; return say(r.data.error || '開不了新對話', true); }
     const x = await api('/api/send', { sessionId: r.data.sessionId, text });
     await poll(); openChat(r.data.sessionId);
-    say(x.ok ? '已開新對話處理，它有問題會停在這裡等你' : (x.data.error || '送不出去'), !x.ok);
+    if (x.ok) say('已開新對話處理，它有問題會停在這裡等你');
+    else {   // the conversation is there but the first message did not go: it is put in its box for you to send, not lost
+      const ta = $('foot') && $('foot').querySelector('textarea');
+      if (ta && !ta.value.trim()) { ta.value = text; ta.dispatchEvent(new Event('input')); }
+      say('開了新對話，但第一句沒送出（' + ((x.data && x.data.error) || '看板沒有回應') + '）；那句話放在輸入框，按送出再試', true);
+    }
     b.disabled = false;
   });
   return b;
@@ -2778,7 +2783,9 @@ function openHarness(folder, cwd, hs) {
     let sid = approveChats.get(cwd) || await fresh();
     if (!sid) return say('開不了對話，沒有送出', true);
     let r = await api('/api/send', { sessionId: sid, text: word + ' ' + x.id });
-    if (!r.ok && approveChats.get(cwd) === sid) { sid = await fresh(); if (sid) r = await api('/api/send', { sessionId: sid, text: word + ' ' + x.id }); }   // that conversation is gone: a new one
+    // that conversation is gone (not busy - a busy one queues it): a new one. Told by the error, not the status: /api/send
+    // answers 409 for every refusal (server.js), "no such channel" (lib/chat.js) being the one for a conversation not there
+    if (!r.ok && r.data && r.data.error === 'no such channel') { sid = await fresh(); if (sid) r = await api('/api/send', { sessionId: sid, text: word + ' ' + x.id }); }
     if (!r.ok) return say((r.data && r.data.error) || '送不出去', true);
     card.classList.add('done');
     const acts = card.querySelector('.hp-a'); acts.textContent = '';
@@ -2792,7 +2799,9 @@ function openHarness(folder, cwd, hs) {
     card.append(h, el('div', 'hp-s', x.summary));
     if (x.content) { const d = el('details'); d.append(el('summary', '', '建議內容'), el('pre', '', x.content)); card.append(d); }
     const acts = el('div', 'hp-a');
-    for (const [label, word, cls] of [['核可', '核可', 'btn primary'], ['駁回', '駁回', 'btn']]) { const b = el('button', cls, label); b.type = 'button'; b.title = '在這個專案的對話裡送出「' + word + ' ' + x.id + '」'; b.addEventListener('click', async () => { for (const y of acts.querySelectorAll('button')) y.disabled = true; await decide(word, x, card); if (!card.classList.contains('done')) for (const y of acts.querySelectorAll('button')) y.disabled = false; }); acts.append(b); }
+    // the id goes into a message taken as your own words: only one shaped as harness writes them (p-…), nothing else
+    if (!/^p-[\w-]{1,60}$/.test(String(x.id))) acts.append(el('span', 'hp-done', '這筆的編號格式不對（' + String(x.id).slice(0, 30) + '），看板不替它送核可；請在 Claude Code 裡處理'));
+    else for (const [label, word, cls] of [['核可', '核可', 'btn primary'], ['駁回', '駁回', 'btn']]) { const b = el('button', cls, label); b.type = 'button'; b.title = '在這個專案的對話裡送出「' + word + ' ' + x.id + '」'; b.addEventListener('click', async () => { for (const y of acts.querySelectorAll('button')) y.disabled = true; await decide(word, x, card); if (!card.classList.contains('done')) for (const y of acts.querySelectorAll('button')) y.disabled = false; }); acts.append(b); }
     card.append(acts); body.append(card);
   }
 }
@@ -4065,7 +4074,7 @@ function drawFoot() {
     let r; try { r = await api('/api/upload', { name: f.name, data }); } catch (e) { r = { ok: false, data: {} }; }
     if (!r.ok) return say('「' + f.name + '」沒有上傳成功：' + ((r.data && r.data.error) || '看板沒有回應'), true);
     ta.value = (ta.value && !/\n$/.test(ta.value) ? ta.value + '\n' : ta.value) + '附檔：' + r.data.path + '\n';
-    fit(); ta.focus(); say('已上傳「' + f.name + '」，路徑放進輸入框了');
+    fit(); ta.focus(); say('已上傳「' + f.name + '」，路徑放進輸入框了（存在看板那台電腦，30 天後自動刪掉）');
   };
   const addFiles = async (files, tagged) => {
     const tags = [];
@@ -4121,7 +4130,7 @@ function drawFoot() {
   };
   addMenu.append(
     menuItem('pic', '上傳圖片', onTouch() ? '從相簿或相機' : '從這台電腦選', () => imgPick.click()),
-    menuItem('file', '上傳檔案', 'PDF、Word、Excel…（Claude 照路徑讀）', () => filePick.click()),
+    menuItem('file', '上傳檔案', 'PDF、Word、Excel…（Claude 照路徑讀，30 天後自動刪）', () => filePick.click()),
     menuItem('cmd', '指令', '這個資料夾能用的 / 指令', () => { ta.value = '/'; ta.focus(); showCmds(); fit(); }));
   if (!onTouch()) addMenu.append(el('div', 'am-tip', '也可以在輸入框按 Ctrl+V 貼上截圖，或把圖檔、檔案拖進來'));
   const outside = (e) => { if (!addMenu.contains(e.target) && !pickBtn.contains(e.target)) closeAdd(); };
@@ -4911,13 +4920,16 @@ let fileTimer = 0;
 // board finds the conversation's record by its id and opens it in the folder written there (/api/past/open).
 // Written in the ways found in this computer's records (2026-11-19, 400 transcripts): `claude --resume <id>` with other
 // options between (`claude --dangerously-skip-permissions --resume <id>`, claude.exe), in a reply, in what you typed and in
-// a tool's output; and a conversation named by its id alone in code - mostly its first 8 characters ("session `b4a05eb5`").
+// a tool's output; and a conversation named by its id alone in code - mostly its first 8 characters ("session `1a2b3c4d`").
 // A bare id in code gets buttons only when it is a conversation on this computer, and a short one only when it fits one.
 // `claude --resume` without an id and `claude -c` name no conversation: nothing is added for them.
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const RESUME_RE = new RegExp('\\bclaude(?:\\.exe)?(?:\\s+(?!--resume\\b|-r\\b)[^\\s`]+){0,6}\\s+(?:--resume|-r)\\s+["\']?(' + UUID + ')', 'gi');
 const LONE_ID = new RegExp('^(?:[0-9a-f]{8}|' + UUID + ')$', 'i');
-const resumeKnown = new Map();   // id as written -> {sessionId, title, folder, open} or null (not a conversation here)
+// id as written -> {d: {sessionId, title, folder, open} or null (not a conversation here), at}. A "not here" is asked
+// again after a minute: a conversation started a moment ago is not in the board's list of names yet.
+const resumeKnown = new Map();
+const knownNow = (k) => { const x = resumeKnown.get(k); return x && (x.d || Date.now() - x.at < 60000) ? x : null; };
 const BLOCKS = 'p, li, td, th, h1, h2, h3, h4, pre, blockquote, .tl';
 async function resumeButtons(root) {
   if (!root) return;
@@ -4936,17 +4948,21 @@ async function resumeButtons(root) {
   }
   for (const c of root.querySelectorAll('code')) { const t = c.textContent.trim(); if (LONE_ID.test(t)) add(t, c, c.closest('pre') ? null : c); }
   if (!at.size) return;
-  const ask = [...new Set([...at.values()].flatMap((m) => [...m.keys()]))].filter((k) => !resumeKnown.has(k));
-  if (ask.length) {
-    let r; try { r = await api('/api/past/which', { ids: ask }); } catch (e) { r = { ok: false }; }
+  const ask = [...new Set([...at.values()].flatMap((m) => [...m.keys()]))].filter((k) => !knownNow(k));
+  for (let i = 0; i < ask.length; i += 20) {   // the board looks up 20 at a time: asked in turns until all are
+    const part = ask.slice(i, i + 20);
+    let r; try { r = await api('/api/past/which', { ids: part }); } catch (e) { r = { ok: false }; }
     if (!r.ok) return;
-    for (const k of ask) resumeKnown.set(k, (r.data.found || {})[k] || null);
+    for (const k of part) resumeKnown.set(k, { d: (r.data.found || {})[k] || null, at: Date.now() });
   }
   for (const [block, keys] of at) for (const [key, code] of keys) {
-    const d = resumeKnown.get(key); if (!d) continue;
-    const mark = (block.dataset.rs || '').split(',').filter(Boolean);
-    if (mark.includes(d.sessionId)) continue;   // one set of buttons per conversation in a block (the same one written twice, or drawn again)
-    block.dataset.rs = mark.concat(d.sessionId).join(',');
+    const x = knownNow(key), d = x && x.d; if (!d) continue;
+    // one set of buttons per conversation in a message or a tool's output: the same one written twice, drawn again, or
+    // reached both from the message and from its output opened later (the output's own pass and the message's)
+    const scope = block.closest('.tl, .msg') || root;
+    const mark = (scope.dataset.rs || '').split(',').filter(Boolean);
+    if (mark.includes(d.sessionId)) continue;
+    scope.dataset.rs = mark.concat(d.sessionId).join(',');
     const box = el('span', 'rsm');
     const where = (d.title ? d.title.slice(0, 40) + ' · ' : '') + (d.cwd || '');
     const go = async (to, b) => {

@@ -1257,17 +1257,34 @@ function createServer(token, port, deps = {}) {
       // this computer, and its path goes into the message for Claude to read - from the phone too, where the file is not
       // on this computer otherwise. Kept under the board's own folder, not the project's (nothing of it gets committed).
       if (p === '/api/upload') {
-        const name = String(body.name || '').split(/[\\/]/).pop().replace(/[<>:"|?*\u0000-\u001f]/g, '_').replace(/^\.+/, '').slice(0, 120) || 'file';
+        // cut to length first, then the dots and spaces Windows drops from the end (cut after, one could be left there and
+        // the path handed back would not be the file's)
+        let name = String(body.name || '').split(/[\\/]/).pop().replace(/[<>:"|?*\u0000-\u001f]/g, '_').replace(/^\.+/, '').slice(0, 120).replace(/[. ]+$/, '') || 'file';
+        // Windows device names - with any extension, spaces before it, the superscript digits, COM0/LPT0. Node writes them
+        // all as files (it opens by the \\?\ form; tried 2026-11-19 on Windows 11 26200: CON, NUL, COM1, COM0.txt…), but
+        // programs opening by the plain form cannot: PowerShell could not even remove them. The file is for Claude and
+        // you to open with those, so such a name gets a "_" in front - nothing of the file is lost by it.
+        if (/^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³])\s*(\.|$)/i.test(name)) name = '_' + name;
         const data = typeof body.data === 'string' ? Buffer.from(body.data, 'base64') : null;
         if (!data || !data.length) return send(res, 400, { ok: false, error: '檔案是空的' });
         if (data.length > 30 * 1024 * 1024) return send(res, 400, { ok: false, error: '檔案太大（上限 30 MB）' });
-        const d = new Date(), day = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-        const dir = path.join(DATA_DIR, 'uploads', day);
+        const up = path.join(DATA_DIR, 'uploads'), d = new Date(), day = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        // the days over a month old go: a file is for the message it was sent with, not kept for ever
+        try { for (const n of fs.readdirSync(up)) if (/^\d{4}-\d{2}-\d{2}$/.test(n) && Date.now() - new Date(n + 'T00:00:00').getTime() > 30 * 86400000) fs.rmSync(path.join(up, n), { recursive: true, force: true }); } catch (e) {}
+        const dir = path.join(up, day);
         fs.mkdirSync(dir, { recursive: true });
         const ext = path.extname(name), stem = name.slice(0, name.length - ext.length);
-        let file = path.join(dir, name);
-        for (let i = 2; fs.existsSync(file); i++) file = path.join(dir, stem + ' (' + i + ')' + ext);   // never over another upload
-        fs.writeFileSync(file, data);
+        // never over another upload, two at once with the same name included: 'wx' fails when the file is there
+        let file = null;
+        for (let i = 1; i < 1000 && !file; i++) {
+          const f = path.join(dir, i === 1 ? name : stem + ' (' + i + ')' + ext);
+          try { fs.writeFileSync(f, data, { flag: 'wx' }); file = f; } catch (e) {
+            if (e.code === 'EEXIST') continue;
+            try { fs.unlinkSync(f); } catch (x) {}   // made, then the writing failed (a full disk): no half a file left behind
+            return send(res, 500, { ok: false, error: '存不下來：' + e.message });
+          }
+        }
+        if (!file) return send(res, 500, { ok: false, error: '同名的檔太多' });
         return send(res, 200, { ok: true, path: file, size: data.length });
       }
       if (p === '/api/send') {
@@ -1641,7 +1658,6 @@ function createServer(token, port, deps = {}) {
         fresh();
         return send(res, 200, { ok: true, hidden: cur.length });
       }
-      // Open a conversation that is not open now: in a terminal window, or on the board.
       // Which ids written in a page are conversations on this computer (for the "carry on" buttons beside them).
       if (p === '/api/past/which') {
         const found = Past.which(S.DEFAULTS.projectsDir, Array.isArray(body.ids) ? body.ids : []);
@@ -1649,6 +1665,7 @@ function createServer(token, port, deps = {}) {
         for (const v of Object.values(found)) v.open = open.has(v.sessionId);
         return send(res, 200, { ok: true, found });
       }
+      // Open a conversation that is not open now: in a terminal window, or on the board.
       if (p === '/api/past/open') {
         const d = Past.find(S.DEFAULTS.projectsDir, sid);
         if (!d) return send(res, 404, { ok: false, error: '找不到這個對話的紀錄' });

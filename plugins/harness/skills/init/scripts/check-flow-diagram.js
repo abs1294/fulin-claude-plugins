@@ -229,14 +229,24 @@ function currentHarnessFiles() {
   const add = (p) => { try { if (inside(p) && fs.statSync(p).isFile()) out.add(path.relative(root, p).split(path.sep).join('/')); } catch {} };
   const ls = (d) => { try { return fs.readdirSync(d).map((n) => path.join(d, n)); } catch { return []; } };
   add(path.join(root, 'CLAUDE.md'));
-  const settings = path.join(root, '.claude', 'settings.json');
-  add(settings);
-  let j = null;
-  try { j = JSON.parse(fs.readFileSync(settings, 'utf8').replace(/^﻿/, '')); } catch {}
+  // both settings files: a hook wired only in settings.local.json runs all the same. settings.json is always on the
+  // list (one that does not parse too: it is still the file Claude Code reads); settings.local.json (one person's own
+  // settings, often only permissions) when it wires any hook - a script of the project's, or a command written in it
   const SCRIPT = /"([^"]+\.(?:m?js|cjs|py|sh|ps1))"|'([^']+\.(?:m?js|cjs|py|sh|ps1))'|([^"'\s]+\.(?:m?js|cjs|py|sh|ps1))/;
-  for (const arr of Object.values((j && j.hooks) || {})) for (const g of arr || []) for (const h of (g && g.hooks) || []) {
-    const m = String((h && h.command) || '').match(SCRIPT);
-    if (m) add(path.resolve(root, (m[1] || m[2] || m[3]).replace(/\$\{?CLAUDE_PROJECT_DIR\}?/, root)));
+  for (const sf of ['settings.json', 'settings.local.json']) {
+    const settings = path.join(root, '.claude', sf);
+    if (sf === 'settings.json') add(settings);
+    let j = null;
+    try { j = JSON.parse(fs.readFileSync(settings, 'utf8').replace(/^﻿/, '')); } catch { continue; }
+    let hooks = 0;
+    for (const arr of Object.values((j && j.hooks) || {})) for (const g of arr || []) for (const h of (g && g.hooks) || []) {
+      hooks++;
+      const m = String((h && h.command) || '').match(SCRIPT);
+      // the project folder written the ways a command line takes it: $CLAUDE_PROJECT_DIR, ${CLAUDE_PROJECT_DIR}, %CLAUDE_PROJECT_DIR%
+      if (!m) continue;
+      add(path.resolve(root, (m[1] || m[2] || m[3]).replace(/\$\{?CLAUDE_PROJECT_DIR\}?|%CLAUDE_PROJECT_DIR%/g, root)));
+    }
+    if (sf === 'settings.local.json' && hooks) add(settings);
   }
   for (const f of ls(path.join(root, '.claude', 'agents'))) if (/\.md$/.test(f)) add(f);
   for (const f of ls(path.join(root, '.claude', 'harness'))) if (/\.md$/.test(f)) add(f);
