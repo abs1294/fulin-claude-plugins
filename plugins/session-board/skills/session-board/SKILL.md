@@ -25,6 +25,7 @@ allowed-tools: Bash(node:*), Bash(echo:*)
 - `board: NOT restarted`（exit 2），兩種原因，照它印的寫：
   - 看板上有對話在做事：看板沒有重開、還是舊版在跑。把它列的對話告訴使用者，等它們做完再打一次 /session-board；**不要自己加 `--force`**。
   - `plugins:` 那行寫更新超過 110 秒被停下：它起的安裝可能還在跑，所以這次沒重開。請使用者過一兩分鐘再打一次。
+- `board: NOT started (it was not running)`（exit 2）：看板原本就沒在跑，更新又超過 110 秒被停下，所以這次沒有啟動，現在沒有看板可開。請使用者過一兩分鐘再打一次 /session-board。
 - `tailscale:` 那行：照原文給（在聽就給位址；`not listening yet` 代表 Tailscale 還沒起來，看板會自己定時重試；`off` 代表看板設定沒開從其他裝置連）。
 - **失敗**（上面有 `START-FAILED`，且不是 exit 2）：讀 `~/.claude/session-board/server.log` 的最後幾行找原因，把錯誤原文給使用者。最常見是 4317 埠被別的程式佔用：可以用 `node "${CLAUDE_PLUGIN_ROOT}/scripts/start.js" --open --port <其他埠號>` 改用別的埠。
 - 不要替使用者解讀看板上的內容（那是他自己看的畫面）。

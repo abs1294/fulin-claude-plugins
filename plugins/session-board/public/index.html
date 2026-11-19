@@ -979,16 +979,28 @@
     .jump .to-new::before { content: "\2193"; font-size: 20px; }
     /* a terminal session's foot: one short row */
     .foot .note { font-size: 13px; flex-wrap: nowrap; } .foot .note > span { flex: 1 1 auto; min-width: 0; } .foot .note .btn { flex: none; }
-    /* the list: the conversations first - the places in two columns, smaller; the line at the bottom left out */
-    .side-nav { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2px 4px; padding: 2px 6px 6px; }
-    .side-nav button.item { padding: 6px 8px; }
-    /* each place on one row (its line beside its name, cut short): the conversations get the room */
-    .side-nav .item { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-    .side-nav .item .dot { align-self: center; }
-    .side-nav .item .t { flex: none; }
-    .side-nav .item .m { font-size: 12px; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .side-quota { padding: 6px 12px 4px; }
-    .side-foot { display: none; }
+    /* the list: the conversations first - the places on one row of names (their lines left out), sliding sideways
+       when there are more than fit; it took three rows (asked 2026-11-19: "the five at the top take too much room") */
+    .side-nav { display: flex; flex-wrap: nowrap; gap: 2px; padding: 2px 6px 6px; overflow-x: auto; scrollbar-width: none; }
+    .side-nav::-webkit-scrollbar { display: none; }
+    /* as wide as its name (a computer's list gives each the whole width); ":root .app" outranks the skins' own padding
+       for a place (":root[data-skin=b] button.item" kept it at 10 px a side) */
+    :root .app .side-nav button.item { padding: 8px 7px; flex: none; width: auto; }   /* 44 px high: a finger's size */
+    .side-nav .item { display: flex; align-items: center; gap: 0; position: relative; }
+    /* the state of a place: a small mark at its corner, taking no width, and only when it has one (a grey dot each took
+       the room of a name) */
+    .side-nav .item .dot { position: absolute; top: 4px; right: 2px; width: 7px; height: 7px; margin: 0; }
+    .side-nav .item .dot[class="dot"] { display: none; }
+    .side-nav .item .t { font-size: 15px; }   /* the six names on one row of a 390 px phone */
+    .side-nav .item .m { display: none; }
+    /* the two limits side by side, each in two lines: name, bar and share; when it starts again (they took a row each) */
+    .side-quota:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 14px; padding: 6px 12px 4px; }
+    .side-quota > .sr { grid-column: 1 / -1; }
+    .sq { gap: 6px; }
+    .sq .sl .sx { display: none; }   /* "額度": the bar says it */
+    .sq .mbar { height: 6px; }
+    .sq .sr { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .side-foot, #sideFoot { display: none; }   /* #sideFoot is a row on a computer (its phone address button): an id outranks the class */
     /* the office's filters: one row that slides */
     .of-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; padding-bottom: 2px; }
     .of-chips::-webkit-scrollbar { display: none; }
@@ -4976,9 +4988,86 @@ async function resumeButtons(root) {
     else if ((block.classList && block.classList.contains('cw')) || block.tagName === 'PRE') block.after(box); else block.append(box);   // below a block of code or output, not inside it
   }
 }
+// Commands a reply asks you to type, with a button beside them. Which ones, from this computer's replies (2026-11-19,
+// 400 transcripts, asked of you in so many words): `/plugin …` 60 times, `! …` 39, `/doctor` 37, `/insights` 33, other
+// / commands (/goal2:goal, /plugin-manager-update, /setup-plugins, /reload-plugins, /model …), `核可 p-…`, an address.
+// In a conversation of the board the command is put into its box for you to send (a "!" line is run by the board in
+// that folder, as typed); anywhere else it is copied. /plugin opens a screen only the terminal has: the same thing by
+// the command line (`! claude plugin …`) is put in instead. A plain shell command is left alone: replies ask for those
+// mostly on another computer ("run git log on yours"), where a button here would run it in the wrong place.
+const PLUGIN_CLI = /^\/plugin\s+((?:marketplace\s+(?:add|update|remove)|install|update|uninstall|enable|disable)\b.*)$/i;
+// The folder's / commands are asked for once per conversation (loadCommands); until they are here, a "/word" cannot be
+// told from a path like /tmp, so it waits (pending) and the conversation is looked at again when they come. Not
+// gettable: no button for such a word.
+const cmdDone = new Set();          // conversations whose list was asked for and answered (or failed for good)
+const cmdWaiting = new Map();       // sessionId -> the parts of the page waiting for it
+function typedCommand(text, sid) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 300 || /\n/.test(t)) return null;
+  // "! git status", "!npm run build" - not code like "!important" or "!= null"
+  if (/^!\s+\S/.test(t) || (/^![a-z][\w.-]*\s+\S/i.test(t) && !/^!important\b/i.test(t))) return { put: '! ' + t.replace(/^!\s*/, ''), how: 'box' };
+  if (/^(核可|駁回|還原)\s+p-[\w-]+$/.test(t)) return { put: t, how: 'box' };
+  if (/^https?:\/\/\S+$/i.test(t)) return { url: t };
+  const m = /^\/([a-z][\w:-]*)(?=\s|$)/i.exec(t); if (!m) return null;   // "/api/end", "/sso/login": a path, not a command
+  const name = m[1].toLowerCase();
+  const p = PLUGIN_CLI.exec(t); if (p) return { put: '! claude plugin ' + p[1], how: 'box', cli: true };
+  if (TERMINAL_ONLY.includes(name)) return { put: t, how: 'copy' };
+  const info = cmdCache.get(sid);
+  if (!info) return sid && !cmdDone.has(sid) ? { pending: true } : null;   // the list is not here (yet): no guess
+  if (!(info.commands || []).some((c) => String(c.name).toLowerCase() === name)) return null;   // not a command of this folder
+  return { put: t, how: 'box' };
+}
+function cmdButtons(root, sid) {
+  const box = () => (sid && sid === active && $('foot') ? $('foot').querySelector('textarea') : null);
+  const button = (c, short) => {
+    if (c.url) { const a = el('a', 'btn', '開啟'); a.href = c.url; a.target = '_blank'; a.rel = 'noopener'; a.title = '在新分頁開：' + c.url; return a; }
+    const into = c.how === 'box' && box();
+    const b = el('button', 'btn', into ? (c.cli ? '↓ 改用 CLI' : '↓ 放進輸入框') + (short ? '：' + short : '') : '複製' + (short ? '：' + short : '')); b.type = 'button';
+    b.title = into ? (c.cli ? '/plugin 只在終端機有畫面；放進輸入框的是同一件事的命令列版：' : '放進輸入框，你按送出才會執行：') + c.put : (c.how === 'copy' ? '這個指令只在終端機的 Claude Code 能用，複製去那裡貼上：' : '複製：') + c.put;
+    b.addEventListener('click', async () => {
+      const ta = c.how === 'box' && box();
+      // what you have typed there is not written over: then it is copied instead, and said so
+      if (ta && !ta.value.trim()) { ta.value = c.put; ta.dispatchEvent(new Event('input')); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); say('已放進輸入框，按送出才會執行'); return; }
+      const why = ta ? '（輸入框裡有你打到一半的字，沒有蓋掉）' : into ? '（這裡已經沒有輸入框）' : '';
+      try { await navigator.clipboard.writeText(c.put); say('已複製「' + c.put.slice(0, 60) + '」' + why); } catch (e) { say('複製不了：' + c.put, true); }
+    });
+    return b;
+  };
+  let waiting = false;
+  for (const code of root.querySelectorAll('code')) {
+    if (code.dataset.cb) continue;
+    const pre = code.closest('pre');
+    const lines = pre ? code.textContent.split('\n').map((l) => l.trim()).filter(Boolean) : [code.textContent];
+    // every line of a block is looked at, however long (a long block of steps may hold the one command to run); at most
+    // 200 lines, and at most 6 buttons below it - the rest counted, not each given one
+    const all = lines.slice(0, 200).map((l) => typedCommand(l, sid));
+    if (all.some((c) => c && c.pending)) { waiting = true; continue; }   // looked at again once the folder's commands are here
+    code.dataset.cb = '1';
+    const cs = all.filter(Boolean);
+    if (!pre) { if (cs[0]) { const s = el('span', 'rsm'); s.append(button(cs[0])); code.after(s); } continue; }
+    // a block: one button per line that is such a command (a few lines at most), in a row below it
+    if (!cs.length) continue;
+    const row = el('span', 'rsm');
+    for (const c of cs.slice(0, 6)) row.append(button(c, cs.length > 1 ? (c.put || c.url).replace(/^! /, '').slice(0, 24) : ''));
+    if (cs.length > 6) row.append(el('span', 'hp-done', '還有 ' + (cs.length - 6) + ' 個指令'));
+    (pre.closest('.cw') || pre).after(row);
+  }
+  if (!waiting) return;
+  // every part waiting for the same list is looked at again when it comes; asked once - had it failed, the words that
+  // waited get no button rather than the list being asked for again and again
+  const first = !cmdWaiting.has(sid);
+  if (first) cmdWaiting.set(sid, new Set());
+  cmdWaiting.get(sid).add(root);
+  if (first) loadCommands(sid).then(() => {
+    cmdDone.add(sid);
+    const roots = cmdWaiting.get(sid) || new Set(); cmdWaiting.delete(sid);
+    for (const r of roots) if (r.isConnected) cmdButtons(r, sid);
+  });
+}
 function linkFiles(root, sid) {
   if (!root) return;
   resumeButtons(root);
+  cmdButtons(root, sid);
   for (const c of root.querySelectorAll('code')) {
     if (c.closest('pre') || c.dataset.fq) continue;
     const t = c.textContent.trim();
@@ -5869,12 +5958,13 @@ function drawSideQuota() {
   const row = (label, w) => {
     const r = el('div', 'sq');
     const bar = el('div', 'mbar'); const fill = el('div', 'mfill' + (w.pct >= 90 ? ' hot' : w.pct >= 70 ? ' warm' : '')); fill.style.width = Math.min(100, w.pct) + '%'; bar.append(fill);
-    r.append(el('span', 'sl', label), bar, el('b', '', w.pct + '%'), el('span', 'sr', left(w.resetsAt) + '後重置'));
-    r.title = label + '已用 ' + w.pct + '%，整個帳號所有 session 共用';
+    const sl = el('span', 'sl', label); sl.append(el('span', 'sx', '額度'));   // "額度" left out on a phone, where the two stand side by side
+    r.append(sl, bar, el('b', '', w.pct + '%'), el('span', 'sr', left(w.resetsAt) + '後重置'));
+    r.title = label + '額度已用 ' + w.pct + '%，' + left(w.resetsAt) + '後重置；整個帳號所有 session 共用';
     box.append(r);
   };
-  if (q.fiveHour) row('5 小時額度', q.fiveHour);
-  if (q.sevenDay) row('7 天額度', q.sevenDay);
+  if (q.fiveHour) row('5 小時', q.fiveHour);
+  if (q.sevenDay) row('7 天', q.sevenDay);
   if (box.firstChild && q.seenAt && Date.now() - q.seenAt > 10 * 60000) box.append(el('div', 'sr', ago(Date.now() - q.seenAt) + '前的數字'));
   box.hidden = !box.firstChild;
 }

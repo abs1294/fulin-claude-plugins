@@ -1278,9 +1278,14 @@ function createServer(token, port, deps = {}) {
         let file = null;
         for (let i = 1; i < 1000 && !file; i++) {
           const f = path.join(dir, i === 1 ? name : stem + ' (' + i + ')' + ext);
-          try { fs.writeFileSync(f, data, { flag: 'wx' }); file = f; } catch (e) {
-            if (e.code === 'EEXIST') continue;
-            try { fs.unlinkSync(f); } catch (x) {}   // made, then the writing failed (a full disk): no half a file left behind
+          // opened first ('wx': made here, or not at all), then written: only a file this upload made itself is removed when
+          // the writing fails (a full disk) - never one that something else made by that name in the same moment
+          let fd;
+          try { fd = fs.openSync(f, 'wx'); } catch (e) { if (e.code === 'EEXIST') continue; return send(res, 500, { ok: false, error: '存不下來：' + e.message }); }
+          // written to the end: one writeSync may write less than it was given (it says how much)
+          try { for (let off = 0; off < data.length;) off += fs.writeSync(fd, data, off, data.length - off); fs.closeSync(fd); file = f; } catch (e) {
+            try { fs.closeSync(fd); } catch (x) {}
+            try { fs.unlinkSync(f); } catch (x) {}
             return send(res, 500, { ok: false, error: '存不下來：' + e.message });
           }
         }
