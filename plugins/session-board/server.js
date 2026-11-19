@@ -23,7 +23,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { pipeline } = require('stream');
 const { execFile, spawn } = require('child_process');
+// A file sent as an answer: the file is closed however the sending ends - also when the other side goes away halfway
+// (.pipe() leaves the file open then, and on Windows a file left open stays locked).
+const sendFile = (rs, res) => pipeline(rs, res, () => {});
+// Opening to read without waiting (O_NONBLOCK where the system has it - not on Windows, where there is nothing to wait on).
+const OPEN_NOWAIT = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0);
 const S = require('./lib/sessions');
 const CmdUse = require('./lib/cmduse');
 const { cachedHistory } = require('./lib/history');
@@ -225,6 +231,12 @@ function endedReader(dir = path.join(DATA_DIR, 'ended'), every = 3600000) {
 }
 
 const VERSION = require('./.claude-plugin/plugin.json').version;
+// What a web page opened through /api/view may load from its folder: the kinds a page is made of, nothing else. No
+// data files (.json, .txt, .csv, .md, .pdf): the page may not fetch (connect-src 'none'), so it could not use them, and
+// served they would be readable by anyone holding the address - a page in a project's root has the project under it.
+const SITE_TYPES = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.avif': 'image/avif',
+  '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.wav': 'audio/wav' };
 const DATA_DIR = path.join(os.homedir(), '.claude', 'session-board');
 const TOKEN_FILE = path.join(DATA_DIR, 'token');
 const DEFAULT_PORT = 4317;
@@ -594,7 +606,7 @@ function createServer(token, port, deps = {}) {
         // When anything was last written to its transcript: what "busy, but nothing has happened for a while" is told by.
         try { const f = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir); if (f) s.activeAt = Math.round(fs.statSync(f).mtimeMs); } catch (e) {}
         // Opened but nothing sent yet: the page keeps it out of every list (it is shown only to the one typing in it).
-        if (s.owner === 'board' && channels.isEmpty) { const c = channels.get(s.sessionId); if (c && channels.isEmpty(c)) s.notStarted = true; }
+        if (s.owner === 'board' && channels.isEmpty) { const c = channels.get(s.sessionId); if (c && channels.isEmpty(c)) s.notStarted = true; if (c && c.draft) { s.draft = c.draft; if (!c.title) s.title = '草稿：' + c.draft.replace(/\s+/g, ' ').trim().slice(0, 40); } }
         if (s.owner === 'board') { const c = channels.get(s.sessionId); if (c && c.agent) s.agent = c.agent; }   // the role it runs as
         // Whether it asks before acting: what its process said (after the first message), else what it will be started with.
         if (s.owner === 'board') { const c = channels.get(s.sessionId); if (c) { s.mode = c.skipPermissions ? 'bypassPermissions' : c.mode || ''; if (!s.mode) s.modeDefault = defaultMode(); s.model = c.model || ''; s.effort = c.effort || ''; s.modelSeen = c.modelSeen || ''; } }
@@ -998,6 +1010,9 @@ function createServer(token, port, deps = {}) {
   });
   if (!deps.noSchedules && !deps.noTimers) { const t = setInterval(() => { auto.tick(); }, 600000); if (t.unref) t.unref(); setTimeout(() => { auto.tick(); }, 90000).unref(); }
   if (dog && !deps.noTimers) { const t = setInterval(() => { dog.tick(); }, 30000); if (t.unref) t.unref(); setTimeout(() => { dog.tick(); }, 15000).unref(); }
+  // The ends of every old transcript read once, a little at a time, a minute after starting: the first search (never
+  // limited in time) and 「更早的」 then answer from what is remembered instead of reading a thousand files first.
+  if (!deps.noTimers) setTimeout(() => { Past.listAsync({ projectsDir: S.DEFAULTS.projectsDir, days: 0, limit: 5000 }).catch(() => {}); }, 60000).unref();
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -1018,11 +1033,76 @@ function createServer(token, port, deps = {}) {
       if (req.method === 'GET' && p.startsWith('/api/view/')) {
         const id = p.split('/')[3] || '', t = viewTickets.get(id);
         if (!t || t.exp < Date.now()) { viewTickets.delete(id); return send(res, 404, { error: '這個預覽網址已經過期，請重新開一次預覽' }); }
+        // Only from the device that asked for it: a page can send its own address anywhere (open it in a window, go to
+        // another site with it in the address - no sandbox stops a page from leaving), and an address alone is not the key.
+        if (t.from && t.from !== req.socket.remoteAddress) return send(res, 404, { error: '這個預覽網址只能在開它的那台裝置上看' });
+        // A web page (.html) as a page: it and what it loads from beside it (pictures, styles, scripts), from that
+        // folder down only. What a page needs and nothing else is served (no file whose name or folder starts with a
+        // dot: .env, .git), and the page is shut in - a sandbox with an origin of its own and no connections - so it
+        // can neither read the board's key nor ask the board for anything (asked 2026-11-19: a page opened on the
+        // phone showed none of its pictures).
+        if (t.site) {
+          let rel = ''; try { rel = decodeURIComponent(p.split('/').slice(4).join('/')); } catch (e) { return send(res, 400, { error: 'bad path' }); }
+          // Plain names joined by "/" only - checked BEFORE anything touches the disk: no "\" or ":" (a "\\host\share" or
+          // "C:" path reaches the network or another drive, and would send this computer's Windows sign-in to a host the
+          // page names), no empty part ("///host/..."), nothing starting with "." and no 8.3 short name ("CLAUDE~2" is
+          // .claude) - review 2026-11-19
+          const parts = rel.split('/');
+          if (!rel || /[\\:\0]/.test(rel) || parts.some((s) => !s || s.startsWith('.') || /~\d/.test(s))) return send(res, 404, { error: '找不到' });
+          const want = path.resolve(t.dir, ...parts);
+          const lex = path.relative(t.dir, want); if (!lex || lex.startsWith('..') || path.isAbsolute(lex)) return send(res, 404, { error: '找不到' });
+          // No link (symbolic link or junction) under the page's folder is followed: where one leads cannot be judged from
+          // its text (one link to another, a mapped drive, a \\host path), and finding out by following it would already
+          // reach that computer. A page is made of files beside it; it does not need links.
+          for (let i = 1, at = t.dir; i <= parts.length; i++) {
+            at = path.join(at, parts[i - 1]);
+            let ls; try { ls = fs.lstatSync(at); } catch (e) { return send(res, 404, { error: '找不到' }); }
+            if (ls.isSymbolicLink()) return send(res, 404, { error: '找不到' });
+          }
+          let real = ''; try { real = fs.realpathSync.native(want); } catch (e) { return send(res, 404, { error: '找不到' }); }
+          // and again on the real, long names: inside the folder, and nothing on the way starting with "."
+          const inside = path.relative(t.dirReal, real); if (!inside || inside.startsWith('..') || path.isAbsolute(inside) || inside.split(/[\\/]/).some((s) => s.startsWith('.'))) return send(res, 404, { error: '找不到' });
+          const type = SITE_TYPES[path.extname(real).toLowerCase()];
+          // Opened first, then checked to be the very file looked at: one swapped in between the checks and the reading
+          // (a link put in its place) is not what gets read - the open file is, whatever its name points at afterwards.
+          let fd = null, st;
+          try {
+            // a plain file only, looked at BEFORE opening, and opened without waiting: opening a named pipe (macOS) waits
+            // for a writer and would hold the whole board (review 2026-11-19)
+            if (!fs.statSync(real).isFile()) throw new Error('not a file');
+            fd = fs.openSync(real, OPEN_NOWAIT); st = fs.fstatSync(fd);
+            // the file's number compared as a big integer (it is past what a plain number holds exactly); the volume only
+            // when both report one (on Windows the open file's does, the name's says 0 - measured 2026-11-19)
+            const open = fs.fstatSync(fd, { bigint: true }), again = fs.realpathSync.native(want), named = fs.statSync(again, { bigint: true });
+            if (again !== real || named.ino !== open.ino || (named.dev && open.dev && named.dev !== open.dev) || fs.lstatSync(want).isSymbolicLink()) throw new Error('changed');
+            // one name only: a hard link (a second name for a file kept elsewhere - .credentials.json named x.png) looks
+            // like any file and its number is that file's, so a file with more than one name is not served from a page's
+            // folder (review 2026-11-19). A page's own pictures, styles and scripts have one.
+            // (the page itself excepted: it is the file you opened, whatever names it has - an upload sent again after
+            // 20 days is given a second name, for one)
+            let isPage = false; try { isPage = real === fs.realpathSync.native(t.abs); } catch (e) {}
+            if (open.nlink > 1n && !isPage) throw new Error('more than one name');
+          } catch (e) { if (fd !== null) fs.closeSync(fd); return send(res, 404, { error: '找不到' }); }
+          if (!type || !st.isFile() || st.size > 50 * 1024 * 1024) { fs.closeSync(fd); return send(res, 404, { error: '找不到' }); }
+          res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+            'Content-Security-Policy': "sandbox allow-scripts allow-popups; default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'none'; form-action 'none'; base-uri 'self'; frame-ancestors 'self'" });
+          return sendFile(fs.createReadStream(null, { fd, autoClose: true }), res);
+        }
         let file = t.abs;
         if (t.office) { const r = await F.officePdf(t.abs, convertOffice); if (!r.ok) return send(res, 500, { error: r.error }); file = r.file; }
         else if (!F.realFile(t.abs) || F.kindOf(t.abs) !== 'pdf') return send(res, 404, { error: '找不到這個檔案' });
+        // Opened first, then checked to be the file the ticket was given for (its number taken when it was given - not a
+        // file or link put in its place since), and read from what is open. (An Office file's PDF is the board's own copy.)
+        let pfd = null;
+        try {
+          const preal = fs.realpathSync.native(file);
+          if (!fs.statSync(preal).isFile()) throw new Error('not a file');   // (as above: never open a pipe)
+          pfd = fs.openSync(preal, OPEN_NOWAIT);
+          const open = fs.fstatSync(pfd, { bigint: true });
+          if (!open.isFile() || (!t.office && t.ino && String(open.ino) !== t.ino)) throw new Error('changed');
+        } catch (e) { if (pfd !== null) fs.closeSync(pfd); return send(res, 404, { error: '找不到這個檔案' }); }
         res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': "inline; filename=\"" + t.name.replace(/[^\x20-\x7e]|["\\]/g, '_') + "\"; filename*=UTF-8''" + encodeURIComponent(t.name), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
-        return fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+        return sendFile(fs.createReadStream(null, { fd: pfd, autoClose: true }), res);
       }
 
       // EventSource cannot set a header, so the stream alone takes the token from the query.
@@ -1083,9 +1163,11 @@ function createServer(token, port, deps = {}) {
           const known = boardStarted(), hideProg = pref('hideProgramSessions');
           const hide = q.get('programs') === '1' ? null : (d) => inHiddenFolder(d.cwd) || (hideProg && byProgram(d.sessionId, d.entry, known, d.blocks));
           const given = customTitles();
-          const pl = Past.list({ projectsDir: S.DEFAULTS.projectsDir, exclude, hide, names: given, q: String(q.get('q') || '').slice(0, 100), limit: 600 });   /* all of them: the page lists them by folder */
+          // ?days=all: the earlier ones too (asked for on the page); a search is never limited in time (lib/past.js)
+          const days = q.get('days') === 'all' ? 0 : undefined, limit = days === 0 || q.get('q') ? 5000 : 600;
+          const pl = await Past.listAsync({ projectsDir: S.DEFAULTS.projectsDir, exclude, hide, names: given, q: String(q.get('q') || '').slice(0, 100), limit, days });   /* all of them: the page lists them by folder */
           for (const x of pl.items) if (given[x.sessionId]) { x.title = given[x.sessionId]; x.named = true; }   // a name given on the board, here too
-          return send(res, 200, Object.assign(pl, { days: Past.DAYS, hidden: hiddenList().length }));
+          return send(res, 200, Object.assign(pl, { hidden: hiddenList().length }));
         }
         // What one tool call of a conversation actually did (lib/history.js toolDetailAt): asked for when its line is opened.
         // One picture of a message, out of the session's transcript (lib/history.js imageAt): asked for when the message is drawn.
@@ -1136,9 +1218,12 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/harness') {
           const known = new Set(sessions().map((s) => String(s.cwd || '').toLowerCase()));
           try { for (const x of Past.list({ projectsDir: S.DEFAULTS.projectsDir, limit: 600 }).items || []) known.add(String(x.cwd || '').toLowerCase()); } catch (e) {}
+          // and any folder Claude Code has kept conversations for, however old (a room shown after 「更早的」 is one):
+          // known by its folder's name under the projects folder, read without opening a transcript
+          const kept = new Set(); try { for (const n of fs.readdirSync(S.DEFAULTS.projectsDir)) kept.add(n.toLowerCase()); } catch (e) {}
           const want = String(q.get('cwd') || '').split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 60);
           const states = {};
-          for (const w of want) states[w] = known.has(w.toLowerCase()) && isDir(w) ? Harness.stateOf(w) : { installed: false };
+          for (const w of want) states[w] = (known.has(w.toLowerCase()) || kept.has(Past.dirKey(w))) && isDir(w) ? Harness.stateOf(w) : { installed: false };
           return send(res, 200, { states });
         }
         if (p === '/api/plugins') return send(res, 200, await pluginsView(false));
@@ -1186,7 +1271,7 @@ function createServer(token, port, deps = {}) {
           if (size > 500 * 1024 * 1024) return send(res, 413, { error: '檔案超過 500 MB，請用別的方式拿' });
           const name = path.basename(abs);
           res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': size, 'Content-Disposition': "attachment; filename=\"" + name.replace(/[^\x20-\x7e]|["\\]/g, '_') + "\"; filename*=UTF-8''" + encodeURIComponent(name), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
-          return fs.createReadStream(abs).on('error', () => res.destroy()).pipe(res);
+          return sendFile(fs.createReadStream(abs), res);
         }
         if (p === '/api/file') {
           const abs = F.realFile(q.get('path'));
@@ -1197,7 +1282,7 @@ function createServer(token, port, deps = {}) {
           const end = kind === 'text' ? Math.min(size, F.TEXT_LIMIT) : size;
           res.writeHead(200, { 'Content-Type': F.mimeOf(abs), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Truncated': end < size ? '1' : '0' });
           if (end === 0) return res.end();
-          return fs.createReadStream(abs, { start: 0, end: end - 1 }).on('error', () => res.destroy()).pipe(res);
+          return sendFile(fs.createReadStream(abs, { start: 0, end: end - 1 }), res);
         }
         if (p === '/api/file/pdf') {
           const abs = F.realFile(q.get('path'));
@@ -1205,7 +1290,7 @@ function createServer(token, port, deps = {}) {
           const r = await F.officePdf(abs, convertOffice);
           if (!r.ok) return send(res, 500, { error: r.error });
           res.writeHead(200, { 'Content-Type': 'application/pdf', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
-          return fs.createReadStream(r.file).on('error', () => res.destroy()).pipe(res);
+          return sendFile(fs.createReadStream(r.file), res);
         }
         // Figures for one conversation, shown above it: cost, tokens, compactions, context in use, ...
         if (p === '/api/stats') {
@@ -1271,6 +1356,32 @@ function createServer(token, port, deps = {}) {
         const up = path.join(DATA_DIR, 'uploads'), d = new Date(), day = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
         // the days over a month old go: a file is for the message it was sent with, not kept for ever
         try { for (const n of fs.readdirSync(up)) if (/^\d{4}-\d{2}-\d{2}$/.test(n) && Date.now() - new Date(n + 'T00:00:00').getTime() > 30 * 86400000) fs.rmSync(path.join(up, n), { recursive: true, force: true }); } catch (e) {}
+        // the same file sent again (the same bytes, whatever its name) is the one already kept: its path is handed back and
+        // no second copy is made (asked 2026-11-19: "uploading the same file again reuses it, not one more file")
+        const hash = (b) => crypto.createHash('sha256').update(b).digest('hex'), mine = hash(data);
+        try {
+          for (const d of fs.readdirSync(up).filter((n) => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort().reverse()) {
+            for (const n of fs.readdirSync(path.join(up, d))) {
+              const f = path.join(up, d, n);
+              let st; try { st = fs.statSync(f); } catch (e) { continue; }
+              if (!(st.isFile() && st.size === data.length && hash(fs.readFileSync(f)) === mine)) continue;
+              // Kept over 20 days: it would be cleared soon after (a day folder goes at 30), and this message's path with it.
+              // Not copied - given a second NAME in today's folder (a hard link: the same bytes on disk, stored once), so
+              // the earlier message's path still works until its own day goes, and this one has a month from today.
+              if (d !== day && Date.now() - new Date(d + 'T00:00:00').getTime() > 20 * 86400000) {
+                const today = path.join(up, day); fs.mkdirSync(today, { recursive: true });
+                // (linking fails if the name is taken - nothing is overwritten - and the next number is tried)
+                for (let i = 1; i < 1000; i++) {
+                  const to = path.join(today, i === 1 ? n : n.replace(/(\.[^.]*)?$/, '-' + i + '$1'));
+                  try { fs.linkSync(f, to); } catch (e) { if (e.code === 'EEXIST') continue; break; }
+                  return send(res, 200, { ok: true, path: to, size: data.length, reused: true });
+                }
+                break;   // cannot be linked: this day's folder is left, the older ones still looked at, and if none will do it is written anew below
+              }
+              return send(res, 200, { ok: true, path: f, size: data.length, reused: true });
+            }
+          }
+        } catch (e) {}
         const dir = path.join(up, day);
         fs.mkdirSync(dir, { recursive: true });
         const ext = path.extname(name), stem = name.slice(0, name.length - ext.length);
@@ -1324,6 +1435,7 @@ function createServer(token, port, deps = {}) {
         if (!command) return send(res, 400, { ok: false, error: '沒有指令' });
         if (command.length > 8000) return send(res, 400, { ok: false, error: '指令太長（上限 8000 字）' });
         if (!isDir(c.cwd)) return send(res, 400, { ok: false, error: '這個對話的資料夾已經不存在：' + c.cwd });
+        if (channels.setDraft) channels.setDraft(sid, '');   // run: what was in the box is done, not a draft to keep
         const r = await runShell(command, c.cwd);
         const id = channels.noteShell(sid, { command, stdout: r.stdout, stderr: r.stderr, code: r.code });
         return send(res, 200, Object.assign({}, r, { ok: true, ran: r.ok, id, cwd: c.cwd }));
@@ -1428,16 +1540,27 @@ function createServer(token, port, deps = {}) {
       if (p === '/api/file/ticket') {
         const abs = F.realFile(body.path);
         const kind = abs ? F.kindOf(abs) : '';
-        if (!abs || (kind !== 'pdf' && kind !== 'office')) return send(res, 404, { error: '找不到這個 PDF 或 Office 檔案' });
+        const site = !!abs && /\.html?$/i.test(abs);   // a web page: served with what sits beside it (see /api/view)
+        if (!abs || (kind !== 'pdf' && kind !== 'office' && !site)) return send(res, 404, { error: '找不到這個 PDF、Office 或網頁檔案' });
         const now = Date.now();
         for (const [k, v] of viewTickets) if (v.exp < now) viewTickets.delete(k);
-        if (viewTickets.size > 200) viewTickets.clear();
+        // too many: the oldest go, not all (a page being read keeps loading with its own)
+        for (const k of viewTickets.keys()) { if (viewTickets.size <= 200) break; viewTickets.delete(k); }
         const id = crypto.randomBytes(18).toString('hex');
+        if (site) {
+          // the real, long name, as the files under it are compared by (realpathSync.native: no 8.3 names, no subst drive)
+          const dir = path.dirname(abs); let dirReal = dir; try { dirReal = fs.realpathSync.native(dir); } catch (e) {}
+          viewTickets.set(id, { abs, site: true, dir, dirReal, name: path.basename(abs), exp: now + 60 * 60000, from: req.socket.remoteAddress });   // an hour: a page keeps loading its pictures while it is read
+          return send(res, 200, { ok: true, url: '/api/view/' + id + '/' + encodeURIComponent(path.basename(abs)) });
+        }
         const name = kind === 'office' ? path.basename(abs).replace(/\.[^.]+$/, '') + '.pdf' : path.basename(abs);
-        viewTickets.set(id, { abs, office: kind === 'office', name, exp: now + 10 * 60000 });
+        let ino = ''; try { ino = String(fs.statSync(fs.realpathSync.native(abs), { bigint: true }).ino); } catch (e) {}   // the file it is for (see /api/view)
+        viewTickets.set(id, { abs, office: kind === 'office', name, exp: now + 10 * 60000, from: req.socket.remoteAddress, ino });
         return send(res, 200, { ok: true, url: '/api/view/' + id + '/' + encodeURIComponent(name) });
       }
       if (p === '/api/stop') { const ok = channels.stop(sid); fresh(); return send(res, 200, { ok }); }
+      // What is typed in a board conversation's box and not sent, kept so that leaving does not lose it (lib/chat.js setDraft)
+      if (p === '/api/draft') { if (typeof body.text !== 'string') return send(res, 400, { ok: false, error: '要給 text' }); const ok = channels.setDraft ? channels.setDraft(sid, body.text) : false; if (ok) fresh(); return send(res, ok ? 200 : 404, { ok }); }
       if (p === '/api/close-empty') { const ok = channels.removeIfEmpty ? channels.removeIfEmpty(sid) : false; if (ok) fresh(); return send(res, 200, { ok }); }
 
       if (p === '/api/seen') { channels.seen(sid); notices.seen(sid); fresh(); return send(res, 200, { ok: true }); }

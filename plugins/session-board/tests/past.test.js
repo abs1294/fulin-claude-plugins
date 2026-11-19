@@ -57,6 +57,23 @@ test('past: what you said is read from the two ends of a transcript, however lon
   assert.strictEqual(Past.find(d, '..\\x'), null);
 });
 
+test('past: the latest 30 days by default, the earlier ones counted by folder and listed when asked; a search is never limited in time', () => {
+  const d = tmp(), a = path.join(d, 'C--w-old'), b = path.join(d, 'C--w-new');
+  fs.mkdirSync(a, { recursive: true }); fs.mkdirSync(b, { recursive: true });
+  const now = Date.now(), put = (dir, n, text, cwd, daysAgo) => { const f = path.join(dir, SID(n) + '.jsonl'); fs.writeFileSync(f, user(text, { cwd }) + '\n'); const t = (now - daysAgo * 86400000) / 1000; fs.utimesSync(f, t, t); };
+  put(a, 1, '四個月前的範本研究', 'C:\\w\\old', 120);
+  put(a, 2, '兩個月前的報表', 'C:\\w\\old', 60);
+  put(b, 3, '昨天的', 'C:\\w\\new', 1);
+  const recent = Past.list({ projectsDir: d, now });
+  assert.deepStrictEqual([recent.items.map((x) => x.sessionId), recent.days, recent.older, recent.olderDirs], [[SID(3)], 30, 2, { 'c--w-old': 2 }]);
+  assert.strictEqual(Past.dirKey('C:\\w\\OLD\\'), 'c--w-old', "a folder's key: Claude Code's name for it, any case, a slash at the end or not");
+  const every = Past.list({ projectsDir: d, now, days: 0 });
+  assert.deepStrictEqual([every.items.map((x) => x.sessionId), every.older], [[SID(3), SID(2), SID(1)], 0], 'asked for: all of them, newest first');
+  const found = Past.list({ projectsDir: d, now, q: '範本研究' });
+  assert.deepStrictEqual([found.items.map((x) => x.sessionId), found.days], [[SID(1)], 0], 'a search looks at every one, however old');
+  return Past.listAsync({ projectsDir: d, now, days: 0 }).then((x) => assert.deepStrictEqual(x, every, 'the same, a few at a time'));
+});
+
 test('keep: a session you ended yourself is known at once, also when the board was not running', () => {
   const d = tmp(), file = path.join(d, 'keep.json');
   const A = { sessionId: SID(1), cwd: 'C:\\w\\x', title: 'A', pid: 1 }, B = { sessionId: SID(2), cwd: 'C:\\w\\b', title: 'B', pid: 2 }, C = { sessionId: SID(3), cwd: 'C:\\w\\a', title: 'C', pid: 3 };

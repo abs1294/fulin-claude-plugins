@@ -105,6 +105,7 @@ class Channels {
       agent: c.agent || undefined,
       model: c.model || undefined, effort: c.effort || undefined, modelSeen: c.modelSeen || undefined,   // the model it was switched to (setModel); none = Claude Code's default
       mode: c.mode || undefined,   // the permission mode its process last said it runs in
+      draft: c.draft || undefined,   // what you typed in its box and have not sent (setDraft)
     }));
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
@@ -180,9 +181,23 @@ class Channels {
 
   // A conversation that has not started: nothing was ever sent in it. It is a place to type the first message,
   // not a session yet - the list does not show it, and one nobody is looking at is forgotten (see _reap).
+  // Words you typed yourself and have not sent make it not empty: it is kept, listed, and the words are there when you
+  // come back (2026-11-19: "I wrote something and it was closed" - a new conversation was closed on leaving even with
+  // a message typed in its box, and the message went with it).
   isEmpty(c) {
-    if (c.title || c.proc || c.lastResultAt || c.pending.size || c.tasks.size || (c.shellNotes && c.shellNotes.length)) return false;
+    if (c.title || c.draft || c.proc || c.lastResultAt || c.pending.size || c.tasks.size || (c.shellNotes && c.shellNotes.length)) return false;
     return !this.transcriptOf(c.sessionId, c.cwd);
+  }
+
+  // What is in its box and not sent, kept by the board (the page sends it as you type). '' = nothing. -> boolean
+  setDraft(sid, text) {
+    const c = this.map.get(sid);
+    if (!c) return false;
+    const t = String(text || '').slice(0, 20000);
+    if ((c.draft || '') === (t.trim() ? t : '')) return true;
+    c.draft = t.trim() ? t : '';
+    this._save();
+    return true;
   }
 
   remove(sid) {
@@ -550,6 +565,7 @@ class Channels {
     c.lastActivity = Date.now();
     c.lastSeenAt = Date.now();
     c.proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: contentOf(text, images) } }) + '\n');
+    c.draft = '';   // sent: what was in the box is a message now
     this._setState(c, 'busy');
     this._save();
     return { ok: true, queued: false };

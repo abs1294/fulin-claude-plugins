@@ -397,9 +397,10 @@
   .sq .sl { color: var(--dim); white-space: nowrap; }
   .sq b { font-variant-numeric: tabular-nums; }
   .sq .sr { grid-column: 1 / -1; color: var(--faint); margin-top: -1px; }
-  .side-foot { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+  /* a row (the line and the phone address button). A class, not #sideFoot: an id outranked the rules that hide it -
+     the folded column and the phone - and it showed in the folded strip a character a line (2026-11-19) */
+  .side-foot { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .side-foot.down { color: var(--red); }
-  #sideFoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   #sideFootText { flex: 1; min-width: 0; }
   .side-phone .btn { font-size: 12px; padding: 1px 8px; }
   .side-phone input { width: 100%; font-size: 12px; }
@@ -522,7 +523,8 @@
   .pl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; align-items: start; }
   .pl-card { border: 1px solid var(--line); border-radius: var(--r-l); background: var(--bg); padding: 4px 0 10px; min-width: 0; }
   .pl-card.wide { grid-column: 1 / -1; }
-  .pl-h { display: flex; gap: 8px; align-items: baseline; padding: 10px 16px 6px; } .pl-h b { font-size: 16px; } .pl-h span { color: var(--dim); font-size: 13px; }
+  .pl-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 10px 16px 6px; } .pl-h b { font-size: 16px; } .pl-h span { color: var(--dim); font-size: 13px; }
+  .pl-h .btn { font-size: 13px; padding: 2px 10px; align-self: center; } .pl-h .pl-hb { margin-left: auto; }   /* a card's own actions: at the right of its title */
   .pl-row { display: flex; gap: 8px; align-items: baseline; width: 100%; border: 0; background: none; text-align: left; padding: 7px 16px; font: inherit; color: inherit; border-top: 1px solid var(--line); }
   button.pl-row:hover { background: var(--hover); }
   .pl-m { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .pl-m small { color: var(--dim); margin-left: 10px; font-size: 13px; }
@@ -602,6 +604,13 @@
   .imgstrip .thumb { position: relative; display: inline-block; } .imgstrip img { height: 64px; max-width: 140px; border-radius: var(--r-m); border: 1px solid var(--line); display: block; object-fit: cover; }
   .imgstrip button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1; padding: 0; }
   .imgstrip .thumb .tag { position: absolute; left: 3px; bottom: 3px; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: var(--r-s); background: rgba(0, 0, 0, .65); color: #fff; }
+  /* a file waiting to go: a card the height of a picture's, its kind, its name and its number (［檔N］) */
+  .imgstrip .thumb.file { height: 64px; width: 150px; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--side); display: inline-flex; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 10px 18px; }
+  .thumb.file .fk { font-size: 11px; font-weight: 700; color: var(--dim); letter-spacing: .04em; } .thumb.file .fn { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* in your sent message: the files it carried, as cards that open the file */
+  .fchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .fchip { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--bg); color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+  .fchip .fk { font-size: 11px; font-weight: 700; color: var(--dim); } .fchip .fn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .composer.drop { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
   /* the box you type in, as in the chat apps (every screen): a round + on its left (pictures), round icons on its right -
      send (an arrow), and stop (a square) only while it is working. No words on them: the names are in their labels. */
@@ -836,7 +845,7 @@
   .collab-pick { display: flex; flex-direction: column; gap: 6px; }
   .cp-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 140px 200px; gap: 8px; align-items: center; }
   .cp-who { min-width: 0; display: flex; flex-direction: column; } .cp-who .t, .cp-who .m { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .cp-who .m { font-size: 12px; color: var(--dim); }
-  .cp-opt { margin: 14px 0; } .collab-new select { max-width: 100%; }
+  .cp-opt { margin: 14px 0; } .cp-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; } .cp-line .btn { margin-left: auto; } .collab-new select { max-width: 100%; }
   .collab-item { display: block; width: 100%; text-align: left; background: none; border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 12px; margin: 6px 0; cursor: pointer; color: inherit; font: inherit; }
   .collab-item:hover { background: var(--hover); } .collab-item .m { font-size: 13px; color: var(--dim); margin-top: 2px; }
   .collab-members { display: flex; flex-direction: column; gap: 6px; }
@@ -945,11 +954,17 @@
   .pathrow input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-m); padding: 6px 10px; background: var(--bg); color: inherit; font: inherit; font-family: var(--mono); font-size: 14px; }
   .bad { color: var(--red); font-size: 14px; margin-top: 8px; }
 
-  #said { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 80px); background: var(--ink); color: var(--bg); border-radius: var(--r-m); padding: 8px 14px; font-size: 14px; max-width: min(calc(92vw / var(--zv, var(--z, 1))), 640px); transition: transform .15s ease-out; z-index: 5; }
-  #said.on { transform: translate(-50%, 0); }
+  /* A notice: at the top, over the conversation's heading - at the bottom it covered the box being typed in (2026-11-19).
+     Clicks go through it to what is under it. */
+  #said { position: fixed; left: 50%; top: calc(12px + env(safe-area-inset-top, 0px)); transform: translate(-50%, calc(-100% - 40px)); opacity: 0; pointer-events: none; background: var(--ink); color: var(--bg); border-radius: var(--r-m); padding: 8px 14px; font-size: 14px; max-width: min(calc(92vw / var(--zv, var(--z, 1))), 640px); transition: transform .15s ease-out, opacity .15s ease-out; z-index: 5; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); }
+  #said.on { transform: translate(-50%, 0); opacity: 1; }
   /* the board not answering: a band over the top of every page, on a phone too */
   #downBar { position: fixed; left: 0; right: 0; top: 0; z-index: 80; padding: 8px 14px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); background: var(--red); color: #fff; font-size: 14px; text-align: center; overflow-wrap: anywhere; }
   #said.bad { background: var(--red); color: #fff; }
+  /* a new version, where the line at the bottom of the left column is not shown: a band over the top */
+  #newBar { display: none; position: fixed; left: 0; right: 0; top: 0; z-index: 79; border: 0; padding: 8px 14px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); background: var(--accent, #2f5d8a); color: #fff; font: inherit; font-size: 14px; cursor: pointer; }
+  @media (max-width: 720px) { #newBar { display: block; } }
+  .app.folded ~ #newBar { display: block; }
   @media (prefers-reduced-motion: reduce) { #said { transition: none; } }
 
   @media (max-width: 720px) {
@@ -996,11 +1011,12 @@
     /* the two limits side by side, each in two lines: name, bar and share; when it starts again (they took a row each) */
     .side-quota:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 14px; padding: 6px 12px 4px; }
     .side-quota > .sr { grid-column: 1 / -1; }
+    .side-quota.one { grid-template-columns: minmax(0, 1fr); }
     .sq { gap: 6px; }
     .sq .sl .sx { display: none; }   /* "額度": the bar says it */
     .sq .mbar { height: 6px; }
     .sq .sr { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .side-foot, #sideFoot { display: none; }   /* #sideFoot is a row on a computer (its phone address button): an id outranks the class */
+    .side-foot { display: none; }
     /* the office's filters: one row that slides */
     .of-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; padding-bottom: 2px; }
     .of-chips::-webkit-scrollbar { display: none; }
@@ -1096,7 +1112,11 @@
   /* the round buttons of the box you type in stay round, with nothing pushing their icon aside, in every look */
   :root[data-skin] .composer .imgbtn, :root[data-skin] .composer .sendbtn, :root[data-skin] .composer .stopbtn { padding: 0; border-radius: 50%; }
   /* the choice of look in the settings: a small picture of each */
-  .skins { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; max-width: 680px; }
+  /* the four looks on one row (three and one left a card alone on a line); two by two on a phone */
+  .skins { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; max-width: 760px; }
+  @media (max-width: 720px) { .skins { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .ta-row { display: flex; gap: 8px; align-items: flex-end; } .ta-row textarea { flex: 1; min-width: 0; } .ta-row .btn { flex: none; }
+  .auto-log-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .auto-log-h .btn { margin-left: auto; font-size: 13px; padding: 2px 10px; }
   .skins button { display: grid; gap: 6px; text-align: left; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--bg); padding: 8px; }
   .skins button.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
   .skins .pv { display: grid; grid-template-columns: 34% 1fr; height: 54px; border-radius: 6px; overflow: hidden; border: 1px solid rgba(128, 128, 128, .25); }
@@ -1648,16 +1668,18 @@ function pastRow(x, withFolder) {
   row.title = x.cwd + (x.last ? '\n你最後說：' + x.last : '');
   return row;
 }
+let pastEarlier = false;   // the earlier conversations asked for (past the latest 30 days)
 async function fillPast() {
   const box = $('pastRows');
   if (!box) return;
   const seq = ++pastSeq;
   let r;
-  try { r = await api('/api/past?q=' + encodeURIComponent(pastQ)); } catch (e) { r = { ok: false }; }
+  try { r = await api('/api/past?q=' + encodeURIComponent(pastQ) + (pastEarlier ? '&days=all' : '')); } catch (e) { r = { ok: false }; }
   if (seq !== pastSeq || !$('pastRows')) return;   // a newer search has been sent meanwhile
   box.textContent = '';
   if (!r.ok) { box.append(el('div', 'hint', '讀不到，看板程序沒有回應。')); return; }
   const d = r.data;
+  if ($('pastTitle')) $('pastTitle').textContent = d.days ? '最近 ' + d.days + ' 天的對話' : '沒開著的對話';   // what is listed now
   pastCount = d.total ? '沒開著的 ' + d.total + ' 個' : '';
   // By folder: the folder a conversation ran in is how one is told from another. Folders with the latest activity first.
   // Which period: counted from midnight; a week starts on Monday.
@@ -1681,7 +1703,7 @@ async function fillPast() {
   }
   const groups = new Map();
   for (const x of items) { const k = x.cwd || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
-  $('pastNote').textContent = (pastQ ? '符合「' + pastQ + '」的有 ' + d.matched + ' 個' : '最近 ' + d.days + ' 天共 ' + base.length + ' 個') + (pastWhen ? '，' + WHEN.find((w) => w[0] === pastWhen)[1] + '的有 ' + items.length + ' 個' : '') + '，在 ' + groups.size + ' 個資料夾。' + (pastView === 'folder' ? '按資料夾名稱展開。' : '') + '搜尋比對標題、資料夾、你說的第一句與最後一句（不比對日期，要看某段時間請按上面的按鈕）。';
+  $('pastNote').textContent = (pastQ ? '符合「' + pastQ + '」的有 ' + d.matched + ' 個（不限時間）' : (d.days ? '最近 ' + d.days + ' 天' : '全部') + '共 ' + base.length + ' 個') + (pastWhen ? '，' + WHEN.find((w) => w[0] === pastWhen)[1] + '的有 ' + items.length + ' 個' : '') + '，在 ' + groups.size + ' 個資料夾。' + (pastView === 'folder' ? '按資料夾名稱展開。' : '') + '搜尋比對標題、資料夾、你說的第一句與最後一句（不比對日期，要看某段時間請按上面的按鈕）。';
   if (pastView === 'time') {
     // One list, newest first, a line for each day.
     const dayName = (t) => { const a = new Date(t); a.setHours(0, 0, 0, 0); const diff = Math.round((today0 - a.getTime()) / DAY); return (diff === 0 ? '今天' : diff === 1 ? '昨天' : '') + (diff <= 1 ? '　' : '') + (a.getMonth() + 1) + '/' + a.getDate() + '（' + '日一二三四五六'[a.getDay()] + '）'; };
@@ -1710,6 +1732,13 @@ async function fillPast() {
     box.append(g);
   }
   if (!items.length) box.append(el('div', 'hint', pastQ ? '沒有符合的對話。' : pastWhen ? '這段時間沒有對話。' : '沒有其他對話。'));
+  // the earlier ones (past the latest d.days days): read only when asked for
+  if (!pastQ && d.days && d.older) {
+    const more = el('button', 'list-more', '更早的對話（' + d.days + ' 天前）· 載入'); more.type = 'button';
+    more.title = '比最近 ' + d.days + ' 天更早的對話。搜尋時本來就不限時間';
+    more.addEventListener('click', () => { pastEarlier = true; more.disabled = true; more.textContent = '載入中…'; fillPast(); });
+    box.append(more);
+  }
   if (d.hidden) {
     const back = el('button', 'list-more', '有 ' + d.hidden + ' 個對話被你隱藏了 · 全部顯示回來'); back.type = 'button';
     back.addEventListener('click', async () => { await api('/api/hide', { clear: true }); await poll(); fillPast(); });
@@ -1717,7 +1746,7 @@ async function fillPast() {
   }
 }
 function drawPast(pane) {
-  pane.append(el('h3', '', '最近 30 天的對話'));
+  const h = el('h3', '', pastEarlier ? '沒開著的對話' : '最近 30 天的對話'); h.id = 'pastTitle'; pane.append(h);
   const row = el('div', 'pathrow');
   const input = el('input'); input.type = 'search'; input.value = pastQ; input.placeholder = '搜尋舊對話：標題、資料夾、你說過的話'; input.setAttribute('aria-label', '搜尋舊對話'); input.style.fontFamily = 'inherit';
   input.addEventListener('input', () => { pastQ = input.value.trim(); clearTimeout(pastTimer); pastTimer = setTimeout(fillPast, 300); });
@@ -1799,8 +1828,9 @@ function drawNew() {
     } catch (e) { bad.textContent = '看板程序沒有回應。'; }
     pick.disabled = false; pick.textContent = '選擇資料夾…';
   });
-  if (!REMOTE) pane.append(pick);
+  // the picker on the same row as the path and 開始 (a row of its own above them was a button alone on a line)
   const row = el('div', 'pathrow');
+  if (!REMOTE) row.append(pick);
   const input = el('input'); input.type = 'text'; input.placeholder = (REMOTE ? '' : '或') + '貼上資料夾的完整路徑，例如 C:\\work\\myproject'; input.setAttribute('aria-label', '資料夾路徑');
   const go = el('button', 'btn', '開始'); go.type = 'button';
   const start = () => { if (input.value.trim()) createIn(input.value.trim(), bad); };
@@ -2359,7 +2389,8 @@ async function drawSettings() {
     const ta = el('textarea'); ta.rows = 3; ta.style.width = '100%'; ta.value = (P.hideProgramFolders || []).join('\n'); ta.setAttribute('aria-label', '一律不列出的資料夾');
     const tb = el('button', 'btn', '儲存資料夾'); tb.type = 'button';
     tb.addEventListener('click', async () => { const list = ta.value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean); tb.disabled = true; const ok = await savePref({ hideProgramFolders: list }); tb.disabled = false; if (ok) { say(list.length ? '已儲存：' + list.length + ' 個資料夾不列出' : '已清空'); poll(); } });
-    pane.append(ta, tb);
+    // the box and its button side by side (below the box, the button was alone on a line)
+    const tr = el('div', 'ta-row'); tr.append(ta, tb); pane.append(tr);
   }
   {
     const h2 = el('h2', '', '版面'); h2.style.marginTop = '40px'; pane.append(h2);
@@ -2499,9 +2530,10 @@ function drawOffice(goTo) {
 // The conversations that are not open (the last 30 days; the search is done by the board, over what you said too).
 let officeQ = '', officeTimer = 0, officePast = null, officePastSeq = 0, officeWhen = '', officeTemp = false, officePrograms = false, officeDrag = '';
 const officeAll = new Set();   // rooms whose not-open conversations are all shown
+let officeEarlier = false;     // the conversations older than the latest 30 days asked for
 async function loadOfficePast() {
   const seq = ++officePastSeq;
-  let r; try { r = await api('/api/past?q=' + encodeURIComponent(officeQ) + (officePrograms ? '&programs=1' : '')); } catch (e) { r = { ok: false }; }
+  let r; try { r = await api('/api/past?q=' + encodeURIComponent(officeQ) + (officePrograms ? '&programs=1' : '') + (officeEarlier ? '&days=all' : '')); } catch (e) { r = { ok: false }; }
   if (seq !== officePastSeq) return;   // a newer search has been sent meanwhile
   officePast = r.ok ? Object.assign({ stamp: Date.now() }, r.data) : { failed: true, items: [], stamp: Date.now() };
   if (r.ok && !officeQ) pastCount = r.data.total ? '沒開著的 ' + r.data.total + ' 個' : '';
@@ -2563,7 +2595,10 @@ function fillOffice() {
   const P = prefs(), low = (p) => String(p || '').toLowerCase();
   const favs = (P.officeFavorites || []).map(low), order = (P.officeOrder || []).map(low);
   const isFav = (r) => !!r.cwd && favs.includes(low(r.cwd));
-  const pos = (r) => { const i = order.indexOf(low(r.cwd)); return i < 0 ? 1e9 : i; };
+  // A room never placed: with something open in it, before the rooms you placed (it is where things happen now - it
+  // came after every placed room, even ones with nothing open, and was missed: 2026-11-19 "Ebilling has a session, why
+  // is it not in the office"); with nothing open, after them as before.
+  const pos = (r) => { const i = order.indexOf(low(r.cwd)); return i >= 0 ? i : r.open.length ? -1 : 1e9; };
   const sorted = [...rooms.values()].sort((a, b) => (isFav(b) - isFav(a)) || (pos(a) - pos(b)) || worst(a) - worst(b) || latest(b) - latest(a));
   const nFav = sorted.filter(isFav).length, folded = !!P.officeCollapseOthers && !officeQ;
   const saveOrder = (list) => { const shown = new Set(list.map(low)); savePref({ officeOrder: list.concat((P.officeOrder || []).filter((x) => !shown.has(low(x)))) }).then(() => { officeShape = ''; fillOffice(); }); };
@@ -2647,6 +2682,17 @@ function fillOffice() {
       d.title = (x.title || '') + '\n' + x.cwd + (x.last ? '\n你最後說：' + x.last : '');
       desks.append(d);
     }
+    // this folder's conversations older than the latest days: offered, read only when asked for (a search is never
+    // limited in time). Counted by Claude Code's name for the folder - letters and digits kept, the rest "-".
+    // (not counted on the button: the count is of records, before the ones not listed - programs' runs, folders set
+    // aside - are left out, so it would promise more than may come)
+    const olderHere = officePast && officePast.days && !officeQ && cwd ? (officePast.olderDirs || {})[String(cwd).replace(/[\\/]+$/, '').replace(/[^A-Za-z0-9]/g, '-').toLowerCase()] || 0 : 0;
+    if (olderHere) {
+      const ob = el('button', 'list-more', '更早的對話（' + officePast.days + ' 天前）· 載入'); ob.type = 'button';
+      ob.title = '比最近 ' + officePast.days + ' 天更早的對話（所有資料夾的一起載入）。搜尋時本來就不限時間';
+      ob.addEventListener('click', () => { officeEarlier = true; ob.disabled = true; ob.textContent = '載入中…'; loadOfficePast(); });
+      desks.append(ob);
+    }
     const hs = (features.integrations || {}).harness === false ? null : harnessOf(cwd); let hl = null;
     if (hs && hs.installed) {
       hl = el('button', 'room-h' + (hs.pendingCount || hs.due.length ? ' warn' : '')); hl.type = 'button';
@@ -2697,6 +2743,12 @@ function fillOffice() {
    loadRoomFacts([...rooms.keys()].filter(Boolean));
   if (!rooms.size) grid.append(el('p', 'lead', officeQ ? '沒有符合「' + officeQ + '」的對話。' : officeFilter === 'closed' ? (officePast ? '這段時間沒有沒開著的對話。' : '讀取中…') : officeFilter ? '沒有「' + DESK[officeFilter] + '」的 session。' : '現在沒有開著的 session，最近 30 天也沒有別的對話。'));
   foot.textContent = '';
+  // all the earlier ones at once - also of folders with nothing in the latest days (no room for them above yet)
+  if (officePast && officePast.days && officePast.older && !officeQ) {
+    const ob = el('button', 'list-more', officePast.days + ' 天前的對話 · 全部載入'); ob.type = 'button';
+    ob.addEventListener('click', () => { officeEarlier = true; ob.disabled = true; ob.textContent = '載入中…'; loadOfficePast(); });
+    foot.append(ob);
+  }
   if (officePast && officePast.hidden) {
     const back = el('button', 'list-more', '有 ' + officePast.hidden + ' 個對話被設成不列出 · 全部顯示回來'); back.type = 'button';
     back.addEventListener('click', async () => { await api('/api/hide', { clear: true }); await poll(); await loadOfficePast(); });
@@ -2968,9 +3020,11 @@ async function drawCollab(preselect) {
   form.append(el('div', 'lab', '帳本放在（成員的資料夾之一，檔案是 .claude/collab/<編號>.md）'), folder);
   const by = el('input'); by.type = 'checkbox'; by.checked = r.data.bypassDefault !== false; by.id = 'collabBypass';
   const byl = el('label', '', ' 看板對話改成「全部不問，直接做」（bypass）'); byl.htmlFor = 'collabBypass';
-  const byRow = el('div', 'cp-opt'); byRow.append(by, byl, el('div', 'hint', '成員的權限模式要一樣，訊息才送得到：模式不同時，收到的一方會把訊息扣住等它的使用者核可，看板對話沒有人能核可，就永遠送不到（實測）。終端機 session 的模式看板改不了，模式不一致時下面會警告。'));
-  form.append(byRow);
   const go = el('button', 'btn primary', '開始合作'); go.type = 'button';
+  // 開始合作 at the end of the last choice's line (below the note it was a button alone on a line)
+  const byLine = el('div', 'cp-line'); byLine.append(by, byl, go);
+  const byRow = el('div', 'cp-opt'); byRow.append(byLine, el('div', 'hint', '成員的權限模式要一樣，訊息才送得到：模式不同時，收到的一方會把訊息扣住等它的使用者核可，看板對話沒有人能核可，就永遠送不到（實測）。終端機 session 的模式看板改不了，模式不一致時下面會警告。'));
+  form.append(byRow);
   const msg = el('div', 'hint');
   go.addEventListener('click', async () => {
     const members = rows.filter((x) => x.ck.checked).map((x) => ({ sessionId: x.s.sessionId, role: x.role.value.trim(), does: x.does.value.trim() }));
@@ -2983,7 +3037,7 @@ async function drawCollab(preselect) {
     say('合作 #' + x.data.id + ' 開始了');
     drawCollabOne(x.data.id, x.data.results);
   });
-  form.append(go, msg);
+  form.append(msg);
   // the ones there are
   const h = el('h2', '', '合作（' + list.length + '）'); h.style.marginTop = '32px';
   pane.append(h);
@@ -3256,7 +3310,9 @@ async function drawPlugins(refresh) {
     const msg = el('div', 'bad');
     const go = btn('現在交辦', async () => { go.disabled = true; msg.textContent = ''; const x = await api('/api/goals/start', { cwd: cwd.value, task: task.value, condition: cond.value }); go.disabled = false; if (!x.ok) { msg.textContent = (x.data && x.data.error) || '沒有交辦成功'; return; } say('已交給 goal2，在背景跑'); task.value = ''; cond.value = ''; drawPlugins(); }, 'primary');
     const later = btn('排到之後（額度重置後、每天…）', () => { schedEdit = { target: 'goal', kind: 'once', cwd: cwd.value, prompt: task.value, goal: cond.value }; drawSched(); });
-    const acts = el('div', 'pl-acts'); acts.append(go, later, btn('看全部紀錄', () => drawSched()));
+    const acts = el('div', 'pl-acts'); acts.append(go, later);
+    // "all the runs" is about the card, not this form: at the right of its title (third in the row, it wrapped to a line alone)
+    const all = btn('看全部紀錄', () => drawSched()); all.classList.add('pl-hb'); c.querySelector('.pl-h').append(all);
     f.append(el('div', 'pl-sub', '交辦新的 goal'), cwd, dl, task, cond, acts, msg); c.append(f);
   }
   // harness
@@ -3272,10 +3328,11 @@ async function drawPlugins(refresh) {
     if (!d.pm.checked) c.append(el('div', 'pl-note bad', d.pm.error || 'plugin-manager 沒有回應'));
     for (const b of d.pm.behind) { const x = row(b.name + '：' + b.from + ' → ' + b.to, b.count + ' 處'); x.title = b.where.join('\n'); c.append(x); }
     if (d.pm.unpublished.length) c.append(row('改了還沒發布：' + d.pm.unpublished.join('、'), d.pm.aheadOfRemote ? '本地領先 ' + d.pm.aheadOfRemote + ' 個 commit' : ''));
-    const acts = el('div', 'pl-acts');
-    acts.append(btn('向 marketplace 重新查', () => drawPlugins(true)));
+    // on the card's title row, at its right (a row below of its own was a button alone on a line)
+    const acts = c.querySelector('.pl-h');
+    const again = btn('向 marketplace 重新查', () => drawPlugins(true)); again.classList.add('pl-hb'); acts.append(again);
     if (d.pm.behind.length) { let armed = 0; const up = btn('全部更新', async () => { if (Date.now() - armed > 5000) { armed = Date.now(); up.textContent = '確定？再按一次'; return; } up.disabled = true; up.textContent = '更新中…'; const x = await api('/api/plugins/update', {}); if (!x.ok) { up.disabled = false; up.textContent = '全部更新'; return say((x.data && x.data.error) || '更新失敗', true); } say('已更新。要重開那些專案的 Claude Code 才會載入新版'); drawPlugins(); }, 'primary'); acts.append(up); }
-    c.append(acts, el('div', 'pl-note', '更新用 plugin-manager 自己的工具；更新後那些專案的 Claude Code 要重開才會用到新版。'));
+    c.append(el('div', 'pl-note', '更新用 plugin-manager 自己的工具；更新後那些專案的 Claude Code 要重開才會用到新版。'));
   }
   // git
   if (d.git) { const c = card('git', '看板知道的資料夾裡，還沒 push 或還沒 commit 的');
@@ -3411,12 +3468,67 @@ const quoteSnippet = (text) => { const body = String(text).split(/\n\n/).slice(1
 // does not leave an empty "新對話" behind - also when something was typed but not sent (the user's call,
 // 2026-11-14: a conversation that has not started is not to be listed at all; text brought in from the inbox
 // had kept one in the list for 16 hours). Whether it really is empty is decided by the board, not here.
+// Words in its box are the exception (2026-11-19: "I wrote something and you closed it"): kept as a draft, and the
+// conversation stays - whether typed, pasted or put there by a button (all of it is what you mean to send). A message
+// brought from the inbox is shown above the box, not in it: with nothing written it still goes.
 let chatOn = null;   // the conversation the chat view is showing
+const draftNow = new Map();     // sessionId -> what is in its box now, as you typed it
+const draftShown = new Set();   // conversations whose kept draft was put back into the box already
+const draftTimers = new Map();   // sessionId -> its save waiting to go (one each: leaving one and typing in another does not cancel the first)
+// Resolves to whether the board kept it: an answer of 4xx / 5xx is not kept (api() does not throw for those) - except
+// "no such conversation" (404): there is nothing left to keep it for, which is not a draft lost by this page.
+// draftReq is only the LINE the saves wait in (always resolving): one save refused does not count against the next.
+// sessionId -> the number of the last save for it, and what it saved; numbered, not timed (two in one millisecond are
+// still in order)
+const lastWords = new Map(), lastWordsText = new Map(); let saveNo = 0;
+// After a send / "!" went (the board clears the draft as it takes it): words typed meanwhile are the draft - saved again,
+// as the board's clearing may have come after them; none typed and the save before it did not settle - cleared again.
+function afterSent(s, sentAt, settled) {
+  if (s.owner !== 'board') return;
+  // the box as typed on this page, when it was typed in since: what it holds now is the draft - also when emptied again
+  if (draftNow.has(s.sessionId)) { const typed = draftNow.get(s.sessionId); if (typed.trim()) return saveDraft(s.sessionId, typed); return (lastWords.get(s.sessionId) || 0) > sentAt || !settled ? saveDraft(s.sessionId, '') : undefined; }
+  // saved meanwhile (on leaving: words, or emptied), then cleared by the board taking the send: the last save again
+  if ((lastWords.get(s.sessionId) || 0) > sentAt) return saveDraft(s.sessionId, lastWordsText.get(s.sessionId) || '');
+  if (!settled) return saveDraft(s.sessionId, '');
+}
+const saveDraft = (sid, text) => {
+  // every save is remembered, an emptying too (words typed and then deleted are not brought back after a send)
+  saveNo++; s0draft(sid, text); lastWords.set(sid, saveNo); lastWordsText.set(sid, String(text));
+  const one = draftReq.then(() => api('/api/draft', { sessionId: sid, text })).then((r) => !!(r && (r.ok || r.status === 404))).catch(() => false);
+  draftReq = one.then(() => true);
+  return one;
+};
+const s0draft = (sid, text) => { const s = sessions.find((x) => x.sessionId === sid) || unstarted.find((x) => x.sessionId === sid); if (s) s.draft = text; };
+let draftReq = Promise.resolve();   // a save of the draft on its way: sending waits for it, so it cannot land after the send and bring the sent words back
+// ... but not for ever: a save that does not come back in 3 seconds is not waited for (a request has no time limit of its own)
+// It says whether the save came back; if not, the caller clears the draft again after it (a late save of the sent words).
+const draftSettled = () => Promise.race([draftReq.then(() => true), new Promise((r) => setTimeout(() => r(false), 3000))]);
+const sendingNow = new Set();   // conversations with a send / "!" / "/btw" on its way: leaving does not close them (its words may come back)
+// Not sent or not answered (a "!" command, a /btw question): the words back where they were typed - the box, if that
+// conversation is still the one on screen, and its draft either way, so leaving does not lose them.
+function giveBack(s, text) {
+  const b = active === s.sessionId && $('foot') ? $('foot').querySelector('textarea') : null;
+  // something typed meanwhile stays first, the words that came back after it - neither is lost
+  if (b) { b.value = b.value.trim() ? b.value.replace(/\s+$/, '') + '\n' + text : text; b.dispatchEvent(new Event('input', { bubbles: true })); return; }
+  // not on screen: after what it holds as a draft already (typed meanwhile), not over it
+  if (s.owner === 'board') { const had = String(s.draft || '').replace(/\s+$/, ''); saveDraft(s.sessionId, had ? had + '\n' + text : text); }
+}
 function leaveIfEmpty(sid) {
   const s = sessions.find((x) => x.sessionId === sid) || unstarted.find((x) => x.sessionId === sid);
   if (!s || s.owner !== 'board') return;
+  draftShown.delete(sid);   // left: coming back puts the kept draft into the box again
+  const typedNow = draftNow.get(sid);
+  draftNow.delete(sid);
+  // what was typed is saved now (not 0.8 s later), in line after any save still on its way
+  if (typedNow !== undefined) { clearTimeout(draftTimers.get(sid)); draftTimers.delete(sid); }
+  if (typedNow !== undefined && typedNow.trim()) { saveDraft(sid, typedNow).then(() => poll()); return; }   // kept, with its words
+  // what was sent may still come back (not sent): not closed under it - its box emptied is still saved as empty, so a
+  // save of words typed before it is not what stays
+  if (sendingNow.has(sid)) { if (typedNow !== undefined) saveDraft(sid, ''); return; }
   carry.delete(sid);
-  api('/api/close-empty', { sessionId: sid }).then((r) => { if (r.ok && r.data.ok) poll(); }).catch(() => {});
+  // emptied by you: the kept draft goes first, then the conversation (asked the other way round, the board would still see the draft)
+  const cleared = typedNow !== undefined ? saveDraft(sid, '') : draftReq;
+  cleared.then(() => api('/api/close-empty', { sessionId: sid })).then((r) => { if (r && r.ok && r.data.ok) poll(); }).catch(() => {});
 }
 // next: the conversation about to be shown, when the chat view is only switching to another one.
 function closeStream(next) { const left = chatOn; chatOn = null; if (left && left !== next) leaveIfEmpty(left); if (stream) { stream.close(); stream = null; } pending = new Map(); liveStatus = ''; liveNode = null; liveText = ''; liveTasks = []; termAgents = []; liveShell = []; }
@@ -3757,6 +3869,31 @@ async function takePastedPics(srcs, addFiles) {
   return tags;
 }
 const pendingImgs = new Map();
+// Files waiting to go with a message, as pictures do: sessionId -> [{tag, name, path}]. Each has its mark ［檔N］ in the
+// text where it belongs; on sending, a line "［檔N］ <path>" for each is put at the end, for Claude to read the file by
+// (asked 2026-11-19: files to look like pictures - a small card and a mark - not a path pasted into the box).
+const pendingFiles = new Map();
+const uploading = new Map();   // sessionId -> files still going up for its next message
+const FILE_LINES = /(?:^|\n\n)((?:［檔\d+］ [^\n]+(?:\n|$))+)$/;   // at the end, or the whole message (files sent with no words)
+const fileKind = (name) => { const m = /\.([a-z0-9]{1,5})$/i.exec(name || ''); return m ? m[1].toUpperCase() : '檔案'; };
+const fileBase = (p) => String(p || '').split(/[\\/]/).pop();
+// A sent message's own words, and the files it carried (the lines added on sending), apart.
+function splitFiles(text) {
+  const m = FILE_LINES.exec(String(text || ''));
+  if (!m) return { text: String(text || ''), files: [] };
+  const files = m[1].trim().split('\n').map((l) => { const x = /^［檔(\d+)］ (.+)$/.exec(l); return x ? { tag: Number(x[1]), path: x[2] } : null; }).filter(Boolean);
+  return { text: String(text).slice(0, m.index), files };
+}
+function fileChips(files) {
+  const box = el('div', 'fchips');
+  for (const f of files) {
+    const b = el('button', 'fchip'); b.type = 'button'; b.title = f.path;
+    b.append(el('span', 'fk', '檔' + f.tag + ' · ' + fileKind(f.path)), el('span', 'fn', fileBase(f.path)));
+    b.addEventListener('click', async () => { let r; try { r = await api('/api/files/check', { paths: [f.path] }); } catch (e) { r = { ok: false }; } const ff = r.ok && r.data.files && r.data.files[0]; if (ff) openPeek(ff); else say('找不到這個檔（上傳的檔 30 天後會自動刪掉）', true); });
+    box.append(b);
+  }
+  return box;
+}
 
 // A picture file -> what is sent. One that is very large (more than about 3.5 MB, or longer than 2400 px on a side) is
 // drawn smaller first: Claude takes at most 5 MB a picture, and nothing is gained from more pixels than that.
@@ -3788,27 +3925,48 @@ let modelNow = {};   // the model and effort of the open conversation's newest r
 // 'claude-opus-5-5' -> 'Opus 5.5'; an alias -> its name
 const modelName = (m) => ({ fable: 'Fable', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' })[String(m).toLowerCase()] || String(m).replace(/^claude-/, '').replace(/-(\d+)-(\d+).*$/, ' $1.$2').replace(/^./, (x) => x.toUpperCase());
 // The small window for a conversation's model and effort.
-function modelPop(anchor, s) {
-  document.querySelectorAll('.modelpop').forEach((x) => x.remove());
+// preset: a choice made already (換回 …) - picked when it opens, and set on closing like one picked by hand
+function modelPop(anchor, s, preset) {
+  document.querySelectorAll('.modelpop').forEach((x) => (x._close ? x._close() : x.remove()));   // one open before: closed as itself (its choice kept)
   const pop = el('div', 'modelpop'); pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', '模型與 effort');
   // what it runs on now: set here, else what its newest reply used (shown in the stats line). No 預設 choice: what that is cannot be seen
   const now = modelNow.sessionId === s.sessionId ? modelNow : {};
   const alias = (m) => (/(fable|opus|sonnet|haiku)/i.exec(String(m || '')) || [])[1] || '';
   const pick = { model: (s.model || alias(now.model)).toLowerCase(), effort: s.effort || now.effort || '' };
+  const was = { model: pick.model, effort: pick.effort };   // what it runs on now: closing with this unchanged sends nothing
+  if (preset && preset.model) pick.model = String(preset.model).toLowerCase();
   const group = (title, key, items, tip) => { const g = el('div', 'mp-g'); g.append(el('div', 'mp-t', title)); const seg = el('div', 'seg'); for (const [v, label] of items) { const b = el('button', pick[key] === v ? 'on' : '', label); b.type = 'button'; b.addEventListener('click', () => { pick[key] = v; for (const x of seg.children) x.classList.toggle('on', x === b); }); seg.append(b); } g.append(seg); if (tip) g.append(el('div', 'mp-tip', tip)); pop.append(g); };
   group('模型', 'model', [['fable', 'Fable'], ['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']], s.modelSeen ? '現在實際在用：' + s.modelSeen : '');
   group('Effort（想多深）', 'effort', [['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['xhigh', 'xhigh'], ['max', 'max']], '越高想得越久、花得越多。亮起來的是它現在用的。');
-  const msg = el('div', 'bad');
-  const ok = el('button', 'btn primary', '套用'); ok.type = 'button';
-  ok.addEventListener('click', async () => { ok.disabled = true; const r = await api('/api/model', { sessionId: s.sessionId, model: pick.model || undefined, effort: pick.effort || undefined }); ok.disabled = false; if (!r.ok) { msg.textContent = r.data.error || '換不了'; return; } pop.remove(); await poll(); drawHead(); loadStats(s.sessionId); say('已設定，從下一則訊息起用 ' + [pick.model ? modelName(pick.model) : '', pick.effort ? 'effort ' + pick.effort : ''].filter(Boolean).join('、')); });
-  const no = el('button', 'btn', '取消'); no.type = 'button'; no.addEventListener('click', () => pop.remove());
-  const acts = el('div', 'mp-a'); acts.append(ok, no); pop.append(acts, msg);
+  // No 套用 / 取消 (asked 2026-11-19: "decide yourself - when it closes, make the change"): what is picked is set when
+  // the window closes (a click elsewhere, Esc, the 模型 button again); nothing changed, nothing sent.
+  pop.append(el('div', 'mp-tip', '選好點旁邊就會套用，從下一則訊息起生效'));
   document.body.append(pop);
   const r = anchor.getBoundingClientRect(), k = VP.rectPerCss, W = VP.widthCss, w = Math.min(380, W - 24);
   pop.style.top = (r.bottom / k + 6) + 'px'; pop.style.left = Math.max(12, Math.min(r.left / k, W - w - 12)) + 'px';
-  const away = (e) => { if (!pop.contains(e.target) && e.target !== anchor) { pop.remove(); document.removeEventListener('click', away, true); } };
-  setTimeout(() => document.addEventListener('click', away, true), 0);
+  // Closed once: listeners taken off whether or not it is still on the page (a second window opened in the same moment
+  // closes this one through here, not by just removing it). A send pressed while it is open waits for the change
+  // (modelReq), so that message already goes with the model chosen.
+  let shut = false;
+  const close = () => {
+    if (shut) return modelReq; shut = true;
+    pop.remove(); document.removeEventListener('click', away, true); document.removeEventListener('keydown', esc, true);
+    if (pick.model === was.model && pick.effort === was.effort) return modelReq;
+    modelReq = (async () => {
+      let x; try { x = await api('/api/model', { sessionId: s.sessionId, model: pick.model || undefined, effort: pick.effort || undefined }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
+      if (!x.ok) return say('模型沒換成：' + ((x.data && x.data.error) || '看板沒有回應'), true);
+      await poll(); drawHead(); loadStats(s.sessionId);
+      say('已設定，從下一則訊息起用 ' + [pick.model ? modelName(pick.model) : '', pick.effort ? 'effort ' + pick.effort : ''].filter(Boolean).join('、'));
+    })().catch(() => {});
+    return modelReq;
+  };
+  pop._close = close;
+  // the 模型 button pressed again closes it - the one on the page now (the stats line may have been drawn again since)
+  const away = (e) => { if (!pop.contains(e.target)) { if (e.target.closest && e.target.closest('.modelbtn')) { e.stopPropagation(); e.preventDefault(); } close(); } };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  setTimeout(() => { if (shut) return; document.addEventListener('click', away, true); document.addEventListener('keydown', esc, true); }, 0);
 }
+let modelReq = Promise.resolve();   // a change of model on its way (see modelPop)
 // What the board sent into a conversation in your place, as a notice: its kind, a title, a line, and (for a model
 // switch) a way back. The full sentence it sent is kept, folded.
 function autoNotice(text) {
@@ -3895,7 +4053,8 @@ function drawFoot() {
   composerDrop = null;   // set again below only when this conversation has a box to type in
   const s = cur(), foot = $('foot');
   if (!foot) return;
-  const typed = foot.querySelector('textarea') ? foot.querySelector('textarea').value : '';
+  // the words in the box now; with no box on the page (drawn for another view meanwhile), what was typed for this conversation
+  const typed = foot.querySelector('textarea') ? foot.querySelector('textarea').value : ((cur() && draftNow.get(cur().sessionId)) || '');
   const hadFocus = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
   foot.textContent = '';
   const col = el('div', 'col');
@@ -3935,6 +4094,15 @@ function drawFoot() {
   ta.placeholder = touch ? (st === 'busy' ? '它正在執行，現在說的話它做完這一步就會讀到' : st === 'waiting' ? '上面有卡片等你回覆，也可以直接說' : '輸入訊息')
     : st === 'busy' ? 'Claude 正在執行。現在送出，它做完手上這個動作就會讀到，不用等這一輪結束' : st === 'waiting' ? '上面有卡片等你回覆。也可以直接送訊息，它處理完這個動作就會讀到' : st === 'background' ? '背景工作還在跑，你仍然可以先說話' : '輸入訊息，Enter 送出，Shift+Enter 換行';
   ta.setAttribute('aria-label', '訊息');
+  // What you type and have not sent is kept by the board (a board conversation): leaving does not lose it, and it is put
+  // back here when you return - the first time this box is drawn for it; after that the box keeps its own words.
+  if (s.owner === 'board') {
+    if (!ta.value && s.draft && !draftShown.has(s.sessionId)) ta.value = s.draft;
+    draftShown.add(s.sessionId);
+    // without the ［檔N］ / ［圖N］ marks: files and pictures are not kept with the draft (a mark alone would come back with
+    // nothing behind it), and one added with nothing typed is not writing - leaving still closes it
+    ta.addEventListener('input', () => { const t = ta.value.replace(/［[檔圖]\d+］/g, ''), sid = s.sessionId; draftNow.set(sid, t); clearTimeout(draftTimers.get(sid)); draftTimers.set(sid, setTimeout(() => { draftTimers.delete(sid); saveDraft(sid, t); }, 800)); });   /* one after another: an older save cannot land after a newer one */
+  }
   const sendBtn = el('button', 'btn primary sendbtn'); sendBtn.type = 'button'; sendBtn.setAttribute('aria-label', '送出');
   sendBtn.innerHTML = '<span class="lbl">送出</span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>';
   // Never blocked: a message sent while Claude is working or waiting for a card is handed to it at once (lib/chat.js).
@@ -3945,7 +4113,14 @@ function drawFoot() {
     const text = ta.value;
     const q = carry.get(s.sessionId);
     if (q && !text.trim()) return say('先寫下你要它對這' + (q.mail || q.source === 'Gmail' ? '封信' : '些訊息') + '做什麼，再送出');
-    if ((!text.trim() && !imgs.length) || sendBtn.disabled) return;
+    // a file still going up would miss this message and land in the next one: sent when it is there
+    if (uploading.get(s.sessionId)) return say('檔案還在上傳，傳完再送（上方會說「已上傳」）', true);
+    if ((!text.trim() && !imgs.length && !files.length) || sendBtn.disabled) return;
+    // sent (or run): what was typed is not a draft any more - nor is a save of it still waiting to go. Called only once it
+    // is really going (a "!" or "/btw" with nothing after it is not: the words stay, and leaving keeps them)
+    const consume = () => { clearTimeout(draftTimers.get(s.sessionId)); draftTimers.delete(s.sessionId); draftNow.delete(s.sessionId); };
+    // (a save of the draft on its way is waited for just before each request below - after the box is emptied, so a
+    // second Enter meanwhile finds nothing to send, and the box emptied is the one this was typed in)
     // A line beginning with "!" is a command of your own, as in a terminal: the board runs it in this conversation's folder
     // and shows what it printed; that is handed to Claude with your next message (lib/shell.js). Sent as a message it
     // would only be text for the model - nothing would be run (measured 2026-11-16).
@@ -3953,61 +4128,87 @@ function drawFoot() {
     // answer is shown in a card of its own that is gone when the page is drawn again. Claude Code has no /btw when
     // it runs without a terminal, so the board does it (lib/aside.js). Works for a terminal session too.
     const bt = /^\s*\/btw(?:\s+([\s\S]*))?$/.exec(text);
-    if (bt && !imgs.length && !q) {
+    if (bt && !imgs.length && !files.length && !q) {
       const question = (bt[1] || '').trim();
       if (!question) return say('「/btw」後面接你想順便問的話，例如 /btw 剛剛那個欄位叫什麼', true);
-      ta.value = ''; fit(); showCmds();
+      consume(); ta.value = ''; fit(); showCmds();
+      // asked, so not a draft: a sending and a "!" command are cleared by the board itself, this one is not sent to it
+      if (s.owner === 'board') saveDraft(s.sessionId, '');
       const col = $('col'), stick = nearBottom();
       const card = el('div', 'card aside'), top = el('div', 'ah'), x = el('button', '', '✕'), body = el('div', 'ab', '回答中…（會把整個對話讀一遍，通常十幾秒）'), foot = el('div', 'foot');
       x.type = 'button'; x.title = '關掉這張卡'; x.setAttribute('aria-label', '關掉這張卡'); x.addEventListener('click', () => card.remove());
       top.append(el('b', '', '順便問'), el('span', '', '不記進這個對話，Claude 之後不會知道你問過'), x);
       card.append(top, el('div', 'aq', question), body, foot); if (col) { col.append(card); if (stick) toBottom(); }
+      sendingNow.add(s.sessionId);
       let r; try { r = await api('/api/btw', { sessionId: s.sessionId, question }); } catch (e) { r = { ok: false, data: { error: '看板沒有回應' } }; }
+      sendingNow.delete(s.sessionId);
       const d = r.data || {};
-      if (!r.ok || !d.ok) { card.classList.add('failed'); body.textContent = r.status === 404 && d.error === 'not found' ? '這個看板還是舊的程式，不認得這個功能。重啟看板後才能用' : (d.error || '沒有回答'); if (!ta.value) { ta.value = text; fit(); } return; }
+      // not answered: the question back in the box - and kept as a draft again, so leaving does not lose it
+      if (!r.ok || !d.ok) { card.classList.add('failed'); body.textContent = r.status === 404 && d.error === 'not found' ? '這個看板還是舊的程式，不認得這個功能。重啟看板後才能用' : (d.error || '沒有回答'); giveBack(s, text); return; }
       body.textContent = ''; const m = el('div', 'msg assistant'); m.innerHTML = md(d.answer); linkFiles(m, active); body.append(m);
       foot.textContent = (d.ms / 1000).toFixed(0) + ' 秒' + (d.cost ? ' · 等值 ' + money(d.cost) : '') + ' · 重新整理後這張卡就不在了';
       if (stick) toBottom();
       return;
     }
-    if (text.trimStart().charAt(0) === '!' && !imgs.length && !q) {
+    if (text.trimStart().charAt(0) === '!' && !imgs.length && !files.length && !q) {
       const command = text.trimStart().slice(1).trim();
       if (!command) return say('「!」後面要接指令，例如 ! git status', true);
       if (s.owner !== 'board') return say('這是終端機裡的 session，看板不能替它執行指令。請到它的視窗打這一行', true);
-      ta.value = ''; fit(); sendBtn.disabled = true;
+      consume(); ta.value = ''; fit(); sendBtn.disabled = true;
       const col = $('col'), stick = nearBottom();
       const wait = shellCard({ command, note: '執行中…（最長 2 分鐘；沒有鍵盤輸入）' }); if (col) { col.append(wait); if (stick) toBottom(); }
+      sendingNow.add(s.sessionId); const sentAt = saveNo;
+      const settled = await draftSettled(); s.draft = '';
       let r; try { r = await api('/api/shell', { sessionId: s.sessionId, command }); } catch (e) { r = { ok: false, data: { error: '看板沒有回應' } }; }
+      sendingNow.delete(s.sessionId);
+      if (r.ok) afterSent(s, sentAt, settled);   // words typed while it ran stay the draft; the words run do not
       sendBtn.disabled = false;
       const d = r.data || {};
-      if (!r.ok) { wait.remove(); ta.value = text; fit(); return say(r.status === 404 && !d.error ? '這個看板還是舊的程式，不認得這個功能。重啟看板後才能用' : (d.error || '沒有執行'), true); }
+      if (!r.ok) { wait.remove(); giveBack(s, text); return say(r.status === 404 && !d.error ? '這個看板還是舊的程式，不認得這個功能。重啟看板後才能用' : (d.error || '沒有執行'), true); }
       // (the board also tells of it over the stream, and that may have come first: then its card is there already)
       const have = col && col.querySelector('.card.shell[data-shell="' + CSS.escape(String(d.id)) + '"]');
       if (have) wait.remove(); else wait.replaceWith(pendingShell(s.sessionId, Object.assign({ command }, d)));
       if (stick) toBottom();
       return;
     }
-    const payload = q ? quoteWrap(text, q) : text;
+    // the files: a line each at the end, "［檔N］ <path>" - what Claude reads them by (the marks stay where you put them)
+    const fileTail = files.length ? '\n\n' + files.map((x) => '［檔' + x.tag + '］ ' + x.path).join('\n') : '';
+    const body0 = q ? quoteWrap(text, q) : text;
+    const payload = fileTail ? (body0.trim() ? body0.replace(/\s+$/, '') + fileTail : fileTail.replace(/^\n+/, '')) : body0;
     const sending = imgs.map((x) => (x.tag ? { mime: x.mime, data: x.data, tag: x.tag } : { mime: x.mime, data: x.data })), thumbs = imgs.map((x) => x.url);
     // Empty the box BEFORE the request. The "busy" event comes back over the
     // stream while the request is still in flight and redraws this footer with
     // whatever the box holds; clearing afterwards cleared the old, detached box
     // and the sent text stayed on screen (seen 2026-11-12).
-    ta.value = ''; fit(); showCmds();
+    consume(); ta.value = ''; fit(); showCmds();
     sendBtn.disabled = true;
+    sendingNow.add(s.sessionId); s.draft = ''; const sentAt = saveNo;   // sent: not a draft (if it comes back, it is the whole of it - not added to its own saved copy)
+    const settled = await draftSettled();
+    await modelReq;   // a model just chosen (its window closed by pressing send) is set before this message goes
     let r;
     try { r = await api('/api/send', sending.length ? { sessionId: s.sessionId, text: payload, images: sending } : { sessionId: s.sessionId, text: payload }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
-    if (r.ok) { pendingImgs.delete(s.sessionId); for (const x of document.querySelectorAll('#main .imgstrip')) { x.textContent = ''; x.hidden = true; }
+    sendingNow.delete(s.sessionId);
+    if (r.ok) afterSent(s, sentAt, settled);   // words typed while it went stay the draft; the words sent do not
+    if (r.ok) { pendingImgs.delete(s.sessionId); pendingFiles.delete(s.sessionId); files.length = 0; for (const x of document.querySelectorAll('#main .imgstrip')) { x.textContent = ''; x.hidden = true; }
     }
     if (r.ok) { setTimeout(async () => { await poll(); if (active === s.sessionId) drawHead(); }, 600); sentOnce.add(s.sessionId); for (const x of document.querySelectorAll('#main .rolerow')) x.remove(); for (const x of document.querySelectorAll('#main .more')) if (x.textContent === '在下面輸入第一則訊息') x.remove(); }
     if (!r.ok) {
-      const box2 = $('foot') && $('foot').querySelector('textarea');
-      if (box2 && !box2.value) box2.value = text;   // not sent: give the text back
-      drawFoot();
+      giveBack(s, text);   // not sent: the text back (its box, or its draft if another conversation is on screen now)
+      if (active === s.sessionId) drawFoot();
       return say(r.data.error || '送不出去', true);
     }
-    carry.delete(s.sessionId);
-    append(Object.assign(thumbs.length ? { role: 'user', text: payload.trim(), pics: thumbs, images: thumbs.length } : { role: 'user', text: payload.trim() }, r.data.mid ? { mid: true, fresh: true } : {}));
+    carry.delete(s.sessionId);   // (the list's copy of the draft: cleared when the send began, and set again by afterSent if words came meanwhile)
+    const mine = Object.assign(thumbs.length ? { role: 'user', text: payload.trim(), pics: thumbs, images: thumbs.length } : { role: 'user', text: payload.trim() }, r.data.mid ? { mid: true, fresh: true } : {});
+    // Kept until the transcript has it: a redraw in between puts it back (see sentLocal). Looked for only AFTER the last
+    // message the transcript had when it was sent (an earlier "繼續" is not this one, and the oldest falling off a long
+    // conversation's page changes nothing), and as the nth of its kind sent from here since then (sent twice quickly).
+    const said0 = sameText(payload), kept = sentLocal.get(s.sessionId) || [];
+    // (the last one the transcript gave - what came over the stream has no id, review 2026-11-19)
+    const fromLog = items.filter((i) => !localSent.has(i) && i.id != null), lastId = fromLog.length ? fromLog[fromLog.length - 1].id : null;
+    const nth = kept.filter((x) => x.lastId === lastId && x.text === said0).length;
+    append(mine); localSent.add(mine);
+    kept.push({ item: mine, text: said0, at: Date.now(), lastId, nth });
+    sentLocal.set(s.sessionId, kept);
     toBottom();
     liveStatus = 'busy'; drawHead(); drawFoot();
   };
@@ -4060,9 +4261,10 @@ function drawFoot() {
   sendBtn.addEventListener('click', go);
   // ── pictures: pasted into the box, dropped on it, or picked. Shown as small previews above the box until sent. ──
   const imgs = pendingImgs.get(s.sessionId) || [];
+  const files = pendingFiles.get(s.sessionId) || [];
   const strip = el('div', 'imgstrip');
   const drawImgs = () => {
-    strip.textContent = ''; strip.hidden = !imgs.length;
+    strip.textContent = ''; strip.hidden = !imgs.length && !files.length;
     imgs.forEach((x, i) => {
       const w = el('span', 'thumb'); const im = el('img'); im.src = x.url; im.alt = '要送出的圖片 ' + (i + 1); im.title = x.name + '（' + Math.round(x.data.length * 0.75 / 1024) + ' KB）' + (x.tag ? '。它在文字裡的位置是「［圖' + x.tag + '］」那個記號' : '。沒有指定位置，會排在文字前面');
       const rm = el('button', '', '×'); rm.type = 'button'; rm.setAttribute('aria-label', '拿掉第 ' + (i + 1) + ' 張圖');
@@ -4073,6 +4275,16 @@ function drawFoot() {
       });
       w.append(im, rm); if (x.tag) w.append(el('span', 'tag', '圖' + x.tag)); strip.append(w);
     });
+    files.forEach((x, i) => {
+      const w = el('span', 'thumb file'); w.title = x.path + '\n它在文字裡的位置是「［檔' + x.tag + '］」那個記號';
+      const rm = el('button', '', '×'); rm.type = 'button'; rm.setAttribute('aria-label', '拿掉「' + x.name + '」');
+      rm.addEventListener('click', () => {
+        files.splice(i, 1); pendingFiles.set(s.sessionId, files);
+        const t = $('foot') && $('foot').querySelector('textarea'); if (t && t.value.includes('［檔' + x.tag + '］')) { t.value = t.value.split('［檔' + x.tag + '］').join(''); t.dispatchEvent(new Event('input', { bubbles: true })); }   // its mark goes with it
+        drawImgs();
+      });
+      w.append(el('span', 'fk', fileKind(x.name)), el('span', 'fn', x.name), rm, el('span', 'tag', '檔' + x.tag)); strip.append(w);
+    });
   };
   // tagged: each picture gets a number, to be marked in the text where it belongs. -> the numbers given, one per file (0 = not added)
   // A file that is not a picture: kept on this computer by the board (/api/upload), and its path put into the message
@@ -4080,13 +4292,28 @@ function drawFoot() {
   const uploadFile = async (f) => {
     if (f.size > 30 * 1024 * 1024) return say('「' + f.name + '」太大（上限 30 MB）', true);
     say('上傳「' + f.name + '」中…');
+    uploading.set(s.sessionId, (uploading.get(s.sessionId) || 0) + 1);
+    try { return await uploadOne(f); } finally { const n = (uploading.get(s.sessionId) || 1) - 1; if (n > 0) uploading.set(s.sessionId, n); else uploading.delete(s.sessionId); }
+  };
+  const uploadOne = async (f) => {
     let data;
     try { data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).replace(/^data:[^,]*,/, '')); fr.onerror = () => rej(fr.error); fr.readAsDataURL(f); }); }
     catch (e) { return say('讀不到「' + f.name + '」', true); }
     let r; try { r = await api('/api/upload', { name: f.name, data }); } catch (e) { r = { ok: false, data: {} }; }
     if (!r.ok) return say('「' + f.name + '」沒有上傳成功：' + ((r.data && r.data.error) || '看板沒有回應'), true);
-    ta.value = (ta.value && !/\n$/.test(ta.value) ? ta.value + '\n' : ta.value) + '附檔：' + r.data.path + '\n';
-    fit(); ta.focus(); say('已上傳「' + f.name + '」，路徑放進輸入框了（存在看板那台電腦，30 天後自動刪掉）');
+    // The upload takes a moment, and the box may be drawn again meanwhile (a poll, the stream): what is changed is the
+    // list kept for the conversation and the box on the page NOW - not the ones this box was drawn with - and then the
+    // strip is drawn again, so the card shows (seen 2026-11-19: the card was added to a box no longer on the page).
+    const list = pendingFiles.get(s.sessionId) || []; pendingFiles.set(s.sessionId, list);
+    const had = list.find((x) => x.path === r.data.path);   // the same file twice in one message is one card, one mark
+    const box2 = active === s.sessionId && $('foot') ? $('foot').querySelector('textarea') : null;
+    if (!had) {
+      const tag = Math.max(0, ...list.map((x) => x.tag)) + 1;
+      list.push({ tag, name: f.name, path: r.data.path });
+      if (box2) { const a = box2.selectionStart, b = box2.selectionEnd; box2.setRangeText('［檔' + tag + '］', a, b, 'end'); box2.dispatchEvent(new Event('input', { bubbles: true })); box2.focus(); }
+    }
+    if (active === s.sessionId) drawFoot();   // the box drawn again from the list: its cards, and the words in it kept
+    say(had ? '「' + f.name + '」已經在這則訊息裡了' : r.data.reused ? '「' + f.name + '」之前傳過，沿用同一份（沒有多存一份）' : '已上傳「' + f.name + '」（存在看板那台電腦，30 天後自動刪掉）');
   };
   const addFiles = async (files, tagged) => {
     const tags = [];
@@ -4096,7 +4323,9 @@ function drawFoot() {
       if (imgs.length >= 8) { say('一則訊息最多 8 張圖', true); break; }
       try { const x = await readImage(f); if (tagged) { x.tag = Math.max(0, ...imgs.map((y) => y.tag || 0)) + 1; tags[tags.length - 1] = x.tag; } imgs.push(x); } catch (e) { say('這張圖讀不進來：' + String(e.message || e).slice(0, 60), true); }
     }
-    pendingImgs.set(s.sessionId, imgs); drawImgs();
+    pendingImgs.set(s.sessionId, imgs);
+    // a file among them drew the box again (uploadFile): this box is gone, so the one on the page is drawn with the pictures
+    if (ta.isConnected) drawImgs(); else if (active === s.sessionId) drawFoot();
     return tags;
   };
   ta.addEventListener('paste', async (e) => {
@@ -4347,18 +4576,20 @@ function node(it) {
     if (n.line) c.append(el('div', 'an-l', n.line));
     const foot = el('div', 'an-f');
     const s = cur();
-    if (n.kind === 'model' && n.from && s && s.owner === 'board') { const back = el('button', 'btn', '換回 ' + n.from); back.type = 'button'; back.title = n.from + ' 的額度回來後再換回去；額度還沒回來時換回去會再停下'; back.addEventListener('click', () => { const b = document.querySelector('.modelbtn'); if (b) modelPop(b, Object.assign({}, s, { model: n.from.toLowerCase() })); }); foot.append(back); }
+    if (n.kind === 'model' && n.from && s && s.owner === 'board') { const back = el('button', 'btn', '換回 ' + n.from); back.type = 'button'; back.title = n.from + ' 的額度回來後再換回去；額度還沒回來時換回去會再停下'; back.addEventListener('click', () => { const b = document.querySelector('.modelbtn'); if (b) modelPop(b, s, { model: n.from }); else say('上方的統計列還沒載入好，等一下再按一次', true); }); foot.append(back); }
     const d = el('details'); d.append(el('summary', '', '看板送出的原文'), el('div', 'an-raw', it.text)); foot.append(d);
     c.append(foot);
     return c;
   }
   if (it.role === 'user') {
     const m = el('div', 'msg user'); if (it.id) m.dataset.id = it.id;
-    const q = quoteParse(it.text);
+    // the files it carried (the "［檔N］ <path>" lines put at its end on sending) shown as cards, not as text
+    const sf = splitFiles(it.text), fchips = sf.files.length ? fileChips(sf.files) : null;
+    const q = quoteParse(sf.text);
     const pics = picsOf(it);
     // Sent while Claude was working: it is read when the action in hand is done, in the same turn.
     const midNote = null;   // sent while it worked: nothing said about it (the box itself already says so before you send)
-    if (!q) { const own = el('div', '', it.text); if (pics) own.prepend(pics); m.append(own); linkFiles(m, active); if (midNote) m.append(midNote); addEdit(m, it, pics); return m; }
+    if (!q) { const own = el('div', '', sf.text); if (pics) own.prepend(pics); if (fchips) own.append(fchips); m.append(own); linkFiles(m, active); if (midNote) m.append(midNote); addEdit(m, it, pics); return m; }
     // Your words in your bubble; what you quoted folded above them, opened by a click.
     const bubble = el('div');
     // Not a <button>: the paths in what is quoted (a mail's attachments) are made clickable, and that is not done inside a button.
@@ -4374,7 +4605,7 @@ function node(it) {
       body.textContent = on ? q.text : quoteSnippet(q.text); if (on) linkFiles(body, active);
       card.title = on ? '' : '點一下展開引用的原文';
     });
-    bubble.append(card, el('div', 'own', q.words)); if (pics) bubble.append(pics);
+    bubble.append(card, el('div', 'own', q.words)); if (pics) bubble.append(pics); if (fchips) bubble.append(fchips);
     m.append(bubble); linkFiles(bubble.querySelector('.own'), active); if (midNote) m.append(midNote);
     addEdit(m, it, pics);
     return m;
@@ -4430,9 +4661,23 @@ function editMsg(m, it) {
   go.addEventListener('click', async () => {
     const text = ta.value;
     if (!text.trim()) return say('改好的訊息是空的', true);
+    // a file still going up below would land in the conversation put away: wait for it, as sending does
+    if (uploading.get(active)) return say('下方還有檔案在上傳，傳完再重來', true);
     go.disabled = cancel.disabled = ta.disabled = true; go.textContent = '重來中…';
-    let r; try { r = await api('/api/rewind', { sessionId: active, at: it.id, text }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
+    // the conversation this is in, taken now (another may be on screen by the time the board answers)
+    const was = active, boxNow = () => (active === was && $('foot') && $('foot').querySelector('textarea') ? $('foot').querySelector('textarea').value.replace(/［[檔圖]\d+］/g, '') : null);
+    const draftOf = (sid) => { const x = sessions.find((y) => y.sessionId === sid) || unstarted.find((y) => y.sessionId === sid); return x ? x.draft : undefined; };
+    let r; try { r = await api('/api/rewind', { sessionId: was, at: it.id, text }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
     if (!r.ok || !r.data || r.data.ok === false) { go.disabled = cancel.disabled = ta.disabled = false; go.textContent = '送出，從這則重來'; return say((r.data && r.data.error) || '沒辦法重來', true); }
+    // What was in the box below, not sent yet, goes along to the conversation that goes on (the old one is put away: a
+    // draft saved to it would be refused and lost): the box as it is now when that conversation is still on screen -
+    // also words put back from a kept draft and not touched - else what was last typed or kept for it.
+    const shown = boxNow(), typed = shown !== null ? shown : (draftNow.get(was) !== undefined ? draftNow.get(was) : draftOf(was));
+    draftNow.delete(was); clearTimeout(draftTimers.get(was)); draftTimers.delete(was);
+    if (typed && typed.trim() && r.data.sessionId !== was) { draftShown.delete(r.data.sessionId); await saveDraft(r.data.sessionId, typed); }
+    // and the pictures, files and inbox message added below and not sent yet, with them (each held for one conversation
+    // only: moved, not shared)
+    if (r.data.sessionId !== was) for (const held of [pendingImgs, pendingFiles, carry]) if (held.has(was)) { const x = held.get(was); held.delete(was); held.set(r.data.sessionId, Array.isArray(x) ? x.slice() : x); }
     await poll(); openChat(r.data.sessionId);
     say(r.data.fromStart ? '已用改好的訊息重新開始這個對話' : '已從這則之前重來。原本的對話在「沒開著」裡');
   });
@@ -4744,11 +4989,13 @@ async function drawAutoSettings(pane, sw) {
   tr.append(el('span', '', '更新時間'), ti, tb); pane.append(tr);
   sw('該健檢時自動跑 harness 健檢', '每天 10:00 之後，挑一個 harness 說該健檢的專案，在看板開一個對話跑 /harness:review，有問題會停在那個對話等你。一天最多一個。預設關閉：一次健檢的用量約等於一小時的工作（實測一個專案約 11 分鐘、牌價 3.96 美元）。', a.harness, (v) => ({ harness: v }), (v) => v ? '已開啟：該健檢的專案會自動健檢' : '已關閉：只顯示該健檢', '/api/auto');
   const log = au.data.log || [];
-  const lw = el('div', 'auto-log'); lw.append(el('b', '', '最近做過的'));
+  // the way to the plugins' own page sits on this list's title line (below the list it was a button alone on a line)
+  const go = el('button', 'btn', '看各外掛的狀態'); go.type = 'button'; go.title = '原本左欄的「外掛」頁：goal2、harness、版本、git、日報、self-heal'; go.addEventListener('click', () => drawPlugins());
+  const lh = el('div', 'auto-log-h'); lh.append(el('b', '', '最近做過的'), go);
+  const lw = el('div', 'auto-log'); lw.append(lh);
   if (!log.length) lw.append(el('div', 'blank', '還沒有。看板啟動 1.5 分鐘後第一次檢查，之後每 10 分鐘一次。'));
   for (const x of log.slice(0, 10)) lw.append(el('div', x.ok ? '' : 'bad', new Date(x.at).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) + '　' + x.what));
   pane.append(lw);
-  const go = el('button', 'btn', '看各外掛的狀態'); go.type = 'button'; go.title = '原本左欄的「外掛」頁：goal2、harness、版本、git、日報、self-heal'; go.addEventListener('click', () => drawPlugins()); pane.append(go);
 }
 
 // ── next steps: a plugin's command sent into the conversation, offered under a turn that is over ──
@@ -4847,6 +5094,16 @@ async function loadEarlier() {
   return true;
 }
 // keepPlace: earlier items were asked for - what you were reading stays where it is on the screen.
+// What you sent stays on the page until the transcript has it (2026-11-19: "what I type takes a while to show"). The
+// first message of a new conversation went out 0.17 s before Claude Code made its transcript file (seen: message
+// 11.616, file 11.781); the page drawn again in between read no messages, showed "type the first message" and took
+// the bubble away, while Claude's reply, which comes over the stream, showed. Drawn again from the transcript, a message
+// sent from here and not in it yet is put back at the end; once the transcript has it, it is the transcript's.
+const sentLocal = new Map();   // sessionId -> [{item, text, at, before}]
+const localSent = new WeakSet();   // the messages on the page that came from here, not from the transcript
+const sameText = (a) => String(a || '').replace(/\s+/g, ' ').trim();
+// the transcript's copy may carry more around it (after a "!" command, what it printed comes first)
+const saysSame = (recorded, sent) => { const u = sameText(recorded); return u === sent || (!!sent && u.endsWith(sent)); };
 async function loadHistory(jump, guard, keepPlace) {
   const sid = active;
   if (!sid) return;
@@ -4863,7 +5120,15 @@ async function loadHistory(jump, guard, keepPlace) {
   const sc = $('scroll');
   const fromBottom = sc ? sc.scrollHeight - sc.scrollTop : 0;
   const stick = !keepPlace && (jump || nearBottom());
-  items = got;
+  const waiting = (sentLocal.get(sid) || []).filter((x) => {
+    if (Date.now() - x.at >= 120000) return false;
+    const at = x.lastId == null ? -1 : got.findIndex((i) => i.id === x.lastId);
+    // the last message it came after has fallen off the page: whatever is on the page came after it
+    const after = at >= 0 || x.lastId == null ? got.slice(at + 1) : got;
+    return after.filter((i) => i.role === 'user' && saysSame(i.text, x.text)).length <= x.nth;
+  });
+  if (waiting.length) sentLocal.set(sid, waiting); else sentLocal.delete(sid);
+  items = waiting.length ? got.concat(waiting.map((x) => x.item)) : got;
   redraw(r.data.more);
   if (stick) toBottom();
   else if (keepPlace && sc) sc.scrollTop = sc.scrollHeight - fromBottom;
@@ -5246,6 +5511,8 @@ async function openChanges(s) {
   const draw = () => { for (const b of seg.children) { const on = b.dataset.k === chgTab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } list.textContent = ''; list.append(el('div', 'chg-note', '讀取中…')); sum.textContent = ''; return chgTab === 'mine' ? drawMine() : drawGit(); };
   await draw();
 }
+// what the board can show as a page of its own (/api/file/ticket): a web page, a PDF, an Office file (made a PDF)
+const browsable = (f) => !!f && (f.kind === 'pdf' || f.kind === 'office' || /\.html?$/i.test(f.name || ''));
 async function openPeek(f) {
   closePeek();
   peekFile = f;
@@ -5254,7 +5521,7 @@ async function openPeek(f) {
   $('peekPath').textContent = '‎' + f.abs;   // left-to-right mark: the box is right-to-left so a long path shows its END
   $('peekPath').title = f.abs;
   // on another computer the file is downloaded there instead of opened on this computer's screen (any kind of file)
-  $('peekOpen').textContent = REMOTE ? '下載' : '用預設程式開啟';
+  $('peekOpen').textContent = REMOTE ? (browsable(f) ? '在新分頁開' : '下載') : '用預設程式開啟';
   $('peekOpen').hidden = REMOTE ? f.kind === 'dir' : !(f.kind !== 'dir' && f.canOpen); $('peekReveal').hidden = REMOTE; $('peekCopy').hidden = false;
   $('peekReveal').textContent = osWord(f.kind === 'dir' ? '在檔案總管開啟' : '在檔案總管顯示');
   const body = $('peekBody');
@@ -5309,7 +5576,19 @@ async function openPeek(f) {
 // page or itself elsewhere, an origin of its own) and a policy of its own that loads nothing from anywhere (pictures and
 // fonts only when written into the file itself). A link in it goes nowhere.
 const HTML_PEEK_CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; style-src \'unsafe-inline\'; font-src data:; form-action \'none\'; base-uri \'none\'">';
-function htmlPeek(body, text, f) {
+// First the board's own page address for it (/api/file/ticket): the page with the pictures, styles and scripts that sit
+// in its folder, still shut in (no connections, an origin of its own). Only when that cannot be had, the text alone.
+async function htmlPeek(body, text, f) {
+  let url = '';
+  try { const t = await api('/api/file/ticket', { path: f.abs }); if (t.ok && t.data.url) url = t.data.url; } catch (e) {}
+  if (peekFile !== f) return;
+  if (url) {
+    const bar = el('div', 'peek-note', '以網頁顯示：同資料夾的圖片、樣式會一起載入；不能連網路。');
+    const tab = el('a', 'btn', '在新分頁開'); tab.href = url; tab.target = '_blank'; tab.rel = 'noopener'; tab.style.marginLeft = '8px'; bar.append(tab);
+    const fr = el('iframe', 'htmlview'); fr.title = f.name; fr.setAttribute('sandbox', 'allow-scripts allow-popups'); /* what it opens stays shut in too */ fr.setAttribute('referrerpolicy', 'no-referrer'); fr.src = url;
+    body.append(bar, fr);
+    return;
+  }
   body.append(el('div', 'peek-note', '安全起見不執行裡面的程式、不連網路：外部圖片、字型和互動不會出現。'));
   const doc = text.replace(/^(\uFEFF?\s*<!doctype[^>]*>)?/i, (m) => (m || '') + '<meta charset="utf-8">' + HTML_PEEK_CSP + '<base target="_blank">');   // a link opens a new window, which the sandbox refuses: nothing happens and the page stays   // the text is already read as UTF-8: said so, or a file without a charset turns to garbage
   const fr = el('iframe', 'htmlview'); fr.title = f.name; fr.setAttribute('sandbox', ''); fr.setAttribute('referrerpolicy', 'no-referrer');
@@ -5408,7 +5687,16 @@ async function downloadFile(abs, name) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
   say('已下載「' + a.download + '」');
 }
-$('peekOpen').addEventListener('click', async () => { if (!peekFile) return; if (REMOTE) return downloadFile(peekFile.abs, peekFile.name); const r = await api('/api/file/open', { path: peekFile.abs }); say(r.ok ? '已用預設程式開啟' : (r.data.error || '開不了'), !r.ok); });
+$('peekOpen').addEventListener('click', async () => { if (!peekFile) return;
+  // on a phone a page, a PDF or an Office file is opened as a page in a new tab (the board serves it) - better than the
+  // small panel, and nothing to download. The tab is opened at the press itself: opened after waiting, a phone blocks it.
+  if (REMOTE && browsable(peekFile)) {
+    const w = window.open('about:blank', '_blank');
+    let r; try { r = await api('/api/file/ticket', { path: peekFile.abs }); } catch (e) { r = { ok: false, data: {} }; }
+    if (r.ok && r.data.url) { if (w) w.location.href = r.data.url; else location.href = r.data.url; return; }
+    if (w) w.close(); return say((r.data && r.data.error) || '開不了', true);
+  }
+  if (REMOTE) return downloadFile(peekFile.abs, peekFile.name); const r = await api('/api/file/open', { path: peekFile.abs }); say(r.ok ? '已用預設程式開啟' : (r.data.error || '開不了'), !r.ok); });
 $('peekReveal').addEventListener('click', async () => { if (!peekFile) return; const r = await api('/api/file/reveal', { path: peekFile.abs }); say(r.ok ? (r.data.front ? '已在檔案總管顯示' : '已在檔案總管開啟，但 Windows 沒讓它跳到最前面，請從工作列切過去') : (r.data.error || '找不到'), !r.ok); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('peek').hidden) closePeek(); });
 
@@ -5862,9 +6150,10 @@ function drawMonth() {
   st.classList.add('wide');
   box.append(st);
   if (rows.length > shownRows.length || showAllSessions) {
-    const more = el('button', 'btn', showAllSessions ? '只顯示前 ' + TOP_SESSIONS + ' 個與還開著的' : '顯示全部 ' + sep(rows.length) + ' 個'); more.type = 'button'; more.style.margin = '10px 8px 0';
+    // on the table's title line, after the title (below the table it was a button alone on a line)
+    const more = el('button', 'btn', showAllSessions ? '只顯示前 ' + TOP_SESSIONS + ' 個與還開著的' : '顯示全部 ' + sep(rows.length) + ' 個'); more.type = 'button'; more.style.marginLeft = '10px'; more.style.fontWeight = '400';
     more.addEventListener('click', () => { showAllSessions = !showAllSessions; drawMonth(); });
-    box.append(more);
+    st.querySelector('h4').append(more);
   }
   if (d.unpricedTok || d.approxTok) box.append(el('div', 'quiet', (d.approxTok ? bigNum(d.approxTok) + ' tokens 用的是相近模型的暫估單價。' : '') + (d.unpricedTok ? bigNum(d.unpricedTok) + ' tokens 查不到單價，沒算進費用。' : '')));
   if (!cur) box.append(el('div', 'quiet', '過去月份算過一次就存起來。Claude Code 會定期清掉舊的對話紀錄，之後才按「重新計算」數字可能變小。'));
@@ -5898,7 +6187,13 @@ function tickWar() {}
 let pageTag = null;
 function unsavedWork() {
   if (pending.size) return true;                                    // an approval or a question form is open
-  for (const x of document.querySelectorAll('textarea, input[type=text]')) if (x.value.trim() && x.id !== 'never') return true;
+  // a board conversation's box is not unsaved: what is in it is kept as its draft (saved below before reloading) and put
+  // back after - with drafts, the box held words nearly always, and a new version never came in (2026-11-19)
+  // ... its words only: pictures, files and a message brought from the inbox are held by this page alone, so with any of
+  // those the box is unsaved as before
+  const c = cur(), held = c && ((pendingImgs.get(c.sessionId) || []).length || (pendingFiles.get(c.sessionId) || []).length || carry.has(c.sessionId));
+  const kept = c && c.owner === 'board' && !held && $('foot') ? $('foot').querySelector('textarea') : null;
+  for (const x of document.querySelectorAll('textarea, input[type=text]')) if (x !== kept && x.value.trim() && x.id !== 'never') return true;
   return false;
 }
 // "The phone's address", always at the bottom of the left column (it was only in 設定, behind a switch): copied on a
@@ -5922,17 +6217,34 @@ function unsavedWork() {
   });
   box.append(b);
 })();
+// The words in the board conversations' boxes, saved as their drafts (they come back after the reload); then reloaded.
+async function reloadKeepingDrafts(pressed) {
+  const box = cur() && cur().owner === 'board' && $('foot') ? $('foot').querySelector('textarea') : null;
+  if (box) draftNow.set(cur().sessionId, box.value.replace(/［[檔圖]\d+］/g, ''));
+  const saves = [draftSettled()];   // (one still on its way from before, then each of these)
+  for (const [sid, t] of draftNow) { clearTimeout(draftTimers.get(sid)); saves.push(saveDraft(sid, t)); }
+  // Not reloaded until every one is kept: one refused or not back in 3 seconds leaves the button to press instead.
+  // Pressed with that so: said once; pressed again, reloaded as asked.
+  const all = await Promise.race([Promise.all(saves).then((a) => a.every((x) => x !== false)), new Promise((r) => setTimeout(() => r(false), 3000))]);
+  if (all || (pressed && pageUnsavedOnce === 'told')) { location.reload(); return; }
+  if (pressed) { pageUnsavedOnce = 'told'; return say('輸入框裡的字還沒存到看板（存檔沒有回來或被拒）。再按一次就直接重新整理，沒存到的字會不見', true); }
+  pageUnsavedOnce = true; newPageAvailable();
+}
+let pageUnsavedOnce = false;   // the save before reloading did not come back: from now on ask, do not reload by itself
 function newPageAvailable() {
-  if (!unsavedWork()) { location.reload(); return; }
+  if (!pageUnsavedOnce && !unsavedWork()) { reloadKeepingDrafts(); return; }
   const foot = $('sideFoot');
   if (foot.dataset.newer) return;
   foot.dataset.newer = '1';
   foot.className = 'side-foot';
   const text = $('sideFootText'); text.textContent = '';   // the text part only: the phone button beside it stays
-  const b = el('button', 'btn primary', '看板有新版，按這裡重新整理'); b.type = 'button';
-  b.title = '你正在輸入或有卡片還沒回覆，所以沒有自動重新整理';
-  b.addEventListener('click', () => location.reload());
+  const tip = '你有卡片還沒回覆或有填到一半的欄位，所以沒有自動重新整理';
+  const b = el('button', 'btn primary', '看板有新版，按這裡重新整理'); b.type = 'button'; b.title = tip;
+  b.addEventListener('click', () => reloadKeepingDrafts(true));
   text.append(b);
+  // On a phone (and with the left column folded) that line is not shown: the same button over the top of the page
+  // (0.10.0 hid the line on a phone, and a page left open stayed on the old version - seen 2026-11-19).
+  if (!$('newBar')) { const bar = el('button', '', '看板有新版，按這裡重新整理'); bar.id = 'newBar'; bar.type = 'button'; bar.title = tip; bar.addEventListener('click', () => reloadKeepingDrafts(true)); document.body.append(bar); }
 }
 const setPlace = (hash) => { let at = location.hash.replace(/^#/, ""); try { at = decodeURIComponent(at); } catch (e) {} if (at !== String(hash || "")) closeBell();   // another page (not a redraw of the same one): the notices box does not stay over it
  const url = location.pathname + location.search + (hash ? '#' + hash : '');
@@ -5965,6 +6277,7 @@ function drawSideQuota() {
   };
   if (q.fiveHour) row('5 小時', q.fiveHour);
   if (q.sevenDay) row('7 天', q.sevenDay);
+  box.classList.toggle('one', box.querySelectorAll('.sq').length === 1);   // one limit only (the 5-hour one is not always reported): the whole row
   if (box.firstChild && q.seenAt && Date.now() - q.seenAt > 10 * 60000) box.append(el('div', 'sr', ago(Date.now() - q.seenAt) + '前的數字'));
   box.hidden = !box.firstChild;
 }

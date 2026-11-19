@@ -130,7 +130,7 @@ const ask = (p, opt = {}) => new Promise((resolve, reject) => {
   asked.add((opt.body === undefined ? 'GET ' : 'POST ') + p.split('?')[0]);
   const body = opt.body === undefined ? null : Buffer.from(JSON.stringify(opt.body), 'utf8');
   const headers = Object.assign({ 'x-board-token': TOKEN }, body ? { 'content-type': 'application/json', 'content-length': body.length } : {}, opt.headers || {});
-  const req = http.request({ host: '127.0.0.1', port, path: p, method: opt.method || (body ? 'POST' : 'GET'), headers }, (res) => {
+  const req = http.request(Object.assign({ host: '127.0.0.1', port, path: p, method: opt.method || (body ? 'POST' : 'GET'), headers }, opt.localAddress ? { localAddress: opt.localAddress } : {}), (res) => {
     const parts = []; res.on('data', (c) => { parts.push(c); if (opt.firstChunk) { resolve({ status: res.statusCode, headers: res.headers, text: Buffer.concat(parts).toString('utf8') }); req.destroy(); } });
     res.on('end', () => { const buf = Buffer.concat(parts); let j = null; try { j = JSON.parse(buf.toString('utf8')); } catch (e) {} resolve({ status: res.statusCode, headers: res.headers, text: buf.toString('utf8'), bytes: buf, json: j || {} }); });
   });
@@ -549,6 +549,13 @@ test('another computer: only through Tailscale, only your own devices', WIN_ONLY
   assert.deepStrictEqual([await viaRemote('127.0.0.2:' + s4p), await viaRemote('me.tail.ts.net:' + s4p), await viaRemote('me:' + s4p), await viaRemote('evil.example:' + s4p)], [200, 200, 200, 403]);
   // what happens on that computer's screen is refused to a request that comes from another one
   const postRemote = (pp) => new Promise((resolve) => { const b = Buffer.from('{}'); const q2 = http.request({ host: '127.0.0.2', port: s4p, path: pp, method: 'POST', headers: { host: '127.0.0.2:' + s4p, 'x-board-token': TOKEN, 'content-type': 'application/json', 'content-length': b.length } }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve(res.statusCode)); }); q2.on('error', (e) => resolve(e.code)); q2.write(b); q2.end(); });
+  // A preview address works only on the device that asked for it: a page can carry its own address anywhere, so
+  // another of your devices (let in here) holding it is refused.
+  const vdir = path.join(WORK, 'vsite'); fs.mkdirSync(vdir, { recursive: true }); fs.writeFileSync(path.join(vdir, 'v.html'), '<p>v</p>');
+  const vb = Buffer.from(JSON.stringify({ path: path.join(vdir, 'v.html') }));
+  const vt = await new Promise((resolve) => { const q3 = http.request({ host: '127.0.0.1', port: s4p, path: '/api/file/ticket', method: 'POST', headers: { 'x-board-token': TOKEN, 'content-type': 'application/json', 'content-length': vb.length } }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve(JSON.parse(d))); }); q3.write(vb); q3.end(); });
+  const getFrom = (host) => new Promise((resolve) => http.get({ host, localAddress: host, port: s4p, path: vt.url, headers: { host: host + ':' + s4p } }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve([res.statusCode, res.statusCode === 200 ? '' : JSON.parse(d).error])); }).on('error', (e) => resolve([e.code])));
+  assert.deepStrictEqual([await getFrom('127.0.0.2'), await getFrom('127.0.0.1')], [[404, '這個預覽網址只能在開它的那台裝置上看'], [200, '']]);
   const n0 = did.length;
   const screen = ['/api/focus', '/api/pick-folder', '/api/file/open', '/api/file/reveal', '/api/to-terminal', '/api/end', '/api/takeover', '/api/past/open', '/api/keep/restore'];
   assert.deepStrictEqual(await Promise.all(screen.map(postRemote)), screen.map(() => 403), 'windows opened or closed on this computer: refused from another one');
@@ -835,6 +842,24 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
 
   const e = await post('/api/new', { cwd: WORK });
   assert.strictEqual((await post('/api/close-empty', { sessionId: e.json.sessionId })).json.ok, true);
+
+  // words typed and not sent: kept by the board - not thrown away as empty, listed with them, and back when cleared
+  const dft = (await post('/api/new', { cwd: WORK })).json.sessionId;
+  assert.strictEqual((await post('/api/draft', { sessionId: dft, text: '幫我看一下這個錯誤' })).json.ok, true);
+  assert.strictEqual((await post('/api/close-empty', { sessionId: dft })).json.ok, false, 'a draft of yours: not closed');
+  const listed = ((await get('/api/sessions')).json.sessions || []).find((x) => x.sessionId === dft);
+  assert.ok(listed && !listed.notStarted && listed.draft === '幫我看一下這個錯誤' && /^草稿：幫我看一下/.test(listed.title), 'listed, with its draft: ' + JSON.stringify(listed));
+  assert.strictEqual(channels.get(dft).draft, '幫我看一下這個錯誤', 'kept where the board keeps its conversations');
+  assert.strictEqual((await post('/api/draft', { sessionId: dft, text: '   ' })).json.ok, true);
+  assert.strictEqual((await post('/api/close-empty', { sessionId: dft })).json.ok, true, 'emptied: closed as before');
+  // sent: what was in the box is a message now, not a draft to keep
+  const sentId = (await post('/api/new', { cwd: WORK })).json.sessionId;
+  await post('/api/draft', { sessionId: sentId, text: '要送的話' });
+  assert.strictEqual((await post('/api/send', { sessionId: sentId, text: '要送的話' })).json.ok, true);
+  assert.strictEqual(channels.get(sentId).draft, '', 'the draft goes once it is sent');
+  assert.ok(!((await get('/api/sessions')).json.sessions || []).find((x) => x.sessionId === sentId).draft, 'and the list no longer shows one');
+  assert.strictEqual((await post('/api/draft', { sessionId: dft, text: 'x' })).status, 404, 'a conversation no longer there');
+  assert.strictEqual((await post('/api/draft', { sessionId: e.json.sessionId })).status, 400, 'no text');
 });
 
 test('files: preview, open, show - and what is refused', WIN_ONLY, async () => {
@@ -857,8 +882,46 @@ test('files: preview, open, show - and what is refused', WIN_ONLY, async () => {
   assert.deepStrictEqual([v.status, v.headers['content-type'], /^inline; .*filename\*=UTF-8''a\.pdf$/.test(v.headers['content-disposition'])], [200, 'application/pdf', true]);
   assert.match(v.text, /^%PDF/);
   assert.strictEqual((await ask('/api/view/' + 'f'.repeat(36) + '/a.pdf', { headers: { 'x-board-token': '' } })).status, 404, 'a ticket never given');
-  assert.strictEqual((await post('/api/file/ticket', { path: note })).status, 404, 'only PDF and Office files');
+  assert.strictEqual((await post('/api/file/ticket', { path: note })).status, 404, 'only PDF, Office and web page files');
   assert.deepStrictEqual(since(n), ['convertOffice']);
+
+  // a web page: served as a page with what sits beside it, shut in; nothing hidden, nothing above its folder, nothing
+  // that is not part of a page
+  const site = path.join(WORK, 'site'); fs.mkdirSync(path.join(site, 'img'), { recursive: true });
+  fs.writeFileSync(path.join(site, 'page.html'), '<img src="img/a.png">'); fs.writeFileSync(path.join(site, 'img', 'a.png'), 'PNG');
+  fs.writeFileSync(path.join(site, '.env'), 'SECRET=1'); fs.writeFileSync(path.join(site, 'run.exe'), 'MZ');
+  const pt = await post('/api/file/ticket', { path: path.join(site, 'page.html') });
+  assert.ok(/^\/api\/view\/[0-9a-f]{36}\/page\.html$/.test(pt.json.url), pt.json.url);
+  const pbase = pt.json.url.replace(/[^/]+$/, ''), noKey = { headers: { 'x-board-token': '' } };
+  const pg = await ask(pt.json.url, noKey);
+  assert.deepStrictEqual([pg.status, pg.headers['content-type'], /^sandbox allow-scripts/.test(pg.headers['content-security-policy']), /connect-src 'none'/.test(pg.headers['content-security-policy'])], [200, 'text/html; charset=utf-8', true, true]);
+  assert.deepStrictEqual([(await ask(pbase + 'img/a.png', noKey)).status, (await ask(pbase + 'img/a.png', noKey)).headers['content-type']], [200, 'image/png'], 'a picture beside it');
+  fs.writeFileSync(path.join(site, 'data.json'), '{"secret":1}'); fs.writeFileSync(path.join(site, 'notes.md'), 'x');
+  for (const bad of ['.env', 'run.exe', '..%2Fnote.md', '%2E%2E/note.md', 'img/../../note.md', 'nope.png',
+    // nothing that reaches another host or drive, nor a short name standing for a hidden folder, nor data files
+    '%5C%5Chost%5Cs%5Cx.png', '//host/s/x.png', 'img%5C..%5C..%5Cnote.md', 'C:%2FWindows%2Fwin.ini', 'img//a.png', 'GIT~1/a.png', 'data.json', 'notes.md'])
+    assert.strictEqual((await ask(pbase + bad, noKey)).status, 404, bad);
+  assert.match(pg.headers['content-security-policy'], /^sandbox allow-scripts allow-popups;/, 'what the page opens stays shut in');
+  // a file with a second name (a hard link to something kept elsewhere) is not served from a page's folder
+  const secret = path.join(WORK, 'secret.txt'); fs.writeFileSync(secret, 'SECRET=1');
+  let linked = false; try { fs.linkSync(secret, path.join(site, 'img', 'b.png')); linked = true; } catch (e) {}
+  if (linked) assert.strictEqual((await ask(pbase + 'img/b.png', noKey)).status, 404, 'a hard link');
+  assert.strictEqual((await ask(pbase + 'img/a.png', noKey)).status, 200, 'a picture of its own still is');
+  // ... but the page you opened is shown whatever names it has (an upload sent again is given a second one)
+  let pageLinked = false; try { fs.linkSync(path.join(site, 'page.html'), path.join(WORK, 'page-second-name.html')); pageLinked = true; } catch (e) {}
+  if (pageLinked) assert.strictEqual((await ask(pt.json.url, noKey)).status, 200, 'the page itself, with two names');
+  // a PDF's address is for the file it was given for: another file put in its place since is not served under it
+  const swapPdf = path.join(WORK, 'swap.pdf'); fs.writeFileSync(swapPdf, '%PDF-1.4 first');
+  const sp = await post('/api/file/ticket', { path: swapPdf });
+  assert.strictEqual((await ask(sp.json.url, noKey)).status, 200, 'the file it was given for');
+  fs.rmSync(swapPdf); fs.writeFileSync(swapPdf, '%PDF-1.4 put in its place');
+  assert.strictEqual((await ask(sp.json.url, noKey)).status, 404, 'another file under the same name');
+  // a link under the folder (a junction here: needs no special right) is not followed, wherever it leads
+  try { fs.symlinkSync(path.join(WORK), path.join(site, 'lnk'), 'junction'); } catch (e) {}
+  if (fs.existsSync(path.join(site, 'lnk'))) {
+    fs.writeFileSync(path.join(WORK, 'via.png'), 'PNG');
+    assert.strictEqual((await ask(pbase + 'lnk/via.png', noKey)).status, 404, 'through a junction');
+  }
 
   const m = did.length;
   assert.strictEqual((await post('/api/file/open', { path: note })).status, 200);
@@ -988,9 +1051,21 @@ test('a file uploaded for a message: kept under the board\'s folder, never over 
   const b = await post('/api/upload', { name: '報價 v2.pdf', data: Buffer.from('two').toString('base64') });
   assert.strictEqual(path.basename(b.json.path), '報價 v2 (2).pdf'); assert.strictEqual(fs.readFileSync(a.json.path, 'utf8'), 'one', 'the first one is still there');
   assert.strictEqual((await post('/api/upload', { name: 'x.txt', data: '' })).status, 400, 'empty');
+  // the same file again - the same bytes, whatever the name - is the one already kept: no second copy
+  const again = await post('/api/upload', { name: '另一個名字.pdf', data: Buffer.from('one').toString('base64') });
+  assert.deepStrictEqual([again.json.path, again.json.reused], [a.json.path, true]);
+  assert.strictEqual(fs.readdirSync(path.dirname(a.json.path)).filter((n) => /另一個名字/.test(n)).length, 0, 'nothing new written');
+  // kept 25 days already: a second name in today's folder (a hard link - stored once), the old path still there
+  const upRoot = path.dirname(path.dirname(a.json.path)), old = new Date(Date.now() - 25 * 86400000);
+  const oldDay = old.getFullYear() + '-' + String(old.getMonth() + 1).padStart(2, '0') + '-' + String(old.getDate()).padStart(2, '0');
+  fs.mkdirSync(path.join(upRoot, oldDay), { recursive: true }); fs.writeFileSync(path.join(upRoot, oldDay, '舊的.txt'), 'kept a while');
+  const moved = await post('/api/upload', { name: '新名字.txt', data: Buffer.from('kept a while').toString('base64') });
+  assert.deepStrictEqual([moved.json.reused, path.dirname(moved.json.path), path.basename(moved.json.path), fs.existsSync(path.join(upRoot, oldDay, '舊的.txt'))],
+    [true, path.dirname(a.json.path), '舊的.txt', true]);
+  assert.strictEqual(fs.statSync(moved.json.path).nlink, 2, 'one file with two names, not a copy');
   // a Windows device name is not used as one: with an extension, spaces before it, the superscript digits, CONIN$
   for (const [n, want] of [['CON.txt', '_CON.txt'], ['nul', '_nul'], ['CON .txt', '_CON .txt'], ['COM¹.log', '_COM¹.log'], ['LPT³', '_LPT³'], ['CONIN$', '_CONIN$'], ['console.txt', 'console.txt']]) {
-    assert.strictEqual(path.basename((await post('/api/upload', { name: n, data: Buffer.from('c').toString('base64') })).json.path), want, n);
+    assert.strictEqual(path.basename((await post('/api/upload', { name: n, data: Buffer.from('device ' + n).toString('base64') })).json.path), want, n);
   }
   // cut to length, then the dots and spaces Windows drops at the end: the path handed back is the file's
   const long = 'a'.repeat(119) + '. .pdf';

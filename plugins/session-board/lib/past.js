@@ -1,7 +1,7 @@
 'use strict';
 // Conversations that are not open now: every main transcript under
-// ~/.claude/projects touched in the last DAYS days. Listed so one can be found
-// and opened again.
+// ~/.claude/projects touched in the last DAYS days (the earlier ones when asked
+// for, and always when searching). Listed so one can be found and opened again.
 //
 // A transcript can be hundreds of megabytes, so only its two ends are read:
 // the first HEAD bytes give the folder it ran in and the first thing you said,
@@ -195,7 +195,7 @@ function files(projectsDir, since) {
       const sid = n.slice(0, -6);
       if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(sid)) continue;
       const file = path.join(projectsDir, d.name, n);
-      try { const st = fs.statSync(file); if (st.mtimeMs >= since && st.size > 0) out.push({ file, sessionId: sid, size: st.size, mtimeMs: st.mtimeMs }); } catch (e) {}
+      try { const st = fs.statSync(file); if (st.mtimeMs >= since && st.size > 0) out.push({ file, dir: d.name, sessionId: sid, size: st.size, mtimeMs: st.mtimeMs }); } catch (e) {}
     }
   }
   return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
@@ -207,29 +207,57 @@ function describe(f) {
   return { sessionId: f.sessionId, cwd: e.cwd, folder: e.cwd ? baseName(e.cwd) : '', title: t.custom || t.ai || e.first || '', named: !!(t.custom || t.ai), entry: e.entry || '', blocks: e.blocks === true, first: e.first, last: e.last, at: f.mtimeMs, size: f.size };
 }
 
-// o: {projectsDir, exclude: Set of session ids (open now, hidden), q, limit, now}
-// -> {items, total, matched}. A conversation in which you never said anything is left out.
-function list(o) {
+// o: {projectsDir, exclude: Set of session ids (open now, hidden), q, limit, now, days}
+// -> {items, total, matched, days, older, olderDirs}. A conversation in which you never said anything is left out.
+// days: how far back (DAYS when not given; 0 = all). A search always looks at all of them, however old (asked
+// 2026-11-19: "when searching, never limit the time"). older / olderDirs: how many conversations are left out as
+// older, in all and by their folder under projectsDir (Claude Code's name for a folder: every character that is not
+// a letter or a digit made "-") - so the page can offer the earlier ones, read only when asked for.
+// (olderDirs keys in lower case: matched against a folder's path made the same way, see dirKey)
+function listing(o) {
   const now = o.now || Date.now();
-  const all = files(o.projectsDir, now - DAYS * 86400000).filter((f) => !(o.exclude && o.exclude.has(f.sessionId)));
   const q = String(o.q || '').trim().toLowerCase();
-  const limit = o.limit || 40;
-  const items = [];
-  let matched = 0, hidden = 0;
-  for (const f of all) {
+  const days = q ? 0 : (o.days === undefined ? DAYS : Math.max(0, Number(o.days) || 0));
+  const since = days ? now - days * 86400000 : 0;
+  const every = files(o.projectsDir, 0).filter((f) => !(o.exclude && o.exclude.has(f.sessionId)));
+  const all = since ? every.filter((f) => f.mtimeMs >= since) : every;
+  const olderDirs = {}; let older = 0;
+  if (since) for (const f of every) if (f.mtimeMs < since) { older++; const k = f.dir.toLowerCase(); olderDirs[k] = (olderDirs[k] || 0) + 1; }
+  const st = { o, q, all, limit: o.limit || 40, items: [], matched: 0, hidden: 0 };
+  st.done = () => ({ items: st.items, total: all.length, matched: q ? st.matched : null, programHidden: st.hidden, days, older, olderDirs });
+  // one transcript; false when no more are needed
+  st.one = (f) => {
     // Without a search only the rows shown are read; a search has to look at every one.
-    if (!q && items.length >= limit) break;
+    if (!q && st.items.length >= st.limit) return false;
     const d = describe(f);
-    if (!d.cwd || !d.first) continue;
-    if (o.hide && o.hide(d)) { hidden++; continue; }
+    if (!d.cwd || !d.first) return true;
+    if (o.hide && o.hide(d)) { st.hidden++; return true; }
     // o.names: names given on the board ({sessionId: name}) - found by them too, not only by Claude Code's titles
     const given = o.names && typeof o.names[d.sessionId] === 'string' ? o.names[d.sessionId] : '';
-    if (q && !(given + '\n' + d.title + '\n' + d.folder + '\n' + d.first + '\n' + d.last).toLowerCase().includes(q)) continue;
-    matched++;
-    if (items.length < limit) items.push(d);
-  }
-  return { items, total: all.length, matched: q ? matched : null, programHidden: hidden };
+    if (q && !(given + '\n' + d.title + '\n' + d.folder + '\n' + d.first + '\n' + d.last).toLowerCase().includes(q)) return true;
+    st.matched++;
+    if (st.items.length < st.limit) st.items.push(d);
+    return true;
+  };
+  return st;
 }
+function list(o) {
+  const st = listing(o);
+  for (const f of st.all) if (!st.one(f)) break;
+  return st.done();
+}
+// The same, giving the board's other work its turn every few transcripts: looking through all of them (a search, the
+// earlier ones asked for) reads the ends of some thousand files the first time - seconds - and the board would stand
+// still meanwhile (review 2026-11-19).
+async function listAsync(o) {
+  const st = listing(o);
+  let n = 0;
+  for (const f of st.all) { if (!st.one(f)) break; if (++n % 20 === 0) await new Promise((r) => setImmediate(r)); }
+  return st.done();
+}
+// A folder's key in olderDirs: Claude Code's name for it (every character not a letter or digit made "-"), lower case,
+// without a slash at the end.
+const dirKey = (cwd) => String(cwd || '').replace(/[\\/]+$/, '').replace(/[^A-Za-z0-9]/g, '-').toLowerCase();
 
 // One conversation by id, or null.
 function find(projectsDir, sid) {
@@ -268,4 +296,4 @@ function which(projectsDir, keys, now = Date.now()) {
   return out;
 }
 
-module.exports = { interrupted, list, find, which, lastSaid, said, ends, saidAtOf, DAYS };
+module.exports = { interrupted, list, listAsync, dirKey, files, find, which, lastSaid, said, ends, saidAtOf, DAYS };

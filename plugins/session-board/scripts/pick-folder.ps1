@@ -64,6 +64,19 @@ public class SbPick {
     void GetResult(out IShellItem ppsi);
   }
 
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+
+  // Windows lets a process take the foreground only right after a key press of its own: a tap of F24 (pressed and
+  // released; a key no keyboard has and no program uses - Alt, the usual one, opens the menu of the program in front)
+  // is that press. Without it the window opened behind or without the keyboard (seen 2026-11-19: the foreground
+  // stayed on another program all the time the picker was open).
+  public static void TakeForeground(IntPtr h) {
+    keybd_event(0x87, 0, 0, UIntPtr.Zero);       // VK_F24 down
+    keybd_event(0x87, 0, 2, UIntPtr.Zero);       // VK_F24 up (KEYEVENTF_KEYUP)
+    SetForegroundWindow(h);
+  }
+
   [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
   static extern void SHCreateItemFromParsingName([MarshalAs(UnmanagedType.LPWStr)] string pszPath, IntPtr pbc, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out IShellItem ppv);
 
@@ -102,14 +115,25 @@ if ($DryRun) {
   exit 0
 }
 
-# An invisible always-on-top owner, so the dialog opens above the browser
-# instead of behind it.
+# An always-on-top owner, so the dialog opens above the browser instead of behind it. Not see-through (Opacity 0
+# makes it a layered window, and a dialog owned by one was seen to flicker, 2026-11-19): a borderless 1x1 window
+# at the middle of the screen instead - one pixel, and the dialog opens centred on it, where it opened before (off
+# the screen, the dialog would follow it there). Then the owner takes the foreground, and the dialog opens with it.
 $owner = New-Object System.Windows.Forms.Form
 $owner.TopMost = $true
 $owner.ShowInTaskbar = $false
-$owner.Opacity = 0
-$owner.StartPosition = "CenterScreen"
+$owner.FormBorderStyle = "None"
+$owner.StartPosition = "Manual"
+$owner.Size = New-Object System.Drawing.Size(1, 1)
+# The dialog opens with its top left corner at the owner (measured 2026-11-19: owner at the screen's middle put the
+# dialog's corner there, the dialog in the lower right). So the owner stands half a dialog (about 850 x 480) up and
+# left of the middle, and the dialog comes out centred.
+$area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$x = [int]($area.X + [Math]::Max(0, ($area.Width - 850) / 2))
+$y = [int]($area.Y + [Math]::Max(0, ($area.Height - 480) / 2))
+$owner.Location = New-Object System.Drawing.Point($x, $y)
 $owner.Show()
+[SbPick]::TakeForeground($owner.Handle)
 $owner.Activate()
 $picked = ""
 try { $picked = [SbPick]::Pick($owner.Handle, $title, $start, $false) } finally { $owner.Close() }
