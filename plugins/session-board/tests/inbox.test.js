@@ -59,6 +59,14 @@ test('ingest: once per message, routed by the most specific route, reopened by a
   inbox.db.prepare("UPDATE inbox_thread SET triage = 'fyi', triage_title = 'Prototype 交付通知', triage_summary = '請確認動畫' WHERE thread_id = 'teams:k'").run();
   assert.deepStrictEqual(inbox.threads({ q: '交付通知' }).map((x) => x.thread_id), ['teams:k']);   // and the triage's title the list shows
   assert.deepStrictEqual(inbox.threads({ q: '確認動畫' }).map((x) => x.thread_id), ['teams:k']);   // and its line
+  // who sent any message of the thread, not only who started it; and what is typed looked for as it is: _ and % are
+  // themselves (2026-11-20: 「tina_chao」 found nothing - it had been looked for as 「tina chao」)
+  inbox.ingest({ source: 'teams', threadId: 'teams:k', sourceMsgId: 'teams:k:2', sourceRef: 'k', from: '"趙" <tina_chao@x.com>', subject: 'Teams · 王', bodyText: '好的，已完成 100%', ts: 11000 });
+  assert.deepStrictEqual(inbox.threads({ q: 'tina_chao' }).map((x) => x.thread_id), ['teams:k']);
+  assert.deepStrictEqual(inbox.threads({ q: 'TINA_CHAO@X' }).map((x) => x.thread_id), ['teams:k'], 'capitals or not');
+  assert.deepStrictEqual(inbox.threads({ q: 'tinaXchao' }), [], '_ is not "any one letter"');
+  assert.deepStrictEqual(inbox.threads({ q: '100%' }).map((x) => x.thread_id), ['teams:k']);
+  assert.deepStrictEqual(inbox.threads({ q: '10%0' }), [], '% is not "anything"');
   assert.deepStrictEqual(inbox.threads({ source: 'gmail' }).map((x) => [x.thread_id, x.messages, x.latest]), [['gmail:t1', 4, '內容 m4']]);
   assert.strictEqual(inbox.deleteRoute(inbox.routes()[0].id), true);
 });
@@ -88,6 +96,113 @@ test('Teams: messages are read out of V8-serialized records, one-byte strings as
   ]);
   assert.strictEqual(TeamsDb.stableMsgId(5, 'a'), TeamsDb.stableMsgId(5, 'a'));
   assert.notStrictEqual(TeamsDb.stableMsgId(5, 'a'), TeamsDb.stableMsgId(5, 'b'));
+});
+
+test('Gmail: who each message went to - to you, a copy to you, neither, a forward; filled in later for mail kept before', async () => {
+  const G = require('../lib/inbox/sources/gmail');
+  const b64 = (s) => Buffer.from(s).toString('base64url');
+  const msg = (id, h, text, labels = ['INBOX']) => ({ id, threadId: 'R1', labelIds: labels, internalDate: String(5000 + Number(id.slice(1))), payload: { mimeType: 'text/plain', headers: Object.entries(h).map(([name, value]) => ({ name, value })), body: { data: b64(text) } } });
+  const mine = new Set(['me@x.com', 'alias@y.com']);
+  assert.deepStrictEqual(G.addrs('"Me (x.com)" <Me@X.com>, b@c.com; "趙" <tina_chao@x.com>'), ['me@x.com', 'b@c.com', 'tina_chao@x.com'], 'addresses only, not what a display name says');
+  const to = G.recipientsOf(msg('m1', { From: 't@c.com', To: 'Me <me@x.com>, k@c.com', Cc: 't@c.com', Subject: 'Re: 會議' }, '請確認'), mine);
+  assert.deepStrictEqual(to, { to: ['me@x.com', 'k@c.com'], cc: ['t@c.com'], meRole: 'to', forwarded: false });
+  assert.strictEqual(G.recipientsOf(msg('m2', { To: 'k@c.com', Cc: 'alias@y.com' }, 'x'), mine).meRole, 'cc', 'another address of yours, in Cc');
+  assert.strictEqual(G.recipientsOf(msg('m3', { To: 'team@c.com' }, 'x'), mine).meRole, 'other', 'a list, or a blind copy');
+  assert.strictEqual(G.recipientsOf(msg('m4', { To: 'me@x.com', Subject: 'Fwd: 報價' }, 'x'), mine).forwarded, true);
+  assert.strictEqual(G.recipientsOf(msg('m5', { To: 'me@x.com', Subject: '看一下' }, '---------- 轉寄的郵件 ---------\n寄件者：…'), mine).forwarded, true);
+  assert.strictEqual(G.recipientsOf(msg('m6', { To: 'me@x.com', Subject: 'FW：合約' }, 'x'), mine).forwarded, true, 'a full-width colon');
+
+  const { d, inbox } = fresh();
+  fs.writeFileSync(path.join(d, 'credentials.json'), JSON.stringify({ installed: { client_id: 'cid', client_secret: 'sec' } }));
+  fs.writeFileSync(path.join(d, 'token.json'), JSON.stringify({ refresh_token: 'rt' }));
+  // a thread kept before who it went to was kept: no rcpt
+  inbox.ingest({ source: 'gmail', threadId: 'gmail:R1', sourceMsgId: 'gmail:m1', from: 't@c.com', subject: 'Re: 會議', bodyText: '請確認', ts: 5001 });
+  assert.strictEqual(inbox.thread('gmail:R1').items[0].rcpt, null);
+  const asked = [];
+  const fetchImpl = async (url, opts) => {
+    const u = new URL(url); asked.push(u.pathname.replace('/gmail/v1/users/me/', '') + (u.searchParams.get('format') ? '?format=' + u.searchParams.get('format') + '&h=' + u.searchParams.getAll('metadataHeaders').join(',') : ''));
+    if (u.host === 'oauth2.googleapis.com') return json({ access_token: 'at' });
+    if (u.pathname.endsWith('/labels')) return json({ labels: [] });
+    // only R2 is listed (a fetch lists what is new since the last): R1, kept before, is filled in all the same
+    if (u.pathname.endsWith('/messages')) return json({ messages: [{ id: 'n1', threadId: 'R2' }] });
+    if (u.pathname.endsWith('/profile')) return json({ emailAddress: 'me@x.com' });
+    if (u.pathname.endsWith('/threads/R1')) return json({ messages: [msg('m1', { From: 't@c.com', To: 'me@x.com, k@c.com', Cc: 't@c.com', Subject: 'Re: 會議' }, '')] });
+    if (u.pathname.endsWith('/threads/R2')) return json({ messages: [msg('n1', { From: 'k@c.com', To: 'list@c.com', Subject: 'Fwd: 公告' }, '公告內容'), msg('n2', { From: 'me@x.com', To: 'boss@c.com', Subject: 'Fwd: 公告' }, '---------- Forwarded message ---------\n公告內容', ['SENT'])] });
+    return json({}, false);
+  };
+  const r = await G.pollGmail(inbox, { gmailSecretDir: d }, fetchImpl);
+  assert.deepStrictEqual([r.ingested, r.own, r.recipientsFilled], [1, 1, 1]);
+  assert.ok(asked.includes('threads/R1?format=metadata&h=To,Cc,Subject'), 'the old thread: its headers only - ' + asked.join(' | '));
+  const old = inbox.thread('gmail:R1').items[0];
+  assert.deepStrictEqual([JSON.parse(old.rcpt), old.me_role, old.fwd, old.body], [{ to: ['me@x.com', 'k@c.com'], cc: ['t@c.com'] }, 'to', 0, '請確認'], 'filled in, its text as it was');
+  const r2 = inbox.thread('gmail:R2').items;
+  assert.deepStrictEqual(r2.map((x) => [x.direction, x.me_role, x.fwd]), [['in', 'other', 1], ['out', 'other', 1]]);
+  // who it went to is searched too
+  assert.deepStrictEqual(inbox.threads({ q: 'boss@c' }).map((x) => x.thread_id), ['gmail:R2']);
+  // the next fetch: nothing left to fill in, nothing asked again
+  asked.length = 0;
+  const r3 = await G.pollGmail(inbox, { gmailSecretDir: d }, fetchImpl);
+  assert.deepStrictEqual([r3.recipientsFilled, asked.filter((x) => x.startsWith('threads/')).length], [0, 0]);
+  // a source that does not say who it went to (Teams): not known, rather than "not to you"
+  inbox.ingest({ source: 'teams', threadId: 'teams:z', sourceMsgId: 'teams:z:1', from: '王', bodyText: '在嗎', ts: 1 });
+  assert.deepStrictEqual([inbox.thread('teams:z').items[0].rcpt, inbox.thread('teams:z').items[0].me_role], [null, null]);
+});
+
+test('Gmail recipients, review 2026-11-20: a display name is not an address; filled once; a deleted thread not asked again; not knowing you, nothing kept', async () => {
+  const G = require('../lib/inbox/sources/gmail');
+  const b64 = (s) => Buffer.from(s).toString('base64url');
+  const msg = (id, tid, h, text = 'x', labels = ['INBOX']) => ({ id, threadId: tid, labelIds: labels, internalDate: '9000', payload: { mimeType: 'text/plain', headers: Object.entries(h).map(([name, value]) => ({ name, value })), body: { data: b64(text) } } });
+  const mine = new Set(['me@x.com']);
+  // your address as someone's display name: not to you
+  assert.deepStrictEqual(G.addrs('"me@x.com" <evil@y.com>, plain@z.com, "A, B" <ab@z.com>'), ['evil@y.com', 'plain@z.com', 'ab@z.com']);
+  assert.strictEqual(G.recipientsOf(msg('a', 'T', { To: '"me@x.com" <evil@y.com>' }), mine).meRole, 'other');
+  const { d, inbox } = fresh();
+  fs.writeFileSync(path.join(d, 'credentials.json'), JSON.stringify({ installed: { client_id: 'cid', client_secret: 'sec' } }));
+  fs.writeFileSync(path.join(d, 'token.json'), JSON.stringify({ refresh_token: 'rt' }));
+  // a forward told from its text, then the headers asked for: it stays a forward
+  inbox.ingest({ source: 'gmail', threadId: 'gmail:F', sourceMsgId: 'gmail:f1', from: 'k@c.com', bodyText: '---------- Forwarded message ---------', to: ['me@x.com'], cc: [], meRole: 'to', forwarded: true, ts: 1 });
+  assert.strictEqual(inbox.setRecipients('gmail:f1', { to: ['me@x.com'], cc: [], meRole: 'to', forwarded: false }), false, 'filled already: not written');
+  assert.strictEqual(inbox.thread('gmail:F').items[0].fwd, 1);
+  // search: the addresses, not the JSON around them
+  assert.deepStrictEqual(inbox.threads({ q: 'to' }), [], '"to" is not in any address');
+  assert.deepStrictEqual(inbox.threads({ q: 'me@x' }).map((x) => x.thread_id), ['gmail:F']);
+  // kept before: one thread Gmail still has, one it no longer has
+  inbox.ingest({ source: 'gmail', threadId: 'gmail:OK', sourceMsgId: 'gmail:o1', from: 'k@c.com', bodyText: 'a', ts: 2 });
+  inbox.ingest({ source: 'gmail', threadId: 'gmail:GONE', sourceMsgId: 'gmail:g1', from: 'k@c.com', bodyText: 'b', ts: 3 });
+  const asked = []; let profileOk = false;
+  const fetchImpl = async (url) => {
+    const u = new URL(url); asked.push(u.pathname.replace('/gmail/v1/users/me/', ''));
+    if (u.host === 'oauth2.googleapis.com') return json({ access_token: 'at' });
+    if (u.pathname.endsWith('/labels')) return json({ labels: [] });
+    if (u.pathname.endsWith('/messages')) return json({ messages: [] });
+    if (u.pathname.endsWith('/profile')) return profileOk ? json({ emailAddress: 'me@x.com' }) : json({ error: { message: 'down' } }, false);
+    if (u.pathname.endsWith('/threads/OK')) return json({ messages: [msg('o1', 'OK', { To: 'me@x.com' })] });
+    if (u.pathname.endsWith('/threads/GONE')) return { ok: false, status: 404, json: async () => ({ error: { message: 'Requested entity was not found.' } }) };
+    return json({}, false);
+  };
+  // which address is yours not known (profile failed, none in the settings): nothing filled in, nothing kept as "not to you"
+  const r0 = await G.pollGmail(inbox, { gmailSecretDir: d }, fetchImpl);
+  assert.deepStrictEqual([r0.recipientsFilled, inbox.thread('gmail:OK').items[0].rcpt, asked.filter((x) => x.startsWith('threads/')).length], [0, null, 0]);
+  profileOk = true; asked.length = 0;
+  const r1 = await G.pollGmail(inbox, { gmailSecretDir: d }, fetchImpl);
+  assert.deepStrictEqual([r1.recipientsFilled, r1.recipientsFailed], [1, 1]);
+  assert.strictEqual(inbox.thread('gmail:OK').items[0].me_role, 'to');
+  assert.deepStrictEqual([inbox.thread('gmail:GONE').items[0].rcpt, inbox.thread('gmail:GONE').items[0].me_role], ['{"gone":1}', null], 'deleted: marked, said nothing about');
+  asked.length = 0;
+  await G.pollGmail(inbox, { gmailSecretDir: d }, fetchImpl);
+  assert.deepStrictEqual(asked.filter((x) => x.startsWith('threads/')), [], 'neither asked again');
+  // a thread kept before, with new mail in it now: read in full for the new message - its old one filled in from that
+  // (review 2026-11-20), the forward told from its text
+  inbox.ingest({ source: 'gmail', threadId: 'gmail:NEW', sourceMsgId: 'gmail:x1', from: 'k@c.com', bodyText: 'old', ts: 4 });
+  const more = async (url, o) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/messages')) return json({ messages: [{ id: 'x2', threadId: 'NEW' }] });
+    if (u.pathname.endsWith('/threads/NEW')) return json({ messages: [msg('x1', 'NEW', { To: 'k@c.com', Cc: 'me@x.com', Subject: '看一下' }, '---------- 轉寄的郵件 ---------\nold'), msg('x2', 'NEW', { To: 'me@x.com', Subject: 'Re: 看一下' }, 'new')] });
+    return fetchImpl(url, o);
+  };
+  const r2 = await G.pollGmail(inbox, { gmailSecretDir: d }, more);
+  const items = inbox.thread('gmail:NEW').items;
+  assert.deepStrictEqual([r2.ingested, r2.recipientsFilled, items.map((x) => [x.me_role, x.fwd])], [1, 1, [['cc', 1], ['to', 0]]]);
 });
 
 test('Gmail: body in its own character set; a poll takes whole threads, skips drafts, and keeps your own replies quiet', async () => {

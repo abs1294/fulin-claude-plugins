@@ -45,6 +45,9 @@ const autostart = require('./lib/autostart');
 const Past = require('./lib/past');
 const { InboxService } = require('./lib/inbox');
 const Sched = require('./lib/schedule');
+const Rule = require('./lib/rule');
+const RuleParse = require('./lib/ruleparse');
+const Workdays = require('./lib/workdays');
 const { Runner } = require('./lib/schedrun');
 const { Watchdog, DEFAULTS: WATCH_DEFAULTS } = require('./lib/watchdog');
 const Budget = require('./lib/budget');
@@ -62,6 +65,7 @@ const Agents = require('./lib/agents');
 const Harness = require('./lib/harness');
 const Remote = require('./lib/remote');
 const TidyLib = require('./lib/tidy');
+const Vocab = require('./lib/vocab');
 const Plugins = require('./lib/plugins');
 const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
@@ -425,7 +429,13 @@ function createServer(token, port, deps = {}) {
   // Who may talk to the board at all: this computer, and - when reaching it through Tailscale is switched on - only the
   // devices of your own Tailscale account (lib/remote.js). Checked before anything else, the key after it.
   const gate = deps.gate || new Remote.Gate();
-  const tidy = deps.tidy || new TidyLib.Tidy();   // the mic's 自動排版: one Claude kept running while it is used
+  // the mic's 自動排版: one Claude kept running while it is used (lib/tidy.js)
+  const tidy = deps.tidy || new TidyLib.Tidy();
+  // where the mic's own words come from besides you: this board's conversations' titles and folders (lib/vocab.js autoTerms)
+  const vocabSources = () => { try { return sessions().flatMap((x) => [x.title, x.folder]); } catch (e) { return []; } };
+  // your OpenAI API key, for the transcription (settings page); kept in this computer's board folder, never shown back
+  const OPENAI_FILE = path.join(DATA_DIR, 'openai.json');
+  const openaiKey = () => { try { return String(JSON.parse(fs.readFileSync(OPENAI_FILE, 'utf8')).apiKey || '').trim(); } catch (e) { return ''; } };
   // the https address tailscale serve gives this board ('' none), asked at most once a minute
   let served = { at: 0, url: '' };
   const httpsUrl = async () => { if (Date.now() - served.at > 60000) served = { at: Date.now(), url: await (deps.servedUrl || Remote.servedUrl)(port) }; return served.url; };
@@ -481,10 +491,16 @@ function createServer(token, port, deps = {}) {
     skinPhone: { def: '', ok: (v) => ['', 'a', 'b', 'c', 'd'].includes(v), why: '只能是 a、b、c、d 或空白（用預設）' },
     // what is said into the microphone is tidied by Claude before it stays in the box (lib/tidy.js); off = the words as heard
     voiceTidy: { def: true, ok: isBool, why: '只能是開或關' },
+    // whose calendar the schedules' working days go by (lib/workdays.js): a country code, '' = none (Monday to Friday)
+    workdayCountry: { def: Workdays.guessCountry(), ok: Workdays.okCountry, why: '只能是兩個大寫字母的國家代碼，或空白（不扣假日）' },
+    // who hears what is said: the browser's own recognizer (free, Google's servers in Chrome) or OpenAI's transcription
+    // (gpt-transcribe, with your words as keywords; your own API key and cost - set on the settings page)
+    voiceEngine: { def: 'browser', ok: (v) => v === 'browser' || v === 'openai', why: '只能是 browser 或 openai' },
     decideModel: { def: 'haiku', ok: (v) => typeof v === 'string' && /^(haiku|sonnet|opus|fable|claude-[a-z0-9.-]{1,40})$/.test(v), why: '模型只能是 haiku、sonnet、opus、fable 或 claude- 開頭的名稱' },
   };
   const pref = (k) => { const v = config.value(k, PREFS[k].def); return PREFS[k].ok(v) ? v : PREFS[k].def; };
   const prefs = () => { const o = {}; for (const k of Object.keys(PREFS)) o[k] = pref(k); return o; };
+  Workdays.setCountry(pref('workdayCountry'));
   // Names given on the board (sessionId -> name): above every other title (lib/sessions.js).
   const customTitles = () => { const v = config.value('customTitles', {}); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; };
   // Every conversation the board itself started, remembered after it ends: those are yours, whatever their entrypoint
@@ -980,6 +996,12 @@ function createServer(token, port, deps = {}) {
   };
   runner = deps.noSchedules ? null : new Runner(schedules, { goal: goal2, sessions, channels, isDir, peer, peerCheck: deps.peerCheck || peerSeen, takeOver, tell: deps.tell || tell, newId: () => crypto.randomUUID() });
   if (runner && !deps.noTimers) { const t = setInterval(() => { runner.tick(); }, 20000); if (t.unref) t.unref(); setTimeout(() => { runner.tick(); }, 4000).unref(); }
+  // The working-day calendar of the country chosen (lib/workdays.js), for the schedules that go by working days: looked
+  // for once a day, fetched only when
+  // one of them needs a year not on this computer yet (or this year's or next year's is a day old)
+  // (refresh() itself fetches only the years missing or a day old: asking it once a day is all that is needed)
+  const calCheck = () => { try { if (schedules.list().some((s) => s.enabled && s.kind === 'custom' && s.rule && (s.rule.workday || /LW|FW/.test(s.rule.cron)))) Workdays.refresh().catch(() => {}); } catch (e) {} };
+  if (!deps.noSchedules && !deps.noTimers) { const t = setInterval(calCheck, 86400000); if (t.unref) t.unref(); setTimeout(calCheck, 60000).unref(); }
   // Sessions that stopped moving - stuck, out of quota, cut off by an error on the server's side (lib/watchdog.js):
   // told to you, and where the settings say so, asked to carry on when the cause is gone.
   const viewTickets = new Map();   // id -> {abs, office, name, exp}: see /api/view
@@ -1022,7 +1044,7 @@ function createServer(token, port, deps = {}) {
     update: () => (isOn('versions') ? updatePlugins() : Promise.resolve({ ok: true, summary: '' })),
     version: () => VERSION,
     // once a day: what there is to update (read only - the marketplace asked for its newest versions), and whether the
-    // board installed is newer than this one running; the page shows 「重啟更新」 only then
+    // board installed is newer than this one running; the page shows 「有新版本，點我更新」 only then
     check: async () => {
       const inst = instNow();
       const root = deps.boardRoot || Plugins.rootOf('session-board', inst, __dirname) || __dirname;
@@ -1234,7 +1256,21 @@ function createServer(token, port, deps = {}) {
           if (p === '/api/changes/git') return send(res, 200, isDir(s.cwd) ? await Changes.gitChanges(s.cwd, gitRun) : { repo: false, reason: '這個 session 的資料夾已經不存在' });
           if (p === '/api/changes/gitfile') { const r = isDir(s.cwd) ? await Changes.gitFileDiff(s.cwd, String(q.get('path') || ''), gitRun) : { ok: false, error: '這個 session 的資料夾已經不存在' }; return send(res, r.ok ? 200 : 404, r); }
           const file = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir);
-          if (p === '/api/changes') return send(res, 200, file ? await Changes.summary(file, s.cwd) : { files: [], adds: 0, dels: 0 });
+          // its edits, the folder's files written in the session's time (made by a command it ran: lib/changes.js touched),
+          // and the files and links its replies handed you
+          if (p === '/api/changes') {
+            if (!file) return send(res, 200, { files: [], adds: 0, dels: 0, touched: { files: [] }, given: [], links: [] });
+            // what its replies handed you (lib/changes.js named): the paths that are real, newest mention first
+            const n = await Changes.named(file); const given = [], seenAbs = new Set();
+            const raws = n.paths.sort((x, y) => y.at - x.at).slice(0, 300);
+            for (let i = 0; i < raws.length; i += 80) {
+              const part = raws.slice(i, i + 80), hits = F.check(part.map((x) => x.raw), s.cwd);
+              // one entry per file (a folder written with and without its last backslash is one); the session's own folder is where it works, not something it handed you
+              const own = String(s.cwd || '').replace(/[\\/]+$/, '').toLowerCase();
+              part.forEach((x, k) => { const h = hits[k]; if (!h) return; h.abs = h.abs.replace(/(?<=[^:\\/])[\\/]+$/, ''); const kk = h.abs.toLowerCase(); if (kk === own || seenAbs.has(kk)) return; seenAbs.add(kk); given.push(Object.assign({ at: x.at, ref: x.id, raw: x.raw }, h)); });
+            }
+            return send(res, 200, Object.assign(await Changes.summary(file, s.cwd), { touched: isDir(s.cwd) ? await Changes.touched(file, s.cwd) : { files: [] }, given: given.slice(0, 100), links: n.links.sort((x, y) => y.at - x.at).slice(0, 50) }));
+          }
           const d = file ? await Changes.detail(file, String(q.get('path') || '')) : null;
           return send(res, d ? 200 : 404, d || { error: '這個 session 沒有改過這個檔案' });
         }
@@ -1242,6 +1278,9 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/notices') { const fixed = reconcile(); return send(res, 200, { open: notices.openList(), closed: notices.closedList(60), schedule: schedules.notices(), reconciled: fixed }); }
         if (p === '/api/budget') return send(res, 200, { settings: Budget.clean(config.value('budget', {})), state: config.value('budgetState', null) });
         if (p === '/api/watchdog') return send(res, 200, { on: !!dog, settings: watchSettings(), log: dog ? dog.log() : [] });
+        // the mic's own words (lib/vocab.js): this person's, on this computer
+        if (p === '/api/vocab') return send(res, 200, Object.assign(Vocab.list(vocabSources()), { engine: config.value('voiceEngine', 'browser'), openaiKey: !!openaiKey() }));
+        if (p === '/api/vocab/terms') return send(res, 200, { terms: Vocab.terms(vocabSources(), 100) });
         if (p === '/api/auto') {
           // a check made by another board than this one (it was restarted, by /session-board or the button): stale - not shown
           let check = auto ? auto.checked() : null;
@@ -1369,7 +1408,7 @@ function createServer(token, port, deps = {}) {
 
       if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
       if (!/^application\/json/.test(String(req.headers['content-type'] || ''))) return send(res, 415, { error: 'json only' });
-      let body = await readBody(req, p === '/api/send' || p === '/api/upload' ? 48 * 1024 * 1024 : undefined);   // a message may carry pictures; an upload, a file
+      let body = await readBody(req, p === '/api/send' || p === '/api/upload' ? 48 * 1024 * 1024 : p === '/api/transcribe' ? 36 * 1024 * 1024 : undefined);   // a message may carry pictures; an upload, a file
       const sid = typeof body.sessionId === 'string' ? body.sessionId : '';
 
       // What happens on this computer's screen is not done for a request from another computer: nobody is there to see it.
@@ -1577,6 +1616,44 @@ function createServer(token, port, deps = {}) {
       }
       // The mic's 自動排版 (lib/tidy.js). warm: the mic was just pressed - Claude boots while you speak. tidy: the words
       // heard, cleaned up; answered as lines of JSON as they come ({d: text so far}), the last one {done, text} or {error}.
+      // the mic's words: add, take out, forget a correction, or learn from what you changed before sending (lib/vocab.js)
+      if (p === '/api/vocab') {
+        if (typeof body.add === 'string') return send(res, 200, Vocab.add(body.add));
+        if (typeof body.remove === 'string') return send(res, 200, Vocab.remove(body.remove));
+        if (body.unlearn && typeof body.unlearn === 'object') return send(res, 200, Vocab.unlearn(String(body.unlearn.heard || ''), String(body.unlearn.meant || '')));
+        if (body.learn && typeof body.learn === 'object') return send(res, 200, { ok: true, learned: Vocab.learn(String(body.learn.given || '').slice(0, 4000), String(body.learn.sent || '').slice(0, 4000)) });
+        return send(res, 400, { ok: false, error: '要給 add、remove、unlearn 或 learn' });
+      }
+      // your OpenAI API key: set (or taken away with an empty one); never answered back
+      if (p === '/api/voice/key') {
+        const k = String(body.key || '').trim();
+        if (k && !/^sk-[A-Za-z0-9_\-]{20,}$/.test(k)) return send(res, 400, { ok: false, error: '這不像 OpenAI 的 API 金鑰（sk- 開頭）' });
+        try { if (k) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(OPENAI_FILE, JSON.stringify({ apiKey: k })); } else fs.rmSync(OPENAI_FILE, { force: true }); } catch (e) { return send(res, 500, { ok: false, error: String(e.message || e).slice(0, 200) }); }
+        return send(res, 200, { ok: true, set: !!k });
+      }
+      // What was said, heard by OpenAI's transcription instead of the browser (the setting voiceEngine): the recording,
+      // your words as keywords, the conversation's name as the prompt. -> {ok, text} | {ok:false, error}
+      if (p === '/api/transcribe') {
+        const key = openaiKey(); if (!key) return send(res, 409, { ok: false, error: '還沒有設定 OpenAI 的 API 金鑰（設定 → 語音輸入）' });
+        const mime = String(body.mime || '').split(';')[0];
+        if (!/^audio\/(webm|ogg|mp4|mpeg|wav|x-m4a|m4a)$/.test(mime) || typeof body.audio !== 'string') return send(res, 400, { ok: false, error: '錄音的格式不支援' });
+        const audio = Buffer.from(body.audio, 'base64'); if (!audio.length || audio.length > 25 * 1024 * 1024) return send(res, 400, { ok: false, error: '錄音是空的或超過 25 MB' });
+        const ext = { webm: 'webm', ogg: 'ogg', mp4: 'mp4', mpeg: 'mp3', wav: 'wav', 'x-m4a': 'm4a', m4a: 'm4a' }[mime.split('/')[1]];
+        const fd = new FormData();
+        fd.append('file', new Blob([audio], { type: mime }), 'speech.' + ext);
+        fd.append('model', 'gpt-transcribe');
+        for (const t of Vocab.terms(vocabSources(), 100)) fd.append('keywords[]', t);
+        for (const l of ['zh', 'en']) fd.append('languages[]', l);
+        const cx = body.context && typeof body.context === 'object' ? body.context : {};
+        const prompt = [cx.title, cx.folder].filter((x) => typeof x === 'string' && x).join(' / ').slice(0, 300);
+        if (prompt) fd.append('prompt', '對話：' + prompt);
+        try {
+          const r = await (deps.fetch || fetch)('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { authorization: 'Bearer ' + key }, body: fd });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) return send(res, 502, { ok: false, error: 'OpenAI 轉錄失敗：' + String((j.error && j.error.message) || r.status).slice(0, 200) });
+          return send(res, 200, { ok: true, text: String(j.text || '') });
+        } catch (e) { return send(res, 502, { ok: false, error: '連不到 OpenAI：' + String(e.message || e).slice(0, 200) }); }
+      }
       if (p === '/api/tidy/warm') { tidy.warm(typeof body.sid === 'string' ? body.sid.slice(0, 80) : ''); return send(res, 200, { ok: true }); }   // one process per conversation (lib/tidy.js)
       if (p === '/api/tidy') {
         const text = String(body.text || '');
@@ -1585,8 +1662,11 @@ function createServer(token, port, deps = {}) {
         res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
         // the conversation it is said in, to put misheard English words and names right (lib/tidy.js withContext); bounded
         const cx = body.context && typeof body.context === 'object' ? body.context : null;
-        const context = cx ? { sid: String(cx.sid || '').slice(0, 80), title: String(cx.title || '').slice(0, 200), folder: String(cx.folder || '').slice(0, 200), recent: (Array.isArray(cx.recent) ? cx.recent : []).slice(-6).map((x) => String(x || '').slice(0, 600)) } : null;
-        const r = await tidy.run(text, (sofar) => { try { res.write(JSON.stringify({ d: sofar }) + '\n'); } catch (e) {} }, context);
+        const context = cx ? { sid: String(cx.sid || '').slice(0, 80), title: String(cx.title || '').slice(0, 200), folder: String(cx.folder || '').slice(0, 200), recent: (Array.isArray(cx.recent) ? cx.recent : []).slice(-6).map((x) => String(x || '').slice(0, 600)),
+          alts: (Array.isArray(cx.alts) ? cx.alts : []).slice(0, 20).map((a) => (Array.isArray(a) ? a : []).slice(0, 4).map((x) => String(x || '').slice(0, 300))) } : null;
+        // and this person's words and the corrections learned from them (lib/vocab.js)
+        const vocab = { words: Vocab.terms(vocabSources(), 80), fixes: Vocab.fixes(40) };
+        const r = await tidy.run(text, (sofar) => { try { res.write(JSON.stringify({ d: sofar }) + '\n'); } catch (e) {} }, context ? Object.assign(context, vocab) : vocab);
         return res.end(JSON.stringify(r.ok ? { done: true, text: r.text, ms: r.ms } : { error: r.error }) + '\n');
       }
       // A board conversation's model and effort, from its next message on (lib/chat.js setModel).
@@ -1759,6 +1839,8 @@ function createServer(token, port, deps = {}) {
         // (the values below were checked at the top of this handler)
         for (const k of ['textSize', 'textSizeTouch']) if (r.ok && body[k] !== undefined) config.setValue(k, Number(body[k]));
         if (r.ok && given.length) { for (const k of given) config.setValue(k, body[k]); fresh(); }
+        // another country's calendar: gone by from now on, and fetched now (not waited for)
+        if (r.ok && given.includes('workdayCountry')) { Workdays.setCountry(body.workdayCountry); if (!deps.calFetch) Workdays.refresh().catch(() => {}); }
         if (r.ok && body.autoHideDays !== undefined) { config.setValue('autoHideDays', Number(body.autoHideDays)); fresh(); }
         // Notifications: the setting, and the address scheme a click on one goes through.
         if (r.ok && typeof body.notify === 'boolean') {
@@ -1825,6 +1907,28 @@ function createServer(token, port, deps = {}) {
         if (c.value.target === 'goal' && (!isOn('goal2') || !(await goal2.list()).installed)) return send(res, 400, { ok: false, error: '這台電腦沒有裝 goal2，不能交辦 goal' });
         if (c.value.agent && !channels.roles(c.value.cwd).some((r) => r.name === c.value.agent)) return send(res, 400, { ok: false, error: '這個資料夾沒有「' + c.value.agent + '」這個角色' });
         return send(res, 200, { ok: true, id: schedules.save(c.value, body.id) });
+      }
+      // the countries there are working-day calendars for (lib/workdays.js), for the settings
+      if (p === '/api/workdays/countries') return send(res, 200, { countries: await Workdays.countries(deps.calFetch ? { fetch: deps.calFetch } : {}), country: Workdays.country() });
+      // A schedule's own rule (lib/rule.js): said in words and turned into a rule by Claude (lib/ruleparse.js), or typed;
+      // either way checked here, with its next runs - what you look at before saving it. Working days go by the calendar
+      // of the country chosen in the settings (lib/workdays.js): fetched now if this year's or next year's is missing.
+      if (p === '/api/schedule/rule') {
+        let raw = body.rule && typeof body.rule === 'object' ? body.rule : null;
+        if (!raw && typeof body.text === 'string' && body.text.trim()) {
+          const a = await (deps.ruleAsk || RuleParse.ask)(body.text.trim());
+          if (!a.ok) return send(res, 200, { ok: false, error: a.error });
+          raw = Object.assign({}, a.rule, { text: body.text.trim() });
+        }
+        if (!raw) return send(res, 400, { ok: false, error: '請用一句話描述，或填規則' });
+        const c = Rule.check(raw);
+        if (!c.ok) return send(res, 200, { ok: false, error: c.error, rule: raw });
+        if (Rule.guessedYears(c.rule).length) { try { await Workdays.refresh(deps.calFetch ? { fetch: deps.calFetch } : {}); } catch (e) {} }
+        // counted from when the schedule was made, as its runs will be (lib/schedule.js nextRun): a schedule being edited
+        // is its own, a new one now (review 2026-11-20: "every 2 weeks" or "3 times" previewed from now differed when edited)
+        const now = Date.now(), old = body.id ? schedules.get(body.id) : null, made = (old && (old.createdAt || old.updatedAt)) || now;
+        const next = Rule.upcoming(c.rule, now, made, 5);
+        return send(res, 200, { ok: true, rule: c.rule, next, guessed: Rule.guessedYears(c.rule, now, next.map((x) => x.at)), country: Workdays.country() });
       }
       if (p === '/api/schedule/toggle') return send(res, 200, { ok: schedules.setEnabled(body.id, body.enabled === true) });
       if (p === '/api/schedule/delete') return send(res, 200, { ok: schedules.remove(body.id) });
@@ -2003,7 +2107,7 @@ function createServer(token, port, deps = {}) {
       }
       // Take a conversation off the board. Its history stays on disk (claude --resume <id>).
       if (p === '/api/close') { const ok = channels.remove(sid); fresh(); return send(res, 200, { ok }); }
-      // 「重啟更新」 (the floating button at the right of the screen, beside the message box), after the plugins were brought up to date: the board
+      // 「有新版本，點我更新」 (the floating button at the right of the screen, beside the message box), after the plugins were brought up to date: the board
       // starts again on the newest installed version of itself. Typed in a conversation on the board, /session-board could
       // never do this - that conversation is busy with it, and stopping the board ends it before it could start the new
       // one (asked 2026-11-20). From the page, no conversation is in the way: refused only while one is working (the same

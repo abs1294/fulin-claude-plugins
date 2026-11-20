@@ -52,3 +52,42 @@ test('the list: saved, changed, switched off, removed', () => {
   assert.deepStrictEqual([S.remove(id2), S.remove(999), S.list(now).length], [true, false, 1]);
   assert.strictEqual(new Schedules(path.join(d, 'b.db')).list(now).length, 1);                       // it is in the database: there after a restart
 });
+
+test('the plain kinds across a change of clocks: the next and last run on the right calendar day (review 2026-11-20)', (t) => {
+  const { lastDue } = require('../lib/schedule');
+  const was = process.env.TZ;
+  try {
+    process.env.TZ = 'America/New_York';
+    if (new Date(2027, 10, 7).getTimezoneOffset() === new Date(2027, 10, 8).getTimezoneOffset()) { t.skip('這台電腦沒有時區資料，換時日的情況測不了'); return; }   // said as skipped, not passed (review 2026-11-20)
+    const at = (y, m, d, h, n) => new Date(y, m - 1, d, h, n).getTime();
+    const daily = (t) => ({ kind: 'daily', at: t, days: '' });
+    // 2027-11-07 has 25 hours, 2027-03-14 has 23
+    assert.strictEqual(nextRun(daily('23:45'), at(2027, 11, 6, 23, 50)), at(2027, 11, 7, 23, 45));
+    assert.strictEqual(nextRun(daily('00:15'), at(2027, 11, 7, 0, 20)), at(2027, 11, 8, 0, 15));
+    assert.strictEqual(nextRun(daily('23:45'), at(2027, 3, 13, 23, 50)), at(2027, 3, 14, 23, 45));
+    assert.strictEqual(nextRun({ kind: 'weekly', at: '00:15', days: '0' }, at(2027, 11, 1, 9, 0)), at(2027, 11, 7, 0, 15), 'Sunday the 7th');
+    assert.strictEqual(nextRun({ kind: 'monthly', at: '00:15', days: '7' }, at(2027, 10, 8, 1, 0)), at(2027, 11, 7, 0, 15));
+    assert.strictEqual(lastDue(daily('23:45'), at(2027, 11, 8, 10, 0)), at(2027, 11, 7, 23, 45));
+    assert.strictEqual(lastDue({ kind: 'monthly', at: '23:45', days: '7' }, at(2027, 12, 1, 0, 0)), at(2027, 11, 7, 23, 45));
+  } finally { if (was === undefined) delete process.env.TZ; else process.env.TZ = was; }
+});
+
+test('monthly: on the days of the month chosen, the last day, and a day a month does not have on its last day', () => {
+  const { lastDue } = require('../lib/schedule');
+  const at = (y, m, d, h = 9, n = 0) => new Date(y, m - 1, d, h, n).getTime();
+  const base = { kind: 'monthly', at: '09:00', target: 'folder', cwd: __dirname, prompt: 'p' };
+  assert.strictEqual(clean(Object.assign({ days: [15, 1, 1, 40, 0] }, base)).value.days, '1,15', 'sorted, once each, out of range left out');
+  assert.strictEqual(clean(Object.assign({ days: [] }, base)).error, '每月至少選一天');
+  const s = { kind: 'monthly', at: '09:00', days: '1,15' };
+  assert.strictEqual(nextRun(s, at(2026, 11, 20, 12)), at(2026, 12, 1));
+  assert.strictEqual(nextRun(s, at(2026, 12, 1, 8)), at(2026, 12, 1), 'later that day');
+  assert.strictEqual(lastDue(s, at(2026, 11, 20, 12)), at(2026, 11, 15));
+  // the last day (32), and 31 in a month without it
+  assert.strictEqual(nextRun({ kind: 'monthly', at: '18:00', days: '32' }, at(2027, 2, 3)), at(2027, 2, 28, 18));
+  assert.strictEqual(nextRun({ kind: 'monthly', at: '18:00', days: '31' }, at(2027, 2, 3)), at(2027, 2, 28, 18));
+  assert.strictEqual(nextRun({ kind: 'monthly', at: '18:00', days: '31' }, at(2027, 3, 1)), at(2027, 3, 31, 18));
+  assert.strictEqual(nextRun({ kind: 'monthly', at: '18:00', days: '30,32' }, at(2027, 2, 27)), at(2027, 2, 28, 18), 'two days falling on one: once');
+  assert.strictEqual(nextRun({ kind: 'monthly', at: '18:00', days: '30,32' }, at(2027, 2, 28, 19)), at(2027, 3, 30, 18));
+  assert.strictEqual(nextRun({ kind: 'monthly', at: '00:30', days: '29' }, at(2028, 2, 10)), at(2028, 2, 29, 0, 30), 'a leap year has the 29th');
+  assert.strictEqual(lastDue({ kind: 'monthly', at: '09:00', days: '31' }, at(2026, 12, 5)), at(2026, 11, 30), 'November has no 31st: its 30th');
+});

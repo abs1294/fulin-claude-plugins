@@ -37,7 +37,7 @@ const http = require('http');
 const crypto = require('crypto');
 const config = require('../config');
 const DB = require('../db');
-const { Inbox } = require('./store');
+const { Inbox, likeEsc } = require('./store');
 const Src = require('./sources');
 const Triage = require('./triage');
 
@@ -146,9 +146,9 @@ class InboxService {
     const ids = this.identities();
     if (!ids.length) return 0;
     Triage.pendingCount(this.inbox.db);   // makes sure the judgement columns exist
-    const like = ids.map(() => "lower(m.body) LIKE ?").join(' OR ');
+    const like = ids.map(() => "lower(m.body) LIKE ? ESCAPE '\\'").join(' OR ');
     const r = this.inbox.db.prepare("UPDATE inbox_thread SET triage_upto = NULL WHERE status <> 'done' AND triage IS NOT NULL AND thread_id IN (SELECT DISTINCT m.thread_id FROM inbox_message m WHERE m.direction = 'in' AND (" + like + "))")
-      .run(...ids.map((x) => '%' + x.toLowerCase().replace(/[%_]/g, ' ') + '%'));
+      .run(...ids.map((x) => '%' + likeEsc(x.toLowerCase()) + '%'));   // an address with _ in it is matched as it is
     return r.changes;
   }
 

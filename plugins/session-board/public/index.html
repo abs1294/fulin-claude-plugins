@@ -38,6 +38,54 @@
   button { font: inherit; color: inherit; cursor: pointer; }
   button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+  /* ── form fields: one look everywhere (asked 2026-11-20: "no raw html element anywhere in the system") ──
+     In :where(), so weighing nothing: a place that styles its own field (the message box, the chat-pick circles, a
+     compact field in a row) keeps what it sets, and a field nobody styled gets this instead of the browser's. */
+  :root { --field-line: #D8D7D3; --field-hover: #B9B8B4; --field-bg: var(--bg); }
+  @media (prefers-color-scheme: dark) { :root { --field-line: #3A3A3A; --field-hover: #555; } }
+  :where(input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color], [type=hidden], [type=submit], [type=button], [type=reset], [type=image]), textarea, select) {
+    font: inherit; font-size: 14px; line-height: 1.5; color: var(--ink); background: var(--field-bg);
+    border: 1px solid var(--field-line); border-radius: var(--r-m); padding: 6px 10px; min-height: 34px; max-width: 100%;
+    transition: border-color .12s, box-shadow .12s; }
+  :where(input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color], [type=hidden]), textarea, select):hover { border-color: var(--field-hover); }
+  /* focused: the border only. No ring drawn round it: a field that is part of a designed box (the message box: no border
+     of its own, the box around it is the frame) would get a frame of its own inside (2026-11-20) */
+  :where(input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color], [type=hidden]), textarea, select):focus { border-color: var(--accent); }
+  :where(input, textarea)::placeholder { color: var(--faint); opacity: 1; }
+  :where(input, textarea, select):disabled { opacity: .55; cursor: not-allowed; }
+  :where(textarea) { resize: vertical; min-height: 72px; }
+  :where(select) { appearance: none; padding-right: 30px; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; }
+  /* check boxes and round choices: drawn, not the browser's */
+  :where(input[type=checkbox], input[type=radio]) { appearance: none; width: 18px; height: 18px; margin: 3px; flex: none; vertical-align: middle; cursor: pointer;
+    border: 1.5px solid var(--field-hover); border-radius: 5px; background: var(--field-bg) center / 12px 12px no-repeat; transition: background-color .12s, border-color .12s; }
+  :where(input[type=radio]) { border-radius: 50%; }
+  :where(input[type=checkbox], input[type=radio]):hover { border-color: var(--accent); }
+  :where(input[type=checkbox]):checked { background-color: var(--accent); border-color: var(--accent);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.4 2.4 4.6-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+  :where(input[type=checkbox]):indeterminate { background-color: var(--accent); border-color: var(--accent);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 6h6' stroke='white' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E"); }
+  :where(input[type=radio]):checked { border-color: var(--accent); background-image: radial-gradient(circle, var(--accent) 0 4px, transparent 4.5px); background-size: auto; }
+  :where(input[type=checkbox], input[type=radio]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  :where(input[type=checkbox], input[type=radio]):disabled { opacity: .45; cursor: not-allowed; }
+  :where(input[type=range]) { accent-color: var(--accent); }
+
+  /* ── the board's own tooltip, in place of the browser's (asked 2026-11-20: "ugly - make a tooltip") ── */
+  .tipbox { position: fixed; z-index: 9999; max-width: min(460px, calc(100vw - 24px)); padding: 8px 12px; pointer-events: none;
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-m);
+    box-shadow: 0 6px 24px rgba(15, 15, 15, .12), 0 1px 3px rgba(15, 15, 15, .08);
+    font-size: 13px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; opacity: 0; transform: translateY(-2px); transition: opacity .1s, transform .1s; }
+  .tipbox.on { opacity: 1; transform: none; }
+  @media (prefers-color-scheme: dark) { .tipbox { box-shadow: 0 6px 24px rgba(0, 0, 0, .5); border-color: #3A3A3A; } }
+  .tipbox .tip-head { font-weight: 600; margin-bottom: 4px; }
+  .tipbox .tip-foot { color: var(--faint); font-size: 12px; margin-top: 6px; }
+  .tipbox .tip-rows { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 3px 10px; align-items: baseline; white-space: normal; }
+  .tipbox .tip-kind { font-size: 12px; color: var(--dim); background: var(--bubble); border-radius: var(--r-s); padding: 0 6px; white-space: nowrap; }
+  .tipbox .tip-what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tipbox .tip-time { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+  @media (prefers-reduced-motion: reduce) { .tipbox { transition: none; } }
+
   .app { display: grid; grid-template-columns: var(--side-w, 324px) minmax(0, 1fr); height: calc(100vh / var(--zv, var(--z, 1))); height: calc(100dvh / var(--zv, var(--z, 1))); }
   /* a touch screen: as tall as what is visible (with the keyboard up, the part above it; measured in fitViewport) */
   @media (pointer: coarse) { .app { height: var(--app-h, calc(100dvh / var(--zv, var(--z, 1)))); } }
@@ -343,6 +391,32 @@
   .wd { display: inline-flex; gap: 4px; }
   .wd button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); font-size: 14px; padding: 0; }
   .wd button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  /* the days of a month: a calendar-like grid of seven, the last day across the rest of its row */
+  .md { display: grid; grid-template-columns: repeat(7, 36px); gap: 4px; flex-basis: 100%; }
+  .md button { height: 32px; border-radius: var(--r-m); border: 1px solid var(--line); background: var(--bg); font-size: 14px; padding: 0; font-variant-numeric: tabular-nums; }
+  .md button:hover { background: var(--hover); }
+  .md button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .md button.last { grid-column: span 4; }
+  .md-time { display: flex; align-items: center; gap: 8px; flex-basis: 100%; margin-top: 4px; }
+  /* 自訂: a sentence, what it was understood as with its next runs, and the rule itself folded away */
+  .cu { flex-basis: 100%; display: grid; gap: 10px; min-width: 0; }
+  .cu-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .cu-line .cu-say { flex: 1 1 320px; min-width: 0; }
+  .cu-out:empty { display: none; }
+  .cu-out { border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 14px; background: var(--bg); }
+  .cu-explain { font-weight: 600; }
+  .cu-sub { color: var(--dim); font-size: 13px; margin-top: 6px; }
+  .cu-next { margin: 4px 0 0; padding-left: 22px; font-variant-numeric: tabular-nums; }
+  .cu-next li { padding: 1px 0; }
+  .cu-note { margin-left: 8px; font-size: 12px; color: var(--amber); background: var(--amber-soft); border-radius: var(--r-s); padding: 0 6px; }
+  .cu-err { color: var(--red); }
+  .cu-adv > summary { cursor: pointer; color: var(--dim); font-size: 14px; padding: 4px 0; }
+  .cu-adv[open] { display: grid; gap: 8px; }
+  .cu-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cu-l { width: 48px; flex: none; color: var(--dim); font-size: 14px; }
+  .cu-row input.mono { font-family: var(--mono); flex: 1 1 220px; min-width: 0; }
+  .cu-adv > .btn { justify-self: start; }
+  @media (pointer: coarse) { .md { grid-template-columns: repeat(7, 40px); } .md button { height: 40px; } }
   .sc-f .tip { color: var(--faint); font-size: 13px; }
   .sc-f .warn { color: var(--amber); font-size: 13px; }
   /* The thread's header: a row of actions, a row of properties (as on a task page in Asana or Notion), one line of summary. */
@@ -403,6 +477,12 @@
   .tc-day { display: flex; align-items: center; gap: 12px; color: var(--dim); font-size: 13px; margin: 20px 0 4px; }
   .tc-day::before, .tc-day::after { content: ""; flex: 1; height: 1px; background: var(--line); }
   .tmsg .who2 { font-size: 13px; color: var(--dim); margin-bottom: 2px; }
+  /* to you / a copy to you / not to you / sent by you: a small tag after who and when */
+  .rc-tag { display: inline-block; margin-left: 8px; padding: 0 7px; border-radius: var(--r-s); font-size: 12px; line-height: 1.6; border: 1px solid var(--line); color: var(--dim); background: var(--bg); }
+  .rc-tag.rc-to { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .rc-tag.rc-cc { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .rc-tag.rc-other { color: var(--amber); background: var(--amber-soft); border-color: transparent; }
+  .rc-tag.rc-out { color: var(--dim); background: var(--bubble); border-color: transparent; }
   .tmsg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
   .tmsg.out { display: flex; flex-direction: column; align-items: flex-end; }
   .tmsg.out .body { background: var(--bubble); border-radius: var(--r-l); padding: 8px 14px; max-width: 78%; }
@@ -473,6 +553,14 @@
   .jump { position: absolute; right: 22px; bottom: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
   .jump .btn { border-radius: var(--r-l); box-shadow: 0 2px 10px rgba(0, 0, 0, .14); }
   .msg.user.flash > div { animation: flash 1.2s ease-out; }
+  /* a reply jumped to from 「改了什麼」: a soft band that fades, and what it named marked */
+  .msg.assistant.flash { animation: flashbg 2.4s ease-out; border-radius: var(--r-m); }
+  @keyframes flashbg { 0%, 50% { background: var(--amber-soft); } 100% { background: transparent; } }
+  #col mark.hit { background: var(--amber-soft); color: inherit; border-radius: var(--r-s); box-shadow: 0 0 0 2px var(--amber-soft); }
+  .chg-given-top { display: flex; align-items: center; }
+  .chg-given-top .chg-row { flex: 1; min-width: 0; }
+  .chg-more { flex: none; font-size: 13px; padding: 2px 10px; margin-right: 12px; }
+  .chg-linkrow .chg-more { margin-right: 0; }
   @keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 3px transparent; } }
   .cmds { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: 0 6px 24px rgba(0, 0, 0, .16); max-height: 320px; overflow-y: auto; z-index: 3; padding: 4px; }
   .cmds[hidden] { display: none; }
@@ -495,7 +583,7 @@
   .edit-box textarea { font: inherit; width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid var(--accent, #2563EB); border-radius: var(--r-s); padding: 6px 8px; background: var(--bg); color: inherit; }
   .edit-box .edit-row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
   .edit-box .hint { font-size: 13px; color: var(--dim); }
-  .msg.assistant.streaming { white-space: pre-wrap; }
+  .msg.assistant.streaming .live-tail { white-space: pre-wrap; }   /* the line still being written; the lines before it are laid out */
   .msg.assistant.streaming::after { content: "\258D"; color: var(--accent); margin-left: 1px; animation: caret 1s steps(2) infinite; }
   @keyframes caret { 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .msg.assistant.streaming::after { animation: none; } }
@@ -762,6 +850,8 @@
   .task-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--bg); color: inherit; font: inherit; cursor: pointer; padding: 2px 10px; border-radius: 999px; }
   .task-chip:hover { background: var(--hover); }
   .task-chip .dot { margin-top: 0; }
+  .task-chip { white-space: nowrap; }
+  .task-chip .chip-time { color: var(--dim); font-variant-numeric: tabular-nums; }
   .task-rows { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .tasks[hidden] { display: none; }
   .tk { display: flex; align-items: center; gap: 8px; padding: 2px 0; min-width: 0; }
@@ -838,7 +928,13 @@
   .side-nav { padding: 0 6px 4px; border-bottom: 1px solid var(--line); }
   /* its height, dragged at the line under it (a small screen: the list of sessions gets the room); scrolls when shorter */
   .side-nav.sized { max-height: var(--nav-h); overflow-y: auto; }   /* no scrollbar-width: in Chrome it turns off the board's own scrollbar (above) and the plain grey one with arrows came back */
-  /* 「重啟更新」: a floating button at the right of the screen (where exactly: updateFab) */
+  /* 「有新版本，點我更新」: a floating button at the right of the screen (where exactly: updateFab) */
+  /* the mic's words on the settings page */
+  .vocab-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
+  .vocab-chip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: 13px; }
+  .vocab-x { border: 0; background: none; color: var(--dim); cursor: pointer; min-width: 24px; min-height: 24px; border-radius: 50%; font-size: 15px; line-height: 1; }
+  .vocab-x:hover, .vocab-x:focus-visible { color: var(--ink); background: var(--hover, rgba(0,0,0,.06)); }
+  @media (pointer: coarse) { .vocab-x { min-width: 44px; min-height: 44px; } }
   /* the words on it, in the colours of the main button (a bare round icon on white was read by nobody, 2026-11-20) */
   /* at the right of the screen, beside the message box (asked 2026-11-20); where it stands is worked out by updateFab() */
   .upd-fab { position: fixed; right: 22px; bottom: 20px; z-index: 30; min-height: 36px; padding: 0 14px 0 11px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
@@ -990,6 +1086,11 @@
   .chg-top .sum { font-size: 14px; color: var(--dim); }
   .chg-note { padding: 8px 16px; font-size: 13px; color: var(--dim); }
   .chg-group { padding: 10px 16px 2px; font-size: 13px; font-weight: 600; color: var(--dim); }
+  details.chg-helpers { margin-top: 8px; border-top: 1px solid var(--line); }
+  details.chg-helpers > summary { cursor: pointer; padding-block: 12px; min-height: 44px; box-sizing: border-box; }
+  .chg-linkrow { display: flex; gap: 10px; align-items: baseline; padding: 8px 16px; }
+  .chg-linkrow a { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--accent); }
+  .chg-linkrow small { color: var(--dim); white-space: nowrap; }
   .chg-file { border-bottom: 1px solid var(--line); }
   .chg-row { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; border: 0; background: none; padding: 7px 16px; font-size: 14px; }
   .chg-row:hover { background: var(--hover); }
@@ -1630,7 +1731,11 @@ function drawList() {
         if (s.lastUser) { const byBoard = /^s*（看板自動送出）/.test(s.lastUser); const said = el('span', 'said', byBoard ? '看板：' + autoNotice(s.lastUser).title : '你：' + s.lastUser); said.title = s.lastUser; b.append(said); }
         b.addEventListener('click', () => openChat(s.sessionId));
         b.addEventListener('contextmenu', (e) => { e.preventDefault(); const t = b.querySelector('.t'); if (t) renameIn(t, s); });
-        if (s.hiddenWhy === 'program') b.title = s.folderHidden ? '在「一律不列出的資料夾」裡' : '其他程式開的 session（設定裡選了不列出）';
+        // why it is faded (asked 2026-11-20): kept on the row, the once-a-second update of the row's hover text (tickList)
+        // puts it in each time - set here as a title, it was wiped within the second
+        b.dataset.hidWhy = s.hiddenWhy === 'program' ? (s.folderHidden ? '隱藏原因：在「一律不列出的資料夾」裡' : '隱藏原因：其他程式開的 session（設定裡選了不列出）')
+          : s.autoHidden ? '自動隱藏：' + s.autoHidden + ' 天沒有新動作。打開它按「放回清單」可以放回；天數在設定裡改（0＝永遠不自動隱藏）'
+          : s.hidden ? '你隱藏了這個 session。打開它按「放回清單」可以放回' : '';
         g.append(b);
       }
       list.append(g);
@@ -1656,14 +1761,20 @@ function drawList() {
     const s = sessions.find((x) => x.sessionId === b.dataset.sid);
     const stuck = !!s && deskState(s, now) === 'stuck';
     b.classList.toggle('stuck', stuck);
-    b.title = stuck ? '顯示執行中，但已經 ' + Math.round((now - s.activeAt) / 60000) + ' 分鐘沒有任何動靜。可能卡住了，也可能只是在跑很久的指令' : '';
+    const stuckWhy = stuck ? '顯示執行中，但已經 ' + Math.round((now - s.activeAt) / 60000) + ' 分鐘沒有任何動靜。可能卡住了，也可能只是在跑很久的指令' : '';
     // folder first (in its own element, so that it stands out from the state after it)
     m.textContent = ''; if (m.dataset.folder) m.append(el('b', 'fold', m.dataset.folder), ' · ');
     // The time is when YOU last spoke in it - what the list is ordered by - so that the order can be read off the rows.
     // (How long it has been in its present state is in the hover text. Never spoke in it: that time is shown instead.)
     const said = Number(m.dataset.said) || 0, held = ago(now - Number(m.dataset.since)), mine = said ? ago(now - said) : '';
     m.append((stuck ? '可能卡住 · ' : '') + m.dataset.label + ' · ' + (said ? (mine === '剛剛' ? '你剛剛說話' : '你 ' + mine + '前說話') : held));
-    m.title = (m.dataset.cwd || '') + '\n' + m.dataset.label + '：已經 ' + held + (said ? '\n你最後一次說話：' + new Date(said).toLocaleString('zh-TW', { hour12: false }) : '');
+    // One hover text for the whole row, wherever it is pointed at (asked 2026-11-20: pointed at the name, only why it was
+    // hidden showed): its full name (cut short on the row), folder, state, when you last spoke, and why it is faded or
+    // may be stuck. The line of what you said keeps its own: all of what you said.
+    const t = b.querySelector('.t');
+    b.title = [(t && t.textContent) || '', m.dataset.cwd || '', m.dataset.label + (held === '剛剛' ? '：剛剛開始' : '：已經 ' + held) + (said ? '\n你最後一次說話：' + new Date(said).toLocaleString('zh-TW', { hour12: false }) : '')].filter(Boolean).join('\n')
+      + [stuckWhy, b.dataset.hidWhy || ''].filter(Boolean).map((x) => '\n\n' + x).join('');
+    m.removeAttribute('title');
   }
 }
 
@@ -2092,14 +2203,17 @@ async function fillInbox() {
   // filters
   const tabs = el('div', 'tabs');
   const c = st.counts;
-  const tab = (key, label) => { const b = el('button', 'btn' + (inboxTab === key ? ' on' : ''), label); b.type = 'button'; b.addEventListener('click', () => { inboxTab = key; fillInbox(); }); tabs.append(b); };
+  // While searching, the results are of every tab (asked 2026-11-20: then no tab should look chosen); a tab pressed then
+  // is a tab chosen: the search is put away. Marked again as you type (the row is not drawn again under the box).
+  const markTabs = () => { for (const b of tabs.querySelectorAll('button[data-k]')) { const on = !inboxQ && b.dataset.k === inboxTab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } };
+  const tab = (key, label) => { const b = el('button', 'btn', label); b.type = 'button'; b.dataset.k = key; b.addEventListener('click', () => { inboxTab = key; if (inboxQ) { inboxQ = ''; find.value = ''; } markTabs(); fillInbox(); }); tabs.append(b); };
   // Valid = yours to handle (someone wants you to do, decide or answer something). Judged right after each fetch.
   tab('valid', '有效 ' + c.valid); tab('invalid', '無效 ' + c.invalid);
   if (c.pending || inboxTab === 'pending') tab('pending', '還沒判讀 ' + c.pending);
   tab('done', '已完成 ' + c.done);
   const find = el('input'); find.type = 'search'; find.value = inboxQ; find.placeholder = '搜尋主旨、對方、內容'; find.setAttribute('aria-label', '搜尋收件');
-  find.addEventListener('input', () => { inboxQ = find.value.trim(); clearTimeout(inboxTimer); inboxTimer = setTimeout(fillInbox, 300); });
-  tabs.append(find);
+  find.addEventListener('input', () => { inboxQ = find.value.trim(); markTabs(); clearTimeout(inboxTimer); inboxTimer = setTimeout(fillInbox, 300); });
+  tabs.append(find); markTabs();
   ms.append(tabs);
   const rows = el('div'); rows.id = 'thrRows'; ms.append(rows);
   drawThreadRows();
@@ -2367,7 +2481,21 @@ async function drawThread(id) {
   // A mail thread stays a list of whole messages, one under the other.
   for (const m of mail ? t.items : []) {
     const d = el('div', 'tmsg ' + m.direction);
-    d.append(el('div', 'who2', (m.direction === 'out' ? '我' : m.sender || '對方') + ' · ' + when(m.ts)));
+    const who2 = el('div', 'who2', (m.direction === 'out' ? '我' : m.sender || '對方') + ' · ' + when(m.ts));
+    // to you, a copy to you, a forward (asked 2026-11-20: "they wrote to me - tell that apart from a forward"); the whole
+    // list of who it went to on hover. Mail fetched before this was kept says nothing until the next fetch fills it in.
+    let rc = null; try { rc = m.rcpt ? JSON.parse(m.rcpt) : null; } catch (e) {}
+    // ({gone: 1}: Gmail no longer has it - nothing to say)
+    if (rc && Array.isArray(rc.to) && (m.direction === 'out' || m.me_role)) {
+      const short = (a) => String(a).split('@')[0], all = rc.to.concat(rc.cc || []);
+      const tag = m.direction === 'out'
+        ? (!all.length ? (m.fwd ? '你轉寄（只有密件副本）' : '你寄出（只有密件副本）') : (m.fwd ? '你轉寄給 ' : '你寄給 ') + all.slice(0, 3).map(short).join('、') + (all.length > 3 ? ' 等 ' + all.length + ' 人' : ''))
+        : (m.fwd ? '轉寄 · ' : '') + ({ to: '寄給你', cc: '副本給你', other: '沒有直接寄給你' })[m.me_role];
+      const t = el('span', 'rc-tag rc-' + (m.direction === 'out' ? 'out' : m.me_role || 'other'), tag);
+      t.title = '收件人：' + (rc.to.join('、') || '（無）') + ((rc.cc || []).length ? '\n副本：' + rc.cc.join('、') : '') + (m.me_role === 'other' && m.direction !== 'out' ? '\n你不在收件人或副本裡（可能是群組信、密件副本，或別人轉來的）' : '');
+      who2.append(t);
+    }
+    d.append(who2);
     // The text comes from whoever wrote to you: escaped first, so nothing in it is taken as markup (inline() only adds links and bold to text that is already escaped).
     const body = el('div', 'body'); body.innerHTML = inline(esc(m.body.length > 6000 ? m.body.slice(0, 6000) + '\n…（後面還有 ' + sep(m.body.length - 6000) + ' 個字）' : m.body));
     d.append(body);
@@ -2532,6 +2660,30 @@ async function drawSettings() {
     sw('自動排版', '說完後交給 Claude（sonnet）去掉贅字、補標點，約 1 秒；整理不成就保留原話。關掉就是聽到什麼留什麼。', P.voiceTidy !== false,
       (v) => ({ voiceTidy: v }), (v) => { features.prefs = Object.assign({}, prefs(), { voiceTidy: v }); return v ? '已開啟自動排版' : '已關閉自動排版'; });
     if (r.data.httpsUrl) pane.append(el('p', 'hint', '手機的瀏覽器只讓 https 網頁用麥克風。手機請改開：' + r.data.httpsUrl));
+    voiceSettings(pane);
+  }
+  {
+    // whose holidays "working days" in a schedule means (asked 2026-11-20: not Taiwan's for everyone): lib/workdays.js
+    const h2 = el('h2', '', '排程的工作天'); h2.style.marginTop = '40px'; pane.append(h2);
+    pane.append(el('p', 'lead', '自訂排程選「只在工作天」或「當月最後一個工作天」時，依這裡選的國家扣掉國定假日。台灣用行政院人事行政總處的辦公日曆（含補班日）；其他國家用 Nager.Date 公布的國定假日，週六、週日視為放假。選「不扣假日」就只算週一到五。'));
+    const line = el('div', 'line'); const sel = el('select'); sel.setAttribute('aria-label', '工作天依哪國的行事曆'); sel.style.maxWidth = '100%';
+    const cur = (r.data.prefs || {}).workdayCountry || '';
+    const none = el('option', '', '不扣假日（只算週一到五）'); none.value = ''; sel.append(none);
+    const keep = el('option', '', cur || '…'); keep.value = cur; if (cur) sel.append(keep); sel.value = cur;
+    line.append(sel); pane.append(line);
+    let names = null; try { names = new Intl.DisplayNames(['zh-TW'], { type: 'region' }); } catch (e) {}
+    const label = (c) => { let n = ''; try { n = names ? names.of(c.code) : ''; } catch (e) {} return (n && n !== c.code ? n + '（' + c.name + '）' : c.name) + ' ' + c.code; };
+    api('/api/workdays/countries', {}).then((x) => {
+      if (!x.ok || !Array.isArray(x.data.countries)) return;
+      const list = x.data.countries.slice().sort((a, b) => label(a).localeCompare(label(b), 'zh-TW'));
+      keep.remove();
+      for (const c of list) { const o = el('option', '', label(c)); o.value = c.code; sel.append(o); }
+      if (cur && !list.some((c) => c.code === cur)) { const o = el('option', '', cur + '（沒有這個國家的假日資料）'); o.value = cur; sel.append(o); }
+      sel.value = cur;
+    }).catch(() => {});
+    sel.addEventListener('change', async () => {
+      if (await savePref({ workdayCountry: sel.value })) { features.prefs = Object.assign({}, prefs(), { workdayCountry: sel.value }); say(sel.value ? '工作天改依 ' + sel.selectedOptions[0].textContent + ' 的行事曆' : '工作天改成只算週一到五，不扣假日'); }
+    });
   }
   {
     const h2 = el('h2', '', '小模型判斷'); h2.style.marginTop = '40px'; pane.append(h2);
@@ -3125,6 +3277,8 @@ function schedWhen(s) {
   if (s.kind === 'once') return s.date + ' ' + s.at + '（一次）';
   if (s.kind === 'daily') return '每天 ' + s.at;
   if (s.kind === 'weekly') return '每週' + String(s.days).split(',').map((d) => WEEK[Number(d)]).join('、') + ' ' + s.at;
+  if (s.kind === 'custom') return (s.rule && (s.rule.explain || s.rule.text || s.rule.cron)) || '自訂';
+  if (s.kind === 'monthly') { const ds = String(s.days).split(',').map(Number); const n = ds.filter((d) => d < 32); return '每月 ' + [n.length ? n.join('、') + ' 日' : '', ds.includes(32) ? '月底' : ''].filter(Boolean).join('、') + ' ' + s.at; }
   return '每隔 ' + s.everyHours + ' 小時';
 }
 // ── collaborations: two or more sessions on one goal (server: lib/collab.js) ──
@@ -3518,7 +3672,9 @@ async function drawPlugins(refresh) {
     for (const p of d.installed.slice().sort((a, b) => b.projects - a.projects)) { const x = row(p.name + ' ' + p.version, (p.user ? '所有專案' : p.projects + ' 個專案')); x.title = p.description; x.querySelector('.pl-m').append(el('small', '', p.description.replace(/\*\*/g, '').slice(0, 90))); c.append(x); } }
 }
 function schedForm(s) {
-  const st = { kind: s.kind || 'daily', target: s.target || 'folder', days: new Set(String(s.days || '1,2,3,4,5').split(',').filter(Boolean).map(Number)), fallback: s.fallback || 'notify' };
+  const daySet = (v) => new Set(String(v).split(',').filter(Boolean).map(Number));
+  // days: the weekdays of a weekly one; mdays: the days of the month of a monthly one (32 = the last day)
+  const st = { kind: s.kind || 'daily', target: s.target || 'folder', days: daySet(s.kind === 'weekly' && s.days ? s.days : '1,2,3,4,5'), mdays: daySet(s.kind === 'monthly' && s.days ? s.days : '1'), fallback: s.fallback || 'notify' };
   const box = el('div', 'sc-form'); box.append(el('h3', '', s.id ? '編輯排程' : '新增排程'));
   const f = el('div', 'sc-f');
   const seg = (items, cur, pick) => { const g = el('span', 'seg'); for (const [k, label] of items) { const b = el('button', k === cur ? 'on' : '', label); b.type = 'button'; b.setAttribute('aria-pressed', String(k === cur)); b.addEventListener('click', () => { for (const x of g.children) { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); } b.classList.add('on'); b.setAttribute('aria-pressed', 'true'); pick(k); }); g.append(b); } return g; };
@@ -3529,11 +3685,78 @@ function schedForm(s) {
   // when
   const date = input('date', s.date || new Date(Date.now() + 86400000).toISOString().slice(0, 10)), time = input('time', s.at || '09:00'), hours = input('number', s.everyHours || 4); hours.min = 1; hours.max = 168; hours.style.width = '70px';
   const wd = el('span', 'wd'); WEEK.forEach((label, i) => { const b = el('button', st.days.has(i) ? 'on' : '', label); b.type = 'button'; b.setAttribute('aria-pressed', String(st.days.has(i))); b.setAttribute('aria-label', '星期' + label); b.addEventListener('click', () => { if (st.days.has(i)) st.days.delete(i); else st.days.add(i); b.classList.toggle('on', st.days.has(i)); b.setAttribute('aria-pressed', String(st.days.has(i))); }); wd.append(b); });
+  // the days of the month: 1 … 31 and the month's last day (asked 2026-11-20: "why can it not be monthly")
+  const md = el('div', 'md'); md.setAttribute('role', 'group'); md.setAttribute('aria-label', '每月哪幾天');
+  for (let i = 1; i <= 32; i++) {
+    const b = el('button', st.mdays.has(i) ? 'on' : '', i === 32 ? '月底' : String(i)); b.type = 'button'; if (i === 32) b.classList.add('last');
+    b.setAttribute('aria-pressed', String(st.mdays.has(i))); b.setAttribute('aria-label', i === 32 ? '每月最後一天' : '每月 ' + i + ' 日');
+    b.addEventListener('click', () => { if (st.mdays.has(i)) st.mdays.delete(i); else st.mdays.add(i); b.classList.toggle('on', st.mdays.has(i)); b.setAttribute('aria-pressed', String(st.mdays.has(i))); });
+    md.append(b);
+  }
+  const mdTip = el('div', 'tip', '選 29、30、31 日時，沒有那一天的月份（例如二月）會在那個月的最後一天執行。');
+  // 自訂 (asked 2026-11-20: "can it be set to any odd schedule?"): said in a sentence and turned into a rule by Claude, or
+  // the rule itself (lib/rule.js); either way shown with its next five runs before it can be saved
+  st.rule = s.kind === 'custom' && s.rule ? s.rule : null;
+  const cu = el('div', 'cu');
+  const cuSay = input('text', (st.rule && st.rule.text) || '', '用一句話說，例如：每月最後一個工作天下午三點；週一到五上班時間每兩小時；隔週三早上十點，到明年三月底');
+  cuSay.setAttribute('aria-label', '用一句話描述排程'); cuSay.classList.add('cu-say');
+  const cuGo = el('button', 'btn', '轉成規則'); cuGo.type = 'button';
+  const cuOut = el('div', 'cu-out');
+  const adv = el('details', 'cu-adv'); adv.append(el('summary', '', '進階：直接改規則'));
+  const fCron = input('text', '', '分 時 日 月 星期，例如 0 15 LW * *'); fCron.classList.add('mono'); fCron.setAttribute('aria-label', '規則（cron）');
+  const fWork = el('select'); for (const [k, l] of [['', '不限'], ['only', '只在工作天（扣掉國定假日）'], ['off', '只在放假日']]) { const o = el('option', '', l); o.value = k; fWork.append(o); } fWork.setAttribute('aria-label', '工作天');
+  const fEvery = el('select'); for (const [k, l] of [['', '不跳'], ['w2', '每 2 週'], ['w3', '每 3 週'], ['w4', '每 4 週'], ['m2', '每 2 個月'], ['m3', '每 3 個月（每季）'], ['m6', '每 6 個月'], ['m12', '每 12 個月']]) { const o = el('option', '', l); o.value = k; fEvery.append(o); } fEvery.setAttribute('aria-label', '間隔');
+  const fFrom = input('date', ''), fUntil = input('date', ''), fCount = input('number', ''); fCount.min = 1; fCount.max = 1000; fCount.placeholder = '不限'; fCount.style.width = '90px';
+  fFrom.setAttribute('aria-label', '開始日期'); fUntil.setAttribute('aria-label', '結束日期'); fCount.setAttribute('aria-label', '最多跑幾次');
+  const cuApply = el('button', 'btn', '套用並重新計算'); cuApply.type = 'button';
+  const row = (label, ...xs) => { const r = el('div', 'cu-row'); r.append(el('span', 'cu-l', label), ...xs); return r; };
+  adv.append(row('規則', fCron), row('工作天', fWork), row('間隔', fEvery), row('期間', fFrom, '到', fUntil), row('次數', fCount, '次後停止'), cuApply,
+    el('div', 'tip', '規則五欄是「分 時 日 月 星期」。日欄可用 L（月底）、L-3（月底前 3 天）、LW（最後一個工作天）、FW（第一個工作天）；星期欄 1#1 是當月第一個週一、5L 是最後一個週五。最密每 5 分鐘。'));
+  const fill = (r) => {
+    fCron.value = r.cron || ''; fWork.value = r.workday || '';
+    fEvery.value = r.everyWeeks ? 'w' + r.everyWeeks : r.everyMonths ? 'm' + r.everyMonths : '';
+    if (fEvery.value === '' && (r.everyWeeks || r.everyMonths)) { const k = r.everyWeeks ? 'w' + r.everyWeeks : 'm' + r.everyMonths; const o = el('option', '', r.everyWeeks ? '每 ' + r.everyWeeks + ' 週' : '每 ' + r.everyMonths + ' 個月'); o.value = k; fEvery.append(o); fEvery.value = k; }
+    fFrom.value = r.from || ''; fUntil.value = r.until || ''; fCount.value = r.count || '';
+  };
+  const fromFields = () => {
+    const e = fEvery.value, r = { cron: fCron.value, workday: fWork.value || undefined, from: fFrom.value || undefined, until: fUntil.value || undefined, count: fCount.value ? Number(fCount.value) : undefined };
+    if (e[0] === 'w') r.everyWeeks = Number(e.slice(1)); if (e[0] === 'm') r.everyMonths = Number(e.slice(1));
+    if (st.rule && st.rule.text) r.text = st.rule.text;
+    return r;
+  };
+  const stamp = (t) => { const d = new Date(t); return d.toLocaleDateString('zh-TW', { year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short' }) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+  const showRule = (d) => {
+    cuOut.textContent = '';
+    if (!d.ok) { st.rule = null; cuOut.append(el('div', 'cu-err', d.error || '轉不成規則')); return; }
+    st.rule = d.rule; fill(d.rule);
+    cuOut.append(el('div', 'cu-explain', d.rule.explain || d.rule.text || d.rule.cron));
+    if (!d.next.length) cuOut.append(el('div', 'cu-err', '照這個規則，接下來十年內都不會執行。請改一下規則'));
+    else { const ul = el('ol', 'cu-next'); for (const x of d.next) { const li = el('li', '', stamp(x.at)); if (x.note) li.append(el('span', 'cu-note', x.note)); ul.append(li); } cuOut.append(el('div', 'cu-sub', '接下來 ' + d.next.length + ' 次：'), ul); }
+    // whose calendar its working days go by: said whenever the rule goes by working days (a setting, not Taiwan for all)
+    if (d.rule.workday || /LW|FW/.test(d.rule.cron)) {
+      let cn = d.country || ''; try { if (cn) cn = new Intl.DisplayNames(['zh-TW'], { type: 'region' }).of(cn) || cn; } catch (e) {}
+      cuOut.append(el('div', 'tip', cn ? '工作天依' + cn + '的國定假日（在設定的「排程的工作天」改）。' : '工作天只算週一到五、不扣假日（在設定的「排程的工作天」可以選國家）。'));
+      if (d.guessed && d.guessed.length) cuOut.append(el('div', 'tip', d.guessed.join('、') + ' 年' + cn + '的假日行事曆還沒有公布（或抓不到），那幾年暫時以週一到五當作工作天，抓到後看板會自動更新。'));
+    }
+  };
+  const ask = async (payload, btn) => {
+    btn.disabled = true; const was = btn.textContent; btn.textContent = payload.text ? '轉換中…（約 5～15 秒）' : '計算中…';
+    // (the schedule being edited: its runs are counted from when it was made, and so is the preview)
+    let r; try { r = await api('/api/schedule/rule', Object.assign({ id: s.id || undefined }, payload)); } catch (e) { r = { ok: false, data: { error: '看板沒有回應' } }; }
+    btn.disabled = false; btn.textContent = was;
+    showRule(r.data && typeof r.data === 'object' ? r.data : { ok: false, error: '轉不成規則' });
+  };
+  cuGo.addEventListener('click', () => { if (!cuSay.value.trim()) { say('請先用一句話描述排程', true); return; } ask({ text: cuSay.value.trim() }, cuGo); });
+  cuSay.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); cuGo.click(); } });
+  cuApply.addEventListener('click', () => ask({ rule: fromFields() }, cuApply));
+  const sayLine = el('div', 'cu-line'); sayLine.append(cuSay, cuGo);
+  cu.append(sayLine, cuOut, adv);
+  if (st.rule) { fill(st.rule); ask({ rule: st.rule }, cuApply); }
   const whenLine = el('div', 'line');
   const resetTip = el('span', 'tip');
   const showReset = async () => { resetTip.textContent = '讀取額度…'; let q = null; try { q = (await api('/api/quota')).data; } catch (e) {} const fh = q && q.fiveHour; resetTip.textContent = fh && fh.resetsAt > Date.now() ? '5 小時額度目前用了 ' + fh.pct + '%，' + new Date(fh.resetsAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) + ' 重置；儲存後會排在重置後 1 分鐘，只跑一次。看板要開著，Claude Code 不用開著。' : '現在沒有 5 小時額度在計時（沒用到，或已經重置了），不用等，請直接選一個時間。'; };
-  const showWhen = () => { whenLine.textContent = ''; if (st.kind === 'reset') { whenLine.append(resetTip); showReset(); return; } if (st.kind === 'once') whenLine.append(date, time); else if (st.kind === 'daily') whenLine.append(time); else if (st.kind === 'weekly') whenLine.append(wd, time); else whenLine.append('每隔', hours, '小時（從儲存的時候起算）'); };
-  const whenBox = el('div'); whenBox.append(seg([['once', '一次'], ['daily', '每天'], ['weekly', '每週'], ['every', '每隔幾小時']].concat(s.id ? [] : [['reset', '5 小時額度重置後']]), st.kind, (k) => { st.kind = k; showWhen(); }), whenLine); whenLine.style.marginTop = '8px'; showWhen();
+  const showWhen = () => { whenLine.textContent = ''; if (st.kind === 'reset') { whenLine.append(resetTip); showReset(); return; } if (st.kind === 'once') whenLine.append(date, time); else if (st.kind === 'daily') whenLine.append(time); else if (st.kind === 'weekly') whenLine.append(wd, time); else if (st.kind === 'monthly') { const t = el('div', 'md-time'); t.append('時間', time); whenLine.append(md, t, mdTip); } else if (st.kind === 'custom') whenLine.append(cu); else whenLine.append('每隔', hours, '小時（從儲存的時候起算）'); };
+  const whenBox = el('div'); whenBox.append(seg([['once', '一次'], ['daily', '每天'], ['weekly', '每週'], ['monthly', '每月'], ['every', '每隔幾小時'], ['custom', '自訂']].concat(s.id ? [] : [['reset', '5 小時額度重置後']]), st.kind, (k) => { st.kind = k; showWhen(); }), whenLine); whenLine.style.marginTop = '8px'; showWhen();
   // where
   const folder = input('text', s.target === 'session' ? '' : s.cwd || '', '資料夾的完整路徑');
   const cond = el('textarea'); cond.value = s.goal || ''; cond.placeholder = '完成條件：做到什麼程度算完成，最好能檢查。例如：npm test 全過，而且 tests/report.md 存在'; cond.setAttribute('aria-label', '完成條件'); cond.style.minHeight = '64px'; folder.setAttribute('list', 'scFolders');
@@ -3583,8 +3806,9 @@ function schedForm(s) {
   const save = el('button', 'btn primary', '儲存'); save.type = 'button';
   const cancel = el('button', 'btn', '取消'); cancel.type = 'button'; cancel.addEventListener('click', () => { schedEdit = null; drawSched(); });
   save.addEventListener('click', async () => {
+    if (st.kind === 'custom' && !st.rule) { say('請先按「轉成規則」，看過接下來的執行時間再儲存', true); return; }
     const o = sel.selectedOptions[0];
-    const body = { id: s.id, name: name.value, kind: st.kind, at: time.value, date: date.value, days: [...st.days], everyHours: Number(hours.value), target: st.target, prompt: prompt.value, fallback: fb.value, skipPermissions: skip.checked, enabled: s.enabled !== false, agent: st.target === 'folder' ? agentSel.value : '',
+    const body = { id: s.id, name: name.value, kind: st.kind, at: time.value, date: date.value, days: st.kind === 'monthly' ? [...st.mdays] : [...st.days], rule: st.kind === 'custom' ? st.rule : undefined, everyHours: Number(hours.value), target: st.target, prompt: prompt.value, fallback: fb.value, skipPermissions: skip.checked, enabled: s.enabled !== false, agent: st.target === 'folder' ? agentSel.value : '',
       goal: cond.value, cwd: st.target !== 'session' ? folder.value : o ? o.dataset.cwd : '', sessionId: st.target === 'session' && o ? o.value : '', sessionTitle: st.target === 'session' && o ? o.dataset.title : '' };
     save.disabled = true;
     let r; try { r = await api('/api/schedule/save', body); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
@@ -3727,20 +3951,50 @@ function drawTasks() {
   // here: neither is shown for them.
   const all = [...box.children];
   const terminal = !!(s && s.owner !== 'board');
-  for (const [kind, word, itemId, listId] of [['agent', '子代理', 'agentChip', 'agentRows'], ['bash', '背景指令', 'bashChip', 'bashRows']]) {
+  // One item in the stats row for both (asked 2026-11-20: "one row only - and two running at once"): the green dot says
+  // running, then each kind with its count, then the longest running one's time (asked: "how long has it been
+  // running"); what each does, and for how long, on hover (tickTasks). A terminal session's background commands cannot
+  // be seen from here.
+  const item = $('agentChip'); const parts = [], starts = [];
+  for (const [kind, word, listId] of [['agent', '子代理', 'agentRows'], ['bash', '背景指令', 'bashRows']]) {
     const rows = all.filter((r) => r.dataset.kind === kind);
-    const running = rows.filter((r) => r.querySelector('.dot.running')).length;
     const unseen = terminal && kind === 'bash';
-    const item = $(itemId), holder = $(listId);
-    if (item) {
-      item.hidden = unseen || !running;
-      item.textContent = '';
-      if (!item.hidden) { item.append(el('span', 'dot running'), word + ' ', el('b', '', running + ' 個執行中')); item.title = word + '：' + running + ' 個在跑。按這一列看細節'; }
-    }
+    const live = unseen ? [] : rows.filter((r) => r.querySelector('.dot.running'));
+    if (live.length) parts.push([word, live.length]);
+    for (const r of live) { const t = Number((r.querySelector('.tk-e[data-start]') || { dataset: {} }).dataset.start) || 0; if (t) starts.push(t); }
+    const holder = $(listId);
     if (holder) {
       const none = unseen || !rows.length;
       holder.hidden = none; if (holder.previousElementSibling) holder.previousElementSibling.hidden = none;
       holder.textContent = ''; if (!none) holder.append(...rows);
+    }
+  }
+  if ($('bashChip')) { $('bashChip').hidden = true; $('bashChip').textContent = ''; }
+  if (item) {
+    item.hidden = !parts.length; item.textContent = ''; delete item.dataset.tip;
+    if (parts.length) {
+      item.append(el('span', 'dot running'));
+      parts.forEach(([word, n], i) => item.append((i ? ' · ' : '') + word + ' ', el('b', '', String(n))));
+      const total = parts.reduce((a, p) => a + p[1], 0);
+      if (starts.length) { const t = el('span', 'tk-e chip-time'); t.dataset.start = Math.min(...starts); t.dataset.pre = total > 1 ? '· 最久 ' : '· '; t.dataset.coarse = '1'; item.append(t); }
+      item.dataset.head = parts.map(([word, n]) => word + ' ' + n + ' 個').join('、') + '在跑';
+      item.setAttribute('aria-label', item.dataset.head + '。按這一列看細節');
+      item.removeAttribute('title');
+      // its tooltip: each running one, its kind, what it does and how long it has run (drawn anew each second it is shown)
+      item._tip = () => {
+        const out = document.createDocumentFragment(), grid = el('div', 'tip-rows');
+        out.append(el('div', 'tip-head', item.dataset.head));
+        for (const [listId, word] of [['agentRows', '子代理'], ['bashRows', '背景指令']]) {
+          const holder = $(listId); if (!holder || holder.hidden) continue;
+          for (const r of holder.querySelectorAll('.tk')) {
+            if (!r.querySelector('.dot.running')) continue;
+            const d = ((r.querySelector('.tk-d') || {}).textContent || '').split('　·　')[0] || (r.querySelector('.tk-l') || {}).textContent || '';
+            grid.append(el('span', 'tip-kind', word), el('span', 'tip-what', d), el('span', 'tip-time', ((r.querySelector('.tk-e') || {}).textContent || '').replace(/^已跑 /, '')));
+          }
+        }
+        out.append(grid, el('div', 'tip-foot', '按一下看細節'));
+        return out;
+      };
     }
   }
   // the row itself: not shown when nothing in it is (an empty bar that could still be pressed)
@@ -3751,8 +4005,78 @@ function drawTasks() {
 }
 function tickTasks() {
   const now = Date.now();
-  for (const e of document.querySelectorAll('.tk-e[data-start]')) e.textContent = '已跑 ' + dur(now - Number(e.dataset.start));
+  for (const e of document.querySelectorAll('.tk-e[data-start]')) {
+    const ms = now - Number(e.dataset.start);
+    // in the small chip, minutes are enough once past a minute and a half (seconds ticking there only distract)
+    e.textContent = (e.dataset.pre || '已跑 ') + (e.dataset.coarse && ms >= 90000 ? dur(ms).replace(/ \d+ 秒$/, '') : dur(ms));
+  }
+  tipRefresh();   // a tooltip shown with times in it follows them
 }
+
+// ── the board's tooltip, for every element with a title (asked 2026-11-20: the browser's own is ugly) ──
+// The title is taken off while it shows (else the browser shows its own too) and put back after. An element may give
+// a function in `_tip` drawing richer content instead. Not on a touch screen (no hover there; a press does the thing).
+let tipFor = null, tipTimer = 0, tipBox = null;
+let tipPtr = { x: 0, y: 0 };
+function tipPlace() {
+  if (!tipFor || !tipBox) return;
+  // Measured on the screen; the page's text size (html zoom, settings) multiplies what is set back - so divided by it
+  // (else at 1.2 the tooltip stood 94 px off, 2026-11-20). A tall element (a row of the list) has it under the pointer,
+  // not under its far end.
+  const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+  const r = tipFor.getBoundingClientRect(), b = tipBox.getBoundingClientRect(), m = 8, gap = 6;
+  const tall = r.height > 44;
+  const below = tall ? tipPtr.y + 18 : r.bottom + gap, above = (tall ? tipPtr.y - 10 : r.top - gap) - b.height;
+  const top = below + b.height > innerHeight - m && above > m ? above : below;
+  const left = Math.max(m, Math.min(tall ? tipPtr.x - 12 : r.left, innerWidth - b.width - m));
+  tipBox.style.top = top / z + 'px'; tipBox.style.left = left / z + 'px';
+}
+document.addEventListener('pointermove', (e) => { tipPtr = { x: e.clientX, y: e.clientY }; }, { passive: true, capture: true });
+function tipFill() {
+  if (!tipFor || !tipBox) return;
+  tipBox.textContent = '';
+  if (typeof tipFor._tip === 'function') tipBox.append(tipFor._tip()); else tipBox.textContent = tipFor.dataset.tipText || '';
+}
+function tipRefresh() { if (tipFor && tipBox && tipBox.classList.contains('on') && typeof tipFor._tip === 'function') { if (!tipFor.isConnected || tipFor.hidden) return tipHide(); tipFill(); tipPlace(); } }
+// A title set again while the tooltip shows (a row whose hover text is updated every second): taken into the tooltip,
+// or the browser showed its own beside it (2026-11-20, two tooltips at once)
+// The elements around it that have a title of their own are held too: with the one pointed at bare, the browser shows
+// the nearest title around it instead (a list row's, around its state line).
+let tipHeld = [];
+const tipTake = (x) => { if (x.hasAttribute('title')) { x.dataset.tipText = x.getAttribute('title'); x.removeAttribute('title'); if (!tipHeld.includes(x)) tipHeld.push(x); } };
+const tipObs = new MutationObserver((recs) => {
+  if (!tipFor) return;
+  let mine = false;
+  for (const r of recs) if (r.target.hasAttribute('title')) { tipTake(r.target); if (r.target === tipFor) mine = true; }
+  if (mine && tipBox && tipBox.classList.contains('on')) { tipFill(); if (!tipBox.textContent.trim()) tipBox.classList.remove('on'); else tipPlace(); }
+});
+function tipHide() {
+  clearTimeout(tipTimer); tipObs.disconnect();
+  for (const x of tipHeld) if (x !== tipFor) { if (x.dataset.tipText != null && !x.hasAttribute('title')) x.setAttribute('title', x.dataset.tipText); delete x.dataset.tipText; }
+  tipHeld = [];
+  if (tipFor) { if (tipFor.dataset.tipText != null && !tipFor.hasAttribute('title')) tipFor.setAttribute('title', tipFor.dataset.tipText); delete tipFor.dataset.tipText; }
+  tipFor = null; if (tipBox) tipBox.classList.remove('on');
+}
+document.addEventListener('pointerover', (e) => {
+  if (e.pointerType === 'touch') return;
+  const t = e.target.closest && e.target.closest('[title], [data-tip-text]');
+  const rich = e.target.closest && e.target.closest('.task-chip');
+  const host = rich && typeof rich._tip === 'function' && (!t || rich.contains(t)) ? rich : t;
+  if (host === tipFor) return;
+  tipHide();
+  if (!host || host.closest('.tipbox')) return;
+  if (host.hasAttribute('title')) { const txt = host.getAttribute('title'); if (!txt && typeof host._tip !== 'function') return; host.dataset.tipText = txt; host.removeAttribute('title'); }
+  tipFor = host; tipHeld = [host];
+  for (let x = host; x && x !== document.body; x = x.parentElement) { if (x !== host) tipTake(x); tipObs.observe(x, { attributes: true, attributeFilter: ['title'] }); }
+  tipTimer = setTimeout(() => {
+    if (tipFor !== host || !host.isConnected) return;
+    if (!tipBox) { tipBox = el('div', 'tipbox'); tipBox.setAttribute('role', 'tooltip'); document.body.append(tipBox); }
+    tipFill(); if (!tipBox.textContent.trim()) return;
+    tipBox.style.top = '-999px'; tipBox.style.left = '0px'; tipBox.classList.add('on'); tipPlace();
+  }, 350);
+}, true);
+document.addEventListener('pointerout', (e) => { if (tipFor && !(e.relatedTarget && tipFor.contains(e.relatedTarget))) tipHide(); }, true);
+for (const ev of ['pointerdown', 'keydown', 'scroll', 'blur']) window.addEventListener(ev, () => tipHide(), true);
 
 // at: id of one of your messages to open the conversation at (from the war room).
 async function openChat(sid, at) {
@@ -4173,29 +4497,97 @@ function voiceLockNow() {
     mic.disabled = busy && voice.state === 'tidying';
     const t = busy && voice.state === 'listening' ? '結束語音輸入' : busy ? '自動排版中' : '語音輸入'; mic.title = t; mic.setAttribute('aria-label', t); mic.setAttribute('aria-pressed', String(busy && voice.state === 'listening'));
   }
-  if (st) { st.hidden = !busy; st.textContent = voice.state === 'listening' ? '聽寫中…說完再按一次麥克風。這段期間不能打字或送出' : voice.state === 'tidying' ? '自動排版中…排好之前不能編輯或送出' : ''; }
+  if (st) { st.hidden = !busy; st.textContent = voice.state === 'listening' ? (voice.mode === 'record' ? '錄音中（OpenAI 轉錄）…說完再按一次麥克風，字會在說完後出現' : '聽寫中…說完再按一次麥克風。這段期間不能打字或送出') : voice.state === 'tidying' ? (voice.mode === 'record' && !voice.heard ? '轉錄中…' : '自動排版中…排好之前不能編輯或送出') : ''; }
   if (!busy && ta && voice.unlockFocus) { voice.unlockFocus = false; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
 }
-function voiceStart(s) {
+// Phrases (the browser's own hints of the words to expect) are a new part of the Web Speech API: a recognizer that does
+// not take them says so once (error phrases-not-supported) - remembered in this browser, and not given again
+const phrasesOff = () => { try { return localStorage.getItem('sb.voiceNoPhrases') === '1'; } catch (e) { return false; } };
+function voiceStart(s, again) {
   if (voice.state) return;
+  if (prefs().voiceEngine === 'openai') return voiceRecord(s);
   if (!SpeechRec) return say(window.isSecureContext ? '這個瀏覽器不支援語音輸入。請用 Chrome、Edge 或 Safari' : '手機要用 https 開看板才能用麥克風。請改開設定裡「語音輸入」那一段給的 https 網址', true);
   const ta = $('foot') && $('foot').querySelector('.composer textarea');
   const rec = new SpeechRec();
   rec.lang = 'zh-TW'; rec.continuous = true; rec.interimResults = true;
-  Object.assign(voice, { sid: s.sessionId, state: 'listening', rec, base: ta ? ta.value : '', heard: '', failed: '' });
+  // its other guesses too (handed to the tidying, which picks the one that makes sense), and your words as hints
+  rec.maxAlternatives = 3;
+  if (!phrasesOff() && voiceTerms.length && 'phrases' in rec && typeof window.SpeechRecognitionPhrase === 'function') {
+    try { rec.phrases = voiceTerms.slice(0, 100).map((t) => new window.SpeechRecognitionPhrase(t, 2)); } catch (e) {}
+  }
+  Object.assign(voice, { sid: s.sessionId, state: 'listening', rec, mode: 'browser', base: again ? voice.base : ta ? ta.value : '', heard: '', alts: [], failed: '', retry: false });
   rec.onresult = (e) => {
     if (voice.rec !== rec) return;
-    let fin = '', mid = '';
-    for (let i = 0; i < e.results.length; i++) { const t = e.results[i][0] ? e.results[i][0].transcript : ''; if (e.results[i].isFinal) fin += t; else mid += t; }
-    voice.heard = (fin + mid).trim();
+    let fin = '', mid = ''; const alts = [];
+    for (let i = 0; i < e.results.length; i++) {
+      const r = e.results[i], t = r[0] ? r[0].transcript : '';
+      if (r.isFinal) { fin += t; if (r.length > 1) alts.push([...r].map((a) => a.transcript)); } else mid += t;
+    }
+    voice.heard = (fin + mid).trim(); voice.alts = alts;
     voicePut(voiceJoin(voice.base, voice.heard), false);
   };
-  rec.onerror = (e) => { if (voice.rec !== rec) return; voice.failed = e.error === 'not-allowed' || e.error === 'service-not-allowed' ? '瀏覽器沒有允許這個網頁用麥克風。請在網址列左邊的設定允許麥克風' : e.error === 'no-speech' ? '' : e.error === 'audio-capture' ? '找不到麥克風' : e.error === 'network' ? '語音辨識要連網路（瀏覽器把聲音送到它的辨識服務），現在連不上' : e.error === 'aborted' ? '' : '語音辨識停了：' + e.error; };
-  rec.onend = () => { if (voice.rec === rec && voice.state === 'listening') voiceFinish(); };
+  rec.onerror = (e) => {
+    if (voice.rec !== rec) return;
+    if (e.error === 'phrases-not-supported') { try { localStorage.setItem('sb.voiceNoPhrases', '1'); } catch (x) {} voice.retry = true; return; }   // started again at once, without them
+    voice.failed =e.error === 'not-allowed' || e.error === 'service-not-allowed' ? '瀏覽器沒有允許這個網頁用麥克風。請在網址列左邊的設定允許麥克風' : e.error === 'no-speech' ? '' : e.error === 'audio-capture' ? '找不到麥克風' : e.error === 'network' ? '語音辨識要連網路（瀏覽器把聲音送到它的辨識服務），現在連不上' : e.error === 'aborted' ? '' : '語音辨識停了：' + e.error; };
+  rec.onend = () => {
+    if (voice.rec !== rec || voice.state !== 'listening') return;
+    if (voice.retry && !voice.heard) { voice.state = ''; voice.rec = null; voiceStart(s, true); return; }
+    voiceFinish();
+  };
   try { rec.start(); } catch (e) { voice.state = ''; voice.rec = null; voiceLockNow(); return say('開不了麥克風：' + (e.message || e), true); }
   if (prefs().voiceTidy !== false) api('/api/tidy/warm', { sid: voice.sid }).catch(() => {});   // Claude boots while you speak
   voiceLockNow();
 }
+// The mic's settings beyond on/off (asked 2026-11-20, "like Typeless"): who hears (the browser, or OpenAI's transcription
+// with your own key), and your own words - kept on this computer only (lib/vocab.js), each person keeps their own.
+async function voiceSettings(pane) {
+  const box = el('div'); pane.append(box);
+  const draw = async () => {
+    let r; try { r = await api('/api/vocab'); } catch (e) { r = { ok: false }; }
+    box.textContent = '';
+    if (!r.ok) { box.append(el('p', 'hint', r.status === 404 ? '看板還是舊的程式，重開後才有詞庫與辨識引擎的設定。' : '讀不到詞庫')); return; }
+    const v = r.data;
+    // who hears
+    const h3 = el('h3', '', '誰來聽'); box.append(h3);
+    const row = el('div', 'pathrow'), sel = el('select'); sel.setAttribute('aria-label', '語音辨識');
+    for (const [k, t] of [['browser', '瀏覽器內建（免費；Chrome 會把聲音送到 Google）'], ['openai', 'OpenAI 轉錄（gpt-transcribe，帶你的詞庫；用你自己的 API 金鑰、自己付費）']]) { const o = el('option', '', t); o.value = k; if (v.engine === k) o.selected = true; sel.append(o); }
+    sel.addEventListener('change', async () => {
+      if (sel.value === 'openai' && !v.openaiKey) { say('先在下面填 OpenAI 的 API 金鑰', true); sel.value = 'browser'; return; }
+      if (await savePref({ voiceEngine: sel.value })) { features.prefs = Object.assign({}, prefs(), { voiceEngine: sel.value }); say(sel.value === 'openai' ? '改用 OpenAI 轉錄：說完才出字（不會邊說邊出現）' : '改用瀏覽器內建的辨識'); }
+    });
+    row.append(sel); box.append(row);
+    const krow = el('div', 'pathrow'), key = el('input'); key.type = 'password'; key.autocomplete = 'off'; key.placeholder = v.openaiKey ? '已設定（要換才填新的；清空後按儲存＝刪掉）' : 'OpenAI API 金鑰（sk- 開頭），只存在這台電腦';
+    key.setAttribute('aria-label', 'OpenAI API 金鑰');
+    const kb = el('button', 'btn', '儲存金鑰'); kb.type = 'button';
+    kb.addEventListener('click', async () => { kb.disabled = true; const x = await api('/api/voice/key', { key: key.value }); kb.disabled = false; if (!x.ok) return say(x.data.error || '存不進去', true); key.value = ''; say(x.data.set ? '已存好金鑰（只在這台電腦）' : '已刪掉金鑰'); if (!x.data.set && prefs().voiceEngine === 'openai') await savePref({ voiceEngine: 'browser' }); draw(); });
+    krow.append(key, kb); box.append(krow);
+    // your words
+    box.append(el('h3', '', '詞庫'), el('p', 'hint', '只存在這台電腦（~/.claude/session-board/vocab.json），每個人各自維護、不會分享。用在三個地方：提示瀏覽器（或 OpenAI）可能出現哪些詞、讓排版把聽錯的改回來、記住你改過的聽錯。'));
+    const arow = el('div', 'pathrow'), inp = el('input'); inp.placeholder = '加一個詞，例如 session-board、dapfe、王小明'; inp.setAttribute('aria-label', '加進詞庫的詞');
+    const ab = el('button', 'btn', '加入'); ab.type = 'button';
+    const addNow = async () => { const t = inp.value.trim(); if (!t) return; const x = await api('/api/vocab', { add: t }); if (!x.ok) return say(x.data.error || '加不進去', true); inp.value = ''; draw(); };
+    ab.addEventListener('click', addNow); inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addNow(); } });
+    arow.append(inp, ab); box.append(arow);
+    const chips = (title, list, label, onX, empty) => {
+      const sec = el('div'); sec.append(el('div', 'hint', title + '（' + list.length + '）'));
+      const wrap = el('div', 'vocab-chips');
+      for (const x of list) { const c = el('span', 'vocab-chip', label(x)); const b = el('button', 'vocab-x', '×'); b.type = 'button'; b.setAttribute('aria-label', '拿掉 ' + label(x)); b.addEventListener('click', async () => { await onX(x); draw(); }); c.append(b); wrap.append(c); }
+      if (!list.length) wrap.append(el('span', 'hint', empty));
+      sec.append(wrap); return sec;
+    };
+    box.append(chips('你的詞', v.words, (w) => w.term + (w.learned ? '（學到的）' : ''), (w) => api('/api/vocab', { remove: w.term }), '還沒有。上面加，或改過幾次聽錯它會自己記'));
+    box.append(chips('學到的修正', v.fixes, (f) => f.heard + ' → ' + f.meant + (f.n > 1 ? ' ×' + f.n : ''), (f) => api('/api/vocab', { unlearn: { heard: f.heard, meant: f.meant } }), '還沒有。麥克風排好的字你改過再送出，就會記在這裡'));
+    const d = el('details'); d.append(el('summary', '', '看板自動收集的詞（' + v.auto.length + '）：資料夾與對話標題裡的英文名稱；按 × 不再收這個'));
+    d.append(chips('', v.auto, (t) => t, (t) => api('/api/vocab', { remove: t }), '沒有'));
+    box.append(d);
+  };
+  draw();
+}
+// The words to hint the recognizer with (yours, then the board's), asked for now and then; the mic does not wait for them
+let voiceTerms = [];
+async function voiceTermsLoad() { try { const r = await api('/api/vocab/terms'); if (r.ok && Array.isArray(r.data.terms)) voiceTerms = r.data.terms; } catch (e) {} }
+voiceTermsLoad(); setInterval(voiceTermsLoad, 600000);
 // The conversation the words were said in, for the tidying to put misheard English words, commands and names right
 // (the recognizer listens for Chinese: "git" comes back as 哥特; asked 2026-11-20): its title, its folder, the last few
 // messages on screen.
@@ -4204,10 +4596,48 @@ function voiceContext(sid) {
   const recent = active === sid ? (items || []).filter((i) => (i.role === 'user' || i.role === 'assistant') && i.text).slice(-6).map((i) => String(i.text).slice(0, 400)) : [];
   return s ? { sid, title: s.title || '', folder: s.folder || '', recent } : { sid, recent };
 }
+// The other way to hear (the setting 「誰來聽」: OpenAI 轉錄): the browser records, and what was said is written out by
+// OpenAI's transcription once you finish, with your words as keywords (server.js /api/transcribe). No words as you
+// speak - the box says it is recording.
+async function voiceRecord(s) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) return say(window.isSecureContext ? '這個瀏覽器不能錄音' : '手機要用 https 開看板才能用麥克風', true);
+  const ta = $('foot') && $('foot').querySelector('.composer textarea');
+  Object.assign(voice, { sid: s.sessionId, state: 'listening', rec: null, mode: 'record', recorded: null, base: ta ? ta.value : '', heard: '', alts: [], failed: '' });
+  voiceLockNow();
+  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { voice.state = ''; voiceLockNow(); return say('瀏覽器沒有允許這個網頁用麥克風。請在網址列左邊的設定允許麥克風', true); }
+  if (voice.state !== 'listening' || voice.sid !== s.sessionId) { stream.getTracks().forEach((t) => t.stop()); return; }   // given up before the mic opened
+  const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find((m) => MediaRecorder.isTypeSupported(m)) || '';
+  const mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined), chunks = [];
+  let got; voice.recorded = new Promise((ok) => { got = ok; });
+  mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  mr.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    const blob = new Blob(chunks, { type: mr.mimeType || type || 'audio/webm' });
+    if (!blob.size) return got({ error: '沒有錄到聲音' });
+    if (blob.size > 24 * 1024 * 1024) return got({ error: '錄音超過 25 MB（約二十分鐘以上），請分段說' });
+    const buf = new Uint8Array(await blob.arrayBuffer()); let bin = '';
+    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    got({ audio: btoa(bin), mime: blob.type });
+  };
+  voice.rec = { stop: () => { try { mr.stop(); } catch (e) {} } };
+  mr.start();
+  if (prefs().voiceTidy !== false) api('/api/tidy/warm', { sid: voice.sid }).catch(() => {});
+}
 // listening over: what was heard stays (as heard, or tidied first)
 async function voiceFinish() {
   if (voice.state !== 'listening') return;
   const rec = voice.rec; voice.rec = null; try { rec && rec.stop(); } catch (e) {}
+  if (voice.mode === 'record') {
+    // recorded: written out by OpenAI first (the box stays locked meanwhile)
+    voice.state = 'tidying'; voiceLockNow();
+    const a = voice.recorded ? await voice.recorded : { error: '還沒開始錄音' };
+    if (a.audio) {
+      const r = await api('/api/transcribe', { audio: a.audio, mime: a.mime, context: voiceContext(voice.sid) });
+      if (r.ok) voice.heard = String(r.data.text || '').trim(); else voice.failed = r.data.error || '轉錄失敗';
+    } else voice.failed = a.error;
+    voice.state = 'listening';   // (on to the tidying below, as with the browser's words)
+  }
   const heard = voice.heard, base = voice.base, failed = voice.failed;
   if (failed) say(failed, true);
   if (!heard || prefs().voiceTidy === false) { voice.state = ''; voice.unlockFocus = true; if (heard) voicePut(voiceJoin(base, heard), true); voiceLockNow(); return; }
@@ -4215,7 +4645,7 @@ async function voiceFinish() {
   let text = '', why = '';
   const ctl = typeof AbortController === 'function' ? new AbortController() : null, timer = ctl ? setTimeout(() => ctl.abort(), 40000) : 0;
   try {
-    const res = await fetch('/api/tidy', { method: 'POST', headers: { 'x-board-token': TOKEN, 'content-type': 'application/json' }, body: JSON.stringify({ text: heard, context: voiceContext(voice.sid) }), signal: ctl ? ctl.signal : undefined });
+    const res = await fetch('/api/tidy', { method: 'POST', headers: { 'x-board-token': TOKEN, 'content-type': 'application/json' }, body: JSON.stringify({ text: heard, context: Object.assign(voiceContext(voice.sid), { alts: voice.alts || [] }) }), signal: ctl ? ctl.signal : undefined });
     if (!res.ok || !res.body) { let d = {}; try { d = await res.json(); } catch (e) {} why = res.status === 404 ? '看板還是舊的程式，不認得自動排版。重啟看板後才能用' : (d.error || '排版失敗'); }
     else {
       const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
@@ -4235,6 +4665,8 @@ async function voiceFinish() {
   // not tidied: the words as heard stay, so nothing said is lost
   if (!text) { text = heard; say('沒有排版，保留聽到的原話：' + (why || '沒有結果'), true); }
   voicePut(voiceJoin(base, text), true);
+  // what the mic gave you: if you change it before sending, those changes are learned (lib/vocab.js)
+  voice.given = { sid: voice.sid, text: voiceJoin(base, text) };
   voice.state = ''; voice.unlockFocus = true; voiceLockNow();
 }
 // a drag that carries files (or may: a Mac screenshot dragged from its thumbnail can say so only by its items)
@@ -4375,6 +4807,9 @@ function drawFoot() {
     // a file still going up would miss this message and land in the next one: sent when it is there
     if (uploading.get(s.sessionId)) return say('檔案還在上傳，傳完再送（上方會說「已上傳」）', true);
     if ((!text.trim() && !imgs.length && !files.length) || sendBtn.disabled) return;
+    // the words the mic gave, changed before sending: what was changed is learned ("哥特" -> "git"; lib/vocab.js) - for every
+    // way of sending (it once sat in the /btw branch only, and a plain send learned nothing - review 2026-11-20)
+    if (voice.given && voice.given.sid === s.sessionId) { const g = voice.given.text; voice.given = null; if (g && g !== text) api('/api/vocab', { learn: { given: g, sent: text } }).then((x) => { if (x.ok && x.data.learned && x.data.learned.length) say('記住了：' + x.data.learned.map((y) => y.heard + ' → ' + y.meant).join('、') + '（設定 → 語音輸入 → 詞庫可以刪）'); voiceTermsLoad(); }).catch(() => {}); }
     // sent (or run): what was typed is not a draft any more - nor is a save of it still waiting to go. Called only once it
     // is really going (a "!" or "/btw" with nothing after it is not: the words stay, and leaving keeps them)
     const consume = () => { clearTimeout(draftTimers.get(s.sessionId)); draftTimers.delete(s.sessionId); draftNow.delete(s.sessionId); };
@@ -4390,7 +4825,7 @@ function drawFoot() {
     if (bt && !imgs.length && !files.length && !q) {
       const question = (bt[1] || '').trim();
       if (!question) return say('「/btw」後面接你想順便問的話，例如 /btw 剛剛那個欄位叫什麼', true);
-      consume(); ta.value = ''; fit(); showCmds();
+    consume(); ta.value = ''; fit(); showCmds();
       // asked, so not a draft: a sending and a "!" command are cleared by the board itself, this one is not sent to it
       if (s.owner === 'board') saveDraft(s.sessionId, '');
       const col = $('col'), stick = nearBottom();
@@ -4763,6 +5198,40 @@ function myMessages() {
   return [...sc.querySelectorAll('.msg.user')].map((e) => ({ e, top: Math.max(0, (e.getBoundingClientRect().top - areaTop) / z + sc.scrollTop - 16) }));
 }
 function flash(e) { e.classList.remove('flash'); void e.offsetWidth; e.classList.add('flash'); }
+// To a reply of a conversation, and what it named in it marked (asked 2026-11-20: from 「改了什麼」, "pressing it takes me
+// to where it last spoke of this"). id: the reply as lib/history.js names it; needle: the words to mark in it. The
+// earlier part of the conversation is loaded until the reply is there.
+async function jumpToReply(sid, id, needle) {
+  if (active !== sid || view !== 'chat' || !$('col')) await openChat(sid);
+  if (active !== sid) return;
+  const find = () => document.querySelector('#col [data-id="' + CSS.escape(id) + '"]');
+  let target = find();
+  for (let i = 0; !target && histMore && i < 8; i++) { say('往前載入更早的對話…'); if (!(await loadEarlier())) break; target = find(); }
+  if (!target) { say('找不到那一則回覆：可能太早，超出看板能載入的範圍了', true); return; }
+  if (matchMedia('(max-width: 900px)').matches) closePeek();   // a narrow window: the panel stands over the conversation
+  histReadyAt = Date.now() + 1500;   // the jump itself must not set off loading what came before
+  for (const old of document.querySelectorAll('#col mark.hit')) old.replaceWith(...old.childNodes);
+  let hit = null;
+  const words = [needle, String(needle || '').split(/[\\/]/).pop()].filter((x, i, a) => x && a.indexOf(x) === i);
+  for (const w of words) {
+    const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+    while (!hit && walker.nextNode()) {
+      const n = walker.currentNode, k = n.nodeValue.indexOf(w);
+      if (k < 0) continue;
+      const r = document.createRange(); r.setStart(n, k); r.setEnd(n, k + w.length);
+      hit = el('mark', 'hit'); r.surroundContents(hit);
+    }
+    if (hit) break;
+  }
+  // a link written as [words](address) shows its words, not the address: the link itself, found by where it goes
+  if (!hit && /^https?:/i.test(needle || '')) {
+    const same = (h) => { try { return h === needle || decodeURI(h) === decodeURI(needle); } catch (e) { return h === needle; } };
+    const a = [...target.querySelectorAll('a[href]')].find((x) => same(x.getAttribute('href')));
+    if (a) { hit = el('mark', 'hit'); hit.append(...a.childNodes); a.append(hit); }
+  }
+  (hit || target).scrollIntoView({ block: 'center' });
+  flash(target);
+}
 // Each press goes one of your messages further up from where the view is now.
 function jumpToMine() {
   const sc = $('scroll'), list = myMessages();
@@ -4924,7 +5393,7 @@ function node(it) {
   // Where Claude Code compacted the conversation: everything above this line is what it summarized.
   if (it.role === 'compact') return el('div', 'more compact', '這之前的對話已被壓縮成摘要' + (it.ts ? ' · ' + when(it.ts) : ''));
   if (it.role === 'assistant') {
-    const m = el('div', 'msg assistant'); m.innerHTML = md(it.text); linkFiles(m, active);
+    const m = el('div', 'msg assistant'); if (it.id) m.dataset.id = it.id; m.innerHTML = md(it.text); linkFiles(m, active);
     // Claude Code's own line when nobody is signed in on this computer: said in its words, with what to do about it here.
     if (it.text.length < 80 && it.text.indexOf('Not logged in') === 0) m.append(el('div', 'hint', '這台電腦的 Claude Code 還沒有登入，看板沒辦法替你登入。請開一個終端機執行 claude，輸入 /login 完成登入，再回到這裡把訊息送一次。'));
     return m;
@@ -5472,14 +5941,27 @@ async function loadHistory(jump, guard, keepPlace) {
   else if (keepPlace && sc) sc.scrollTop = sc.scrollHeight - fromBottom;
 }
 
-// The reply while it is being written: plain text that grows a few characters
-// at a time. When the whole block arrives it is replaced by the formatted
-// message (tables and bold cannot be laid out correctly from half a sentence).
-let liveNode = null, liveText = '';
+// The reply while it is being written, laid out as it comes (asked 2026-11-20: the tables and bold showed as | and **
+// until the whole reply was in): every line already complete is formatted by md() - the same as the finished message -
+// and the line still being written follows it as plain text (half a table row or half a **bold** cannot be laid out).
+// A code block still open is closed for the moment. Laid out at most every 100 ms; when the whole block arrives it is
+// replaced by the finished message as before.
+let liveNode = null, liveText = '', liveTimer = 0;
+function liveDraw() {
+  liveTimer = 0;
+  if (!liveNode || !liveNode.isConnected) return;
+  const stick = nearBottom();
+  const t = liveText, nl = t.lastIndexOf('\n');
+  let done = nl >= 0 ? t.slice(0, nl + 1) : '';
+  const tail = nl >= 0 ? t.slice(nl + 1) : t;
+  if (((done.match(/^```/mg) || []).length) % 2) done += '```\n';
+  liveNode.innerHTML = done.trim() ? md(done) : '';
+  if (tail) liveNode.append(el('span', 'live-tail', tail));
+  if (stick) toBottom();
+}
 function liveDelta(text) {
   const col = $('col');
   if (!col) return;
-  const stick = nearBottom();
   if (!liveNode || !liveNode.isConnected) {
     liveNode = el('div', 'msg assistant streaming');
     liveText = '';
@@ -5487,10 +5969,9 @@ function liveDelta(text) {
     col.insertBefore(liveNode, col.querySelector('.card.perm'));
   }
   liveText += text;
-  liveNode.textContent = liveText;
-  if (stick) toBottom();
+  if (!liveTimer) liveTimer = setTimeout(liveDraw, 100);
 }
-function liveDone() { if (liveNode) { liveNode.remove(); liveNode = null; liveText = ''; } }
+function liveDone() { clearTimeout(liveTimer); liveTimer = 0; if (liveNode) { liveNode.remove(); liveNode = null; liveText = ''; } }
 
 function onLive(ev) {
   if (ev.type === 'delta') return liveDelta(ev.text);
@@ -5526,7 +6007,10 @@ function looksLikePath(t) {
   if (/^[A-Za-z]:[\\/]/.test(t) || /^~[\\/]/.test(t)) return true;
   return EXT.test(t) && !/\s{2,}/.test(t) && !/^[-.]/.test(t);   // a relative path needs an extension
 }
-const BARE = /[A-Za-z]:\\[^\s"'`<>|*?　-〿＀-￯]+/g;   // an absolute path in running text ends at a space or full-width punctuation
+// An absolute path in running text ends at a space or full-width punctuation: C:\... - or, on macOS and Linux,
+// /Users/x/report.pdf (two levels and an extension, nothing of a word, ':' or '/' just before it: not "and/or", not the
+// path of a web address; review 2026-11-20). The same as lib/changes.js BARE.
+const BARE = /[A-Za-z]:\\[^\s"'`<>|*?　-〿＀-￯]+|(?<![\w:/.~-])\/(?:[^\s"'`<>|*?/　-〿＀-￯]+\/)+[^\s"'`<>|*?/　-〿＀-￯]*\.[A-Za-z0-9]{1,8}(?![\w])/g;
 
 let fileQueue = [];
 let fileTimer = 0;
@@ -5678,7 +6162,7 @@ function linkFiles(root, sid) {
   }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('code, pre, a, .fp, button') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
   const texts = [];
-  while (walker.nextNode()) if (/[A-Za-z]:\\/.test(walker.currentNode.nodeValue)) texts.push(walker.currentNode);
+  while (walker.nextNode()) if (/[A-Za-z]:\\|\/[^\s/]+\//.test(walker.currentNode.nodeValue)) texts.push(walker.currentNode);
   for (const node of texts) {
     const s = node.nodeValue;
     const frag = document.createDocumentFragment();
@@ -5799,33 +6283,107 @@ async function openChanges(s) {
     const d = r.data;
     sum.textContent = d.files.length ? d.files.length + ' 個檔案　' : '';
     if (d.files.length) sum.append(el('span', 'plus', '+' + sep(d.adds)), ' ', el('span', 'minus', '−' + sep(d.dels)));
-    list.append(el('div', 'chg-note', '這裡列的是這個 session（含它派出的子代理）用編輯與寫檔動作改過的檔案，從它自己的對話紀錄讀出來。它執行指令去改的檔案（跑腳本、sed、git 之類）不會出現在這裡，那種要看「資料夾裡未提交的」。'));
-    if (!d.files.length) { list.append(el('div', 'chg-note', '這個 session 還沒有用編輯或寫檔動作改過任何檔案。')); return; }
-    const inside = d.files.filter((x) => x.rel !== x.path), outside = d.files.filter((x) => x.rel === x.path);
-    const put = (title, files) => {
-      if (!files.length) return;
-      list.append(el('div', 'chg-group', title + '（' + files.length + '）'));
-      for (const x of files) {
+    // What you look at, and what Claude used on the way (asked 2026-11-20: "the files and links in what it finally
+    // answers me are what I look at; the ones in between are not"): the files and links its replies named
+    // (lib/changes.js named) on top; every other file it wrote - with its edits, or made by a command it ran (by their
+    // time: lib/changes.js touched) - folded away underneath.
+    // Of what its replies named, a deliverable is a document, picture, recording, archive or table - not in Claude's own
+    // places (.claude, temporary folders, its test screenshots), not a backup. The code files, folders and the like a
+    // reply named while working are listed apart (asked 2026-11-20: "some are not deliverables - split them").
+    const DELIV = /\.(docx?|docm|rtf|xlsx?|xlsm|pptx?|pptm|pdf|png|jpe?g|gif|webp|svg|bmp|mp4|mov|webm|mp3|wav|m4a|zip|7z|csv|tsv|odt|ods|odp)$/i;
+    const OWNP = /[\\/]\.claude[\\/]|[\\/](Temp|tmp)[\\/]|[\\/]\.playwright-mcp[\\/]|^\/tmp\/|^\/private\/(var|tmp)\/|^\/var\/folders\//i;
+    const isDeliv = (g) => g.kind !== 'dir' && DELIV.test(g.abs) && !OWNP.test(g.abs);
+    const allGiven = d.given || [], given = allGiven.filter(isDeliv), named = allGiven.filter((g) => !isDeliv(g));
+    const links = d.links || [], touchedFiles = (d.touched && d.touched.files) || [];
+    const key = (p) => String(p).replace(/\//g, '\\').toLowerCase();
+    const givenKeys = new Set(allGiven.map((x) => key(x.abs)));
+    const edits = new Map(d.files.map((x) => [key(x.path), x]));
+    const stamp = (t) => (t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '');
+    list.append(el('div', 'chg-note', '上面是交付檔：Claude 在回覆裡交給你的文件、表格、簡報、PDF、圖片等，和回覆裡的連結。下面收起來的是回覆順帶提到的程式碼與資料夾，以及它做事中途寫過的其他檔。'));
+    // the page is read anew on each load, the server only when the board starts: a board still running the older server
+    // does not send what the replies handed you
+    if (!d.given) list.append(el('div', 'chg-note', '看板還在跑舊的程式，列不出交付檔。重啟看板後就會出現。'));
+    if (!allGiven.length && !links.length && !d.files.length && !touchedFiles.length) { list.append(el('div', 'chg-note', '這個 session 還沒有交給你檔案，也還沒改過任何檔案。')); return; }
+    // one file's edits, newest first, and the file itself
+    const editParts = async (x) => {
+      const q = await ask('/api/changes/file?sid=' + encodeURIComponent(sid) + '&path=' + encodeURIComponent(x.path));
+      if (!q.ok) return [el('div', 'chg-note', (q.data && q.data.error) || '讀不到')];
+      const parts = [];
+      if (q.data.skipped) parts.push(el('div', 'chg-note', '這個檔案被改了很多次，只列最近 ' + q.data.items.length + ' 次（更早的 ' + q.data.skipped + ' 次沒有列出）。'));
+      for (const it of q.data.items.slice().reverse()) {
+        const when = el('div', 'chg-when'); when.append(stamp(it.at), it.kind === 'create' ? '寫入新檔' : '修改', it.by === 'subagent' ? '由子代理' : '');
+        when.append(counts(it.adds, it.dels)); parts.push(when);
+        if (it.kind === 'create') { const pre = el('pre', 'diff'); for (const l of it.lines) pre.append(diffLine('+' + l, 'add')); if (it.more) pre.append(diffLine('…還有 ' + sep(it.more) + ' 行沒有顯示', 'meta')); parts.push(pre); }
+        else parts.push(hunksPre(it.hunks));
+      }
+      if (x.exists) { const foot = el('div', 'chg-when'); foot.append(seeFile(x.path)); parts.push(foot); }
+      return parts;
+    };
+    const cwdKey = key(s.cwd || '').replace(/\\+$/, '');
+    const relOf = (abs) => (cwdKey && key(abs).startsWith(cwdKey + '\\') ? abs.slice(cwdKey.length + 1) : abs);
+    const putGiven = (into, arr) => {
+      for (const g of arr) {
+        const e = edits.get(key(g.abs));
+        const p = el('span', 'p', relOf(g.abs)); p.title = g.abs;
+        p.append(el('small', '', [g.kind === 'dir' ? '資料夾' : '', e ? (e.created ? '這個 session 寫的新檔' : '這個 session 改過') : '', '最後一次提到 ' + stamp(g.at)].filter(Boolean).join(' · ')));
+        // pressed: to where a reply last named it (asked 2026-11-20); its changes, the file or the folder by the button beside
+        const box = el('div', 'chg-file chg-given'), top = el('div', 'chg-given-top'), row = el('button', 'chg-row'), inner = el('div', 'chg-body'); inner.hidden = true;
+        row.type = 'button'; row.append(p, e ? counts(e.adds, e.dels) : el('span', 'n', g.kind === 'dir' ? '' : sizeText(g.size || 0)));
+        row.title = g.ref ? '跳到對話裡最後一次提到它的地方' : '';
+        if (g.ref) row.addEventListener('click', () => jumpToReply(sid, g.ref, g.raw || g.name || ''));
+        const more = el('button', 'btn chg-more', e ? '看變更' : g.kind === 'dir' ? '開資料夾' : '看檔案'); more.type = 'button';
+        more.addEventListener('click', async () => {
+          if (!e) {
+            if (g.kind === 'dir') { api('/api/file/reveal', { path: g.abs }); return; }
+            const r = await api('/api/files/check', { sessionId: sid, paths: [g.abs] }); const fx = r.ok && r.data.files && r.data.files[0];
+            if (fx) openPeek(fx); else say('這個檔案現在不在了', true); return;
+          }
+          const open = inner.hidden; inner.hidden = !open; more.setAttribute('aria-expanded', String(open)); more.textContent = open ? '收起變更' : '看變更';
+          if (!open || inner.dataset.loaded) return;
+          inner.textContent = ''; inner.append(el('div', 'chg-note', '讀取中…'));
+          const parts = await editParts(e); inner.textContent = ''; inner.append(...parts); inner.dataset.loaded = '1';
+        });
+        top.append(row, more); box.append(top, inner); into.append(box);
+      }
+    };
+    if (given.length) { list.append(el('div', 'chg-group', '交付檔（' + given.length + '）')); putGiven(list, given); }
+    else if (d.given) list.append(el('div', 'chg-note', '回覆裡沒有交給你文件、表格、簡報、PDF 或圖片。'));
+    if (links.length) {
+      list.append(el('div', 'chg-group', '回覆裡的連結（' + links.length + '）'));
+      for (const l of links) {
+        const row = el('div', 'chg-file chg-linkrow'), a = el('a', 'chg-link', l.url); a.href = l.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+        row.append(a, el('small', '', stamp(l.at)));
+        if (l.id) { const j = el('button', 'btn chg-more', '跳到提到的地方'); j.type = 'button'; j.addEventListener('click', () => jumpToReply(sid, l.id, l.url)); row.append(j); }
+        list.append(row);
+      }
+    }
+    // what a reply named on the way: code files, folders, backups - folded away
+    if (named.length) {
+      const fold = el('details', 'chg-helpers'); fold.append(el('summary', 'chg-group', '回覆提到的其他檔與資料夾：程式碼、設定、資料夾等（' + named.length + '）'));
+      putGiven(fold, named); list.append(fold);
+    }
+    // the rest: what it wrote on the way
+    const restEdits = d.files.filter((x) => !givenKeys.has(key(x.path)));
+    const restTouched = touchedFiles.filter((x) => !givenKeys.has(key(x.path)));
+    const n = restEdits.length + restTouched.length;
+    if (n) {
+      const fold = el('details', 'chg-helpers'); fold.append(el('summary', 'chg-group', '過程檔：Claude 做事中途寫過的其他檔（' + n + '）'));
+      for (const x of restEdits) {
         const p = el('span', 'p', x.rel); p.title = x.path;
         const tags = [x.created ? '新檔' : '', x.changes > 1 ? '改了 ' + x.changes + ' 次' : '', x.bySubagent ? '子代理 ' + x.bySubagent + ' 次' : '', x.exists ? '' : '現在已不存在'].filter(Boolean).join(' · ');
         if (tags) p.append(el('small', '', tags));
-        list.append(fileBlock([p, counts(x.adds, x.dels)], async () => {
-          const q = await ask('/api/changes/file?sid=' + encodeURIComponent(sid) + '&path=' + encodeURIComponent(x.path));
-          if (!q.ok) return [el('div', 'chg-note', (q.data && q.data.error) || '讀不到')];
-          const parts = [];
-          if (q.data.skipped) parts.push(el('div', 'chg-note', '這個檔案被改了很多次，只列最近 ' + q.data.items.length + ' 次（更早的 ' + q.data.skipped + ' 次沒有列出）。'));
-          for (const it of q.data.items.slice().reverse()) {
-            const when = el('div', 'chg-when'); when.append(it.at ? new Date(it.at).toLocaleString('zh-TW', { hour12: false }) : '', it.kind === 'create' ? '寫入新檔' : '修改', it.by === 'subagent' ? '由子代理' : '');
-            when.append(counts(it.adds, it.dels)); parts.push(when);
-            if (it.kind === 'create') { const pre = el('pre', 'diff'); for (const l of it.lines) pre.append(diffLine('+' + l, 'add')); if (it.more) pre.append(diffLine('…還有 ' + sep(it.more) + ' 行沒有顯示', 'meta')); parts.push(pre); }
-            else parts.push(hunksPre(it.hunks));
-          }
-          if (x.exists) { const foot = el('div', 'chg-when'); foot.append(seeFile(x.path)); parts.push(foot); }
-          return parts;
+        fold.append(fileBlock([p, counts(x.adds, x.dels)], () => editParts(x)));
+      }
+      for (const x of restTouched) {
+        const p = el('span', 'p', x.rel); p.title = x.path;
+        p.append(el('small', '', '執行指令產生或修改 · ' + stamp(x.at)));
+        fold.append(fileBlock([p, el('span', 'n', sizeText(x.size))], async () => {
+          const foot = el('div', 'chg-when'); foot.append(seeFile(x.path));
+          return [el('div', 'chg-note', '這個檔在 session 做事的那段時間被寫過（多半是它執行指令產生的），對話紀錄裡沒有逐行的變更。同一段時間你或別的 session 改的，也會列在這裡。'), foot];
         }));
       }
-    };
-    put('這個資料夾裡的', inside); put('資料夾以外的（暫存檔、記憶、設定等）', outside);
+      list.append(fold);
+    }
   };
   const drawGit = async () => {
     const r = await ask('/api/changes/git?sid=' + encodeURIComponent(sid)); if (!here() || chgTab !== 'git') return;
@@ -6607,20 +7165,20 @@ function unsavedWork() {
   });
   box.append(b);
 })();
-// 「重啟更新」 (asked 2026-11-20, a floating button): the plugins brought up to date, then the board started again on its
+// 「有新版本，點我更新」 (asked 2026-11-20, a floating button; named 「重啟更新」 before): the plugins brought up to date, then the board started again on its
 // newest version - from the page, because typed in a conversation on the board /session-board stops itself (the
 // conversation running it is busy, and ending the board would end it). Not restarted while a conversation is working:
 // those are named, and the button is pressed again once they are done.
 (function updateFab() {
-  const b = el('button', 'upd-fab'); b.type = 'button'; b.title = '重啟更新：把 plugin 更新到最新，看板有新版就重開'; b.setAttribute('aria-label', '重啟更新');
-  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg><span>重啟更新</span>';
+  const b = el('button', 'upd-fab'); b.type = 'button'; b.title = '有新版本：按一下把 plugin 更新到最新，看板有新版就重開'; b.setAttribute('aria-label', '有新版本，點我更新');
+  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg><span>有新版本，點我更新</span>';
   let busy = false;
   b.addEventListener('click', async () => {
     if (busy) return; busy = true; b.classList.add('busy'); b.setAttribute('aria-busy', 'true');
-    const lbl = b.querySelector('span'); if (lbl) lbl.textContent = '重啟更新中…';
-    const done = () => { busy = false; b.classList.remove('busy'); b.removeAttribute('aria-busy'); if (lbl) lbl.textContent = '重啟更新'; };
+    const lbl = b.querySelector('span'); if (lbl) lbl.textContent = '更新中…';
+    const done = () => { busy = false; b.classList.remove('busy'); b.removeAttribute('aria-busy'); if (lbl) lbl.textContent = '有新版本，點我更新'; };
     try {
-      say('重啟更新中：把 plugin 更新到最新（可能要一兩分鐘）…');
+      say('更新中：把 plugin 更新到最新（可能要一兩分鐘）…');
       const u = await api('/api/plugins/update', {});
       if (!u.ok) { say('plugin 沒有更新成功：' + (u.data.error || u.status), true); return done(); }
       const sum = u.data.summary || '都已是最新版';
@@ -6643,7 +7201,7 @@ function unsavedWork() {
         if (p && p.app === 'session-board' && p.version === r.data.from && ++oldSeen >= 5) { say('看板沒有重開：剛好有對話開始做事，所以取消了，舊版 ' + r.data.from + ' 照常在跑。等它做完再按一次', true); done(); return; }
       }
       say('看板 60 秒內沒有開回來。在終端機打 /session-board，或執行 node scripts/start.js', true); done();
-    } catch (e) { say('重啟更新失敗：' + String((e && e.message) || e), true); done(); }
+    } catch (e) { say('更新失敗：' + String((e && e.message) || e), true); done(); }
   });
   document.body.append(b);
   // Where it stands (asked 2026-11-20: at the right of the screen, beside the message box):
@@ -6664,8 +7222,9 @@ function unsavedWork() {
       b.classList.remove('round'); const whole = b.offsetWidth || 120;
       const mid = vh - (r.top + r.bottom) / 2;
       // against the right edge, in line with the jump buttons above it (centred in the room it looked adrift, 2026-11-20)
-      if (free >= whole + 22 + GAP) { mode = 'beside'; bottom = Math.round(mid - 20); }
-      else if (free >= 40 + 22 + GAP) { mode = 'round'; bottom = Math.round(mid - 20); }
+      // no room for its words beside the box: above the box's right end, words and all - never the icon alone (its words
+      // are what it says: 「有新版本，點我更新」, asked 2026-11-20)
+      if (free >= whole + 22 + GAP) { mode = 'beside'; bottom = Math.round(mid - b.offsetHeight / 2); }
       else {
         mode = 'above';
         const shown = jump && [...jump.children].filter((c) => !c.hidden && c.offsetParent !== null);
@@ -6676,7 +7235,9 @@ function unsavedWork() {
     const s = mode + right + ',' + bottom;
     if (s === shape) return; shape = s;
     b.classList.toggle('round', mode === 'round');
-    b.style.right = right + 'px'; b.style.bottom = bottom + 'px';
+    // measured on the screen; the page's text size (html zoom) multiplies what is set back - so divided by it
+    const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+    b.style.right = Math.round(right / z) + 'px'; b.style.bottom = Math.round(bottom / z) + 'px';
     b.dataset.place = mode;
   };
   place(); addEventListener('resize', place); setInterval(place, 500);
@@ -6691,8 +7252,8 @@ function unsavedWork() {
     if (need) {
       const parts = (c.behind || []).map((x) => x.name + ' ' + (x.from || '?') + ' → ' + (x.to || '?'));
       if (c.board && c.board.newest && c.board.newest !== c.board.running) parts.push('看板 ' + c.board.running + ' → ' + c.board.newest + '（要重開）');
-      b.title = '有更新：' + parts.join('、') + '。按「重啟更新」：更新 plugin' + (c.board && c.board.newest !== c.board.running ? '，並重開看板' : '');
-      b.setAttribute('aria-label', '重啟更新（有 ' + parts.length + ' 項可以更新）');
+      b.title = '有更新：' + parts.join('、') + '。按一下：更新 plugin' + (c.board && c.board.newest !== c.board.running ? '，並重開看板' : '');
+      b.setAttribute('aria-label', '有新版本，點我更新（有 ' + parts.length + ' 項可以更新）');
     }
     if (b.hidden === need) { b.hidden = !need; shape = ''; place(); }
   };

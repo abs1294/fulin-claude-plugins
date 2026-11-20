@@ -11,7 +11,7 @@
 //             on the board in that folder, its first message /harness:review. Off by default: one check uses about as
 //             much as an hour of work (seen 2026-11-17 on one project: about 11 minutes, USD 3.96 at list price).
 //   check     once a day (always, no switch): which plugins have a newer version, and whether a newer board than the
-//             one running is installed - read only. The page shows its 「重啟更新」 button only when something is to
+//             one running is installed - read only. The page shows its 「有新版本，點我更新」 button only when something is to
 //             be had (asked 2026-11-20). Pressing it updates; the check is then made again on the next round.
 const DEFAULTS = { cbm: true, update: false, updateAt: '09:00', harness: false };
 const LOG_MAX = 40;

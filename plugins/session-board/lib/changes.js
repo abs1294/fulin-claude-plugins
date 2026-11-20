@@ -133,6 +133,136 @@ async function summary(file, cwd) {
   return { files: out, adds: out.reduce((n, f) => n + f.adds, 0), dels: out.reduce((n, f) => n + f.dels, 0) };
 }
 
+// ── what a command changed: the folder's files whose time falls in the session ──
+// A file made or changed by a command the session ran (a script writing a Word file) is in no transcript, and a folder
+// that is not in git has no "uncommitted" either (asked 2026-11-20: two Word files made by a script showed nowhere).
+// The folder is looked at instead: every file in it last written between the session's start and its last activity.
+// It cannot tell who wrote one - another session or you, at that time, too - and says so.
+const SKIP_DIR = /^(\.|node_modules$|__pycache__$|\.?venv$|bin$|obj$|dist$|build$|target$|out$|coverage$)/i;
+const SKIP_FILE = /^(~\$|\.~lock|\.DS_Store$|Thumbs\.db$|desktop\.ini$)|\.(tmp|swp|lock)$/i;
+const SCAN_MAX = 20000, SCAN_MS = 1500, FOUND_MAX = 200;
+// Read without blocking: the board answers other requests while a big folder is looked through (it read synchronously
+// at first, and a folder as big as the home folder held every other request for up to 1.5 s - review 2026-11-20).
+async function touchedIn(cwd, since, until) {
+  const fsp = fs.promises, out = [], t0 = Date.now(); let seen = 0;
+  const over = () => seen > SCAN_MAX || Date.now() - t0 > SCAN_MS;
+  const walk = async (dir, depth) => {
+    if (depth > 6 || over()) return;
+    let ents = []; try { ents = await fsp.readdir(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const d of ents) {
+      if (++seen > SCAN_MAX || Date.now() - t0 > SCAN_MS) return;
+      const p = path.join(dir, d.name);
+      if (d.isDirectory()) { if (!SKIP_DIR.test(d.name)) await walk(p, depth + 1); continue; }
+      if (!d.isFile() || SKIP_FILE.test(d.name)) continue;
+      let st; try { st = await fsp.stat(p); } catch (e) { continue; }
+      if (st.mtimeMs >= since && st.mtimeMs <= until) out.push({ path: p, rel: path.relative(cwd, p), name: d.name, at: st.mtimeMs, size: st.size });
+    }
+  };
+  await walk(cwd, 0);
+  out.sort((a, b) => b.at - a.at);
+  return { files: out.slice(0, FOUND_MAX), partial: over() };
+}
+// When the session was at work: its transcript's entries put into stretches (two entries less than GAP apart are one
+// stretch), each widened by PAD. A session resumed over months is not "at work" all that time - only then. Read as a
+// stream and remembered like the changes (only what was added since is read again).
+// (30 minutes: a long command - a script making a Word file - leaves nothing in the transcript until it ends)
+const GAP = 30 * 60000, PAD = 2 * 60000, TS = /"timestamp":"([^"]{10,40})"/;
+const spansCache = new Map();   // transcript -> {read, spans: [[from, to]]}
+function spansOf(file) {
+  return new Promise((resolve) => {
+    let c = spansCache.get(file); let size = 0; try { size = fs.statSync(file).size; } catch (e) { return resolve([]); }
+    if (!c || size < c.read) { c = { read: 0, spans: [] }; spansCache.set(file, c); }
+    if (size <= c.read) return resolve(c.spans);
+    let seen = c.read, pending = '';
+    const add = (t) => { const s = c.spans[c.spans.length - 1]; if (s && t - s[1] < GAP && t >= s[0]) s[1] = Math.max(s[1], t); else c.spans.push([t, t]); };
+    const stream = fs.createReadStream(file, { start: c.read, end: size - 1, highWaterMark: 1 << 20, encoding: 'utf8' });
+    stream.on('data', (chunk) => {
+      const text = pending + chunk; const lines = text.split('\n'); pending = lines.pop();
+      for (const l of lines) { seen += Buffer.byteLength(l) + 1; const m = TS.exec(l); const t = m && Date.parse(m[1]); if (t) add(t); }
+    });
+    const end = () => { c.read = seen; resolve(c.spans); };
+    stream.on('end', end); stream.on('error', end);
+  });
+}
+// When the session started: the time of the first entry in its transcript
+function startOf(file) {
+  try {
+    const fd = fs.openSync(file, 'r'); const buf = Buffer.alloc(65536); const n = fs.readSync(fd, buf, 0, buf.length, 0); fs.closeSync(fd);
+    for (const line of buf.subarray(0, n).toString('utf8').split('\n')) { try { const t = Date.parse(JSON.parse(line).timestamp); if (t) return t; } catch (e) {} }
+  } catch (e) {}
+  return 0;
+}
+// -> {files: [...], partial, since, until} - the folder's files written while the session (or one of its subagents) was
+// at work, not already among its edits
+async function touched(file, cwd, o = {}) {
+  if (!cwd) return { files: [], since: 0, until: 0 };
+  let spans = [];
+  for (const t of transcriptsOf(file)) spans = spans.concat(await spansOf(t.file));
+  spans = spans.map(([a, b]) => [a - PAD, b + PAD]).sort((x, y) => x[0] - y[0]);
+  if (!spans.length) return { files: [], since: 0, until: 0 };
+  const known = new Set([...(await gather(file)).keys()]);
+  const since = spans[0][0], until = Math.max(...spans.map((s) => s[1]));
+  const r = await touchedIn(cwd, since, until);
+  const inSpan = (t) => spans.some(([a, b]) => t >= a && t <= b);
+  return { files: r.files.filter((x) => !known.has(keyOf(x.path)) && inSpan(x.at)), partial: r.partial, since, until };
+}
+
+// ── what the session handed you: the files and links named in its replies ──
+// (asked 2026-11-20: "the files and links in what it finally answers me are what I look at; the ones in between are
+// not") Read from the replies of the session itself (not its subagents': those answer it, not you), in the ways a
+// reply names a file - in `code`, a path in the running text, a line of a code block that is a path and nothing else -
+// and web links. Which of the paths are real is the caller's to check (lib/files.js check, as the file cards do).
+const EXT = /\.[A-Za-z0-9]{1,8}(:\d+(-\d+)?(:\d+)?)?$/;
+const looksLikePath = (t) => !!t && t.length <= 400 && !/[\n<>|*?]/.test(t) && !/^(https?:|\/\/)/i.test(t) && (/^[A-Za-z]:[\\/]/.test(t) || /^~[\\/]/.test(t) || (EXT.test(t) && !/\s{2,}/.test(t) && !/^[-.]/.test(t)));
+// A path in running text: C:\... - or, on macOS and Linux, /Users/x/report.pdf (review 2026-11-20: only Windows paths
+// were known). That one needs two levels and a file's extension, and nothing of a word, a ':' or '/' just before it - so
+// "and/or", "A/B" and the path of a web address are not taken for one.
+const BARE = /[A-Za-z]:\\[^\s"'`<>|*?　-〿＀-￯]+|(?<![\w:/.~-])\/(?:[^\s"'`<>|*?/　-〿＀-￯]+\/)+[^\s"'`<>|*?/　-〿＀-￯]*\.[A-Za-z0-9]{1,8}(?![\w])/g;
+const URL_RE = /https?:\/\/[^\s<>"'`)\]　-〿＀-￯]+/g;
+function namedIn(text) {
+  const paths = [], links = [];
+  const fences = String(text).split(/^```[^\n]*$/m);
+  fences.forEach((part, i) => {
+    if (i % 2) { for (const l of part.split('\n')) { const t = l.trim(); if (/^([A-Za-z]:[\\/]|~[\\/]|\/[^\s/]+\/)/.test(t) && looksLikePath(t)) paths.push(t); } return; }
+    for (const m of part.matchAll(/`([^`\n]+)`/g)) { const t = m[1].trim(); if (looksLikePath(t)) paths.push(t); }
+    const plain = part.replace(/`[^`\n]+`/g, ' ');
+    for (const m of plain.matchAll(BARE)) paths.push(m[0].replace(/[.,;:)\]]+$/, ''));
+    for (const m of part.matchAll(URL_RE)) links.push(m[0].replace(/[.,;:]+$/, ''));
+  });
+  return { paths, links };
+}
+// Each with where it was last named: `id` is that reply as the conversation shows it (lib/history.js itemsOf: the
+// entry's uuid and the block's place in it), so the page can take you there (asked 2026-11-20).
+const namedCache = new Map();   // transcript -> {read, items: Map raw -> {at, id}, links: Map url -> {at, id}}
+function named(file) {
+  return new Promise((resolve) => {
+    let c = namedCache.get(file); let size = 0; try { size = fs.statSync(file).size; } catch (e) { return resolve({ paths: [], links: [] }); }
+    if (!c || size < c.read) { c = { read: 0, items: new Map(), links: new Map() }; namedCache.set(file, c); }
+    const done = () => resolve({ paths: [...c.items.entries()].map(([raw, w]) => ({ raw, at: w.at, id: w.id })), links: [...c.links.entries()].map(([url, w]) => ({ url, at: w.at, id: w.id })) });
+    if (size <= c.read) return done();
+    let seen = c.read, pending = '';
+    const stream = fs.createReadStream(file, { start: c.read, end: size - 1, highWaterMark: 1 << 20, encoding: 'utf8' });
+    stream.on('data', (chunk) => {
+      const lines = (pending + chunk).split('\n'); pending = lines.pop();
+      for (const l of lines) {
+        seen += Buffer.byteLength(l) + 1;
+        if (!l.includes('"assistant"') || !l.includes('"text"')) continue;
+        let e; try { e = JSON.parse(l); } catch (x) { continue; }
+        if (!e || e.type !== 'assistant' || e.isSidechain || !e.message || !Array.isArray(e.message.content)) continue;
+        const at = Date.parse(e.timestamp) || 0;
+        e.message.content.forEach((b, i) => {
+          if (!b || b.type !== 'text' || typeof b.text !== 'string') return;
+          const n = namedIn(b.text), w = { at, id: (typeof e.uuid === 'string' ? e.uuid : '') + ':' + i };
+          for (const p of n.paths) c.items.set(p, w);
+          for (const u of n.links) c.links.set(u, w);
+        });
+      }
+    });
+    const end = () => { c.read = seen; done(); };
+    stream.on('end', end); stream.on('error', end);
+  });
+}
+
 // The changes of one file, oldest first (the newest ITEMS_PER_FILE). -> {path, items, skipped} or null
 async function detail(file, filePath) {
   const f = (await gather(file)).get(keyOf(filePath));
@@ -182,4 +312,4 @@ async function gitFileDiff(cwd, rel, run) {
   return { ok: true, text: cut ? d.out.slice(0, GIT_DIFF_MAX) : d.out, cut, abs: f.abs, binary: f.binary };
 }
 
-module.exports = { changeOf, scanFrom, summary, detail, gitChanges, gitFileDiff, transcriptsOf, CONTENT_LINES, ITEMS_PER_FILE };
+module.exports = { changeOf, scanFrom, summary, detail, gitChanges, gitFileDiff, transcriptsOf, touched, touchedIn, startOf, named, namedIn, CONTENT_LINES, ITEMS_PER_FILE };

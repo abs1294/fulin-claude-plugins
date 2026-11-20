@@ -106,6 +106,10 @@ function terminalSession(sid) {
 }
 
 let server, port, channels, keeper, inbox, asked = new Set();
+// a schedule said in words (lib/ruleparse.js) without Claude, and no calendar fetched from the net
+const ruleAsked = [];
+const ruleAsk = async (text) => { ruleAsked.push(text); return /看不懂/.test(text) ? { ok: false, error: '看不懂這句排程：不是時間' } : { ok: true, rule: { cron: '0 15 LW * *', workday: undefined, explain: '每月最後一個工作天 15:00' } }; };
+const calFetch = async () => ({ ok: false, status: 503 });
 const freePort = () => new Promise((r) => { const s = require('net').createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 test.before(async () => {
   terminalSession(T1); terminalSession(T2);
@@ -118,7 +122,7 @@ test.before(async () => {
   inbox = new InboxService({ fetch: async () => ({ ok: false, status: 500, json: async () => ({}) , text: async () => '' }), triageRun: async () => ({ ok: true, items: [] }) });
   const monthly = new Monthly({ run: (exe, args, opts, cb) => cb(null, JSON.stringify({ ok: true, month: args[1], computedAt: Date.now(), daysInMonth: 30, total: { cost: 12.5, tok: 1000 }, files: 1, sessions: [], roles: [], days: [], models: [], projects: [] })) });
   port = await freePort();
-  server = createServer(TOKEN, port, { channels, keeper, inbox, monthly, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [] }, goal2: { name: 'goal2', installs: [] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }), remoteInfo: async () => ({ ok: false, why: 'test' }), noTimers: true, out, tell: (t, x) => did.push('tell ' + t), peer: async () => ({ ok: true }), peerCheck: async () => true });
+  server = createServer(TOKEN, port, { channels, keeper, inbox, monthly, ruleAsk, calFetch, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [] }, goal2: { name: 'goal2', installs: [] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }), remoteInfo: async () => ({ ok: false, why: 'test' }), noTimers: true, out, tell: (t, x) => did.push('tell ' + t), peer: async () => ({ ok: true }), peerCheck: async () => true });
   await new Promise((r) => server.listen(port, '127.0.0.1', r));
 });
 test.after(() => {
@@ -227,6 +231,28 @@ test('what a session changed: from its own transcript, and what is uncommitted i
     [path.join('src', 'a.js'), 3, 2, 2, false, false],
   ], 'newest first; a file changed twice is one row');
   assert.deepStrictEqual([s.json.adds, s.json.dels], [6, 2]);
+  // what its replies handed you: the files that are there and the links, once each, newest first - not its own folder,
+  // not a path that is not there, not what only a subagent or a tool output named
+  {
+    const tr = S.findTranscript(T1, WORK, path.join(CLAUDE, 'projects')); const before = fs.readFileSync(tr);
+    const say = (text, at) => line({ type: 'assistant', sessionId: T1, cwd: WORK, timestamp: new Date(at).toISOString(), message: { role: 'assistant', content: [{ type: 'text', text }] } });
+    fs.appendFileSync(tr, [
+      say('改好了：`a.docx`，看 ' + WORK + '\\ 裡面。參考 https://example.com/spec.', Date.now() - 5000),
+      say('還有 `note.md` 和 `missing.txt`：\n```\n' + path.join(WORK, 'a.docx') + '\n```\n詳見 https://example.com/b', Date.now() - 1000),
+      line({ type: 'user', sessionId: T1, timestamp: new Date().toISOString(), toolUseResult: { stdout: 'x' }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'z', content: '`run.ps1` https://example.com/tool' }] } }),
+    ].join('\n') + '\n');
+    try {
+      const g = await get('/api/changes?sid=' + T1); assert.strictEqual(g.status, 200, g.text);
+      assert.deepStrictEqual(g.json.given.map((x) => path.basename(x.abs)), ['note.md', 'a.docx'], 'newest reply first (in it, in the order written), once each');
+      assert.deepStrictEqual(g.json.links.map((x) => x.url), ['https://example.com/b', 'https://example.com/spec']);
+      // where each was last named: the reply as the conversation shows it (its uuid and the block's place), to jump to
+      const h = await get('/api/messages?sid=' + T1 + '&max=50'); assert.strictEqual(h.status, 200, h.text);
+      const ids = new Set((h.json.items || h.json.messages || []).filter((x) => x.role === 'assistant').map((x) => x.id));
+      assert.ok(ids.size >= 2, 'the replies are in what the page is given: ' + Object.keys(h.json));
+      for (const x of g.json.given.concat(g.json.links)) assert.ok(x.ref || x.id, 'has where it was named');
+      for (const r of g.json.given.map((x) => x.ref).concat(g.json.links.map((x) => x.id))) assert.ok(ids.has(r), r + ' is a reply the conversation shows');
+    } finally { fs.writeFileSync(tr, before); }
+  }
   const d = await get('/api/changes/file?sid=' + T1 + '&path=' + enc(path.join(WORK, 'src', 'a.js'))); assert.strictEqual(d.status, 200, d.text);
   assert.deepStrictEqual(d.json.items.map((x) => [x.kind, x.adds, x.dels, x.hunks[0].oldStart, x.hunks[0].lines]), [['edit', 2, 1, 3, [' keep', '-old line', '+new line', '+another']], ['edit', 1, 1, 9, ['-second old', '+second new']]]);
   const n = await get('/api/changes/file?sid=' + T1 + '&path=' + enc(path.join(WORK, 'note.md')));
@@ -1010,6 +1036,52 @@ test('notices and hiding', async () => {
   assert.strictEqual((await post('/api/hide', { clear: true })).json.hidden, 0);
 });
 
+test('a schedule of its own rule: said in words, checked, shown with its next runs, saved', async () => {
+  const w = await post('/api/schedule/rule', { text: '每月最後一個工作天下午三點' });
+  assert.strictEqual(w.status, 200, w.text);
+  assert.deepStrictEqual([w.json.ok, w.json.rule.cron, w.json.rule.text, w.json.rule.explain, ruleAsked.slice(-1)[0]], [true, '0 15 LW * *', '每月最後一個工作天下午三點', '每月最後一個工作天 15:00', '每月最後一個工作天下午三點']);
+  assert.strictEqual(w.json.next.length, 5);
+  assert.ok(w.json.next.every((x, i) => new Date(x.at).getHours() === 15 && (!i || x.at > w.json.next[i - 1].at)), 'five runs, at 15:00, in order');
+  assert.ok(w.json.guessed.length >= 1, 'no calendar in this made-up home (and the fetch fails): the working days are a guess, and it says so');
+  // not understood: said so, nothing else
+  const no = (await post('/api/schedule/rule', { text: '看不懂的話' })).json;
+  assert.deepStrictEqual([no.ok, no.error, no.rule], [false, '看不懂這句排程：不是時間', undefined]);
+  // the rule itself, typed; and a wrong one
+  const r = await post('/api/schedule/rule', { rule: { cron: '0 9,14 * * 1-5', until: '2099-12-31' } });
+  assert.deepStrictEqual([r.json.ok, r.json.next.length, r.json.guessed], [true, 5, []]);
+  assert.match((await post('/api/schedule/rule', { rule: { cron: '* * * * *' } })).json.error, /5 分鐘/);
+  assert.strictEqual((await post('/api/schedule/rule', {})).status, 400);
+  // saved with it, and listed with its next run
+  assert.match((await post('/api/schedule/save', { kind: 'custom', cwd: WORK, prompt: 'hi' })).json.error, /5 欄/);
+  const sv = await post('/api/schedule/save', { kind: 'custom', rule: r.json.rule, cwd: WORK, prompt: '自訂規則的排程' });
+  assert.strictEqual(sv.status, 200, sv.text);
+  const s = (await get('/api/schedules')).json.schedules.find((x) => x.id === sv.json.id);
+  assert.deepStrictEqual([s.kind, s.rule.cron, s.rule.until], ['custom', '0 9,14 * * 1-5', '2099-12-31']);
+  assert.strictEqual(s.next, r.json.next[0].at, 'its next run is the first of those shown');
+  await post('/api/schedule/delete', { id: sv.json.id });
+  // a schedule being edited: its preview counted from when it was made, as its runs are (review 2026-11-20)
+  const two = await post('/api/schedule/save', { kind: 'custom', rule: { cron: '0 9 * * *', count: 2 }, cwd: WORK, prompt: '跑兩次' });
+  const made = Date.now() - 3 * 86400000;
+  require('../lib/db').open().prepare('UPDATE schedule SET created_at = ? WHERE id = ?').run(made, two.json.id);
+  const edited = (await post('/api/schedule/rule', { id: two.json.id, rule: { cron: '0 9 * * *', count: 2 } })).json;
+  const fresh = (await post('/api/schedule/rule', { rule: { cron: '0 9 * * *', count: 2 } })).json;
+  assert.deepStrictEqual([edited.next.length, fresh.next.length], [0, 2], 'made three days ago: its two runs are over; a new one has both ahead');
+  await post('/api/schedule/delete', { id: two.json.id });
+  // whose working days: a setting, said with each preview; the countries there are calendars for
+  const Workdays = require('../lib/workdays');
+  const before = (await get('/api/config')).json.prefs.workdayCountry;
+  try {
+    assert.strictEqual((await post('/api/config', { workdayCountry: 'jp' })).status, 400);
+    assert.strictEqual((await post('/api/config', { workdayCountry: 'JP' })).status, 200);
+    assert.deepStrictEqual([Workdays.country(), (await post('/api/schedule/rule', { rule: { cron: '0 9 LW * *' } })).json.country], ['JP', 'JP']);
+    assert.strictEqual((await post('/api/config', { workdayCountry: '' })).status, 200);
+    const n = (await post('/api/schedule/rule', { rule: { cron: '0 9 * * *', workday: 'only' } })).json;
+    assert.deepStrictEqual([n.country, n.guessed], ['', []], 'none chosen: Monday to Friday, nothing guessed');
+    const c = await post('/api/workdays/countries', {}); assert.strictEqual(c.status, 200, c.text);
+    assert.ok(c.json.countries.some((x) => x.code === 'TW'), 'Taiwan is there even when the list cannot be fetched');
+  } finally { await post('/api/config', { workdayCountry: before }); }
+});
+
 test('schedules', async () => {
   assert.strictEqual((await post('/api/schedule/save', { name: 'x' })).status, 400);
   // after the quota resets: refused when no 5-hour window is running (this made-up home has no quota figures)
@@ -1368,13 +1440,15 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
 });
 
 test('the mic: what was heard is tidied as it comes; through tailscale serve the device behind it is checked, Funnel never gets in', async () => {
-  const seen = [], tidyCalls = [], tidyCtx = [];
+  const seen = [], tidyCalls = [], tidyCtx = [], openaiCalls = [];
+  // a stand-in for OpenAI's transcription: what it was sent, and an answer
+  const fakeOpenAI = async (url, o) => { openaiCalls.push({ url, auth: o.headers.authorization, form: o.body }); return { ok: true, status: 200, json: async () => ({ text: 'git commit 一下', languages: [{ code: 'zh' }] }) }; };
   const tidy = {
     warm: () => tidyCalls.push('warm'),
     run: async (text, onDelta, context) => { tidyCalls.push(text); if (context) tidyCtx.push(context); if (text === 'bad') return { ok: false, error: '整理失敗' }; onDelta('我想'); onDelta('我想看。'); return { ok: true, text: '我想看。', ms: 900 }; },
   };
   const gate = { info: { ok: true, name: 'me.tail.ts.net' }, allows: async (a) => { seen.push(a); return a === '127.0.0.1' || a === '100.70.0.2'; }, refresh: async () => {} };
-  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, out, gate, tidy, servedUrl: async () => 'https://me.tail.ts.net/' });
+  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, out, gate, tidy, servedUrl: async () => 'https://me.tail.ts.net/', fetch: fakeOpenAI });
   await new Promise((r) => s2.listen(p2, '127.0.0.1', r));
   const raw = (pp, body, headers = {}) => new Promise((resolve) => {
     const b = body === undefined ? null : Buffer.from(JSON.stringify(body));
@@ -1391,7 +1465,42 @@ test('the mic: what was heard is tidied as it comes; through tailscale serve the
   assert.deepStrictEqual(tidyCalls, ['warm', '呃 我想 看', 'bad']);
   // the conversation it was said in, passed on - bounded
   await raw('/api/tidy', { text: '哥特', context: { title: 't'.repeat(300), folder: 'repo', recent: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'x'.repeat(900)] } });
-  assert.deepStrictEqual([tidyCtx[0].title.length, tidyCtx[0].folder, tidyCtx[0].recent.length, tidyCtx[0].recent[5].length], [200, 'repo', 6, 600]);
+  // and this person's own words and corrections go with it (lib/vocab.js)
+  const withTitle = tidyCtx.find((c) => c.title);
+  assert.ok(Array.isArray(withTitle.words) && Array.isArray(withTitle.fixes), 'the words and corrections given to the tidying');
+  assert.ok(tidyCtx.every((c) => Array.isArray(c.words)), 'with no conversation context too');
+  await raw('/api/tidy', { text: '原話', context: { alts: [['a', 'b'], 'not a list'] } });
+  assert.deepStrictEqual(tidyCtx[tidyCtx.length - 1].alts, [['a', 'b'], []], "the recognizer's other guesses, bounded");
+  // ── the mic's own words: this person's, kept in their board folder ──
+  for (const a of ['GET /api/vocab', 'GET /api/vocab/terms', 'POST /api/vocab', 'POST /api/voice/key', 'POST /api/transcribe']) asked.add(a);
+  assert.strictEqual(JSON.parse((await raw('/api/vocab', { add: 'dapfe' })).text).ok, true);
+  const learned = JSON.parse((await raw('/api/vocab', { learn: { given: '幫我哥特 commit', sent: '幫我 git commit' } })).text);
+  assert.deepStrictEqual(learned.learned, [{ heard: '哥特', meant: 'git' }]);
+  const list = JSON.parse((await raw('/api/vocab')).text);
+  assert.deepStrictEqual([list.words.map((w) => w.term), list.fixes.map((f) => f.heard + '>' + f.meant), list.engine, list.openaiKey], [['dapfe', 'git'], ['哥特>git'], 'browser', false]);
+  assert.ok(fs.existsSync(path.join(CLAUDE, 'session-board', 'vocab.json')), "in this person's own board folder");
+  assert.deepStrictEqual(JSON.parse((await raw('/api/vocab/terms')).text).terms.slice(0, 2), ['dapfe', 'git']);
+  assert.strictEqual((await raw('/api/vocab', {})).status, 400);
+  // the OpenAI key: checked, kept, never answered back
+  assert.strictEqual((await raw('/api/transcribe', { audio: 'AAAA', mime: 'audio/webm' })).status, 409, 'no key yet');
+  assert.strictEqual((await raw('/api/voice/key', { key: 'not-a-key' })).status, 400);
+  const key = 'sk-' + 'x'.repeat(40);
+  assert.deepStrictEqual(JSON.parse((await raw('/api/voice/key', { key })).text), { ok: true, set: true });
+  assert.ok(!(await raw('/api/vocab')).text.includes(key), 'never sent back');
+  // the transcription: the recording, the words as keywords, both languages, the conversation as the prompt
+  assert.strictEqual((await raw('/api/transcribe', { audio: 'AAAA', mime: 'video/x-evil' })).status, 400);
+  const tr = await raw('/api/transcribe', { audio: Buffer.from('fake audio').toString('base64'), mime: 'audio/webm;codecs=opus', context: { title: '發版', folder: 'repo' } });
+  assert.deepStrictEqual(JSON.parse(tr.text), { ok: true, text: 'git commit 一下' });
+  const sentForm = openaiCalls[0].form;
+  assert.strictEqual(openaiCalls[0].url, 'https://api.openai.com/v1/audio/transcriptions');
+  assert.strictEqual(openaiCalls[0].auth, 'Bearer ' + key);
+  assert.strictEqual(sentForm.get('model'), 'gpt-transcribe');
+  assert.ok(sentForm.getAll('keywords[]').includes('dapfe') && sentForm.getAll('keywords[]').includes('git'));
+  assert.deepStrictEqual(sentForm.getAll('languages[]'), ['zh', 'en']);
+  assert.strictEqual(sentForm.get('prompt'), '對話：發版 / repo');
+  assert.strictEqual(sentForm.get('file').name, 'speech.webm');
+  assert.deepStrictEqual(JSON.parse((await raw('/api/voice/key', { key: '' })).text), { ok: true, set: false }, 'taken away');
+  assert.deepStrictEqual([withTitle.title.length, withTitle.folder, withTitle.recent.length, withTitle.recent[5].length], [200, 'repo', 6, 600]);
   // through tailscale serve: from 127.0.0.1, the device in x-forwarded-for - that device is what the gate is asked about
   const serveH = (ip) => ({ host: 'me.tail.ts.net', 'x-forwarded-for': ip, 'tailscale-user-login': 'me@x' });
   const cfg = require('../lib/config'); const was = cfg.value('remoteTailscale', false);
@@ -1420,7 +1529,7 @@ test('the mic: what was heard is tidied as it comes; through tailscale serve the
   s2.close();
 });
 
-test('「重啟更新」 restart: only onto a newer version, never under a working conversation, by a detached helper that outlives the board', async () => {
+test('「有新版本，點我更新」 restart: only onto a newer version, never under a working conversation, by a detached helper that outlives the board', async () => {
   const VERSION = require('../.claude-plugin/plugin.json').version;
   const spawned = [], exited = []; let shut = 0, busy = [];
   const ch = Object.create(channels); ch.active = () => busy; ch.shutdown = () => { shut++; };

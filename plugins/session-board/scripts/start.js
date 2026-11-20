@@ -4,7 +4,7 @@
 //   node start.js --open     same, then open the URL in the default browser
 //   node start.js --status   print whether it is running; exit 1 if not
 //   node start.js --stop     ask the running server to exit
-//   node start.js --after <pid>   wait for that board process to end, then start (what the board's 「重啟更新」 runs)
+//   node start.js --after <pid>   wait for that board process to end, then start (what the board's 「有新版本，點我更新」 runs)
 //   node start.js --refresh  bring the installed plugins of this marketplace up to date (plugin-manager's update-all.js,
 //                            the same as the board's own "update plugins"), restart the board so it runs what is on
 //                            disk now, and say whether it is reachable on Tailscale again. Restarting is refused - and

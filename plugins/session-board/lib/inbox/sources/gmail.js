@@ -159,6 +159,28 @@ async function gmailAttachments(cfg, threadId, destDir, fetchImpl = fetch) {
 }
 const KEPT_MARK = '.kept';
 const header = (m, name) => (((m.payload && m.payload.headers) || []).find((h) => String(h.name).toLowerCase() === name) || {}).value || '';
+// The addresses in a To or Cc header ("A" <a@x>, b@y) - the addresses only, never the display names (a name can be anything)
+// A display name is set aside first: quoted ("me@x.com" <evil@y.com>) it is cut out, and in an entry with <...> only what
+// is in the brackets counts - a name written like your address must not make a mail "to you" (review 2026-11-20).
+const addrs = (v) => {
+  const out = [];
+  for (const part of String(v || '').replace(/"(?:[^"\\]|\\.)*"/g, ' ').split(/[,;]/)) {
+    const b = /<([^<>\s]+@[^<>\s]+)>/.exec(part);
+    const a = b ? b[1] : (/([^\s<>"']+@[^\s<>"']+)/.exec(part) || [])[1];
+    if (a) out.push(a.toLowerCase());
+  }
+  return [...new Set(out)];
+};
+// A forward: its subject says so (Fwd:, FW:, 轉寄：), or its text carries the line mail programs put above what is forwarded
+const FWD_SUBJECT = /^\s*(fwd?|fw|轉寄|轉送)\s*[:：]/i;
+const FWD_BODY = /-{2,}\s*(forwarded message|original message|轉寄的郵件|轉寄郵件|原始郵件)\s*-{2,}|^\s*(begin forwarded message|開始轉寄的郵件)\s*:/im;
+// Who a message went to, and where you were among them (asked 2026-11-20: tell apart what was sent to you, copied to
+// you and forwarded): {to, cc, meRole: to | cc | other, forwarded}
+function recipientsOf(m, mine) {
+  const to = addrs(header(m, 'to')), cc = addrs(header(m, 'cc'));
+  const meRole = to.some((a) => mine.has(a)) ? 'to' : cc.some((a) => mine.has(a)) ? 'cc' : 'other';
+  return { to, cc, meRole, forwarded: FWD_SUBJECT.test(header(m, 'subject')) || FWD_BODY.test(gmailBody(m.payload).slice(0, 20000)) };
+}
 
 async function pollGmail(inbox, cfg, fetchImpl = fetch) {
   if (!gmailConfigured(cfg)) return { source: 'gmail', skipped: true, reason: '還沒有連接 Gmail', ingested: 0 };
@@ -170,10 +192,10 @@ async function pollGmail(inbox, cfg, fetchImpl = fetch) {
   const token = await gmailToken(cfg, fetchImpl);
   const api = async (p, params) => {
     const url = new URL('https://gmail.googleapis.com/gmail/v1/users/me/' + p);
-    for (const [k, v] of Object.entries(params || {})) if (v != null) url.searchParams.set(k, String(v));
+    for (const [k, v] of Object.entries(params || {})) if (Array.isArray(v)) for (const x of v) url.searchParams.append(k, String(x)); else if (v != null) url.searchParams.set(k, String(v));
     const res = await fetchImpl(url.toString(), { headers: { authorization: 'Bearer ' + token } });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error('Gmail ' + p.split('/')[0] + ' 失敗：' + ((j.error && j.error.message) || 'HTTP ' + res.status));
+    if (!res.ok) throw Object.assign(new Error('Gmail ' + p.split('/')[0] + ' 失敗：' + ((j.error && j.error.message) || 'HTTP ' + res.status)), { status: res.status });
     return j;
   };
   const byName = {}, byId = {};
@@ -205,6 +227,26 @@ async function pollGmail(inbox, cfg, fetchImpl = fetch) {
   const threadIds = new Set([...listed.entries()].filter(([, ids]) => ids.some((id) => !inbox.has('gmail:' + id))).map(([tid]) => tid));
   let me = '';
   try { me = String((await api('profile')).emailAddress || '').toLowerCase(); } catch (e) {}
+  const mineSet = new Set([me, ...(cfg.myAddresses || []).map((a) => String(a).toLowerCase())].filter(Boolean));
+  // Not knowing which addresses are yours (the profile could not be asked, none named in the settings), whether a mail
+  // was to you cannot be told: nothing about it is kept now - left for a later fetch to fill in, rather than kept for good
+  // as "not to you" (review 2026-11-20).
+  const knowMe = mineSet.size > 0;
+  // Mail kept before who it went to was kept: the threads with such messages (from the database, newest first - not only
+  // those this fetch listed) are asked once more for their headers only (To, Cc, Subject - not the text again), at most
+  // 100 threads a fetch, until none is left. Only messages not filled in yet are written (a forward told from its text
+  // stays one). A thread Gmail no longer has (404: deleted) is marked as such, not asked again every fetch.
+  let filled = 0, fillFailed = 0;
+  if (knowMe && inbox.threadsWithoutRecipients) {
+    const old = inbox.threadsWithoutRecipients('gmail', 100).filter((tid) => !threadIds.has(tid));
+    for (const tid of old) {
+      let thr; try { thr = await api('threads/' + tid, { format: 'metadata', metadataHeaders: ['To', 'Cc', 'Subject'] }); }
+      catch (e) { fillFailed++; if (e.status === 404) inbox.recipientsGone('gmail:' + tid); continue; }
+      for (const m of thr.messages || []) if (m.payload) { const r = recipientsOf(m, mineSet); r.forwarded = FWD_SUBJECT.test(header(m, 'subject')); if (inbox.setRecipients('gmail:' + m.id, r)) filled++; }
+      // a message of it Gmail did not give back (deleted from the thread): not asked again
+      inbox.recipientsGone('gmail:' + tid);
+    }
+  }
   let ingested = 0, routed = 0, reactivated = 0, own = 0;
   for (const tid of threadIds) {
     let thr;
@@ -220,17 +262,22 @@ async function pollGmail(inbox, cfg, fetchImpl = fetch) {
       const mine = ids.includes('SENT') || (!!me && fromAddr === me) || (cfg.myAddresses || []).includes(fromAddr);
       const names = ids.map((id) => byId[id]).filter(Boolean);
       const r = inbox.ingest({ source: 'gmail', threadId: 'gmail:' + tid, sourceMsgId: 'gmail:' + m.id, refs: names, sourceRef: names.find((n) => valid.includes(n)) || names.find((n) => !SYSTEM_LABEL.test(n)) || null,
-        from, subject: header(m, 'subject'), bodyText: gmailBody(m.payload), direction: mine ? 'out' : 'in', quiet: mine, ts: Number(m.internalDate) || Date.now() });
+        from, subject: header(m, 'subject'), bodyText: gmailBody(m.payload), direction: mine ? 'out' : 'in', quiet: mine, ts: Number(m.internalDate) || Date.now(),
+        ...(knowMe ? recipientsOf(m, mineSet) : {}) });
       if (r.ingested) { if (mine) own++; else ingested++; }
+      // a message of it kept before who it went to was kept: filled in from this fetch, its text and all - the thread is
+      // left out of the fill-in above for having something new (review 2026-11-20: a thread new mail kept coming to was
+      // never filled in)
+      else if (knowMe && inbox.setRecipients && inbox.setRecipients('gmail:' + m.id, recipientsOf(m, mineSet))) filled++;
       if (r.routed) routed++;
       if (r.reactivated) reactivated++;
     }
   }
   inbox.setState('gmail:mark', { at: startedAt, scope, days });   // reached only when the whole fetch went through
-  return { source: 'gmail', ingested, own, routed, reactivated, threads: threadIds.size, listed: listedMessages, listedThreads: listed.size, incremental, scope, days, account: me };
+  return { source: 'gmail', ingested, own, routed, reactivated, recipientsFilled: filled, recipientsFailed: fillFailed, threads: threadIds.size, listed: listedMessages, listedThreads: listed.size, incremental, scope, days, account: me };
 }
 
-module.exports = {
+module.exports = { recipientsOf, addrs,
   id: 'gmail', name: 'Gmail', kind: 'mail',
   routeHint: '標籤名稱（信全部都會抓，帶這個標籤的自動分派）',
   fields: [

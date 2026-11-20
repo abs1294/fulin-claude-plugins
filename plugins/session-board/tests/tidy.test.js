@@ -139,3 +139,10 @@ test('nothing said is not sent', async () => {
   assert.deepStrictEqual(await t.run('   '), { ok: false, error: '沒有內容' });
   assert.strictEqual(f.procs.length, 0);
 });
+
+test('your words, the corrections learned and the recognizer\'s other guesses go in the background too, bounded', () => {
+  const out = withContext('哥特 commit', { words: ['git', 'x'.repeat(100)], fixes: [{ heard: '哥特', meant: 'git' }, { heard: '', meant: 'y' }], alts: [['哥特 commit', 'git commit'], ['只有一個']] });
+  const bg = JSON.parse(out.split('\n')[1]);
+  assert.deepStrictEqual([bg.words[0], bg.words[1].length, bg.fixes, bg.alternatives], ['git', 60, [{ heard: '哥特', meant: 'git' }], [['哥特 commit', 'git commit']]]);
+  assert.match(SYSTEM, /fixes＝他以前親手改過的聽錯/);
+});
