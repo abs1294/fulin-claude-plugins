@@ -417,7 +417,9 @@
   .sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .12s; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
   .sw.on { background: var(--accent); } .sw.on::after { left: 16px; }
   .sc-form { border: 1px solid var(--line); border-radius: var(--r-m); padding: 16px; margin: 0 0 18px; background: var(--side); }
-  .sc-form h3 { margin: 0 0 12px; font-size: 16px; }
+  /* the form's own heading: at its top, the form's size - over .pane h3 (a section heading's 24 px above, 13 px grey),
+     which comes later and weighed the same, and left a blank strip above it (2026-11-20) */
+  .pane .sc-form h3, .sc-form h3 { margin: 0 0 12px; font-size: 16px; color: var(--ink); }
   .sc-f { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px 12px; align-items: start; }
   .sc-f > label { color: var(--dim); font-size: 14px; padding-top: 6px; }
   .sc-f input[type=text], .sc-f input[type=time], .sc-f input[type=date], .sc-f input[type=number], .sc-f select, .sc-f textarea { border: 1px solid var(--line); border-radius: var(--r-m); padding: 6px 10px; background-color: var(--bg); color: inherit; font: inherit; font-size: 14px; min-width: 0; }
