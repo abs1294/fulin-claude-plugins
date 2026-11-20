@@ -15,8 +15,8 @@ const sign = (raw) => crypto.createHmac('sha256', SECRET).update(raw).digest('ba
 const ev = (text, o = {}) => ({ type: 'message', webhookEventId: o.id || crypto.randomUUID(), replyToken: 'rt-' + text, source: { type: 'user', userId: o.from || ME }, message: { type: 'text', id: 'm' + Math.random(), text } });
 const body = (...events) => Buffer.from(JSON.stringify({ destination: 'x', events }));
 
-function rig(answers) {
-  const sent = [], boardCalls = [], prompts = [];
+function rig(answers, o = {}) {
+  const sent = [], boardCalls = [], prompts = [], imagesAsked = [];
   const sessions = [
     { sessionId: 's1', title: 'Ebilling 費率表', cwd: 'C:\\work\\Ebilling', status: 'idle', owner: 'board', activeAt: 3000, lastUser: '看費率表', lastAssistant: '費率表有三處要改' },
     { sessionId: 's2', title: 'KMS 報告', cwd: 'C:\\work\\KMS', status: 'waiting', owner: 'board', activeAt: 2000 },
@@ -30,12 +30,13 @@ function rig(answers) {
     if (p === '/api/new') return { status: 200, json: { ok: true, sessionId: 'n1' } };
     return { status: 200, json: { ok: true } };
   };
-  const ask = async (system, prompt) => { prompts.push(prompt); const a = answers.shift(); return a === undefined ? { ok: false, error: 'no more' } : { ok: true, text: typeof a === 'string' ? a : JSON.stringify(a) }; };
+  const ask = async (system, prompt, images) => { prompts.push(prompt); imagesAsked.push(images || []); const a = answers.shift(); return a === undefined ? { ok: false, error: 'no more' } : { ok: true, text: typeof a === 'string' ? a : JSON.stringify(a) }; };
   const line = async (p, b) => { sent.push({ p, b }); return { status: 200, json: {} }; };
   const stateFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'line-test-')), 'state.json');
-  const sec = new L.Secretary({ config: { secret: SECRET, token: 't', userId: ME }, board, ask, line, stateFile });
+  const imageDir = path.join(path.dirname(stateFile), 'imgs');
+  const sec = new L.Secretary({ config: { secret: SECRET, token: 't', userId: ME }, board, ask, line, stateFile, imageDir, fetchImage: o.fetchImage, ackMs: 30 });
   const said = () => sent.filter((x) => /message\/(reply|push)/.test(x.p)).map((x) => x.b.messages.map((m) => m.text).join(''));
-  return { sec, sent, said, boardCalls, prompts, stateFile };
+  return { sec, sent, said, boardCalls, prompts, imagesAsked, stateFile, imageDir };
 }
 const hook = async (r, raw, sig) => { const code = r.sec.hook(raw, sig === undefined ? sign(raw) : sig); await r.sec.queue; return code; };
 
@@ -232,4 +233,151 @@ test('a claim code made after it started is read again, without restarting it', 
   r2.sec.reload = () => ({ secret: 'other', token: 't', userId: OTHER });
   await hook(r2, body(ev('hi', { from: OTHER })));
   assert.strictEqual(r2.sec.conf.userId, '');
+});
+
+// ── pictures (asked 2026-11-20: it looks at them, and hands them on to a conversation) ──
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const pic = (o = {}) => ({ type: 'message', webhookEventId: o.id || crypto.randomUUID(), replyToken: 'rt-img', source: { type: 'user', userId: o.from || ME }, message: Object.assign({ type: 'image', id: o.mid || ('i' + Math.floor(Math.random() * 1e9)) }, o.message || {}) });
+const fetchOk = (calls = []) => async (id) => { calls.push(id); return { status: 200, buf: PNG, mime: 'image/png' }; };
+const settle = (ms = 80) => new Promise((r) => setTimeout(r, ms));
+
+test('a picture: downloaded and kept, "got it" said once after several, and shown to the model with what you say next', async () => {
+  const calls = [];
+  const r = rig([{ reply: '這是錯誤畫面：缺少權限', action: null }], { fetchImage: fetchOk(calls) });
+  await hook(r, body(pic({ mid: '111' }))); await hook(r, body(pic({ mid: '222' })));
+  await settle(); await r.sec.queue;
+  assert.deepStrictEqual(calls, ['111', '222']);
+  assert.deepStrictEqual(fs.readdirSync(r.imageDir).sort(), ['111.png', '222.png']);
+  assert.deepStrictEqual(r.said(), ['收到圖片（最近 2 張）。要我看圖說明，還是轉給哪個對話？直接打字跟我說。'], 'one "got them" for both');
+  assert.strictEqual(r.prompts.length, 0, 'a picture alone does not ask the model');
+  await hook(r, body(ev('這是什麼錯誤')));
+  assert.strictEqual(r.imagesAsked[0].length, 2);
+  assert.deepStrictEqual(r.imagesAsked[0][0], { mime: 'image/png', data: PNG.toString('base64') });
+  assert.match(r.prompts[0], /他最近傳了 2 張圖，附在這則訊息裡（依序是圖1、圖2）/);
+  assert.strictEqual(r.said()[1], '這是錯誤畫面：缺少權限');
+  // a text with no picture lately: none given
+  const r2 = rig([{ reply: 'ok', action: null }]); await hook(r2, body(ev('嗨')));
+  assert.deepStrictEqual(r2.imagesAsked[0], []);
+  assert.ok(!/張圖/.test(r2.prompts[0]));
+});
+
+test('a picture and words sent together: the answer says it, no separate "got it"', async () => {
+  const r = rig([{ reply: '看到了', action: null }], { fetchImage: fetchOk() });
+  await hook(r, body(pic(), ev('幫我看這張')));
+  await settle(); await r.sec.queue;
+  assert.deepStrictEqual(r.said(), ['看到了']);
+  assert.strictEqual(r.imagesAsked[0].length, 1);
+});
+
+test('pictures handed on to a conversation only with your yes, and then not handed again', async () => {
+  const r = rig([{ reply: '我把截圖交給 #1', action: { type: 'send', n: 1, text: '看這張截圖，修掉錯誤', images: true } }], { fetchImage: fetchOk() });
+  await hook(r, body(pic(), ev('這張給 #1 看')));
+  await settle();
+  assert.match(r.said()[0], /送給 「Ebilling 費率表」（Ebilling）：\n看這張截圖，修掉錯誤\n（附上你傳的 1 張圖）/);
+  assert.ok(!r.boardCalls.some((c) => c.startsWith('POST /api/send')), 'nothing sent before your yes');
+  await hook(r, body(ev('好')));
+  const s = r.boardCalls.find((c) => c.startsWith('POST /api/send'));
+  const b = JSON.parse(s.slice('POST /api/send '.length));
+  assert.deepStrictEqual(b, { sessionId: 's1', text: '看這張截圖，修掉錯誤', images: [{ mime: 'image/png', data: PNG.toString('base64') }] });
+  assert.strictEqual(r.said()[1], '已送出（含 1 張圖）。');
+  assert.deepStrictEqual(r.sec.state.images, [], 'handed on: not handed again');
+  // a new conversation with the pictures too
+  const r2 = rig([{ reply: '開新的', action: { type: 'new', folder: 'C:\\work\\KMS', text: '照圖改', images: true } }], { fetchImage: fetchOk() });
+  await hook(r2, body(pic(), ev('開個新的照圖改'))); await settle();
+  await hook(r2, body(ev('好')));
+  const s2 = r2.boardCalls.find((c) => c.startsWith('POST /api/send'));
+  assert.strictEqual(JSON.parse(s2.slice('POST /api/send '.length)).images.length, 1);
+  assert.strictEqual(r2.said()[1], '已開新對話並交代了（含 1 張圖）。');
+});
+
+test('pictures: none to hand on, too old, gone by the yes - said, nothing sent without them', async () => {
+  const r = rig([{ reply: '轉過去', action: { type: 'send', n: 1, text: 'x', images: true } }]);
+  await hook(r, body(ev('把圖給 #1')));
+  assert.match(r.said()[0], /沒辦法做：要附的圖已經過了 30 分鐘或不在了/);
+  // older than IMAGE_MS: not shown to the model any more
+  let t = 1e12;
+  const r2 = rig([{ reply: 'a', action: null }], { fetchImage: fetchOk() }); r2.sec.now = () => t;
+  await hook(r2, body(pic())); await settle();
+  t += L.IMAGE_MS + 1;
+  await hook(r2, body(ev('剛剛那張呢')));
+  assert.deepStrictEqual(r2.imagesAsked[0], []);
+  // the file removed between the plan and your yes: not sent
+  const r3 = rig([{ reply: 'b', action: { type: 'send', n: 1, text: 'y', images: true } }], { fetchImage: fetchOk() });
+  await hook(r3, body(pic(), ev('給 #1'))); await settle();
+  for (const f of fs.readdirSync(r3.imageDir)) fs.unlinkSync(path.join(r3.imageDir, f));
+  await hook(r3, body(ev('好')));
+  assert.match(r3.said()[1], /沒送出：附的圖不見了/);
+  assert.ok(!r3.boardCalls.some((c) => c.startsWith('POST /api/send')));
+});
+
+test('a picture that cannot be taken, and the kinds it does not read, are said so', async () => {
+  const r = rig([], { fetchImage: async () => ({ status: 404 }) });
+  await hook(r, body(pic()));
+  assert.deepStrictEqual(r.said(), ['圖片沒收到：從 LINE 下載失敗（404），再傳一次試試。']);
+  const r2 = rig([], { fetchImage: async () => ({ status: 200, buf: Buffer.from('x'), mime: 'image/tiff' }) });
+  await hook(r2, body(pic()));
+  assert.match(r2.said()[0], /格式不支援（image\/tiff）/);
+  const r3 = rig([], { fetchImage: async () => ({ status: 200, buf: Buffer.alloc(5 * 1024 * 1024 + 1), mime: 'image/jpeg' }) });
+  await hook(r3, body(pic()));
+  assert.match(r3.said()[0], /超過 5 MB/);
+  const r4 = rig([], { fetchImage: fetchOk() });
+  await hook(r4, body(pic({ message: { contentProvider: { type: 'external', originalContentUrl: 'https://x/y.jpg' } } })));
+  assert.match(r4.said()[0], /放在別的網站上/);
+  const r5 = rig([]);
+  await hook(r5, body(Object.assign(pic(), { message: { type: 'sticker', id: 's1' } })));
+  assert.deepStrictEqual(r5.said(), ['我現在只看得懂文字和圖片（收到的是貼圖）。']);
+  // someone else's picture: not downloaded
+  const calls = []; const r6 = rig([], { fetchImage: fetchOk(calls) });
+  await hook(r6, body(pic({ from: OTHER }))); await settle();
+  assert.deepStrictEqual([calls, r6.said()], [[], []]);
+});
+
+test('pictures: old files go even with no new one, too big is said so, several are one line, only those handed on are cleared', async () => {
+  // a picture file older than a day goes when it starts (and every hour after); a fresh one and other files stay
+  const r = rig([]);
+  fs.mkdirSync(r.imageDir, { recursive: true });
+  const old = path.join(r.imageDir, 'old1.jpg'), fresh = path.join(r.imageDir, 'new1.png'), other = path.join(r.imageDir, 'notes.txt');
+  for (const f of [old, fresh, other]) fs.writeFileSync(f, 'x');
+  const day = Date.now() / 1000 - 25 * 3600; fs.utimesSync(old, day, day); fs.utimesSync(other, day, day);
+  new L.Secretary({ config: { secret: SECRET, token: 't', userId: ME }, stateFile: r.stateFile, imageDir: r.imageDir });
+  assert.deepStrictEqual(fs.readdirSync(r.imageDir).sort(), ['new1.png', 'notes.txt']);
+  // cut off while downloading (over 5 MB): said as too big, not "try again"
+  const r2 = rig([], { fetchImage: async () => ({ status: 413 }) });
+  await hook(r2, body(pic()));
+  assert.deepStrictEqual(r2.said(), ['圖片沒收到：超過 5 MB。']);
+  // three pictures in a row: one line in what is remembered
+  const r3 = rig([], { fetchImage: fetchOk() });
+  await hook(r3, body(pic(), pic(), pic())); await settle();
+  assert.deepStrictEqual(r3.sec.state.history.map((x) => x.text), ['（傳了 3 張圖）']);
+  // a picture sent after the plan, before the yes: it stays when the others are handed on
+  const r4 = rig([{ reply: '轉', action: { type: 'send', n: 1, text: '看圖', images: true } }], { fetchImage: fetchOk() });
+  await hook(r4, body(pic({ mid: 'a1' }), ev('給 #1'))); await settle();
+  await hook(r4, body(pic({ mid: 'b2' }))); await settle();
+  await hook(r4, body(ev('好')));
+  const sentImgs = JSON.parse(r4.boardCalls.find((c) => c.startsWith('POST /api/send')).slice('POST /api/send '.length)).images;
+  assert.strictEqual(sentImgs.length, 1, 'what you said yes to: the one picture of the plan');
+  assert.deepStrictEqual(r4.sec.state.images.map((x) => path.basename(x.file)), ['b2.png']);
+});
+
+test('the model is asked with the pictures as a stream-json message, plain text without', async () => {
+  const runs = [];
+  const { EventEmitter } = require('events');
+  const fake = (bin, args) => {
+    const p = new EventEmitter(); p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); p.kill = () => {};
+    p.stdin = { on() {}, end(d) {
+      runs.push({ args, input: String(d) });
+      const withImgs = args.includes('--input-format');
+      setImmediate(() => { p.stdout.emit('data', withImgs ? '{"type":"system"}\n{"type":"result","is_error":false,"result":"看到一張圖"}\n' : '{"is_error":false,"result":"純文字"}'); p.emit('close', 0); });
+    } };
+    return p;
+  };
+  const ask = L._claudeAsk({ spawn: fake });
+  assert.deepStrictEqual(await ask('SYS', '問題'), { ok: true, text: '純文字' });
+  assert.ok(!runs[0].args.includes('--input-format') && runs[0].input === '問題');
+  assert.deepStrictEqual(await ask('SYS', '這是什麼', [{ mime: 'image/png', data: 'QUJD' }]), { ok: true, text: '看到一張圖' });
+  const a = runs[1].args;
+  assert.strictEqual(a[a.indexOf('--input-format') + 1], 'stream-json');
+  assert.strictEqual(a[a.indexOf('--tools') + 1], '');
+  assert.strictEqual(a[a.indexOf('--setting-sources') + 1], '');
+  assert.deepStrictEqual(JSON.parse(runs[1].input), { type: 'user', message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'QUJD' } }, { type: 'text', text: '這是什麼' }] } });
 });

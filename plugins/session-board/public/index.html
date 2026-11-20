@@ -3750,8 +3750,15 @@ async function openChat(sid, at) {
     if (scroll.scrollTop < 40 && !histMore) { say('已經是這段對話最早的地方了'); return; }
     histReadyAt = Date.now() + 1500; scroll.scrollTop = 0;
   });
+  first.id = 'jmpFirst'; up.id = 'jmpUp'; next.id = 'jmpNext'; dn.id = 'jmpNew';
   jump.append(first, up, next, dn);
   wrap.append(scroll, jump);
+  // Only the jumps that would go somewhere from here (asked 2026-11-20: at the newest, no 「我下一則」): checked as you
+  // scroll and whenever what is loaded grows or shrinks
+  let jumpQueued = false;
+  const queueJumps = () => { if (jumpQueued) return; jumpQueued = true; requestAnimationFrame(() => { jumpQueued = false; jumpShow(); }); };
+  scroll.addEventListener('scroll', queueJumps, { passive: true });
+  if (window.ResizeObserver) new ResizeObserver(queueJumps).observe(col);
   // away from the bottom (on a phone only "↓" is shown, and only then)
   const AWAY_PX = 400;   // this far from the bottom, "↓" shows (on a phone, the only jump there is)
   const away = () => wrap.classList.toggle('away', scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > AWAY_PX);
@@ -4734,6 +4741,20 @@ function jumpToMineDown() {
   if (!target || sc.scrollTop >= sc.scrollHeight - sc.clientHeight - 4) { toBottom(); if (!target) say('下面沒有你說的話了，已經到最新'); else flash(target.e); return; }
   sc.scrollTop = target.top;
   flash(target.e);
+}
+// Which jumps are shown: each only when pressing it would take you somewhere from where the view is now - the same
+// tests the jumps themselves make. 「最舊」 and 「我上一則」 stay while there is more before to load (pressing them loads it).
+function jumpShow() {
+  const sc = $('scroll'); if (!sc) return;
+  const atEnd = sc.scrollTop >= sc.scrollHeight - sc.clientHeight - 4;
+  const atTop = sc.scrollTop < 40;
+  const list = myMessages();
+  const canLoad = histMore && histMax < histLimit;   // what loadEarlier itself needs before it fetches anything
+  const set = (id, show) => { const b = $(id); if (b && b.hidden === show) b.hidden = !show; };
+  set('jmpNew', !atEnd);
+  set('jmpNext', !atEnd && list.some((x) => x.top > sc.scrollTop + 4));
+  set('jmpUp', list.some((x) => x.top < sc.scrollTop - 4) || canLoad);
+  set('jmpFirst', !atTop || canLoad);
 }
 // Opening a conversation: start at your last message when the reply after it is
 // longer than the screen, so it can be read downward from there; otherwise the bottom.
