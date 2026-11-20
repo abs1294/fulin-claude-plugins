@@ -35,6 +35,7 @@ const T1 = uuid(1), T2 = uuid(2), PAST = uuid(3), PAST2 = uuid(4);
 
 // ── what stands in for the outside world ──
 const did = [];                                   // every outward action asked for, in order
+const explained = [];                             // the prompts the 說明 of a harness suggestion was asked with
 const procs = [];                                 // Claude processes "started"
 const fakeSpawn = (bin, args, opts) => {
   const p = new EventEmitter(); p.pid = 900000 + procs.length; p.stdout = new EventEmitter(); p.stderr = new EventEmitter();
@@ -69,6 +70,7 @@ const out = {
     return cb(new Error('unexpected git call: ' + a), '', 'unexpected');
   },
   goalRun: null,
+  explain: async (cwd, prompt) => { did.push('explain in ' + path.basename(cwd)); explained.push(prompt); if (prompt.includes('slow')) await new Promise((r) => setTimeout(r, 300)); return { ok: true, answer: '說明 ' + explained.length, cost: 0.01, ms: 5 }; },
   btw: async (sid, cwd, question) => { did.push('btw ' + sid.slice(-2) + ' in ' + path.basename(cwd)); if (question === 'slow') await new Promise((r) => setTimeout(r, 300)); return question === 'fail' ? { ok: false, error: '沒有回答', ms: 1 } : { ok: true, answer: '答：' + question, cost: 0.01, ms: 5 }; },
   shell: async (command, cwd) => { did.push('shell ' + command); return command === 'boom' ? { ok: false, code: null, stdout: '', stderr: '', error: 'stopped', shell: 'bash', ms: 1 } : { ok: true, code: 0, stdout: 'out of ' + command + '\n', stderr: '', shell: 'bash', ms: 1 }; },
 };
@@ -285,7 +287,46 @@ test('a question on the side: answered from the conversation, for any session th
   const args = A.argsFor('abc');
   assert.ok(args.includes('--fork-session') && args.includes('--no-session-persistence') && args.includes('--strict-mcp-config'), 'a copy, not saved, with nothing it could act through');
   assert.strictEqual(args[args.indexOf('--tools') + 1], '');
+  assert.strictEqual(args[args.indexOf('--setting-sources') + 1], '', 'no settings: none of your hooks run in the copy');
   const gone = await A.ask('abc', HOME, 'x', { bin: path.join(HOME, 'no-such-claude.exe') }); assert.strictEqual(gone.ok, false);
+});
+
+test('說明 of a harness suggestion: in no conversation, read-only, told another way when asked again', async () => {
+  const A = require('../lib/aside');
+  const ea = A.explainArgs();
+  assert.ok(ea.includes('--no-session-persistence') && ea.includes('--strict-mcp-config') && !ea.includes('--resume'), 'nothing resumed, nothing saved');
+  assert.strictEqual(ea[ea.indexOf('--tools') + 1], 'Read,Grep,Glob', 'it may read the file the suggestion is about, not change anything');
+  assert.ok(ea.indexOf('--setting-sources') > 0 && ea[ea.indexOf('--setting-sources') + 1] === '', 'no settings: the folder\'s hooks do not run');
+  const x = { id: 'p-20261101-01', level: 'red', kind: 'hook', action: 'update', target: '.claude/hooks/learn-lib.js', summary: '淘汰候選沒有記錄機制', content: '加一個 reviewed 欄位' };
+  const first = A.explainPrompt(x);
+  assert.ok(first.includes('p-20261101-01') && first.includes('.claude/hooks/learn-lib.js') && first.includes('加一個 reviewed 欄位') && first.includes('核可會怎樣／駁回會怎樣'));
+  assert.ok(!first.includes('看不懂）'), 'the first time there is nothing earlier');
+  const again = A.explainPrompt(x, ['第一版的講法', '', 42, '第二版的講法']);
+  assert.ok(again.includes('--- 第 1 版（看不懂）---\n第一版的講法') && again.includes('--- 第 2 版（看不懂）---\n第二版的講法') && again.includes('完全不同的講法'), 'pressed again: the earlier ones go with it, to be told another way');
+  assert.ok(!again.includes('42'), 'only text counts as an earlier explanation');
+  // it really is run that way: the arguments and the prompt on its input
+  let seen = null;
+  const fake = (bin, args, opt) => { const { EventEmitter } = require('events'); const p = new EventEmitter(); p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); let input = ''; p.stdin = { on() {}, write(t) { input += t; }, end() { seen = { args, cwd: opt.cwd, input }; setImmediate(() => { p.stdout.emit('data', JSON.stringify({ result: '白話說明', total_cost_usd: 0.02 })); p.emit('close'); }); } }; p.kill = () => {}; return p; };
+  const r = await A.explain(WORK, first, { spawn: fake });
+  assert.deepStrictEqual([r.ok, r.answer, seen.cwd, seen.input === first, seen.args.join(' ') === ea.join(' ')], [true, '白話說明', WORK, true, true]);
+  // the address: the suggestion is read from the folder's own list, not taken from the page
+  assert.strictEqual((await post('/api/harness/explain', { cwd: WORK, id: 'p-1' })).status, 404, 'no harness in the folder');
+  assert.strictEqual((await post('/api/harness/explain', { cwd: 'relative', id: 'p-1' })).status, 400);
+  const H = path.join(WORK, '.claude', 'harness'); fs.mkdirSync(path.join(H, 'learning'), { recursive: true }); fs.writeFileSync(path.join(H, 'README.md'), '# harness');
+  fs.writeFileSync(path.join(H, 'learning', 'pending.json'), JSON.stringify({ items: [{ id: 'p-9', status: 'pending', level: 'red', kind: 'hook', target: 'a.js', summary: '要你看' }, { id: 'p-slow', status: 'pending', summary: 'slow' }, { id: 'p-old', status: 'accepted', summary: '舊的' }] }));
+  try {
+    const before = did.length;
+    const one = await post('/api/harness/explain', { cwd: WORK, id: 'p-9', summary: '頁面送來的假摘要' });
+    assert.deepStrictEqual([one.status, one.json.answer], [200, '說明 1'], one.text);
+    const p1 = explained[explained.length - 1];
+    assert.ok(p1.includes('要你看') && !p1.includes('頁面送來的假摘要'), 'the words come from pending.json, not from the page');
+    assert.deepStrictEqual(did.slice(before), ['explain in ' + path.basename(WORK)], 'and nothing else: no conversation opened, nothing sent');
+    await post('/api/harness/explain', { cwd: WORK, id: 'p-9', before: ['說明 1'] });
+    assert.ok(explained[explained.length - 1].includes('--- 第 1 版（看不懂）---\n說明 1'), 'pressed again: the first explanation goes with it');
+    assert.strictEqual((await post('/api/harness/explain', { cwd: WORK, id: 'p-old' })).status, 404, 'one already decided is not explained');
+    const [a, b] = await Promise.all([post('/api/harness/explain', { cwd: WORK, id: 'p-slow' }), new Promise((res) => setTimeout(res, 60)).then(() => post('/api/harness/explain', { cwd: WORK, id: 'p-slow' }))]);
+    assert.deepStrictEqual([a.status, b.status], [200, 409], 'one at a time per suggestion');
+  } finally { fs.rmSync(path.join(WORK, '.claude', 'harness'), { recursive: true, force: true }); }
 });
 
 test('goal2 and harness switched off in the settings: gone from their addresses', async () => {
@@ -532,6 +573,15 @@ test('another computer: only through Tailscale, only your own devices', WIN_ONLY
   const i = await R.info(run); assert.deepStrictEqual([i.ok, i.ip, i.name, i.user, i.devices.map((d) => d.name + ':' + d.mine)], [true, '100.70.0.1', 'me.tail.ts.net', 'me@x', ['laptop:true', 'friend:false']]);
   reply = status({}, 'NeedsLogin'); assert.deepStrictEqual(await R.info(run), { ok: false, why: 'Tailscale 還沒登入' });
   reply = ''; assert.strictEqual((await R.info(run)).ok, false);
+  // the https address tailscale serve gives the board (shape of `tailscale serve status --json`, measured 2026-11-19)
+  const serve = (web, tcp) => (exe, args, opts, cb) => { assert.deepStrictEqual(args, ['serve', 'status', '--json']); cb(null, JSON.stringify({ TCP: tcp, Web: web })); };
+  const web = (port, proxy) => ({ ['me.tail.ts.net:' + port]: { Handlers: { '/': { Proxy: proxy } } } });
+  assert.strictEqual(await R.servedUrl(4317, serve(web('443', 'http://127.0.0.1:4317'), { 443: { HTTPS: true } })), 'https://me.tail.ts.net/');
+  assert.strictEqual(await R.servedUrl(4317, serve(web('8444', 'http://localhost:4317/'), { 8444: { HTTPS: true } })), 'https://me.tail.ts.net:8444/', 'another https port is named');
+  assert.strictEqual(await R.servedUrl(4317, serve(web('8443', 'http://127.0.0.1:4318'), { 8443: { HTTPS: true } })), '', 'serving something else (the LINE listener) is not the board');
+  assert.strictEqual(await R.servedUrl(4317, serve(web('443', 'http://127.0.0.1:4317'), { 443: {} })), '', 'not https: no use for the microphone');
+  assert.strictEqual(await R.servedUrl(4317, (exe, args, opts, cb) => cb(new Error('x'), '')), '', 'no tailscale');
+  assert.strictEqual(await R.servedUrl(4317, (exe, args, opts, cb) => cb(null, 'not json')), '');
   // the board refuses a request from an address the gate does not let in, before it looks at the key
   const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, out, gate: { allows: async () => false, refresh: async () => {} } });
   await new Promise((r) => s2.listen(p2, '127.0.0.1', r));
@@ -1315,6 +1365,56 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
   assert.ok(written().includes('/rename 合作' + busy.json.id + '-GAMMA') && written().includes('【合作 #' + busy.json.id + '】'), 'sent once it is idle');
   const left = (await get('/api/collab?id=' + busy.json.id)).json.members.find((m) => m.role === 'GAMMA');
   assert.ok(!left.pending, 'and not again');
+});
+
+test('the mic: what was heard is tidied as it comes; through tailscale serve the device behind it is checked, Funnel never gets in', async () => {
+  const seen = [], tidyCalls = [];
+  const tidy = {
+    warm: () => tidyCalls.push('warm'),
+    run: async (text, onDelta) => { tidyCalls.push(text); if (text === 'bad') return { ok: false, error: '整理失敗' }; onDelta('我想'); onDelta('我想看。'); return { ok: true, text: '我想看。', ms: 900 }; },
+  };
+  const gate = { info: { ok: true, name: 'me.tail.ts.net' }, allows: async (a) => { seen.push(a); return a === '127.0.0.1' || a === '100.70.0.2'; }, refresh: async () => {} };
+  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, out, gate, tidy, servedUrl: async () => 'https://me.tail.ts.net/' });
+  await new Promise((r) => s2.listen(p2, '127.0.0.1', r));
+  const raw = (pp, body, headers = {}) => new Promise((resolve) => {
+    const b = body === undefined ? null : Buffer.from(JSON.stringify(body));
+    const q2 = http.request({ host: '127.0.0.1', port: p2, path: pp, method: b ? 'POST' : 'GET', headers: Object.assign({ 'x-board-token': TOKEN }, b ? { 'content-type': 'application/json', 'content-length': b.length } : {}, headers) }, (res) => { let d = ''; res.setEncoding('utf8'); res.on('data', (c) => { d += c; }); res.on('end', () => resolve({ status: res.statusCode, text: d })); });
+    q2.on('error', (e) => resolve({ status: e.code })); if (b) q2.write(b); q2.end();
+  });
+  asked.add('POST /api/tidy/warm'); asked.add('POST /api/tidy');
+  assert.strictEqual((await raw('/api/tidy/warm', {})).status, 200);
+  const t = await raw('/api/tidy', { text: '呃 我想 看' });
+  assert.deepStrictEqual(t.text.trim().split('\n').map((l) => JSON.parse(l)), [{ d: '我想' }, { d: '我想看。' }, { done: true, text: '我想看。', ms: 900 }], 'the words as they come, then the whole');
+  assert.deepStrictEqual(JSON.parse((await raw('/api/tidy', { text: 'bad' })).text.trim()), { error: '整理失敗' });
+  assert.strictEqual((await raw('/api/tidy', { text: '  ' })).status, 400);
+  assert.strictEqual((await raw('/api/tidy', { text: 'x'.repeat(4001) })).status, 400);
+  assert.deepStrictEqual(tidyCalls, ['warm', '呃 我想 看', 'bad']);
+  // through tailscale serve: from 127.0.0.1, the device in x-forwarded-for - that device is what the gate is asked about
+  const serveH = (ip) => ({ host: 'me.tail.ts.net', 'x-forwarded-for': ip, 'tailscale-user-login': 'me@x' });
+  const cfg = require('../lib/config'); const was = cfg.value('remoteTailscale', false);
+  cfg.setValue('remoteTailscale', false); seen.length = 0;
+  assert.strictEqual((await raw('/api/ping', undefined, serveH('100.70.0.2'))).status, 403, 'switched off: not even your phone, though serve is still set up');
+  assert.deepStrictEqual(seen, [], 'refused before the device is asked about');
+  cfg.setValue('remoteTailscale', true);
+  assert.strictEqual((await raw('/api/ping', undefined, serveH('100.70.0.2'))).status, 200, 'your phone through https');
+  assert.strictEqual((await raw('/api/ping', undefined, serveH('100.70.0.3'))).status, 403, 'a device not yours');
+  assert.deepStrictEqual(seen, ['100.70.0.2', '100.70.0.3']);
+  assert.strictEqual((await raw('/api/ping', undefined, Object.assign(serveH('100.70.0.2'), { host: 'me.tail.ts.net:8444' }))).status, 200, 'served on another https port: the name with its port');
+  assert.strictEqual((await raw('/api/ping', undefined, Object.assign(serveH('100.70.0.2'), { host: 'other.tail.ts.net:8444' }))).status, 403, 'another name with a port');
+  seen.length = 0;
+  assert.strictEqual((await raw('/api/ping', undefined, { host: 'other.tail.ts.net', 'x-forwarded-for': '100.70.0.2' })).status, 403, 'another name');
+  assert.strictEqual((await raw('/api/ping', undefined, { host: 'me.tail.ts.net' })).status, 403, 'the https name without serve: not taken');
+  // Funnel (the internet) is refused whatever else it carries
+  assert.strictEqual((await raw('/api/ping', undefined, Object.assign(serveH('100.70.0.2'), { 'tailscale-funnel-request': '?1' }))).status, 403);
+  // from the phone through https, what happens on this screen is refused
+  const scr = await raw('/api/pick-folder', {}, serveH('100.70.0.2'));
+  assert.strictEqual(scr.status, 403, scr.text);
+  assert.strictEqual(JSON.parse((await raw('/api/config')).text).httpsUrl, 'https://me.tail.ts.net/', 'switched on: the https address for the phone');
+  cfg.setValue('remoteTailscale', false);
+  // and the settings name the https address for the phone
+  assert.strictEqual(JSON.parse((await raw('/api/config')).text).httpsUrl, '', 'only while reaching it through Tailscale is on');
+  cfg.setValue('remoteTailscale', was);
+  s2.close();
 });
 
 test('no address is left without a test', WIN_ONLY, () => {

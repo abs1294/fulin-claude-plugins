@@ -594,3 +594,18 @@ test('Channels: a conversation switched to another model runs on it from its nex
   assert.strictEqual(again.get(c.sessionId).model, 'opus', 'kept across a restart of the board');
   ch.shutdown(); again.shutdown(); fs.rmSync(d, { recursive: true, force: true });
 });
+
+test('a slash command you ran is shown as you said it (it was dropped with the harness tags); the board\'s own /rename is not', () => {
+  const u = (content, uuid = 'c1') => ({ type: 'user', uuid, timestamp: '2026-11-19T11:10:03.315Z', message: { content } });
+  // as Claude Code writes it (seen 2026-11-19 for the 「寫交付訊息」 button)
+  assert.deepStrictEqual(H.itemsOf(u('<command-message>deliver-report:deliver-report</command-message>\n<command-name>/deliver-report:deliver-report</command-name>')).map((i) => [i.role, i.text]), [['user', '/deliver-report:deliver-report']]);
+  // with its words, in either order
+  assert.deepStrictEqual(H.itemsOf(u('<command-name>/harness:review</command-name>\n<command-message>harness:review</command-message>\n<command-args>只看 A 檔</command-args>')).map((i) => i.text), ['/harness:review 只看 A 檔']);
+  assert.deepStrictEqual(H.itemsOf(u('<command-args>x y</command-args><command-name>/model</command-name>')).map((i) => i.text), ['/model x y']);
+  assert.deepStrictEqual(H.itemsOf(u([{ type: 'text', text: '<command-name>/rename</command-name><command-args>合作3-ALPHA</command-args>' }])), []);
+  // what a command printed, the skill's own text (isMeta) and the other harness tags stay out
+  assert.deepStrictEqual(H.itemsOf(u('<local-command-stdout>✓ Installed</local-command-stdout>')), []);
+  assert.deepStrictEqual(H.itemsOf(Object.assign(u([{ type: 'text', text: 'Base directory for this skill: …' }]), { isMeta: true })), []);
+  // the name mentioned in the middle of what you typed is just text
+  assert.deepStrictEqual(H.itemsOf(u('請看 <command-name>/x</command-name> 這段')).map((i) => i.text), ['請看 <command-name>/x</command-name> 這段']);
+});

@@ -56,6 +56,9 @@ test('ingest: once per message, routed by the most specific route, reopened by a
   inbox.markSeen('teams:k', 10000);
   assert.strictEqual(inbox.counts().unread, 1);
   assert.deepStrictEqual(inbox.threads({ q: '在嗎' }).map((x) => x.thread_id), ['teams:k']);   // the search reads message text too
+  inbox.db.prepare("UPDATE inbox_thread SET triage = 'fyi', triage_title = 'Prototype 交付通知', triage_summary = '請確認動畫' WHERE thread_id = 'teams:k'").run();
+  assert.deepStrictEqual(inbox.threads({ q: '交付通知' }).map((x) => x.thread_id), ['teams:k']);   // and the triage's title the list shows
+  assert.deepStrictEqual(inbox.threads({ q: '確認動畫' }).map((x) => x.thread_id), ['teams:k']);   // and its line
   assert.deepStrictEqual(inbox.threads({ source: 'gmail' }).map((x) => [x.thread_id, x.messages, x.latest]), [['gmail:t1', 4, '內容 m4']]);
   assert.strictEqual(inbox.deleteRoute(inbox.routes()[0].id), true);
 });

@@ -57,12 +57,25 @@
   .side-rail { display: none; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0; }
   @media (min-width: 721px) {   /* not on a phone: folded there (on the computer) would leave it no list */
     .app.folded { grid-template-columns: 48px minmax(0, 1fr); }
-    .app.folded .side > :not(.side-rail) { display: none; }
+    .app.folded:not(.fly) .side > :not(.side-rail) { display: none; }
     .app.folded .side-rail { display: flex; }
+    /* the pointer resting on the folded rail: the whole column floats out beside it, over the page, until the pointer leaves */
+    .app.folded.fly { position: relative; }
+    .app.folded.fly > .main { grid-column: 2; }
+    .app.folded.fly .side { position: absolute; left: 0; top: 0; bottom: 0; z-index: 40; width: calc(48px + var(--side-w, 324px)); padding-left: 48px; box-sizing: border-box; box-shadow: 6px 0 24px rgba(0, 0, 0, .16); }
+    .app.folded.fly .side-rail { position: absolute; left: 0; top: 0; bottom: 0; width: 48px; border-right: 1px solid var(--line); }
+    .app.folded.fly .side-edge, .app.folded.fly #foldBtn { display: none; }
   }
   .side-rail .btn { width: 36px; height: 36px; padding: 0; justify-content: center; }
-  .side-rail .rail-n { min-width: 22px; height: 22px; border-radius: 11px; background: var(--dot-wait, #EA580C); color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0 6px; }
-  .side-rail .rail-n[hidden] { display: none; }
+  /* folded: a new chat, and only the sessions you have to act on (waiting for you, maybe stuck) - the rest floats out on hover */
+  .side-rail { height: 100%; box-sizing: border-box; }
+  .side-rail .rail-list { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; padding: 6px 0 8px; border-top: 1px solid var(--line); }
+  .side-rail .rail-list:empty { border-top: 0; }
+  .side-rail .rail-list::-webkit-scrollbar { display: none; }
+  .rail-t { position: relative; flex: none; width: 34px; height: 34px; padding: 0; border: 0; border-radius: var(--r-m); background: none; color: inherit; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .rail-t:hover .face { filter: brightness(1.08); }
+  .rail-t.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+  .side-rail .rail-new { width: 36px; height: 36px; padding: 0; justify-content: center; }
   .fold-btn { border: 0; background: none; color: var(--dim); cursor: pointer; padding: 2px 8px 6px; border-radius: var(--r-s); font-size: 24px; line-height: 1; min-width: 34px; min-height: 34px; }
   .fold-btn:hover { background: var(--hover); color: inherit; }
   #unfoldBtn { font-size: 22px; line-height: 1; padding: 4px 10px 8px; min-width: 38px; }
@@ -70,9 +83,10 @@
   .rename-in { font: inherit; width: 100%; box-sizing: border-box; border: 1px solid var(--accent, #2563EB); border-radius: var(--r-s); padding: 2px 6px; background: var(--bg); color: inherit; }
   /* the office: starred rooms first, rooms dragged into your own order */
   .of-sec { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--dim); margin: 6px 0 -4px; }
-  .of-sec button { border: 0; background: none; color: var(--accent, #2563EB); cursor: pointer; font: inherit; font-weight: 500; padding: 0; }
-  .room-head .star { border: 0; background: none; cursor: pointer; font-size: 16px; line-height: 1; color: var(--faint); padding: 0 2px; }
-  .room-head .star.on { color: #D97706; }
+  .of-sec button { border: 0; background: none; color: var(--accent, #2563EB); cursor: pointer; font: inherit; font-weight: 500; padding: 0; min-height: 24px; }
+  .room-head .star { border: 0; background: none; cursor: pointer; font-size: 16px; line-height: 1; color: var(--faint); padding: 0 2px; min-width: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center; }
+  .room-head .star.on { color: var(--amber); }   /* was #D97706: 2.75 to 1 on the light looks' grounds, under the 3 an icon needs */
+  .room-head button { min-height: 24px; }
   .room[draggable="true"] .room-head { cursor: grab; }
   .room.dragging { opacity: .45; }
   .room.drop-before { box-shadow: -4px 0 0 0 var(--accent, #2563EB); }
@@ -134,7 +148,7 @@
      and fades. Moved by transform and opacity, which the screen's compositor does alone: the ring was a box-shadow that
      grew, and every running dot was painted again 60 times a second (2026-11-19: the office page, with its running
      desks, kept the browser busy about a fifth of the time) */
-  .dot.running::after, .desk.run .face i::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; pointer-events: none; animation: beat 1.6s ease-out infinite; }
+  .dot.running::after, .desk.run .face i::after, .rail-t.run .face i::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: inherit; opacity: 0; pointer-events: none; animation: beat 1.6s ease-out infinite; }
   @keyframes beat { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(2.64); opacity: 0; } }
   /* no movement asked for: the running dot still differs from an idle one, by a slow fade instead */
   @media (prefers-reduced-motion: reduce) { .dot.running::after { animation: none; } .dot.running { animation: fade 2.4s ease-in-out infinite; } @keyframes fade { 50% { opacity: .45; } } }
@@ -189,24 +203,36 @@
   .ptabs button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
   .ptabs small { color: var(--dim); font-weight: 400; margin-left: 4px; }
   .dots { display: flex; justify-content: center; gap: 8px; margin: 2px 0 12px; }
-  .dots button { width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%; background: var(--line); }
-  .dots button.on { background: var(--accent); }
+  /* the page dots: a 7px dot drawn inside a 24px button (the dot itself was all there was to press, 8 x 8) */
+  .dots { gap: 0; }
+  .dots button { width: 24px; height: 24px; padding: 0; border: 0; background: none; position: relative; border-radius: 0; }
+  .dots button::after { content: ""; position: absolute; inset: 8.5px; border-radius: 50%; background: var(--line); }
+  .dots button.on::after { background: var(--accent); }
+  /* a touch screen: everything pressed at least 44 px tall (Apple's 44 pt; measured 2026-11-20 at 25 to 38 px) */
   @media (pointer: coarse) {
-    .room-head .star, .room-head button { min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
-    .of-sec button { min-height: 40px; padding: 0 8px; }
-    .dots { gap: 0; }
-    .dots button { width: 28px; height: 28px; background: none; position: relative; border-radius: 0; }
-    .dots button::after { content: ""; position: absolute; inset: 10.5px; border-radius: 50%; background: var(--line); }
-    .dots button.on { background: none; }
-    .dots button.on::after { background: var(--accent); }
+    .room-head .star, .room-head button { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+    .of-sec button { min-height: 44px; padding: 0 8px; }
+    .dots button { width: 44px; height: 44px; }
+    .dots button::after { inset: 18.5px; }
+    .btn, .of-chip, .seg button, .tabs .btn { min-height: 44px; }
+    .btn, .bell, .car .arrow, .msg .cw .ccopy { min-width: 44px; }
+    .bell, .car .arrow, .msg .cw .ccopy { min-height: 44px; }
+    /* outranked by html body: these rules come before the ones they change, further down (measured: still 30 px tall) */
+    html body details.tools summary { padding-top: 11px; padding-bottom: 11px; }
+    html body .rail-t { width: 44px; height: 44px; }
+    html body .list-more, html body .room-h { min-height: 44px; }
+    html body .cp-row { grid-template-columns: 44px minmax(0, 1fr) 140px 200px; }
+    html body .cp-row input[type=checkbox] { width: 26px; height: 26px; margin: 9px; }
     input[type=checkbox], input[type=radio] { width: 26px; height: 26px; }
     /* (the boxes in a row of settings, of rooms and of options have their own size further down: outranked here, not by order) */
     html body .switch input, html body .choice input[type=checkbox], html body .opt input[type=checkbox], html body .opt input[type=radio] { width: 26px; height: 26px; }
-    select, input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=hidden]) { min-height: 40px; }
-    button.modelbtn, #homeBtn { min-height: 40px; }
-    html body .head .who .t .tt { padding-top: 5px; padding-bottom: 5px; }   /* the name, pressed to rename it: taller by its padding (a flex box would lose its "…") */
+    select, input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=hidden]) { min-height: 44px; }
+    button.modelbtn, #homeBtn { min-height: 44px; }
+    html body .head .who .t .tt { padding-top: 8px; padding-bottom: 8px; }   /* the name, pressed to rename it: taller by its padding (a flex box would lose its "…") */
   }
   @media (max-width: 640px) { .src { flex-basis: 100%; } }
+  /* a touch screen: the card grows with its 44 px button instead of the button covering the card's second line */
+  @media (pointer: coarse) { .src { height: auto; min-height: 124px; } .src .btn { margin-top: 8px; } }
   .tabs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 8px; }
   .tabs .btn.on { background: var(--active); font-weight: 600; }
   .tabs input { flex: 1 1 160px; min-width: 0; border: 1px solid var(--line); border-radius: var(--r-m); padding: 5px 10px; background: var(--bg); color: inherit; font: inherit; font-size: 14px; }
@@ -218,11 +244,20 @@
   .thr .kind { display: inline-block; font-size: 12px; font-weight: 600; border-radius: var(--r-s); padding: 0 6px; margin-right: 8px; vertical-align: 1px; border: 1px solid var(--line); color: var(--dim); }
   .thr .kind.todo, .thr .kind.question { color: var(--amber); border-color: var(--amber); }
   .thr .kind { font-variant-numeric: tabular-nums; }
+  .thr-group { font-size: 13px; font-weight: 600; color: var(--dim); padding: 12px 4px 4px; }   /* searching every tab: one heading per tab */
   .thr .kind.unsure { border-style: dashed; }   /* under 70%: the judgement itself says it is a guess */
   .thr .sum { grid-column: 2 / span 2; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .thr.unread .t { font-weight: 600; }
   .thr .w { color: var(--dim); font-size: 13px; white-space: nowrap; }
   .thr .p { grid-column: 2 / span 2; color: var(--dim); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .thr .p .src-m { display: none; }
+  /* a phone: the source column took 52px off every line; the source moves to the small line, the title gets the width */
+  @media (max-width: 520px) {
+    button.thr { grid-template-columns: minmax(0, 1fr) auto; }
+    .thr .tag { display: none; }
+    .thr .sum, .thr .p { grid-column: 1 / span 2; }
+    .thr .p .src-m { display: inline; }
+  }
   /* What can be done with a thread, under the title and always in view: the messages scroll, this does not. */
   .tbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--line); background: var(--bg); }
   .tbar label { color: var(--dim); font-size: 14px; white-space: nowrap; }
@@ -247,19 +282,26 @@
   .desks .shelf { flex: none; padding: 6px 14px 4px; font-size: 12px; font-weight: 600; color: var(--faint); background: var(--side); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 1; }
   .desk { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; border: 0; background: var(--bg); padding: 9px 14px; text-align: left; font: inherit; color: inherit; }
   .desk:hover, .desk:focus-visible { background: var(--hover); }
-  .desk .face { width: 34px; height: 34px; border-radius: var(--r-m); display: grid; place-items: center; font-size: 14px; font-weight: 600; color: #fff; background: var(--faint); position: relative; }
-  .desk .face i { position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--bg); background: var(--faint); }
-  .desk.wait .face { background: var(--amber); } .desk.wait .face i { background: var(--amber); }
-  .desk.stuck .face { background: var(--red); } .desk.stuck .face i { background: var(--red); }
-  .desk.run .face { background: var(--green); } .desk.run .face i { background: var(--green); }
-  .desk.done .face { background: var(--accent); } .desk.done .face i { background: var(--accent); }
-  @media (prefers-reduced-motion: reduce) { .desk.run .face i::after { animation: none; } }
+  /* the letters in the page's own background colour, not white: the state colours are dark in a light look and light in a
+     dark one, and white on them measured 2.1 to 2.9 to 1 in the dark looks (2026-11-20; 4.5 is the floor) */
+  .desk .face, .rail-t .face { width: 34px; height: 34px; border-radius: var(--r-m); display: grid; place-items: center; font-size: 14px; font-weight: 600; color: var(--bg); background: var(--faint); position: relative; }
+  /* maybe stuck, in the folded rail: a "!" in its corner, so it is not told from "waiting for you" by its colour alone */
+  .rail-t.stuck .face i { width: 15px; height: 15px; right: -4px; bottom: -4px; display: grid; place-items: center; }
+  .rail-t.stuck .face i::before { content: "!"; font-size: 10px; font-weight: 800; line-height: 1; color: var(--bg); }
+  .desk .face i, .rail-t .face i { position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--bg); background: var(--faint); }
+  .desk.wait .face, .rail-t.wait .face { background: var(--amber); } .desk.wait .face i, .rail-t.wait .face i { background: var(--amber); }
+  .desk.stuck .face, .rail-t.stuck .face { background: var(--red); } .desk.stuck .face i, .rail-t.stuck .face i { background: var(--red); }
+  .desk.run .face, .rail-t.run .face { background: var(--green); } .desk.run .face i, .rail-t.run .face i { background: var(--green); }
+  .desk.done .face, .rail-t.done .face { background: var(--accent); } .desk.done .face i, .rail-t.done .face i { background: var(--accent); }
+  @media (prefers-reduced-motion: reduce) { .desk.run .face i::after, .rail-t.run .face i::after { animation: none; } }
   .desk .dt { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .desk .ds { color: var(--dim); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .desk .tag { font-size: 12px; padding: 1px 8px; border-radius: var(--r-m); background: var(--hover); white-space: nowrap; }
   .desk.wait .tag { background: var(--amber-soft); color: var(--amber); font-weight: 600; }
   .desk.stuck .tag { background: color-mix(in srgb, var(--red) 14%, var(--bg)); color: var(--red); font-weight: 600; }
-  .desk.run .tag { background: color-mix(in srgb, var(--green) 16%, var(--bg)); color: var(--green); font-weight: 600; }
+  /* the word a shade deeper than the state colour (toward the text colour: darker in a light look, lighter in a dark one),
+     on a paler tint: green on its own 16% tint measured 3.8 to 1 (2026-11-20) */
+  .desk.run .tag { background: color-mix(in srgb, var(--green) 10%, var(--bg)); color: color-mix(in srgb, var(--green) 70%, var(--ink)); font-weight: 600; }
   /* ── schedules ── */
   .banner { border: 1px solid var(--amber); background: var(--amber-soft); border-radius: var(--r-m); padding: 9px 12px; font-size: 14px; margin: 0 0 16px; }
   .sc-h { margin: 22px 0 6px; font-size: 14px; font-weight: 600; color: var(--dim); }
@@ -270,8 +312,8 @@
   .lg:first-of-type { border-top: 0; }
   .lg .lt { color: var(--dim); font-size: 13px; white-space: nowrap; }
   .lg .ls { font-size: 12px; padding: 1px 8px; border-radius: var(--r-m); background: var(--hover); white-space: nowrap; justify-self: start; }
-  .lg .ls.ok { background: color-mix(in srgb, var(--green) 16%, var(--bg)); color: var(--green); }
-  .lg .ls.bad { background: color-mix(in srgb, var(--red) 14%, var(--bg)); color: var(--red); }
+  .lg .ls.ok { background: color-mix(in srgb, var(--green) 10%, var(--bg)); color: color-mix(in srgb, var(--green) 70%, var(--ink)); }
+  .lg .ls.bad { background: color-mix(in srgb, var(--red) 9%, var(--bg)); color: color-mix(in srgb, var(--red) 70%, var(--ink)); }
   .lg .ls.wait { background: var(--amber-soft); color: var(--amber); }
   .lg .lm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lg .lm span { color: var(--dim); }
@@ -543,6 +585,8 @@
   .hp-s { margin: 6px 0; font-size: 14px; } .hp details summary { cursor: pointer; font-size: 13px; color: var(--dim); } .hp pre { white-space: pre-wrap; font-size: 12px; margin: 6px 0 0; overflow-wrap: anywhere; }
   .hp-a { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
   .hp.done { background: var(--side); } .hp-done { font-size: 13px; color: var(--dim); }
+  .hp-x { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); } .hp-x .msg { margin: 0; }   /* the 說明 under a suggestion */
+  .hp-xn { font-size: 12px; color: var(--dim); margin-bottom: 4px; }
   /* goal2's runs */
   .lg.goal .lm .gf { color: var(--dim); font-size: 13px; margin-right: 10px; white-space: nowrap; }
   .lg.goal .acts { display: flex; gap: 8px; } .lg.goal .acts .btn { padding: 3px 9px; font-size: 13px; }
@@ -589,6 +633,11 @@
   .opt input.other { width: 100%; border: 1px solid var(--line); border-radius: var(--r-m); padding: 4px 8px; background: var(--bg); color: inherit; font: inherit; }
   .asknote { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 14px; }
   .asknote > span { flex: 1; min-width: 200px; }
+  /* a form answered: the choices taken stand out, the rest step back */
+  .card.ask .opt.chosen b { color: var(--ink); } .card.ask .opt.chosen .ob { color: var(--green); font-weight: 700; }
+  .card.ask .opt.not-chosen { opacity: .45; }
+  .card.ask .own-ans { margin-top: 4px; padding: 4px 8px; border-left: 3px solid var(--green); font-size: 14px; overflow-wrap: anywhere; }
+  .card.ask .own-ans span { color: var(--dim); }
   .answered { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--line); font-size: 14px; overflow-wrap: anywhere; }
   .answered .ah { font-size: 13px; color: var(--dim); margin-bottom: 2px; }
   .answered .ar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; padding: 3px 0; }
@@ -614,12 +663,21 @@
   .composer.drop { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
   /* the box you type in, as in the chat apps (every screen): a round + on its left (pictures), round icons on its right -
      send (an arrow), and stop (a square) only while it is working. No words on them: the names are in their labels. */
-  .composer .imgbtn, .composer .sendbtn, .composer .stopbtn { width: 36px; height: 36px; min-height: 0; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .composer .imgbtn, .composer .sendbtn, .composer .stopbtn, .composer .micbtn { width: 36px; height: 36px; min-height: 0; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; }
   .composer .imgbtn { order: -1; border-color: transparent; background: var(--hover); color: var(--ink); }
   .composer .imgbtn:hover, .composer .imgbtn[aria-expanded="true"] { background: var(--active); }
   .composer .btn .lbl { display: none; }
   .composer .btn .ico { display: block; width: 18px; height: 18px; margin: 0; }   /* no gap for words after it (svg.ico has one): it sat 2.4px left of the middle */
   .composer .stopbtn { color: var(--red); }
+  /* the mic: plain when idle, red and pulsing while it listens, faint while what was heard is tidied */
+  .composer .micbtn { border-color: transparent; background: none; color: var(--dim); }
+  .composer .micbtn:hover { background: var(--hover); color: var(--ink); }
+  .composer .micbtn.on { background: var(--red); color: #fff; animation: micpulse 1.4s ease-in-out infinite; }
+  .composer .micbtn.wait { color: var(--accent); opacity: .7; }
+  @keyframes micpulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 45%, transparent); } 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--red) 0%, transparent); } }
+  @media (prefers-reduced-motion: reduce) { .composer .micbtn.on { animation: none; } }
+  .composer textarea.voice-lock { color: inherit; opacity: .75; cursor: not-allowed; }
+  .voice-st { font-size: 13px; color: var(--dim); padding: 0 4px 4px; }
   .composer .stopbtn:hover { background: var(--hover); }
   /* what + opens: above the box, one row per way to add something */
   .addmenu { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 4; min-width: 260px; max-width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-l); box-shadow: 0 8px 24px rgba(0, 0, 0, .16); padding: 6px; }
@@ -669,7 +727,7 @@
   .top .head { border-bottom: 0; }
   .info { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: start; padding: 7px 20px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); }
   .info[hidden] { display: none; }
-  .info .chips { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; }
+  .info .chips { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; min-height: 24px; }
   /* a figure that is a share of a limit: a bar that fills, the number after it */
   .info .chips .gauge { display: inline-flex; align-items: center; gap: 8px; }
   .info .chips .bar { display: inline-block; width: 72px; height: 6px; border-radius: var(--r-s); background: var(--line); overflow: hidden; flex: none; }
@@ -835,7 +893,8 @@
 
   /* ── files mentioned in a conversation, and their preview panel ── */
   .fp { color: var(--accent); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
-  code.fp { text-decoration: none; box-shadow: inset 0 -1px 0 var(--accent); }
+  /* the accent toward the text colour: look D's dark blue #0A84FF on its code grey measured 3.8 to 1 (2026-11-20) */
+  code.fp { text-decoration: none; box-shadow: inset 0 -1px 0 var(--accent); color: color-mix(in srgb, var(--accent) 80%, var(--ink)); }
   .fp:hover { background: var(--hover); }
   #peek { position: fixed; top: 0; right: 0; bottom: 0; width: min(820px, calc(58vw / var(--zv, var(--z, 1)))); background: var(--bg); border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0, 0, 0, .14); display: flex; flex-direction: column; z-index: 4; }
   #peek[hidden] { display: none; }
@@ -843,7 +902,8 @@
   .collab-new { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 8px; }
   .collab-new .lab { font-size: 13px; color: var(--dim); margin: 14px 0 6px; }
   .collab-pick { display: flex; flex-direction: column; gap: 6px; }
-  .cp-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 140px 200px; gap: 8px; align-items: center; }
+  .cp-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) 140px 200px; gap: 8px; align-items: center; }
+  .cp-row input[type=checkbox] { width: 18px; height: 18px; margin: 3px; accent-color: var(--accent); }   /* 18 + 3 a side: a 24 px place to press (the browser's 13 px was all there was) */
   .cp-who { min-width: 0; display: flex; flex-direction: column; } .cp-who .t, .cp-who .m { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .cp-who .m { font-size: 12px; color: var(--dim); }
   .cp-opt { margin: 14px 0; } .cp-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; } .cp-line .btn { margin-left: auto; } .collab-new select { max-width: 100%; }
   .collab-item { display: block; width: 100%; text-align: left; background: none; border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 12px; margin: 6px 0; cursor: pointer; color: inherit; font: inherit; }
@@ -859,7 +919,8 @@
   .collab-msg { border-left: 3px solid var(--line); padding: 4px 10px; margin: 6px 0; } .collab-msg.in { border-left-color: var(--dot-run, #16a34a); }
   .collab-msg .cmh { font-size: 12px; color: var(--dim); } .collab-msg .cmt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
   .collab-ledger { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); border-radius: var(--r-m); padding: 12px; font-size: 13px; max-height: calc(60vh / var(--zv, var(--z, 1))); overflow: auto; }
-  @media (max-width: 700px) { .cp-row { grid-template-columns: 20px minmax(0, 1fr); } .cp-row input:not([type]) { grid-column: 2; } .cm-row { grid-template-columns: 14px minmax(0, 1fr); } }
+  @media (max-width: 700px) and (pointer: coarse) { html body .cp-row { grid-template-columns: 44px minmax(0, 1fr); } }
+  @media (max-width: 700px) { .cp-row { grid-template-columns: 24px minmax(0, 1fr); } .cp-row input:not([type]) { grid-column: 2; } .cm-row { grid-template-columns: 14px minmax(0, 1fr); } }
   .of-sticky { position: sticky; top: -1px; z-index: 5; background: var(--bg); padding: 13px 0 6px; margin: -12px 0 4px; }
   .of-sticky.stuck { box-shadow: 0 6px 8px -8px rgba(0, 0, 0, .35); }
   .of-sticky .pathrow { margin-top: 0; }
@@ -897,6 +958,7 @@
   .peek-body pre.code .cl { display: block; min-height: 1.5em; position: relative; padding-left: calc(var(--gutter, 3ch) + 26px); counter-increment: ln; }
   .peek-body pre.code .cl::before { content: counter(ln); position: absolute; left: 0; width: calc(var(--gutter, 3ch) + 12px); text-align: right; color: var(--faint); user-select: none; -webkit-user-select: none; }
   .peek-body pre.code .cl:hover { background: var(--hover); }
+  .peek-body pre.code .cl.hit { background: var(--active); box-shadow: inset 3px 0 0 var(--accent); }
   /* the colours of VS Code's light and dark themes; comments grey */
   .hl-c { color: #8E8E8E; font-style: italic; } .hl-s { color: #A31515; } .hl-k { color: #0000FF; } .hl-n { color: #098658; } .hl-f { color: #795E26; } .hl-t { color: #267F99; } .hl-p { color: #0451A5; }
   @media (prefers-color-scheme: dark) { .hl-c { color: #7F848E; } .hl-s { color: #CE9178; } .hl-k { color: #569CD6; } .hl-n { color: #B5CEA8; } .hl-f { color: #DCDCAA; } .hl-t { color: #4EC9B0; } .hl-p { color: #9CDCFE; } }
@@ -934,6 +996,9 @@
   .desk.off .acts { display: flex; gap: 4px; }
   .desk.off .acts .btn { padding: 2px 8px; font-size: 13px; }
   .desk.off .acts .btn:last-child { border-color: transparent; background: none; color: var(--faint); padding: 2px 5px; } .desk.off .acts .btn:last-child:hover { color: var(--red); }
+  /* a narrow screen: the buttons on a line of their own under the name - beside it they left the name 4 characters
+     ("Wind…", measured 48 px of a 320 px row, 2026-11-20) */
+  @media (max-width: 520px) { .desk.off { grid-template-columns: 34px minmax(0, 1fr); } .desk.off .acts { grid-column: 2; } }
   .room.quiet { background: none; } .room.quiet .room-head b { color: var(--dim); }
   .of-restore { border: 1px solid var(--amber); border-radius: var(--r-l); padding: 2px 16px 14px; margin-bottom: 18px; background: var(--amber-soft); }
   .of-restore h3 { color: var(--ink); }
@@ -942,7 +1007,7 @@
   .choice .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .choice .p { color: var(--dim); font-size: 13px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
   label.choice { cursor: pointer; }
-  .choice input[type=checkbox] { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); flex: none; }
+  .choice input[type=checkbox] { width: 18px; height: 18px; margin: 3px; accent-color: var(--accent); flex: none; }   /* 18 + 3 a side: a 24 px place to press (was 15, with nothing around) */
   .choice .btn { flex: none; }
   .keepbar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .collab-new select { min-width: 160px; }   /* no member chosen yet, it has no option: not a sliver */
@@ -1110,7 +1175,7 @@
   :root[data-skin="d"] .composer { border-radius: 22px; }
   :root[data-skin="d"] .btn.primary { border-radius: 12px; }
   /* the round buttons of the box you type in stay round, with nothing pushing their icon aside, in every look */
-  :root[data-skin] .composer .imgbtn, :root[data-skin] .composer .sendbtn, :root[data-skin] .composer .stopbtn { padding: 0; border-radius: 50%; }
+  :root[data-skin] .composer .imgbtn, :root[data-skin] .composer .sendbtn, :root[data-skin] .composer .stopbtn, :root[data-skin] .composer .micbtn { padding: 0; border-radius: 50%; }
   /* the choice of look in the settings: a small picture of each */
   /* the four looks on one row (three and one left a card alone on a line); two by two on a phone */
   .skins { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; max-width: 760px; }
@@ -1131,7 +1196,8 @@
     <div class="side-edge" id="sideEdge" role="separator" aria-orientation="vertical" aria-label="左欄寬度" tabindex="0" title="拖曳調整左欄寬度；雙擊恢復預設"></div>
     <div class="side-rail" id="sideRail">
       <button class="btn" id="unfoldBtn" type="button" aria-label="展開左欄" title="展開左欄（Ctrl+B）">»</button>
-      <span class="rail-n" id="railN" hidden title="等你回應的 session"></span>
+      <button class="btn primary rail-new" id="railNew" type="button" aria-label="新對話" title="新對話"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+      <div class="rail-list" id="railList" aria-label="要你處理的 session"></div>
     </div>
     <div class="side-top">
       <button class="fold-btn" id="foldBtn" type="button" aria-label="收起左欄" title="收起左欄（Ctrl+B）">«</button>
@@ -1552,12 +1618,12 @@ function drawList() {
     }
     if (keep) { const again = list.querySelector('[data-sid="' + CSS.escape(keep) + '"]'); if (again) again.focus(); }
     const n = sessions.filter((s) => s.group === 'yours').length;
-    { const rn = $('railN'); if (rn) { rn.hidden = !n; rn.textContent = n > 99 ? '99+' : String(n); } }
     document.title = (n ? '(' + n + ') ' : '') + 'Session 看板';
     // the tab's icon says the same thing at a glance: an amber dot while something waits for you
     { const ic = $('tabIcon'), want = n ? TAB_ICON_WAIT : TAB_ICON; if (ic && ic.getAttribute('href') !== want) ic.setAttribute('href', want); }
   }
   const now = Date.now();
+  drawRail(sessions);   // every round: "maybe stuck" comes with the clock, not with a change in the list
   // The line under each name, and whether it may be stuck: both change with the clock, so they are set on every round, also when the list itself was not rebuilt.
   { const c = officeCounts(), box = $('sideChips'); if (box) { const shape = JSON.stringify(c); if (box.dataset.shape !== shape) { box.dataset.shape = shape; box.textContent = ''; for (const k of ['wait', 'stuck', 'run', 'done', 'idle']) { if (!c[k]) continue; const b = el('button', 'of-chip'); b.type = 'button'; b.append(DESK[k] + ' ', el('b', '', String(c[k]))); b.addEventListener('click', () => { officeFilter = k; drawOffice(); }); box.append(b); } } } }
   for (const b of document.querySelectorAll('#list .item[data-sid]')) {
@@ -1909,7 +1975,13 @@ function drawInbox() {
 }
 async function fillInbox() {
   const box = $('inboxBox'); if (!box) return;
-  const params = new URLSearchParams(); if (inboxTab === 'done') params.set('status', 'done'); else { params.set('open', '1'); params.set('triage', inboxTab); } if (inboxSource) params.set('source', inboxSource); if (inboxQ) params.set('q', inboxQ);
+  // A search looks through every tab (valid, invalid, not judged yet, done): searching a sender's name on the valid tab missed a
+  // mail of theirs judged "for your information" (2026-11-20). Each row says where it sits.
+  const params = new URLSearchParams();
+  if (inboxQ) params.set('q', inboxQ);   // searching: no tab's conditions at all
+  else if (inboxTab === 'done') params.set('status', 'done');
+  else { params.set('open', '1'); params.set('triage', inboxTab); }
+  if (inboxSource) params.set('source', inboxSource);
   let r; try { r = await api('/api/inbox?' + params); } catch (e) { r = { ok: false }; }
   if (!$('inboxBox') || view !== 'inbox' || inboxOpen) return;
   if (!r.ok || !r.data.status) { box.textContent = ''; box.append(el('p', 'lead', '讀不到收件資料，看板程序沒有回應。')); return; }
@@ -2068,28 +2140,44 @@ function drawThreadRows() {
   const rows = $('thrRows'); if (!rows || !inboxData) return;
   rows.textContent = '';
   const KIND = { todo: '要你做', question: '等你回', fyi: '知會', noise: '雜訊' };
-  const list = inboxData.threads.filter((t) => inboxTab === 'done' ? t.status === 'done' : t.status !== 'done');
+  // Searching: every tab, ordered by where each sits - valid, not judged yet, invalid, done - newest first inside each,
+  // under a heading per tab (asked 2026-11-20: "search everything, but order it by state").
+  const where = (t) => t.status === 'done' ? 3 : !t.triage ? 1 : (t.triage === 'todo' || t.triage === 'question') ? 0 : 2;
+  const WHERE = ['有效', '還沒判讀', '無效', '已完成'];
+  const list = inboxQ ? inboxData.threads.slice().sort((a, b) => where(a) - where(b) || b.last_activity - a.last_activity)
+    : inboxData.threads.filter((t) => inboxTab === 'done' ? t.status === 'done' : t.status !== 'done');
+  if (inboxQ && list.length) {
+    const n = [0, 0, 0, 0]; for (const t of list) n[where(t)]++;
+    rows.append(el('div', 'hint', '搜尋「' + inboxQ + '」：全部分頁共 ' + list.length + ' 串（' + WHERE.map((w, i) => w + ' ' + n[i]).join('、') + '）'));
+  }
+  let lastWhere = -1;
   for (const t of list) {
+    if (inboxQ && where(t) !== lastWhere) { lastWhere = where(t); rows.append(el('div', 'thr-group', WHERE[lastWhere])); }
     const b = el('button', 'thr' + (t.unread ? ' unread' : '')); b.type = 'button';
-    const tt = el('span', 't');
-    // Is it yours, and how sure: "是 92%" / "不是 80%". The kind (what sort of thing it is) follows in the tooltip and the thread.
+    const tt = el('span', 't', t.triage_title || t.subject || t.sender || '(沒有主旨)');
+    b.append(el('span', 'tag', SRC_NAME[t.source]), tt, el('span', 'w', when(t.last_activity)));
+    // Is it yours, and how sure: "要你做 92%". It opens the second line, so the title keeps the whole first line
+    // (on a phone it was down to two characters - asked 2026-11-20).
+    let k = null;
     if (t.triage) {
       const yes = t.triage === 'todo' || t.triage === 'question';
-      const k = el('span', 'kind ' + t.triage, (KIND[t.triage] || (yes ? '是' : '不是')) + (t.triage_conf != null ? ' ' + t.triage_conf + '%' : ''));
+      k = el('span', 'kind ' + t.triage, (KIND[t.triage] || (yes ? '是' : '不是')) + (t.triage_conf != null ? ' ' + t.triage_conf + '%' : ''));
       k.title = (yes ? '是你該處理的' : '不是你該處理的') + '（' + (KIND[t.triage] || t.triage) + '）' + (t.triage_conf != null ? '，' + t.triage_conf + '% 把握' : '');
       if (t.triage_conf != null && t.triage_conf < 70) k.classList.add('unsure');
-      tt.append(k);
     }
-    tt.append(t.triage_title || t.subject || t.sender || '(沒有主旨)');
-    b.append(el('span', 'tag', SRC_NAME[t.source]), tt, el('span', 'w', when(t.last_activity)));
-    if (t.triage_summary) { const s = el('span', 'sum', t.triage_summary); s.title = t.triage_summary; b.append(s); }
-    b.append(
-      el('span', 'p', (t.root_folder ? '→ ' + folderName(t.root_folder) : '待分派') + (t.customer ? ' · ' + t.customer + (t.system ? '／' + t.system : '') : '') + ' · ' + (t.sender || '') + ' · ' + t.messages + ' 則 · ' + (t.latest || '').replace(/\s+/g, ' ')));
+    if (k || t.triage_summary) {
+      const s = el('span', 'sum'); if (k) s.append(k);
+      if (t.triage_summary) { s.append(t.triage_summary); s.title = t.triage_summary; }
+      b.append(s);
+    }
+    const p = el('span', 'p'); p.append(el('span', 'src-m', SRC_NAME[t.source] + ' · '));
+    b.append(p);
+    p.append((t.root_folder ? '→ ' + folderName(t.root_folder) : '待分派') + (t.customer ? ' · ' + t.customer + (t.system ? '／' + t.system : '') : '') + ' · ' + (t.sender || '') + ' · ' + t.messages + ' 則 · ' + (t.latest || '').replace(/\s+/g, ' '));
     b.title = (t.subject || '') + '\n' + (t.sender || '') + (t.triage_summary ? '\n判讀：' + t.triage_summary : '');
     b.addEventListener('click', () => drawThread(t.thread_id));
     rows.append(b);
   }
-  if (!list.length) rows.append(el('div', 'hint', inboxQ || inboxSource ? '沒有符合的訊息。' : inboxTab === 'done' ? '還沒有標成完成的。' : inboxTab === 'valid' ? '目前沒有要你處理的訊息。' : inboxTab === 'pending' ? '都判讀過了。' : '沒有被判成無效的訊息。'));
+  if (!list.length) rows.append(el('div', 'hint', inboxQ ? '全部分頁裡都沒有符合「' + inboxQ + '」的訊息。' : inboxSource ? '沒有符合的訊息。' : inboxTab === 'done' ? '還沒有標成完成的。' : inboxTab === 'valid' ? '目前沒有要你處理的訊息。' : inboxTab === 'pending' ? '都判讀過了。' : '沒有被判成無效的訊息。'));
 }
 async function drawThread(id) {
   view = 'inbox'; inboxOpen = id;
@@ -2401,6 +2489,14 @@ async function drawSettings() {
       (v) => ({ officeCollapseOthers: v }), (v) => { features.prefs = Object.assign({}, prefs(), { officeCollapseOthers: v }); return v ? '已開啟：其他房間收起' : '已關閉：全部展開'; });
   }
   {
+    const h2 = el('h2', '', '語音輸入'); h2.style.marginTop = '40px'; pane.append(h2);
+    pane.append(el('p', 'lead', '輸入框旁的麥克風：按一下開始說，瀏覽器邊聽邊把字寫進框裡，說完再按一次。聽寫與排版的過程中輸入框會鎖住，不能打字也不能送出。辨識由瀏覽器做（Chrome、Edge 會把聲音送到 Google 的辨識服務）。'));
+    const P = r.data.prefs || {};
+    sw('自動排版', '說完後交給 Claude（sonnet）去掉贅字、補標點，約 1 秒；整理不成就保留原話。關掉就是聽到什麼留什麼。', P.voiceTidy !== false,
+      (v) => ({ voiceTidy: v }), (v) => { features.prefs = Object.assign({}, prefs(), { voiceTidy: v }); return v ? '已開啟自動排版' : '已關閉自動排版'; });
+    if (r.data.httpsUrl) pane.append(el('p', 'hint', '手機的瀏覽器只讓 https 網頁用麥克風。手機請改開：' + r.data.httpsUrl));
+  }
+  {
     const h2 = el('h2', '', '小模型判斷'); h2.style.marginTop = '40px'; pane.append(h2);
     pane.append(el('p', 'lead', '「下一步」要不要出現「交給 goal2 做完」，是把最後一則回覆交給小模型回答一題（題目在看板資料夾的 questions/unfinished.json；要改題目，放一份同名檔到 ~/.claude/session-board/questions/）。這裡選用哪個模型。'));
     const row = el('div', 'pathrow'), sel = el('select'); sel.setAttribute('aria-label', '判斷用的模型');
@@ -2587,7 +2683,7 @@ function fillOffice() {
   const rank = { wait: 0, stuck: 1, run: 2, done: 3, idle: 4 };
   const worst = (r) => (r.open.length ? Math.min(...r.open.map((x) => rank[x.st])) : 5);
   const latest = (r) => Math.max(0, ...r.open.map((x) => x.s.saidAt || x.s.since || 0), ...r.old.map((x) => x.at || 0));
-  const initials = (t) => { const w = String(t || '').trim(); return /^[\x00-\x7f]/.test(w) ? w.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '?' : [...w].slice(0, 1).join(''); };
+  const initials = faceInitials;
   const wasOpen = new Set(keep.restorable.map((k) => k.sessionId)), youClosed = new Set(keep.closed.map((k) => k.sessionId));
   grid.textContent = '';
   // Starred rooms first, then the order you dragged them into; rooms never placed follow by the usual rule
@@ -2866,9 +2962,25 @@ function openHarness(folder, cwd, hs) {
     // the id goes into a message taken as your own words: only one shaped as harness writes them (p-…), nothing else
     if (!/^p-[\w-]{1,60}$/.test(String(x.id))) acts.append(el('span', 'hp-done', '這筆的編號格式不對（' + String(x.id).slice(0, 30) + '），看板不替它送核可；請在 Claude Code 裡處理'));
     else for (const [label, word, cls] of [['核可', '核可', 'btn primary'], ['駁回', '駁回', 'btn']]) { const b = el('button', cls, label); b.type = 'button'; b.title = '在這個專案的對話裡送出「' + word + ' ' + x.id + '」'; b.addEventListener('click', async () => { for (const y of acts.querySelectorAll('button')) y.disabled = true; await decide(word, x, card); if (!card.classList.contains('done')) for (const y of acts.querySelectorAll('button')) y.disabled = false; }); acts.append(b); }
-    card.append(acts); body.append(card);
+    // 說明: Claude explains it in plain words, in no conversation (nothing saved, no session listed); each press again
+    // hands it the earlier explanations, to be told another way (asked 2026-11-20)
+    const box = el('div', 'hp-x'); box.hidden = true;
+    const key = cwd + '\n' + x.id, seen = explainSeen.get(key) || [];
+    const show = () => { box.textContent = ''; if (!seen.length) { box.hidden = true; return; } box.hidden = false; const m = el('div', 'msg assistant goal-md'); m.innerHTML = md(seen[seen.length - 1]); linkFiles(m, null); if (seen.length > 1) box.append(el('div', 'hp-xn', '第 ' + seen.length + ' 種講法')); box.append(m); };
+    const ex = el('button', 'btn', seen.length ? '再換個方式說明' : '說明'); ex.type = 'button';
+    ex.title = '請 Claude 用白話解釋這一條（不會開對話，也不會寫進你的任何 session）；再按一次會換一種講法';
+    ex.addEventListener('click', async () => {
+      ex.disabled = true; const was = ex.textContent; ex.textContent = '正在寫說明…';
+      let r; try { r = await api('/api/harness/explain', { cwd, id: x.id, before: seen }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
+      ex.disabled = false;
+      if (!r.ok) { ex.textContent = was; return say((r.data && r.data.error) || '說明寫不出來', true); }
+      seen.push(r.data.answer); explainSeen.set(key, seen); show(); ex.textContent = '再換個方式說明';
+    });
+    acts.append(ex); show();
+    card.append(acts, box); body.append(card);
   }
 }
+const explainSeen = new Map();   // folder + suggestion id -> the explanations given so far (kept while the page is open)
 function tickOffice() { if (view === 'office') fillOffice(); }
 // The schedule page while you look at it: redrawn when something on it changed, never while the form is open.
 let schedTickAt = 0, goalShape = '';
@@ -3982,6 +4094,97 @@ function autoNotice(text) {
 }
 // ── files dropped on the page ──
 let composerDrop = null;   // set by the composer of the conversation on screen
+
+/* ── the mic: speak instead of typing (asked 2026-11-19, 「像 Typeless」) ──
+   The browser hears and writes as you speak (Web Speech: Chrome, Edge, Safari); pressing the mic again (or a pause the
+   browser takes as the end) finishes. With 自動排版 on (settings, default on) what was heard is then handed to Claude to
+   take out the filler words and put in punctuation (lib/tidy.js, about a second), its words replacing what was heard as
+   they come. While listening and while tidying the box is locked - no typing, no sending, nothing added - so a message
+   is never sent half-tidied, and nothing you type is overwritten by the tidied words (asked 2026-11-19: 「排版過程中輸入框
+   是 disabled 的，不可送出不可編輯」). Kept outside drawFoot: the footer is drawn again often (every status change), the
+   listening goes on across that. */
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const voice = { sid: '', state: '', rec: null, base: '', heard: '', ctl: null };   // state: '' | 'listening' | 'tidying'
+const voiceBusy = (sid) => !!voice.state && voice.sid === sid;
+const voiceJoin = (base, said) => { const b = String(base || '').replace(/\s+$/, ''); return !b ? said : !said ? b : b + (/[⺀-鿿　-〿＀-￯]$/.test(b) || /^[⺀-鿿　-〿＀-￯]/.test(said) ? '' : ' ') + said; };
+// the box's words now: into the box when that conversation is on screen, otherwise into its draft
+function voicePut(text, done) {
+  const s = cur(), ta = $('foot') && $('foot').querySelector('textarea');
+  if (s && s.sessionId === voice.sid && ta) {
+    ta.value = text; ta.style.height = 'auto'; ta.style.height = Math.min(200, ta.scrollHeight) + 'px'; ta.scrollTop = ta.scrollHeight;
+    if (done) ta.dispatchEvent(new Event('input', { bubbles: true }));   // kept as the draft, as typing is
+    return;
+  }
+  if (!done) return;
+  draftNow.set(voice.sid, text); const x = sessions.find((y) => y.sessionId === voice.sid); if (x && x.owner === 'board') saveDraft(voice.sid, text);
+}
+// the box, its buttons and the line above it, as the mic's state says
+function voiceLockNow() {
+  const s = cur(), foot = $('foot'); if (!s || !foot) return;
+  const busy = voiceBusy(s.sessionId), ta = foot.querySelector('.composer textarea'), mic = foot.querySelector('.micbtn'), st = foot.querySelector('.voice-st');
+  if (ta) { ta.disabled = busy; ta.classList.toggle('voice-lock', busy); }
+  for (const b of foot.querySelectorAll('.composer .sendbtn, .composer .imgbtn')) b.disabled = busy;
+  if (mic) {
+    mic.classList.toggle('on', busy && voice.state === 'listening'); mic.classList.toggle('wait', busy && voice.state === 'tidying');
+    mic.disabled = busy && voice.state === 'tidying';
+    const t = busy && voice.state === 'listening' ? '結束語音輸入' : busy ? '自動排版中' : '語音輸入'; mic.title = t; mic.setAttribute('aria-label', t); mic.setAttribute('aria-pressed', String(busy && voice.state === 'listening'));
+  }
+  if (st) { st.hidden = !busy; st.textContent = voice.state === 'listening' ? '聽寫中…說完再按一次麥克風。這段期間不能打字或送出' : voice.state === 'tidying' ? '自動排版中…排好之前不能編輯或送出' : ''; }
+  if (!busy && ta && voice.unlockFocus) { voice.unlockFocus = false; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+function voiceStart(s) {
+  if (voice.state) return;
+  if (!SpeechRec) return say(window.isSecureContext ? '這個瀏覽器不支援語音輸入。請用 Chrome、Edge 或 Safari' : '手機要用 https 開看板才能用麥克風。請改開設定裡「語音輸入」那一段給的 https 網址', true);
+  const ta = $('foot') && $('foot').querySelector('.composer textarea');
+  const rec = new SpeechRec();
+  rec.lang = 'zh-TW'; rec.continuous = true; rec.interimResults = true;
+  Object.assign(voice, { sid: s.sessionId, state: 'listening', rec, base: ta ? ta.value : '', heard: '', failed: '' });
+  rec.onresult = (e) => {
+    if (voice.rec !== rec) return;
+    let fin = '', mid = '';
+    for (let i = 0; i < e.results.length; i++) { const t = e.results[i][0] ? e.results[i][0].transcript : ''; if (e.results[i].isFinal) fin += t; else mid += t; }
+    voice.heard = (fin + mid).trim();
+    voicePut(voiceJoin(voice.base, voice.heard), false);
+  };
+  rec.onerror = (e) => { if (voice.rec !== rec) return; voice.failed = e.error === 'not-allowed' || e.error === 'service-not-allowed' ? '瀏覽器沒有允許這個網頁用麥克風。請在網址列左邊的設定允許麥克風' : e.error === 'no-speech' ? '' : e.error === 'audio-capture' ? '找不到麥克風' : e.error === 'network' ? '語音辨識要連網路（瀏覽器把聲音送到它的辨識服務），現在連不上' : e.error === 'aborted' ? '' : '語音辨識停了：' + e.error; };
+  rec.onend = () => { if (voice.rec === rec && voice.state === 'listening') voiceFinish(); };
+  try { rec.start(); } catch (e) { voice.state = ''; voice.rec = null; voiceLockNow(); return say('開不了麥克風：' + (e.message || e), true); }
+  if (prefs().voiceTidy !== false) api('/api/tidy/warm', {}).catch(() => {});   // Claude boots while you speak
+  voiceLockNow();
+}
+// listening over: what was heard stays (as heard, or tidied first)
+async function voiceFinish() {
+  if (voice.state !== 'listening') return;
+  const rec = voice.rec; voice.rec = null; try { rec && rec.stop(); } catch (e) {}
+  const heard = voice.heard, base = voice.base, failed = voice.failed;
+  if (failed) say(failed, true);
+  if (!heard || prefs().voiceTidy === false) { voice.state = ''; voice.unlockFocus = true; if (heard) voicePut(voiceJoin(base, heard), true); voiceLockNow(); return; }
+  voice.state = 'tidying'; voiceLockNow();
+  let text = '', why = '';
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null, timer = ctl ? setTimeout(() => ctl.abort(), 40000) : 0;
+  try {
+    const res = await fetch('/api/tidy', { method: 'POST', headers: { 'x-board-token': TOKEN, 'content-type': 'application/json' }, body: JSON.stringify({ text: heard }), signal: ctl ? ctl.signal : undefined });
+    if (!res.ok || !res.body) { let d = {}; try { d = await res.json(); } catch (e) {} why = res.status === 404 ? '看板還是舊的程式，不認得自動排版。重啟看板後才能用' : (d.error || '排版失敗'); }
+    else {
+      const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
+      for (;;) {
+        const { value, done } = await rd.read(); if (done) break;
+        buf += dec.decode(value, { stream: true }); let i;
+        while ((i = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, i); buf = buf.slice(i + 1); let j; try { j = JSON.parse(line); } catch (e) { continue; }
+          if (typeof j.d === 'string') voicePut(voiceJoin(base, j.d), false);
+          else if (j.done) text = String(j.text || '');
+          else if (j.error) why = j.error;
+        }
+      }
+    }
+  } catch (e) { why = e && e.name === 'AbortError' ? '排版超過 40 秒沒有回來' : '看板程序沒有回應'; }
+  clearTimeout(timer);
+  // not tidied: the words as heard stay, so nothing said is lost
+  if (!text) { text = heard; say('沒有排版，保留聽到的原話：' + (why || '沒有結果'), true); }
+  voicePut(voiceJoin(base, text), true);
+  voice.state = ''; voice.unlockFocus = true; voiceLockNow();
+}
 // a drag that carries files (or may: a Mac screenshot dragged from its thumbnail can say so only by its items)
 function draggingFiles(e) { const dt = e.dataTransfer; if (!dt) return false; const t = [...(dt.types || [])]; return t.includes('Files') || t.includes('public.file-url') || [...(dt.items || [])].some((it) => it.kind === 'file'); }
 const IMG_EXT = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' };
@@ -4059,6 +4262,8 @@ function drawFoot() {
   foot.textContent = '';
   const col = el('div', 'col');
   foot.append(col);
+  // listening for another conversation than the one now on screen: that listening ends (its words go to its own box)
+  if (voice.state === 'listening' && (!s || voice.sid !== s.sessionId)) voiceFinish();
   if (!s) return;
   if (s.owner === 'terminal') {
     const note = el('div', 'note');
@@ -4110,6 +4315,8 @@ function drawFoot() {
   sendBtn.disabled = blocked;
   const fit = () => { ta.style.height = 'auto'; ta.style.height = Math.min(200, ta.scrollHeight) + 'px'; };
   const go = async () => {
+    // never while the mic is listening or its words are being tidied (the box is locked then; this is the second lock)
+    if (voiceBusy(s.sessionId)) return say(voice.state === 'tidying' ? '自動排版還沒好，排好再送' : '還在聽寫，先再按一次麥克風結束', true);
     const text = ta.value;
     const q = carry.get(s.sessionId);
     if (q && !text.trim()) return say('先寫下你要它對這' + (q.mail || q.source === 'Gmail' ? '封信' : '些訊息') + '做什麼，再送出');
@@ -4351,7 +4558,7 @@ function drawFoot() {
   });
   box.addEventListener('dragover', (e) => { if (draggingFiles(e)) box.classList.add('drop'); });
   box.addEventListener('dragleave', () => box.classList.remove('drop'));
-  composerDrop = (files) => { box.classList.remove('drop'); return addFiles(files); };   // the page-wide drop hands files here
+  composerDrop = (files) => { box.classList.remove('drop'); if (voiceBusy(s.sessionId)) return say('語音輸入完成後再加檔案', true); return addFiles(files); };   // the page-wide drop hands files here
   const imgPick = el('input'); imgPick.type = 'file'; imgPick.accept = 'image/png,image/jpeg,image/gif,image/webp'; imgPick.multiple = true; imgPick.hidden = true;
   imgPick.addEventListener('change', () => { addFiles([...imgPick.files]); imgPick.value = ''; });
   const filePick = el('input'); filePick.type = 'file'; filePick.multiple = true; filePick.hidden = true;
@@ -4384,6 +4591,11 @@ function drawFoot() {
     addMenu.querySelector('button').focus();
   });
   col.append(addMenu);
+  // the mic (beside send): press to speak, press again to finish
+  const micBtn = el('button', 'btn micbtn'); micBtn.type = 'button';
+  micBtn.innerHTML = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>';
+  micBtn.title = '語音輸入'; micBtn.setAttribute('aria-label', '語音輸入'); micBtn.setAttribute('aria-pressed', 'false');
+  micBtn.addEventListener('click', () => { if (voice.state === 'listening' && voice.sid === s.sessionId) voiceFinish(); else voiceStart(s); });
   drawImgs();
   col.append(strip);
   // While it is working: a stop button beside the send button (the only stop of a conversation - the turn ends there;
@@ -4393,8 +4605,8 @@ function drawFoot() {
     const stopBtn = el('button', 'btn stopbtn'); stopBtn.type = 'button'; stopBtn.title = '停止它現在做的事。再送一則訊息就會接著原本的對話繼續'; stopBtn.setAttribute('aria-label', '停止');
     stopBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor"/></svg>';
     stopBtn.addEventListener('click', async () => { stopBtn.disabled = true; let r; try { r = await api('/api/stop', { sessionId: s.sessionId }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; } if (!r.ok || r.data.ok === false) { stopBtn.disabled = false; return say(r.data.error || '它現在沒有在跑，沒有東西可以停', true); } say('已停止。再送一則訊息就會接著原本的對話繼續。'); });
-    box.append(ta, imgPick, filePick, pickBtn, stopBtn, sendBtn);
-  } else box.append(ta, imgPick, filePick, pickBtn, sendBtn);
+    box.append(ta, imgPick, filePick, pickBtn, micBtn, stopBtn, sendBtn);
+  } else box.append(ta, imgPick, filePick, pickBtn, micBtn, sendBtn);
   col.style.position = 'relative';
   if (s.notStarted && !sentOnce.has(s.sessionId)) col.append(roleRow(s));
   const q = carry.get(s.sessionId);
@@ -4416,9 +4628,38 @@ function drawFoot() {
     strip.append(main, drop); col.append(strip);
     ta.placeholder = '寫下你要它對這' + (q.mail || q.source === 'Gmail' ? '封信' : '些訊息') + '做什麼，Enter 送出';
   }
-  col.append(pop, box);
+  const vst = el('div', 'voice-st'); vst.hidden = true; vst.setAttribute('role', 'status');
+  col.append(pop, vst, box);
   fit();
-  if (hadFocus || !blocked) ta.focus();
+  voiceLockNow();
+  if ((hadFocus || !blocked) && !ta.disabled) ta.focus();
+}
+
+/* ── the folded left column ── */
+// Only what you have to act on: the sessions waiting for you or maybe stuck, as the office's faces (its letters, the
+// state's colour). Everything else - every session by name, the pages - floats out when the pointer rests on the rail.
+// A face's letters, as the office writes them: two letters of a name in English, the first character of one in Chinese
+const faceInitials = (t) => { const w = String(t || '').trim(); return /^[\x00-\x7f]/.test(w) ? w.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '?' : [...w].slice(0, 1).join(''); };
+function drawRail(all) {
+  const box = $('railList');
+  if (!box) return;
+  const now = Date.now();
+  const rows = all.filter((s) => !s.hidden).sort((a, b) => (b.saidAt || 0) - (a.saidAt || 0) || (b.since || 0) - (a.since || 0)).map((s) => [s, deskState(s, now)]).filter(([s, k]) => s.group === 'yours' || k === 'wait' || k === 'stuck')   // the list's "waiting for you" (the tab's count), and maybe stuck
+    .map(([s, k]) => [s, k === 'stuck' ? 'stuck' : 'wait']);   // in the list's colours: amber waits for you, red may be stuck
+  // the state is in the shape too: it moves with the clock (a quiet session turns "maybe stuck"), not only with the list
+  const shape = rows.map(([s, k]) => s.sessionId + k + s.title).join('|') + '#' + active;
+  if (box.dataset.shape === shape) return;
+  box.dataset.shape = shape; box.textContent = '';
+  for (const [s, k] of rows) {
+    const name = String(s.title || '').trim() || '(沒有標題)';
+    const b = el('button', 'rail-t ' + k + (s.sessionId === active ? ' on' : ''));
+    b.type = 'button'; b.dataset.sid = s.sessionId;
+    const face = el('span', 'face', faceInitials(name)); face.append(el('i')); b.append(face);
+    const tip = name + '\n' + (s.folder || '(沒有資料夾)') + ' · ' + statusText(s);
+    b.title = tip; b.setAttribute('aria-label', tip.replace('\n', '，'));
+    b.addEventListener('click', () => openChat(s.sessionId));
+    box.append(b);
+  }
 }
 
 /* ── slash commands ── */
@@ -4428,11 +4669,15 @@ async function loadCommands(sid) {
     const r = await api('/api/commands?sid=' + encodeURIComponent(sid));
     if (!r.ok) return;
     cmdCache.set(sid, r.data);
+    // How often each was used not counted yet (the board just started): asked again in a little while, so the ones you
+    // use most come first (until then the list is in name order)
+    if (r.data.counted === false && !loadCommands.again.has(sid)) { loadCommands.again.add(sid); setTimeout(() => loadCommands(sid), 8000); }
     // The list may arrive while "/" is already typed: redraw the popup with it.
     const ta = sid === active && $('foot') ? $('foot').querySelector('textarea') : null;
     if (ta && document.activeElement === ta) ta.dispatchEvent(new Event('focus'));
   } catch (e) {}
 }
+loadCommands.again = new Set();   // conversations asked a second time for the counts (once each)
 // Commands that exist only as interactive screens in the terminal. Claude Code
 // does not report these for a conversation run this way, so they are listed
 // here to answer "why is /plugin not in the list" instead of showing nothing.
@@ -4620,6 +4865,10 @@ function node(it) {
   }
   if (it.role === 'ask') return askCard(it);
   if (it.role === 'answered') {
+    // Marked on the questions themselves (asked 2026-11-19: "why two blocks - turn the questions into the answers"):
+    // the chosen choices lit with a ✓, an answer of your own written under its question. A block of its own only when
+    // the questions are not on the page.
+    if (markAnswered(it)) return null;
     const a = el('div', 'answered');
     a.append(el('div', 'ah', '你的回答'));
     for (const p of it.answers) { const row = el('div', 'ar'); row.append(el('span', 'aq2', p.question), el('b', '', p.answer)); a.append(row); }
@@ -4859,10 +5108,33 @@ function askCard(it) {
   c.append(el('div', 'q', 'Claude 問了你 ' + it.questions.length + ' 個問題'));
   for (const q of it.questions) {
     const box = questionBlock(q);
-    for (const o of q.options) { const row = el('div', 'opt'); const t = el('div'); t.append(el('b', '', o.label)); if (o.description) t.append(el('div', 'od', o.description)); row.append(el('span', 'ob', '•'), t); box.append(row); }
-    c.append(box);
+    for (const o of q.options) { const row = el('div', 'opt'); row.dataset.label = o.label; const t = el('div'); t.append(el('b', '', o.label)); if (o.description) t.append(el('div', 'od', o.description)); row.append(el('span', 'ob', '•'), t); box.append(row); }
+    box.dataset.q = q.question; c.append(box);
   }
   return c;
+}
+// The answers to a form, marked on the form above them (the last copy of those questions on the page): the choices
+// taken lit and ticked, the others dimmed; an answer that is not one of the choices (written in, or 「Other」) under
+// its question. false when the form is not there.
+function markAnswered(it) {
+  const col = $('col'); if (!col || !Array.isArray(it.answers) || !it.answers.length) return false;
+  const key = it.answers.map((p) => String(p.question || '')).join('\u0001');
+  const cards = [...col.querySelectorAll('.card.ask:not(.pending)')].filter((c) => c.dataset.ask === key || it.answers.every((p) => [...c.querySelectorAll('.aq')].some((b) => b.dataset.q === p.question)));
+  const c = cards[cards.length - 1]; if (!c || c.classList.contains('done')) return false;
+  for (const p of it.answers) {
+    const box = [...c.querySelectorAll('.aq')].find((b) => b.dataset.q === p.question); if (!box) continue;
+    const ans = String(p.answer || ''), parts = ans.split(/\s*[,，、]\s*/).filter(Boolean);
+    let hit = 0;
+    for (const row of box.querySelectorAll('.opt')) {
+      const on = row.dataset.label === ans || parts.includes(row.dataset.label);
+      row.classList.add(on ? 'chosen' : 'not-chosen'); if (on) { hit++; row.querySelector('.ob').textContent = '✓'; }
+    }
+    // words of your own (or more than the choices say): written under the question, as you gave them
+    if (!hit || parts.length > hit) { const own = el('div', 'own-ans'); own.append(el('span', '', '你的回答：'), el('b', '', ans)); box.append(own); }
+  }
+  c.classList.add('done');
+  const head = c.querySelector('.q'); if (head) head.textContent = 'Claude 問了你 ' + it.answers.length + ' 個問題 · 已回答';
+  return true;
 }
 
 // The newest thing in a terminal session is an unanswered form: say so, and offer the way to answer it.
@@ -5383,7 +5655,10 @@ async function checkFiles() {
         q.el.setAttribute('role', 'button');
         // searched: the reply gave only a name; this is where a file by that name was found.
         q.el.title = (f.kind === 'dir' ? '開啟資料夾：' : f.searched ? '預覽（依檔名在資料夾裡找到' + (f.others ? '，同名的還有 ' + f.others + ' 個，這是最新的' : '') + '）：' : '預覽：') + f.abs;
-        const go = () => openPeek(f);
+        // "index.html:4319" points at a line of the code: shown as code at that line (a web page drawn instead had the
+        // board run its own page in the side panel, 2026-11-19)
+        const ln = /:(\d+)(?::\d+)?$/.exec(q.raw);
+        const go = () => openPeek(ln ? Object.assign({}, f, { line: Number(ln[1]) }) : f);
         q.el.addEventListener('click', go);
         q.el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
       });
@@ -5545,11 +5820,16 @@ async function openPeek(f) {
       body.textContent = '';
       if (res.headers.get('X-Truncated') === '1') body.append(el('div', 'peek-note', '檔案很大（' + sizeText(f.size) + '），這裡只顯示前 2 MB。'));
       if (/\.(md|markdown)$/i.test(f.name)) { const m = el('div', 'msg assistant'); m.innerHTML = md(text); body.append(m); }
-      else if (/\.html?$/i.test(f.name)) htmlPeek(body, text, f);
+      else if (/\.html?$/i.test(f.name) && !f.line) htmlPeek(body, text, f);
       else {
         // Coloured, with line numbers - up to a size a browser still lays out at once; beyond it, the plain text.
+        // Opened from "file:line": that line marked and scrolled to.
         const n = text.split('\n').length;
-        if (text.length <= 800000 && n <= 12000) { const pre = el('pre', 'code'); pre.innerHTML = HL.lines(text, HL.langOf(f.name)).map((l) => '<span class="cl">' + l + '</span>').join(''); pre.style.setProperty('--gutter', String(n).length + 'ch'); body.append(pre); }
+        if (text.length <= 800000 && n <= 12000) {
+          const pre = el('pre', 'code'); pre.innerHTML = HL.lines(text, HL.langOf(f.name)).map((l) => '<span class="cl">' + l + '</span>').join(''); pre.style.setProperty('--gutter', String(n).length + 'ch'); body.append(pre);
+          const hit = f.line && pre.children[f.line - 1];
+          if (hit) { hit.classList.add('hit'); requestAnimationFrame(() => hit.scrollIntoView({ block: 'center' })); }
+        }
         else { body.append(el('div', 'peek-note', '檔案很大，這裡不上色、不標行號。')); body.append(el('pre', '', text)); }
       }
       return;
@@ -5736,8 +6016,26 @@ async function savePref(patch) {
 }
 // The left column, folded or not (the setting sidebarCollapsed).
 $('foldBtn').addEventListener('click', () => setFold(true));
-$('unfoldBtn').addEventListener('click', () => setFold(false));
-function applyFold() { const app = $('app'); if (app) app.classList.toggle('folded', !!prefs().sidebarCollapsed); applySideWidth(); }
+$('unfoldBtn').addEventListener('click', () => { flyOut(false); setFold(false); });
+$('railNew').addEventListener('click', () => { flyOut(false); $('newBtn').click(); });
+// Folded, the pointer resting on the rail floats the whole column out beside it (like Notion's folded sidebar); it goes
+// away when the pointer leaves, a session or page is picked in it, or Esc. A short wait keeps a pass across from opening it.
+let flyTimer = 0;
+function flyOut(on) {
+  clearTimeout(flyTimer); flyTimer = 0;
+  const app = $('app'); if (!app) return;
+  app.classList.toggle('fly', !!on && app.classList.contains('folded') && !matchMedia('(max-width: 720px)').matches);
+}
+(function flyWire() {
+  const side = document.querySelector('.side'), rail = $('sideRail'); if (!side || !rail) return;
+  rail.addEventListener('mouseenter', () => { clearTimeout(flyTimer); if (!$('app').classList.contains('fly')) flyTimer = setTimeout(() => flyOut(true), 250); });
+  side.addEventListener('mouseenter', () => { if ($('app').classList.contains('fly')) clearTimeout(flyTimer); });
+  side.addEventListener('mouseleave', () => { clearTimeout(flyTimer); flyTimer = setTimeout(() => flyOut(false), 300); });
+  // a pick in the floated column (a session, a page, a new chat) closes it; the renaming box and the search do not
+  side.addEventListener('click', (e) => { if ($('app').classList.contains('fly') && e.target.closest('button.item, #newBtn, #homeBtn, .rail-t')) flyOut(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('app').classList.contains('fly')) flyOut(false); });
+})();
+function applyFold() { const app = $('app'); if (app) { app.classList.toggle('folded', !!prefs().sidebarCollapsed); if (!prefs().sidebarCollapsed) app.classList.remove('fly'); } applySideWidth(); }
 // The left column's width (the setting sidebarWidth): dragged at its edge, with the arrow keys there, a double click
 // puts the default back. Seen while dragging, saved when let go.
 const SIDE_W = { min: 240, max: 640, def: 324 };

@@ -85,7 +85,7 @@ function callModel(prompt, system, o = {}) {
     const cwd = o.cwd || path.join(os.homedir(), '.claude', 'session-board', 'decide');
     try { fs.mkdirSync(cwd, { recursive: true }); } catch (e) {}
     const env = {}; for (const [k, v] of Object.entries(process.env)) if (!SESSION_VARS.test(k)) env[k] = v;
-    const args = ['-p', '--model', o.model || 'haiku', '--output-format', 'json', '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands', '--tools', '', '--system-prompt', system];
+    const args = ['-p', '--model', o.model || 'haiku', '--output-format', 'json', '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands', '--tools', '', '--setting-sources', '', '--system-prompt', system];   // no settings: no hooks of yours run in it (lib/aside.js)
     let child;
     try { child = spawn(o.bin || 'claude', args, { cwd, env, windowsHide: true, shell: false }); }
     catch (e) { return resolve({ ok: false, error: '啟動不了 claude：' + String(e.message || e).slice(0, 120) }); }

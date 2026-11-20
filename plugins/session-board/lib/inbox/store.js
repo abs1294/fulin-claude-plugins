@@ -123,7 +123,8 @@ class Inbox {
     else if (o.triage === 'invalid') where.push("t.triage IN ('fyi', 'noise')");
     else if (o.triage === 'pending') where.push('t.triage IS NULL');
     if (o.open) where.push("t.status <> 'done'");
-    if (o.q) { where.push("(t.subject LIKE ? OR t.sender LIKE ? OR t.customer LIKE ? OR EXISTS (SELECT 1 FROM inbox_message m WHERE m.thread_id = t.thread_id AND m.body LIKE ?))"); const like = '%' + String(o.q).replace(/[%_]/g, ' ') + '%'; args.push(like, like, like, like); }
+    // also the triage's title and line: the list shows that title, so a word seen there has to find it (2026-11-20)
+    if (o.q) { where.push("(t.subject LIKE ? OR t.sender LIKE ? OR t.customer LIKE ? OR t.triage_title LIKE ? OR t.triage_summary LIKE ? OR EXISTS (SELECT 1 FROM inbox_message m WHERE m.thread_id = t.thread_id AND m.body LIKE ?))"); const like = '%' + String(o.q).replace(/[%_]/g, ' ') + '%'; args.push(like, like, like, like, like, like); }
     return this.db.prepare(`SELECT t.*, (SELECT count(*) FROM inbox_message m WHERE m.thread_id = t.thread_id) AS messages,
         (SELECT substr(m.body, 1, 160) FROM inbox_message m WHERE m.thread_id = t.thread_id ORDER BY m.ts DESC LIMIT 1) AS latest,
         CASE WHEN t.last_in_at IS NOT NULL AND t.last_in_at > coalesce(t.seen_at, 0) THEN 1 ELSE 0 END AS unread

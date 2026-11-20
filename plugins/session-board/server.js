@@ -60,6 +60,7 @@ const { Decider } = require('./lib/decide');
 const Agents = require('./lib/agents');
 const Harness = require('./lib/harness');
 const Remote = require('./lib/remote');
+const TidyLib = require('./lib/tidy');
 const Plugins = require('./lib/plugins');
 const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
@@ -262,7 +263,14 @@ function portFromArgs(argv) {
 // The request came in on the board's own address on this computer (127.0.0.1), not on its Tailscale address - which
 // is how another computer reaches it. Told by the address it ARRIVED on: a request this computer sends to its own
 // Tailscale address counts as remote too, which is what it is from the page's point of view.
-const isLocal = (req) => /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(String(req.socket.localAddress || ''));
+// Through `tailscale serve` (the https address a phone needs for its microphone): Tailscale passes the request on from
+// 127.0.0.1, with the device that sent it in x-forwarded-for and its account in tailscale-user-login (measured
+// 2026-11-19). Such a request is from that device, not from this computer - checked as one, and never let do what
+// happens on this screen. (Those headers are believed only on a connection from this computer itself.)
+const LOOPBACK = /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/;
+const viaServe = (req) => LOOPBACK.test(String(req.socket.remoteAddress || '')) && !!(req.headers['tailscale-user-login'] || req.headers['x-forwarded-for'] || req.headers['tailscale-funnel-request']);
+const clientAddr = (req) => (viaServe(req) ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : String(req.socket.remoteAddress || ''));
+const isLocal = (req) => !viaServe(req) && LOOPBACK.test(String(req.socket.localAddress || ''));
 
 function sameToken(got, token) {
   // Shape first: timingSafeEqual throws when the BYTE lengths differ, which a
@@ -388,7 +396,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Everything the server does outside its own process. A test hands in its own (deps.out) so that no window is opened,
 // no program started, nothing written to the registry and no process ended while the routes are exercised.
 const REAL_OUT = { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify,
-  kill: (pid) => process.kill(pid), exit: (code) => process.exit(code), gitRun: execFile, btw: (sid, cwd, question) => Aside.ask(sid, cwd, question, { env: K.cleanEnv(process.env) }), shell: (command, cwd) => Shell.run(command, cwd) };
+  kill: (pid) => process.kill(pid), exit: (code) => process.exit(code), gitRun: execFile, btw: (sid, cwd, question) => Aside.ask(sid, cwd, question, { env: K.cleanEnv(process.env) }), explain: (cwd, prompt) => Aside.explain(cwd, prompt, { env: K.cleanEnv(process.env) }), shell: (command, cwd) => Shell.run(command, cwd) };
 
 // The next steps a conversation can be given from the board: a plugin's own command, sent into it. Offered only when
 // that plugin is installed for the folder (or for the whole user); which ones fit the turn just ended is decided by
@@ -411,11 +419,15 @@ const nextSteps = (inst, folder) => NEXT.filter((n) => installedFor(inst, n.plug
 
 function createServer(token, port, deps = {}) {
   // eslint-disable-next-line no-shadow
-  const { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside } = Object.assign({}, REAL_OUT, deps.out);
+  const { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside, explain: explainAside } = Object.assign({}, REAL_OUT, deps.out);
   const allowedHosts = new Set([`${HOST}:${port}`, `localhost:${port}`]);
   // Who may talk to the board at all: this computer, and - when reaching it through Tailscale is switched on - only the
   // devices of your own Tailscale account (lib/remote.js). Checked before anything else, the key after it.
   const gate = deps.gate || new Remote.Gate();
+  const tidy = deps.tidy || new TidyLib.Tidy();   // the mic's 自動排版: one Claude kept running while it is used
+  // the https address tailscale serve gives this board ('' none), asked at most once a minute
+  let served = { at: 0, url: '' };
+  const httpsUrl = async () => { if (Date.now() - served.at > 60000) served = { at: Date.now(), url: await (deps.servedUrl || Remote.servedUrl)(port) }; return served.url; };
   let remote = null;   // {server, ip, name} while the board also listens on this computer's Tailscale address
   const pageFile = path.join(__dirname, 'public', 'index.html');
   const page = () => fs.readFileSync(pageFile);
@@ -466,6 +478,8 @@ function createServer(token, port, deps = {}) {
     // the look (外觀 A-D), one for a phone and one for everything else; '' = not chosen: a phone D, the rest B
     skin: { def: '', ok: (v) => ['', 'a', 'b', 'c', 'd'].includes(v), why: '只能是 a、b、c、d 或空白（用預設）' },
     skinPhone: { def: '', ok: (v) => ['', 'a', 'b', 'c', 'd'].includes(v), why: '只能是 a、b、c、d 或空白（用預設）' },
+    // what is said into the microphone is tidied by Claude before it stays in the box (lib/tidy.js); off = the words as heard
+    voiceTidy: { def: true, ok: isBool, why: '只能是開或關' },
     decideModel: { def: 'haiku', ok: (v) => typeof v === 'string' && /^(haiku|sonnet|opus|fable|claude-[a-z0-9.-]{1,40})$/.test(v), why: '模型只能是 haiku、sonnet、opus、fable 或 claude- 開頭的名稱' },
   };
   const pref = (k) => { const v = config.value(k, PREFS[k].def); return PREFS[k].ok(v) ? v : PREFS[k].def; };
@@ -573,6 +587,7 @@ function createServer(token, port, deps = {}) {
     };
   };
   const asideBusy = new Set();   // sessions with a side question being answered right now
+  const explainBusy = new Set(); // harness suggestions (folder + id) being explained right now
   const setHidden = deps.hidden ? deps.hidden.set : (v) => config.setValue('hiddenSessions', v);
 
   // Several tabs polling at once share one scan.
@@ -1016,8 +1031,18 @@ function createServer(token, port, deps = {}) {
 
   const server = http.createServer(async (req, res) => {
     try {
-      if (!(await gate.allows(req.socket.remoteAddress))) return send(res, 403, { error: 'not one of your devices' });
-      if (!allowedHosts.has(String(req.headers.host || ''))) return send(res, 403, { error: 'bad host' });
+      // Tailscale Funnel (open to the internet, for LINE) never reaches the board itself: only its own listener (lib/line.js)
+      if (req.headers['tailscale-funnel-request']) return send(res, 403, { error: 'not here' });
+      // Through tailscale serve only while 「從其他裝置連線」 is on: switched off, no other device gets in, whatever
+      // `tailscale serve` was left set up (it arrives on 127.0.0.1, which the switch alone does not close)
+      if (viaServe(req) && config.value('remoteTailscale', false) !== true) return send(res, 403, { error: '從其他裝置連線已關閉' });
+      if (!(await gate.allows(clientAddr(req)))) return send(res, 403, { error: 'not one of your devices' });
+      const hostIn = String(req.headers.host || '');
+      // the https address through tailscale serve: this computer's Tailscale name (on 443 none in the header; served on
+      // another https port, the name and that port - the address the settings show)
+      const hm = /^([^:]+)(?::(\d{1,5}))?$/.exec(hostIn);
+      const servedHost = viaServe(req) && gate.info && gate.info.ok && !!gate.info.name && !!hm && hm[1].toLowerCase() === gate.info.name.toLowerCase();
+      if (!allowedHosts.has(hostIn) && !servedHost) return send(res, 403, { error: 'bad host' });
       const url = new URL(req.url, `http://${HOST}:${port}`);
       const p = url.pathname;
       const q = url.searchParams;
@@ -1035,7 +1060,7 @@ function createServer(token, port, deps = {}) {
         if (!t || t.exp < Date.now()) { viewTickets.delete(id); return send(res, 404, { error: '這個預覽網址已經過期，請重新開一次預覽' }); }
         // Only from the device that asked for it: a page can send its own address anywhere (open it in a window, go to
         // another site with it in the address - no sandbox stops a page from leaving), and an address alone is not the key.
-        if (t.from && t.from !== req.socket.remoteAddress) return send(res, 404, { error: '這個預覽網址只能在開它的那台裝置上看' });
+        if (t.from && t.from !== clientAddr(req)) return send(res, 404, { error: '這個預覽網址只能在開它的那台裝置上看' });
         // A web page (.html) as a page: it and what it loads from beside it (pictures, styles, scripts), from that
         // folder down only. What a page needs and nothing else is served (no file whose name or folder starts with a
         // dot: .env, .git), and the page is shut in - a sandbox with an origin of its own and no connections - so it
@@ -1156,6 +1181,7 @@ function createServer(token, port, deps = {}) {
         }
         if (p === '/api/config') return send(res, 200, { config: config.load(), file: config.CONFIG_FILE, keepAlive: Keepalive.isOn(), keepAliveEvery: Keepalive.EVERY_MIN, autoStart: autostart.isOn(), autoStartFile: autostart.fileShown ? autostart.fileShown() : path.join(autostart.startupDir(), autostart.NAME),
           notify: config.value('notify', true) !== false, notifyClick: Notify.isRegistered(), notifyOwnChain: Notify.ownChainPresent(), showFork: config.value('showFork', false) === true, autoHideDays: autoHideDays(), prefs: prefs(), integrations: integrationsNow(),
+          httpsUrl: config.value('remoteTailscale', false) === true ? await httpsUrl() : '',
           remote: Object.assign({ on: config.value('remoteTailscale', false) === true }, server.remoteState(), q.get('devices') === '1' ? { tailscale: await (deps.remoteInfo || Remote.info)() } : {}) });
         // Conversations of the last 30 days that are not open now, newest first; q searches title, folder and what you said first and last.
         if (p === '/api/past') {
@@ -1244,9 +1270,11 @@ function createServer(token, port, deps = {}) {
           const c = channels.get(String(q.get('sid') || ''));
           if (!c) return send(res, 404, { commands: [], error: '這不是看板裡的對話' });
           const list = await channels.commandsFor(c.cwd);
-          if (cmdUse.started() && !cmdUse.countedAt()) cmdUse.refresh();   // the board running (not a test), not counted yet: started now, in the background
+          // the board running (not a test), not counted yet (just started): counted now and waited for, up to 5 s (measured
+          // 2026-11-19: 2.1 s for 300 records) - answered with no counts, the list came in name order and stayed so
+          if (cmdUse.started() && !cmdUse.countedAt()) await Promise.race([cmdUse.refresh(), new Promise((r) => { const t = setTimeout(r, 5000); if (t.unref) t.unref(); })]);
           // the board's own: Claude Code has no /btw when it runs without a terminal (lib/aside.js)
-          return send(res, 200, Object.assign({}, list, { commands: [{ name: 'btw', description: '順便問一句：用這個對話的內容回答，但不記進對話（由看板提供）', argumentHint: '<要問的話>' }].concat((list.commands || []).filter((x) => x.name !== 'btw')), usage: cmdUse.usage() }));
+          return send(res, 200, Object.assign({}, list, { commands: [{ name: 'btw', description: '順便問一句：用這個對話的內容回答，但不記進對話（由看板提供）', argumentHint: '<要問的話>' }].concat((list.commands || []).filter((x) => x.name !== 'btw')), usage: cmdUse.usage(), counted: !cmdUse.started() || !!cmdUse.countedAt() }));
         }
         if (p === '/api/warroom') {
           const now = Date.now();
@@ -1442,6 +1470,22 @@ function createServer(token, port, deps = {}) {
       }
       // Not for Claude after all (a password was in it): what was kept is thrown away.
       if (p === '/api/shell/drop') return send(res, 200, { ok: channels.dropShell(sid, body.id === undefined ? null : Number(body.id)) });
+      // The 說明 button of a harness suggestion (lib/aside.js explain): Claude says in plain words what it is, in no
+      // conversation - nothing saved, so none of your sessions gains a turn and no new one is listed. The suggestion is
+      // read from the folder's own list (lib/harness.js), not taken from the page; one at a time per suggestion.
+      if (p === '/api/harness/explain') {
+        if (!isOn('harness')) return send(res, 409, { ok: false, error: 'harness 的整合已在設定裡關閉' });
+        const cwd = typeof body.cwd === 'string' ? body.cwd : '';
+        if (!isDir(cwd)) return send(res, 400, { ok: false, error: '這個專案資料夾不存在' });
+        const st = Harness.stateOf(cwd);
+        const x = st.installed && st.pending.find((y) => y.id === String(body.id || ''));
+        if (!x) return send(res, 404, { ok: false, error: '找不到這筆建議（可能已經核可或駁回了）' });
+        const key = cwd + '\n' + x.id;
+        if (explainBusy.has(key)) return send(res, 409, { ok: false, error: '這筆的說明還在寫，等它回來' });
+        explainBusy.add(key);
+        let r; try { r = await explainAside(cwd, Aside.explainPrompt(x, Array.isArray(body.before) ? body.before : [])); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; } finally { explainBusy.delete(key); }
+        return send(res, r.ok ? 200 : 502, r);
+      }
       // A question on the side (lib/aside.js): any session that has a transcript, also a terminal one and a busy one.
       if (p === '/api/btw') {
         const s = find(sid);
@@ -1512,6 +1556,17 @@ function createServer(token, port, deps = {}) {
         const r = await decider.ask('unfinished', body.text.slice(-50000));
         return send(res, r.ok ? 200 : 502, r.ok ? { ok: true, unfinished: r.answer, items: r.items, show: r.yes } : r);
       }
+      // The mic's 自動排版 (lib/tidy.js). warm: the mic was just pressed - Claude boots while you speak. tidy: the words
+      // heard, cleaned up; answered as lines of JSON as they come ({d: text so far}), the last one {done, text} or {error}.
+      if (p === '/api/tidy/warm') { tidy.warm(); return send(res, 200, { ok: true }); }
+      if (p === '/api/tidy') {
+        const text = String(body.text || '');
+        if (!text.trim()) return send(res, 400, { ok: false, error: '沒有內容' });
+        if (text.length > 4000) return send(res, 400, { ok: false, error: '一次最多整理 4000 字' });
+        res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        const r = await tidy.run(text, (sofar) => { try { res.write(JSON.stringify({ d: sofar }) + '\n'); } catch (e) {} });
+        return res.end(JSON.stringify(r.ok ? { done: true, text: r.text, ms: r.ms } : { error: r.error }) + '\n');
+      }
       // A board conversation's model and effort, from its next message on (lib/chat.js setModel).
       if (p === '/api/model') {
         const model = body.model === undefined ? undefined : String(body.model), effort = body.effort === undefined ? undefined : String(body.effort);
@@ -1550,12 +1605,12 @@ function createServer(token, port, deps = {}) {
         if (site) {
           // the real, long name, as the files under it are compared by (realpathSync.native: no 8.3 names, no subst drive)
           const dir = path.dirname(abs); let dirReal = dir; try { dirReal = fs.realpathSync.native(dir); } catch (e) {}
-          viewTickets.set(id, { abs, site: true, dir, dirReal, name: path.basename(abs), exp: now + 60 * 60000, from: req.socket.remoteAddress });   // an hour: a page keeps loading its pictures while it is read
+          viewTickets.set(id, { abs, site: true, dir, dirReal, name: path.basename(abs), exp: now + 60 * 60000, from: clientAddr(req) });   // an hour: a page keeps loading its pictures while it is read
           return send(res, 200, { ok: true, url: '/api/view/' + id + '/' + encodeURIComponent(path.basename(abs)) });
         }
         const name = kind === 'office' ? path.basename(abs).replace(/\.[^.]+$/, '') + '.pdf' : path.basename(abs);
         let ino = ''; try { ino = String(fs.statSync(fs.realpathSync.native(abs), { bigint: true }).ino); } catch (e) {}   // the file it is for (see /api/view)
-        viewTickets.set(id, { abs, office: kind === 'office', name, exp: now + 10 * 60000, from: req.socket.remoteAddress, ino });
+        viewTickets.set(id, { abs, office: kind === 'office', name, exp: now + 10 * 60000, from: clientAddr(req), ino });
         return send(res, 200, { ok: true, url: '/api/view/' + id + '/' + encodeURIComponent(name) });
       }
       if (p === '/api/stop') { const ok = channels.stop(sid); fresh(); return send(res, 200, { ok }); }
@@ -2005,6 +2060,9 @@ if (require.main === module) {
     console.log(`session-board ${VERSION} listening on http://${HOST}:${port}/?t=${token}`);
     server.keepRemote(30000, (line) => console.log(line));
     server.cmdUse.start();   // the commands you use most: counted in the background every 15 minutes
+    // the LINE secretary, when line.json is filled in (lib/line.js): its own listener on 127.0.0.1:4318, the only
+    // thing Tailscale Funnel passes the internet to; it uses the board through this API like the page does
+    try { require('./lib/line').start({ boardPort: port, boardKey: token, log: (line) => console.log(line) }); } catch (e) { console.log('LINE 小秘書沒有啟動：' + (e.message || e)); }
   });
 }
 

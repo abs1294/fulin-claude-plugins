@@ -173,6 +173,18 @@ function itemsOf(e) {
   // marker instead, so the page can draw a line where the compaction happened.
   if (e.type === 'user' && e.isCompactSummary) return [{ id, role: 'compact', ts }];
   if (e.type === 'user') {
+    // A slash command you ran (typed, or a 「下一步」 button such as 寫交付訊息) is written by Claude Code as its tags,
+    // <command-message>x</command-message><command-name>/x</command-name>[<command-args>…</command-args>], not as what
+    // was sent. Dropped with the other tags, the message was missing from the conversation altogether (asked
+    // 2026-11-19: 「我按了你的提示寫交付訊息，但為什麼沒有這個訊息」). Shown as it was said: "/x args". The /rename the
+    // board sends to name a conversation is its own doing, not yours, and stays out.
+    const raw = blocks.filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('');
+    // (the tags come in either order - lib/cmduse.js)
+    const cname = /^\s*<command-(?:name|message|args)>/.test(raw) && /<command-name>(\/[^<\s]+)<\/command-name>/.exec(raw);
+    if (cname) {
+      const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(raw), a = args ? args[1].trim() : '';
+      return cname[1] === '/rename' ? [] : [{ id, role: 'user', text: cname[1] + (a ? ' ' + a : ''), ts }];
+    }
     // (pieces that end in a picture's mark were one text, cut where the picture stands: put together again as they were)
     const text = blocks.filter((b) => b && b.type === 'text' && typeof b.text === 'string' && !NOT_TYPED.test(b.text))
       .map((b) => b.text).reduce((a, t) => a + (a && !/［圖\d{1,2}］$/.test(a) ? '\n' : '') + t, '').trim();

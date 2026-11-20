@@ -62,4 +62,23 @@ class Gate {
   }
 }
 
-module.exports = { info, Gate, exe };
+// The https address `tailscale serve` gives the board (a phone's browser lets only an https page use the microphone),
+// or '' when none is set up. Read from `tailscale serve status --json` (shape measured 2026-11-19:
+// {TCP: {"443": {HTTPS: true}}, Web: {"name.ts.net:443": {Handlers: {"/": {Proxy: "http://127.0.0.1:4317"}}}}}).
+function servedUrl(port, run) {
+  return new Promise((resolve) => {
+    (run || execFile)(exe(), ['serve', 'status', '--json'], { windowsHide: true, timeout: 8000, encoding: 'utf8' }, (err, stdout) => {
+      let j; try { j = JSON.parse(String(stdout || '') || '{}'); } catch (e) { return resolve(''); }
+      for (const [hp, w] of Object.entries((j && j.Web) || {})) {
+        const h = w && w.Handlers && w.Handlers['/'];
+        const m = h && /^https?:\/\/(127\.0\.0\.1|localhost):(\d+)\/?$/.exec(String(h.Proxy || ''));
+        if (!m || Number(m[2]) !== Number(port)) continue;
+        const [name, p] = hp.split(':');
+        if (j.TCP && j.TCP[p] && j.TCP[p].HTTPS) return resolve('https://' + name + (p === '443' ? '' : ':' + p) + '/');
+      }
+      resolve('');
+    });
+  });
+}
+
+module.exports = { info, Gate, exe, servedUrl };

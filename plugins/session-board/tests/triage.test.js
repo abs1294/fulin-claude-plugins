@@ -138,3 +138,16 @@ test('who you are: told to the model, your addresses file mail as yours, and a c
   // What the model is given cannot carry a line break or quote marks in from the setting.
   assert.ok(!/他本人的信箱與名字：[^\n]*["<>]/.test(T.promptFor(inbox.db, T.pending(inbox.db), ['a"b<c>\nd'])));
 });
+
+test('the prompt says what time it is now, and a meeting you are sent is yours until it is over', () => {
+  const db = { prepare: () => ({ all: () => [{ direction: 'in', sender: 'a@b.c', body: '明天 13:30 開會', ts: Date.parse('2026-11-17T17:05:00+08:00') }] }) };
+  const now = Date.parse('2026-11-17T17:10:00+08:00');
+  const p = T.buildPrompt(db, [{ thread_id: 'x', source: 'gmail', subject: '會議', upto: 0 }], ['me@x'], now).text;
+  // in this computer's own time zone (the user's), whichever that is: in UTC+8 it reads 2026/11/17 17:10:00（星期二）
+  const d = new Date(now);
+  assert.strictEqual(p.split('\n')[0], '現在時間：' + d.toLocaleString('zh-TW', { hour12: false }) + '（星期' + '日一二三四五六'[d.getDay()] + '）');
+  assert.match(p.split('\n')[0], /^現在時間：\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}:\d{2}（星期[日一二三四五六]）$/);
+  assert.match(T.SYSTEM, /會議時間還沒到，歸 todo/);
+  assert.match(T.SYSTEM, /不可以自己猜今天是幾號/);
+  assert.match(T.SYSTEM, /行銷宣傳.*不算邀請/);
+});

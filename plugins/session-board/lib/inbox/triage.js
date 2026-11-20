@@ -57,6 +57,8 @@ const SYSTEM = [
   '- 看的是「對方最新的訊息」之後，他是否還欠一個動作或回答。標成「我」的是他自己說的；他已經回覆、處理完的不算 todo／question。',
   '- 群組裡沒有指名他、也不是他負責的事，歸 fyi 或 noise。',
   '- 拿不準是不是該他處理：歸 fyi，讓他自己判斷，不要硬塞成 todo。',
+  '- 會議、邀約、截止日：寄到他信箱的會議通知或邀請（他是收件人之一，不論有沒有點名他），會議時間還沒到，歸 todo，title 寫「出席 日期 時間 什麼會」，summary 寫時間、地點或會議連結、要準備什麼。他轉寄、回一句話都不算處理完：要出席的會到了時間才結束。時間已經過了的會議才是 fyi 或 noise。廣告、電子報、研討會或活動的行銷宣傳、系統自動寄的報名提醒不算邀請，照原本規則歸 noise。',
+  '- 現在的時間會在題目開頭告訴你。判斷「還沒到」「已經過了」只能用那個時間，不可以自己猜今天是幾號。',
   '',
   '他本人是誰：每次會告訴你他的信箱與名字。標成「我」的、由這些信箱寄出的、署名是這些名字的內容，都是他自己寫的。它們出現在別人來信的引文裡（例如「From: 他的信箱」之後的段落、「> 」開頭的引用）時也一樣：那是他說過的話，不是別人對他的要求，不可以當成他的待辦。只有「別人在他最後一次發言之後」提出的事，才可能是他該處理的。',
   '',
@@ -89,7 +91,9 @@ const SRC = { gmail: 'Gmail 信件', slack: 'Slack', teams: 'Teams' };
 // -> {text, count}: the prompt, and how many of the threads (from the front) it holds. Threads are added whole
 // until the call would get too large; the rest are left for the next call.
 // me: who the user is - mail addresses and names of theirs, so that what they wrote is not taken for a request made to them.
-function buildPrompt(db, threads, me) {
+// now: when this is judged (a meeting is still ahead or already over only against that; without it the model guessed
+// the date and called a meeting of tomorrow over - measured 2026-11-19)
+function buildPrompt(db, threads, me, now = Date.now()) {
   const blocks = [];
   let size = 0;
   for (const t of threads) {
@@ -108,7 +112,8 @@ function buildPrompt(db, threads, me) {
     blocks.push(text); size += text.length;
   }
   const who = (me || []).map((x) => String(x).replace(/[\r\n"<>]/g, ' ').trim().slice(0, 80)).filter(Boolean).slice(0, 12);
-  return { text: ['請分類下面 ' + blocks.length + ' 串對話。每串裡「新進來」的部分是重點：判斷它之後，他是否還欠一個動作或回答。',
+  const wd = '日一二三四五六'[new Date(now).getDay()];
+  return { text: ['現在時間：' + new Date(now).toLocaleString('zh-TW', { hour12: false }) + '（星期' + wd + '）', '請分類下面 ' + blocks.length + ' 串對話。每串裡「新進來」的部分是重點：判斷它之後，他是否還欠一個動作或回答。',
     who.length ? '他本人的信箱與名字：' + who.join('、') + '。這些寄出或署名的內容是他自己寫的（引文裡的也是），不是要他處理的事。' : '（沒有提供他本人的信箱與名字：只有標成「我」的算他寫的。）',
     '', ...blocks, '只輸出 JSON 陣列。'].join('\n'), count: blocks.length };
 }
@@ -157,7 +162,7 @@ function callClaude(prompt, o = {}) {
   return new Promise((resolve) => {
     const cwd = o.cwd || path.join(os.homedir(), '.claude', 'session-board', 'triage');
     try { fs.mkdirSync(cwd, { recursive: true }); } catch (e) {}
-    const args = ['-p', '--model', o.model || 'haiku', '--output-format', 'json', '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands', '--tools', '', '--system-prompt', o.system || SYSTEM];
+    const args = ['-p', '--model', o.model || 'haiku', '--output-format', 'json', '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands', '--tools', '', '--setting-sources', '', '--system-prompt', o.system || SYSTEM];   // no settings: no hooks of yours run in it (lib/aside.js)
     let child;
     try { child = spawn('claude', args, { cwd, env: cleanEnv(process.env), windowsHide: true, shell: false }); }
     catch (e) { return resolve({ ok: false, error: '啟動不了 claude：' + String(e.message || e).slice(0, 120) }); }
