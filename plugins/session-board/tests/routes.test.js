@@ -1420,7 +1420,7 @@ test('the mic: what was heard is tidied as it comes; through tailscale serve the
   s2.close();
 });
 
-test('「檢查更新」 restart: only onto a newer version, never under a working conversation, by a detached helper that outlives the board', async () => {
+test('「重啟更新」 restart: only onto a newer version, never under a working conversation, by a detached helper that outlives the board', async () => {
   const VERSION = require('../.claude-plugin/plugin.json').version;
   const spawned = [], exited = []; let shut = 0, busy = [];
   const ch = Object.create(channels); ch.active = () => busy; ch.shutdown = () => { shut++; };

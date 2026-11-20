@@ -1022,7 +1022,7 @@ function createServer(token, port, deps = {}) {
     update: () => (isOn('versions') ? updatePlugins() : Promise.resolve({ ok: true, summary: '' })),
     version: () => VERSION,
     // once a day: what there is to update (read only - the marketplace asked for its newest versions), and whether the
-    // board installed is newer than this one running; the page shows 「檢查更新」 only then
+    // board installed is newer than this one running; the page shows 「重啟更新」 only then
     check: async () => {
       const inst = instNow();
       const root = deps.boardRoot || Plugins.rootOf('session-board', inst, __dirname) || __dirname;
@@ -2003,7 +2003,7 @@ function createServer(token, port, deps = {}) {
       }
       // Take a conversation off the board. Its history stays on disk (claude --resume <id>).
       if (p === '/api/close') { const ok = channels.remove(sid); fresh(); return send(res, 200, { ok }); }
-      // 「檢查更新」 (the round button at the bottom of the left column), after the plugins were brought up to date: the board
+      // 「重啟更新」 (the floating button at the right of the screen, beside the message box), after the plugins were brought up to date: the board
       // starts again on the newest installed version of itself. Typed in a conversation on the board, /session-board could
       // never do this - that conversation is busy with it, and stopping the board ends it before it could start the new
       // one (asked 2026-11-20). From the page, no conversation is in the way: refused only while one is working (the same
@@ -2030,7 +2030,7 @@ function createServer(token, port, deps = {}) {
         // lib/keepalive.js RESTARTING_MS); and looked at once more - a conversation that began working since is not cut
         try { fs.mkdirSync(path.dirname(RESTARTING), { recursive: true }); fs.writeFileSync(RESTARTING, String(Date.now())); } catch (e) {}
         setTimeout(() => {
-          if (channels.active().length) { try { fs.unlinkSync(RESTARTING); } catch (e) {} return; }   // called off: the page says the board did not come back in time
+          if (channels.active().length) { try { fs.unlinkSync(RESTARTING); } catch (e) {} return; }   // called off: the page, seeing this version still answer, says so (about 5 s)
           channels.shutdown(); osExit(0);
         }, 300);
         return;

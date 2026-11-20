@@ -838,7 +838,7 @@
   .side-nav { padding: 0 6px 4px; border-bottom: 1px solid var(--line); }
   /* its height, dragged at the line under it (a small screen: the list of sessions gets the room); scrolls when shorter */
   .side-nav.sized { max-height: var(--nav-h); overflow-y: auto; }   /* no scrollbar-width: in Chrome it turns off the board's own scrollbar (above) and the plain grey one with arrows came back */
-  /* 「檢查更新」: a round floating button at the bottom right of the left column, above its last line */
+  /* 「重啟更新」: a floating button at the right of the screen (where exactly: updateFab) */
   /* the words on it, in the colours of the main button (a bare round icon on white was read by nobody, 2026-11-20) */
   /* at the right of the screen, beside the message box (asked 2026-11-20); where it stands is worked out by updateFab() */
   .upd-fab { position: fixed; right: 22px; bottom: 20px; z-index: 30; min-height: 36px; padding: 0 14px 0 11px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
@@ -6607,20 +6607,20 @@ function unsavedWork() {
   });
   box.append(b);
 })();
-// 「檢查更新」 (asked 2026-11-20, a floating button): the plugins brought up to date, then the board started again on its
+// 「重啟更新」 (asked 2026-11-20, a floating button): the plugins brought up to date, then the board started again on its
 // newest version - from the page, because typed in a conversation on the board /session-board stops itself (the
 // conversation running it is busy, and ending the board would end it). Not restarted while a conversation is working:
 // those are named, and the button is pressed again once they are done.
 (function updateFab() {
-  const b = el('button', 'upd-fab'); b.type = 'button'; b.title = '檢查更新：把 plugin 更新到最新，看板有新版就重開'; b.setAttribute('aria-label', '檢查更新');
-  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg><span>檢查更新</span>';
+  const b = el('button', 'upd-fab'); b.type = 'button'; b.title = '重啟更新：把 plugin 更新到最新，看板有新版就重開'; b.setAttribute('aria-label', '重啟更新');
+  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg><span>重啟更新</span>';
   let busy = false;
   b.addEventListener('click', async () => {
     if (busy) return; busy = true; b.classList.add('busy'); b.setAttribute('aria-busy', 'true');
-    const lbl = b.querySelector('span'); if (lbl) lbl.textContent = '更新中…';
-    const done = () => { busy = false; b.classList.remove('busy'); b.removeAttribute('aria-busy'); if (lbl) lbl.textContent = '檢查更新'; };
+    const lbl = b.querySelector('span'); if (lbl) lbl.textContent = '重啟更新中…';
+    const done = () => { busy = false; b.classList.remove('busy'); b.removeAttribute('aria-busy'); if (lbl) lbl.textContent = '重啟更新'; };
     try {
-      say('檢查更新中：把 plugin 更新到最新（可能要一兩分鐘）…');
+      say('重啟更新中：把 plugin 更新到最新（可能要一兩分鐘）…');
       const u = await api('/api/plugins/update', {});
       if (!u.ok) { say('plugin 沒有更新成功：' + (u.data.error || u.status), true); return done(); }
       const sum = u.data.summary || '都已是最新版';
@@ -6643,7 +6643,7 @@ function unsavedWork() {
         if (p && p.app === 'session-board' && p.version === r.data.from && ++oldSeen >= 5) { say('看板沒有重開：剛好有對話開始做事，所以取消了，舊版 ' + r.data.from + ' 照常在跑。等它做完再按一次', true); done(); return; }
       }
       say('看板 60 秒內沒有開回來。在終端機打 /session-board，或執行 node scripts/start.js', true); done();
-    } catch (e) { say('檢查更新失敗：' + String((e && e.message) || e), true); done(); }
+    } catch (e) { say('重啟更新失敗：' + String((e && e.message) || e), true); done(); }
   });
   document.body.append(b);
   // Where it stands (asked 2026-11-20: at the right of the screen, beside the message box):
@@ -6691,8 +6691,8 @@ function unsavedWork() {
     if (need) {
       const parts = (c.behind || []).map((x) => x.name + ' ' + (x.from || '?') + ' → ' + (x.to || '?'));
       if (c.board && c.board.newest && c.board.newest !== c.board.running) parts.push('看板 ' + c.board.running + ' → ' + c.board.newest + '（要重開）');
-      b.title = '有更新：' + parts.join('、') + '。按一下更新' + (c.board && c.board.newest !== c.board.running ? '並重開看板' : '');
-      b.setAttribute('aria-label', '檢查更新（有 ' + parts.length + ' 項可以更新）');
+      b.title = '有更新：' + parts.join('、') + '。按「重啟更新」：更新 plugin' + (c.board && c.board.newest !== c.board.running ? '，並重開看板' : '');
+      b.setAttribute('aria-label', '重啟更新（有 ' + parts.length + ' 項可以更新）');
     }
     if (b.hidden === need) { b.hidden = !need; shape = ''; place(); }
   };
