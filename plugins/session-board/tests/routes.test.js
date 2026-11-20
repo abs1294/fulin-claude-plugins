@@ -1059,13 +1059,23 @@ test('a schedule of its own rule: said in words, checked, shown with its next ru
   assert.deepStrictEqual([s.kind, s.rule.cron, s.rule.until], ['custom', '0 9,14 * * 1-5', '2099-12-31']);
   assert.strictEqual(s.next, r.json.next[0].at, 'its next run is the first of those shown');
   await post('/api/schedule/delete', { id: sv.json.id });
-  // a schedule being edited: its preview counted from when it was made, as its runs are (review 2026-11-20)
+  // a schedule being edited: its preview counted as its runs are - a count from the save that changed the rule, kept
+  // when the rule is the same (review 2026-11-20; asked 2026-11-20: "from the edit, counted again")
   const two = await post('/api/schedule/save', { kind: 'custom', rule: { cron: '0 9 * * *', count: 2 }, cwd: WORK, prompt: '跑兩次' });
-  const made = Date.now() - 3 * 86400000;
-  require('../lib/db').open().prepare('UPDATE schedule SET created_at = ? WHERE id = ?').run(made, two.json.id);
-  const edited = (await post('/api/schedule/rule', { id: two.json.id, rule: { cron: '0 9 * * *', count: 2 } })).json;
-  const fresh = (await post('/api/schedule/rule', { rule: { cron: '0 9 * * *', count: 2 } })).json;
-  assert.deepStrictEqual([edited.next.length, fresh.next.length], [0, 2], 'made three days ago: its two runs are over; a new one has both ahead');
+  const made = Date.now() - 3 * 86400000, db = require('../lib/db').open();
+  db.prepare('UPDATE schedule SET created_at = ?, rule = ? WHERE id = ?').run(made, JSON.stringify({ cron: '0 9 * * *', count: 2, countFrom: made }), two.json.id);
+  const pv = async (rule) => (await post('/api/schedule/rule', { id: two.json.id, rule })).json.next.length;
+  assert.deepStrictEqual([await pv({ cron: '0 9 * * *', count: 2 }), await pv({ cron: '0 9 * * *', count: 2, text: '每天九點兩次' }), await pv({ cron: '0 9 * * *', count: 3 })], [0, 0, 3],
+    'counting since three days ago: its two runs are over, with other words too; three asked for now: three ahead');
+  assert.strictEqual((await post('/api/schedule/rule', { rule: { cron: '0 9 * * *', count: 2 } })).json.next.length, 2, 'a new one has both ahead');
+  // saved: what the preview showed is what runs; the name alone changed: still counting from where it was
+  const save = (rule, name) => post('/api/schedule/save', { id: two.json.id, kind: 'custom', rule, cwd: WORK, prompt: '跑兩次', name });
+  await save({ cron: '0 9 * * *', count: 2 }, '改名');
+  const listed = () => (async () => (await get('/api/schedules')).json.schedules.find((x) => x.id === two.json.id))();
+  assert.deepStrictEqual([(await listed()).rule.countFrom, (await listed()).next], [made, 0]);
+  const t0 = Date.now(); await save({ cron: '0 9 * * *', count: 3, countFrom: 1 });
+  const s3 = await listed();
+  assert.ok(s3.rule.countFrom >= t0 && s3.next > t0, 'the count changed: counted from this save (not from what the page sent), and it runs again');
   await post('/api/schedule/delete', { id: two.json.id });
   // whose working days: a setting, said with each preview; the countries there are calendars for
   const Workdays = require('../lib/workdays');

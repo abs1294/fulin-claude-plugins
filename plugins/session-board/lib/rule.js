@@ -13,7 +13,8 @@
 //   everyWeeks  2 … 52: every so many weeks, the weeks counted from `from` (or from the day it was made)
 //   everyMonths 2 … 24: every so many months, likewise
 //   from, until "YYYY-MM-DD": the first and the last day it may run on
-//   count       1 … 1000: after so many runs, no more
+//   count       1 … 1000: after so many runs, no more - counted from countFrom when there is one (stamp() below)
+//   countFrom   (kept by the board, never sent from the page) when the count starts: the save that last changed the rule
 //   text        what you said it should be, in your words (shown in the list); explain: the same, as it was understood
 //
 // Times are this computer's. Nothing runs more often than every 5 minutes.
@@ -98,7 +99,23 @@ function compile(rule, made) {
   const end = rule.until ? nextDay(new Date(rule.until + 'T00:00:00').getTime()) - 1 : Infinity;
   const times = [];
   for (const h of [...f[1].set].sort((a, b) => a - b)) for (const m of [...f[0].set].sort((a, b) => a - b)) times.push(h * 60 + m);
-  return { rule, f, start, anchor: dayStart(start), end, times };
+  // the count starts at the save that last changed the rule (not before its first day); the weeks and months do not move
+  const countStart = rule.countFrom > start ? rule.countFrom : start;
+  return { rule, f, start, anchor: dayStart(start), end, times, countStart };
+}
+
+// The rule as saved: where its count starts (asked 2026-11-20: "3 times" added to a schedule that had run for weeks
+// meant three more, not "already done"). A changed rule - when, how often, its days, the count - starts counting at
+// this save; the same rule (only the name, the words or what it does changed) keeps counting where it was.
+// old: the rule saved before, or null for a new schedule. A rule saved before there was countFrom: counted as it was.
+const SAME = ['cron', 'workday', 'everyWeeks', 'everyMonths', 'from', 'until', 'count'];
+function stamp(rule, old, now = Date.now()) {
+  const r = Object.assign({}, rule); delete r.countFrom;
+  if (!r.count) return r;
+  const same = old && old.cron && SAME.every((k) => (old[k] == null ? null : old[k]) === (r[k] == null ? null : r[k]));
+  if (!same) r.countFrom = now;
+  else if (Number.isFinite(old.countFrom) && old.countFrom > 0) r.countFrom = old.countFrom;
+  return r;
 }
 
 const lastDayOf = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
@@ -152,8 +169,8 @@ function between(c, a, b, max) {
   }
   return out;
 }
-// how many runs there were before t (for `count`)
-const runsBefore = (c, t) => between(c, c.start, t, (c.rule.count || 0) + 1).length;
+// how many runs there were before t (for `count`), since the count started
+const runsBefore = (c, t) => between(c, c.countStart, t, (c.rule.count || 0) + 1).length;
 
 // The next run after now, 0 when there is none
 function next(rule, now = Date.now(), made) {
@@ -173,7 +190,7 @@ function last(rule, now = Date.now(), made) {
     const t = ts[ts.length - 1];
     if (c.rule.count && runsBefore(c, t) >= c.rule.count) {
       // past its count: the last of the runs it had
-      const all = between(c, c.start, now + 1, c.rule.count); return all.length ? all[all.length - 1] : 0;
+      const all = between(c, c.countStart, now + 1, c.rule.count); return all.length ? all[all.length - 1] : 0;
     }
     return t;
   }
@@ -195,4 +212,4 @@ function guessedYears(rule, now = Date.now(), ats = []) {
   return [...new Set([y, y + 1, ...ats.map((t) => new Date(t).getFullYear())])].sort((a, b) => a - b).filter((x) => !Cal.known(x));
 }
 
-module.exports = { check, next, last, upcoming, guessedYears };
+module.exports = { check, stamp, next, last, upcoming, guessedYears };

@@ -89,7 +89,9 @@ function clean(input, isDir = () => true) {
     v.at = c.text;
   }
   if (v.kind === 'once') {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(o.date || '')) || Number.isNaN(new Date(o.date + 'T00:00:00').getTime())) return { ok: false, error: '請選擇日期' };
+    // a day that is: typed now (the board's date field is a text field), 2027-02-31 would have been March 3rd (review 2026-11-20)
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(o.date || '')), d = m && new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (!m || d.getFullYear() !== Number(m[1]) || d.getMonth() !== Number(m[2]) - 1 || d.getDate() !== Number(m[3])) return { ok: false, error: o.date ? '沒有這一天：' + String(o.date).slice(0, 20) + '（日期請用 YYYY-MM-DD）' : '請選擇日期' };
     v.date = o.date;
   }
   if (v.kind === 'weekly') {
@@ -153,6 +155,8 @@ class Schedules {
   get(id) { const r = this.db.prepare('SELECT * FROM schedule WHERE id = ?').get(Number(id) || 0); return r ? this._row(r) : null; }
   // v: a value from clean(). With an id, that schedule is replaced. -> its id.
   save(v, id, now = Date.now()) {
+    // a rule's count starts at the save that changed the rule (lib/rule.js stamp)
+    if (v.rule) { const old = id ? this.get(id) : null; v = Object.assign({}, v, { rule: Rule.stamp(v.rule, old && old.kind === 'custom' ? old.rule : null, now) }); }
     const args = [v.name, v.kind, v.at, v.date, v.days, v.everyHours, v.target, v.cwd, v.sessionId, v.sessionTitle, v.prompt, v.fallback, v.skipPermissions ? 1 : 0, v.enabled ? 1 : 0, now];
     const role = (n) => { this.db.prepare('UPDATE schedule SET agent = ?, goal = ?, rule = ? WHERE id = ?').run(v.agent || '', v.goal || '', v.rule ? JSON.stringify(v.rule) : '', n); return n; };
     if (id && this.get(id)) {

@@ -176,6 +176,31 @@ test('review 2026-11-20: counted from the moment made, February 29th found years
   assert.strictEqual(R.check({ cron: '0 9 L-27 * *' }).ok, true);
 });
 
+test('a count added to a schedule that has been running: counted from that save, the weeks where they were (asked 2026-11-20)', () => {
+  const made = T(2027, 1, 4, 8), edit = T(2027, 2, 1, 12);   // made on a Monday; edited four weeks on
+  const before = R.check({ cron: '0 9 * * 1' }).rule, after = R.check({ cron: '0 9 * * 1', count: 3 }).rule;
+  const r = R.stamp(after, before, edit);
+  assert.strictEqual(r.countFrom, edit, 'the rule changed: counted from now');
+  assert.deepStrictEqual(show(R.upcoming(r, edit, made, 5)), ['2/8 09:00', '2/15 09:00', '2/22 09:00'], 'three more, not "already done"');
+  assert.deepStrictEqual(show(R.upcoming(after, edit, made, 5)), [], 'as it was: counted from when it was made, over');
+  assert.strictEqual(R.next(r, T(2027, 2, 22, 10), made), 0, 'after the three: no more');
+  assert.strictEqual(R.last(r, T(2027, 3, 10), made), T(2027, 2, 22, 9), 'the last of the three');
+  assert.strictEqual(R.last(r, T(2027, 2, 1, 13), made), T(2027, 2, 1, 9), 'the runs before the count started are still runs it had');
+  // only the words changed: the count goes on where it was
+  const again = R.stamp(Object.assign({}, after, { text: '每週一早上九點，三次' }), r, T(2027, 2, 10));
+  assert.strictEqual(again.countFrom, edit);
+  // the count changed: from that save
+  assert.strictEqual(R.stamp(R.check({ cron: '0 9 * * 1', count: 5 }).rule, r, T(2027, 2, 10)).countFrom, T(2027, 2, 10));
+  // every 2 weeks keeps its weeks: counted from when it was made, not from the edit
+  const two = R.stamp(R.check({ cron: '0 9 * * 1', everyWeeks: 2, count: 2 }).rule, before, T(2027, 1, 13));
+  assert.deepStrictEqual(show(R.upcoming(two, T(2027, 1, 13), made, 5)), ['1/18 09:00', '2/1 09:00']);
+  // no count: none kept; a rule saved before there was countFrom: as it was; one sent from the page: not taken
+  assert.strictEqual('countFrom' in R.stamp(before, r, edit), false);
+  assert.strictEqual('countFrom' in R.stamp(after, after, edit), false);
+  assert.strictEqual(R.stamp(Object.assign({ countFrom: 1 }, after), null, edit).countFrom, edit);
+  assert.strictEqual(R.check(Object.assign({ countFrom: 1 }, after)).rule.countFrom, undefined);
+});
+
 test('the years whose working days are a guess: also those of the runs shown, years ahead', () => {
   const r = R.check({ cron: '0 9 29 2 *', workday: 'only' }).rule;
   const now = T(2027, 3, 1), runs = R.upcoming(r, now, now, 2).map((x) => x.at);

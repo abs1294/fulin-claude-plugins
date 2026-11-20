@@ -70,6 +70,46 @@
   :where(input[type=checkbox], input[type=radio]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   :where(input[type=checkbox], input[type=radio]):disabled { opacity: .45; cursor: not-allowed; }
   :where(input[type=range]) { accent-color: var(--accent); }
+  /* a number: typed, without the browser's little arrows */
+  input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+  input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  /* a date or a time field (made a text field, its picker the board's - the pick code): sized to what it holds, a mark
+     saying what opens from it */
+  :where(input[data-pick]) { padding-right: 30px; cursor: pointer; background-repeat: no-repeat; background-position: right 10px center; font-variant-numeric: tabular-nums; }
+  :where(input[data-pick=time]) { width: 8.5em;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none' stroke='%23888' stroke-width='1.4' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='5.6'/%3E%3Cpath d='M7 4v3.2l2 1.3'/%3E%3C/svg%3E"); }
+  :where(input[data-pick=date]) { width: 10.5em;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none' stroke='%23888' stroke-width='1.4' stroke-linecap='round'%3E%3Crect x='1.7' y='2.6' width='10.6' height='9.7' rx='1.6'/%3E%3Cpath d='M1.7 5.6h10.6M4.6 1.3v2.4M9.4 1.3v2.4'/%3E%3C/svg%3E"); }
+
+  /* ── what opens from a choice list, a date, a time, a suggested field: the board's, not the browser's (the pick code) ── */
+  .pickbox { position: fixed; z-index: 9998; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-m);
+    box-shadow: 0 8px 28px rgba(15, 15, 15, .14), 0 1px 3px rgba(15, 15, 15, .08); font-size: 14px; padding: 4px; max-width: calc(100vw - 16px); }
+  @media (prefers-color-scheme: dark) { .pickbox { box-shadow: 0 8px 28px rgba(0, 0, 0, .55); border-color: #3A3A3A; } }
+  .pickbox .pick-opt { display: block; width: 100%; text-align: left; border: 0; background: none; color: inherit; font: inherit; padding: 6px 10px; border-radius: var(--r-s);
+    cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pickbox .pick-opt.at, .pickbox .pick-opt:hover { background: var(--bubble); }
+  .pickbox .pick-opt.on { color: var(--accent); font-weight: 600; }
+  .pickbox .pick-opt.off { color: var(--faint); cursor: default; background: none; }
+  .pick-list { max-height: min(320px, 50vh); overflow-y: auto; max-width: min(520px, calc(100vw - 16px)); }
+  .pick-sugg .pick-opt { font-size: 13px; }
+  .pick-date { padding: 10px; width: 264px; }
+  .pick-date .pd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+  .pick-date .pd-head b { font-size: 14px; }
+  .pick-date .pd-nav { border: 1px solid var(--line); background: var(--bg); color: inherit; border-radius: var(--r-s); min-width: 30px; height: 28px; padding: 0 8px; font-size: 13px; }
+  .pick-date .pd-nav:hover { border-color: var(--field-hover); }
+  .pick-date .pd-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+  .pick-date .pd-w { font-size: 12px; color: var(--faint); padding: 4px 0; }
+  .pick-date .pd-d { border: 0; background: none; color: inherit; font: inherit; font-size: 13px; height: 32px; border-radius: var(--r-s); font-variant-numeric: tabular-nums; }
+  .pick-date .pd-d:hover, .pick-date .pd-d.at { background: var(--bubble); }
+  .pick-date .pd-d.today { box-shadow: inset 0 0 0 1px var(--field-hover); }
+  .pick-date .pd-d.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .pick-date .pd-foot { display: flex; gap: 6px; margin-top: 8px; }
+  .pick-time { padding: 6px; }
+  .pick-time .pt-head { font-size: 12px; color: var(--faint); padding: 2px 10px 4px; white-space: pre; }
+  .pick-time .pt-cols { display: flex; gap: 4px; }
+  .pick-time .pt-col { height: 220px; overflow-y: auto; width: 58px; scrollbar-width: thin; }
+  .pick-time .pick-opt { text-align: center; font-variant-numeric: tabular-nums; }
+  @media (pointer: coarse) { .pickbox .pick-opt, .pick-date .pd-d { min-height: 44px; } }
 
   /* ── the board's own tooltip, in place of the browser's (asked 2026-11-20: "ugly - make a tooltip") ── */
   .tipbox { position: fixed; z-index: 9999; max-width: min(460px, calc(100vw - 24px)); padding: 8px 12px; pointer-events: none;
@@ -380,12 +420,16 @@
   .sc-form h3 { margin: 0 0 12px; font-size: 16px; }
   .sc-f { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px 12px; align-items: start; }
   .sc-f > label { color: var(--dim); font-size: 14px; padding-top: 6px; }
-  .sc-f input[type=text], .sc-f input[type=time], .sc-f input[type=date], .sc-f input[type=number], .sc-f select, .sc-f textarea { border: 1px solid var(--line); border-radius: var(--r-m); padding: 6px 10px; background: var(--bg); color: inherit; font: inherit; font-size: 14px; min-width: 0; }
+  .sc-f input[type=text], .sc-f input[type=time], .sc-f input[type=date], .sc-f input[type=number], .sc-f select, .sc-f textarea { border: 1px solid var(--line); border-radius: var(--r-m); padding: 6px 10px; background-color: var(--bg); color: inherit; font: inherit; font-size: 14px; min-width: 0; }
+  /* (the colour only: a select's arrow and a date or time field's mark are background images, kept) */
+  .sc-f select, .sc-f input[data-pick] { padding-right: 30px; }
   .sc-f textarea { width: 100%; box-sizing: border-box; min-height: 90px; resize: vertical; }
   .sc-f .line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
-  .sc-f .line input[type=text] { flex: 1 1 220px; }
-  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-m); overflow: hidden; }
-  .seg button { border: 0; background: var(--bg); padding: 5px 12px; font-size: 14px; border-left: 1px solid var(--line); }
+  .sc-f .line input[type=text]:not([data-pick]) { flex: 1 1 220px; }
+  /* where a row does not fit (a phone): onto the next line, each word whole - not squeezed into a column of letters and
+     cut off at the edge (measured 2026-11-20 at 400 px: 44 px wide, 212 px tall, the last one past the screen) */
+  .seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; border: 1px solid var(--line); border-radius: var(--r-m); overflow: hidden; }
+  .seg button { border: 0; background: var(--bg); padding: 5px 12px; font-size: 14px; border-left: 1px solid var(--line); white-space: nowrap; flex: 1 0 auto; }
   .seg button:first-child { border-left: 0; }
   .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .wd { display: inline-flex; gap: 4px; }
@@ -1278,6 +1322,7 @@
   }
   /* B: round buttons, soft shadows */
   :root[data-skin="b"] .btn, :root[data-skin="b"] .seg { border-radius: 999px; }
+  @media (max-width: 600px) { :root[data-skin="b"] .seg { border-radius: var(--r-m); } }   /* a row that may wrap is not a pill */
   :root[data-skin="b"] .composer { border-radius: 24px; box-shadow: 0 4px 16px rgba(80, 60, 30, .08); }
   :root[data-skin="b"] button.item { padding: 8px 10px; }
   :root[data-skin="b"] button.item.active { background: var(--bg); box-shadow: 0 1px 3px rgba(80, 60, 30, .12); }
@@ -3708,6 +3753,7 @@ function schedForm(s) {
   const fEvery = el('select'); for (const [k, l] of [['', '不跳'], ['w2', '每 2 週'], ['w3', '每 3 週'], ['w4', '每 4 週'], ['m2', '每 2 個月'], ['m3', '每 3 個月（每季）'], ['m6', '每 6 個月'], ['m12', '每 12 個月']]) { const o = el('option', '', l); o.value = k; fEvery.append(o); } fEvery.setAttribute('aria-label', '間隔');
   const fFrom = input('date', ''), fUntil = input('date', ''), fCount = input('number', ''); fCount.min = 1; fCount.max = 1000; fCount.placeholder = '不限'; fCount.style.width = '90px';
   fFrom.setAttribute('aria-label', '開始日期'); fUntil.setAttribute('aria-label', '結束日期'); fCount.setAttribute('aria-label', '最多跑幾次');
+  fCount.title = '從這次儲存開始算；之後只改名稱或要做的事，次數照舊接著算，改了規則才重新算';
   const cuApply = el('button', 'btn', '套用並重新計算'); cuApply.type = 'button';
   const row = (label, ...xs) => { const r = el('div', 'cu-row'); r.append(el('span', 'cu-l', label), ...xs); return r; };
   adv.append(row('規則', fCron), row('工作天', fWork), row('間隔', fEvery), row('期間', fFrom, '到', fUntil), row('次數', fCount, '次後停止'), cuApply,
@@ -3741,7 +3787,8 @@ function schedForm(s) {
   };
   const ask = async (payload, btn) => {
     btn.disabled = true; const was = btn.textContent; btn.textContent = payload.text ? '轉換中…（約 5～15 秒）' : '計算中…';
-    // (the schedule being edited: its runs are counted from when it was made, and so is the preview)
+    // (the schedule being edited: the preview is counted as its runs will be - "every 2 weeks" from when it was made, a
+    // number of runs from this save when the rule is changed)
     let r; try { r = await api('/api/schedule/rule', Object.assign({ id: s.id || undefined }, payload)); } catch (e) { r = { ok: false, data: { error: '看板沒有回應' } }; }
     btn.disabled = false; btn.textContent = was;
     showRule(r.data && typeof r.data === 'object' ? r.data : { ok: false, error: '轉不成規則' });
@@ -3756,7 +3803,7 @@ function schedForm(s) {
   const resetTip = el('span', 'tip');
   const showReset = async () => { resetTip.textContent = '讀取額度…'; let q = null; try { q = (await api('/api/quota')).data; } catch (e) {} const fh = q && q.fiveHour; resetTip.textContent = fh && fh.resetsAt > Date.now() ? '5 小時額度目前用了 ' + fh.pct + '%，' + new Date(fh.resetsAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) + ' 重置；儲存後會排在重置後 1 分鐘，只跑一次。看板要開著，Claude Code 不用開著。' : '現在沒有 5 小時額度在計時（沒用到，或已經重置了），不用等，請直接選一個時間。'; };
   const showWhen = () => { whenLine.textContent = ''; if (st.kind === 'reset') { whenLine.append(resetTip); showReset(); return; } if (st.kind === 'once') whenLine.append(date, time); else if (st.kind === 'daily') whenLine.append(time); else if (st.kind === 'weekly') whenLine.append(wd, time); else if (st.kind === 'monthly') { const t = el('div', 'md-time'); t.append('時間', time); whenLine.append(md, t, mdTip); } else if (st.kind === 'custom') whenLine.append(cu); else whenLine.append('每隔', hours, '小時（從儲存的時候起算）'); };
-  const whenBox = el('div'); whenBox.append(seg([['once', '一次'], ['daily', '每天'], ['weekly', '每週'], ['monthly', '每月'], ['every', '每隔幾小時'], ['custom', '自訂']].concat(s.id ? [] : [['reset', '5 小時額度重置後']]), st.kind, (k) => { st.kind = k; showWhen(); }), whenLine); whenLine.style.marginTop = '8px'; showWhen();
+  const whenBox = el('div'); whenBox.append(seg([['once', '一次'], ['daily', '每天'], ['weekly', '每週'], ['monthly', '每月'], ['every', '每隔幾小時'], ['custom', '自訂（一句話描述）']].concat(s.id ? [] : [['reset', '5 小時額度重置後']]), st.kind, (k) => { st.kind = k; showWhen(); }), whenLine); whenLine.style.marginTop = '8px'; showWhen();
   // where
   const folder = input('text', s.target === 'session' ? '' : s.cwd || '', '資料夾的完整路徑');
   const cond = el('textarea'); cond.value = s.goal || ''; cond.placeholder = '完成條件：做到什麼程度算完成，最好能檢查。例如：npm test 全過，而且 tests/report.md 存在'; cond.setAttribute('aria-label', '完成條件'); cond.style.minHeight = '64px'; folder.setAttribute('list', 'scFolders');
@@ -4077,6 +4124,279 @@ document.addEventListener('pointerover', (e) => {
 }, true);
 document.addEventListener('pointerout', (e) => { if (tipFor && !(e.relatedTarget && tipFor.contains(e.relatedTarget))) tipHide(); }, true);
 for (const ev of ['pointerdown', 'keydown', 'scroll', 'blur']) window.addEventListener(ev, () => tipHide(), true);
+
+// ── the board's own pop-ups for a choice list, a date, a time and suggestions (asked 2026-11-20: "why is there still
+// a raw html element" - the browser's time wheel opened over the schedule form) ──
+// Every <select>, date, time and suggested field on the page, wherever it is made and whenever: the field stays where it
+// is and keeps the value (the code that reads it is unchanged), only what opens from it is drawn here.
+//   select       its list opens here (the browser's is stopped on the press and the keys that would open it)
+//   date, time   made a text field (YYYY-MM-DD, HH:MM: the same value), with a month or the hours and minutes beside it
+//   list=…       the datalist's entries, the ones matching what is typed, under the field
+// <pick> (tests/pick.test.js runs this part in a browser)
+const pick = { box: null, for: null, key: null };
+const pickZ = () => parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+function pickClose(back) {
+  if (!pick.box) return;
+  pick.box.remove(); const f = pick.for; pick.box = pick.for = pick.key = null;
+  if (f) f.removeAttribute('aria-expanded');
+  if (back && f && f.isConnected) f.focus({ preventScroll: true });
+}
+function pickPlace() {
+  if (!pick.box || !pick.for) return;
+  if (!pick.for.isConnected) return pickClose();
+  // measured on the screen and set back divided by the page's text size, as the tooltip (tipPlace)
+  const z = pickZ(), r = pick.for.getBoundingClientRect(), m = 8, gap = 4;
+  pick.box.style.minWidth = Math.min(r.width, innerWidth - 2 * m) / z + 'px';
+  const b = pick.box.getBoundingClientRect();
+  const below = r.bottom + gap, above = r.top - gap - b.height;
+  const top = below + b.height > innerHeight - m && above > m ? above : Math.max(m, Math.min(below, innerHeight - b.height - m));
+  pick.box.style.top = top / z + 'px'; pick.box.style.left = Math.max(m, Math.min(r.left, innerWidth - b.width - m)) / z + 'px';
+}
+function pickOpen(field, cls, build) {
+  pickClose();
+  const box = el('div', 'pickbox ' + cls);
+  box.addEventListener('mousedown', (e) => e.preventDefault());   // a press inside (its scrollbar too) leaves the focus in the field
+  pick.box = box; pick.for = field;
+  build(box);
+  box.style.top = '-999px'; box.style.left = '0px';
+  document.body.append(box); field.setAttribute('aria-expanded', 'true');
+  pickPlace();
+  return box;
+}
+// what was picked: the field's value, told as the browser tells it
+function pickSet(field, v) {
+  if (field.value === v) return;
+  field.value = v;
+  field.dispatchEvent(new Event('input', { bubbles: true })); field.dispatchEvent(new Event('change', { bubbles: true }));
+}
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// a list of rows to choose from, moved through with the arrows: rows [{text, title, off, on}], chosen(i).
+// own: the list belongs to a select - Space chooses and a letter goes to the next row starting with it, as the
+// browser's list does (a suggested field's letters are its typing: left alone)
+function pickRows(box, rows, start, chosen, own) {
+  box.setAttribute('role', 'listbox');
+  let at = start;
+  const els = rows.map((r, i) => {
+    const d = el('div', 'pick-opt' + (r.on ? ' on' : '') + (r.off ? ' off' : ''), r.text || ' ');
+    d.setAttribute('role', 'option'); d.setAttribute('aria-selected', String(!!r.on)); if (r.title) d.title = r.title;
+    d.addEventListener('pointerdown', (e) => e.preventDefault());   // the field keeps the focus
+    d.addEventListener('click', () => { if (!r.off) chosen(i); });
+    // (the pointer over a row only lights it: Enter takes the one the arrows picked - review 2026-11-20)
+    box.append(d); return d;
+  });
+  const mark = (i, scroll) => { if (els[at]) els[at].classList.remove('at'); at = i; if (els[at]) { els[at].classList.add('at'); if (scroll) els[at].scrollIntoView({ block: 'nearest' }); } };
+  mark(at, true);
+  // the next row that can be chosen from i on (d: 1 down, -1 up); Home and End skip the ones that cannot as well
+  let typed = '', typedAt = 0;
+  const stepFrom = (i0, d) => { for (let i = i0; i >= 0 && i < rows.length; i += d) if (!rows[i].off) return mark(i, true); };
+  pick.key = (e) => {
+    if (e.key === 'ArrowDown') { stepFrom(at + 1, 1); return true; }
+    if (e.key === 'ArrowUp') { stepFrom(at - 1, -1); return true; }
+    if (e.key === 'Home') { stepFrom(0, 1); return true; }
+    if (e.key === 'End') { stepFrom(rows.length - 1, -1); return true; }
+    const typing = own && Date.now() - typedAt < 700 && typed;   // in the middle of typing a row's name: a space is part of it
+    if ((e.key === 'Enter' || (own && e.key === ' ' && !typing)) && rows[at] && !rows[at].off) { chosen(at); return true; }
+    if (own && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // letters typed close together add up ("ch": Cherry, not the next row with a c), as the browser's list does; the
+      // same letter again goes round the rows starting with it ("cc": the second row with a c)
+      const now = Date.now(), k = e.key.toLowerCase(); typed = typing ? typed + k : k; typedAt = now;
+      const same = typed.length > 1 && [...typed].every((c) => c === typed[0]), word = same ? typed[0] : typed;
+      const from = word.length > 1 ? 0 : 1;   // a longer word may still be the row marked; one letter goes on to the next
+      for (let j = from; j < rows.length + from; j++) { const i = ((at < 0 ? 0 : at) + j) % rows.length; if (!rows[i].off && String(rows[i].text || '').trim().toLowerCase().startsWith(word)) { mark(i, true); break; } }
+      return true;   // taken either way: the browser's own jump would change the value behind the list
+    }
+    return false;
+  };
+}
+
+// select
+function selOpen(s) {
+  if (s.disabled || !s.options.length) return;
+  const opts = [...s.options];
+  pickOpen(s, 'pick-list', (box) => pickRows(box, opts.map((o) => ({ text: o.textContent, title: o.title, off: o.disabled, on: o.selected })), Math.max(0, s.selectedIndex), (i) => {
+    pickClose(true);
+    if (s.selectedIndex !== i) { s.selectedIndex = i; s.dispatchEvent(new Event('input', { bubbles: true })); s.dispatchEvent(new Event('change', { bubbles: true })); }
+  }, true));
+}
+
+// date: a month at a time, Sunday first; the arrows move by a day or a week, Page Up/Down by a month
+function dateOpen(f) {
+  const val = /^(\d{4})-(\d{2})-(\d{2})$/.exec(f.value.trim());
+  const today = new Date(), iso = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  let shown = val ? new Date(Number(val[1]), Number(val[2]) - 1, 1) : new Date(today.getFullYear(), today.getMonth(), 1);
+  let at = val ? new Date(Number(val[1]), Number(val[2]) - 1, Number(val[3])) : new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const box = pickOpen(f, 'pick-date', () => {});
+  box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', '選日期');
+  const choose = (d) => { pickClose(true); pickSet(f, iso(d)); };
+  const draw = () => {
+    box.textContent = '';
+    const head = el('div', 'pd-head');
+    const prev = el('button', 'pd-nav', '‹'), next = el('button', 'pd-nav', '›');
+    prev.type = next.type = 'button'; prev.setAttribute('aria-label', '上個月'); next.setAttribute('aria-label', '下個月');
+    for (const b of [prev, next]) b.addEventListener('pointerdown', (e) => e.preventDefault());
+    prev.addEventListener('click', () => { shown = new Date(shown.getFullYear(), shown.getMonth() - 1, 1); at = new Date(shown); draw(); });
+    next.addEventListener('click', () => { shown = new Date(shown.getFullYear(), shown.getMonth() + 1, 1); at = new Date(shown); draw(); });
+    head.append(prev, el('b', '', shown.getFullYear() + ' 年 ' + (shown.getMonth() + 1) + ' 月'), next);
+    const grid = el('div', 'pd-grid');
+    for (const w of '日一二三四五六') grid.append(el('span', 'pd-w', w));
+    const first = shown.getDay(), days = new Date(shown.getFullYear(), shown.getMonth() + 1, 0).getDate();
+    for (let i = 0; i < first; i++) grid.append(el('span'));
+    for (let d = 1; d <= days; d++) {
+      const day = new Date(shown.getFullYear(), shown.getMonth(), d), b = el('button', 'pd-d', String(d)); b.type = 'button';
+      if (iso(day) === iso(today)) b.classList.add('today');
+      if (val && iso(day) === f.value.trim()) b.classList.add('on');
+      if (iso(day) === iso(at)) b.classList.add('at');
+      b.setAttribute('aria-label', iso(day));
+      b.addEventListener('pointerdown', (e) => e.preventDefault());
+      b.addEventListener('click', () => choose(day));
+      grid.append(b);
+    }
+    const foot = el('div', 'pd-foot'), t = el('button', 'pd-nav', '今天'); t.type = 'button';
+    t.addEventListener('pointerdown', (e) => e.preventDefault()); t.addEventListener('click', () => choose(today));
+    foot.append(t);
+    if (!f.required && f.value) { const c = el('button', 'pd-nav', '清除'); c.type = 'button'; c.addEventListener('pointerdown', (e) => e.preventDefault()); c.addEventListener('click', () => { pickClose(true); pickSet(f, ''); }); foot.append(c); }
+    box.append(head, grid, foot);
+    pickPlace();
+  };
+  const move = (n) => { at = new Date(at.getFullYear(), at.getMonth(), at.getDate() + n); shown = new Date(at.getFullYear(), at.getMonth(), 1); draw(); };
+  pick.key = (e) => {
+    const k = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+    if (k) { move(k); return true; }
+    if (e.key === 'PageUp' || e.key === 'PageDown') { const d = e.key === 'PageUp' ? -1 : 1; at = new Date(at.getFullYear(), at.getMonth() + d, Math.min(at.getDate(), new Date(at.getFullYear(), at.getMonth() + d + 1, 0).getDate())); shown = new Date(at.getFullYear(), at.getMonth(), 1); draw(); return true; }
+    if (e.key === 'Enter') { choose(at); return true; }
+    return false;
+  };
+  draw();
+}
+
+// time: the hours and the minutes (every 5, and the one set if it is not), 24-hour as the board says times
+function timeOpen(f) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(f.value.trim());
+  let h = m && Number(m[1]) < 24 ? Number(m[1]) : 9, n = m && Number(m[2]) < 60 ? Number(m[2]) : 0;
+  const box = pickOpen(f, 'pick-time', () => {});
+  box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', '選時間');
+  const mins = [...new Set([...Array(12)].map((_, i) => i * 5).concat(n))].sort((a, b) => a - b);
+  const set = () => pickSet(f, pad2(h) + ':' + pad2(n));
+  const col = (label, vals, cur, onPick) => {
+    const c = el('div', 'pt-col'); c.setAttribute('role', 'listbox'); c.setAttribute('aria-label', label);
+    for (const v of vals) {
+      const b = el('button', 'pick-opt' + (v === cur ? ' on' : ''), pad2(v)); b.type = 'button'; b.setAttribute('role', 'option'); b.setAttribute('aria-selected', String(v === cur));
+      b.addEventListener('pointerdown', (e) => e.preventDefault());
+      b.addEventListener('click', () => { for (const x of c.children) { x.classList.remove('on'); x.setAttribute('aria-selected', 'false'); } b.classList.add('on'); b.setAttribute('aria-selected', 'true'); onPick(v); });
+      c.append(b);
+    }
+    return c;
+  };
+  const hc = col('時', [...Array(24).keys()], h, (v) => { h = v; set(); });
+  const mc = col('分', mins, n, (v) => { n = v; set(); pickClose(true); });   // the minutes are the last choice: closed
+  box.append(el('div', 'pt-head', '時　　分'), el('div', 'pt-cols'));
+  box.lastChild.append(hc, mc);
+  for (const c of [hc, mc]) { const on = c.querySelector('.on'); if (on) c.scrollTop = on.offsetTop - c.clientHeight / 2 + on.offsetHeight / 2; }
+  pick.key = (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { h = (h + (e.key === 'ArrowUp' ? 23 : 1)) % 24; set(); pickClose(); timeOpen(f); return true; }
+    if (e.key === 'Enter') { set(); pickClose(true); return true; }
+    return false;
+  };
+}
+
+// suggestions (input list=…): the datalist's entries containing what is typed
+function suggOpen(f) {
+  const dl = document.getElementById(f.dataset.sugg || '');
+  const q = f.value.trim().toLowerCase();
+  const all = dl ? [...new Set([...dl.options].map((o) => o.value).filter(Boolean))] : [];
+  const hits = all.filter((v) => !q || (v.toLowerCase().includes(q) && v.toLowerCase() !== q)).slice(0, 50);
+  if (!hits.length) { if (pick.for === f) pickClose(); return; }
+  pickOpen(f, 'pick-list pick-sugg', (box) => pickRows(box, hits.map((v) => ({ text: v, title: v })), -1, (i) => { pickClose(true); pickSet(f, hits[i]); }));
+}
+
+// made the board's: the date and time fields become text fields, the suggested ones lose the browser's list
+function pickTake(i) {
+  if (i.tagName !== 'INPUT') return;
+  const t = i.getAttribute('type');
+  if ((t === 'date' || t === 'time') && !i.dataset.pick) {
+    const v = i.value; i.dataset.pick = t; i.type = 'text'; i.value = v;
+    if (!i.placeholder) i.placeholder = t === 'date' ? 'YYYY-MM-DD' : 'HH:MM';
+    // (not inputMode numeric: a phone's number pad has no "-" or ":", and the field could not be typed as it says)
+    i.autocomplete = 'off'; i.setAttribute('aria-haspopup', 'dialog');
+  }
+  if (i.hasAttribute('list')) { i.dataset.sugg = i.getAttribute('list'); i.removeAttribute('list'); i.autocomplete = 'off'; i.setAttribute('aria-haspopup', 'listbox'); }
+}
+function pickScan(root) {
+  if (root.nodeType !== 1) return;
+  if (root.matches('input')) pickTake(root);
+  for (const i of root.querySelectorAll('input[type=date], input[type=time], input[list]')) pickTake(i);
+}
+new MutationObserver((recs) => {
+  for (const r of recs) {
+    if (r.type === 'attributes') pickTake(r.target);
+    else for (const n of r.addedNodes) pickScan(n);
+  }
+}).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['type', 'list'] });
+pickScan(document.documentElement);
+
+const pickField = (t) => t && t.closest && t.closest('select, input[data-pick], input[data-sugg]');
+function pickToggle(f) {
+  if (pick.for === f) return pickClose();
+  if (f.tagName === 'SELECT') selOpen(f);
+  else if (f.dataset.pick === 'date') dateOpen(f);
+  else if (f.dataset.pick === 'time') timeOpen(f);
+  else suggOpen(f);
+}
+// the press: a select's own list never opens; a date or time field opens its picker (and can still be typed in)
+document.addEventListener('mousedown', (e) => {
+  const f = pickField(e.target);
+  if (pick.box && !pick.box.contains(e.target) && f !== pick.for) pickClose();
+  if (!f || f.disabled || f.readOnly || e.button !== 0) return;
+  if (f.tagName === 'SELECT') { e.preventDefault(); f.focus({ preventScroll: true }); pickToggle(f); }
+}, true);
+// a date, time or suggested field: opened on the click (by then it has the focus; pressed again while open, it stays)
+document.addEventListener('click', (e) => {
+  const f = pickField(e.target);
+  if (!f || f.tagName === 'SELECT' || f.disabled || f.readOnly || pick.for === f || document.activeElement !== f) return;
+  pickToggle(f);
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (e.isComposing || e.keyCode === 229) return;   // an input method choosing a word: its keys are its own
+  if (pick.box) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); return pickClose(true); }
+    if (e.key === 'Tab') return pickClose();
+    // Alt+arrow closes any of them, as it does the browser's - before the arrows move the marked row (review 2026-11-20)
+    // (F4 opens any of them below, and closes any of them here: a switch, as the browser's)
+    if ((e.key === 'F4' || (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp'))) && document.activeElement === pick.for) { e.preventDefault(); e.stopPropagation(); return pickClose(true); }
+    if (document.activeElement === pick.for && pick.key && pick.key(e)) { e.preventDefault(); e.stopPropagation(); return; }
+  }
+  const f = pickField(e.target);
+  if (!f || f.disabled || pick.for === f) return;
+  // the keys that open the browser's list (and, on a Mac, the arrows) open this one
+  const opens = f.tagName === 'SELECT' ? [' ', 'Enter', 'ArrowDown', 'ArrowUp', 'F4'].includes(e.key) : (e.key === 'ArrowDown' && (e.altKey || f.dataset.pick)) || e.key === 'F4';
+  if (opens) { e.preventDefault(); e.stopPropagation(); pickToggle(f); }
+}, true);
+// typed in: a suggested field's list follows what is typed; a date or time field's picker goes away, so what is typed
+// is what stays - Enter, the arrows and the caret are the field's again (review 2026-11-20: typed 14:30, Enter put back
+// the 09:00 the picker had)
+document.addEventListener('input', (e) => {
+  const f = e.target; if (!f || !f.dataset || !e.isTrusted) return;
+  if (f.dataset.sugg) suggOpen(f);
+  else if (f.dataset.pick && pick.for === f) pickClose();
+}, true);
+// a touch screen: the browser opens its own list on the tap, not on the press - stopped there too (the tap's mouse
+// events and click do not follow), and the board's opens
+let pickTouch = null;
+document.addEventListener('touchstart', (e) => { const t = e.touches[0]; pickTouch = t ? { x: t.clientX, y: t.clientY } : null; }, { capture: true, passive: true });
+document.addEventListener('touchend', (e) => {
+  const f = pickField(e.target), t = e.changedTouches[0];
+  if (!f || f.tagName !== 'SELECT' || f.disabled || e.touches.length) return;
+  if (pickTouch && t && Math.hypot(t.clientX - pickTouch.x, t.clientY - pickTouch.y) > 10) return;   // a swipe over it: the page scrolled
+  e.preventDefault(); f.focus({ preventScroll: true }); pickToggle(f);
+}, { capture: true, passive: false });
+document.addEventListener('focusout', (e) => { if (pick.for === e.target && !(e.relatedTarget && pick.box && pick.box.contains(e.relatedTarget))) setTimeout(() => { if (pick.for === e.target && document.activeElement !== e.target) pickClose(); }); }, true);
+// the window made narrower or wider: closed; only taller or shorter (a phone's keyboard coming up for the field just
+// pressed) - placed again, or the month or the hours would close the moment they opened (review 2026-11-20)
+let pickW = innerWidth;
+addEventListener('resize', () => { if (innerWidth !== pickW) { pickW = innerWidth; pickClose(); } else pickPlace(); });
+addEventListener('scroll', (e) => { if (pick.box && !(e.target instanceof Node && pick.box.contains(e.target))) pickPlace(); }, true);
+// </pick>
 
 // at: id of one of your messages to open the conversation at (from the war room).
 async function openChat(sid, at) {
@@ -7141,7 +7461,9 @@ function unsavedWork() {
   // those the box is unsaved as before
   const c = cur(), held = c && ((pendingImgs.get(c.sessionId) || []).length || (pendingFiles.get(c.sessionId) || []).length || carry.has(c.sessionId));
   const kept = c && c.owner === 'board' && !held && $('foot') ? $('foot').querySelector('textarea') : null;
-  for (const x of document.querySelectorAll('textarea, input[type=text]')) if (x !== kept && x.value.trim() && x.id !== 'never') return true;
+  // (not a date or a time field: the board's pickers make them text fields, and they always hold a value - the time
+  // of the daily update in 設定 would have kept a new version out for good)
+  for (const x of document.querySelectorAll('textarea, input[type=text]:not([data-pick])')) if (x !== kept && x.value.trim() && x.id !== 'never') return true;
   return false;
 }
 // "The phone's address", always at the bottom of the left column (it was only in 設定, behind a switch): copied on a

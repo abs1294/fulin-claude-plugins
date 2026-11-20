@@ -19,6 +19,9 @@ test('what is saved is checked: time, date, weekdays, hours, where and what', ()
     [{ kind: 'once', date: '' }, /日期/], [{ kind: 'weekly', days: [] }, /至少選一天/], [{ kind: 'every', everyHours: 0 }, /1 到 168/], [{ kind: 'every', everyHours: 2.5 }, /1 到 168/],
     [{ target: 'session', sessionId: 'not an id' }, /要接續的 session/]]) assert.match(clean(Object.assign({}, ok, patch)).error, msg);
   assert.match(clean(ok, () => false).error, /資料夾不存在/);
+  // a date typed (the board's date field is a text field): a day that is not is refused, not moved into the next month
+  for (const d of ['2027-02-31', '2027-13-01', '2027-2-3']) assert.match(clean(Object.assign({}, ok, { kind: 'once', date: d })).error, /沒有這一天|日期/, d);
+  assert.strictEqual(clean(Object.assign({}, ok, { kind: 'once', date: '2028-02-29' })).value.date, '2028-02-29');
   assert.deepStrictEqual(clean(Object.assign({}, ok, { kind: 'weekly', days: [5, 1, 1, 9] })).value.days, '1,5');
   const s = clean(Object.assign({}, ok, { target: 'session', sessionId: 'fcddb7be-012a-460b-bb6e-4ca9c9f93b75', sessionTitle: 'x', fallback: 'fork', skipPermissions: true })).value;
   assert.deepStrictEqual([s.target, s.sessionId, s.fallback, s.skipPermissions], ['session', 'fcddb7be-012a-460b-bb6e-4ca9c9f93b75', 'fork', true]);

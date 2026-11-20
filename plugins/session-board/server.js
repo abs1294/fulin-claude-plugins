@@ -1924,10 +1924,11 @@ function createServer(token, port, deps = {}) {
         const c = Rule.check(raw);
         if (!c.ok) return send(res, 200, { ok: false, error: c.error, rule: raw });
         if (Rule.guessedYears(c.rule).length) { try { await Workdays.refresh(deps.calFetch ? { fetch: deps.calFetch } : {}); } catch (e) {} }
-        // counted from when the schedule was made, as its runs will be (lib/schedule.js nextRun): a schedule being edited
-        // is its own, a new one now (review 2026-11-20: "every 2 weeks" or "3 times" previewed from now differed when edited)
+        // counted as its runs will be once saved (lib/schedule.js save and nextRun): the weeks and months from when the
+        // schedule was made (review 2026-11-20: "every 2 weeks" previewed from now differed when edited), and a count from
+        // this save when the rule changes, where it was when it does not (lib/rule.js stamp)
         const now = Date.now(), old = body.id ? schedules.get(body.id) : null, made = (old && (old.createdAt || old.updatedAt)) || now;
-        const next = Rule.upcoming(c.rule, now, made, 5);
+        const next = Rule.upcoming(Rule.stamp(c.rule, old && old.kind === 'custom' ? old.rule : null, now), now, made, 5);
         return send(res, 200, { ok: true, rule: c.rule, next, guessed: Rule.guessedYears(c.rule, now, next.map((x) => x.at)), country: Workdays.country() });
       }
       if (p === '/api/schedule/toggle') return send(res, 200, { ok: schedules.setEnabled(body.id, body.enabled === true) });
