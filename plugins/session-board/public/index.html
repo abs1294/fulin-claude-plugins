@@ -308,7 +308,7 @@
     /* outranked by html body: these rules come before the ones they change, further down (measured: still 30 px tall) */
     html body details.tools summary { padding-top: 11px; padding-bottom: 11px; }
     html body .rail-t { width: 44px; height: 44px; }
-    html body .list-more, html body .room-h { min-height: 44px; }
+    html body .list-more { min-height: 44px; }
     html body .cp-row { grid-template-columns: 44px minmax(0, 1fr) 140px 200px; }
     html body .cp-row input[type=checkbox] { width: 26px; height: 26px; margin: 9px; }
     input[type=checkbox], input[type=radio] { width: 26px; height: 26px; }
@@ -538,8 +538,13 @@
   .form { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 8px 10px; align-items: center; margin-top: 10px; }
   .form input, .form select { border: 1px solid var(--line); border-radius: var(--r-m); padding: 5px 10px; background: var(--bg); color: inherit; font: inherit; font-size: 14px; min-width: 0; }
   .form label { color: var(--dim); font-size: 14px; }
-  .list-more { display: block; width: 100%; margin-top: 10px; border: 0; background: none; color: var(--dim); font-size: 13px; text-align: left; padding: 4px 8px; border-radius: var(--r-m); }
-  .list-more:hover { background: var(--hover); color: var(--ink); }
+  /* "more", "load", "show": a link that says it is one - the accent colour and an arrow, not grey text that only
+     looked like a note (asked 2026-11-20: "I do not feel at all that it can be pressed") */
+  .list-more { display: block; width: 100%; margin-top: 10px; border: 0; background: none; color: var(--accent); font-size: 13px; font-weight: 500; text-align: left; padding: 4px 8px; border-radius: var(--r-m); }
+  .list-more::after { content: " ›"; }
+  .list-more:hover { background: var(--hover); text-decoration: underline; text-underline-offset: 3px; }
+  .list-more:disabled { color: var(--dim); text-decoration: none; } .list-more:disabled::after, .list-more.less::after { content: ""; }   /* "收起", "只看最近的": no arrow onward */
+  .bell-pop .bell-clear { margin: 8px 14px 0; font-size: 12px; }
   .past { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; border-bottom: 1px solid var(--line); padding: 8px 6px; }
   .past:hover { background: var(--hover); }
   .past .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -712,8 +717,6 @@
   .pl-form { border-top: 1px solid var(--line); padding: 10px 16px 0; display: grid; gap: 8px; } .pl-form .pl-sub { font-weight: 600; font-size: 14px; } .pl-form textarea { min-height: 60px; resize: vertical; } .pl-form input, .pl-form textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-m); font: inherit; background: var(--bg); color: inherit; } .pl-form .pl-acts { padding: 4px 0 0; }
   .pl-card .switch { margin: 6px 16px 0; }
   /* the harness line of a room, and its panel */
-  .room-h { display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--line); background: none; padding: 6px 14px; font-size: 13px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
-  .room-h b { color: var(--ink); font-weight: 600; margin-right: 4px; } .room-h:hover { background: var(--hover); } .room-h.warn { color: var(--amber); }
   .hp { margin: 8px 16px; border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 12px; }
   .hp-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 13px; } .hp-h code { font-size: 12px; } .hp-h .hp-t { color: var(--dim); font-size: 12px; overflow-wrap: anywhere; }
   .hp-lv { font-size: 12px; padding: 0 7px; border-radius: var(--r-m); background: var(--hover); } .hp-lv.red { background: var(--red-soft); color: var(--red); }
@@ -1789,7 +1792,7 @@ function drawList() {
     }
     if (!sessions.length) list.append(el('div', 'group-head', '還沒有任何 session'));
     if (hiddenCount) {
-      const more = el('button', 'list-more', showHidden ? '收起已隱藏的 ' + hiddenCount + ' 個' : '已隱藏 ' + hiddenCount + ' 個 · 顯示'); more.type = 'button';
+      const more = el('button', 'list-more' + (showHidden ? ' less' : ''), showHidden ? '收起已隱藏的 ' + hiddenCount + ' 個' : '已隱藏 ' + hiddenCount + ' 個 · 顯示'); more.type = 'button';
       more.addEventListener('click', () => { showHidden = !showHidden; drawList(); });
       list.append(more);
     }
@@ -3027,10 +3030,14 @@ function fillOffice() {
     }
     const hs = (features.integrations || {}).harness === false ? null : harnessOf(cwd); let hl = null;
     if (hs && hs.installed) {
-      hl = el('button', 'room-h' + (hs.pendingCount || hs.due.length ? ' warn' : '')); hl.type = 'button';
-      hl.append(el('b', '', 'harness'), ' ' + [hs.pendingCount ? hs.pendingCount + ' 項等你核可' : '', hs.lastReview ? '上次健檢 ' + hs.lastReview.slice(5).replace('-', '/') + (hs.daysSince != null ? '（' + hs.daysSince + ' 天前）' : '') : '', hs.due.length ? '該健檢了' : ''].filter(Boolean).join(' · ') || '沒有要處理的');
-      hl.title = '這個資料夾裝了 harness。按一下看等你核可的項目與健檢狀態' + (hs.due.length ? '\n' + hs.due.join('、') : '');
-      hl.addEventListener('click', () => openHarness(r.folder, cwd, hs));
+      // as the git and test lines: its name, a button saying what it does, then how it stands (asked 2026-11-20: a whole
+      // line of grey text that could be pressed did not look like it could)
+      hl = el('div', 'room-fact' + (hs.pendingCount || hs.due.length ? ' warn' : ''));
+      const go = el('button', 'btn', hs.pendingCount ? '核可 ' + hs.pendingCount + ' 項' : hs.due.length ? '去健檢' : '查看'); go.type = 'button';
+      go.title = '看等你核可的項目與健檢狀態' + (hs.due.length ? '\n該健檢的：' + hs.due.join('、') : '');
+      go.addEventListener('click', () => openHarness(r.folder, cwd, hs));
+      // (what the button already says is not said again after it: "核可 5 項 5 項等你核可")
+      hl.append(el('b', '', 'harness'), go, ' ' + ([hs.lastReview ? '上次健檢 ' + hs.lastReview.slice(5).replace('-', '/') + (hs.daysSince != null ? '（' + hs.daysSince + ' 天前）' : '') : '還沒健檢過', hs.pendingCount && hs.due.length ? '該健檢了' : ''].filter(Boolean).join(' · ')));
     }
      box.append(head); if (hl) box.append(hl);
      // git, the last tests, the code index: one short line each (lib/rooms.js), only for what the folder has
@@ -3087,7 +3094,7 @@ function fillOffice() {
     foot.append(back);
   }
   if (officePast && (officePast.programHidden || officePrograms)) {
-    const pb = el('button', 'list-more', officePrograms ? '收起設定裡不列出的對話' : '另有 ' + officePast.programHidden + ' 個對話依設定沒有列出（其他程式開的、或在不列出的資料夾裡）· 顯示'); pb.type = 'button';
+    const pb = el('button', 'list-more' + (officePrograms ? ' less' : ''), officePrograms ? '收起設定裡不列出的對話' : '另有 ' + officePast.programHidden + ' 個對話依設定沒有列出（其他程式開的、或在不列出的資料夾裡）· 顯示'); pb.type = 'button';
     pb.addEventListener('click', () => { officePrograms = !officePrograms; loadOfficePast(); });
     foot.append(pb);
   }
@@ -3312,7 +3319,7 @@ async function fillNotices() {
     const d = el('details'); d.open = bellOld; d.addEventListener('toggle', () => { bellOld = d.open; });
     d.append(el('summary', '', '較早的 ' + closed.length + ' 則'));
     for (const x of closed) d.append(row(x, true));
-    const c = el('button', 'list-more', '清掉已經結束的紀錄'); c.type = 'button'; c.addEventListener('click', async () => { await api('/api/notices/clear-closed', {}); fillNotices(); }); d.append(c);
+    const c = el('button', 'btn bell-clear', '清掉已經結束的紀錄'); c.type = 'button'; c.addEventListener('click', async () => { await api('/api/notices/clear-closed', {}); fillNotices(); }); d.append(c);   // an action, not "more": a button (review 2026-11-20)
     box.append(d);
   }
 }
@@ -3591,7 +3598,7 @@ async function drawGoals(pane) {
         stop.disabled = true; const s = await api('/api/goals/stop', { id: x.runId }); if (!s.ok) { stop.disabled = false; stop.textContent = '停止'; return say((s.data && s.data.error) || '沒有停下來', true); } say('已要求它停止'); if (view === 'sched') drawSched(); }); acts.append(stop); }
     row.append(acts); box.append(row);
   }
-  if (runs.length > shown.length || goalAll) { const more = el('button', 'list-more', goalAll ? '只看最近的' : '還有 ' + (runs.length - shown.length) + ' 筆 · 全部顯示'); more.type = 'button'; more.addEventListener('click', () => { goalAll = !goalAll; box.remove(); drawGoals(pane); }); box.append(more); }
+  if (runs.length > shown.length || goalAll) { const more = el('button', 'list-more' + (goalAll ? ' less' : ''), goalAll ? '只看最近的' : '還有 ' + (runs.length - shown.length) + ' 筆 · 全部顯示'); more.type = 'button'; more.addEventListener('click', () => { goalAll = !goalAll; box.remove(); drawGoals(pane); }); box.append(more); }
 }
 // One run in the side panel: the condition, the checker's verdict, the ledger it kept, its last words.
 async function openGoal(x) {
