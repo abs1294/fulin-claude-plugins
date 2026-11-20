@@ -144,11 +144,12 @@ const INTEGRATIONS = [
   { key: 'qa', plugin: 'qa-webwright', name: 'qa-webwright', what: '辦公室房間顯示那個專案最近幾次瀏覽器測試的結果' },
   { key: 'cbm', plugin: 'cbm-guard', name: 'cbm-guard', what: '辦公室房間顯示程式碼索引有沒有過期，過期可以一鍵重建' },
 ];
-// -> {key: {on, installed, name, what}}. settings: {key: false} turns one off; a plugin not installed is never on.
-function integrations(inst, settings) {
-  const s = settings && typeof settings === 'object' ? settings : {};
+// -> {key: {on, installed, name, what}}: on where installed. There is no switch of its own any more (asked 2026-11-20:
+// "installed means shown; it goes by each folder, not one switch for all") - a room shows what its folder has
+// (server.js roomFacts, lib/pluginfit.js installedFor).
+function integrations(inst) {
   const out = {};
-  for (const x of INTEGRATIONS) { const installed = !x.plugin || !!inst[x.plugin]; out[x.key] = { on: installed && s[x.key] !== false, installed, name: x.name, what: x.what, plugin: x.plugin }; }
+  for (const x of INTEGRATIONS) { const installed = !x.plugin || !!inst[x.plugin]; out[x.key] = { on: installed, installed, name: x.name, what: x.what, plugin: x.plugin }; }
   return out;
 }
 module.exports = { enableDaily, INTEGRATIONS, integrations, installed, rootOf, updateResult, pluginManager, dailyReport, gitRepos, setSelfHeal, selfHealOff, MKT };

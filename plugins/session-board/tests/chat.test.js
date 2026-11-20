@@ -222,6 +222,7 @@ test('Channels: the reply is passed on as it is written, and a subagent is not m
   ch.subscribe(c.sessionId, res);
   ch.send(c.sessionId, 'x');
   assert.ok(log[0].args.includes('--include-partial-messages'));
+  assert.ok(log[0].args.includes('--chrome'), 'Claude in Chrome on, as in a terminal (2026-11-21)');
   const p = log[0].p;
   const se = (event, parent) => p.out({ type: 'stream_event', parent_tool_use_id: parent || null, event });
   se({ type: 'message_start', message: {} });

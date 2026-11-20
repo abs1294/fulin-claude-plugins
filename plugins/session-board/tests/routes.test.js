@@ -122,7 +122,7 @@ test.before(async () => {
   inbox = new InboxService({ fetch: async () => ({ ok: false, status: 500, json: async () => ({}) , text: async () => '' }), triageRun: async () => ({ ok: true, items: [] }) });
   const monthly = new Monthly({ run: (exe, args, opts, cb) => cb(null, JSON.stringify({ ok: true, month: args[1], computedAt: Date.now(), daysInMonth: 30, total: { cost: 12.5, tok: 1000 }, files: 1, sessions: [], roles: [], days: [], models: [], projects: [] })) });
   port = await freePort();
-  server = createServer(TOKEN, port, { channels, keeper, inbox, monthly, ruleAsk, calFetch, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [] }, goal2: { name: 'goal2', installs: [] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }), remoteInfo: async () => ({ ok: false, why: 'test' }), noTimers: true, out, tell: (t, x) => did.push('tell ' + t), peer: async () => ({ ok: true }), peerCheck: async () => true });
+  server = createServer(TOKEN, port, { channels, keeper, inbox, monthly, ruleAsk, calFetch, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [{ scope: 'user', project: '' }] }, goal2: { name: 'goal2', installs: [] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }), remoteInfo: async () => ({ ok: false, why: 'test' }), noTimers: true, out, tell: (t, x) => did.push('tell ' + t), peer: async () => ({ ok: true }), peerCheck: async () => true });
   await new Promise((r) => server.listen(port, '127.0.0.1', r));
 });
 test.after(() => {
@@ -245,6 +245,7 @@ test('what a session changed: from its own transcript, and what is uncommitted i
       const g = await get('/api/changes?sid=' + T1); assert.strictEqual(g.status, 200, g.text);
       assert.deepStrictEqual(g.json.given.map((x) => path.basename(x.abs)), ['note.md', 'a.docx'], 'newest reply first (in it, in the order written), once each');
       assert.deepStrictEqual(g.json.links.map((x) => x.url), ['https://example.com/b', 'https://example.com/spec']);
+      assert.strictEqual(g.json.linksTotal, 2, 'how many there are, the list being cut at 50');
       // where each was last named: the reply as the conversation shows it (its uuid and the block's place), to jump to
       const h = await get('/api/messages?sid=' + T1 + '&max=50'); assert.strictEqual(h.status, 200, h.text);
       const ids = new Set((h.json.items || h.json.messages || []).filter((x) => x.role === 'assistant').map((x) => x.id));
@@ -355,18 +356,65 @@ test('說明 of a harness suggestion: in no conversation, read-only, told anothe
   } finally { fs.rmSync(path.join(WORK, '.claude', 'harness'), { recursive: true, force: true }); }
 });
 
-test('goal2 and harness switched off in the settings: gone from their addresses', async () => {
-  const config = require('../lib/config');
-  const before = config.value('integrations', {});
-  config.setValue('integrations', Object.assign({}, before, { goal2: false, harness: false }));
-  await new Promise((r) => setTimeout(r, 5200));   // the switches are read again after five seconds
-  const s = (await get('/api/sessions')).json;
-  assert.deepStrictEqual([s.features.goal2, s.features.integrations.goal2, s.features.integrations.harness], [false, false, false]);
-  assert.deepStrictEqual((await get('/api/goals')).json, { installed: false, runs: [] });
-  assert.strictEqual((await post('/api/goals/start', { cwd: WORK, task: 'x', condition: 'y' })).status, 409);
-  assert.deepStrictEqual((await get('/api/harness?cwd=' + enc(WORK))).json, { states: {} });
-  config.setValue('integrations', before);
-  await new Promise((r) => setTimeout(r, 5200));
+test('a plugin shows where it is installed: no switch of its own, a room by its folder', async () => {
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-other-'));
+  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, out, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [{ scope: 'project', project: other }] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }) });
+  await new Promise((r) => s2.listen(p2, '127.0.0.1', r));
+  const via = (pp) => new Promise((resolve) => http.get({ host: '127.0.0.1', port: p2, path: pp, headers: { 'x-board-token': TOKEN } }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve(JSON.parse(d))); }));
+  fs.mkdirSync(path.join(WORK, '.claude', 'harness'), { recursive: true }); fs.writeFileSync(path.join(WORK, '.claude', 'harness', 'README.md'), '# harness');   // its files are here: only the install decides
+  try {
+    const s = await via('/api/sessions');
+    assert.deepStrictEqual([s.features.integrations.goal2, s.features.integrations.harness], [false, true], 'goal2 not installed: not there; harness installed somewhere: there');
+    assert.deepStrictEqual((await via('/api/harness?cwd=' + enc(WORK))).states[WORK], { installed: false }, 'harness is installed for another folder only: this room has no harness line');
+  } finally { fs.rmSync(path.join(WORK, '.claude', 'harness'), { recursive: true, force: true }); s2.close(); if (s2.closeAllConnections) s2.closeAllConnections(); }
+});
+
+test('外掛分析: analysed in the background, kept in a file, only its own answers installed (lib/pluginfit.js)', async () => {
+  for (const x of ['GET /api/pluginfit', 'POST /api/pluginfit/analyze', 'POST /api/pluginfit/apply']) asked.add(x);
+  let release; const gate = new Promise((r) => { release = r; });
+  let slowGo; const slowGate = new Promise((r) => { slowGo = r; });
+  const installed = [], file = path.join(HOME, 'pluginfit.json');
+  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, pluginfitFile: file,
+    out: Object.assign({}, out, { pluginInstall: async (cwd, items) => { installed.push([cwd, items.map((x) => x.ref)]); return items.map((x) => ({ ref: x.ref, ok: x.ref !== 'codex@openai-codex', note: x.ref === 'codex@openai-codex' ? 'failed' : '' })); } }),
+    pluginfitAsk: async (cwd, st, question) => { if (question === '慢慢回答') { await slowGate; return { ok: true, answer: '慢的回答' }; } return { ok: true, answer: '好', result: Object.assign({}, st.result, { plugins: st.result.plugins.filter((x) => x.ref === 'harness@fulin-plugins') }) }; },
+    pluginfitAnalyze: async () => { await gate; return { ok: true, result: { confident: true, profile: null, summary: 's', plugins: [{ ref: 'harness@fulin-plugins', from: 'x', note: '' }, { ref: 'codex@openai-codex', from: 'y', note: '', source: 'openai/codex-plugin-cc' }], skip: [] }, cost: 0.1 }; } });
+  await new Promise((r) => s2.listen(p2, '127.0.0.1', r));
+  const call = (pp, body) => new Promise((resolve) => { const b = body ? Buffer.from(JSON.stringify(body)) : null; const q = http.request({ host: '127.0.0.1', port: p2, path: pp, method: b ? 'POST' : 'GET', headers: Object.assign({ 'x-board-token': TOKEN }, b ? { 'content-type': 'application/json', 'content-length': b.length } : {}) }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => { let j = null; try { j = JSON.parse(d); } catch (e) {} resolve({ status: res.statusCode, json: j }); }); }); if (b) q.write(b); q.end(); });
+  const st = async () => (await call('/api/pluginfit?cwd=' + enc(WORK))).json;
+  try {
+    const z = await st(); assert.deepStrictEqual([z.state, z.canRun], ['none', true], 'plugin-manager beside this plugin: it can run');
+    assert.strictEqual((await call('/api/pluginfit/analyze', { cwd: path.join(WORK, 'nope') })).status, 400, 'not a folder the board knows');
+    assert.strictEqual((await call('/api/pluginfit/apply', { cwd: WORK, refs: ['harness@fulin-plugins'] })).status, 409, 'nothing analysed yet: nothing installed');
+    assert.strictEqual((await call('/api/pluginfit/analyze', { cwd: WORK })).status, 202);
+    assert.strictEqual((await st()).state, 'running');
+    assert.strictEqual((await call('/api/pluginfit/analyze', { cwd: WORK })).status, 409, 'one at a time per folder');
+    release(); await new Promise((r) => setTimeout(r, 50));
+    const done = await st(); assert.deepStrictEqual([done.state, done.result.plugins.length], ['done', 2]);
+    assert.strictEqual(Object.values(JSON.parse(fs.readFileSync(file, 'utf8')))[0].state, 'done', 'kept in a file');
+    const a = await call('/api/pluginfit/apply', { cwd: WORK, refs: ['harness@fulin-plugins', 'codex@openai-codex', 'evil@made-up'] });
+    assert.deepStrictEqual([a.status, a.json.results.map((x) => x.ok)], [200, [true, false]]);
+    assert.deepStrictEqual(installed, [[WORK, ['harness@fulin-plugins', 'codex@openai-codex']]], 'only what the analysis gave');
+    const after = await st(); assert.deepStrictEqual([after.applied['harness@fulin-plugins'].ok, after.applied['codex@openai-codex'].note], [true, 'failed']);
+    assert.strictEqual((await call('/api/pluginfit/apply', { cwd: WORK, refs: ['evil@made-up'] })).status, 400);
+    // a question: kept with the analysis; one that changes the list changes what may be installed
+    asked.add('POST /api/pluginfit/ask');
+    assert.strictEqual((await call('/api/pluginfit/ask', { cwd: WORK, question: '' })).status, 400);
+    const q1 = await call('/api/pluginfit/ask', { cwd: WORK, question: '只留 harness' });
+    assert.deepStrictEqual([q1.status, q1.json.changed], [200, true]);
+    const t = await st(); assert.deepStrictEqual([t.thread.map((x) => [x.q, x.changed]), t.result.plugins.map((x) => x.ref)], [[['只留 harness', true]], ['harness@fulin-plugins']]);
+    assert.strictEqual((await call('/api/pluginfit/apply', { cwd: WORK, refs: ['codex@openai-codex'] })).status, 400, 'taken off the list by the answer: no longer installed from it');
+    // a question still being answered while an install finishes: both kept (review 2026-11-21: the later one overwrote the other)
+    const slow = call('/api/pluginfit/ask', { cwd: WORK, question: '慢慢回答' });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.strictEqual((await call('/api/pluginfit/apply', { cwd: WORK, refs: ['harness@fulin-plugins'] })).status, 200);
+    slowGo(); assert.strictEqual((await slow).status, 200, 'not told the analysis was redone: it was not');
+    const both = await st(); assert.deepStrictEqual([both.thread.map((x) => x.q), !!both.applied['harness@fulin-plugins']], [['只留 harness', '慢慢回答'], true]);
+  } finally { s2.close(); if (s2.closeAllConnections) s2.closeAllConnections(); }
+  // a board started again finds the answer there
+  const p3 = await freePort(); const s3 = createServer(TOKEN, p3, { channels, noTimers: true, noSchedules: true, out, pluginfitFile: file });
+  await new Promise((r) => s3.listen(p3, '127.0.0.1', r));
+  const again = await new Promise((resolve) => http.get({ host: '127.0.0.1', port: p3, path: '/api/pluginfit?cwd=' + enc(WORK), headers: { 'x-board-token': TOKEN } }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve(JSON.parse(d))); }));
+  assert.strictEqual(again.state, 'done'); s3.close(); if (s3.closeAllConnections) s3.closeAllConnections();
 });
 
 test('a name given on the board stays above every other title; empty gives the automatic one back', async () => {
@@ -705,15 +753,9 @@ test('外掛 page: one view of the plugins, and its buttons', async () => {
   assert.strictEqual((await via('/api/goals/start', { cwd: WORK, task: '', condition: 'y' })).status, 400);
   assert.strictEqual((await via('/api/goals/start', { cwd: WORK, task: 'x', condition: '' })).status, 400);
   assert.deepStrictEqual((await via('/api/goals/start', { cwd: WORK, task: 'x', condition: 'y' })).json, { ok: false, error: '這台電腦沒有裝 goal2' });
-  // which integrations are on is a setting: a plugin not installed is never on; one switched off is gone from the view
-  const ig = P.integrations({ 'self-heal': {}, goal2: {} }, { goal2: false });
-  assert.deepStrictEqual(Object.fromEntries(Object.entries(ig).map(([k, x]) => [k, [x.installed, x.on]])), { goal2: [true, false], harness: [false, false], versions: [false, false], git: [true, true], daily: [false, false], selfHeal: [true, true], qa: [false, false], cbm: [false, false] });
-  const offR = await via('/api/config', { integrations: { selfHeal: false, git: false, bogus: true } }); assert.strictEqual(offR.status, 200);
-  const cfg = require('../lib/config').value('integrations', {}); assert.deepStrictEqual([cfg.selfHeal, cfg.git, cfg.bogus], [false, false, undefined]);
-  const v2 = await via('/api/plugins');
-  assert.deepStrictEqual([v2.json.selfHeal, v2.json.git, v2.json.integrations.selfHeal.on], [{ installed: false }, null, false], 'switched off: not in the view');
-  assert.strictEqual((await via('/api/plugins/self-heal', { on: true })).status, 409, 'and its button refused');
-  await via('/api/config', { integrations: { selfHeal: true, git: true } });
+  // which integrations there are: those installed, nothing else decides it (the settings' switches are gone, 2026-11-20)
+  const ig = P.integrations({ 'self-heal': {}, goal2: {} });
+  assert.deepStrictEqual(Object.fromEntries(Object.entries(ig).map(([k, x]) => [k, [x.installed, x.on]])), { goal2: [true, true], harness: [false, false], versions: [false, false], git: [true, true], daily: [false, false], selfHeal: [true, true], qa: [false, false], cbm: [false, false] });
   s2.close(); if (s2.closeAllConnections) s2.closeAllConnections();
   // goal2 start: prepared through its tool, then run as a process of its own
   const { Goal2 } = require('../lib/goal2'); const spawned = [];
@@ -1324,6 +1366,9 @@ test('辦公室房間：git、最近的測試、程式碼索引（qa-webwright�
   const first = (await via(url)).json.facts[proj];
   assert.deepStrictEqual([first.qa.name, first.qa.tests, first.qa.failed, first.qa.skipped, first.qa.source], ['login', 9, 2, 1, 'junit'], 'the newest JUnit report');
   assert.strictEqual(first.git, undefined, 'not a git repository: nothing said');
+  // the same test reports in a folder qa-webwright is not installed for: no test line there (2026-11-20: by each folder)
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-room-')); fs.cpSync(path.join(proj, 'tests'), path.join(bare, 'tests'), { recursive: true });
+  assert.strictEqual((await via('/api/rooms?cwd=' + encodeURIComponent(bare))).json.facts[bare].qa, undefined);
   assert.deepStrictEqual(first.cbm, { checking: true }, 'the index check runs in the background');
   for (let i = 0; i < 50 && !checks.length; i++) await sleep(20);
   await sleep(30);

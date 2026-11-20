@@ -67,6 +67,7 @@ const Remote = require('./lib/remote');
 const TidyLib = require('./lib/tidy');
 const Vocab = require('./lib/vocab');
 const Plugins = require('./lib/plugins');
+const PluginFit = require('./lib/pluginfit');
 const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
 const Rewind = require('./lib/rewind');
@@ -338,7 +339,7 @@ async function closeWindow(hwnd) {
 }
 
 // mode: 'focus' brings the window to the front; 'find' only reports its handle.
-// pid (with 'find'): look the window up through that process's console first; titles are then only the fallback.
+// pid: the window is looked up through that process's console first (both modes); titles are then only the fallback.
 async function focusWindow(titles, mode = 'focus', pid = 0) {
   // a Mac: the Terminal tab of that process (found by its tty); 'find' has nothing to close afterwards, so it is a miss
   if (MAC) return mode === 'find' ? { state: 'miss' } : Mac.focus(pid);
@@ -401,7 +402,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Everything the server does outside its own process. A test hands in its own (deps.out) so that no window is opened,
 // no program started, nothing written to the registry and no process ended while the routes are exercised.
 const REAL_OUT = { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify,
-  kill: (pid) => process.kill(pid), exit: (code) => process.exit(code), gitRun: execFile, btw: (sid, cwd, question) => Aside.ask(sid, cwd, question, { env: K.cleanEnv(process.env) }), explain: (cwd, prompt) => Aside.explain(cwd, prompt, { env: K.cleanEnv(process.env) }), shell: (command, cwd) => Shell.run(command, cwd) };
+  kill: (pid) => process.kill(pid), exit: (code) => process.exit(code), gitRun: execFile, btw: (sid, cwd, question) => Aside.ask(sid, cwd, question, { env: K.cleanEnv(process.env) }), explain: (cwd, prompt, o) => Aside.explain(cwd, prompt, Object.assign({ env: K.cleanEnv(process.env) }, o)), pluginInstall: (folder, items) => PluginFit.apply(folder, items), shell: (command, cwd) => Shell.run(command, cwd) };
 
 // The next steps a conversation can be given from the board: a plugin's own command, sent into it. Offered only when
 // that plugin is installed for the folder (or for the whole user); which ones fit the turn just ended is decided by
@@ -424,7 +425,7 @@ const nextSteps = (inst, folder) => NEXT.filter((n) => installedFor(inst, n.plug
 
 function createServer(token, port, deps = {}) {
   // eslint-disable-next-line no-shadow
-  const { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside, explain: explainAside } = Object.assign({}, REAL_OUT, deps.out);
+  const { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside, explain: explainAside, pluginInstall } = Object.assign({}, REAL_OUT, deps.out);
   const allowedHosts = new Set([`${HOST}:${port}`, `localhost:${port}`]);
   // Who may talk to the board at all: this computer, and - when reaching it through Tailscale is switched on - only the
   // devices of your own Tailscale account (lib/remote.js). Checked before anything else, the key after it.
@@ -546,9 +547,9 @@ function createServer(token, port, deps = {}) {
   const goal2 = deps.goal2 || new Goal2({ env: K.cleanEnv(process.env) });   // the goal2 plugin's runs, through its own tool (lib/goal2.js)
   // The 外掛 page (lib/plugins.js). plugin-manager's check takes about a second: kept for five minutes; git for one.
   const pluginsCache = { pm: null, pmAt: 0, git: null, gitAt: 0 };
-  // Which integrations are on (the setting 'integrations', on lib/plugins.js integrations). Asked often: kept 5 seconds.
+  // Which integrations there are: those whose plugin is installed (lib/plugins.js integrations). Asked often: kept 5 seconds.
   let integ = { at: 0, v: null };
-  const integrationsNow = () => { if (!integ.v || Date.now() - integ.at > 5000) integ = { at: Date.now(), v: Plugins.integrations((deps.pluginsInstalled || Plugins.installed)(), config.value('integrations', {})) }; return integ.v; };
+  const integrationsNow = () => { if (!integ.v || Date.now() - integ.at > 5000) integ = { at: Date.now(), v: Plugins.integrations((deps.pluginsInstalled || Plugins.installed)()) }; return integ.v; };
   const isOn = (k) => { const x = integrationsNow()[k]; return !!(x && x.on); };
   // The office's rooms: git, the last tests (qa-webwright), the code index (cbm-guard) of each folder.
   // git and the tests are read when asked (kept a minute); the index check takes about 20 s, so it runs in the
@@ -560,8 +561,10 @@ function createServer(token, port, deps = {}) {
   const cbmCache = new Map();    // folder -> {at, result} | {checking: true}
   let cbmBusy = false;
   const cbmScript = () => { const root = Plugins.rootOf('cbm-guard', (deps.pluginsInstalled || Plugins.installed)()); const f = root && path.join(root, 'scripts', 'cbm_index_freshness.py'); return f && fs.existsSync(f) ? f : null; };
-  // cbm-guard is installed for a project, not for every folder: only those folders are checked
-  const cbmFor = (folder) => { const inst = (deps.pluginsInstalled || Plugins.installed)()['cbm-guard']; return !!inst && inst.installs.some((x) => x.scope === 'user' || (x.project && path.normalize(x.project).toLowerCase() === path.normalize(folder).toLowerCase())); };
+  // A room shows a plugin's line only where that plugin is: installed for you, or for that very folder (asked
+  // 2026-11-20: "it goes by each folder")
+  const hasHere = (plugin, folder) => { const inst = instNow()[plugin]; return !!inst && PluginFit.installedFor(inst.installs, folder); };
+  const cbmFor = (folder) => hasHere('cbm-guard', folder);
   const cbmNext = () => {
     if (cbmBusy) return;
     const folder = [...cbmCache.entries()].find(([, v]) => v.checking && !v.started);
@@ -573,7 +576,7 @@ function createServer(token, port, deps = {}) {
   const roomFacts = async (folder) => {
     const out = {};
     let c = roomCache.get(folder);
-    if (!c || Date.now() - c.at > 60000) { c = { at: Date.now(), git: isOn('git') ? await Rooms.gitOf(folder, { run: deps.pluginsRun }) : null, qa: isOn('qa') ? Rooms.qaOf(folder, { sqlite: require('node:sqlite').DatabaseSync }) : null }; roomCache.set(folder, c); }
+    if (!c || Date.now() - c.at > 60000) { c = { at: Date.now(), git: isOn('git') ? await Rooms.gitOf(folder, { run: deps.pluginsRun }) : null, qa: hasHere('qa-webwright', folder) ? Rooms.qaOf(folder, { sqlite: require('node:sqlite').DatabaseSync }) : null }; roomCache.set(folder, c); }
     if (c.git) out.git = c.git;
     if (c.qa) out.qa = c.qa;
     if (isOn('cbm') && cbmFor(folder)) {
@@ -602,6 +605,23 @@ function createServer(token, port, deps = {}) {
       selfHeal: on.selfHeal.on ? { installed: true, on: !fs.existsSync(Plugins.selfHealOff()) } : { installed: false },
       goal2: { installed: g.installed, runs: (g.runs || []).slice(0, 6), running: (g.runs || []).filter((x) => x.alive).length, total: (g.runs || []).length },
     };
+  };
+  // 外掛整合分析 per folder (lib/pluginfit.js): {state: running|done|failed, at, result?, error?, applied?}. Kept in a
+  // file, so an answer that took minutes is still there after the board restarts; one running is not (it ended with it).
+  const fitFile = deps.pluginfitFile || path.join(DATA_DIR, 'pluginfit.json');
+  const fits = new Map(); try { for (const [k, v] of Object.entries(JSON.parse(fs.readFileSync(fitFile, 'utf8')))) if (v && v.state !== 'running') fits.set(k, v); } catch (e) {}
+  const fitKey = (f) => path.normalize(f).replace(/[\\/]+$/, '').toLowerCase();
+  const fitSave = () => { try { fs.mkdirSync(path.dirname(fitFile), { recursive: true }); fs.writeFileSync(fitFile, JSON.stringify(Object.fromEntries([...fits].filter(([, v]) => v.state !== 'running')), null, 1)); } catch (e) {} };
+  const fitBusy = new Set();     // folders whose choices are being installed right now
+  const fitAsking = new Set();   // folders with a question about their analysis being answered right now
+  // a folder the board knows: of an open session, of a conversation of the last 30 days, or one Claude Code keeps
+  // conversations for (as /api/harness)
+  const knownFolder = (w) => {
+    if (!isDir(w)) return false;
+    const same = (c) => !!c && fitKey(String(c)) === fitKey(w);   // (as fitKey: case and a trailing slash do not matter)
+    if (sessions().some((s) => same(s.cwd))) return true;
+    try { if ((Past.list({ projectsDir: S.DEFAULTS.projectsDir, limit: 600 }).items || []).some((x) => same(x.cwd))) return true; } catch (e) {}
+    try { return fs.readdirSync(S.DEFAULTS.projectsDir).some((n) => n.toLowerCase() === Past.dirKey(w)); } catch (e) { return false; }
   };
   const asideBusy = new Set();   // sessions with a side question being answered right now
   const explainBusy = new Set(); // harness suggestions (folder + id) being explained right now
@@ -1269,7 +1289,7 @@ function createServer(token, port, deps = {}) {
               const own = String(s.cwd || '').replace(/[\\/]+$/, '').toLowerCase();
               part.forEach((x, k) => { const h = hits[k]; if (!h) return; h.abs = h.abs.replace(/(?<=[^:\\/])[\\/]+$/, ''); const kk = h.abs.toLowerCase(); if (kk === own || seenAbs.has(kk)) return; seenAbs.add(kk); given.push(Object.assign({ at: x.at, ref: x.id, raw: x.raw }, h)); });
             }
-            return send(res, 200, Object.assign(await Changes.summary(file, s.cwd), { touched: isDir(s.cwd) ? await Changes.touched(file, s.cwd) : { files: [] }, given: given.slice(0, 100), links: n.links.sort((x, y) => y.at - x.at).slice(0, 50) }));
+            return send(res, 200, Object.assign(await Changes.summary(file, s.cwd), { touched: isDir(s.cwd) ? await Changes.touched(file, s.cwd) : { files: [] }, given: given.slice(0, 100), links: n.links.sort((x, y) => y.at - x.at).slice(0, 50), linksTotal: n.links.length }));
           }
           const d = file ? await Changes.detail(file, String(q.get('path') || '')) : null;
           return send(res, d ? 200 : 404, d || { error: '這個 session 沒有改過這個檔案' });
@@ -1306,11 +1326,12 @@ function createServer(token, port, deps = {}) {
           const kept = new Set(); try { for (const n of fs.readdirSync(S.DEFAULTS.projectsDir)) kept.add(n.toLowerCase()); } catch (e) {}
           const want = String(q.get('cwd') || '').split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 60);
           const states = {};
-          for (const w of want) states[w] = (known.has(w.toLowerCase()) || kept.has(Past.dirKey(w))) && isDir(w) ? Harness.stateOf(w) : { installed: false };
+          for (const w of want) states[w] = (known.has(w.toLowerCase()) || kept.has(Past.dirKey(w))) && isDir(w) && hasHere('harness', w) ? Harness.stateOf(w) : { installed: false };
           return send(res, 200, { states });
         }
         if (p === '/api/plugins') return send(res, 200, await pluginsView(false));
-        if ((p === '/api/goals' || p === '/api/goals/status') && !isOn('goal2')) return send(res, p === '/api/goals' ? 200 : 404, p === '/api/goals' ? { installed: false, runs: [] } : { ok: false, error: 'goal2 的整合已在設定裡關閉' });
+        if (p === '/api/pluginfit') { const w = String(q.get('cwd') || ''); return send(res, 200, Object.assign({ state: 'none' }, fits.get(fitKey(w)) || {}, { installing: fitBusy.has(fitKey(w)), asking: fitAsking.has(fitKey(w)), canRun: !!Plugins.rootOf('plugin-manager', instNow()) })); }
+        if ((p === '/api/goals' || p === '/api/goals/status') && !isOn('goal2')) return send(res, p === '/api/goals' ? 200 : 404, p === '/api/goals' ? { installed: false, runs: [] } : { ok: false, error: '這台電腦沒有裝 goal2' });
         if (p === '/api/goals') { const l = await goal2.list(); return send(res, 200, { installed: l.installed, version: l.version || '', error: l.error || '', runs: l.runs || [] }); }
         if (p === '/api/goals/status') { const r = await goal2.status(String(q.get('id') || '')); return send(res, r.ok ? 200 : 404, r); }
         // collaborations: the list, and one in full (members now, the ledger, what is open in it, the messages between them)
@@ -1531,7 +1552,7 @@ function createServer(token, port, deps = {}) {
       // conversation - nothing saved, so none of your sessions gains a turn and no new one is listed. The suggestion is
       // read from the folder's own list (lib/harness.js), not taken from the page; one at a time per suggestion.
       if (p === '/api/harness/explain') {
-        if (!isOn('harness')) return send(res, 409, { ok: false, error: 'harness 的整合已在設定裡關閉' });
+        if (!isOn('harness')) return send(res, 409, { ok: false, error: '這台電腦沒有裝 harness' });
         const cwd = typeof body.cwd === 'string' ? body.cwd : '';
         if (!isDir(cwd)) return send(res, 400, { ok: false, error: '這個專案資料夾不存在' });
         const st = Harness.stateOf(cwd);
@@ -1542,6 +1563,67 @@ function createServer(token, port, deps = {}) {
         explainBusy.add(key);
         let r; try { r = await explainAside(cwd, Aside.explainPrompt(x, Array.isArray(body.before) ? body.before : [])); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; } finally { explainBusy.delete(key); }
         return send(res, r.ok ? 200 : 502, r);
+      }
+      // 外掛整合分析 (lib/pluginfit.js): started here, run in the background (minutes), read with GET /api/pluginfit.
+      if (p === '/api/pluginfit/analyze') {
+        const cwd = typeof body.cwd === 'string' ? body.cwd : '';
+        if (!knownFolder(cwd)) return send(res, 400, { ok: false, error: '這不是看板知道的專案資料夾' });
+        const pmRoot = Plugins.rootOf('plugin-manager', instNow());
+        if (!pmRoot) return send(res, 409, { ok: false, error: '這台電腦沒有裝 plugin-manager，分析要用它的 setup-plugins' });
+        const k = fitKey(cwd), had = fits.get(k);
+        if (had && had.state === 'running') return send(res, 409, { ok: false, error: '這個資料夾的分析還在跑' });
+        // gen: which analysis this is - an install or a question finishing later is written into the analysis it was
+        // made for, and only while that is still the one there (review 2026-11-21: they overwrote each other)
+        const gen = Date.now();
+        fits.set(k, { state: 'running', at: gen, gen, folder: cwd });
+        (deps.pluginfitAnalyze || PluginFit.analyze)(cwd, { pmRoot, explain: explainAside, run: deps.pluginsRun })
+          .catch((e) => ({ ok: false, error: String((e && e.message) || e).slice(0, 200) }))
+          .then((r) => { fits.set(k, r.ok ? { state: 'done', at: Date.now(), gen, folder: cwd, result: r.result, cost: r.cost } : { state: 'failed', at: Date.now(), gen, folder: cwd, error: r.error }); fitSave(); });
+        return send(res, 202, { ok: true, state: 'running' });
+      }
+      // A question about the analysis (lib/pluginfit.js ask): answered in no conversation, kept with the analysis; it may
+      // change the list of what to install. One at a time per folder.
+      if (p === '/api/pluginfit/ask') {
+        const cwd = typeof body.cwd === 'string' ? body.cwd : '';
+        if (!knownFolder(cwd)) return send(res, 400, { ok: false, error: '這不是看板知道的專案資料夾' });
+        const question = typeof body.question === 'string' ? body.question.trim() : '';
+        if (!question) return send(res, 400, { ok: false, error: '要問什麼？' });
+        if (question.length > PluginFit.QUESTION_MAX) return send(res, 400, { ok: false, error: '問題太長（上限 ' + PluginFit.QUESTION_MAX + ' 字）' });
+        const k = fitKey(cwd), had = fits.get(k);
+        if (!had || had.state !== 'done') return send(res, 409, { ok: false, error: '先做一次分析' });
+        if (fitAsking.has(k)) return send(res, 409, { ok: false, error: '上一個追問還在回答，等它回來' });
+        fitAsking.add(k);
+        let r; try { r = await (deps.pluginfitAsk || PluginFit.ask)(cwd, had, question, { pmRoot: Plugins.rootOf('plugin-manager', instNow()), explain: explainAside, run: deps.pluginsRun }); }
+        catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; } finally { fitAsking.delete(k); }
+        if (!r.ok) return send(res, 502, r);
+        // written into the analysis as it is now (an install may have finished meanwhile), unless it is another analysis
+        const now = fits.get(k);
+        if (!now || now.gen !== had.gen || now.state !== 'done') return send(res, 409, { ok: false, error: '回答回來時已經重新分析了，這個回答沒有存' });
+        const entry = { q: question, a: r.answer, at: Date.now(), changed: !!r.result };
+        fits.set(k, Object.assign({}, now, r.result ? { result: r.result } : {}, { thread: (now.thread || []).concat([entry]).slice(-30) })); fitSave();
+        return send(res, 200, { ok: true, answer: r.answer, changed: !!r.result });
+      }
+      // The ones chosen from the analysis, installed for that folder - only refs the analysis gave, nothing from the page
+      if (p === '/api/pluginfit/apply') {
+        const cwd = typeof body.cwd === 'string' ? body.cwd : '';
+        if (!knownFolder(cwd)) return send(res, 400, { ok: false, error: '這不是看板知道的專案資料夾' });
+        const k = fitKey(cwd), had = fits.get(k);
+        if (!had || had.state !== 'done') return send(res, 409, { ok: false, error: '先做一次分析' });
+        const want = new Set(Array.isArray(body.refs) ? body.refs.filter((x) => typeof x === 'string') : []);
+        const items = had.result.plugins.filter((x) => want.has(x.ref));
+        if (!items.length) return send(res, 400, { ok: false, error: '沒有選要裝的 plugin' });
+        if (fitBusy.has(k)) return send(res, 409, { ok: false, error: '這個資料夾正在安裝，等它裝完' });
+        fitBusy.add(k);
+        let done; try { done = await pluginInstall(cwd, items); } catch (e) { done = items.map((x) => ({ ref: x.ref, ok: false, note: String((e && e.message) || e).slice(0, 200) })); } finally { fitBusy.delete(k); }
+        instCache.at = 0; integ.at = 0; roomCache.delete(cwd);
+        // what was installed is noted in the analysis as it is now (a question may have changed it meanwhile); a new
+        // analysis started meanwhile is left alone (the install itself is done, and said so in the answer)
+        const now = fits.get(k);
+        if (now && now.gen === had.gen && now.state === 'done') {
+          const applied = Object.assign({}, now.applied || {}); for (const d of done) applied[d.ref] = { ok: d.ok, note: d.note, at: Date.now() };
+          fits.set(k, Object.assign({}, now, { applied })); fitSave();
+        }
+        return send(res, 200, { ok: done.every((d) => d.ok), results: done });
       }
       // A question on the side (lib/aside.js): any session that has a transcript, also a terminal one and a busy one.
       if (p === '/api/btw') {
@@ -1559,12 +1641,12 @@ function createServer(token, port, deps = {}) {
       }
       // Plugins (lib/plugins.js): check again (asks the marketplace for its newest versions), bring everything up to date
       // (plugin-manager's update-all.js --apply: what /plugin-manager-update does after you approve its list), self-heal on/off.
-      if ((p === '/api/goals/start' || p === '/api/goals/stop') && !isOn('goal2')) return send(res, 409, { ok: false, error: 'goal2 的整合已在設定裡關閉' });
-      if (p === '/api/plugins/update' && !isOn('versions')) return send(res, 409, { ok: false, error: '版本檢查的整合已在設定裡關閉' });
-      if (p === '/api/plugins/self-heal' && !isOn('selfHeal')) return send(res, 409, { ok: false, error: 'self-heal 的整合已在設定裡關閉' });
+      if ((p === '/api/goals/start' || p === '/api/goals/stop') && !isOn('goal2')) return send(res, 409, { ok: false, error: '這台電腦沒有裝 goal2' });
+      if (p === '/api/plugins/update' && !isOn('versions')) return send(res, 409, { ok: false, error: '這台電腦沒有裝 plugin-manager' });
+      if (p === '/api/plugins/self-heal' && !isOn('selfHeal')) return send(res, 409, { ok: false, error: '這台電腦沒有裝 self-heal' });
       // the daily report switched on for one project (lib/plugins.js enableDaily): only a project deliver-report is installed for
       if (p === '/api/daily/enable') {
-        if (!isOn('daily')) return send(res, 409, { ok: false, error: '日報的整合已在設定裡關閉' });
+        if (!isOn('daily')) return send(res, 409, { ok: false, error: '這台電腦沒有裝 deliver-report' });
         const d = Plugins.dailyReport((deps.pluginsInstalled || Plugins.installed)());
         const proj = d.could.find((x) => path.normalize(x).toLowerCase() === path.normalize(String(body.project || '')).toLowerCase());
         if (!proj) return send(res, 404, { ok: false, error: '這個專案沒有裝 deliver-report，或已經啟用了' });
@@ -1610,7 +1692,7 @@ function createServer(token, port, deps = {}) {
       // the board keys it on the text itself, not on anything the page sends.
       if (p === '/api/next/judge') {
         if (typeof body.text !== 'string') return send(res, 400, { ok: false, error: '缺 text' });
-        if (!isOn('goal2')) return send(res, 409, { ok: false, error: 'goal2 的整合已在設定裡關閉' });
+        if (!isOn('goal2')) return send(res, 409, { ok: false, error: '這台電腦沒有裝 goal2' });
         const r = await decider.ask('unfinished', body.text.slice(-50000));
         return send(res, r.ok ? 200 : 502, r.ok ? { ok: true, unfinished: r.answer, items: r.items, show: r.yes } : r);
       }
@@ -1826,11 +1908,6 @@ function createServer(token, port, deps = {}) {
           if (!k.ok) return send(res, 500, k);
         }
         if (r.ok && typeof body.showFork === 'boolean') config.setValue('showFork', body.showFork);
-        if (r.ok && body.integrations && typeof body.integrations === 'object') {
-          const cur = Object.assign({}, config.value('integrations', {}));
-          for (const x of Plugins.INTEGRATIONS) if (typeof body.integrations[x.key] === 'boolean') cur[x.key] = body.integrations[x.key];
-          config.setValue('integrations', cur); integ.at = 0; pluginsCache.pmAt = 0; pluginsCache.gitAt = 0;
-        }
         if (r.ok && typeof body.remoteTailscale === 'boolean') {
           const x = await server.setRemote(body.remoteTailscale);
           if (!x.ok) return send(res, 400, { ok: false, error: x.error });

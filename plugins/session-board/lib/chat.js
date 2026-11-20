@@ -364,7 +364,10 @@ class Channels {
     // --include-partial-messages: the reply arrives a few characters at a time
     // (stream_event), so the page can show it being written instead of waiting
     // for each whole block.
-    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio'];
+    // --chrome: Claude in Chrome, as a session in a terminal has it. Without it a -p session has none of its tools
+    // (measured 2026-11-21: claude -p 0 tools, no claude-in-chrome server; with --chrome 20 tools, connected) - a
+    // conversation on the board said it could not open a page in Chrome.
+    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio', '--chrome'];
     // A session with a transcript is resumed; a new one is created under the id
     // the channel already has, so the page knows the id before the first reply.
     // A copy of another session (forkOf) starts from that session's conversation under its own id, the first

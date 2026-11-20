@@ -99,7 +99,7 @@ node plugins/session-board/scripts/start.js --stop     # 停止
 1. 需要：macOS、Node 22.5 以上（`brew install node`）、Claude Code（`claude` 要能在終端機直接執行）、內建的 Terminal。Python 3 只有用到 cbm-guard 的程式碼索引檢查時才需要。
 2. 加入這個 marketplace 並安裝 `session-board`（建議一併裝 `cc-statusline`），重開 Claude Code，輸入 `/session-board`。
 3. 第一次用到下列功能時，macOS 會跳出權限詢問，按「好」：
-   - 「切到視窗」：要允許看板（node）控制 **Terminal**（系統設定 → 隱私權與安全性 → 自動化）。
+   - 「顯示終端機視窗」：要允許看板（node）控制 **Terminal**（系統設定 → 隱私權與安全性 → 自動化）。
    - 系統通知：通知由「指令碼編寫程式」送出，要在系統設定 → 通知裡允許它。
 4. 想要登入後自己啟動：到「設定」打開「登入 Mac 時自動啟動看板」。它會在 `~/Library/LaunchAgents/` 放一個 `com.fulin.session-board.plist`，關掉就是刪掉它。
 5. Word／Excel／PowerPoint 預覽要先裝 LibreOffice（`brew install --cask libreoffice`）。沒裝時預覽會直接說明，其他檔案照常預覽。
@@ -283,7 +283,7 @@ node lib/decide.js --question 路徑/我的題目.json --model haiku < 一段文
 | `public/index.html` | 頁面 |
 | `scripts/office-to-pdf.ps1` | 用本機 Office 把 Word／Excel／PowerPoint 轉成 PDF |
 | `scripts/start.js` | 啟動／查狀態／停止 |
-| `scripts/focus-window.ps1` | 用視窗標題找到終端機視窗並切到最前面 |
+| `scripts/focus-window.ps1` | 用 session 的程序（沒有就用視窗標題）找到它的終端機視窗並帶到最前面 |
 | `scripts/pick-folder.ps1` | 跳出 Windows 的資料夾選擇視窗 |
 
 檔案放 `~/.claude/session-board/`：`board.db`（SQLite 資料庫：設定、每月用量）、`keep.json`（常駐紀錄）、`token`（金鑰）、`channels.json`（看板裡的對話清單）、`preview-cache/`（Office 檔轉出的 PDF）、`server.log`。

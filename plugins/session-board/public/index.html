@@ -366,6 +366,19 @@
   .room-head span { margin-left: auto; color: var(--dim); font-size: 13px; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .room-head button { border: 0; background: none; color: var(--dim); border-radius: var(--r-s); padding: 0 6px; font-size: 16px; line-height: 20px; }
   .room-head button:hover { background: var(--hover); color: var(--ink); }
+  /* a word button among the icon ones: framed, so it reads as one that can be pressed */
+  .room-head button.fit { border: 1px solid var(--line); color: var(--ink); font-size: 13px; padding: 0 8px; flex: none; }
+  .room-head button.fit.has { border-color: var(--accent); color: var(--accent); }
+  .fit-list .pf { display: flex; gap: 10px; align-items: flex-start; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  .fit-list .pf input { margin-top: 3px; }
+  .fit-list .pf b { display: block; font-size: 14px; }
+  .fit-list .pf small { display: block; color: var(--dim); margin-top: 2px; white-space: pre-line; overflow-wrap: anywhere; }
+  .fit-thread { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
+  .fit-thread .msg.user { align-self: flex-end; max-width: 85%; background: var(--bubble); border-radius: 14px; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .fit-thread .msg.assistant { min-width: 0; overflow-wrap: anywhere; }
+  .fit-ask { display: flex; gap: 8px; align-items: flex-end; padding: 10px 16px 16px; }
+  .fit-ask textarea { flex: 1; min-width: 0; resize: vertical; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-s, 6px); background: var(--bg); color: var(--ink); }
+  .fit-list .pf .ok { color: var(--green, #2E7D32); } .fit-list .pf .no { color: var(--red, #C62828); white-space: pre-wrap; }
   .desks { display: flex; flex-direction: column; border-top: 1px solid var(--line); flex: 1; min-height: 0; overflow-y: auto; }
   .desks > .desk { border-bottom: 1px solid var(--line); flex: none; }
   .desks .shelf { flex: none; padding: 6px 14px 4px; font-size: 12px; font-weight: 600; color: var(--faint); background: var(--side); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 1; }
@@ -2402,9 +2415,14 @@ async function drawThread(id) {
   const open = el('button', 'btn primary'); open.type = 'button';
   const copy = el('button', 'btn'); copy.type = 'button';
   const count = el('span', 'count');
+  // openAfter: the folder was asked for by 帶整封信開新對話 - once it is chosen, the conversation is opened right away
+  // (asked 2026-11-21: "choosing the folder should open the session, not make me press twice")
+  let openAfter = false;
   const assign = async (folder) => {
+    const go = openAfter && !!folder; openAfter = false;
     const x = await api('/api/inbox/assign', { id, folder });
     if (!x.ok || !x.data.ok) return say((x.data && x.data.error) || '沒有分派成功', true);
+    if (go) { t.root_folder = folder; return startChat(); }
     say(folder ? '已分派到 ' + folder : '已取消分派'); drawThread(id);
   };
   // ── the folder ──
@@ -2414,7 +2432,7 @@ async function drawThread(id) {
   if (t.root_folder) { folderBtn.append(el('b', '', baseName(t.root_folder)), el('span', 'path', t.root_folder)); folderBtn.title = t.root_folder + '\n點一下改到別的資料夾'; }
   else { folderBtn.textContent = '＋ 指定資料夾'; folderBtn.title = '選這串訊息要交給哪個資料夾（對話會開在那裡）'; }
   const pop = el('div', 'pop'); pop.hidden = true; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', '分派到資料夾');
-  const away = (e) => { if (!row.isConnected) return document.removeEventListener('mousedown', away); if (!wrap.contains(e.target)) closePop(); };
+  const away = (e) => { if (!row.isConnected) return document.removeEventListener('mousedown', away); if (!wrap.contains(e.target)) { openAfter = false; closePop(); } };
   const closePop = () => { pop.hidden = true; folderBtn.setAttribute('aria-expanded', 'false'); document.removeEventListener('mousedown', away); };
   const openPop = () => {
     pop.textContent = '';
@@ -2436,8 +2454,8 @@ async function drawThread(id) {
     document.addEventListener('mousedown', away);
     const first = pop.querySelector('button, input'); if (first) first.focus();
   };
-  folderBtn.addEventListener('click', () => (pop.hidden ? openPop() : closePop()));
-  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden) { e.stopPropagation(); closePop(); folderBtn.focus(); } });
+  folderBtn.addEventListener('click', () => { openAfter = false; if (pop.hidden) openPop(); else closePop(); });
+  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden) { e.stopPropagation(); openAfter = false; closePop(); folderBtn.focus(); } });
   wrap.append(el('span', 'plabel', '資料夾'), folderBtn, pop);
   // ── what can be done ──
   const tail = (d) => (d.signatures ? '，簽名檔已移除' : '') + (d.attachError ? '，附檔沒有抓到（' + d.attachError + '）' : d.attachments ? '，附檔 ' + d.attachments + ' 個已存到這台電腦' : '') + (d.images ? '，信裡的圖片 ' + d.images + ' 張已換成圖檔路徑' : '');
@@ -2459,8 +2477,11 @@ async function drawThread(id) {
     try { await navigator.clipboard.writeText(x.data.text); say('已複製 ' + sep(x.data.text.length) + ' 個字' + (x.data.left ? '（太長，有 ' + x.data.left + ' 則沒帶入）' : '') + tail(x.data)); }
     catch (e) { say('瀏覽器不讓這一頁寫入剪貼簿', true); }
   });
-  open.addEventListener('click', async () => {
-    if (!t.root_folder) { openPop(); return say('先選這串要開在哪個資料夾'); }
+  open.addEventListener('click', () => {
+    if (!t.root_folder) { openPop(); openAfter = true; return say('選好資料夾就會直接開對話'); }
+    startChat();
+  });
+  async function startChat() {
     open.disabled = true; open.textContent = '準備中…';
     let x; try { x = await api('/api/inbox/open', { id, messageIds: ids() }); } catch (e) { x = { ok: false, data: {} }; }
     if (!x.ok) { refresh(); return say(x.data.error || '開不了', true); }
@@ -2470,7 +2491,7 @@ async function drawThread(id) {
     inboxOpen = null; await poll(); await openChat(d.sessionId);
     drawFoot();
     say('已開新對話，' + (mail ? '信件' : d.count + ' 則訊息') + '引用在輸入框上方' + (d.attachError ? '（附檔沒有抓到：' + d.attachError + '）' : '') + '。寫下你要它做的事再送出');
-  });
+  }
   doneBtn.textContent = t.status === 'done' ? '重新開啟' : '✓ 標成完成';
   const acts = el('div', 'tb-row');
   acts.append(toList, doneBtn, el('span', 'tb-sp'));
@@ -2769,17 +2790,8 @@ async function drawSettings() {
     pane.insertBefore(st, null);
     showState();
   }
-  {
-    const h2 = el('h2', '', '外掛整合'); h2.style.marginTop = '40px'; pane.append(h2);
-    pane.append(el('p', 'lead', '看板要不要把這些 plugin 整合進來。這台電腦有裝的才會列出，預設打開；關掉的那一項在看板的所有地方都不會出現，看板也不會去讀它的資料或執行它。'));
-    const ig = r.data.integrations || {};
-    for (const [k, x] of Object.entries(ig)) {
-      if (!x.installed) continue;
-      sw(x.name, x.what, x.on, (v) => ({ integrations: { [k]: v } }), (v) => { if (!features.integrations) features.integrations = {}; features.integrations[k] = v; pluginsData = null; listShape = ''; drawList(); return x.name + (v ? ' 已整合進看板' : ' 已從看板拿掉'); });
-    }
-    const missing = Object.values(ig).filter((x) => !x.installed).map((x) => x.plugin);
-    if (missing.length) pane.append(el('div', 'hint', '這台電腦沒有裝：' + missing.join('、') + '（裝了之後這裡才會出現它的開關）。'));
-  }
+  // (外掛整合 had a switch per plugin here; gone 2026-11-20: what a folder has installed is what its room shows, and the
+  // office's 外掛分析 says what it should have)
   { const h2 = el('h2', '', '選用功能'); h2.style.marginTop = '40px'; pane.append(h2); }
   sw('開分身', '在對話上方多一顆「開分身」：從目前的內容複製出另一個對話，各走各的，原本的不受影響。預設關閉。', r.data.showFork === true,
     (v) => ({ showFork: v }), (v) => { features.fork = v; return v ? '已開啟：對話上方會出現「開分身」' : '已關閉：對話上方不再有「開分身」'; });
@@ -2981,6 +2993,8 @@ function fillOffice() {
         saveOrder(list);
       });
     }
+    // 外掛分析 (asked 2026-11-20): which plugins suit this folder, judged by plugin-manager's setup-plugins in the background
+    if (cwd) { const fit = el('button', 'fit' + (fitSeen.has(low(cwd)) ? ' has' : ''), '外掛分析'); fit.type = 'button'; fit.title = '分析「' + r.folder + '」適合裝哪些 plugin（照 plugin-manager 的 setup-plugins，從你的 plugin 庫、profile 與推薦清單挑），結果看完再決定要不要裝'; fit.addEventListener('click', (e) => { e.stopPropagation(); openPluginFit(r.folder, cwd); }); head.append(fit); }
     if (cwd) { const add = el('button', '', '＋'); add.type = 'button'; add.title = '在「' + r.folder + '」開一個新對話'; add.setAttribute('aria-label', add.title); add.addEventListener('click', async () => { const x = await api('/api/new', { cwd }); if (!x.ok) return say(x.data.error || '開不了', true); await poll(); openChat(x.data.sessionId); }); head.append(add); }
     const desks = el('div', 'desks');
     for (const { s: o, st } of r.open) {
@@ -3224,6 +3238,105 @@ function openHarness(folder, cwd, hs) {
   }
 }
 const explainSeen = new Map();   // folder + suggestion id -> the explanations given so far (kept while the page is open)
+// ── 外掛分析 (server.js /api/pluginfit, lib/pluginfit.js): which plugins suit a folder; the chosen ones installed ──
+const fitSeen = new Set();       // folders (lower case) with an analysis done: their button is marked
+async function openPluginFit(folder, cwd) {
+  closePeek();
+  $('peek').hidden = false;
+  $('peekName').textContent = '外掛分析：' + folder;
+  $('peekPath').textContent = '‎' + cwd; $('peekPath').title = cwd;
+  $('peekOpen').hidden = true; $('peekReveal').hidden = true; $('peekCopy').hidden = true;
+  const body = $('peekBody'); body.textContent = '';
+  const box = el('div'); body.append(box);
+  const here = () => !$('peek').hidden && body.contains(box);
+  let timer = 0;
+  const draw = async () => {
+    clearTimeout(timer);
+    let r; try { r = await api('/api/pluginfit?cwd=' + encodeURIComponent(cwd)); } catch (e) { r = { ok: false, data: {} }; }
+    if (!here()) return;
+    box.textContent = '';
+    if (!r.ok) { box.append(el('div', 'chg-note', r.status === 404 ? '這個看板還是舊的程式，不認得這個功能。重啟看板後才能用' : '看板沒有回應')); return; }
+    const d = r.data;
+    const top = el('div', 'chg-note', '照 plugin-manager 的 setup-plugins 判斷：讀這個專案的 CLAUDE.md、README 和檔案類型，從你的 plugin 庫、profile（plugin 組合）和推薦清單裡挑適合的。分析只讀不改，約 1 到 3 分鐘；裝不裝由你選。');
+    const go = el('button', 'btn primary', d.state === 'running' ? '分析中…' : d.state === 'done' || d.state === 'failed' ? '重新分析' : '開始分析'); go.type = 'button'; go.style.marginLeft = '8px';
+    go.disabled = d.state === 'running' || !d.canRun;
+    go.addEventListener('click', async () => { go.disabled = true; const x = await api('/api/pluginfit/analyze', { cwd }); if (!x.ok) { go.disabled = false; return say((x.data && x.data.error) || '開始不了', true); } draw(); });
+    top.append(go); box.append(top);
+    if (!d.canRun) box.append(el('div', 'chg-note bad', '這台電腦沒有裝 plugin-manager，分析要用它的 setup-plugins。'));
+    if (d.state === 'running') { box.append(el('div', 'chg-note', '分析中…（' + ago(Date.now() - d.at) + '）')); timer = setTimeout(() => { if (here()) draw(); }, 4000); return; }
+    if (d.state === 'failed') { box.append(el('div', 'chg-note bad', '分析失敗：' + (d.error || '原因不明'))); return; }
+    if (d.state !== 'done') { box.append(el('div', 'chg-note', '這個資料夾還沒分析過。')); return; }
+    fitSeen.add(cwd.toLowerCase());
+    const res = d.result, applied = d.applied || {};
+    box.append(el('div', 'chg-group', '分析結果（' + new Date(d.at).toLocaleString('zh-TW', { hour12: false }) + '）'));
+    const sm = el('div', 'chg-note', (res.confident ? '' : '沒把握：') + (res.summary || '') + (res.profile ? '（最貼的組合：' + res.profile + '）' : ''));
+    box.append(sm);
+    box.append(el('div', 'chg-note', res.read && res.read.length ? '依據：讀了 ' + res.read.map((p) => p.split(/[\\/]/).slice(-2).join('/')).join('、') : '依據：這次沒有讀專案的說明檔，判斷可能不準；可以按「重新分析」。'));
+    if (!res.plugins.length) { box.append(el('div', 'chg-note', '沒有要建議裝的：這個資料夾該有的都有了，或你的清單裡沒有適合的。')); }
+    else {
+      const list = el('div', 'fit-list'), picks = [];
+      for (const x of res.plugins) {
+        const a = applied[x.ref], done = a && a.ok;
+        const row = el('label', 'pf'), cb = el('input'); cb.type = 'checkbox'; cb.checked = !done && !x.skillCopy; cb.disabled = done || x.skillCopy; cb.value = x.ref;
+        const t = el('div'); t.style.minWidth = '0';
+        t.append(el('b', '', x.ref), el('small', '', [x.why, x.from + (x.note ? '：' + x.note : '')].filter(Boolean).join('\n')));
+        if (x.skillCopy) t.append(el('small', '', '這個不是 marketplace plugin，看板裝不了；要在對話裡用 setup-plugins 裝'));
+        if (a) t.append(el('small', a.ok ? 'ok' : 'no', a.ok ? '已裝好（專案層）' : '沒裝成：' + (a.note || '')));
+        row.append(cb, t); list.append(row); if (!cb.disabled) picks.push(cb);
+      }
+      box.append(list);
+      if (picks.length) {
+        const acts = el('div', 'chg-note');
+        const apply = el('button', 'btn primary', d.installing ? '安裝中…' : '套用：裝勾選的'); apply.type = 'button'; apply.disabled = d.installing;
+        apply.addEventListener('click', async () => {
+          const refs = picks.filter((c) => c.checked).map((c) => c.value);
+          if (!refs.length) return say('沒有勾要裝的', true);
+          apply.disabled = true; apply.textContent = '安裝中…（' + refs.length + ' 個）';
+          let x; try { x = await api('/api/pluginfit/apply', { cwd, refs }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
+          if (x.data && x.data.results) { const bad = x.data.results.filter((y) => !y.ok); say(bad.length ? bad.length + ' 個沒裝成，原因列在下面' : '裝好了。這個資料夾的 Claude Code 要重開（或執行 /reload-plugins）才會用到', !!bad.length); }
+          else say((x.data && x.data.error) || '裝不了', true);
+          instNotice(); draw();
+        });
+        acts.append(apply, ' 用 Claude Code 的指令裝在這個專案（project 範圍，會寫進專案的 .claude/settings.json）。');
+        box.append(acts);
+      }
+    }
+    if (res.skip && res.skip.length) {
+      const fold = el('details', 'chg-helpers'); fold.append(el('summary', 'chg-group', '考慮過但不建議的（' + res.skip.length + '）'));
+      for (const x of res.skip) fold.append(el('div', 'chg-note', x.ref + '：' + x.why));
+      box.append(fold);
+    }
+    // 追問 (asked 2026-11-21): questions about this analysis, answered with the same materials; it may change the list above
+    box.append(el('div', 'chg-group', '追問'));
+    const thread = el('div', 'fit-thread');
+    for (const t of d.thread || []) {
+      thread.append(el('div', 'msg user', t.q));
+      const a = el('div', 'msg assistant goal-md'); a.innerHTML = md(t.a); linkFiles(a, null); thread.append(a);
+      if (t.changed) thread.append(el('div', 'chg-note', '↑ 這個回答改了上面的推薦清單'));
+    }
+    box.append(thread);
+    const form = el('div', 'fit-ask'), q = el('textarea'); q.rows = 2; q.placeholder = '例如：為什麼不推薦 figma？csharp-ls 要怎麼裝？把 qa-webwright 也加進來'; q.setAttribute('aria-label', '追問這次分析');
+    const send = el('button', 'btn primary', d.asking ? '回答中…' : '問'); send.type = 'button'; send.disabled = d.asking;
+    const ask = async () => {
+      const text = q.value.trim(); if (!text) return;
+      send.disabled = true; q.disabled = true; send.textContent = '回答中…（約半分鐘到兩分鐘）';
+      thread.append(el('div', 'msg user', text));
+      let x; try { x = await api('/api/pluginfit/ask', { cwd, question: text }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
+      if (!here()) return;
+      if (!x.ok) { send.disabled = false; q.disabled = false; send.textContent = '問'; return say((x.data && x.data.error) || '沒有回答', true); }
+      if (x.data.changed) say('推薦清單照這個回答改了');
+      draw();
+    };
+    send.addEventListener('click', ask);
+    q.addEventListener('keydown', (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter' && !e.shiftKey && !onTouch()) { e.preventDefault(); ask(); } });
+    form.append(q, send); box.append(form);
+    if (d.asking) box.append(el('div', 'chg-note', '上一個追問還在回答，回來後會出現在這裡。'));
+    if (d.asking) timer = setTimeout(() => { if (here()) draw(); }, 4000);
+  };
+  // what is installed changed: the office asks for its rooms again
+  const instNotice = () => { roomFacts.delete(cwd); harnessStates.delete(cwd); pluginsData = null; };
+  await draw();
+}
 function tickOffice() { if (view === 'office') fillOffice(); }
 // The schedule page while you look at it: redrawn when something on it changed, never while the form is open.
 let schedTickAt = 0, goalShape = '';
@@ -3655,7 +3768,7 @@ async function drawPlugins(refresh) {
   body.append(top);
   const grid = el('div', 'pl-grid'); body.append(grid);
   // goal2
-  if (!Object.values(d.integrations || {}).some((x) => x.on)) body.append(el('p', 'lead', '所有外掛整合都關著。到「設定 → 外掛整合」打開要用的。'));
+  if (!Object.values(d.integrations || {}).some((x) => x.on && x.plugin)) body.append(el('p', 'lead', '這台電腦沒有裝看板能整合的 plugin。到辦公室的房間按「外掛分析」，看那個專案適合裝哪些。'));
   if (d.goal2.installed) {
     const c = card('goal2', '跑到完成條件達成為止 · 共 ' + d.goal2.total + ' 筆' + (d.goal2.running ? '，' + d.goal2.running + ' 筆執行中' : ''));
     for (const x of d.goal2.runs) { const st = GOAL_ST[x.status] || [x.status, '']; const tag = el('span', 'ls ' + st[1], st[0]); c.append(row((x.condition || '(沒有完成條件)').slice(0, 80), tag, () => openGoal(x))); }
@@ -3722,7 +3835,7 @@ async function drawPlugins(refresh) {
     cb.addEventListener('change', async () => { cb.disabled = true; const x = await api('/api/plugins/self-heal', { on: cb.checked }); cb.disabled = false; if (!x.ok) { cb.checked = !cb.checked; return say('改不了', true); } t.firstChild.textContent = x.data.on ? '開啟中' : '已關閉'; say(x.data.on ? 'self-heal 已開啟' : 'self-heal 已關閉'); });
     lab.append(cb, t); c.append(lab); }
   // everything installed
-  { const c = card('已安裝的 plugin', d.installed.length + ' 個 · 要不要整合進看板在「設定 → 外掛整合」', 'wide');
+  { const c = card('已安裝的 plugin', d.installed.length + ' 個 · 某個專案該裝哪些，到辦公室那個房間按「外掛分析」', 'wide');
     for (const p of d.installed.slice().sort((a, b) => b.projects - a.projects)) { const x = row(p.name + ' ' + p.version, (p.user ? '所有專案' : p.projects + ' 個專案')); x.title = p.description; x.querySelector('.pl-m').append(el('small', '', p.description.replace(/\*\*/g, '').slice(0, 90))); c.append(x); } }
 }
 function schedForm(s) {
@@ -4565,7 +4678,7 @@ function drawHead() {
     end.title = '結束這個終端機 session 的程序並關掉它的視窗。對話紀錄保留';
   }
   if (s.owner === 'terminal') {
-    if (!s.headless && !REMOTE) add('切到視窗', '', async () => say(...focusResult(s, (await api('/api/focus', { sessionId: s.sessionId })).data)));
+    if (!s.headless && !REMOTE) add('顯示終端機視窗', '', async () => say(...focusResult(s, (await api('/api/focus', { sessionId: s.sessionId })).data))).title = '把這個 session 所在的終端機視窗帶到最前面';
     // kept: comes back after a restart. No switch here any more - 結束 already takes it off (lib/keep.js markClosed),
     // and one that is open is kept. (Kept only for a setting that brings the old switch back; off.)
     if (false && typeof s.kept === 'boolean') {
@@ -4608,7 +4721,7 @@ function drawHead() {
 }
 
 function focusResult(s, r) {
-  if (r.state === 'hit' && r.focused) return ['已切到「' + s.title + '」的視窗', false];
+  if (r.state === 'hit' && r.focused) return ['已顯示「' + s.title + '」的終端機視窗', false];
   if (r.state === 'hit') return ['找到視窗了，但 Windows 沒讓它切到最前面' + (r.before ? '（當時最前面的是 ' + r.before + '）' : ''), true];
   if (r.state === 'miss') return [r.error || '找不到它的視窗', true];   // macOS: no Terminal tab with its tty
   if (r.state === 'ambiguous') return ['有兩個以上視窗的標題開頭相同，分不出是哪一個，所以沒有切換', true];
@@ -5131,6 +5244,9 @@ function drawFoot() {
     // never while the mic is listening or its words are being tidied (the box is locked then; this is the second lock)
     if (voiceBusy(s.sessionId)) return say(voice.state === 'tidying' ? '自動排版還沒好，排好再送' : '還在聽寫，先再按一次麥克風結束', true);
     const text = ta.value;
+    // a command that does not work here is not sent: /doctor never answers and leaves the conversation stuck (2026-11-21)
+    const cmd0 = /^\/(\S+)/.exec(text.trim());
+    if (cmd0 && NOT_ON_BOARD.has(cmd0[1].toLowerCase())) return say('/' + cmd0[1] + ' 在看板裡不能用（' + NOT_ON_BOARD.get(cmd0[1].toLowerCase()) + '）。可以按上面的「移到終端機」到終端機用它', true);
     const q = carry.get(s.sessionId);
     if (q && !text.trim()) return say('先寫下你要它對這' + (q.mail || q.source === 'Gmail' ? '封信' : '些訊息') + '做什麼，再送出');
     // a file still going up would miss this message and land in the next one: sent when it is there
@@ -5241,11 +5357,18 @@ function drawFoot() {
   let shown = [], sel = 0;
   const pick = (c) => {
     if (c.terminalOnly) { say('/' + c.name + ' 是終端機裡才有的互動畫面，看板裡不能用。可以按上面的「移到終端機」到終端機用它', true); return; }
-    ta.value = '/' + c.name + ' ';
+    // only the command word is replaced: what was already written after it stays (a pasted or kept message)
+    const rest = ta.value.replace(/^\/\S*/, '').replace(/^\s*/, '');
+    ta.value = '/' + c.name + ' ' + rest;
+    const at = c.name.length + 2; try { ta.setSelectionRange(at, at); } catch (e) {}
     showCmds(); fit(); ta.focus();
   };
+  // The list is for the command word at the start, while the caret is in it - also with a message already written
+  // after it (asked 2026-11-21: "/g 我要…" pasted in showed nothing, the whole box had to be only "/g")
   function showCmds() {
-    const m = /^\/(\S*)$/.exec(ta.value);
+    const caret = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
+    const word = /^\/\S*/.exec(ta.value);
+    const m = word && ta.selectionStart === ta.selectionEnd && caret >= 1 && caret <= word[0].length ? /^\/(\S*)$/.exec(word[0].slice(0, caret)) : null;
     const info = cmdCache.get(s.sessionId);   // undefined while the list is still being asked for
     shown = m ? matchCommands(m[1], info ? info.commands : [], info && info.usage) : [];
     pop.textContent = '';
@@ -5270,6 +5393,9 @@ function drawFoot() {
   ta.addEventListener('input', () => { sel = 0; fit(); showCmds(); });
   ta.addEventListener('blur', () => { pop.hidden = true; });
   ta.addEventListener('focus', showCmds);
+  // the caret put into the command word (a click, the arrows): the list follows it
+  ta.addEventListener('click', showCmds);
+  ta.addEventListener('keyup', (e) => { if (/^(ArrowLeft|ArrowRight|Home|End)$/.test(e.key)) showCmds(); });
   ta.addEventListener('keydown', (e) => {
     if (e.isComposing || e.keyCode === 229) return;   // an input method picking characters (Safari: 229 on the Enter that ends it)
     if (!pop.hidden && shown.length) {
@@ -5506,8 +5632,13 @@ function usedTimes(usage) {
   for (const [k, v] of by) { const t = k.split(':').pop(); if (t !== k) short.set(t, (short.get(t) || 0) + v); }
   return (name) => by.get(name) || short.get(name) || 0;
 }
+// Listed by Claude Code for every session, yet not working in the board's (non-interactive) one - measured 2026-11-21
+// by sending each: /focus says "isn't available here yet"; /doctor gives no answer at all, the conversation stuck.
+// (/color and /reload-plugins, which Claude Code also calls terminal ones, do work there: not in this list.)
+const NOT_ON_BOARD = new Map([['doctor', '它在看板裡不會回應，對話會卡住'], ['focus', "Claude Code 回「isn't available here yet」"]]);
 function matchCommands(q, live, usage) {
   const used = usedTimes(usage);
+  live = live.map((c) => (NOT_ON_BOARD.has(c.name) ? Object.assign({}, c, { terminalOnly: true }) : c));
   const have = new Set(live.map((c) => c.name));
   const all = live.concat(TERMINAL_ONLY.filter((n) => !have.has(n)).map((name) => ({ name, terminalOnly: true })));
   const k = q.toLowerCase();
@@ -6586,7 +6717,8 @@ async function openChanges(s) {
   const body = $('peekBody'); body.textContent = '';
   const top = el('div', 'chg-top'), seg = el('div', 'seg'), sum = el('span', 'sum'), list = el('div');
   seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', '要看哪一種變更');
-  const tabs = [['mine', '這個 session 改的'], ['git', '資料夾裡未提交的']];
+  // the links its replies gave apart from the files (asked 2026-11-20: "keep the web addresses and the documents apart")
+  const tabs = [['mine', '這個 session 改的'], ['links', '回覆裡的連結'], ['git', '資料夾裡未提交的']];
   for (const [k, label] of tabs) { const b = el('button', '', label); b.type = 'button'; b.dataset.k = k; b.addEventListener('click', () => { chgTab = k; draw(); }); seg.append(b); }
   const again = el('button', 'btn', '重新讀取'); again.type = 'button'; again.addEventListener('click', () => draw());
   top.append(seg, sum, again); body.append(top, list);
@@ -6623,16 +6755,16 @@ async function openChanges(s) {
     const OWNP = /[\\/]\.claude[\\/]|[\\/](Temp|tmp)[\\/]|[\\/]\.playwright-mcp[\\/]|^\/tmp\/|^\/private\/(var|tmp)\/|^\/var\/folders\//i;
     const isDeliv = (g) => g.kind !== 'dir' && DELIV.test(g.abs) && !OWNP.test(g.abs);
     const allGiven = d.given || [], given = allGiven.filter(isDeliv), named = allGiven.filter((g) => !isDeliv(g));
-    const links = d.links || [], touchedFiles = (d.touched && d.touched.files) || [];
+    const touchedFiles = (d.touched && d.touched.files) || [];
     const key = (p) => String(p).replace(/\//g, '\\').toLowerCase();
     const givenKeys = new Set(allGiven.map((x) => key(x.abs)));
     const edits = new Map(d.files.map((x) => [key(x.path), x]));
     const stamp = (t) => (t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '');
-    list.append(el('div', 'chg-note', '上面是交付檔：Claude 在回覆裡交給你的文件、表格、簡報、PDF、圖片等，和回覆裡的連結。下面收起來的是回覆順帶提到的程式碼與資料夾，以及它做事中途寫過的其他檔。'));
+    list.append(el('div', 'chg-note', '上面是交付檔：Claude 在回覆裡交給你的文件、表格、簡報、PDF、圖片等。下面收起來的是回覆順帶提到的程式碼與資料夾，以及它做事中途寫過的其他檔。回覆裡的網址在「回覆裡的連結」那一頁。'));
     // the page is read anew on each load, the server only when the board starts: a board still running the older server
     // does not send what the replies handed you
     if (!d.given) list.append(el('div', 'chg-note', '看板還在跑舊的程式，列不出交付檔。重啟看板後就會出現。'));
-    if (!allGiven.length && !links.length && !d.files.length && !touchedFiles.length) { list.append(el('div', 'chg-note', '這個 session 還沒有交給你檔案，也還沒改過任何檔案。')); return; }
+    if (!allGiven.length && !d.files.length && !touchedFiles.length) { list.append(el('div', 'chg-note', '這個 session 還沒有交給你檔案，也還沒改過任何檔案。')); return; }
     // one file's edits, newest first, and the file itself
     const editParts = async (x) => {
       const q = await ask('/api/changes/file?sid=' + encodeURIComponent(sid) + '&path=' + encodeURIComponent(x.path));
@@ -6677,15 +6809,6 @@ async function openChanges(s) {
     };
     if (given.length) { list.append(el('div', 'chg-group', '交付檔（' + given.length + '）')); putGiven(list, given); }
     else if (d.given) list.append(el('div', 'chg-note', '回覆裡沒有交給你文件、表格、簡報、PDF 或圖片。'));
-    if (links.length) {
-      list.append(el('div', 'chg-group', '回覆裡的連結（' + links.length + '）'));
-      for (const l of links) {
-        const row = el('div', 'chg-file chg-linkrow'), a = el('a', 'chg-link', l.url); a.href = l.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-        row.append(a, el('small', '', stamp(l.at)));
-        if (l.id) { const j = el('button', 'btn chg-more', '跳到提到的地方'); j.type = 'button'; j.addEventListener('click', () => jumpToReply(sid, l.id, l.url)); row.append(j); }
-        list.append(row);
-      }
-    }
     // what a reply named on the way: code files, folders, backups - folded away
     if (named.length) {
       const fold = el('details', 'chg-helpers'); fold.append(el('summary', 'chg-group', '回覆提到的其他檔與資料夾：程式碼、設定、資料夾等（' + named.length + '）'));
@@ -6714,6 +6837,24 @@ async function openChanges(s) {
       list.append(fold);
     }
   };
+  const drawLinks = async () => {
+    const r = await ask('/api/changes?sid=' + encodeURIComponent(sid)); if (!here() || chgTab !== 'links') return;
+    list.textContent = '';
+    // an older board server: it answers 404 with no reason of its own, or with its own "not found"
+    const oldServer = r.status === 404 && (!r.data || r.data.error === 'not found');
+    if (!r.ok) { list.append(el('div', 'chg-note', oldServer ? '這個看板還是舊的程式，不認得這個功能。重啟看板後才能用' : ((r.data && r.data.error) || '讀不到'))); sum.textContent = ''; return; }
+    const d = r.data, links = d.links || [], total = d.linksTotal || links.length;
+    if (!d.links) { list.append(el('div', 'chg-note', '看板還在跑舊的程式，列不出回覆裡的連結。重啟看板後就會出現。')); return; }
+    sum.textContent = links.length ? total + ' 個連結' : '';
+    list.append(el('div', 'chg-note', 'Claude 在回覆裡給你的網址，最近提到的在上面。' + (total > links.length ? '共 ' + total + ' 個，這裡列最近 ' + links.length + ' 個。' : '')));
+    if (!links.length) { list.append(el('div', 'chg-note', '回覆裡沒有網址。')); return; }
+    for (const l of links) {
+      const row = el('div', 'chg-file chg-linkrow'), a = el('a', 'chg-link', l.url); a.href = l.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      row.append(a, el('small', '', l.at ? new Date(l.at).toLocaleString('zh-TW', { hour12: false }) : ''));
+      if (l.id) { const j = el('button', 'btn chg-more', '跳到提到的地方'); j.type = 'button'; j.addEventListener('click', () => jumpToReply(sid, l.id, l.url)); row.append(j); }
+      list.append(row);
+    }
+  };
   const drawGit = async () => {
     const r = await ask('/api/changes/git?sid=' + encodeURIComponent(sid)); if (!here() || chgTab !== 'git') return;
     list.textContent = '';
@@ -6736,7 +6877,7 @@ async function openChanges(s) {
       }));
     }
   };
-  const draw = () => { for (const b of seg.children) { const on = b.dataset.k === chgTab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } list.textContent = ''; list.append(el('div', 'chg-note', '讀取中…')); sum.textContent = ''; return chgTab === 'mine' ? drawMine() : drawGit(); };
+  const draw = () => { for (const b of seg.children) { const on = b.dataset.k === chgTab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } list.textContent = ''; list.append(el('div', 'chg-note', '讀取中…')); sum.textContent = ''; return chgTab === 'mine' ? drawMine() : chgTab === 'links' ? drawLinks() : drawGit(); };
   await draw();
 }
 // what the board can show as a page of its own (/api/file/ticket): a web page, a PDF, an Office file (made a PDF)

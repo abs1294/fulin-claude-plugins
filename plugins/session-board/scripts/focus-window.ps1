@@ -99,7 +99,12 @@ function Test-Terminal([IntPtr]$hw) {
 
 # The terminal window a process lives in, by way of its console: the console's
 # own (hidden) window is owned by the Windows Terminal window that hosts it.
-if ($Mode -eq "find" -and $ProcId) {
+# Tried first in both modes: a session with no title yet (a new one, before its
+# summary is written) has nothing to match by title. Until 2026-11-21 focus mode
+# skipped this, and such a session's window could not be switched to at all.
+$hit = $null
+$matchedBy = -1
+if ($ProcId) {
   $n = [uint32]0
   if ([uint32]::TryParse($ProcId, [ref]$n) -and $n -gt 0) {
     [void][SbFocus]::FreeConsole()
@@ -107,12 +112,15 @@ if ($Mode -eq "find" -and $ProcId) {
       $c = [SbFocus]::GetConsoleWindow()
       [void][SbFocus]::FreeConsole()
       foreach ($h in @([SbFocus]::GetAncestor($c, 3), [SbFocus]::GetWindow($c, 4), [SbFocus]::GetParent($c), [SbFocus]::GetAncestor($c, 2))) {
-        if (Test-Terminal $h) { Out-Result @{ state = "hit"; hwnd = $h.ToInt64(); by = "console" } }
+        if (Test-Terminal $h) {
+          if ($Mode -eq "find") { Out-Result @{ state = "hit"; hwnd = $h.ToInt64(); by = "console" } }
+          $hit = [PSCustomObject]@{ hwnd = $h; title = "" }
+          break
+        }
       }
     }
   }
 }
-if ($titles.Count -eq 0) { Out-Result @{ state = "none"; windows = 0; reason = "no title known for this session" } }
 
 $wins = New-Object System.Collections.ArrayList
 $cb = [SbFocus+EnumProc]{
@@ -175,10 +183,10 @@ function Find-Window([string]$target) {
 # Try every candidate title before giving up: one being ambiguous says nothing
 # about the next. Only when none of them yields a single window is the result
 # "ambiguous" (some title matched several windows) or "none".
-$hit = $null
-$matchedBy = -1
+# (counted first, so "no title" still says how many windows there are - it said 0 before)
+if (-not $hit -and $titles.Count -eq 0) { Out-Result @{ state = "none"; windows = $wins.Count; reason = "no title known for this session" } }
 $sawAmbiguous = $false
-for ($i = 0; $i -lt $titles.Count; $i++) {
+for ($i = 0; -not $hit -and $i -lt $titles.Count; $i++) {
   $t = Normalize ([string]$titles[$i])
   if (-not $t) { continue }
   $r = Find-Window $t
