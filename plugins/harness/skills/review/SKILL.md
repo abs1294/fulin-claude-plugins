@@ -1,6 +1,6 @@
 ---
 name: review
-description: 制度健檢——檢查 /harness:init 在專案裝的那套開發流程，實際使用後有沒有起作用。四軌：軌一從逐字紀錄、subagent 紀錄、知識筆記、hook 試跑（一律實跑）抽證據，並逐項跑 05 健檢清單；軌二 /doctor 看工具鏈；軌三 /insights 看使用行為；軌四 /claude-api prompt-audit 看指令有沒有過時——軌二到四由 Claude 用 headless 子程序自己跑，不用使用者打；另做指令帳本，裁決 CLAUDE.md 與制度檔每條指令的去留，當瘦身依據。產出「有起作用／沒起作用／沒機會驗證」的報告與修正提案，最後畫出目前的 harness 流程圖。當使用者說 /harness:review、「看 harness 有沒有起作用」、「檢查這套流程」、「harness 健檢」、「review 這個專案的 harness」時觸發；05 定期健檢到期時也用它執行。
+description: 制度健檢——檢查 /harness:init 在專案裝的那套開發流程，實際使用後有沒有起作用。四軌：軌一從逐字紀錄、subagent 紀錄、知識筆記、hook 試跑（一律實跑）抽證據，並逐項跑 05 健檢清單；軌二 /doctor 看工具鏈；軌三 /insights 看使用行為；軌四 /doctor prompt-audit 看指令有沒有過時——軌二到四由 Claude 用 headless 子程序自己跑，不用使用者打；另做指令帳本，裁決 CLAUDE.md 與制度檔每條指令的去留，當瘦身依據。產出「有起作用／沒起作用／沒機會驗證」的報告與修正提案，最後畫出目前的 harness 流程圖。當使用者說 /harness:review、「看 harness 有沒有起作用」、「檢查這套流程」、「harness 健檢」、「review 這個專案的 harness」時觸發；05 定期健檢到期時也用它執行。
 ---
 
 # harness:review — 裝好的流程有沒有起作用
@@ -18,14 +18,14 @@ description: 制度健檢——檢查 /harness:init 在專案裝的那套開發�
 ## 流程總覽
 
 ```
-0 找範圍、背景起三個子程序跑 /doctor、/insights、/claude-api prompt-audit
+0 找範圍、背景跑 /doctor、/doctor prompt-audit，/insights 連跑到沒有新增
 → 1 收集（腳本，一律 --probe）＋ 1.5 健檢清單逐項（subagent，會執行專案程式的檢查一律跑）
 → 2 判讀（回原文核對）＋ 2.5 四軌交叉比對 ＋ 2.7 指令帳本（subagent）
 → 3 問使用者三題 → 4 報告（使用者親自看的放最前）＋修正清單
 → 5 一次核可後當場修、逐項驗證 → 6 留紀錄 → 7 畫目前的 harness 流程圖
 ```
 
-**四軌各看一層，單軌都有盲區**：軌一（本 skill 的第 1、1.5、2 步）看制度有沒有腐化、有沒有被照做；軌二 `/doctor` 看工具鏈（安裝、版本、沒在用的連接器與 skill、慢 hook、常駐 context）；軌三 `/insights` 看跨 session 的使用行為與卡關點；軌四 `/claude-api prompt-audit` 看 CLAUDE.md、規則檔、agent、skill 裡為舊模型寫的、已經過時或互相矛盾的指令。
+**四軌各看一層，單軌都有盲區**：軌一（本 skill 的第 1、1.5、2 步）看制度有沒有腐化、有沒有被照做；軌二 `/doctor` 看工具鏈（安裝、版本、沒在用的連接器與 skill、慢 hook、常駐 context）；軌三 `/insights` 看跨 session 的使用行為與卡關點；軌四 `/doctor prompt-audit` 看 CLAUDE.md、規則檔、agent、skill 裡為舊模型寫的、已經過時或互相矛盾的指令。
 
 **實跑不再問（使用者 2026-11-19 定）**：健檢就是要實際跑過才算數。`--probe`、清單裡的 hook dry-run、專案稽核工具、清單描述自驗的實跑、修完的驗證、第 6 步的提醒確認，一律直接跑，不先問「要不要試跑」。仍然不跑的只有一種：會改到專案追蹤中的檔案的檢查（標「沒機會驗證：會改動追蹤中的檔」）。
 
@@ -33,18 +33,22 @@ description: 制度健檢——檢查 /harness:init 在專案裝的那套開發�
 
 - 落點＝有 `.claude/harness/README.md` 的專案根目錄（預設目前工作目錄）；找不到就告訴使用者這個專案沒裝 harness，建議先跑 `/harness:init`，停止。
 - 安裝日期：CLAUDE.md 變更紀錄裡「建立」那一筆的日期（0.10.0 起紀錄在 `CLAUDE.changelog.md`；舊實例在 CLAUDE.md 本體的 Changelog 節。收集腳本兩處都找，結果在輸出的 `installDate`）。上次 review 或健檢的日期：`.claude/harness/CHANGELOG.md` 的 `## 05-knowledge-protocol.md` 節裡帶【健檢執行】標記、**日期最大**的一筆（不是檔案裡最後一筆——新的寫在上面或下面都有可能；舊實例在 `05-knowledge-protocol.md` 本體的 Changelog；收集腳本兩處都讀，結果在 `E.lastHealthCheck`，沒有帶標記的紀錄時是 null）。預設看「上次 review 之後」，沒有就看「安裝之後」；使用者指定範圍就照他的。
-- **範圍定好就在背景起三個子程序**（在落點目錄下跑，三個平行，不等它們就接著做第 1 步）：
+- **範圍定好就在背景跑三種檢查**（在落點目錄下跑，三條各自在背景、互相平行，不等它們就接著做第 1 步）：
 
   ```
+  # 第一條、第二條：各跑一次
   claude -p "/doctor" --output-format json > <系統暫存目錄>/harness-review-<今天>-doctor.json
-  claude -p "/insights" --output-format json > <系統暫存目錄>/harness-review-<今天>-insights.json
-  claude -p "/claude-api prompt-audit" --output-format json > <系統暫存目錄>/harness-review-<今天>-prompt-audit.json
+  claude -p "/doctor prompt-audit" --output-format json > <系統暫存目錄>/harness-review-<今天>-prompt-audit.json
+  # 第三條：/insights 在同一條裡「一個跑完才跑下一個」，第 k 次寫到 -insights-<k>.json，停止條件見下面
+  claude -p "/insights" --output-format json > <系統暫存目錄>/harness-review-<今天>-insights-1.json
   ```
 
-  - 內建指令在 `claude -p` 裡照樣會跑（2026-11-19 實測：`/doctor` 約 90 秒、牌價約 0.46 美元，回的 `result` 是完整的檢查表；`/insights` 約 70 秒、約 1.95 美元，`result` 只給報告路徑 `~/.claude/usage-data/report-<日期>-<時間>.html`，內容要開那個檔讀；`/insights` 看的是這台電腦所有專案，不只這個專案）。`prompt-audit` 還沒實測過：依 claude-api skill 對這個子指令的說明，它不停下來問人、直接產出報告與建議的修改、沒被要求就不改檔（**HYPOTHESIS**，第一次跑時看它的 `result` 確認，對不上就照實寫進報告）。
+  - 內建指令在 `claude -p` 裡照樣會跑（2026-11-19 實測：`/doctor` 約 90 秒、牌價約 0.46 美元，回的 `result` 是完整的檢查表；`/insights` 約 70 秒、約 1.95 美元，`result` 只給報告路徑 `~/.claude/usage-data/report-<日期>-<時間>.html`，內容要開那個檔讀；`/insights` 看的是這台電腦所有專案，不只這個專案）。
+  - **prompt-audit 走 `/doctor prompt-audit`**：這是官方文件寫的入口（Claude Code 文件 memory 頁「Audit your instruction files」，要 2.1.283 以上；背後用的是內建的 claude-api skill）。2026-11-20 實測：在 `claude -p` 裡會跑，只讀不改（跑完 `git status` 沒有任何變動），`result` 是發現表加上建議的修改；只稽核一個資料夾約 97 秒、約 0.72 美元，整個專案會更久更貴。不帶路徑時稽核 CLAUDE.md、CLAUDE.local.md、AGENTS.md，以及專案與使用者層 `.claude/` 底下的規則、skill、指令、subagent、output style；只要稽核某處就在後面接路徑。
+  - **`/insights` 一次只分析一批，要連跑**：每跑一次，最多分析一批**還沒分析過**的 session，分析結果留在 `~/.claude/usage-data/facets/`（一個 session 一個檔），下一次接著分析還沒分析的。這台電腦實測每次多 50 個（官方文件寫最多 200，與實測不符，照實測規劃）；2026-11-19 的報告寫「500 sessions (1,295 total)」，只跑一次的健檢看不到其餘約 800 個。做法：跑之前數 `facets/` 的檔數，然後一次跑一個（不要平行，會分析到同一批），每跑完數一次；**這一次沒有新增就停**（剩下的都分析過了，或是太短被略過），最多連跑 6 次（約 12 美元；還沒分析的很多時，在報告寫明「還有約 N 個沒分析，下次健檢繼續」）。最後一份報告涵蓋前面所有批次，第 2.5 步只讀最後一次的 `result` 指到的那份；報告開頭的「N sessions (M total)」原樣寫進健檢報告，當這次 `/insights` 的涵蓋範圍。
   - **Windows 的 Git Bash 會把開頭是 `/` 的參數改寫成路徑**（`"/doctor"` 變成 `C:/Program Files/Git/doctor`，指令照樣跑但送出去的不是 /doctor）：在 Git Bash 跑要在前面加 `MSYS_NO_PATHCONV=1`，或改用 PowerShell 跑。
   - 判斷成敗看 JSON 的 `is_error` 與 `result`，不看 exit code；失敗或逾時，報告寫「軌X 沒跑成：<錯誤原文>」，不准靜默略過。無人值守時也照跑。
-  - 這三個子程序會在這個專案的逐字紀錄留下 session；收集腳本認得它們（第一句是 `/doctor`、`/insights`、`/claude-api prompt-audit` 而且是 headless 起的）並略過，不會算進下次健檢的使用數字。
+  - 這些子程序會在這個專案的逐字紀錄留下 session；收集腳本認得它們（第一句是 `/doctor`、`/insights`、`/doctor prompt-audit` 而且是 headless 起的）並略過，不會算進下次健檢的使用數字。
 
 ## 1. 收集（腳本，不准手抽）
 
@@ -105,9 +109,9 @@ node <本 plugin>/skills/review/scripts/review-collect.js <落點> --since <日�
 
 分三類寫結論：**有起作用**（附證據）／**沒起作用**（附證據與失敗情境）／**沒機會驗證**（附為什麼沒被觸發）。
 
-## 2.5 四軌交叉比對（三個子程序跑完之後）
+## 2.5 四軌交叉比對（背景的三種檢查跑完之後）
 
-先讀三個子程序的輸出：`-doctor.json` 與 `-prompt-audit.json` 的 `result`、`-insights.json` 的 `result` 指到的那份報告檔。還沒跑完就先做第 2.7 步，回來再比；超過 15 分鐘還沒跑完，當「沒跑成：逾時」處理。
+先讀背景檢查的輸出：`-doctor.json` 與 `-prompt-audit.json` 的 `result`、**最後一次** `-insights-<第幾次>.json` 的 `result` 指到的那份報告檔（它涵蓋前面每一批）。還沒跑完就先做第 2.7 步，回來再比。逾時分開算：`/doctor` 超過 15 分鐘、prompt-audit 超過 30 分鐘（不帶路徑時稽核整個專案與使用者層，比只稽核一個資料夾的 97 秒久得多）、`/insights` 每一次超過 15 分鐘，當「沒跑成：逾時」處理；`/insights` 某一次逾時就停在那裡，用前一次的報告，並寫明跑到第幾次；第 1 次就逾時（沒有前一次的報告）＝「軌三沒跑成：逾時」。
 
 - **軌二 `/doctor`**：它建議關掉或移除的連接器、skill、plugin，對照 05 清單「系統提示的工具來源」那一項與 CLAUDE.md 路由表——路由表或制度檔有點名的不關（點名了卻零使用，反而是「規則寫了沒人照做」的線索，記到軌一）。它的修改屬於可逆類（關掉可再開），列進第 5 步的修正清單。
 - **軌三 `/insights`**：它給的每一條建議（常見是「CLAUDE.md 加一條…」）逐條對照現有規則（全域與專案 CLAUDE.md、02～05、hook），分三類：
@@ -115,7 +119,7 @@ node <本 plugin>/skills/review/scripts/review-collect.js <落點> --since <日�
   2. **真的沒有規則** → 提案補規則，寫明補在哪一份檔。
   3. **不屬於這個專案**（例子出自別的專案、或該由某個 plugin 管）→ 指出應該補在哪裡，不寫進這個專案。
   每一條都要附「對照了哪幾份檔、哪一行」。
-- **軌四 `/claude-api prompt-audit`**：它的每一條發現（`檔:行`、哪一種過時寫法、為什麼過時、把握度）交給第 2.7 步的指令帳本當證據，跟帳本對同一條指令的裁決並列：兩邊都說該刪或該改寫的，帳本照收；兩邊說法相反的（例：它說過時、帳本說要留），兩種理由並列進第 8 段讓使用者決定，不准自己挑一邊。它建議的修改一律不直接套用（改的是規則文件，屬第 8 段逐項決定）。
+- **軌四 `/doctor prompt-audit`**：它的每一條發現（`檔:行`、哪一種過時寫法、為什麼過時、把握度）交給第 2.7 步的指令帳本當證據，跟帳本對同一條指令的裁決並列：兩邊都說該刪或該改寫的，帳本照收；兩邊說法相反的（例：它說過時、帳本說要留），兩種理由並列進第 8 段讓使用者決定，不准自己挑一邊。它建議的修改一律不直接套用（改的是規則文件，屬第 8 段逐項決定）。
 - **多軌都看到的同一件事**，在報告結論裡講，那通常是最該先處理的。
 
 ## 2.7 指令帳本（派 subagent，只提案）

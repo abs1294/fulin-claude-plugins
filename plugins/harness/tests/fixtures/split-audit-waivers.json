@@ -177,16 +177,16 @@
   {
     "line": 762,
     "orig": "- 每 30 天 → 跑 `/harness:review` 做一次制度健檢（開",
-    "now": "   - 每 30 天或每 300 個 request（先到者）→ 跑 `/harness:review` 做一次制度健檢（開機時會提醒；兩個門檻在 `health-check-reminder.js` 的填空區可調）。四種檢查：它自己檢查制度有沒有被照做、逐項跑 05 健檢清單與本專案的稽核工具（自動檢查一律實際試跑）；另外在背景自己跑 `/doctor`（看工具鏈）、`/insights`（看使用習慣）和 `/claude-api prompt-audit`（看規則有沒有過時），不用你打，四種結果交叉比對，最後畫出目前的流程圖。可逆的修正（重建過期索引、清過期 memory、修明顯的 hook 錯誤…）列成一批讓你一次核可，當場修完逐項驗證；改規則的仍一項一項問你",
+    "now": "   - 每 30 天或每 300 個 request（先到者）→ 跑 `/harness:review` 做一次制度健檢（開機時會提醒；兩個門檻在 `health-check-reminder.js` 的填空區可調）。四種檢查：它自己檢查制度有沒有被照做、逐項跑 05 健檢清單與本專案的稽核工具（自動檢查一律實際試跑）；另外在背景自己跑 `/doctor`（看工具鏈）、`/insights`（看使用習慣）和 `/doctor prompt-audit`（看規則有沒有過時），不用你打，四種結果交叉比對，最後畫出目前的流程圖。可逆的修正（重建過期索引、清過期 memory、修明顯的 hook 錯誤…）列成一批讓你一次核可，當場修完逐項驗證；改規則的仍一項一項問你",
     "where": "skills/init/references/phases/phase-6-flow.md:120",
     "reason": "C10：健檢節奏改成 30 天或 300 個 request（先到者）；2026-10-20 白話化把「三軌」改稱「三種檢查」；2026-11-19 /doctor、/insights 改由健檢在背景自己跑、加 prompt-audit 成四種、自動檢查一律實跑、收尾畫流程圖"
   },
   {
     "line": 762,
     "orig": "三軌：它自己檢查制度有沒有被照做",
-    "now": "四種檢查：它自己檢查制度有沒有被照做、逐項跑 05 健檢清單與本專案的稽核工具（自動檢查一律實際試跑）；另外在背景自己跑 `/doctor`（看工具鏈）、`/insights`（看使用習慣）和 `/claude-api prompt-audit`（看規則有沒有過時），不用你打，四種結果交叉比對，最後畫出目前的流程圖。",
+    "now": "四種檢查：它自己檢查制度有沒有被照做、逐項跑 05 健檢清單與本專案的稽核工具（自動檢查一律實際試跑）；另外在背景自己跑 `/doctor`（看工具鏈）、`/insights`（看使用習慣）和 `/doctor prompt-audit`（看規則有沒有過時），不用你打，四種結果交叉比對，最後畫出目前的流程圖。",
     "where": "skills/init/references/phases/phase-6-flow.md:120",
-    "reason": "2026-11-19：同一行的第二句。/doctor、/insights 不再請使用者在提示列輸入，改由健檢在背景用 claude -p 自己跑（實測內建指令在 -p 會執行）；加 /claude-api prompt-audit 成四種"
+    "reason": "2026-11-19：同一行的第二句。/doctor、/insights 不再請使用者在提示列輸入，改由健檢在背景用 claude -p 自己跑（實測內建指令在 -p 會執行）；加 /claude-api prompt-audit 成四種；2026-11-20 改走官方入口 /doctor prompt-audit（官方文件 memory 頁，實測在 claude -p 會跑、只讀不改）"
   },
   {
     "line": 586,

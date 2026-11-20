@@ -2,6 +2,11 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.21.2] - 2026-11-20
+### Fixed
+- /harness:review：prompt-audit 改走官方入口 /doctor prompt-audit（實測在 claude -p 會跑、只讀不改，拿掉 HYPOTHESIS）；/insights 一次只分析一批還沒分析過的 session（本機實測每次 50 個），改成一次跑一個、連跑到 facets 沒有新增為止，最多 6 次，報告寫明涵蓋範圍「N sessions (M total)」；README、白話用語表、phase-6 範本、05 骨架同步
+- 審查修正：逾時分開算（prompt-audit 不帶路徑稽核整個專案，改 30 分鐘；/insights 每次 15 分鐘，逾時就用前一次的報告）；範例區塊寫明 /insights 在同一條裡一個跑完才跑下一個；review-collect 測試補 /doctor prompt-audit 與 /insights 的背景 session（逐字紀錄寫法照 2026-11-20 實測：`<command-name>/doctor</command-name>` 加 `<command-args>prompt-audit …</command-args>`）
+
 ## [0.21.1] - 2026-11-19
 ### Fixed
 - 審查修正：用語表補「軌四」、「三軌」改指向四種檢查；review SKILL 寫明 Git Bash 下 `claude -p "/doctor"` 要加 `MSYS_NO_PATHCONV=1`，prompt-audit 的行為標成未實測；check-flow-diagram current 也認 `%CLAUDE_PROJECT_DIR%`，以及 settings.local.json 接的 hook（只有權限設定、沒接 hook 的 settings.local.json 不算要畫的）；review-collect 沒有 entrypoint 的舊紀錄照算（不再把使用者親手打的 /doctor 當成健檢自己跑的）；補對應測試

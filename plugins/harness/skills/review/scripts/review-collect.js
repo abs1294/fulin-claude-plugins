@@ -579,7 +579,7 @@ for (const f of files) {
     out.notes.push('略過安裝時的冷啟探針 session：' + sid + '（探針會故意觸發擋下）');
     continue;
   }
-  // 健檢自己在背景起的 /doctor、/insights、/claude-api prompt-audit（SKILL.md 第 0 步）：不是使用者的對話。
+  // 健檢自己在背景起的 /doctor、/insights、/doctor prompt-audit（SKILL.md 第 0 步；2026-11-20 前是 /claude-api prompt-audit，舊紀錄照樣認）：不是使用者的對話。
   // 判斷＝第一則提問就是那個指令本身（逐字紀錄寫成 <command-name>/doctor</command-name>，2026-11-19 實測）
   // 而且是 headless 起的（entrypoint sdk-cli）。沒有 entrypoint 欄位的舊紀錄分不出是不是使用者親手打的，一律照算
   // （寧可多算一個 session，也不把使用者親手打的 /doctor 當成健檢自己跑的而漏掉）。
