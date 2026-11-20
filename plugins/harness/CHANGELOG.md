@@ -2,6 +2,10 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.21.3] - 2026-11-20
+### Fixed
+- /harness:review：更正 /insights 的說明。facets 比 session-meta 少很多是正常的，不是一大批沒分析：2026-11-20 實測連跑到停只多 6 個、第 2 次 +0；沒分析的 842 個裡 668 個不到 2 句（官方會略過太短的），其餘多是兩個月前、再跑也不會分析。拿掉「只跑一次看不到其餘約 800 個」的錯誤說法；跑滿 6 次還在增加才寫「下次繼續」
+
 ## [0.21.2] - 2026-11-20
 ### Fixed
 - /harness:review：prompt-audit 改走官方入口 /doctor prompt-audit（實測在 claude -p 會跑、只讀不改，拿掉 HYPOTHESIS）；/insights 一次只分析一批還沒分析過的 session（本機實測每次 50 個），改成一次跑一個、連跑到 facets 沒有新增為止，最多 6 次，報告寫明涵蓋範圍「N sessions (M total)」；README、白話用語表、phase-6 範本、05 骨架同步

@@ -251,6 +251,7 @@
   .thr .w { color: var(--dim); font-size: 13px; white-space: nowrap; }
   .thr .p { grid-column: 2 / span 2; color: var(--dim); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .thr .p .src-m { display: none; }
+  .thr .p .subj { color: var(--ink); }   /* the mail's own subject: a shade stronger than the rest of the small line */
   /* a phone: the source column took 52px off every line; the source moves to the small line, the title gets the width */
   @media (max-width: 520px) {
     button.thr { grid-template-columns: minmax(0, 1fr) auto; }
@@ -2171,6 +2172,11 @@ function drawThreadRows() {
       b.append(s);
     }
     const p = el('span', 'p'); p.append(el('span', 'src-m', SRC_NAME[t.source] + ' · '));
+    // The mail's own subject as well, when the first line is the judged short title (asked 2026-11-20): first on the
+    // small line, so it is the part that stays when the line is cut. Not repeated when it is the same. Mail sources only
+    // (as the thread view tells them, SRC_KIND): for Teams and Slack that field holds the chat's name and who is in it.
+    const subj = String(t.subject || '').trim();
+    if ((SRC_KIND[t.source] || 'chat') === 'mail' && t.triage_title && subj && subj !== String(t.triage_title).trim()) p.append(el('span', 'subj', '主旨：' + subj), ' · ');
     b.append(p);
     p.append((t.root_folder ? '→ ' + folderName(t.root_folder) : '待分派') + (t.customer ? ' · ' + t.customer + (t.system ? '／' + t.system : '') : '') + ' · ' + (t.sender || '') + ' · ' + t.messages + ' 則 · ' + (t.latest || '').replace(/\s+/g, ' '));
     b.title = (t.subject || '') + '\n' + (t.sender || '') + (t.triage_summary ? '\n判讀：' + t.triage_summary : '');
