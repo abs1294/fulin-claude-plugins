@@ -58,3 +58,57 @@ test('harness: off by default; switched on, one due project a day after 10:00', 
   await r.auto.tick(T('2026-11-18T10:05:00'));
   assert.deepStrictEqual(r.reviews, ['C:\a', 'C:\a'], 'the next day, whichever is due then');
 });
+
+test('check: once a day, read only; "need" only when a plugin is behind or a newer board is installed; asked again after an update', async () => {
+  let answer = { ok: true, behind: [], board: { running: '0.13.1', newest: '0.13.1' } }, calls = 0;
+  const r = rig({ cbm: false, update: false });
+  r.auto.ops.check = async () => { calls++; return answer; };
+  await r.auto.tick(T('2026-11-20T08:00:00'));
+  assert.deepStrictEqual([calls, r.auto.checked().need, r.updates], [1, false, 0], 'nothing to update; nothing updated by the check');
+  await r.auto.tick(T('2026-11-20T15:00:00'));
+  assert.strictEqual(calls, 1, 'once a day');
+  answer = { ok: true, behind: [{ name: 'goal2', from: '0.6.0', to: '0.7.0' }], board: { running: '0.13.1', newest: '0.13.1' } };
+  await r.auto.tick(T('2026-11-21T08:00:00'));
+  assert.deepStrictEqual([calls, r.auto.checked().need, r.auto.checked().behind[0].name], [2, true, 'goal2']);
+  // the board installed is newer than the one running: something to do (a restart) even with no plugin behind
+  answer = { ok: true, behind: [], board: { running: '0.13.1', newest: '0.14.0' } };
+  r.auto.recheck();
+  assert.strictEqual(r.auto.checked(), null, 'after an update: not known until checked again');
+  await r.auto.tick(T('2026-11-21T08:10:00'));
+  assert.deepStrictEqual([calls, r.auto.checked().need], [3, true]);
+  // a check that throws is kept as not ok, nothing else stops
+  const bad = rig({ cbm: false, update: false }); bad.auto.ops.check = async () => { throw new Error('offline'); };
+  await bad.auto.tick(T('2026-11-20T08:00:00'));
+  assert.deepStrictEqual([bad.auto.checked().ok, bad.auto.checked().need, bad.auto.checked().error], [false, false, 'offline']);
+});
+
+test('check after an update made the same round sees it done; an older board installed is nothing to update; a failed check is tried again after an hour', async () => {
+  const { newer } = require('../lib/auto');
+  assert.deepStrictEqual([newer('0.14.0', '0.13.1'), newer('0.13.1', '0.14.0'), newer('0.13.1', '0.13.1'), newer('1.0.0', '0.99.9'), newer('', '1')], [true, false, false, true, false]);
+  const order = [];
+  const r = rig({ cbm: false, update: true, updateAt: '09:00' }, { summary: '更新 1 個' });
+  r.auto.ops.update = async () => { order.push('update'); return { ok: true, summary: '更新 1 個' }; };
+  r.auto.ops.check = async () => { order.push('check'); return { ok: true, behind: [], board: { running: '0.14.0', newest: '0.13.1' } }; };
+  await r.auto.tick(T('2026-11-20T09:05:00'));
+  assert.deepStrictEqual(order, ['update', 'check'], 'the update first, then what is left');
+  assert.strictEqual(r.auto.checked().need, false, 'an older board installed: not something to update to');
+  // offline: tried again after an hour, not before
+  let n = 0; const off = rig({ cbm: false, update: false });
+  off.auto.ops.check = async () => { n++; return n === 1 ? { ok: false, error: 'offline' } : { ok: true, behind: [], board: {} }; };
+  await off.auto.tick(T('2026-11-20T08:00:00')); await off.auto.tick(T('2026-11-20T08:30:00'));
+  assert.strictEqual(n, 1);
+  await off.auto.tick(T('2026-11-20T09:01:00'));
+  assert.deepStrictEqual([n, off.auto.checked().ok], [2, true]);
+});
+
+test('a check made while another board version ran is asked again on the next round', async () => {
+  let ver = '0.13.1', n = 0;
+  const r = rig({ cbm: false, update: false });
+  r.auto.ops.version = () => ver;
+  r.auto.ops.check = async () => { n++; return { ok: true, behind: [], board: { running: ver, newest: '0.14.0' } }; };
+  await r.auto.tick(T('2026-11-20T08:00:00')); await r.auto.tick(T('2026-11-20T08:10:00'));
+  assert.strictEqual(n, 1);
+  ver = '0.14.0';
+  await r.auto.tick(T('2026-11-20T08:20:00'));
+  assert.deepStrictEqual([n, r.auto.checked().need], [2, false], 'restarted onto it: nothing left to do');
+});

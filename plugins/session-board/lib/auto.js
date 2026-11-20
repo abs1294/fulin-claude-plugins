@@ -10,9 +10,20 @@
 //   harness   once a day, after 10:00, one project whose harness says it is due gets its health check: a conversation
 //             on the board in that folder, its first message /harness:review. Off by default: one check uses about as
 //             much as an hour of work (seen 2026-11-17 on one project: about 11 minutes, USD 3.96 at list price).
+//   check     once a day (always, no switch): which plugins have a newer version, and whether a newer board than the
+//             one running is installed - read only. The page shows its 「檢查更新」 button only when something is to
+//             be had (asked 2026-11-20). Pressing it updates; the check is then made again on the next round.
 const DEFAULTS = { cbm: true, update: false, updateAt: '09:00', harness: false };
 const LOG_MAX = 40;
 const CBM_EVERY = 6 * 3600000;
+const CHECK_RETRY = 3600000;
+// a is a later version than b ("0.14.0" > "0.13.1"; an older one installed is not something to update to)
+function newer(a, b) {
+  if (!a || !b) return false;
+  const x = String(a).split('.').map((n) => parseInt(n, 10) || 0), y = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+}
 
 const dayOf = (t) => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const minutesOf = (t) => { const d = new Date(t); return d.getHours() * 60 + d.getMinutes(); };
@@ -25,7 +36,11 @@ class Auto {
   //      tell(title, text)
   constructor(ops) { this.ops = ops; this.busy = false; }
   settings() { const v = this.ops.settings ? this.ops.settings() : {}; return Object.assign({}, DEFAULTS, v && typeof v === 'object' ? v : {}); }
-  state() { const s = (this.ops.recall && this.ops.recall()) || {}; return { cbmAt: s.cbmAt || {}, updateDay: s.updateDay || '', harnessDay: s.harnessDay || '', log: Array.isArray(s.log) ? s.log : [] }; }
+  state() { const s = (this.ops.recall && this.ops.recall()) || {}; return { cbmAt: s.cbmAt || {}, updateDay: s.updateDay || '', harnessDay: s.harnessDay || '', check: s.check && typeof s.check === 'object' ? s.check : null, log: Array.isArray(s.log) ? s.log : [] }; }
+  // the last check: {day, at, ok, behind: [{name, from, to}], board: {running, newest}, need} or null
+  checked() { return this.state().check; }
+  // after an update: the check is made again on the next round (not trusted until then)
+  recheck() { const st = this.state(); st.check = null; if (this.ops.remember) this.ops.remember(st); }
   log() { return this.state().log; }
 
   async tick(now = Date.now()) {
@@ -51,14 +66,23 @@ class Auto {
           if (stale.length && this.ops.forget) this.ops.forget(folder);   // the room shows it fresh again
         }
       }
-      // ── plugin versions ──
       const today = dayOf(now);
+      // ── plugin versions ── (before the check below: what it updated is not then shown as still to update)
       if (cfg.update && this.ops.update && st.updateDay !== today && minutesOf(now) >= hhmm(cfg.updateAt)) {
         st.updateDay = today;
+        st.check = null;   // asked again just below, after this update
         const r = await this.ops.update();
         const what = r.ok ? (r.summary || '都已是最新版') : '沒有更新成：' + (r.error || '').slice(0, 200);
         note('update', 'plugin 更新：' + what, r.ok);
         if (!r.ok || /更新|updated|→/.test(r.summary || '')) tell(r.ok ? 'plugin 已更新' : 'plugin 沒有更新成', what + (r.ok ? '。用到它們的專案，Claude Code 要重開才會用新版。' : ''));
+      }
+      // ── is there something to update (read only) ── once a day; a check that failed (offline) is tried again after an hour
+      // a check made while another board version ran (restarted since: by /session-board or the button) is old as well
+      const otherBoard = !!(st.check && this.ops.version && st.check.board && st.check.board.running && st.check.board.running !== this.ops.version());
+      if (this.ops.check && (!st.check || st.check.day !== today || otherBoard || (!st.check.ok && now - st.check.at > CHECK_RETRY))) {
+        let c; try { c = await this.ops.check(); } catch (e) { c = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
+        const behind = Array.isArray(c && c.behind) ? c.behind : [], board = (c && c.board) || {};
+        st.check = { day: today, at: now, ok: !!(c && c.ok), error: (c && c.error) || '', behind, board, need: behind.length > 0 || newer(board.newest, board.running) };
       }
       // ── harness health check ──
       if (cfg.harness && this.ops.harnessDue && st.harnessDay !== today && minutesOf(now) >= 10 * 60) {
@@ -78,4 +102,4 @@ class Auto {
   }
 }
 
-module.exports = { Auto, DEFAULTS, dayOf, hhmm };
+module.exports = { Auto, DEFAULTS, dayOf, hhmm, newer };

@@ -216,6 +216,15 @@ function groupOf(status, sinceMs) {
   if (status === 'idle') return sinceMs > STALE_MS ? 'stale' : 'yours';
   return 'running';
 }
+// A terminal session whose registry entry says nothing of its state (no status field: seen 2026-11-20 on a Mac, where
+// such a session sat green as "working" while the top of the same conversation said idle): its transcript tells.
+// Written to within WRITING_MS = working; otherwise quiet (not "yours": a long command also leaves the transcript
+// still for a while, and "done, waiting for you" would then be untrue), stale after STALE_MS.
+const WRITING_MS = 90 * 1000;
+function groupUnknown(writtenAgoMs) {
+  if (writtenAgoMs < WRITING_MS) return 'running';
+  return writtenAgoMs > STALE_MS ? 'stale' : 'quiet';
+}
 
 // quiet - a conversation run by the board whose last reply has been read: nothing pending.
 const GROUP_ORDER = { yours: 0, running: 1, quiet: 2, stale: 3 };
@@ -287,6 +296,7 @@ function buildSessions(opts = {}, now = Date.now()) {
     const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
     const since = num(r.statusUpdatedAt) || num(r.updatedAt) || num(r.startedAt) || now;
     const status = typeof r.status === 'string' ? r.status : 'unknown';
+    let writtenAt = 0; if (!ch && status === 'unknown' && tfile) { try { writtenAt = fs.statSync(tfile).mtimeMs; } catch (e) {} }
     const msgs = lastMessages(r.sessionId, o);
     out.push({
       sessionId: r.sessionId,
@@ -302,7 +312,7 @@ function buildSessions(opts = {}, now = Date.now()) {
       status,
       // A board conversation is yours when it wants an approval or has a reply
       // you have not opened yet; a terminal session follows groupOf.
-      group: ch ? (status === 'busy' || status === 'background' ? 'running' : status === 'waiting' || ch.unread ? 'yours' : 'quiet') : groupOf(status, now - since),
+      group: ch ? (status === 'busy' || status === 'background' ? 'running' : status === 'waiting' || ch.unread ? 'yours' : 'quiet') : writtenAt ? groupUnknown(now - writtenAt) : groupOf(status, now - since),
       // board = runs inside the board and can be typed to here; anything else is a terminal session.
       owner: ch ? 'board' : 'terminal',
       // Not in a terminal window of its own: a background session, or one some
@@ -337,5 +347,5 @@ function buildSessions(opts = {}, now = Date.now()) {
 
 module.exports = {
   DEFAULTS, STALE_MS, sidKey, encodeCwd, pidAlive, readRegistry, lastTitles, cachedTitles,
-  findTranscript, readSummary, lastMessages, gitBranch, groupOf, compareSessions, buildSessions,
+  findTranscript, readSummary, lastMessages, gitBranch, groupOf, groupUnknown, WRITING_MS, compareSessions, buildSessions,
 };

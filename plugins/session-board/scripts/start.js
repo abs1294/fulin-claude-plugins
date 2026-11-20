@@ -4,6 +4,7 @@
 //   node start.js --open     same, then open the URL in the default browser
 //   node start.js --status   print whether it is running; exit 1 if not
 //   node start.js --stop     ask the running server to exit
+//   node start.js --after <pid>   wait for that board process to end, then start (what the board's 「檢查更新」 runs)
 //   node start.js --refresh  bring the installed plugins of this marketplace up to date (plugin-manager's update-all.js,
 //                            the same as the board's own "update plugins"), restart the board so it runs what is on
 //                            disk now, and say whether it is reachable on Tailscale again. Restarting is refused - and
@@ -21,7 +22,7 @@ const port = portFromArgs(process.argv);
 const args = new Set(process.argv.slice(2));
 const LOG = path.join(DATA_DIR, 'server.log');
 // A board stopped on purpose is marked, so that the keep-alive task (lib/keepalive.js) leaves it stopped.
-const { STOPPED_MARK } = require('../lib/keepalive');
+const { STOPPED_MARK, RESTARTING, RESTARTING_MS } = require('../lib/keepalive');
 const markStopped = () => { try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(STOPPED_MARK, String(Date.now())); } catch (e) {} };
 
 function request(method, p, token, body) {
@@ -52,6 +53,14 @@ let boardRoot = path.join(__dirname, '..');
 (async () => {
   const token = getToken();
   const url = `http://${HOST}:${port}/?t=${token}`;
+  // --after <pid>: started by the board itself (server.js /api/restart) just before it ends: wait for that process to be
+  // gone (up to 30 s), then start as usual - from this folder, which the board chose as the newest installed version.
+  const ai = process.argv.indexOf('--after'), after = ai >= 0 ? Number(process.argv[ai + 1]) : 0;
+  if (Number.isInteger(after) && after > 0) {
+    const alive = () => { try { process.kill(after, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+    for (let i = 0; i < 150 && alive(); i++) await sleep(200);
+    for (let i = 0; i < 25 && await ping(); i++) await sleep(200);   // its port let go too
+  }
   let running = await ping();
 
   if (args.has('--status')) {
@@ -119,8 +128,10 @@ let boardRoot = path.join(__dirname, '..');
   }
   // --keepalive: what the scheduled task runs every few minutes. Nothing to do when the board is there, or when it
   // was stopped on purpose. Any other start means you want it running: the mark goes.
-  if (args.has('--keepalive')) { if (running || fs.existsSync(STOPPED_MARK)) return; }
+  const restarting = (() => { try { return Date.now() - fs.statSync(RESTARTING).mtimeMs < RESTARTING_MS; } catch (e) { return false; } })();
+  if (args.has('--keepalive')) { if (running || fs.existsSync(STOPPED_MARK) || restarting) return; }
   else { try { fs.unlinkSync(STOPPED_MARK); } catch (e) {} }
+  if (!args.has('--keepalive')) { try { fs.unlinkSync(RESTARTING); } catch (e) {} }
 
   if (!running) {
     fs.mkdirSync(DATA_DIR, { recursive: true });

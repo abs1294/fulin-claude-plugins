@@ -1368,10 +1368,10 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
 });
 
 test('the mic: what was heard is tidied as it comes; through tailscale serve the device behind it is checked, Funnel never gets in', async () => {
-  const seen = [], tidyCalls = [];
+  const seen = [], tidyCalls = [], tidyCtx = [];
   const tidy = {
     warm: () => tidyCalls.push('warm'),
-    run: async (text, onDelta) => { tidyCalls.push(text); if (text === 'bad') return { ok: false, error: '整理失敗' }; onDelta('我想'); onDelta('我想看。'); return { ok: true, text: '我想看。', ms: 900 }; },
+    run: async (text, onDelta, context) => { tidyCalls.push(text); if (context) tidyCtx.push(context); if (text === 'bad') return { ok: false, error: '整理失敗' }; onDelta('我想'); onDelta('我想看。'); return { ok: true, text: '我想看。', ms: 900 }; },
   };
   const gate = { info: { ok: true, name: 'me.tail.ts.net' }, allows: async (a) => { seen.push(a); return a === '127.0.0.1' || a === '100.70.0.2'; }, refresh: async () => {} };
   const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, out, gate, tidy, servedUrl: async () => 'https://me.tail.ts.net/' });
@@ -1389,6 +1389,9 @@ test('the mic: what was heard is tidied as it comes; through tailscale serve the
   assert.strictEqual((await raw('/api/tidy', { text: '  ' })).status, 400);
   assert.strictEqual((await raw('/api/tidy', { text: 'x'.repeat(4001) })).status, 400);
   assert.deepStrictEqual(tidyCalls, ['warm', '呃 我想 看', 'bad']);
+  // the conversation it was said in, passed on - bounded
+  await raw('/api/tidy', { text: '哥特', context: { title: 't'.repeat(300), folder: 'repo', recent: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'x'.repeat(900)] } });
+  assert.deepStrictEqual([tidyCtx[0].title.length, tidyCtx[0].folder, tidyCtx[0].recent.length, tidyCtx[0].recent[5].length], [200, 'repo', 6, 600]);
   // through tailscale serve: from 127.0.0.1, the device in x-forwarded-for - that device is what the gate is asked about
   const serveH = (ip) => ({ host: 'me.tail.ts.net', 'x-forwarded-for': ip, 'tailscale-user-login': 'me@x' });
   const cfg = require('../lib/config'); const was = cfg.value('remoteTailscale', false);
@@ -1415,6 +1418,65 @@ test('the mic: what was heard is tidied as it comes; through tailscale serve the
   assert.strictEqual(JSON.parse((await raw('/api/config')).text).httpsUrl, '', 'only while reaching it through Tailscale is on');
   cfg.setValue('remoteTailscale', was);
   s2.close();
+});
+
+test('「檢查更新」 restart: only onto a newer version, never under a working conversation, by a detached helper that outlives the board', async () => {
+  const VERSION = require('../.claude-plugin/plugin.json').version;
+  const spawned = [], exited = []; let shut = 0, busy = [];
+  const ch = Object.create(channels); ch.active = () => busy; ch.shutdown = () => { shut++; };
+  const newer = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-newer-')); fs.mkdirSync(path.join(newer, '.claude-plugin')); fs.writeFileSync(path.join(newer, '.claude-plugin', 'plugin.json'), JSON.stringify({ version: '99.0.0' }));
+  const mk = async (boardRoot) => {
+    const o = Object.assign({}, out, { spawn: (bin, args, opts) => { spawned.push({ bin, args, opts }); const e = new (require('events'))(); e.unref = () => {}; return e; }, exit: (c) => exited.push(c) });
+    const pp = await freePort(); const s = createServer(TOKEN, pp, { channels: ch, noTimers: true, noSchedules: true, out: o, boardRoot });
+    await new Promise((r) => s.listen(pp, '127.0.0.1', r));
+    const call = (body) => new Promise((resolve) => { const b = Buffer.from(JSON.stringify(body)); const q = http.request({ host: '127.0.0.1', port: pp, path: '/api/restart', method: 'POST', headers: { 'x-board-token': TOKEN, 'content-type': 'application/json', 'content-length': b.length } }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve({ status: res.statusCode, json: JSON.parse(d) })); }); q.end(b); });
+    return { s, call };
+  };
+  asked.add('POST /api/restart');
+  // the same version installed: nothing restarted
+  const a = await mk(path.join(__dirname, '..'));
+  assert.deepStrictEqual((await a.call({ onlyIfNewer: true })).json, { ok: true, restarted: false, version: VERSION });
+  a.s.close();
+  // a newer one, but a conversation working: refused, and it is named
+  const b = await mk(newer);
+  busy = [{ sessionId: 'x', title: '還在跑的', status: 'busy', tasks: 0 }];
+  const r1 = await b.call({ onlyIfNewer: true });
+  assert.deepStrictEqual([r1.status, r1.json.active[0].title, r1.json.newest], [409, '還在跑的', '99.0.0']);
+  assert.deepStrictEqual([spawned.length, shut, exited.length], [0, 0, 0], 'nothing started or stopped');
+  // nothing working: the helper is started detached from the newer folder, told to wait for this process, then the board ends
+  busy = [];
+  const r2 = await b.call({ onlyIfNewer: true });
+  assert.deepStrictEqual(r2.json, { ok: true, restarted: true, from: VERSION, to: '99.0.0' });
+  assert.strictEqual(spawned.length, 1);
+  assert.strictEqual(spawned[0].args[0], path.join(newer, 'scripts', 'start.js'));
+  assert.deepStrictEqual(spawned[0].args.slice(1, 3), ['--after', String(process.pid)]);
+  assert.ok(spawned[0].opts.detached === true && spawned[0].opts.stdio === 'ignore', 'detached: it outlives the board');
+  const MARK = require('../lib/keepalive').RESTARTING;
+  assert.ok(fs.existsSync(MARK), 'marked restarting: the keep-alive task does not start the old one in between (for a while only)');
+  await new Promise((r) => setTimeout(r, 400));
+  assert.deepStrictEqual([shut, exited], [1, [0]], 'then the board ends');
+  // a conversation that began working in the moment before it ends: called off, the mark taken away
+  const r3 = await b.call({ onlyIfNewer: true });
+  assert.strictEqual(r3.json.restarted, true);
+  busy = [{ sessionId: 'y', title: '剛開始做', status: 'busy', tasks: 0 }];
+  await new Promise((r) => setTimeout(r, 400));
+  assert.deepStrictEqual([shut, exited.length, fs.existsSync(MARK)], [1, 1, false], 'not cut, not ended');
+  busy = [];
+  b.s.close();
+  // an older board installed than the one running: never gone back to (its start.js would not know --after)
+  const older = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-older-')); fs.mkdirSync(path.join(older, '.claude-plugin')); fs.writeFileSync(path.join(older, '.claude-plugin', 'plugin.json'), JSON.stringify({ version: '0.0.1' }));
+  const c = await mk(older);
+  assert.deepStrictEqual((await c.call({ onlyIfNewer: true })).json, { ok: true, restarted: false, version: VERSION });
+  const r4 = await c.call({});
+  assert.deepStrictEqual([r4.status, r4.json.newest], [409, '0.0.1']);
+  assert.strictEqual(spawned.length, 2, 'nothing more started');
+  // a check made while another board version was running: not shown, asked again
+  const cfg = require('../lib/config');
+  cfg.setValue('autoState', { check: { day: '2026-11-20', at: 1, ok: true, behind: [{ name: 'x' }], board: { running: '0.0.1', newest: '0.0.2' }, need: true } });
+  const au = await new Promise((resolve) => http.get({ host: '127.0.0.1', port: c.s.address().port, path: '/api/auto', headers: { 'x-board-token': TOKEN } }, (res) => { let d = ''; res.on('data', (x) => { d += x; }); res.on('end', () => resolve(JSON.parse(d))); }));
+  assert.strictEqual(au.check, null, 'not shown');
+  assert.ok((cfg.value('autoState', {}) || {}).check, 'a read changes nothing (the next round asks again: lib/auto.js)');
+  c.s.close();
 });
 
 test('no address is left without a test', WIN_ONLY, () => {

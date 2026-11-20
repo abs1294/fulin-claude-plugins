@@ -18,6 +18,11 @@ const TASK = 'SessionBoardKeepAlive';
 const DATA_DIR = path.join(os.homedir(), '.claude', 'session-board');
 const VBS = path.join(DATA_DIR, 'keepalive.vbs');
 const STOPPED_MARK = path.join(DATA_DIR, 'stopped-on-purpose');
+// The board restarting itself onto a newer version (server.js /api/restart): for a short while the keep-alive task does
+// not start a board, so the old one is not brought back in the moment between. It ends by itself: a new board that never
+// came up is started by the keep-alive task after RESTARTING_MS, as if the board had stopped.
+const RESTARTING = path.join(DATA_DIR, 'restarting');
+const RESTARTING_MS = 120000;
 const EVERY_MIN = 10;
 
 // Runs `node start.js --keepalive` with no window. UTF-16, so a path with any character in it works.
@@ -57,4 +62,4 @@ function set(on, startJs, node = process.execPath) {
 function refresh(startJs) {
   if (MAC) { if (Mac.agentOn('keep')) Mac.setAgent('keep', true, startJs); return; } try { if (isOn()) fs.writeFileSync(VBS, '﻿' + script(process.execPath, startJs), 'utf16le'); } catch (e) {} }
 
-module.exports = { isOn, set, refresh, script, TASK, VBS, STOPPED_MARK, EVERY_MIN };
+module.exports = { isOn, set, refresh, script, TASK, VBS, STOPPED_MARK, RESTARTING, RESTARTING_MS, EVERY_MIN };

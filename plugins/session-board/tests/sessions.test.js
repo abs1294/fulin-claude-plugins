@@ -81,6 +81,12 @@ test('groupOf: who has the ball', () => {
   assert.strictEqual(S.groupOf(undefined, 0), 'running');
 });
 
+test('a terminal session with no status in its registry entry: its transcript tells (not green forever)', () => {
+  assert.strictEqual(S.groupUnknown(5000), 'running', 'written to a moment ago: working');
+  assert.strictEqual(S.groupUnknown(S.WRITING_MS + 1), 'quiet', 'still since: idle, not "waiting for you"');
+  assert.strictEqual(S.groupUnknown(S.STALE_MS + 1), 'stale');
+});
+
 test('gitBranch reads a repo, a worktree, and returns empty for a plain folder', () => {
   const d = tmp();
   const repo = path.join(d, 'repo');
@@ -126,6 +132,24 @@ test('a window parked on a background job and the job are one row, not two', () 
   assert.deepStrictEqual([job.parked, job.headless, job.status, job.group], [true, false, 'busy', 'running']);   // has a window to switch to
   assert.deepStrictEqual([lone.parked, lone.headless], [false, true]);
   assert.deepStrictEqual([orphan.parked, orphan.headless], [false, false]);
+});
+
+test('buildSessions: a terminal session with no status is green only while its transcript is being written', () => {
+  const d = tmp();
+  const o = { sessionsDir: path.join(d, 's'), projectsDir: path.join(d, 'p'), stateDir: path.join(d, 'st'), legacyStateDir: path.join(d, 'l'), pidAlive: () => true };
+  for (const k of ['sessionsDir', 'projectsDir', 'stateDir', 'legacyStateDir']) fs.mkdirSync(o[k], { recursive: true });
+  const now = 1_800_000_000_000, cwd = '/Users/x/work';
+  const BUSY = 'cdcdcdcd-0000-0000-0000-000000000001', STILL = 'cdcdcdcd-0000-0000-0000-000000000002', NOFILE = 'cdcdcdcd-0000-0000-0000-000000000003';
+  let pid = 1;
+  for (const sid of [BUSY, STILL, NOFILE]) fs.writeFileSync(path.join(o.sessionsDir, (pid++) + '.json'), JSON.stringify({ pid: pid - 1, sessionId: sid, cwd, kind: 'interactive', entrypoint: 'cli', startedAt: now - 7200000 }));   // no status field
+  const pdir = path.join(o.projectsDir, S.encodeCwd(cwd)); fs.mkdirSync(pdir, { recursive: true });
+  const at = (sid, ms) => { const f = path.join(pdir, sid + '.jsonl'); fs.writeFileSync(f, title('ai-title', 'aiTitle', sid.slice(-1)) + '\n'); fs.utimesSync(f, (now - ms) / 1000, (now - ms) / 1000); };
+  at(BUSY, 10 * 1000); at(STILL, 3600 * 1000);
+  const list = S.buildSessions(o, now);
+  const g = (sid) => { const s = list.find((x) => x.sessionId === sid); return s && [s.status, s.group]; };
+  assert.deepStrictEqual(g(BUSY), ['unknown', 'running'], 'written 10 s ago');
+  assert.deepStrictEqual(g(STILL), ['unknown', 'quiet'], 'written an hour ago: idle, the same as the top of the conversation says');
+  assert.deepStrictEqual(g(NOFILE), ['unknown', 'running'], 'no transcript to tell by: as before');
 });
 
 test('buildSessions tolerates registry fields of the wrong type', () => {

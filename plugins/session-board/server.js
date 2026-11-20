@@ -49,6 +49,7 @@ const { Runner } = require('./lib/schedrun');
 const { Watchdog, DEFAULTS: WATCH_DEFAULTS } = require('./lib/watchdog');
 const Budget = require('./lib/budget');
 const Keepalive = require('./lib/keepalive');
+const { RESTARTING } = Keepalive;   // (the module's own path: the Keepalive of createServer's deps may be a stand-in)
 const { Notices } = require('./lib/notices');
 const { stripSignatures } = require('./lib/inbox/text');
 const Notify = require('./lib/notify');
@@ -66,7 +67,7 @@ const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
 const Rewind = require('./lib/rewind');
 const rewinding = new Set();   // the board conversations being carried on from an edited message right now (/api/rewind)
-const { Auto } = require('./lib/auto');
+const { Auto, newer } = require('./lib/auto');
 
 const SOURCES_OK = require('./lib/inbox/sources').ids;
 const TASK_TAIL = 256 * 1024;   // how much of the end of a background command's output is shown
@@ -1019,6 +1020,18 @@ function createServer(token, port, deps = {}) {
     rebuild: (fix) => (deps.rebuildIndex || Rooms.rebuildIndex)(fix),
     forget: (folder) => cbmCache.delete(folder),
     update: () => (isOn('versions') ? updatePlugins() : Promise.resolve({ ok: true, summary: '' })),
+    version: () => VERSION,
+    // once a day: what there is to update (read only - the marketplace asked for its newest versions), and whether the
+    // board installed is newer than this one running; the page shows 「檢查更新」 only then
+    check: async () => {
+      const inst = instNow();
+      const root = deps.boardRoot || Plugins.rootOf('session-board', inst, __dirname) || __dirname;
+      let newest = VERSION; try { newest = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8')).version || VERSION; } catch (e) {}
+      const board = { running: VERSION, newest };
+      if (!isOn('versions')) return { ok: true, behind: [], board };
+      const pm = await (deps.pluginManager || Plugins.pluginManager)(inst, { refresh: true, run: deps.pluginsRun });
+      return { ok: !!(pm && pm.checked), error: (pm && pm.error) || '', behind: ((pm && pm.behind) || []).map((b) => ({ name: b.name, from: b.from, to: b.to })), board };
+    },
     harnessDue: () => { if (!isOn('harness')) return []; const x = instNow().harness; return x ? [...new Set(x.installs.map((i) => i.project).filter(Boolean))].filter(isDir).map((p) => ({ folder: p, name: path.basename(p), st: Harness.stateOf(p) })).filter((p) => p.st.installed && p.st.due && p.st.due.length) : []; },
     startReview: async (folder) => { try { const c = channels.create(path.resolve(folder)); const r = channels.send(c.sessionId, '/harness:review'); fresh(); return r && r.ok === false ? r : { ok: true }; } catch (e) { return { ok: false, error: String(e.message || e) }; } },
     tell: (t, x) => (deps.tell || tell)(t, x),
@@ -1229,7 +1242,12 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/notices') { const fixed = reconcile(); return send(res, 200, { open: notices.openList(), closed: notices.closedList(60), schedule: schedules.notices(), reconciled: fixed }); }
         if (p === '/api/budget') return send(res, 200, { settings: Budget.clean(config.value('budget', {})), state: config.value('budgetState', null) });
         if (p === '/api/watchdog') return send(res, 200, { on: !!dog, settings: watchSettings(), log: dog ? dog.log() : [] });
-        if (p === '/api/auto') return send(res, 200, { on: !!auto, settings: auto ? auto.settings() : {}, log: auto ? auto.log() : [] });
+        if (p === '/api/auto') {
+          // a check made by another board than this one (it was restarted, by /session-board or the button): stale - not shown
+          let check = auto ? auto.checked() : null;
+          if (check && check.board && check.board.running && check.board.running !== VERSION) check = null;   // (asked again on the next round: lib/auto.js)
+          return send(res, 200, { on: !!auto, settings: auto ? auto.settings() : {}, log: auto ? auto.log() : [], check });
+        }
         // goal2's runs (lib/goal2.js): the list, and one in detail. The run is named by its id; its folder is only ever
         // the one goal2 itself listed.
         // The harness plugin's state in the folders the office shows (lib/harness.js): only folders the board itself knows
@@ -1519,6 +1537,7 @@ function createServer(token, port, deps = {}) {
         const inst = (deps.pluginsInstalled || Plugins.installed)(); const root = Plugins.rootOf('plugin-manager', inst);
         if (!root) return send(res, 400, { ok: false, error: '這台電腦沒有裝 plugin-manager' });
         const u = await updatePlugins();
+        if (u.ok && auto) auto.recheck();   // what is still to update is asked again on the next round, not assumed
         return send(res, u.ok ? 200 : 500, u);
       }
       if (p === '/api/plugins/self-heal') { if (typeof body.on !== 'boolean') return send(res, 400, { ok: false, error: '要給 on: true 或 false' }); return send(res, 200, Plugins.setSelfHeal(body.on)); }
@@ -1558,13 +1577,16 @@ function createServer(token, port, deps = {}) {
       }
       // The mic's 自動排版 (lib/tidy.js). warm: the mic was just pressed - Claude boots while you speak. tidy: the words
       // heard, cleaned up; answered as lines of JSON as they come ({d: text so far}), the last one {done, text} or {error}.
-      if (p === '/api/tidy/warm') { tidy.warm(); return send(res, 200, { ok: true }); }
+      if (p === '/api/tidy/warm') { tidy.warm(typeof body.sid === 'string' ? body.sid.slice(0, 80) : ''); return send(res, 200, { ok: true }); }   // one process per conversation (lib/tidy.js)
       if (p === '/api/tidy') {
         const text = String(body.text || '');
         if (!text.trim()) return send(res, 400, { ok: false, error: '沒有內容' });
         if (text.length > 4000) return send(res, 400, { ok: false, error: '一次最多整理 4000 字' });
         res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
-        const r = await tidy.run(text, (sofar) => { try { res.write(JSON.stringify({ d: sofar }) + '\n'); } catch (e) {} });
+        // the conversation it is said in, to put misheard English words and names right (lib/tidy.js withContext); bounded
+        const cx = body.context && typeof body.context === 'object' ? body.context : null;
+        const context = cx ? { sid: String(cx.sid || '').slice(0, 80), title: String(cx.title || '').slice(0, 200), folder: String(cx.folder || '').slice(0, 200), recent: (Array.isArray(cx.recent) ? cx.recent : []).slice(-6).map((x) => String(x || '').slice(0, 600)) } : null;
+        const r = await tidy.run(text, (sofar) => { try { res.write(JSON.stringify({ d: sofar }) + '\n'); } catch (e) {} }, context);
         return res.end(JSON.stringify(r.ok ? { done: true, text: r.text, ms: r.ms } : { error: r.error }) + '\n');
       }
       // A board conversation's model and effort, from its next message on (lib/chat.js setModel).
@@ -1981,6 +2003,38 @@ function createServer(token, port, deps = {}) {
       }
       // Take a conversation off the board. Its history stays on disk (claude --resume <id>).
       if (p === '/api/close') { const ok = channels.remove(sid); fresh(); return send(res, 200, { ok }); }
+      // 「檢查更新」 (the round button at the bottom of the left column), after the plugins were brought up to date: the board
+      // starts again on the newest installed version of itself. Typed in a conversation on the board, /session-board could
+      // never do this - that conversation is busy with it, and stopping the board ends it before it could start the new
+      // one (asked 2026-11-20). From the page, no conversation is in the way: refused only while one is working (the same
+      // rule as /api/shutdown). A small helper, detached so it outlives this process, waits for it to end and starts the
+      // new one (scripts/start.js --after).
+      if (p === '/api/restart') {
+        const inst = (deps.pluginsInstalled || Plugins.installed)();
+        const root = deps.boardRoot || Plugins.rootOf('session-board', inst, __dirname) || __dirname;
+        let newest = VERSION; try { newest = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8')).version || VERSION; } catch (e) {}
+        if (!newer(newest, VERSION)) {
+          // the same version, or an older one installed (its start.js would not know --after: nothing would come back up)
+          if (body.onlyIfNewer === true || newest === VERSION) return send(res, 200, { ok: true, restarted: false, version: VERSION });
+          return send(res, 409, { ok: false, error: '裝好的看板 ' + newest + ' 比正在跑的 ' + VERSION + ' 舊，不換回去', version: VERSION, newest });
+        }
+        const active = channels.active();
+        if (active.length) return send(res, 409, { ok: false, active, version: VERSION, newest });
+        try {
+          spawn(process.execPath, [path.join(root, 'scripts', 'start.js'), '--after', String(process.pid), '--port', String(port)],
+            { detached: true, stdio: 'ignore', windowsHide: true, cwd: root }).on('error', () => {}).unref();
+        } catch (e) { return send(res, 500, { ok: false, error: '重開的小程式起不來：' + String(e.message || e).slice(0, 200) }); }
+        send(res, 200, { ok: true, restarted: true, from: VERSION, to: newest });
+        // marked as restarting: for a short while the keep-alive task does not start the old one in the moment between (the
+        // helper's start takes the mark away; one that never comes up is started by the keep-alive task once the mark is old,
+        // lib/keepalive.js RESTARTING_MS); and looked at once more - a conversation that began working since is not cut
+        try { fs.mkdirSync(path.dirname(RESTARTING), { recursive: true }); fs.writeFileSync(RESTARTING, String(Date.now())); } catch (e) {}
+        setTimeout(() => {
+          if (channels.active().length) { try { fs.unlinkSync(RESTARTING); } catch (e) {} return; }   // called off: the page says the board did not come back in time
+          channels.shutdown(); osExit(0);
+        }, 300);
+        return;
+      }
       if (p === '/api/shutdown') {
         // Stopping the board ends every conversation process it runs, and with
         // them any turn in progress and any background work (a restart on

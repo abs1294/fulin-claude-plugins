@@ -836,6 +836,27 @@
   .urow .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   @media (max-width: 720px) { .urow { grid-template-columns: minmax(0, 1fr) 64px 52px 64px; } .urow .opt { display: none; } }
   .side-nav { padding: 0 6px 4px; border-bottom: 1px solid var(--line); }
+  /* its height, dragged at the line under it (a small screen: the list of sessions gets the room); scrolls when shorter */
+  .side-nav.sized { max-height: var(--nav-h); overflow-y: auto; }   /* no scrollbar-width: in Chrome it turns off the board's own scrollbar (above) and the plain grey one with arrows came back */
+  /* 「檢查更新」: a round floating button at the bottom right of the left column, above its last line */
+  /* the words on it, in the colours of the main button (a bare round icon on white was read by nobody, 2026-11-20) */
+  /* at the right of the screen, beside the message box (asked 2026-11-20); where it stands is worked out by updateFab() */
+  .upd-fab { position: fixed; right: 22px; bottom: 20px; z-index: 30; min-height: 36px; padding: 0 14px 0 11px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px; box-shadow: 0 2px 10px rgba(0, 0, 0, .18); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .upd-fab:hover { filter: brightness(1.08); }
+  .upd-fab:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .upd-fab svg { width: 16px; height: 16px; flex: none; }
+  .upd-fab.busy svg { animation: upd-spin 1s linear infinite; }
+  @keyframes upd-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .upd-fab.busy svg { animation: none; } .upd-fab.busy { opacity: .6; } }
+  @media (pointer: coarse) { .upd-fab { min-height: 44px; } }
+  /* only room for a circle: the icon alone (the words in its tooltip) */
+  .upd-fab.round { width: 40px; min-height: 40px; height: 40px; padding: 0; justify-content: center; }
+  .upd-fab.round span { display: none; }
+  @media (pointer: coarse) { .upd-fab.round { width: 44px; height: 44px; } }
+  .nav-edge { height: 8px; margin: -5px 0 -3px; position: relative; z-index: 2; cursor: row-resize; touch-action: none; flex: none; }
+  .nav-edge::after { content: ""; position: absolute; left: 0; right: 0; top: 3px; height: 2px; background: transparent; transition: background .12s; }
+  .nav-edge:hover::after, .nav-edge.on::after, .nav-edge:focus-visible::after { background: var(--accent); }
+  .nav-edge:focus-visible { outline: none; }
   .pulse { display: flex; align-items: flex-end; gap: 32px; padding: 16px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .kpi .n { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
   .kpi .l { font-size: 13px; color: var(--dim); }
@@ -1063,6 +1084,8 @@
     /* the list: the conversations first - the places on one row of names (their lines left out), sliding sideways
        when there are more than fit; it took three rows (asked 2026-11-19: "the five at the top take too much room") */
     .side-nav { display: flex; flex-wrap: nowrap; gap: 2px; padding: 2px 6px 6px; overflow-x: auto; scrollbar-width: none; }
+    .side-nav.sized { max-height: none; overflow-y: visible; }   /* a phone: one row already, nothing to drag */
+    .nav-edge { display: none; }
     .side-nav::-webkit-scrollbar { display: none; }
     /* as wide as its name (a computer's list gives each the whole width); ":root .app" outranks the skins' own padding
        for a place (":root[data-skin=b] button.item" kept it at 10 px a side) */
@@ -1217,6 +1240,7 @@
 
       <button class="item" id="setBtn" type="button"><span class="dot" style="visibility:hidden"></span><span class="t">設定</span></button>
     </div>
+    <div class="nav-edge" id="navEdge" role="separator" aria-orientation="horizontal" aria-label="上面這塊的高度" tabindex="0" title="拖曳調整上面這塊的高度（短於內容時可捲動）；雙擊恢復"></div>
     <div class="of-chips" id="sideChips" aria-label="各狀態的 session 數"></div>
     <nav class="list" id="list" aria-label="所有 session"></nav>
     <div class="side-quota" id="sideQuota" hidden></div>
@@ -2020,8 +2044,12 @@ async function fillInbox() {
   const res = (s) => { const x = last.find((y) => y.source === s); return x ? (x.error ? '上次失敗：' + x.error : x.skipped ? x.reason : '上次新增 ' + x.ingested + ' 則') : ''; };
   // One card per source, in the words the source itself gives. A source that is switched off says so.
   for (const x of st.sources) {
-    const c = card(x.id, x.name, x.on && x.ready, !x.on ? '沒有開啟。到「抓取設定」打開才會抓' : x.text + (x.ready && res(x.id) ? ' · ' + res(x.id) : ''), x.on && x.alarm, !x.on ? '沒開' : !x.ready ? '已開，還沒設定好' : '');
-    if (!x.on || !x.action) continue;
+    // A source switched off that is connected by signing in (Gmail): its button is on the card all the same - signing in
+    // switches it on and fetches at once (lib/inbox/index.js), there is no settings page to visit first (asked 2026-11-20)
+    const signIn = !x.on && x.action && !x.ready;
+    const c = card(x.id, x.name, x.on && x.ready, signIn ? '按「' + x.action.label + '」登入，登入後就會開始抓（往回 ' + (x.days || 7) + ' 天，要改到「抓取設定」）'
+      : !x.on ? '沒有開啟。到「抓取設定」打開才會抓' : x.text + (x.ready && res(x.id) ? ' · ' + res(x.id) : ''), x.on && x.alarm, signIn ? '' : !x.on ? '沒開' : !x.ready ? '已開，還沒設定好' : '');
+    if (!x.action || (!x.on && !signIn)) continue;
     // Not a button inside a button (the card is one): a link-like control that keeps its own click.
     const act = el('span', 'btn', x.action.label); act.setAttribute('role', 'button'); act.tabIndex = 0;
     act.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); act.click(); } });
@@ -2107,7 +2135,6 @@ async function fillInbox() {
   sb.append(el('p', 'lead', '多久抓一次、你是誰，以及要抓哪些來源。每個來源都要自己打開才會抓；關著的來源看板完全不會去讀。'));
   const sf = el('div', 'form'); const sv = {}, son = {};
   const field = (k, label, ph, type) => { const i = el('input'); i.type = type; i.placeholder = ph || ''; if (type !== 'password') i.value = st.settings[k]; i.autocomplete = 'off'; sv[k] = i; sf.append(el('label', '', label), i); return i; };
-  field('me', '你的信箱與名字', '用逗號分開，例如 me@example.com, Ming Wang, 王小明（Gmail 帳號本身會自動算進去）', 'text');
   field('pollMinutes', '每幾分鐘抓一次', '0 表示不自動抓', 'number');
   field('attachDays', '附檔保留幾天', '預設 30', 'number').title = '信件帶進對話時，附檔與信裡貼的圖會存到這台電腦。超過這個天數沒有再帶入的會刪除；之後再帶入同一封信，會重新下載並重新起算。';
   // each source: its switch, then what it asks for
@@ -2118,6 +2145,10 @@ async function fillInbox() {
     h.append(cb, lb); son[x.id] = cb; sf.append(h);
     for (const fl of x.fields) field(fl.key, fl.label, fl.secret && st.settings[fl.key] ? st.settings[fl.key] : fl.placeholder, fl.type);
   }
+  // who you are: the signed-in Gmail account already counts (lib/inbox/index.js), so this is only for other addresses
+  // and names of yours - optional, and last, not the first thing asked (asked 2026-11-20)
+  { const h = el('div', 'srchead'); h.style.gridColumn = '1 / -1'; h.style.margin = '14px 0 2px'; h.style.paddingTop = '12px'; h.style.borderTop = '1px solid var(--line)'; h.append(el('b', '', '其他（選填）')); sf.append(h); }
+  field('me', '你的其他信箱與名字（選填）', '登入的 Gmail 帳號已自動算進去。還有別的信箱或署名才填，用逗號分開', 'text');
   const saveS = el('button', 'btn primary', '儲存'); saveS.type = 'button';
   saveS.addEventListener('click', async () => {
     const body = { triage: $('inboxTriage').checked };
@@ -4162,8 +4193,16 @@ function voiceStart(s) {
   rec.onerror = (e) => { if (voice.rec !== rec) return; voice.failed = e.error === 'not-allowed' || e.error === 'service-not-allowed' ? '瀏覽器沒有允許這個網頁用麥克風。請在網址列左邊的設定允許麥克風' : e.error === 'no-speech' ? '' : e.error === 'audio-capture' ? '找不到麥克風' : e.error === 'network' ? '語音辨識要連網路（瀏覽器把聲音送到它的辨識服務），現在連不上' : e.error === 'aborted' ? '' : '語音辨識停了：' + e.error; };
   rec.onend = () => { if (voice.rec === rec && voice.state === 'listening') voiceFinish(); };
   try { rec.start(); } catch (e) { voice.state = ''; voice.rec = null; voiceLockNow(); return say('開不了麥克風：' + (e.message || e), true); }
-  if (prefs().voiceTidy !== false) api('/api/tidy/warm', {}).catch(() => {});   // Claude boots while you speak
+  if (prefs().voiceTidy !== false) api('/api/tidy/warm', { sid: voice.sid }).catch(() => {});   // Claude boots while you speak
   voiceLockNow();
+}
+// The conversation the words were said in, for the tidying to put misheard English words, commands and names right
+// (the recognizer listens for Chinese: "git" comes back as 哥特; asked 2026-11-20): its title, its folder, the last few
+// messages on screen.
+function voiceContext(sid) {
+  const s = sessions.find((x) => x.sessionId === sid);
+  const recent = active === sid ? (items || []).filter((i) => (i.role === 'user' || i.role === 'assistant') && i.text).slice(-6).map((i) => String(i.text).slice(0, 400)) : [];
+  return s ? { sid, title: s.title || '', folder: s.folder || '', recent } : { sid, recent };
 }
 // listening over: what was heard stays (as heard, or tidied first)
 async function voiceFinish() {
@@ -4176,7 +4215,7 @@ async function voiceFinish() {
   let text = '', why = '';
   const ctl = typeof AbortController === 'function' ? new AbortController() : null, timer = ctl ? setTimeout(() => ctl.abort(), 40000) : 0;
   try {
-    const res = await fetch('/api/tidy', { method: 'POST', headers: { 'x-board-token': TOKEN, 'content-type': 'application/json' }, body: JSON.stringify({ text: heard }), signal: ctl ? ctl.signal : undefined });
+    const res = await fetch('/api/tidy', { method: 'POST', headers: { 'x-board-token': TOKEN, 'content-type': 'application/json' }, body: JSON.stringify({ text: heard, context: voiceContext(voice.sid) }), signal: ctl ? ctl.signal : undefined });
     if (!res.ok || !res.body) { let d = {}; try { d = await res.json(); } catch (e) {} why = res.status === 404 ? '看板還是舊的程式，不認得自動排版。重啟看板後才能用' : (d.error || '排版失敗'); }
     else {
       const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
@@ -6088,6 +6127,32 @@ function saveSideWidth(w) { const v = sideClamp(w); features.prefs = Object.assi
   edge.addEventListener('dblclick', () => saveSideWidth(SIDE_W.def));
   edge.addEventListener('keydown', (e) => { const d = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0; if (!d) return; e.preventDefault(); saveSideWidth(sideClamp(prefs().sidebarWidth) + d); });
 })();
+// The height of the places above the list (戰情室 … 設定), dragged at the line under them (asked 2026-11-20: on a small
+// screen they took the room of the list). Kept in this browser only: a small screen and a large one want different
+// heights. Taller than they need = no limit; a double click puts that back.
+(function navEdge() {
+  const edge = $('navEdge'), nav = document.querySelector('.side-nav'); if (!edge || !nav) return;
+  const KEY = 'sb.navHeight', MIN = 44;
+  const natural = () => { const was = nav.classList.contains('sized'); nav.classList.remove('sized'); const h = nav.scrollHeight; if (was) nav.classList.add('sized'); return h; };
+  const apply = (h) => {
+    if (!h || h >= natural()) { nav.classList.remove('sized'); nav.style.removeProperty('--nav-h'); return 0; }
+    nav.style.setProperty('--nav-h', Math.max(MIN, Math.round(h)) + 'px'); nav.classList.add('sized'); return Math.max(MIN, Math.round(h));
+  };
+  const save = (h) => { try { if (h) localStorage.setItem(KEY, String(h)); else localStorage.removeItem(KEY); } catch (e) {} };
+  let saved = 0; try { saved = Number(localStorage.getItem(KEY)) || 0; } catch (e) {}
+  apply(saved);
+  edge.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const top = nav.getBoundingClientRect().top; let h = 0;
+    edge.setPointerCapture(e.pointerId); edge.classList.add('on');
+    const move = (ev) => { h = apply((ev.clientY - top) / VP.rectPerCss); };
+    const up = () => { edge.removeEventListener('pointermove', move); edge.removeEventListener('pointerup', up); edge.removeEventListener('pointercancel', up); edge.classList.remove('on'); save(h); };
+    edge.addEventListener('pointermove', move); edge.addEventListener('pointerup', up); edge.addEventListener('pointercancel', up);
+  });
+  edge.addEventListener('dblclick', () => save(apply(0)));
+  edge.addEventListener('keydown', (e) => { const d = e.key === 'ArrowUp' ? -24 : e.key === 'ArrowDown' ? 24 : 0; if (!d) return; e.preventDefault(); const cur = nav.classList.contains('sized') ? nav.getBoundingClientRect().height / VP.rectPerCss : natural(); save(apply(cur + d)); });
+})();
 function setFold(on) { features.prefs = Object.assign({}, prefs(), { sidebarCollapsed: on }); applyFold(); savePref({ sidebarCollapsed: on }); }
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'B') && prefs().sidebarShortcut !== false) { e.preventDefault(); setFold(!prefs().sidebarCollapsed); }
@@ -6541,6 +6606,97 @@ function unsavedWork() {
     }
   });
   box.append(b);
+})();
+// 「檢查更新」 (asked 2026-11-20, a floating button): the plugins brought up to date, then the board started again on its
+// newest version - from the page, because typed in a conversation on the board /session-board stops itself (the
+// conversation running it is busy, and ending the board would end it). Not restarted while a conversation is working:
+// those are named, and the button is pressed again once they are done.
+(function updateFab() {
+  const b = el('button', 'upd-fab'); b.type = 'button'; b.title = '檢查更新：把 plugin 更新到最新，看板有新版就重開'; b.setAttribute('aria-label', '檢查更新');
+  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg><span>檢查更新</span>';
+  let busy = false;
+  b.addEventListener('click', async () => {
+    if (busy) return; busy = true; b.classList.add('busy'); b.setAttribute('aria-busy', 'true');
+    const lbl = b.querySelector('span'); if (lbl) lbl.textContent = '更新中…';
+    const done = () => { busy = false; b.classList.remove('busy'); b.removeAttribute('aria-busy'); if (lbl) lbl.textContent = '檢查更新'; };
+    try {
+      say('檢查更新中：把 plugin 更新到最新（可能要一兩分鐘）…');
+      const u = await api('/api/plugins/update', {});
+      if (!u.ok) { say('plugin 沒有更新成功：' + (u.data.error || u.status), true); return done(); }
+      const sum = u.data.summary || '都已是最新版';
+      const r = await api('/api/restart', { onlyIfNewer: true });
+      if (r.status === 409) {
+        const who = (r.data.active || []).map((a) => '「' + String(a.title || a.sessionId).slice(0, 30) + '」').join('、');
+        say('plugin：' + sum + '。看板有新版 ' + r.data.newest + '，但沒有重開：' + who + ' 還在做事，重開會中斷它。做完再按一次這個鈕', true);
+        return done();
+      }
+      if (!r.ok) { say('plugin：' + sum + '。看板沒有重開：' + (r.data.error || r.status), true); return done(); }
+      if (!r.data.restarted) { say('plugin：' + sum + '。看板已是最新版 ' + r.data.version); b.hidden = true; return done(); }   // shown again only if the next check finds more
+      say('plugin：' + sum + '。看板從 ' + r.data.from + ' 換成 ' + r.data.to + '，重開中…');
+      // the new one answering with the new version: the page reloads (the boxes' words kept as drafts)
+      let oldSeen = 0;
+      for (let i = 0; i < 60; i++) {
+        await new Promise((ok) => setTimeout(ok, 1000));
+        let p; try { p = await (await fetch('/api/ping', { headers: { 'x-board-token': TOKEN } })).json(); } catch (e) { p = null; }
+        if (p && p.app === 'session-board' && p.version === r.data.to) { reloadKeepingDrafts(true); return; }
+        // the old one still answering a while later: it called the restart off (a conversation began working just then)
+        if (p && p.app === 'session-board' && p.version === r.data.from && ++oldSeen >= 5) { say('看板沒有重開：剛好有對話開始做事，所以取消了，舊版 ' + r.data.from + ' 照常在跑。等它做完再按一次', true); done(); return; }
+      }
+      say('看板 60 秒內沒有開回來。在終端機打 /session-board，或執行 node scripts/start.js', true); done();
+    } catch (e) { say('檢查更新失敗：' + String((e && e.message) || e), true); done(); }
+  });
+  document.body.append(b);
+  // Where it stands (asked 2026-11-20: at the right of the screen, beside the message box):
+  //   room right of the box for it whole - there, level with the box;  room for a circle - the icon alone there;
+  //   no room (a narrow window, a phone) - above the jump buttons at the right;  no message box - the bottom right corner.
+  // Worked out again when the window, the page or the jump buttons change (checked twice a second: cheap, and nothing
+  // has to tell it what changed).
+  const GAP = 16;
+  let shape = '';
+  const place = () => {
+    if (b.hidden) return;   // nothing to update: nothing to measure
+    const vw = innerWidth, vh = innerHeight;
+    const box = $('foot') && $('foot').offsetParent !== null ? $('foot').querySelector('.composer') : null;
+    const jump = document.querySelector('.scrollwrap .jump');
+    let mode = 'corner', right = 22, bottom = 20;
+    if (box && box.offsetParent !== null) {
+      const r = box.getBoundingClientRect(), free = vw - r.right;
+      b.classList.remove('round'); const whole = b.offsetWidth || 120;
+      const mid = vh - (r.top + r.bottom) / 2;
+      // against the right edge, in line with the jump buttons above it (centred in the room it looked adrift, 2026-11-20)
+      if (free >= whole + 22 + GAP) { mode = 'beside'; bottom = Math.round(mid - 20); }
+      else if (free >= 40 + 22 + GAP) { mode = 'round'; bottom = Math.round(mid - 20); }
+      else {
+        mode = 'above';
+        const shown = jump && [...jump.children].filter((c) => !c.hidden && c.offsetParent !== null);
+        const top = shown && shown.length ? Math.min(...shown.map((c) => c.getBoundingClientRect().top)) : r.top;
+        bottom = Math.round(vh - top + 8);
+      }
+    }
+    const s = mode + right + ',' + bottom;
+    if (s === shape) return; shape = s;
+    b.classList.toggle('round', mode === 'round');
+    b.style.right = right + 'px'; b.style.bottom = bottom + 'px';
+    b.dataset.place = mode;
+  };
+  place(); addEventListener('resize', place); setInterval(place, 500);
+  // Shown only when there is something to update (asked 2026-11-20): the board checks once a day by itself (lib/auto.js
+  // "check"); the page asks for that result when it opens and every 5 minutes. Said on it: what there is.
+  b.hidden = true;
+  const want = async () => {
+    if (busy) return;
+    let r; try { r = await api('/api/auto'); } catch (e) { return; }
+    const c = r && r.ok && r.data.check;
+    const need = !!(c && c.need);
+    if (need) {
+      const parts = (c.behind || []).map((x) => x.name + ' ' + (x.from || '?') + ' → ' + (x.to || '?'));
+      if (c.board && c.board.newest && c.board.newest !== c.board.running) parts.push('看板 ' + c.board.running + ' → ' + c.board.newest + '（要重開）');
+      b.title = '有更新：' + parts.join('、') + '。按一下更新' + (c.board && c.board.newest !== c.board.running ? '並重開看板' : '');
+      b.setAttribute('aria-label', '檢查更新（有 ' + parts.length + ' 項可以更新）');
+    }
+    if (b.hidden === need) { b.hidden = !need; shape = ''; place(); }
+  };
+  want(); setInterval(want, 300000);
 })();
 // The words in the board conversations' boxes, saved as their drafts (they come back after the reload); then reloaded.
 async function reloadKeepingDrafts(pressed) {

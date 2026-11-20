@@ -115,7 +115,7 @@ test('approve a waiting request; read a conversation before answering', async ()
   await hook(r, body(ev('ok')));
   assert.ok(r.boardCalls.includes('POST /api/permission {"sessionId":"s2","requestId":"r9","allow":true}'));
   await hook(r, body(ev('ebilling 做到哪')));
-  assert.match(r.prompts[r.prompts.length - 1], /Claude：改好了兩處，第三處要你決定/);
+  assert.match(r.prompts[r.prompts.length - 1], /Claude："改好了兩處，第三處要你決定"/);   // a quoted string: it cannot pass for the lines around it
   assert.strictEqual(r.said()[2], 'Ebilling 改好兩處，第三處等你決定', 'a second read is not followed');
 });
 
