@@ -122,18 +122,160 @@ test('a skill-copy entry is installed by copying its one folder from GitHub into
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-fit-'));
   const ran = [];
   // a stand-in git: the clone makes the folder with a SKILL.md in it
-  const run = (exe, args, o, cb) => { ran.push(args.join(' ')); if (args[0] === 'clone') { const repo = args[args.length - 1]; fs.mkdirSync(path.join(repo, 'huashu-slides', 'scripts'), { recursive: true }); fs.writeFileSync(path.join(repo, 'huashu-slides', 'SKILL.md'), '# x'); fs.mkdirSync(path.join(repo, '.git')); } cb(null, '', ''); };
+  const run = (exe, args, o, cb) => { if (args[0] === 'ls-remote') return cb(null, 'abc\trefs/heads/master\n', ''); if (args.includes('ls-files')) return cb(null, '100644 a 0\t' + args[args.length - 1] + '/SKILL.md\n', ''); if (args.includes('rev-parse')) return cb(null, 'abc\n', ''); ran.push(args.join(' ')); if (args[0] === 'clone') { const repo = args[args.length - 1]; fs.mkdirSync(path.join(repo, 'huashu-slides', 'scripts'), { recursive: true }); fs.writeFileSync(path.join(repo, 'huashu-slides', 'SKILL.md'), '# x'); fs.mkdirSync(path.join(repo, '.git')); } cb(null, '', ''); };
   const x = { ref: 'huashu-slides@huashu-skills', skillCopy: true, source: 'https://github.com/alchaincyf/huashu-skills/tree/master/huashu-slides' };
   const out = await F.apply(proj, [x], { run });
   assert.strictEqual(out[0].ok, true, JSON.stringify(out));
   assert.ok(fs.existsSync(path.join(proj, '.claude', 'skills', 'huashu-slides', 'SKILL.md')));
   assert.ok(!fs.existsSync(path.join(proj, '.claude', 'skills', 'huashu-slides', '.git')));
-  assert.ok(ran[0].startsWith('clone --depth 1 --filter=blob:none --sparse --branch master https://github.com/alchaincyf/huashu-skills.git'), ran[0]);
+  assert.ok(ran[0].startsWith('clone --depth 1 --filter=blob:none --sparse --config core.symlinks=false --branch master https://github.com/alchaincyf/huashu-skills.git'), ran[0]);
   assert.match(ran[1], /sparse-checkout set --no-cone \/huashu-slides\//);
   // there already: not overwritten; not a GitHub folder, or climbing out: not fetched at all
   ran.length = 0;
   assert.match((await F.apply(proj, [x], { run }))[0].note, /不覆蓋/);
   assert.match((await F.apply(proj, [Object.assign({}, x, { ref: 'a@b', source: 'https://example.com/x' })], { run }))[0].note, /不是 GitHub/);
   assert.match((await F.apply(proj, [Object.assign({}, x, { ref: 'c@b', source: 'https://github.com/a/b/tree/main/../etc' })], { run }))[0].note, /不是 GitHub/);
+  assert.match((await F.apply(proj, [Object.assign({}, x, { ref: 'd@b', source: 'https://github.com/a/b/tree/../x/skills' })], { run }))[0].note, /不是 GitHub/);
   assert.deepStrictEqual(ran, [], 'nothing fetched for those');
+});
+
+test('a branch with slashes in it: the longest of the repository branches and tags the address starts with', async () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-fit-'));
+  const ran = [];
+  // a tag "feature" and a branch "feature/x" both there: feature/x is meant
+  const listed = 'a\trefs/heads/main\nb\trefs/tags/feature\nb2\trefs/tags/feature^{}\nc\trefs/heads/feature/x\n';
+  const run = (exe, args, o, cb) => {
+    if (args[0] === 'ls-remote') { ran.push('ask ' + args.slice(4).join(' ')); return cb(null, listed, ''); }
+    if (args.includes('ls-files')) { ran.push('list ' + args[args.length - 1]); return cb(null, '100644 a 0\t' + args[args.length - 1] + '/SKILL.md\n', ''); }
+    if (args.includes('rev-parse')) return cb(null, 'c\n', '');
+    ran.push(args[0] === 'clone' ? 'clone ' + args[args.indexOf('--branch') + 1] : args.slice(-1)[0]);
+    if (args[0] === 'clone') { const repo = args[args.length - 1]; fs.mkdirSync(path.join(repo, 'skills', 'deck'), { recursive: true }); fs.writeFileSync(path.join(repo, 'skills', 'deck', 'SKILL.md'), '# x'); }
+    cb(null, '', '');
+  };
+  const out = await F.apply(proj, [{ ref: 'deck@coll', skillCopy: true, source: 'https://github.com/o/r/tree/feature/x/skills/deck' }], { run });
+  assert.strictEqual(out[0].ok, true, JSON.stringify(out));
+  // only the names the address could mean are asked for
+  assert.deepStrictEqual(ran, ['ask refs/heads/feature refs/tags/feature refs/tags/feature^{} refs/heads/feature/x refs/tags/feature/x refs/tags/feature/x^{} refs/heads/feature/x/skills refs/tags/feature/x/skills refs/tags/feature/x/skills^{}', 'clone feature/x', '/skills/deck/', 'list skills/deck']);
+  assert.ok(fs.existsSync(path.join(proj, '.claude', 'skills', 'deck', 'SKILL.md')));
+  // more than three segments
+  assert.deepStrictEqual(F.branchOf(F.GH_TREE.exec('https://github.com/o/r/tree/team/a/b/c/skills/deck'), 'x\trefs/heads/team/a/b/c\n'), ['team/a/b/c', 'skills/deck', 'x']);
+  // none of them there
+  assert.strictEqual(F.branchOf(F.GH_TREE.exec('https://github.com/o/r/tree/gone/skills/deck'), listed), null);
+  // + = @ , ! are in branch and folder names too; * ? [ are not taken
+  assert.deepStrictEqual(F.branchOf(F.GH_TREE.exec('https://github.com/o/r/tree/feature/fix+login/skills/a=b'), 'x\trefs/heads/feature/fix+login\n'), ['feature/fix+login', 'skills/a=b', 'x']);
+  for (const u of ['https://github.com/o/r/tree/main/sk*lls', 'https://github.com/o/r/tree/main/a?b', 'https://github.com/o/r/tree/main/[a]']) assert.strictEqual(F.GH_TREE.exec(u), null, u);
+  // a branch and a tag of one name: the branch, with its commit; a tag alone: its own commit (the ^{} line)
+  const both = 'h1\trefs/heads/release\nt1\trefs/tags/release\nt2\trefs/tags/release^{}\nv1\trefs/tags/v1\nv2\trefs/tags/v1^{}\n';
+  assert.deepStrictEqual(F.branchOf(F.GH_TREE.exec('https://github.com/o/r/tree/release/skills/deck'), both), ['release', 'skills/deck', 'h1']);
+  assert.deepStrictEqual(F.branchOf(F.GH_TREE.exec('https://github.com/o/r/tree/v1/skills/deck'), both), ['v1', 'skills/deck', 'v2']);
+});
+
+test('a permanent link (a commit, long or short) is said in words, nothing cloned; a branch named like one is still a branch', async () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-fit-'));
+  const sha = 'a1'.repeat(20);
+  let clones = 0; let listed = '';
+  const run = (exe, args, o, cb) => {
+    if (args[0] === 'clone') { clones++; const repo = args[args.length - 1]; fs.mkdirSync(path.join(repo, 'skills', 'deck'), { recursive: true }); fs.writeFileSync(path.join(repo, 'skills', 'deck', 'SKILL.md'), '# x'); }
+    cb(null, args[0] === 'ls-remote' ? listed : args.includes('ls-files') ? '100644 a 0\t' + args[args.length - 1] + '/SKILL.md\n' : args.includes('rev-parse') ? 'x\n' : '', '');
+  };
+  for (const v of [sha, 'abc1234']) assert.match((await F.apply(proj, [{ ref: 'deck@coll', skillCopy: true, source: 'https://github.com/o/r/tree/' + v + '/skills/deck' }], { run }))[0].note, /某一個版本（commit）/);
+  assert.strictEqual(clones, 0);
+  listed = 'x\trefs/heads/' + sha + '\n';
+  const out = await F.apply(proj, [{ ref: 'deck@coll', skillCopy: true, source: 'https://github.com/o/r/tree/' + sha + '/skills/deck' }], { run });
+  assert.strictEqual(out[0].ok, true, JSON.stringify(out));
+});
+
+test('git is never left to ask for a sign-in, and a failure says git\'s message, not its output', async () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-fit-'));
+  let seen = null;
+  const run = (exe, args, o, cb) => { seen = o; cb(new Error('maxBuffer length exceeded'), 'abc\trefs/tags/v1\n'.repeat(50), ''); };
+  const out = await F.apply(proj, [{ ref: 'deck@coll', skillCopy: true, source: 'https://github.com/o/r/tree/main/skills/deck' }], { run });
+  assert.strictEqual(seen.env.GIT_TERMINAL_PROMPT, '0');
+  assert.ok(seen.maxBuffer >= 8 * 1024 * 1024);
+  assert.doesNotMatch(out[0].note, /refs\/tags/);
+  assert.match(out[0].note, /maxBuffer/);
+});
+
+test('what was cloned is not the version found: said, nothing copied', async () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-fit-'));
+  const run = (exe, args, o, cb) => {
+    if (args[0] === 'ls-remote') return cb(null, 'h1\trefs/heads/release\nt1\trefs/tags/release\n', '');
+    if (args.includes('ls-files')) return cb(null, '100644 a 0\t' + args[args.length - 1] + '/SKILL.md\n', ''); if (args.includes('rev-parse')) return cb(null, 't1\n', '');
+    if (args[0] === 'clone') { const repo = args[args.length - 1]; fs.mkdirSync(path.join(repo, 'skills', 'deck'), { recursive: true }); fs.writeFileSync(path.join(repo, 'skills', 'deck', 'SKILL.md'), '# x'); }
+    cb(null, '', '');
+  };
+  const out = await F.apply(proj, [{ ref: 'deck@coll', skillCopy: true, source: 'https://github.com/o/r/tree/release/skills/deck' }], { run });
+  assert.match(out[0].note, /對不上/);
+  assert.ok(!fs.existsSync(path.join(proj, '.claude', 'skills', 'deck')));
+});
+
+test('a folder with a link in it is not copied; git is told to write no links; a folder named ..foo is fine', async () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-fit-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-out-'));
+  let cloneArgs = null;
+  const make = (sub, link) => (exe, args, o, cb) => {
+    if (args[0] === 'ls-remote') return cb(null, 'h\trefs/heads/main\n', '');
+    if (args.includes('ls-files')) return cb(null, '100644 a 0\t' + args[args.length - 1] + '/SKILL.md\n', ''); if (args.includes('rev-parse')) return cb(null, 'h\n', '');
+    if (args[0] === 'clone') {
+      cloneArgs = args; const repo = args[args.length - 1]; const d = path.join(repo, ...sub.split('/'));
+      fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'SKILL.md'), '# x');
+      if (link) fs.symlinkSync(outside, path.join(d, 'scripts'), 'junction');
+    }
+    cb(null, '', '');
+  };
+  let out = await F.apply(proj, [{ ref: 'deck@coll', skillCopy: true, source: 'https://github.com/o/r/tree/main/skills/deck' }], { run: make('skills/deck', true) });
+  assert.match(out[0].note, /symlink/);
+  assert.ok(!fs.existsSync(path.join(proj, '.claude', 'skills', 'deck')));
+  assert.ok(cloneArgs.join(' ').includes('--config core.symlinks=false'));
+  // a link the repository records, written on disk as a plain file (as git does with core.symlinks=false)
+  const recorded = (exe, args, o, cb) => {
+    if (args.includes('ls-files')) return cb(null, '100644 a 0\tskills/deck/SKILL.md\n120000 b 0\tskills/deck/scripts\n', '');
+    return make('skills/deck', false)(exe, args, o, cb);
+  };
+  out = await F.apply(proj, [{ ref: 'deck2@coll', skillCopy: true, source: 'https://github.com/o/r/tree/main/skills/deck' }], { run: recorded });
+  assert.match(out[0].note, /symlink/);
+  assert.ok(!fs.existsSync(path.join(proj, '.claude', 'skills', 'deck2')));
+  // asked for as -z (paths as they are), a link named in Chinese is found too
+  let asked = null;
+  const named = (exe, args, o, cb) => {
+    if (args.includes('ls-files')) { asked = args; return cb(null, '100644 a 0\tskills/deck/SKILL.md\0' + '120000 b 0\tskills/deck/捷徑\0', ''); }
+    return make('skills/deck', false)(exe, args, o, cb);
+  };
+  out = await F.apply(proj, [{ ref: 'deck3@coll', skillCopy: true, source: 'https://github.com/o/r/tree/main/skills/deck' }], { run: named });
+  assert.match(out[0].note, /symlink/);
+  assert.ok(asked.includes('-z'));
+  out = await F.apply(proj, [{ ref: 'dots@coll', skillCopy: true, source: 'https://github.com/o/r/tree/main/..foo/x' }], { run: make('..foo/x', false) });
+  assert.strictEqual(out[0].ok, true, JSON.stringify(out));
+  fs.rmSync(outside, { recursive: true, force: true });
+});
+
+test('a folder the repository records nothing under (other capitals): not copied', async () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-fit-'));
+  const run = (exe, args, o, cb) => {
+    if (args[0] === 'ls-remote') return cb(null, 'h\trefs/heads/main\n', '');
+    if (args.includes('rev-parse')) return cb(null, 'h\n', '');
+    if (args.includes('ls-files')) return cb(null, '', '');
+    if (args[0] === 'clone') { const d = path.join(args[args.length - 1], 'skills', 'case'); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'SKILL.md'), '# x'); }
+    cb(null, '', '');
+  };
+  const out = await F.apply(proj, [{ ref: 'case@coll', skillCopy: true, source: 'https://github.com/o/r/tree/main/skills/case' }], { run });
+  assert.match(out[0].note, /大小寫/);
+  assert.ok(!fs.existsSync(path.join(proj, '.claude', 'skills', 'case')));
+  // git listing the folder in other capitals (where it ignores them): not copied either
+  const loose = (exe, args, o, cb) => (args.includes('ls-files') ? cb(null, '100644 a 0\tskills/Case/SKILL.md\n', '') : run(exe, args, o, cb));
+  const out2 = await F.apply(proj, [{ ref: 'case2@coll', skillCopy: true, source: 'https://github.com/o/r/tree/main/skills/case' }], { run: loose });
+  assert.match(out2[0].note, /大小寫/);
+});
+
+test('no network, or no such branch: said at once, nothing cloned', async () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-fit-'));
+  let calls = 0;
+  const off = (exe, args, o, cb) => { calls++; cb(new Error('x'), '', 'fatal: unable to access: Could not resolve host: github.com'); };
+  const x = { ref: 'deck@coll', skillCopy: true, source: 'https://github.com/o/r/tree/main/skills/deck' };
+  assert.match((await F.apply(proj, [x], { run: off }))[0].note, /Could not resolve host/);
+  assert.strictEqual(calls, 1);
+  const none = (exe, args, o, cb) => { calls++; cb(null, args[0] === 'ls-remote' ? 'a\trefs/heads/master\n' : '', ''); };
+  calls = 0;
+  assert.match((await F.apply(proj, [x], { run: none }))[0].note, /找不到網址裡的分支/);
+  assert.strictEqual(calls, 1, 'no clone');
 });

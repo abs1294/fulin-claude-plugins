@@ -171,22 +171,84 @@ async function ask(folder, st, question, o = {}) {
 // one folder into <project>/.claude/skills/<name>/ - setup-plugins step 6's way, done by the board (asked 2026-11-21:
 // "HQ - why can it not be installed"). Only a GitHub folder address; only that folder is fetched (a sparse, shallow clone
 // to a temporary folder), and it must hold a SKILL.md; a skill of that name already in the project is never overwritten.
-const GH_TREE = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/tree\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.\/-]+?)\/?$/;
+// (a branch or folder may also have + = @ , ! in its name, fix+login: none of them means anything to git's arguments or
+// to the sparse pattern, which starts with "/"; * ? [ ] and \ are not let in)
+const GH_TREE = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/tree\/([A-Za-z0-9_.+=@,!-]+)\/([A-Za-z0-9_.+=@,!\/-]+?)\/?$/;
+// where the branch ends in an address: a branch (or tag) may have slashes in it (feature/x, team/a/b/c), which the address
+// does not mark - so the repository's own branches and tags are asked for, and the longest one the address starts with is
+// the branch (review 2026-11-21: guessing the shortest first took feature when feature/x was meant)
+// the names an address could mean as its branch: its first one, two, ... segments, each asked for whole as a branch and as
+// a tag (git matches a short name against the end of every ref: "main" would also bring team-a/main, and so on), and
+// a tag's own commit (its ^{} line, which the whole name alone does not bring)
+const branchNames = (m) => { const parts = (m[3] + '/' + m[4]).split('/'); return parts.slice(0, -1).flatMap((p, k) => { const b = parts.slice(0, k + 1).join('/'); return ['refs/heads/' + b, 'refs/tags/' + b, 'refs/tags/' + b + '^{}']; }); };
+// -> [name, folder, commit]: a branch before a tag of the same name (as git clone --branch takes it - tried 2026-11-21),
+// and the commit it is at (a tag's own commit: the ^{} line), so what is cloned can be checked against it
+function branchOf(m, listed) {
+  const heads = new Map(), tags = new Map();
+  for (const l of String(listed || '').split(/\r?\n/)) {
+    const [sha, ref] = l.split('\t'); if (!sha || !ref) continue;
+    let x;
+    if ((x = /^refs\/heads\/(.+)$/.exec(ref))) heads.set(x[1], sha);
+    else if ((x = /^refs\/tags\/(.+?)(\^\{\})?$/.exec(ref)) && (x[2] || !tags.has(x[1]))) tags.set(x[1], sha);
+  }
+  const parts = (m[3] + '/' + m[4]).split('/');
+  for (let k = parts.length - 1; k >= 1; k--) { const b = parts.slice(0, k).join('/'); const sha = heads.get(b) || tags.get(b); if (sha) return [b, parts.slice(k).join('/'), sha]; }
+  return null;
+}
 const skillDir = (folder, ref) => path.join(folder, '.claude', 'skills', ref.split('@')[0]);
+// a link (symlink, junction) anywhere in a folder, itself included; .git is not looked in
+function hasLink(dir) {
+  let st; try { st = fs.lstatSync(dir); } catch (e) { return false; }
+  if (st.isSymbolicLink()) return true;
+  if (!st.isDirectory()) return false;
+  let names; try { names = fs.readdirSync(dir); } catch (e) { return true; } // cannot be looked in: not copied
+  return names.some((n) => n !== '.git' && hasLink(path.join(dir, n)));
+}
 async function copySkill(folder, x, o) {
   const m = GH_TREE.exec(String(x.source || ''));
-  if (!m || m[4].split('/').some((p) => p === '..' || p === '.')) return { ok: false, note: '來源不是 GitHub 上的一個資料夾位址（https://github.com/擁有者/庫/tree/分支/路徑），看板不替它複製' };
+  if (!m || (m[3] + '/' + m[4]).split('/').some((p) => p === '..' || p === '.')) return { ok: false, note: '來源不是 GitHub 上的一個資料夾位址（https://github.com/擁有者/庫/tree/分支/路徑），看板不替它複製' };
   const to = skillDir(folder, x.ref);
   if (fs.existsSync(to)) return { ok: false, note: '這個專案已經有同名的 skill：' + to + '（不覆蓋）' };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-skill-'));
-  const git = (args) => new Promise((resolve) => (o.run || execFile)('git', args, { cwd: tmp, windowsHide: true, timeout: 180000, encoding: 'utf8' }, (e, out, err) => resolve({ ok: !e, out: String(err || out || (e && e.message) || '').trim().slice(-300) })));
+  // never a sign-in window or a wait for one (a private or missing repository: said at once); what is said when it fails is
+  // git's own message, never the list it was writing (review 2026-11-21)
+  const env = Object.assign({}, process.env, { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' });
+  const git = (args) => new Promise((resolve) => (o.run || execFile)('git', args, { cwd: tmp, env, windowsHide: true, timeout: 180000, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' }, (e, out, err) => resolve({ ok: !e, stdout: String(out || ''), out: String(err || (e && e.message) || '').trim().slice(-300) })));
   try {
     const repo = path.join(tmp, 'repo');
-    let r = await git(['clone', '--depth', '1', '--filter=blob:none', '--sparse', '--branch', m[3], 'https://github.com/' + m[1] + '/' + m[2] + '.git', repo]);
+    const url = 'https://github.com/' + m[1] + '/' + m[2] + '.git';
+    // one question for the branches, asked by the whole names the address could mean (the answer holds only those - GitHub
+    // still sends the list over, git picks from it); no network, no such repository: said at once, not tried again
+    let r = await git(['ls-remote', '--heads', '--tags', url, ...branchNames(m)]);
     if (!r.ok) return { ok: false, note: '從 GitHub 取不到：' + r.out };
+    const at = branchOf(m, r.stdout);
+    // no branch or tag of that name, and it looks like a version (a permanent link, tree/<commit>/...): a shallow clone
+    // cannot start from a version, said so (a branch named like one is found above first)
+    if (!at && /^[0-9a-f]{7,40}$/i.test(m[3])) return { ok: false, note: '在 GitHub 上找不到叫 ' + m[3] + ' 的分支或標籤；如果這是某一個版本（commit）的網址，看板只接受分支或標籤的網址（tree/main/…），沒有複製' };
+    if (!at) return { ok: false, note: '在 GitHub 上找不到網址裡的分支（' + m[3] + '…），沒有複製' };
+    r = await git(['clone', '--depth', '1', '--filter=blob:none', '--sparse', '--config', 'core.symlinks=false', '--branch', at[0], url, repo]);
+    if (!r.ok) return { ok: false, note: '從 GitHub 取不到：' + r.out };
+    // what came is the version that was found (a branch and a tag of one name: git might one day take the other)
+    r = await git(['-C', repo, 'rev-parse', 'HEAD']);
+    if (!r.ok || r.stdout.trim().toLowerCase() !== at[2].toLowerCase()) return { ok: false, note: '取到的版本跟網址指的 ' + at[0] + ' 對不上（可能剛好有人推了新版本，或同名的分支與標籤都有），沒有複製，可以再試一次' };
+    m[4] = at[1];
     r = await git(['-C', repo, 'sparse-checkout', 'set', '--no-cone', '/' + m[4] + '/']);
     if (!r.ok) return { ok: false, note: '取那個資料夾失敗：' + r.out };
     const from = path.join(repo, ...m[4].split('/'));
+    // (the address was checked for . and .. above; this holds whatever it says)
+    const rel = path.relative(repo, from);
+    if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) return { ok: false, note: '來源資料夾不在取回的庫裡，沒有複製' };
+    // a link is told by what the repository records for the folder (mode 120000): git writes none on disk here, each comes
+    // as a small file holding its target - the folder on disk is looked at too, as a second check
+    r = await git(['-C', repo, 'ls-files', '-s', '-z', '--', m[4]]);
+    if (!r.ok) return { ok: false, note: '讀不到那個資料夾的內容清單：' + r.out };
+    // nothing recorded under that name (written in other capitals, or not there): a disk that ignores capitals would still
+    // give its files, unchecked - not copied
+    // (only what is listed under exactly that folder, capitals and all - whatever git's own matching does on this system)
+    // (-z: each path as it is - without it a name in Chinese comes quoted, "skills/x/\346...", and would not be matched)
+    const listed = r.stdout.split(/\0|\r?\n/).filter((l) => (l.split('\t')[1] || '').startsWith(m[4] + '/'));
+    if (!listed.length) return { ok: false, note: '庫裡沒有這個資料夾（可能不存在，或大小寫跟 GitHub 上不一樣），沒有複製' };
+    if (listed.some((l) => l.startsWith('120000 ')) || hasLink(from)) return { ok: false, note: '來源資料夾裡有捷徑（symlink），可能指到這台電腦的別處，沒有複製' };
     if (!fs.existsSync(path.join(from, 'SKILL.md'))) return { ok: false, note: '來源資料夾裡沒有 SKILL.md，不是一個 skill，沒有複製' };
     fs.mkdirSync(path.dirname(to), { recursive: true });
     fs.cpSync(from, to, { recursive: true, filter: (p) => !/[\\/]\.git([\\/]|$)/.test(p) });
@@ -256,4 +318,4 @@ function saveRecommend(x, o = {}) {
     (e, out, err) => resolve(e ? { ok: false, error: String(err || out || e.message).replace(/^ERROR:\s*/m, '').trim().slice(0, 300) } : { ok: true, out: String(out || '').trim().slice(0, 600) })));
 }
 
-module.exports = { copySkill, GH_TREE, switchedOff, recommends, saveRecommend, analyze, ask, QUESTION_MAX, apply, installs, installedFor, present, sources, candidates, prompt, readResult, REF, SOURCE };
+module.exports = { copySkill, hasLink, branchOf, GH_TREE, switchedOff, recommends, saveRecommend, analyze, ask, QUESTION_MAX, apply, installs, installedFor, present, sources, candidates, prompt, readResult, REF, SOURCE };

@@ -64,3 +64,46 @@ test('words typed on after what the mic gave are not learned; nor the pieces of 
   assert.deepStrictEqual(V.learn('我想要看那個檔案然後再推上去給大家看看吧', String.raw`請打開 C:\work\notes.md 和 src/app.js 再推上去給大家看看吧`, f()), []);
   assert.deepStrictEqual(V.learn('我想要看那個檔案然後再推上去給大家看看吧', String.raw`請打開 C:\work\notes.md 再跟 vitest 一起推上去給大家看看吧`, f()), [{ heard: '', meant: 'vitest' }]);
 });
+
+test('a path written right next to Chinese words takes only itself away, not the words beside it (review 2026-11-21)', () => {
+  const V = require('../lib/vocab');
+  assert.deepStrictEqual(V.newNames('', String.raw`打開C:\work\notes.md用vitest跑`), ['vitest']);
+  assert.deepStrictEqual(V.newNames('', 'and/or 都可以，src/app.js 交給 Prettier'), ['Prettier']);
+  // whatever characters the names in a path use (review 2026-11-21)
+  assert.deepStrictEqual(V.newNames('', 'src/foo+bar.js 跟 packages/@scope/tool 交給 Biome'), ['Biome']);
+  assert.deepStrictEqual(V.newNames('', String.raw`D:\專案\My-App\v2.0\x.md用Deno`), ['Deno']);
+  // a path written against a comma, quotes or brackets, or Japanese: the word beside it stays
+  assert.deepStrictEqual(V.newNames('', '用vitest,src/a.js跑'), ['vitest']);
+  assert.deepStrictEqual(V.newNames('', '(src/a.js)和"lib/b.js"交給Biome'), ['Biome']);
+  assert.deepStrictEqual(V.newNames('', 'これはJest/src/a.jsです'), []);
+  assert.deepStrictEqual(V.newNames('', 'これはsrc/a.jsとJestです'), ['Jest']);
+  // a colon, ? ! or | right against a path ends it; a drive letter only where it starts a word
+  for (const t of ['用vitest:src/a.js跑', 'vitest|src/a.js', 'vitest!src/a.js', 'ㅋㅋsrc/a.js 跟 vitest']) assert.deepStrictEqual(V.newNames('', t), ['vitest'], t);
+  assert.deepStrictEqual(V.newNames('', String.raw`Biome:C:\x\y.md`), ['Biome']);
+  // a file or folder named in Chinese: its extension is not a word; the words after a path still are
+  for (const t of ['看 .claude/harness/A-漏水診斷書.md 這份', String.raw`D:\專案\報告.docx 給`, '改 docs/規格書-v2.pdf', 'scripts/建置.ps1 跑']) assert.deepStrictEqual(V.newNames('', t), [], t);
+  assert.deepStrictEqual(V.newNames('', String.raw`打開C:\work\notes.md用vitest跑`), ['vitest']);
+  // a correction stays when its word is also in a pasted address
+  assert.deepStrictEqual(V.edits('吉特 推到 那裡', 'git 推到 git@github.com:acme/tool'), [{ heard: '吉特', meant: 'git' }]);
+  // a web address after a list number or a mark, a drive after a mark (review 2026-11-21)
+  for (const t of ['1.https://example.com/vitest-runner 跑', '-https://example.com/a 跑', '第3步 1.https://abc.example.com/vitest']) assert.deepStrictEqual(V.newNames('', t), [], t);
+  assert.deepStrictEqual(V.edits('網頁 在 這', '網頁 在 1.https://example.com/a'), []);
+  assert.deepStrictEqual(V.newNames('', String.raw`out-C:\work\a.md`), ['out']);
+  // a small letter and a colon after a mark ends a name, it is not a drive
+  assert.deepStrictEqual(V.newNames('', 'see util.c:src/util.c'), ['see', 'util.c']);
+  assert.deepStrictEqual(V.newNames('', 'file.h:/usr/include/x.h'), ['file.h']);
+  assert.deepStrictEqual(V.newNames('', 'my-app-v:1/2 test'), ['my-app-v', 'test']);
+  assert.deepStrictEqual(V.newNames('', 'e.g.C:/x/y 跟 Bun'), ['e.g', 'Bun']);
+  // a long run of letters, dots or slashes takes linear time too
+  for (const unit of ['a', 'a.', 'a/', 'a-b.', '1', '1a', '-a', 'a@', 'a=', 'é']) {
+    let t1 = Date.now(); V.newNames('', unit.repeat(2000)); const s1 = Date.now() - t1;
+    t1 = Date.now(); V.newNames('', unit.repeat(8000)); const s2 = Date.now() - t1;
+    assert.ok(s2 < 8 * s1 + 40, JSON.stringify(unit) + ': four times as long took ' + s2 + 'ms against ' + s1 + 'ms');
+  }
+  // a long sentence of Chinese takes linear time (it took n²)
+  const long = '這是一段很長的中文句子'.repeat(400); let t0 = Date.now(); V.newNames('', long); const a = Date.now() - t0;
+  t0 = Date.now(); V.newNames('', long + long + long + long); const b = Date.now() - t0;
+  assert.ok(b < 8 * a + 40, 'four times as long took ' + b + 'ms against ' + a + 'ms');
+  // web addresses of any kind, and git's user@host: form
+  for (const t of ['git@github.com:acme/tool', 'git@github.com:tool', 'user@myserver:repo.git', 'user@server:repo!tools,x', 'ssh://git@github.com/acme/tool', 'HTTPS://github.com/acme/tool', 'file:///C:/x/y.md']) assert.deepStrictEqual(V.newNames('', t + ' 給 Biome'), ['Biome'], t);
+});

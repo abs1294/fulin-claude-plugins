@@ -2868,7 +2868,7 @@ async function drawSettings() {
   pane.append(h2);
   pane.append(el('p', 'lead', '把 ' + ib.data.status.sources.map((x) => x.name).join('、') + ' 收到的訊息抓進這台電腦的看板資料庫，判讀哪些要你處理，並分派到資料夾。關著的時候，看板不會讀任何信件或訊息，左邊也不顯示「收件」。'));
   sw('使用收件', '打開之後，連上的來源（Gmail 登入過、Slack 有權杖、Teams 這台電腦有桌面版）就會抓；不要抓的，到「收件」→「抓取設定」按它的「刪除連接」。已經抓進來的資料在關掉後仍留在資料庫裡，只是不再更新。', !!ib.data.status.enabled,
-    (v) => ({ enabled: v }), (v) => { poll(); return v ? '已開啟收件。到左邊的「收件」→「抓取設定」選來源' : '已關閉收件：不再抓取，也不再判讀'; }, '/api/inbox/settings');
+    (v) => ({ enabled: v }), (v) => { poll(); return v ? '已開啟收件：連上的來源會開始抓；不要抓的，到左邊的「收件」→「抓取設定」刪除連接' : '已關閉收件：不再抓取，也不再判讀'; }, '/api/inbox/settings');
 }
 
 /* ── office ──

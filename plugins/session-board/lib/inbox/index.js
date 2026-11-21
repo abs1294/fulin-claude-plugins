@@ -197,7 +197,8 @@ class InboxService {
 
   // What the page shows: the switch, and each source (its own switch, its card, the settings it asks for).
   // A secret setting (the Slack token) never leaves the server: the page is told only that there is one.
-  // A source that is off is not looked at, not even to see whether it is there.
+  // A source whose connection was taken away is not looked at, not even to see whether it is there. The others say
+  // whether they are connected also while the inbox is off (each only looks at this computer: a token, a file).
   status() {
     const s = this.settings(), cfg = this.cfg();
     const shown = Object.assign({}, s);

@@ -82,6 +82,10 @@ function unlearn(heard, meant, file) {
 // What you changed in the words the mic gave you, before sending them: each replaced piece, short ones only ("哥特 ->
 // git", not a sentence rewritten). Words are runs of letters/digits or single CJK characters; punctuation is not a change.
 const TOK = /[A-Za-z0-9][A-Za-z0-9._\-/]*|[㐀-鿿豈-﫿]/g;
+// a web address: any scheme with :// (http, ssh, file, HTTPS ...), and git's short form user@host:path (git@github.com:o/r,
+// user@host:repo.git) - each tried from the start of a run only (from inside a long run of letters it was tried again at
+// every one, n²)
+const URL_RE = /(?<![A-Za-z0-9+.-])[0-9+.-]*[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+|(?<![\w.+-])[\w.+-]+@[\w.-]+:(?=[\w~.\/-])[\w~.\/+@=%#&$!,-]*/g;
 function edits(given, sent) {
   const a = String(given || '').match(TOK) || [], b = String(sent || '').match(TOK) || [];
   if (!a.length || !b.length || a.length > 400 || b.length > 400) return [];
@@ -107,7 +111,8 @@ function edits(given, sent) {
   // a correction, not a rewrite: short on both sides, and something to hear differently (letters in what you meant, or
   // a few characters swapped)
   // a web address pasted in is not a word misheard (its pieces would be learned as one: 網頁 -> https example.com/a)
-  const url = new Set((String(sent || '').match(/https?:\/\/\S+/g) || []).flatMap((u) => u.match(TOK) || []));
+  const outside = new Set(String(sent || '').replace(URL_RE, ' ').match(TOK) || []);
+  const url = new Set((String(sent || '').match(URL_RE) || []).flatMap((u) => u.match(TOK) || []).filter((t) => !outside.has(t)));
   return out.filter((x) => !(x.meant.match(TOK) || []).some((t) => url.has(t)) && x.heard !== x.meant && x.heard.length <= 20 && x.meant.length <= 30 && (/[A-Za-z]/.test(x.meant) || (!rewrite && x.meant.length <= 6)) && (!rewrite || (x.heard.length <= 12 && /^[A-Za-z0-9._\-/ ]+$/.test(x.meant)))).slice(0, 5);
 }
 // -> the corrections learned now
@@ -123,10 +128,20 @@ function rewritten(given, sent) {
   for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
   return L[0][0] < 0.6 * Math.min(a.length, b.length);
 }
+const SEG = String.raw`[A-Za-z0-9_.~+@=%#&$\u00c0-\u024f-]`;
+const CJK = '[\\u1100-\\u11ff\\u3040-\\u30ff\\u3130-\\u318f\\u3400-\\u9fff\\uac00-\\ud7af\\uf900-\\ufaff]';
+const PART = '(?:' + SEG + '|(?<!' + CJK + ')' + CJK + '+(?=' + SEG + '*\\.[A-Za-z0-9]{1,8}(?![A-Za-z0-9])))';
+// (tried from the start of a run of path characters only - from inside one it was tried again at every character, n²)
+// (a drive: a letter, a colon and a slash; right after a mark only a capital - out-C:\\x, e.g.C:/ - a small letter there
+// ends a name: util.c:src/x)
+const PATH = new RegExp('(?:(?<!' + SEG + ')[A-Za-z]:(?=[\\\\/])|(?<![A-Za-z0-9])[A-Z]:(?=[\\\\/])|(?<!' + SEG + '))' + PART + '*(?:[\\\\/]' + PART + '*)+', 'g');
 function newNames(given, sent) {
   const had = new Set((String(given || '').match(NAME) || []).map((x) => x.toLowerCase()));
-  // (not the pieces of a web address or of a path: C:\\work\\x.md, src/a.js)
-  const text = String(sent || '').replace(/https?:\/\/\S+/g, ' ').replace(/\S*[\\/]\S*/g, ' ');
+  // (not the pieces of a web address or of a path: C:\\work\\x.md, src/foo+bar.js, packages/@scope/tool - a path is made of
+  // the characters file and folder names use, with a slash in it, and ends at any other: a space, a colon, ? !, quotes and
+  // brackets, Chinese, Japanese or Korean - so the words written right next to a path stay; a drive, C:, only where no
+  // letter is written right before it)
+  const text = String(sent || '').replace(URL_RE, ' ').replace(PATH, ' ');
   return [...new Set((text.match(NAME) || []).filter((x) => x.length >= 2 && x.length <= 30 && !had.has(x.toLowerCase())))].slice(0, 5);
 }
 // -> what was learned: [{heard, meant}] for a correction, [{heard: '', meant}] for a word to listen for
