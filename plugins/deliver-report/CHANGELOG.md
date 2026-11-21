@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.7.3] - 2026-11-21
+### Fixed
+- 回覆草稿帶進原信附件沒有任何閘擋得住，模型還三次宣稱「讀回確認過沒帶入」。由來（2026-11-20 華邦合約回信）：用 `replyToMessageId` 掛原信串時，Gmail **伺服器端**會把原信附件整批複製進草稿——對方簽名檔的兩張 logo（image001.png／image002.png）就這樣進了回覆草稿；那些檔不在 `create_draft` 的 `attachments` 參數裡，PreToolUse 的 gmail-draft-attachment-gate 完全看不到。四道關卡同時失效：SKILL.md 寫了但只是文字提醒、PostToolUse 提醒連發三次沒被理、PreToolUse 看不到伺服器端加的檔、模型自己的「檢查」是無效驗證。**關鍵事實（實測三種 messageFormat 全部確認）：`create_draft`／`get_draft` 的回傳一律不含 `attachments`／`attachmentIds` 欄位（`FULL_CONTENT` 也沒有），`attachmentIds` 只出現在 `get_thread`／`search_threads` 讀既有信件時** —— 所以 `resultAttachmentCount` 對草稿恆回傳 0，「讀回沒看到附件」只代表欄位不存在，不代表附件區乾淨。做法：判準 `replyDraftsNeedingCleanup()` 加進 draft-checks.core.js（本回合成功建立且帶 `replyToMessageId` 的 `create_draft`，之後沒有導覽到該草稿 viewUrl 的 nav 事件 → 回報；`update_draft` 不觸發、上一回合建的不算、抽不到草稿 id 或呼叫失敗一律 fail-open），併進 Stop hook upload-count-gate（不另開一支：它本來就在讀 transcript、追草稿 id、比對附件，分開寫會把同一份解析複製兩份、各自演化再長出同型漏洞）；`mayTrigger` 加 `create_draft` 讓回覆草稿也能觸發全檔掃描。擋下時要求用 `browser_navigate` 開草稿 viewUrl 看附件區、點掉原信帶進來的檔；第二次 Stop（`stop_hook_active`）改提醒放行不卡死；瀏覽器工具在該 session 不可用時（新增 `browserAvailable()`：transcript 裡瀏覽器工具的呼叫是否全部回 error）自動退回提醒，並要求在回覆裡明講「這封是回覆草稿、可能已帶入原信附件，請在 Gmail 畫面上點掉」、**不得說「我確認過附件沒問題」**。SKILL.md 第三步之三要點 5 改寫：刪掉誤導的「`get_draft` 讀回檢查附件區也要看」（那句暗示 API 讀得到），改為明寫 API 驗不到、唯一有效檢查是開瀏覽器，並補上機械閘說明。新增 hooks/tests/reply-attachment.test.js（14 例：單元 11 ＋ evaluate 整合 3），以當日真實 transcript 實跑驗證——精確抓到該封草稿 r-1247992294936873129 與其回覆的原信 1a1ede924b06cddc，端對端確認 `decision: block` 與第二次放行皆正確；既有 22 支測試全綠。
+
 ## [2.7.2] - 2026-11-19
 ### Changed
 - SKILL.md 第三步之三「格式」區：新增「`<th>`／`<td>` 上允許 `style="padding:上下px 左右px"`」為 `style=` 禁令的唯一例外，並固化 fulin 認可的表格樣式（`<table border="1" cellspacing="0">` + 每個 `<th>`／`<td>` 加 `style="padding:3px 8px"`）。由來（2026-11-19 擁樂三案款項信草稿）：使用者先問「表格的框線呢」（純 `<table>` 無框線像對齊散文），加 `cellpadding="8"` 後又說「字跟框線隔很遠」（`cellpadding` 四邊同寬、Gmail 顯示偏鬆散）；最終指定「左右 padding 8、上下 3」——而 HTML 的 `cellpadding` 無法分左右上下，只能用 CSS `padding` 兩個值的簡寫。只開放 `padding` 一個屬性、只開放在 `<th>`／`<td>` 上；內文段落標籤仍一律禁 `style`（原因不變：使用者在 Gmail 編輯器修字會跑版）。

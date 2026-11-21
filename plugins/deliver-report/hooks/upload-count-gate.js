@@ -265,6 +265,36 @@ function evaluateUploads(events, ok, ups, start, solo) {
 
 function basename(p) { return String(p).split(/[\\/]/).pop(); }
 
+/**
+ * 瀏覽器工具在本 session 是否可用。
+ * 判準：transcript 裡出現過瀏覽器工具的 tool_use，且不是每一次都回 error。
+ * 工具被 deferred／MCP 斷線時，模型的呼叫會收到錯誤 → 視為不可用，
+ * 呼叫端改走「告知使用者自己點掉」，避免要求一件做不到的事而卡死 session。
+ * 從沒用過 → 回 true（沒用過不代表不可用，照強制路徑走；第二次 Stop 本來就會放行）。
+ */
+const BROWSER_TOOL = /(?:^|__)(?:browser_(?:navigate|snapshot|click|take_screenshot)|computer|javascript_tool)$/;
+function browserAvailable(lines) {
+  if (!Array.isArray(lines) || !lines.length) return true;
+  const ids = new Set();
+  const errs = new Set();
+  for (const l of lines) {
+    if (!l) continue;
+    if (l.indexOf('"tool_use"') === -1 && l.indexOf('"tool_result"') === -1) continue;
+    let o;
+    try { o = JSON.parse(l); } catch (_) { continue; }
+    if (!o || typeof o !== 'object') continue;
+    const c = o.message && o.message.content;
+    if (!Array.isArray(c)) continue;
+    for (const b of c) {
+      if (!b || typeof b !== 'object') continue;
+      if (o.type === 'assistant' && b.type === 'tool_use' && BROWSER_TOOL.test(C.safeStr(b.name))) ids.add(b.id);
+      else if (o.type === 'user' && b.type === 'tool_result' && ids.has(b.tool_use_id) && b.is_error === true) errs.add(b.tool_use_id);
+    }
+  }
+  if (!ids.size) return true;
+  return errs.size < ids.size;
+}
+
 /** 回傳 { problems, items, uploaded, wipeOnly? } 或 null（不歸這支管／判不出） */
 /**
  * 給 evaluate 的行，不把整份 transcript 讀成字串（數百 MB 時 hook 會記憶體不足崩潰，2026-11-11）。
@@ -287,7 +317,7 @@ function mayTrigger(l) {
   try { o = JSON.parse(l); } catch (_) { return false; }
   const c = o && o.type === 'assistant' && o.message && o.message.content;
   if (!Array.isArray(c)) return false;
-  return c.some((b) => b && b.type === 'tool_use' && (UPLOAD.test(C.safeStr(b.name)) || C.isGmailTool(C.safeStr(b.name), 'update_draft')));
+  return c.some((b) => b && b.type === 'tool_use' && (UPLOAD.test(C.safeStr(b.name)) || C.isGmailTool(C.safeStr(b.name), 'update_draft') || C.isGmailTool(C.safeStr(b.name), 'create_draft')));
 }
 function keepLine(l, ids) {
   if (!l) return false;
@@ -315,10 +345,17 @@ function evaluate(lines) {
   const { ups, solo } = attributeUploads(events, ok, keys);
   const wipes = crossTurnWipes(events, ok, ups, start);
   const r = evaluateUploads(events, ok, ups, start, solo);
-  if (!wipes.length) return r && r.problems.length ? r : null;
-  if (!r) return { problems: wipes, items: [], uploaded: [], wipeOnly: true };
-  r.problems.push(...wipes);
-  return r;
+  // 回覆草稿的原信附件殘留：Gmail 伺服器端複製進來的檔，API 一律讀不到，
+  // 只有實際開瀏覽器看過才算數（2026-11-20 實案，判準在 draft-checks.core.js）。
+  const replies = typeof C.replyDraftsNeedingCleanup === 'function'
+    ? C.replyDraftsNeedingCleanup(events, ok, start) : [];
+  const out = (!wipes.length)
+    ? (r && r.problems.length ? r : null)
+    : (!r ? { problems: wipes, items: [], uploaded: [], wipeOnly: true } : (r.problems.push(...wipes), r));
+  if (!replies.length) return out;
+  const base = out || { problems: [], items: [], uploaded: [] };
+  base.replyDrafts = replies;
+  return base;
 }
 
 function main(raw) {
@@ -330,7 +367,32 @@ function main(raw) {
   try { lines = readForEvaluate(tp); } catch (_) { return allow(); }
   if (!lines) return allow();
   const r = evaluate(lines);
-  if (!r || !r.problems.length) return allow();
+  if (!r) return allow();
+  if (!r.problems.length && !(r.replyDrafts && r.replyDrafts.length)) return allow();
+
+  // 回覆草稿：原信附件被 Gmail 複製進來，只能從瀏覽器看（API 讀不到）
+  if (r.replyDrafts && r.replyDrafts.length) {
+    const NL = String.fromCharCode(10);
+    const avail = browserAvailable(lines);
+    const list = r.replyDrafts.map((d) => '   ・草稿 ' + d.draft + '（回覆 ' + d.replyTo + '）').join(NL);
+    const head = '【回覆草稿的原信附件】這封帶 replyToMessageId，Gmail 已把原信附件整批複製進草稿附件區。' + NL + list + NL;
+    const why = 'create_draft／get_draft 的回傳一律不含附件欄位（三種 messageFormat 實測皆然），' + NL
+      + '所以「我讀回確認過沒帶入」是無效驗證，不得這樣宣稱。' + NL;
+    if (avail) {
+      const how = '做法：用 browser_navigate 開該草稿的 viewUrl，看附件區；有原信帶進來的檔（對方簽名檔圖片、' + NL
+        + '他原本的附件）就在畫面上點掉 ×，只留我方要附的檔。確認完再結束這一回合。';
+      if (payload.stop_hook_active === true) {
+        return emit({ systemMessage: head + why + how + NL + '（本回合已擋過一次，這次放行）' });
+      }
+      return emit({ decision: 'block', reason: head + why + how });
+    }
+    // 瀏覽器工具不可用 → 退回告知，不製造死結
+    const tell = '瀏覽器工具這個 session 不可用，無法代為清理。' + NL
+      + '請在回覆裡明確告訴使用者：這封是回覆草稿、Gmail 可能已帶入原信附件（對方簽名檔圖片等），' + NL
+      + '要他在 Gmail 畫面上點掉多餘的檔再寄出。不要說「我確認過附件沒問題」。';
+    return emit({ systemMessage: head + why + tell });
+  }
+  if (!r.problems.length) return allow();
 
   const body = [
     r.wipeOnly ? '草稿的附件被改內文的 update_draft 清掉了：' : '瀏覽器上傳的附件和信裡的附件清單對不上：',

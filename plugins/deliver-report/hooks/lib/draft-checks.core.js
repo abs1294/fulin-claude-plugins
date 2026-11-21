@@ -1050,6 +1050,52 @@ function attachmentListMismatch(input) {
 }
 
 
+/**
+ * 回覆草稿的原信附件殘留（replyDraftsNeedingCleanup）
+ *
+ * ── 為什麼會有這條（2026-11-20 實案）─────────────────────────
+ * 用 replyToMessageId 掛原信串時，Gmail 伺服器端會把**原信的附件整批複製**進新草稿，
+ * 那些檔不在 create_draft 的 attachments 參數裡，PreToolUse 完全看不到。
+ * 這次對方信的簽名檔有兩張 logo（image001.png／image002.png）跟著進了回覆草稿，
+ * 模型三次宣稱「讀回確認沒帶入」，使用者在 Gmail 畫面上才發現。
+ *
+ * ★ 關鍵事實（2026-11-20 實測三種 messageFormat 全部確認）：
+ *   create_draft／get_draft 的回傳**一律不含 attachments／attachmentIds 欄位**
+ *   （FULL_CONTENT 也沒有）。attachmentIds 只出現在 get_thread／search_threads
+ *   讀既有信件時。**所以 API 永遠驗不到草稿附件，resultAttachmentCount 對草稿恆為 0。**
+ *   任何「我讀回確認過附件沒帶入」的說法都是假的——只能從瀏覽器看。
+ *
+ * ── 判準 ─────────────────────────────────────────────────────
+ * 本回合（start 之後）有成功的 create_draft 且 tool_input.replyToMessageId 非空
+ *   → 該草稿必有原信附件殘留的風險，要求「實際去瀏覽器看過」：
+ *      合格證據＝該草稿建立之後，有一次導覽到它的 viewUrl（nav 事件 draft 命中）。
+ *      沒有 → 列為 problem。
+ * 瀏覽器工具不可用時由呼叫端退回「提醒」（見 upload-count-gate 的 browserSeen）。
+ *
+ * @param events  collect() 產出的事件陣列（含 kind/idx/input/draft/isUpdate）
+ * @param ok      (e) => 該事件沒出錯
+ * @param start   本回合起點 index
+ * @returns {Array<{draft:string, replyTo:string}>} 需要查看而沒查看的回覆草稿
+ */
+function replyDraftsNeedingCleanup(events, ok, start) {
+  if (!Array.isArray(events)) return [];
+  const need = [];
+  for (const e of events) {
+    if (!e || e.kind !== 'write' || e.idx <= start) continue;
+    if (e.isUpdate) continue;                       // 只有 create_draft 會觸發伺服器端複製
+    if (typeof ok === 'function' && !ok(e)) continue;
+    const replyTo = safeStr(e.input && e.input.replyToMessageId);
+    if (!replyTo) continue;
+    const draft = safeStr(e.draft);
+    if (!draft) continue;                           // 抽不到 id 就放行（fail-open）
+    const visited = events.some((n) => n && n.kind === 'nav' && n.idx > e.idx && safeStr(n.draft) === draft);
+    if (!visited) need.push({ draft, replyTo });
+  }
+  const seen = new Set();
+  return need.filter((n) => (seen.has(n.draft) ? false : (seen.add(n.draft), true)));
+}
+
+
 // ---- 簽名檔 ----
 // 2026-10-21 實測：create_draft 預設不帶 Gmail 網頁簽名檔，要 includeSignature: true 才會附上
 // （回覆草稿同樣有效）；update_draft 沒有這個參數，帶新的 htmlBody／body 會整段取代內文、
@@ -1471,4 +1517,5 @@ module.exports = {
   // 附件
   resultAttachmentCount, attachmentsTotalBytes, attachmentClaimWithoutFiles, attachmentListMismatch,
   parseAttachmentList, compareAttachmentList,
+  replyDraftsNeedingCleanup,
 };
