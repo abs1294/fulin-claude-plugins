@@ -8,8 +8,10 @@
 //                  existed keeps running as it did: on, with every source on.
 //   attachDays     how many days the attachments of a mail stay on this computer after the mail was last handed
 //                  to a conversation (default 30). Handing it over again fetches what is gone and starts the count anew.
-//   <id>On         one per source (gmailOn, slackOn, teamsOn, …): that source is fetched only when it is on.
-//                  A source is never fetched just because it happens to be available on this computer.
+//   <id>On         one per source (gmailOn, slackOn, teamsOn, …): false = you took its connection away (「刪除連接」).
+//                  A source is fetched whenever it is connected - Gmail signed in, a Slack token, Teams' data on this
+//                  computer - and not taken away (asked 2026-11-21: "why tick it - if it is connected, fetch it; give
+//                  a button to remove the connection instead"). Connecting it again sets it back.
 //   The settings each source needs are named by the source itself (lib/inbox/sources/<id>.js, fields).
 //   me             who you are: your mail addresses and names, separated by commas or line breaks. The Gmail
 //                  account's own address is always counted in, without being written here. Used to file
@@ -43,7 +45,7 @@ const Triage = require('./triage');
 
 const DEFAULTS = { enabled: false, me: '', triage: true, pollMinutes: 15, attachDays: 30 };
 const PURGE_EVERY_MS = 24 * 3600 * 1000;   // old attachments are cleaned once a day
-for (const x of Src.list) { DEFAULTS[x.id + 'On'] = false; for (const f of x.fields) DEFAULTS[f.key] = f.def; }
+for (const x of Src.list) { DEFAULTS[x.id + 'On'] = true; for (const f of x.fields) DEFAULTS[f.key] = f.def; }
 const SECRET_DIR = path.join(os.homedir(), '.customer-hub');
 // A customer-hub .env to take the first settings from, when one is named. Nothing is assumed about where
 // anyone keeps theirs: without SESSION_BOARD_OLD_ENV there is no such import, and the settings start empty.
@@ -82,12 +84,40 @@ class InboxService {
       } catch (e) {}
       config.setValue('inbox', s, this.dbFile);
     }
+    // Saved when each source had a switch to tick (off unless ticked): now a source is fetched once connected, so none
+    // is counted as taken away for having been left unticked - once, the first time these settings are read.
+    if (s.sourcesByConnection !== true) {
+      s = Object.assign({}, s, { sourcesByConnection: true }, Object.fromEntries(Src.list.map((x) => [x.id + 'On', true])));
+      config.setValue('inbox', s, this.dbFile);
+    }
     return Object.assign({}, DEFAULTS, s);
+  }
+
+  // 「刪除連接」: the source is not fetched any more, and what it was signed in with is let go of - Gmail's own token
+  // (the board's; customer-hub's is never touched), the Slack token. Connecting it again (Gmail's sign-in, a Slack token
+  // saved, Teams' 連接) sets it back. -> {ok}
+  disconnect(id) {
+    if (!Src.ids.includes(id)) return { ok: false, error: '沒有這個來源' };
+    this.settings();   // (old or missing settings put in their present form first - review 2026-11-21)
+    const s = config.value('inbox', {}, this.dbFile) || {};
+    const next = Object.assign({}, s, { [id + 'On']: false, sourcesByConnection: true });
+    if (id === 'gmail') { try { fs.unlinkSync(this.tokenFile); } catch (e) {} this.inbox.setState('gmail:reauth', null); }
+    if (id === 'slack') next.slackToken = '';
+    config.setValue('inbox', next, this.dbFile);
+    return { ok: true };
+  }
+  connect(id) {
+    if (!Src.ids.includes(id)) return { ok: false, error: '沒有這個來源' };
+    this.settings();
+    const s = config.value('inbox', {}, this.dbFile) || {};
+    config.setValue('inbox', Object.assign({}, s, { [id + 'On']: true, sourcesByConnection: true }), this.dbFile);
+    return { ok: true };
   }
 
   saveSettings(patch) {
     const cur = this.settings(), next = {};
     for (const k of Object.keys(DEFAULTS)) next[k] = cur[k];
+    next.sourcesByConnection = true;
     const num = (k, min, max) => { if (patch[k] === undefined) return null; const n = Number(patch[k]); if (!Number.isFinite(n) || n < min || n > max) return k; next[k] = Math.round(n); return null; };
     const fields = Src.list.flatMap((x) => x.fields);
     const bad = [['pollMinutes', 0, 1440], ['attachDays', 1, 3650]].concat(fields.filter((f) => f.type === 'number').map((f) => [f.key, f.min, f.max])).map((a) => num(...a)).find(Boolean);
@@ -100,6 +130,8 @@ class InboxService {
       if (next.me !== was) { config.setValue('inbox', next, this.dbFile); this.rejudgeMentions(); }
     }
     for (const f of fields) if (f.type !== 'number' && typeof patch[f.key] === 'string') next[f.key] = patch[f.key].trim().slice(0, 300);   // (me is handled above: it is a list)
+    // a Slack token given is the Slack connection made
+    if (typeof patch.slackToken === 'string' && patch.slackToken.trim() && cur.slackToken !== next.slackToken) next.slackOn = true;
     config.setValue('inbox', next, this.dbFile);
     return { ok: true };
   }
@@ -174,7 +206,7 @@ class InboxService {
       const on = s.enabled === true && s[x.id + 'On'] === true;
       return Object.assign({ id: x.id, name: x.name, kind: x.kind, on, routes: this.inbox.enabledRefs(x.id).length, routeHint: x.routeHint,
         fields: x.fields.map((f) => ({ key: f.key, label: f.label, placeholder: f.placeholder || '', type: f.type, secret: !!f.secret, min: f.min, max: f.max })) },
-        on ? x.status(this, s, cfg) : { configured: false, ready: false, text: '沒有開啟' });
+        s[x.id + 'On'] !== false ? x.status(this, s, cfg) : { configured: false, ready: false, text: '已刪除連接' });
     });
     const out = { enabled: s.enabled === true, lastPurge: this.lastPurge || null, sources, settings: shown, identities: this.identities(), last: this.last, running: !!this.running, counts: this.inbox.counts() };
     for (const x of sources) out[x.id] = x;   // also by its key
@@ -252,7 +284,7 @@ class InboxService {
           fs.writeFileSync(this.tokenFile, JSON.stringify({ refresh_token: j.refresh_token, scope: j.scope || SCOPE, obtained_at: Date.now() }, null, 1));
           this.inbox.setState('gmail:reauth', null);
           done(200, 'Gmail 已連接（唯讀）');
-          { const st = this.settings(); if (st.enabled === true && !st.gmailOn) this.saveSettings({ gmailOn: true }); }   // connecting it is asking for it
+          if (!this.settings().gmailOn) this.connect('gmail');   // signing in again is connecting it again
           this.poll('gmail').catch(() => {});
         } catch (e) { done(500, 'Gmail 沒有連接：' + String(e.message || e).slice(0, 200)); }
         finish();

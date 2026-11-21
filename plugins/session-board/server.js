@@ -1065,13 +1065,19 @@ function createServer(token, port, deps = {}) {
     version: () => VERSION,
     // once a day: what there is to update (read only - the marketplace asked for its newest versions), and whether the
     // board installed is newer than this one running; the page shows 「有新版本，點我更新」 only then
+    // The newest board is the one published on GitHub - the marketplace, just fetched again by plugin-manager - not the
+    // monorepo's working copy on this computer (asked 2026-11-21: "it is to check my GitHub repo, not only what is here":
+    // a version changed here and not pushed was said to be new, and on another computer nothing new was ever seen).
+    // Without plugin-manager, or when it could not fetch: the version installed (what /session-board would start).
     check: async () => {
       const inst = instNow();
-      const root = deps.boardRoot || Plugins.rootOf('session-board', inst, __dirname) || __dirname;
-      let newest = VERSION; try { newest = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8')).version || VERSION; } catch (e) {}
-      const board = { running: VERSION, newest };
-      if (!isOn('versions')) return { ok: true, behind: [], board };
+      let installed = VERSION;
+      const root = deps.boardRoot || (inst['session-board'] && inst['session-board'].root);
+      if (root) { try { installed = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8')).version || VERSION; } catch (e) {} }
+      if (!isOn('versions')) return { ok: true, behind: [], board: { running: VERSION, newest: installed, from: 'installed' } };
       const pm = await (deps.pluginManager || Plugins.pluginManager)(inst, { refresh: true, run: deps.pluginsRun });
+      const published = pm && pm.checked && pm.latest && pm.latest['session-board'];
+      const board = { running: VERSION, newest: published || installed, from: published ? 'github' : 'installed' };
       return { ok: !!(pm && pm.checked), error: (pm && pm.error) || '', behind: ((pm && pm.behind) || []).map((b) => ({ name: b.name, from: b.from, to: b.to })), board };
     },
     harnessDue: () => { if (!isOn('harness')) return []; const x = instNow().harness; return x ? [...new Set(x.installs.map((i) => i.project).filter(Boolean))].filter(isDir).map((p) => ({ folder: p, name: path.basename(p), st: Harness.stateOf(p) })).filter((p) => p.st.installed && p.st.due && p.st.due.length) : []; },
@@ -1301,6 +1307,27 @@ function createServer(token, port, deps = {}) {
         // the mic's own words (lib/vocab.js): this person's, on this computer
         if (p === '/api/vocab') return send(res, 200, Object.assign(Vocab.list(vocabSources()), { engine: config.value('voiceEngine', 'browser'), openaiKey: !!openaiKey() }));
         if (p === '/api/vocab/terms') return send(res, 200, { terms: Vocab.terms(vocabSources(), 100) });
+        // What the board does by itself on a timer (asked 2026-11-21: "fetching is a schedule too - show the system's own,
+        // hidden at first"): each with what it does, how often, whether it is on now, and when it last ran where known.
+        if (p === '/api/system-jobs') {
+          const st = auto ? auto.state() : {}, cfg = auto ? auto.settings() : {}, ib = inbox ? inbox.settings() : null;
+          const lastOf = (...xs) => { const t = xs.filter((x) => Number.isFinite(x) && x > 0); return t.length ? Math.max(...t) : null; };
+          const dayAt = (d) => (d ? new Date(d + 'T00:00:00').getTime() : null);
+          const connected = inbox ? inbox.status().sources.filter((x) => x.on && x.configured).map((x) => x.name) : [];
+          const jobs = [
+            { key: 'inbox', name: '收件抓取', what: '從連上的來源抓新訊息（' + (connected.join('、') || '沒有連上的來源') + '），抓完自動判讀', every: ib && ib.enabled && ib.pollMinutes ? '每 ' + ib.pollMinutes + ' 分鐘' : '只在按「現在抓取」時', on: !!(ib && ib.enabled && ib.pollMinutes && connected.length), last: inbox && inbox.last ? inbox.last.at : null, where: 'inbox' },
+            { key: 'check', name: '檢查更新', what: '向你的 GitHub（marketplace）問 plugin 與看板有沒有新版，有就顯示「有新版本」', every: '每天一次（失敗一小時後再試）', on: !!auto, last: st.check ? st.check.at : null, where: 'settings' },
+            { key: 'update', name: '自動更新 plugin', what: '把這台電腦裝的 plugin 更新到 GitHub 上的最新版', every: '每天 ' + (cfg.updateAt || '09:00') + ' 之後一次', on: !!(auto && cfg.update), last: dayAt(st.updateDay), where: 'settings' },
+            { key: 'cbm', name: '程式碼索引重建', what: '裝了 cbm-guard 的專案，索引落後最新 commit 就重建', every: '每個專案每 6 小時看一次', on: !!(auto && cfg.cbm && isOn('cbm')), last: lastOf(...Object.values(st.cbmAt || {})), where: 'settings' },
+            { key: 'harness', name: 'harness 健檢', what: '該健檢的專案開一個對話跑 /harness:review', every: '每天 10:00 之後最多一個專案', on: !!(auto && cfg.harness), last: dayAt(st.harnessDay), where: 'settings' },
+            { key: 'watchdog', name: '停住的對話', what: '對話卡住、撞到用量上限或伺服器錯誤時通知你，必要時叫它繼續', every: '每 30 秒', on: !!dog, last: null, where: 'settings' },
+            { key: 'budget', name: '額度預算', what: '這個月用量接近或超過你設的預算時通知', every: '每 10 分鐘', on: !deps.noSchedules, last: null, where: 'settings' },
+            { key: 'monthly', name: '月用量存檔', what: '把上個月的用量算好存起來，用量頁不用每次重算', every: '每 6 小時看一次', on: true, last: null, where: '' },
+            { key: 'workdays', name: '假日行事曆', what: '有「工作天」排程時，抓今年與明年的國定假日', every: '每天一次', on: schedules.list().some((s) => s.enabled && s.kind === 'custom' && s.rule && (s.rule.workday || /LW|FW/.test(s.rule.cron))), last: null, where: '' },
+            { key: 'keepalive', name: '看板守護', what: '看板沒在跑時自動把它開回來（Windows 工作排程 SessionBoardKeepAlive）', every: '每 ' + Keepalive.EVERY_MIN + ' 分鐘', on: !!Keepalive.isOn(), last: null, where: 'settings' },
+          ];
+          return send(res, 200, { jobs });
+        }
         if (p === '/api/auto') {
           // a check made by another board than this one (it was restarted, by /session-board or the button): stale - not shown
           let check = auto ? auto.checked() : null;
@@ -1330,6 +1357,7 @@ function createServer(token, port, deps = {}) {
           return send(res, 200, { states });
         }
         if (p === '/api/plugins') return send(res, 200, await pluginsView(false));
+        if (p === '/api/recommends') return send(res, 200, PluginFit.recommends());
         if (p === '/api/pluginfit') { const w = String(q.get('cwd') || ''); return send(res, 200, Object.assign({ state: 'none' }, fits.get(fitKey(w)) || {}, { installing: fitBusy.has(fitKey(w)), asking: fitAsking.has(fitKey(w)), canRun: !!Plugins.rootOf('plugin-manager', instNow()) })); }
         if ((p === '/api/goals' || p === '/api/goals/status') && !isOn('goal2')) return send(res, p === '/api/goals' ? 200 : 404, p === '/api/goals' ? { installed: false, runs: [] } : { ok: false, error: '這台電腦沒有裝 goal2' });
         if (p === '/api/goals') { const l = await goal2.list(); return send(res, 200, { installed: l.installed, version: l.version || '', error: l.error || '', runs: l.runs || [] }); }
@@ -1523,7 +1551,7 @@ function createServer(token, port, deps = {}) {
           }
         }
         if (!text.trim() && !images.length) return send(res, 400, { ok: false, error: 'empty message' });
-        const r = channels.send(sid, text, images);
+        const r = channels.send(sid, text, images, typeof body.echo === 'string' ? body.echo : '');
         fresh();
         return send(res, r.ok ? 200 : 409, r);
       }
@@ -1564,6 +1592,8 @@ function createServer(token, port, deps = {}) {
         let r; try { r = await explainAside(cwd, Aside.explainPrompt(x, Array.isArray(body.before) ? body.before : [])); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; } finally { explainBusy.delete(key); }
         return send(res, r.ok ? 200 : 502, r);
       }
+      // the list of others' plugins you recommend: changed through plugin-manager's register-external.js (lib/pluginfit.js)
+      if (p === '/api/recommends') { const r = await (deps.saveRecommend || PluginFit.saveRecommend)(body || {}); return send(res, r.ok ? 200 : 400, r); }
       // 外掛整合分析 (lib/pluginfit.js): started here, run in the background (minutes), read with GET /api/pluginfit.
       if (p === '/api/pluginfit/analyze') {
         const cwd = typeof body.cwd === 'string' ? body.cwd : '';
@@ -1945,6 +1975,8 @@ function createServer(token, port, deps = {}) {
         }
         if (p === '/api/inbox/route/delete') return send(res, 200, { ok: inbox.inbox.deleteRoute(body.routeId) });
         if (p === '/api/inbox/settings') { const r = inbox.saveSettings(body || {}); return send(res, r.ok ? 200 : 400, r); }
+        // a source's connection taken away (「刪除連接」) or made again (Teams; Gmail has its sign-in, Slack its token)
+        if (p === '/api/inbox/source') { const id = String(body.source || ''); const r = body.connect === true ? inbox.connect(id) : inbox.disconnect(id); return send(res, r.ok ? 200 : 400, r); }
         if (p === '/api/inbox/gmail/connect') {
           try { return send(res, 200, Object.assign({ ok: true }, await inbox.startGmailConnect())); }
           catch (e) { return send(res, 400, { ok: false, error: String(e.message || e).slice(0, 200) }); }
@@ -2235,6 +2267,7 @@ function createServer(token, port, deps = {}) {
     }
   });
   server.channels = channels;
+  server.autoTick = (now) => auto.tick(now);   // one round of lib/auto.js now (tests: their timers are off)
   // Also listen on this computer's Tailscale address (and only there), or stop doing so. -> {ok, listening, ip, name, error}
   server.setRemote = async (on) => {
     // off: not waited for - the request asking may have come through this very listener (it would wait for itself), and an

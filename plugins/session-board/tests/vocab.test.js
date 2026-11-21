@@ -45,3 +45,22 @@ test('your words: added, taken out; one of the board\'s own taken out is hidden 
 test('kept in this person\'s own board folder, nowhere else', () => {
   assert.strictEqual(V.FILE(), path.join(os.homedir(), '.claude', 'session-board', 'vocab.json'));
 });
+
+test('learning at the moment: a name put right in a sentence said again is a word to listen for; a pasted address is not', () => {
+  // (asked 2026-11-21: the tidying is to be right when it is done - no correcting later, no weekly tidy)
+  const V = require('../lib/vocab');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'v-')), 'v.json');
+  assert.deepStrictEqual(V.learn('我想要哥特那個分支先合併然後再推上去給大家看', '請把 git 分支合併後推上去，讓大家都能看到這次的改動', file), [{ heard: '', meant: 'git' }]);
+  assert.deepStrictEqual(V.learn('打開網頁', '打開 https://example.com/a 看看', file), []);
+  assert.deepStrictEqual(V.learn('哥特 push 一下', 'git push 一下', file), [{ heard: '哥特', meant: 'git' }]);
+  assert.deepStrictEqual(V.learn('今天天氣很好我們出去走走吧', '明天下雨我們待在家裡看書好了', file), []);
+  assert.deepStrictEqual([V.load(file).words.map((w) => w.term), V.load(file).fixes.map((x) => x.heard + '->' + x.meant)], [['git'], ['哥特->git']]);
+});
+
+test('words typed on after what the mic gave are not learned; nor the pieces of a path (review 2026-11-21)', () => {
+  const V = require('../lib/vocab');
+  const f = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'v-')), 'v.json');
+  assert.deepStrictEqual(V.learn('請把它改好', '請把它改好，順便跑 npm test', f()), []);
+  assert.deepStrictEqual(V.learn('我想要看那個檔案然後再推上去給大家看看吧', String.raw`請打開 C:\work\notes.md 和 src/app.js 再推上去給大家看看吧`, f()), []);
+  assert.deepStrictEqual(V.learn('我想要看那個檔案然後再推上去給大家看看吧', String.raw`請打開 C:\work\notes.md 再跟 vitest 一起推上去給大家看看吧`, f()), [{ heard: '', meant: 'vitest' }]);
+});

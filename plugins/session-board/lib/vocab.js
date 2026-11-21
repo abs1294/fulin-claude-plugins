@@ -88,9 +88,11 @@ function edits(given, sent) {
   // longest common subsequence, then the stretches that differ on both sides
   const L = Array.from({ length: a.length + 1 }, () => new Uint16Array(b.length + 1));
   for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
-  // rewritten rather than corrected (less than 6 in 10 words kept): nothing to learn from it
+  // rewritten rather than corrected (less than 6 in 10 words kept): only the words written with letters that were put
+  // right in it are learned ("哥特" -> "git" inside a sentence said again) - a rewritten sentence is not a mishearing, the
+  // name it fixed is (asked 2026-11-21: the tidying is to be right at the moment it is done)
   // (a few words only - "哥特 push" -> "git push" - is a correction whatever the share)
-  if (Math.min(a.length, b.length) >= 5 && L[0][0] < 0.6 * Math.min(a.length, b.length)) return [];
+  const rewrite = Math.min(a.length, b.length) >= 5 && L[0][0] < 0.6 * Math.min(a.length, b.length);
   const out = []; let i = 0, j = 0, da = [], db = [];
   const join = (xs) => xs.reduce((s, x) => s + (s && /[A-Za-z0-9]$/.test(s) && /^[A-Za-z0-9]/.test(x) ? ' ' : '') + x, '');
   const flush = () => { if (da.length && db.length) out.push({ heard: join(da), meant: join(db) }); da = []; db = []; };
@@ -104,11 +106,41 @@ function edits(given, sent) {
   flush();
   // a correction, not a rewrite: short on both sides, and something to hear differently (letters in what you meant, or
   // a few characters swapped)
-  return out.filter((x) => x.heard !== x.meant && x.heard.length <= 20 && x.meant.length <= 30 && (/[A-Za-z]/.test(x.meant) || x.meant.length <= 6)).slice(0, 5);
+  // a web address pasted in is not a word misheard (its pieces would be learned as one: 網頁 -> https example.com/a)
+  const url = new Set((String(sent || '').match(/https?:\/\/\S+/g) || []).flatMap((u) => u.match(TOK) || []));
+  return out.filter((x) => !(x.meant.match(TOK) || []).some((t) => url.has(t)) && x.heard !== x.meant && x.heard.length <= 20 && x.meant.length <= 30 && (/[A-Za-z]/.test(x.meant) || (!rewrite && x.meant.length <= 6)) && (!rewrite || (x.heard.length <= 12 && /^[A-Za-z0-9._\-/ ]+$/.test(x.meant)))).slice(0, 5);
 }
 // -> the corrections learned now
+// Names written with letters that are in what you sent and were not in what the mic gave you ("git", "session-board"):
+// when what you changed cannot be paired with what was heard (a sentence said again), these are still words to listen
+// for next time (asked 2026-11-21: the tidying is to be right at the moment it is done). Not ones in a web address.
+const NAME = /[A-Za-z][A-Za-z0-9._\-]*[A-Za-z0-9]/g;
+// Said again rather than corrected: under 6 in 10 of the words kept (as edits() judges it)
+function rewritten(given, sent) {
+  const a = String(given || '').match(TOK) || [], b = String(sent || '').match(TOK) || [];
+  if (Math.min(a.length, b.length) < 5 || a.length > 400 || b.length > 400) return false;
+  const L = Array.from({ length: a.length + 1 }, () => new Uint16Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  return L[0][0] < 0.6 * Math.min(a.length, b.length);
+}
+function newNames(given, sent) {
+  const had = new Set((String(given || '').match(NAME) || []).map((x) => x.toLowerCase()));
+  // (not the pieces of a web address or of a path: C:\\work\\x.md, src/a.js)
+  const text = String(sent || '').replace(/https?:\/\/\S+/g, ' ').replace(/\S*[\\/]\S*/g, ' ');
+  return [...new Set((text.match(NAME) || []).filter((x) => x.length >= 2 && x.length <= 30 && !had.has(x.toLowerCase())))].slice(0, 5);
+}
+// -> what was learned: [{heard, meant}] for a correction, [{heard: '', meant}] for a word to listen for
 function learn(given, sent, file) {
-  const got = edits(given, sent); if (!got.length) return [];
+  const got = edits(given, sent);
+  if (!got.length) {
+    // only a sentence said again: words typed on after what the mic gave ("…，順便跑 npm test") are not names misheard
+    if (!rewritten(given, sent)) return [];
+    const names = newNames(given, sent); if (!names.length) return [];
+    const v = load(file), now = Date.now(), added = [];
+    for (const t of names) if (!v.words.some((w) => w.term.toLowerCase() === t.toLowerCase()) && v.words.length < MAX_WORDS) { v.words.push({ term: clean(t), at: now, learned: true }); added.push({ heard: '', meant: clean(t) }); }
+    if (added.length) save(v, file);
+    return added;
+  }
   const v = load(file), now = Date.now();
   for (const x of got) {
     const f = v.fixes.find((y) => y.heard === clean(x.heard) && y.meant === clean(x.meant));
@@ -120,4 +152,4 @@ function learn(given, sent, file) {
   save(v, file); return got;
 }
 
-module.exports = { FILE, load, save, list, terms, fixes, add, remove, unlearn, edits, learn, autoTerms, clean, MAX_WORDS };
+module.exports = { FILE, load, save, list, terms, fixes, add, remove, unlearn, edits, learn, newNames, rewritten, autoTerms, clean, MAX_WORDS };

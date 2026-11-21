@@ -84,3 +84,56 @@ test('a name starting with "-" is never one: it would go into the install comman
   const c = new Map([['-x@y', { ref: '-x@y' }], ['ok@m', { ref: 'ok@m' }]]);
   assert.deepStrictEqual(F.readResult('{"plugins":[{"ref":"-x@y"},{"ref":"ok@m"}]}', c, new Set()).plugins.map((x) => x.ref), ['ok@m']);
 });
+
+test('the recommend list: changed only through plugin-manager\'s register-external.js, its arguments checked first', async () => {
+  if (!F.recommends().writable) return;   // (a computer without plugin-manager's monorepo: nothing to change)
+  const ran = [];
+  const run = (exe, args, o, cb) => { ran.push(args.slice(1)); cb(null, 'ok', ''); };
+  assert.deepStrictEqual(await F.saveRecommend({ key: 'x@m', source: 'o/r', note: '做什麼', tags: 'a, b', installMethod: 'skill-copy' }, { run }), { ok: true, out: 'ok' });
+  assert.deepStrictEqual(ran.pop(), ['x@m', 'o/r', '做什麼', '--tags', 'a,b', '--install-method', 'skill-copy']);
+  assert.deepStrictEqual(await F.saveRecommend({ remove: 'x@m' }, { run }), { ok: true, out: 'ok' });
+  assert.deepStrictEqual(ran.pop(), ['--remove', 'x@m']);
+  for (const bad of [{ key: '-x@m', source: 'o/r', note: 'n' }, { key: 'x@m', source: '', note: 'n' }, { key: 'x@m', source: 'o/r', note: '--tags evil' }, { remove: 'not a name' }]) assert.strictEqual((await F.saveRecommend(bad, { run })).ok, false, JSON.stringify(bad));
+  assert.strictEqual(ran.length, 0, 'nothing run for those');
+  const r = F.recommends(); assert.ok(Array.isArray(r.items) && r.items.every((x) => F.REF.test(x.key) || x.key.includes('@')));
+});
+
+test('an overall weighing: what to take away is only ever something this folder has', () => {
+  const c = F.candidates(SRC);
+  const have = new Set(['git-commit@fulin-plugins', 'cbm-guard@fulin-plugins']);
+  const r = F.readResult('{"plugins":[],"skip":[],"reconsider":[{"ref":"cbm-guard@fulin-plugins","why":"重疊"},{"ref":"not-here@x","why":"x"},{"ref":"cbm-guard@fulin-plugins","why":"twice"}]}', c, have);
+  assert.deepStrictEqual(r.reconsider, [{ ref: 'cbm-guard@fulin-plugins', why: '重疊' }]);
+  assert.deepStrictEqual(F.readResult('{"plugins":[]}', c, have).reconsider, [], 'none said: none');
+});
+
+test('a plugin the folder\'s own settings switch off is never recommended back', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-fit-'));
+  fs.mkdirSync(path.join(dir, '.claude'));
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: { 'harness@fulin-plugins': false, 'codex@openai-codex': false } }));
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.local.json'), JSON.stringify({ enabledPlugins: { 'codex@openai-codex': true } }));
+  const off = F.switchedOff(dir);
+  assert.deepStrictEqual([...off], ['harness@fulin-plugins'], 'the local file has the last word');
+  const r = F.readResult('{"plugins":[{"ref":"harness@fulin-plugins","why":"x"},{"ref":"codex@openai-codex","why":"y"}],"skip":[{"ref":"harness@fulin-plugins","why":"刻意關掉"}]}', F.candidates(SRC), new Set(), off);
+  assert.deepStrictEqual([r.plugins.map((x) => x.ref), r.skip.map((x) => x.ref)], [['codex@openai-codex'], ['harness@fulin-plugins']], 'not recommended; may still be said why not');
+  assert.ok(F.prompt(dir, SRC, new Set(), '', off).includes('harness@fulin-plugins'), 'the analysis is told');
+});
+
+test('a skill-copy entry is installed by copying its one folder from GitHub into the project (git stood in for)', async () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-fit-'));
+  const ran = [];
+  // a stand-in git: the clone makes the folder with a SKILL.md in it
+  const run = (exe, args, o, cb) => { ran.push(args.join(' ')); if (args[0] === 'clone') { const repo = args[args.length - 1]; fs.mkdirSync(path.join(repo, 'huashu-slides', 'scripts'), { recursive: true }); fs.writeFileSync(path.join(repo, 'huashu-slides', 'SKILL.md'), '# x'); fs.mkdirSync(path.join(repo, '.git')); } cb(null, '', ''); };
+  const x = { ref: 'huashu-slides@huashu-skills', skillCopy: true, source: 'https://github.com/alchaincyf/huashu-skills/tree/master/huashu-slides' };
+  const out = await F.apply(proj, [x], { run });
+  assert.strictEqual(out[0].ok, true, JSON.stringify(out));
+  assert.ok(fs.existsSync(path.join(proj, '.claude', 'skills', 'huashu-slides', 'SKILL.md')));
+  assert.ok(!fs.existsSync(path.join(proj, '.claude', 'skills', 'huashu-slides', '.git')));
+  assert.ok(ran[0].startsWith('clone --depth 1 --filter=blob:none --sparse --branch master https://github.com/alchaincyf/huashu-skills.git'), ran[0]);
+  assert.match(ran[1], /sparse-checkout set --no-cone \/huashu-slides\//);
+  // there already: not overwritten; not a GitHub folder, or climbing out: not fetched at all
+  ran.length = 0;
+  assert.match((await F.apply(proj, [x], { run }))[0].note, /不覆蓋/);
+  assert.match((await F.apply(proj, [Object.assign({}, x, { ref: 'a@b', source: 'https://example.com/x' })], { run }))[0].note, /不是 GitHub/);
+  assert.match((await F.apply(proj, [Object.assign({}, x, { ref: 'c@b', source: 'https://github.com/a/b/tree/main/../etc' })], { run }))[0].note, /不是 GitHub/);
+  assert.deepStrictEqual(ran, [], 'nothing fetched for those');
+});

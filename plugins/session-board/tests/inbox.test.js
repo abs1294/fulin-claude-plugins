@@ -282,12 +282,17 @@ test('InboxService: settings start from the old .env, one fetch at a time, a fai
   fs.writeFileSync(path.join(d, 'token.json'), JSON.stringify({ refresh_token: 'old' }));
   const svc = new InboxService({ db: path.join(d, 'b.db'), secretDir: d, oldEnv: path.join(d, 'old.env'), fetch: async () => json({ error: 'invalid_grant' }) });
   assert.deepStrictEqual([svc.settings().gmailLabel, svc.settings().gmailDays, svc.settings().teamsSelfId, svc.settings().teamsDays, svc.settings().pollMinutes], ['', 7, '8:live:me', 3, 15]);   // the old label is not carried over: all mail is fetched
-  // A new installation: the inbox is off, every source is off, and nothing is read whoever asks.
-  assert.deepStrictEqual([svc.settings().enabled, svc.settings().gmailOn, svc.settings().teamsOn, svc.enabled(), svc.tick()], [false, false, false, false, false]);
-  assert.deepStrictEqual([(await svc.poll()).off, (await svc.poll('gmail')).results.length, svc.last, svc.status().gmail.on, svc.status().gmail.text], [true, 0, null, false, '沒有開啟']);
-  // On, but only the sources switched on are read: Gmail is, Teams is not.
-  assert.strictEqual(svc.saveSettings({ enabled: true, gmailOn: true }).ok, true);
+  // A new installation: the inbox is off and nothing is read whoever asks; no source has been taken away (2026-11-21:
+  // a source is fetched once connected - there is no switch to tick)
+  assert.deepStrictEqual([svc.settings().enabled, svc.settings().gmailOn, svc.settings().teamsOn, svc.enabled(), svc.tick()], [false, true, true, false, false]);
+  // (nothing fetched; what a source has is still said - review 2026-11-21: with the inbox off every source read 「還沒連接」)
+  assert.deepStrictEqual([(await svc.poll()).off, (await svc.poll('gmail')).results.length, svc.last, svc.status().gmail.on], [true, 0, null, false]);
+  assert.notStrictEqual(svc.status().gmail.text, '沒有開啟');
+  // On: a source whose connection was taken away (「刪除連接」) is not read
+  assert.strictEqual(svc.saveSettings({ enabled: true }).ok, true);
+  assert.deepStrictEqual(svc.disconnect('teams'), { ok: true });
   assert.deepStrictEqual((await svc.poll('teams')).results.map((x) => [x.source, x.skipped, x.off]), [['teams', true, true]]);
+  assert.deepStrictEqual([svc.connect('teams'), svc.settings().teamsOn, svc.disconnect('nope').ok], [{ ok: true }, true, false]);
   svc.last = null;
   assert.strictEqual(svc.saveSettings({ pollMinutes: -1 }).ok, false);
   assert.strictEqual(svc.saveSettings({ slackDays: 0 }).ok, false);   // a source's own number, checked against the range it names
@@ -557,4 +562,42 @@ test('attachments are kept for a set number of days from the last hand-over; han
   assert.strictEqual(fs.existsSync(path.join(dir, 'aaaaaa05')), true);
   svc.tick(now + 25 * 3600000);
   assert.strictEqual(fs.existsSync(path.join(dir, 'aaaaaa05')), false);
+});
+
+test('InboxService: a source is fetched once connected; 刪除連接 lets go of what it was signed in with', async () => {
+  const d = tmp();
+  fs.writeFileSync(path.join(d, 'credentials.json'), JSON.stringify({ installed: { client_id: 'cid', client_secret: 'sec' } }));
+  const svc = new InboxService({ db: path.join(d, 'b.db'), secretDir: d, oldEnv: '', tokenFile: path.join(d, 'gmail-token.json'), fetch: async () => json({}) });
+  // settings saved back when each source had a box to tick, none ticked: none counts as taken away now
+  require('../lib/config').setValue('inbox', { enabled: true, gmailOn: false, slackOn: false, teamsOn: false }, path.join(d, 'b.db'));
+  assert.deepStrictEqual([svc.settings().gmailOn, svc.settings().slackOn, svc.settings().teamsOn], [true, true, true]);
+  // Gmail: the board's own token is deleted, and Gmail is not read even with customer-hub's token still there
+  fs.writeFileSync(path.join(d, 'gmail-token.json'), JSON.stringify({ refresh_token: 'mine' }));
+  fs.writeFileSync(path.join(d, 'token.json'), JSON.stringify({ refresh_token: 'hub' }));
+  svc.disconnect('gmail');
+  assert.deepStrictEqual([fs.existsSync(path.join(d, 'gmail-token.json')), fs.existsSync(path.join(d, 'token.json')), svc.settings().gmailOn], [false, true, false]);
+  assert.deepStrictEqual((await svc.poll('gmail')).results.map((x) => [x.source, x.off]), [['gmail', true]]);
+  // Slack: the token is cleared; a token given again is the connection made again
+  svc.saveSettings({ slackToken: 'xoxb-1' }); svc.disconnect('slack');
+  assert.deepStrictEqual([svc.settings().slackToken, svc.settings().slackOn], ['', false]);
+  svc.saveSettings({ slackToken: 'xoxb-2' });
+  assert.deepStrictEqual([svc.settings().slackToken, svc.settings().slackOn], ['xoxb-2', true]);
+  // a later saving of the settings does not bring a taken-away source back
+  svc.saveSettings({ pollMinutes: 5 });
+  assert.strictEqual(svc.settings().gmailOn, false);
+});
+
+test('InboxService: the sources say whether they are connected with the inbox off; taking one away first thing keeps the rest (review 2026-11-21)', () => {
+  const d = tmp();
+  fs.writeFileSync(path.join(d, 'credentials.json'), JSON.stringify({ installed: { client_id: 'cid', client_secret: 'sec' } }));
+  fs.writeFileSync(path.join(d, 'gmail-token.json'), JSON.stringify({ refresh_token: 'mine' }));
+  const db = path.join(d, 'b.db');
+  // settings from before, never read yet: the first thing done is a disconnect
+  require('../lib/config').setValue('inbox', { enabled: false, gmailOn: false, slackOn: false, teamsOn: false }, db);
+  const svc = new InboxService({ db, secretDir: d, oldEnv: '', tokenFile: path.join(d, 'gmail-token.json'), fetch: async () => json({}) });
+  svc.disconnect('slack');
+  assert.deepStrictEqual([svc.settings().enabled, svc.settings().gmailOn, svc.settings().slackOn, svc.settings().teamsOn], [false, true, false, true], 'the inbox stays off; only Slack taken away');
+  // with the inbox off, Gmail still says it is connected (its token is there); Slack says it was taken away
+  const st = svc.status();
+  assert.deepStrictEqual([st.gmail.configured, st.slack.text], [true, '已刪除連接']);
 });

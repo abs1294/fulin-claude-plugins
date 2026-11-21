@@ -541,9 +541,11 @@ class Channels {
   // with the conversation, so that a restart of the board does not lose what you ran and have not sent yet.
   _shellChanged(c) { this._emit(c, { type: 'shell', notes: c.shellNotes || [] }); this._save(); }
 
-  send(sid, text, images) {
+  // echo: the id the page that sent it gave it, so that page does not show it twice (it drew it already)
+  send(sid, text, images, echo) {
     const c = this.map.get(sid);
     if (!c) return { ok: false, error: 'no such channel' };
+    const said = String(text || '');   // what is shown: not the notes of commands run, put in front below
     if (Array.isArray(c.shellNotes) && c.shellNotes.length) { text = require('./shell').noteText(c.shellNotes) + '\n' + String(text || ''); c.shellNotes = []; this._shellChanged(c); }
     const imgs = Array.isArray(images) && images.length ? images : null;
     // A message can be sent at any time, and it is handed to Claude Code at once - also while Claude is working, and
@@ -556,6 +558,10 @@ class Channels {
     // -> {ok, queued: false, mid}   mid: it went in while a turn was running
     const mid = !!c.proc && (c.state === 'busy' || c.pending.size > 0);
     const r = this._deliver(c, text, imgs);
+    // Every page showing this conversation is told what was said, whoever said it: a message sent by the board itself (a
+    // room's 處理, an approval, a schedule, a message from another session) was not shown until the transcript was read
+    // again - the conversation stood empty under its first reply (asked 2026-11-21)
+    if (r.ok) this._emit(c, { type: 'user', text: said, images: imgs ? imgs.length : 0, echo: typeof echo === 'string' ? echo.slice(0, 40) : '' });
     return r.ok ? Object.assign(r, { mid }) : r;
   }
 

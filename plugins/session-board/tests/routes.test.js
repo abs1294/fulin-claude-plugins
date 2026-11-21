@@ -417,6 +417,32 @@ test('外掛分析: analysed in the background, kept in a file, only its own ans
   assert.strictEqual(again.state, 'done'); s3.close(); if (s3.closeAllConnections) s3.closeAllConnections();
 });
 
+test('a source of the inbox: its connection taken away and made again from the page', async () => {
+  asked.add('POST /api/inbox/source');
+  assert.strictEqual((await post('/api/inbox/source', { source: 'nope' })).status, 400);
+  assert.deepStrictEqual((await post('/api/inbox/source', { source: 'teams' })).json, { ok: true });
+  assert.deepStrictEqual((await post('/api/inbox/source', { source: 'teams', connect: true })).json, { ok: true });
+});
+
+test('系統排程: what the board does by itself on a timer, each with how often and whether it is on', async () => {
+  asked.add('GET /api/system-jobs');
+  const r = await get('/api/system-jobs'); assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual(r.json.jobs.map((x) => x.key), ['inbox', 'check', 'update', 'cbm', 'harness', 'watchdog', 'budget', 'monthly', 'workdays', 'keepalive']);
+  for (const x of r.json.jobs) assert.ok(x.name && x.what && x.every && typeof x.on === 'boolean', x.key);
+});
+
+test('the recommend list: read, and changed through plugin-manager (its script stood in for)', async () => {
+  for (const x of ['GET /api/recommends', 'POST /api/recommends']) asked.add(x);
+  const r = await get('/api/recommends'); assert.strictEqual(r.status, 200); assert.ok(Array.isArray(r.json.items));
+  const pp = await freePort(); const got = [];
+  const s = createServer(TOKEN, pp, { channels, noTimers: true, noSchedules: true, out, saveRecommend: async (x) => { got.push(x); return x.key === 'bad' ? { ok: false, error: 'no' } : { ok: true }; } });
+  await new Promise((res) => s.listen(pp, '127.0.0.1', res));
+  const call = (b) => new Promise((resolve) => { const d = Buffer.from(JSON.stringify(b)); const q = http.request({ host: '127.0.0.1', port: pp, path: '/api/recommends', method: 'POST', headers: { 'x-board-token': TOKEN, 'content-type': 'application/json', 'content-length': d.length } }, (res) => { let t = ''; res.on('data', (c) => { t += c; }); res.on('end', () => resolve(res.statusCode)); }); q.write(d); q.end(); });
+  assert.deepStrictEqual([await call({ key: 'a@b', source: 'o/r', note: 'n' }), await call({ key: 'bad' })], [200, 400]);
+  assert.deepStrictEqual(got.map((x) => x.key), ['a@b', 'bad']);
+  s.close(); if (s.closeAllConnections) s.closeAllConnections();
+});
+
 test('a name given on the board stays above every other title; empty gives the automatic one back', async () => {
   asked.add('POST /api/rename');
   const of = async (sid) => { await new Promise((r) => setTimeout(r, 1100)); return (await get('/api/sessions')).json.sessions.find((x) => x.sessionId === sid); };
@@ -1654,4 +1680,31 @@ test('no address is left without a test', WIN_ONLY, () => {
   const missing = [...routes].filter((r) => !asked.has(r) && !(r === 'GET /api/send'));
   assert.ok(routes.size >= 60, 'the list was read: ' + routes.size);
   assert.deepStrictEqual(missing, [], 'addresses in server.js that this file never asked for');
+});
+
+test('a newer board is the one on GitHub (the marketplace just fetched), not the copy on this computer', async () => {
+  // (asked 2026-11-21: "it is to check my GitHub repo, not only what is here")
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-boardroot-'));
+  fs.mkdirSync(path.join(here, '.claude-plugin')); fs.writeFileSync(path.join(here, '.claude-plugin', 'plugin.json'), JSON.stringify({ version: '99.0.0' }));
+  const VERSION = require('../.claude-plugin/plugin.json').version;
+  const run = async (pm) => {
+    const pp = await freePort();
+    const s = createServer(TOKEN, pp, { channels, noTimers: true, noSchedules: true, out, boardRoot: here, pluginsInstalled: () => ({ 'plugin-manager': { name: 'plugin-manager', installs: [{ scope: 'user' }] } }), pluginManager: async () => pm });
+    await new Promise((r) => s.listen(pp, '127.0.0.1', r));
+    require('../lib/config').setValue('autoState', null);
+    await s.autoTick(Date.now());
+    const j = await new Promise((resolve) => http.get({ host: '127.0.0.1', port: pp, path: '/api/auto', headers: { 'x-board-token': TOKEN } }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve(JSON.parse(d))); }));
+    s.close(); if (s.closeAllConnections) s.closeAllConnections();
+    return j.check;
+  };
+  // GitHub has the running one: nothing new, though this computer's copy says 99.0.0 (changed here, not published)
+  const same = await run({ checked: true, latest: { 'session-board': VERSION }, behind: [] });
+  assert.deepStrictEqual([same.board.newest, same.board.from, same.need], [VERSION, 'github', false]);
+  // GitHub has a newer one: said so
+  const ahead = await run({ checked: true, latest: { 'session-board': '98.0.0' }, behind: [] });
+  assert.deepStrictEqual([ahead.board.newest, ahead.board.from, ahead.need], ['98.0.0', 'github', true]);
+  // GitHub could not be asked: the installed one, and said where it came from
+  const off = await run({ checked: false, error: 'offline', latest: {}, behind: [] });
+  assert.deepStrictEqual([off.board.newest, off.board.from, off.ok], ['99.0.0', 'installed', false]);
+  require('../lib/config').setValue('autoState', null);
 });

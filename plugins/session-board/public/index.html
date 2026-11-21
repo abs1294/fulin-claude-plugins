@@ -10,6 +10,9 @@
   [hidden] { display: none !important; }
   :root {
     --r-s: 4px; --r-m: 8px; --r-l: 12px;   /* corner radii: small (chips, code), medium (buttons, cards), large (panels, rooms) */
+    /* the edge of something that can be pressed (a button, a segmented switch, a day to pick): 3 to 1 against the page
+       and the side in every look, as WCAG asks of a control's edge (measured 2026-11-21: --line was 1.14 to 1) */
+    --ctl: color-mix(in srgb, var(--ink) 58%, var(--bg));
     --bg: #FFFFFF; --side: #F7F7F5; --ink: #37352F; --dim: #676664; --faint: #73716B;
     --sb: #C4C4C0; --sb-hover: #9B9A97;
     --line: #E9E9E7; --hover: #EFEFED; --active: #E8E7E3; --bubble: #F1F1EF; --code: #F7F6F3;
@@ -209,7 +212,7 @@
   .bell-pop details > summary::before { content: "\25B8  "; } .bell-pop details[open] > summary::before { content: "\25BE  "; }
   .bell-pop .list-more { margin: 6px 14px 0; width: calc(100% - 28px); }   /* 100% and the side margins: wider than the box, which then slid sideways */
   .side-top h1 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; padding-left: 6px; }
-  .btn { border: 1px solid var(--line); background: var(--bg); border-radius: var(--r-m); padding: 5px 10px; font-size: 14px; white-space: nowrap; }
+  .btn { border: 1px solid var(--ctl); background: var(--bg); border-radius: var(--r-m); padding: 5px 10px; font-size: 14px; white-space: nowrap; }
   .btn:hover { background: var(--hover); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .btn.primary:hover { filter: brightness(1.06); background: var(--accent); }
@@ -367,12 +370,29 @@
   .room-head button { border: 0; background: none; color: var(--dim); border-radius: var(--r-s); padding: 0 6px; font-size: 16px; line-height: 20px; }
   .room-head button:hover { background: var(--hover); color: var(--ink); }
   /* a word button among the icon ones: framed, so it reads as one that can be pressed */
-  .room-head button.fit { border: 1px solid var(--line); color: var(--ink); font-size: 13px; padding: 0 8px; flex: none; }
+  /* the look of the board's other buttons (處理, 重建 …): the page's ground, a step lighter than the row, and the 3:1 edge.
+     Transparent it took the row's colour and read as a label; a tint mixed from the accent was a colour no look defines
+     (asked 2026-11-21: "these looks have no secondary colours?" - they have none: accent, amber, red, green only) */
+  .room-head button.fit { border: 1px solid var(--ctl); background: var(--bg); color: var(--ink); font-size: 13px; padding: 0 10px; flex: none; }
+  .room-head button.fit:hover { background: var(--hover); color: var(--ink); }
   .room-head button.fit.has { border-color: var(--accent); color: var(--accent); }
   .fit-list .pf { display: flex; gap: 10px; align-items: flex-start; padding: 10px 16px; border-bottom: 1px solid var(--line); }
   .fit-list .pf input { margin-top: 3px; }
   .fit-list .pf b { display: block; font-size: 14px; }
   .fit-list .pf small { display: block; color: var(--dim); margin-top: 2px; white-space: pre-line; overflow-wrap: anywhere; }
+  .rec-row .pl-m small { display: block; white-space: pre-line; color: var(--dim); margin-top: 2px; overflow-wrap: anywhere; }
+  .rec-row .pl-s { display: inline-flex; gap: 6px; flex: none; }
+  .rec-add { margin-top: 10px; } .rec-add > summary { cursor: pointer; color: var(--accent); padding: 6px 0; }
+  .vocab-peek { padding: 4px 16px 16px; }
+  .sysjobs { margin-top: 32px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .sysjobs > summary { cursor: pointer; font-weight: 600; padding: 6px 0; color: var(--ink); }
+  .sysjob { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .sysjob > div { flex: 1; }
+  .sysjob b { margin-right: 8px; }
+  .sysjob .tag { font-size: 12px; color: var(--green); }
+  .sysjob.off .tag { color: var(--dim); }
+  .sysjob .sj-what { color: var(--ink); font-size: 14px; margin-top: 2px; }
+  .sysjob .sj-when { color: var(--dim); font-size: 13px; margin-top: 2px; }
   .fit-thread { padding: 0 16px; display: flex; flex-direction: column; gap: 8px; }
   .fit-thread .msg.user { align-self: flex-end; max-width: 85%; background: var(--bubble); border-radius: 14px; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .fit-thread .msg.assistant { min-width: 0; overflow-wrap: anywhere; }
@@ -443,16 +463,16 @@
   .sc-f .line input[type=text]:not([data-pick]) { flex: 1 1 220px; }
   /* where a row does not fit (a phone): onto the next line, each word whole - not squeezed into a column of letters and
      cut off at the edge (measured 2026-11-20 at 400 px: 44 px wide, 212 px tall, the last one past the screen) */
-  .seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; border: 1px solid var(--line); border-radius: var(--r-m); overflow: hidden; }
+  .seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; border: 1px solid var(--ctl); border-radius: var(--r-m); overflow: hidden; }
   .seg button { border: 0; background: var(--bg); padding: 5px 12px; font-size: 14px; border-left: 1px solid var(--line); white-space: nowrap; flex: 1 0 auto; }
   .seg button:first-child { border-left: 0; }
   .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .wd { display: inline-flex; gap: 4px; }
-  .wd button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); font-size: 14px; padding: 0; }
+  .wd button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--ctl); background: var(--bg); font-size: 14px; padding: 0; }
   .wd button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
   /* the days of a month: a calendar-like grid of seven, the last day across the rest of its row */
   .md { display: grid; grid-template-columns: repeat(7, 36px); gap: 4px; flex-basis: 100%; }
-  .md button { height: 32px; border-radius: var(--r-m); border: 1px solid var(--line); background: var(--bg); font-size: 14px; padding: 0; font-variant-numeric: tabular-nums; }
+  .md button { height: 32px; border-radius: var(--r-m); border: 1px solid var(--ctl); background: var(--bg); font-size: 14px; padding: 0; font-variant-numeric: tabular-nums; }
   .md button:hover { background: var(--hover); }
   .md button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .md button.last { grid-column: span 4; }
@@ -492,7 +512,7 @@
   .prop:hover, .prop[aria-expanded=true] { background: var(--hover); }
   .prop b { font-weight: 600; white-space: nowrap; }
   .prop .path { color: var(--faint); font-family: var(--mono); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .prop.empty { color: var(--accent); border: 1px dashed var(--line); }
+  .prop.empty { color: var(--accent); border: 1px dashed var(--ctl); }
   .pval { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 320px; }
   .pval.mono { font-family: var(--mono); font-size: 13px; color: var(--faint); }
   .pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; width: min(460px, calc((100vw - 48px) / var(--zv, var(--z, 1)))); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: 0 8px 24px rgba(0, 0, 0, .16); padding: 6px; }
@@ -708,7 +728,7 @@
   .autonote .an-f { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; } .autonote .an-f .btn { padding: 3px 10px; font-size: 13px; }
   .autonote details summary { cursor: pointer; color: var(--dim); font-size: 13px; } .autonote .an-raw { white-space: pre-wrap; font-size: 13px; color: var(--dim); margin-top: 4px; }
   /* the model / effort button in a conversation's heading, and its window */
-  button.modelbtn { border: 1px solid var(--line); background: var(--bg); border-radius: var(--r-m); padding: 1px 8px; cursor: pointer; font: inherit; color: inherit; }
+  button.modelbtn { border: 1px solid var(--ctl); background: var(--bg); border-radius: var(--r-m); padding: 1px 8px; cursor: pointer; font: inherit; color: inherit; }
   button.modelbtn:hover { border-color: var(--accent); }
   .modelpop { position: fixed; z-index: 70; width: min(380px, calc((100vw - 24px) / var(--zv, var(--z, 1)))); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); box-shadow: 0 12px 36px rgba(0, 0, 0, .18); padding: 12px 14px; display: grid; gap: 8px; }
   .modelpop .mp-t { font-weight: 600; font-size: 14px; margin-bottom: 4px; } .modelpop .mp-tip { color: var(--dim); font-size: 12px; margin-top: 4px; } .modelpop .seg { flex-wrap: wrap; } .modelpop .mp-a { display: flex; gap: 8px; }
@@ -802,7 +822,7 @@
   .foot .col { padding: 0; }
   .imgstrip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
   .imgstrip .thumb { position: relative; display: inline-block; } .imgstrip img { height: 64px; max-width: 140px; border-radius: var(--r-m); border: 1px solid var(--line); display: block; object-fit: cover; }
-  .imgstrip button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1; padding: 0; }
+  .imgstrip button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--ctl); background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1; padding: 0; }
   .imgstrip .thumb .tag { position: absolute; left: 3px; bottom: 3px; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: var(--r-s); background: rgba(0, 0, 0, .65); color: #fff; }
   /* a file waiting to go: a card the height of a picture's, its kind, its name and its number (［檔N］) */
   .imgstrip .thumb.file { height: 64px; width: 150px; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--side); display: inline-flex; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 10px 18px; }
@@ -865,6 +885,11 @@
   .quoted.open .rt { white-space: pre-wrap; overflow: auto; max-height: calc(55vh / var(--zv, var(--z, 1))); cursor: text; }
   .msg.user .own { white-space: pre-wrap; }
   .composer textarea { flex: 1; border: 0; outline: 0; resize: none; background: none; color: inherit; font: inherit; max-height: 200px; min-height: 24px; padding: 6px 2px; }
+  /* the hint on one line: a long one is cut with … rather than making the box taller */
+  .composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* round on a phone too, and small: there every .btn is at least 44 wide (above) - these were 44 by 36 ovals, then 44 round
+     (51 with the text size) and too big (asked 2026-11-21): 38, a little over the 36 they are elsewhere */
+  @media (pointer: coarse) { .composer .imgbtn, .composer .sendbtn, .composer .stopbtn, .composer .micbtn { width: 38px; height: 38px; min-width: 38px; min-height: 38px; } }
   .composer { padding: 6px; gap: 6px; }
   .note { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: var(--dim); font-size: 14px; }
   .note > span { flex: 1; min-width: 200px; }
@@ -1370,7 +1395,7 @@
   @media (max-width: 720px) { .skins { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .ta-row { display: flex; gap: 8px; align-items: flex-end; } .ta-row textarea { flex: 1; min-width: 0; } .ta-row .btn { flex: none; }
   .auto-log-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .auto-log-h .btn { margin-left: auto; font-size: 13px; padding: 2px 10px; }
-  .skins button { display: grid; gap: 6px; text-align: left; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--bg); padding: 8px; }
+  .skins button { display: grid; gap: 6px; text-align: left; border: 1px solid var(--ctl); border-radius: var(--r-m); background: var(--bg); padding: 8px; }
   .skins button.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
   .skins .pv { display: grid; grid-template-columns: 34% 1fr; height: 54px; border-radius: 6px; overflow: hidden; border: 1px solid rgba(128, 128, 128, .25); }
   .skins .pv i { display: block; } .skins .pv b { display: block; position: relative; }
@@ -2161,7 +2186,7 @@ function drawInbox() {
     fetchBtn.disabled = false; fetchBtn.textContent = '現在抓取';
     if (!r.ok) return say('抓取沒有完成，看板程序沒有回應', true);
     if (r.data.off) return say('收件沒有開啟，沒有抓任何東西。到「設定」打開', true);
-    if (!(r.data.results || []).length) return say('沒有任何來源是開著的。到「抓取設定」打開要抓的來源', true);
+    if (!(r.data.results || []).length) return say('沒有連上的來源。到「抓取設定」連接 Gmail、填 Slack 權杖，或連接 Teams', true);
     const parts = (r.data.results || []).map((x) => SRC_NAME[x.source] + '：' + (x.error ? '失敗（' + x.error + '）' : x.skipped ? '略過（' + x.reason + '）' : '新增 ' + x.ingested + ' 則'));
     const tg = r.data.triage;
     if (tg) parts.push(tg.error && !tg.done ? '判讀失敗（' + tg.error + '）' : tg.done ? '判讀 ' + tg.done + ' 串：有效 ' + ((tg.byCategory.todo || 0) + (tg.byCategory.question || 0)) + '、無效 ' + ((tg.byCategory.fyi || 0) + (tg.byCategory.noise || 0)) + (tg.left ? '，還有 ' + tg.left + ' 串下次判讀' : '') : '沒有新的要判讀');
@@ -2188,7 +2213,7 @@ async function fillInbox() {
   learnSources(r.data.status);
   if (!r.data.status.enabled) {
     inboxShape = ''; box.textContent = '';
-    box.append(el('p', 'lead', '收件沒有開啟：看板不會抓任何信件或訊息，也不會判讀。要用的話到「設定」→「收件」打開，再回到這裡選要抓哪些來源。'));
+    box.append(el('p', 'lead', '收件沒有開啟：看板不會抓任何信件或訊息，也不會判讀。要用的話到「設定」→「收件」打開；連上的來源（Gmail、Slack、Teams）就會開始抓，不要的在「抓取設定」刪除連接。'));
     const go = el('button', 'btn primary', '到設定'); go.type = 'button'; go.addEventListener('click', drawSettings); box.append(go);
     return;
   }
@@ -2222,7 +2247,7 @@ async function fillInbox() {
     // switches it on and fetches at once (lib/inbox/index.js), there is no settings page to visit first (asked 2026-11-20)
     const signIn = !x.on && x.action && !x.ready;
     const c = card(x.id, x.name, x.on && x.ready, signIn ? '按「' + x.action.label + '」登入，登入後就會開始抓（往回 ' + (x.days || 7) + ' 天，要改到「抓取設定」）'
-      : !x.on ? '沒有開啟。到「抓取設定」打開才會抓' : x.text + (x.ready && res(x.id) ? ' · ' + res(x.id) : ''), x.on && x.alarm, signIn ? '' : !x.on ? '沒開' : !x.ready ? '已開，還沒設定好' : '');
+      : !x.on ? '已刪除連接，不會抓。要再抓，到「抓取設定」按「連接」' : x.text + (x.ready && res(x.id) ? ' · ' + res(x.id) : ''), x.on && x.alarm, signIn ? '' : !x.on ? '已刪除連接' : !x.ready ? '還沒連接好' : '');
     if (!x.action || (!x.on && !signIn)) continue;
     // Not a button inside a button (the card is one): a link-like control that keeps its own click.
     const act = el('span', 'btn', x.action.label); act.setAttribute('role', 'button'); act.tabIndex = 0;
@@ -2309,17 +2334,30 @@ async function fillInbox() {
   box.append(rb);
   // settings
   const sb = el('div'); sb.hidden = inboxPage !== 'settings';
-  sb.append(el('p', 'lead', '多久抓一次、你是誰，以及要抓哪些來源。每個來源都要自己打開才會抓；關著的來源看板完全不會去讀。'));
-  const sf = el('div', 'form'); const sv = {}, son = {};
+  sb.append(el('p', 'lead', '多久抓一次、你是誰，以及各來源的連接。連上的來源就會抓；不要抓的，按它的「刪除連接」。'));
+  const sf = el('div', 'form'); const sv = {};
   const field = (k, label, ph, type) => { const i = el('input'); i.type = type; i.placeholder = ph || ''; if (type !== 'password') i.value = st.settings[k]; i.autocomplete = 'off'; sv[k] = i; sf.append(el('label', '', label), i); return i; };
   field('pollMinutes', '每幾分鐘抓一次', '0 表示不自動抓', 'number');
   field('attachDays', '附檔保留幾天', '預設 30', 'number').title = '信件帶進對話時，附檔與信裡貼的圖會存到這台電腦。超過這個天數沒有再帶入的會刪除；之後再帶入同一封信，會重新下載並重新起算。';
-  // each source: its switch, then what it asks for
+  // each source: its name, whether it is connected, one button - 刪除連接 when it is, 連接 when it is not (asked 2026-11-21:
+  // "why tick it - if it is connected, fetch it"); then what it asks for
   for (const x of st.sources) {
-    const h = el('div', 'srchead'); h.style.gridColumn = '1 / -1'; h.style.margin = '14px 0 2px'; h.style.paddingTop = '12px'; h.style.borderTop = '1px solid var(--line)';
-    const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!st.settings[x.id + 'On']; cb.id = 'srcOn-' + x.id; cb.style.width = '16px'; cb.style.height = '16px'; cb.style.verticalAlign = '-3px'; cb.style.marginRight = '8px';
-    const lb = el('label'); lb.htmlFor = cb.id; lb.append(el('b', '', '抓 ' + x.name)); lb.style.cursor = 'pointer';
-    h.append(cb, lb); son[x.id] = cb; sf.append(h);
+    const h = el('div', 'srchead'); h.style.gridColumn = '1 / -1'; h.style.margin = '14px 0 2px'; h.style.paddingTop = '12px'; h.style.borderTop = '1px solid var(--line)'; h.style.display = 'flex'; h.style.alignItems = 'center'; h.style.gap = '10px'; h.style.flexWrap = 'wrap';
+    const kept = st.settings[x.id + 'On'] !== false, linked = kept && !!x.configured;
+    const state = el('span', '', !kept ? '已刪除連接，不會抓' : linked ? '已連接，會抓' : '還沒連接' + (x.text && x.text !== '沒有開啟' ? '：' + x.text : ''));
+    state.style.color = linked ? 'var(--green)' : 'var(--dim)'; state.style.fontSize = '13px';
+    h.append(el('b', '', x.name), state);
+    const act = (label, cls, fn) => { const b = el('button', 'btn' + (cls ? ' ' + cls : ''), label); b.type = 'button'; b.style.marginLeft = 'auto'; b.addEventListener('click', async () => { b.disabled = true; await fn(b); b.disabled = false; }); h.append(b); };
+    if (linked) act('刪除連接', '', async (b) => {
+      if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = '確定刪除連接？再按一次'; setTimeout(() => { if (b.isConnected) { b.dataset.armed = ''; b.textContent = '刪除連接'; } }, 5000); return; }
+      const r = await api('/api/inbox/source', { source: x.id });
+      if (!r.ok) return say((r.data && r.data.error) || '刪不掉', true);
+      say(x.name + ' 已刪除連接' + (x.id === 'gmail' ? '（看板的 Gmail 權杖已刪除）' : x.id === 'slack' ? '（權杖已清掉）' : '') + '，之後不會再抓'); inboxShape = ''; fillInbox();
+    });
+    else if (x.id === 'gmail') act('連接 Gmail', 'primary', async () => { const r = await api('/api/inbox/gmail/connect', {}); if (!r.ok) return say((r.data && r.data.error) || '連不上', true); if (r.data.url) window.open(r.data.url, '_blank', 'noopener'); say('在打開的 Google 頁面登入，完成後回到這裡'); });
+    else if (x.id === 'slack') { if (!st.settings.slackToken) { const how = el('span', '', '在下面填入機器人權杖、按「儲存」就會連接'); how.style.cssText = 'margin-left:auto;font-size:13px;color:var(--dim)'; h.append(how); } else if (!kept) act('連接', 'primary', async () => { await api('/api/inbox/source', { source: 'slack', connect: true }); inboxShape = ''; fillInbox(); }); }
+    else act('連接', 'primary', async () => { const r = await api('/api/inbox/source', { source: x.id, connect: true }); if (!r.ok) return say((r.data && r.data.error) || '連不上', true); say(x.name + ' 已連接，下次抓取起會抓'); inboxShape = ''; fillInbox(); });
+    sf.append(h);
     for (const fl of x.fields) field(fl.key, fl.label, fl.secret && st.settings[fl.key] ? st.settings[fl.key] : fl.placeholder, fl.type);
   }
   // who you are: the signed-in Gmail account already counts (lib/inbox/index.js), so this is only for other addresses
@@ -2329,7 +2367,6 @@ async function fillInbox() {
   const saveS = el('button', 'btn primary', '儲存'); saveS.type = 'button';
   saveS.addEventListener('click', async () => {
     const body = { triage: $('inboxTriage').checked };
-    for (const id of Object.keys(son)) body[id + 'On'] = son[id].checked;
     for (const k of Object.keys(sv)) if (sv[k].type !== 'password' || sv[k].value) body[k] = sv[k].type === 'number' ? Number(sv[k].value) : sv[k].value;
     const x = await api('/api/inbox/settings', body);
     if (!x.ok) return say(x.data.error || '存不進去', true);
@@ -2830,7 +2867,7 @@ async function drawSettings() {
   const h2 = el('h2', '', '收件'); h2.style.marginTop = '40px'; h2.id = 'setInbox';
   pane.append(h2);
   pane.append(el('p', 'lead', '把 ' + ib.data.status.sources.map((x) => x.name).join('、') + ' 收到的訊息抓進這台電腦的看板資料庫，判讀哪些要你處理，並分派到資料夾。關著的時候，看板不會讀任何信件或訊息，左邊也不顯示「收件」。'));
-  sw('使用收件', '打開之後，還要到「收件」→「抓取設定」選要抓哪些來源；每個來源都是自己打開才會抓。已經抓進來的資料在關掉後仍留在資料庫裡，只是不再更新。', !!ib.data.status.enabled,
+  sw('使用收件', '打開之後，連上的來源（Gmail 登入過、Slack 有權杖、Teams 這台電腦有桌面版）就會抓；不要抓的，到「收件」→「抓取設定」按它的「刪除連接」。已經抓進來的資料在關掉後仍留在資料庫裡，只是不再更新。', !!ib.data.status.enabled,
     (v) => ({ enabled: v }), (v) => { poll(); return v ? '已開啟收件。到左邊的「收件」→「抓取設定」選來源' : '已關閉收件：不再抓取，也不再判讀'; }, '/api/inbox/settings');
 }
 
@@ -2859,7 +2896,11 @@ function drawOffice(goTo) {
   const row = el('div', 'pathrow');
   const input = el('input'); input.type = 'search'; input.value = officeQ; input.placeholder = '搜尋對話：標題、資料夾、你說過的話（開著的和沒開著的一起找）'; input.setAttribute('aria-label', '搜尋對話'); input.style.fontFamily = 'inherit';
   input.addEventListener('input', () => { officeQ = input.value.trim(); officeShape = ''; fillOffice(); clearTimeout(officeTimer); officeTimer = setTimeout(loadOfficePast, 300); });
-  row.append(input);
+  // the recommend list is one for all the folders (plugin-manager's recommends.json): its way in is on the office's own
+  // bar, not inside a room (asked 2026-11-21: "it is global, not a folder's own")
+  const rec = el('button', 'btn', '推薦清單'); rec.type = 'button'; rec.style.flex = 'none'; rec.title = '所有資料夾共用的推薦清單（別人做的 plugin）：各房間的「外掛分析」從這裡和你的 plugin 庫挑。在這裡新增、修改、刪除';
+  rec.addEventListener('click', () => openRecommends());
+  row.append(input, rec);
   const chips = el('div', 'of-chips'); chips.id = 'ofChips';
   const sub = el('div', 'past-bar'); sub.id = 'ofSub';
   const note = el('div', 'hint'); note.id = 'ofNote';
@@ -3238,6 +3279,55 @@ function openHarness(folder, cwd, hs) {
   }
 }
 const explainSeen = new Map();   // folder + suggestion id -> the explanations given so far (kept while the page is open)
+// the plugins page, at its recommend list
+async function openRecommends() {
+  closePeek();
+  await drawPlugins();
+  const c = [...document.querySelectorAll('section.pl-card')].find((x) => /推薦清單/.test((x.querySelector('.pl-h b') || {}).textContent || ''));
+  if (c) c.scrollIntoView({ block: 'start' });
+}
+async function drawRecommends(card, btn) {
+  let r; try { r = await api('/api/recommends'); } catch (e) { r = { ok: false, data: {} }; }
+  if (!r.ok) return;
+  const d = r.data, c = card('推薦清單（plugin-manager）', d.items.length + ' 個別人做的 plugin · 辦公室的「外掛分析」從這裡和你的 plugin 庫挑', 'wide');
+  if (!d.writable) { c.append(el('div', 'pl-note', d.why || '這台電腦改不了推薦清單')); return; }
+  const form = (x) => {
+    const f = el('div', 'pl-form rec-form');
+    const inp = (ph, v, label) => { const i = el('input'); i.type = 'text'; i.placeholder = ph; i.value = v || ''; i.setAttribute('aria-label', label); i.style.cssText = 'width:100%;box-sizing:border-box;margin-top:6px'; return i; };
+    const key = inp('名稱：plugin名@marketplace名，例如 codex@openai-codex', x && x.key, '名稱'); if (x) key.disabled = true;
+    const source = inp('來源：marketplace 的位置，例如 openai/codex-plugin-cc 或 GitHub 網址', x && x.source, '來源');
+    const note = inp('說明：一句話講它做什麼', x && x.note, '說明');
+    const tags = inp('標籤（可不填，逗號分開，英數）', x && x.tags.join(', '), '標籤');
+    const kind = el('select'); for (const [v, t] of [['marketplace', 'marketplace plugin（用 claude plugin install 裝）'], ['skill-copy', '裸 skill 合集（複製 skill 目錄）']]) { const o = el('option', '', t); o.value = v; kind.append(o); } kind.value = (x && x.installMethod) || 'marketplace'; kind.style.cssText = 'width:100%;box-sizing:border-box;margin-top:6px';
+    const msg = el('div', 'bad');
+    const save = btn(x ? '儲存修改' : '加入推薦', async () => {
+      msg.textContent = ''; save.disabled = true;
+      const y = await api('/api/recommends', { key: key.value, source: source.value, note: note.value, tags: tags.value, installMethod: kind.value });
+      save.disabled = false;
+      if (!y.ok) { msg.textContent = (y.data && y.data.error) || '沒有存成'; return; }
+      say((x ? '已修改 ' : '已加入 ') + key.value.trim() + '。要推上 GitHub 讓別台電腦也看到，執行 /plugin-manager-publish'); drawPlugins();
+    }, 'primary');
+    f.append(key, source, note, tags, kind, save, msg);
+    return f;
+  };
+  for (const x of d.items) {
+    const line = el('div', 'pl-row rec-row');
+    const m = el('span', 'pl-m'); m.append(el('b', '', x.key)); m.append(el('small', '', x.note + (x.tags.length ? '　#' + x.tags.join(' #') : '') + (x.installMethod === 'skill-copy' ? '　（skill 合集）' : '') + '\n來源：' + x.source));
+    const acts = el('span', 'pl-s');
+    let editing = null;
+    const ed = btn('修改', () => { if (editing) { editing.remove(); editing = null; return; } editing = form(x); line.after(editing); });
+    let armed = 0;
+    const del = btn('刪除', async () => {
+      if (Date.now() - armed > 5000) { armed = Date.now(); del.textContent = '確定刪除？再按一次'; return; }
+      const y = await api('/api/recommends', { remove: x.key });
+      if (!y.ok) return say((y.data && y.data.error) || '刪不掉', true);
+      say('已從推薦清單刪除 ' + x.key); drawPlugins();
+    });
+    acts.append(ed, del); line.append(m, acts); c.append(line);
+  }
+  const addBox = el('details', 'rec-add'); addBox.append(el('summary', '', '＋ 加入一個推薦'), form(null)); c.append(addBox);
+  c.append(el('div', 'pl-note', '存在 ' + d.file + '，由 plugin-manager 的 register-external.js 寫入。改完要執行 /plugin-manager-publish 才會推上 GitHub。'));
+}
 // ── 外掛分析 (server.js /api/pluginfit, lib/pluginfit.js): which plugins suit a folder; the chosen ones installed ──
 const fitSeen = new Set();       // folders (lower case) with an analysis done: their button is marked
 async function openPluginFit(folder, cwd) {
@@ -3277,11 +3367,11 @@ async function openPluginFit(folder, cwd) {
       const list = el('div', 'fit-list'), picks = [];
       for (const x of res.plugins) {
         const a = applied[x.ref], done = a && a.ok;
-        const row = el('label', 'pf'), cb = el('input'); cb.type = 'checkbox'; cb.checked = !done && !x.skillCopy; cb.disabled = done || x.skillCopy; cb.value = x.ref;
+        const row = el('label', 'pf'), cb = el('input'); cb.type = 'checkbox'; cb.checked = !done; cb.disabled = done; cb.value = x.ref;
         const t = el('div'); t.style.minWidth = '0';
         t.append(el('b', '', x.ref), el('small', '', [x.why, x.from + (x.note ? '：' + x.note : '')].filter(Boolean).join('\n')));
-        if (x.skillCopy) t.append(el('small', '', '這個不是 marketplace plugin，看板裝不了；要在對話裡用 setup-plugins 裝'));
-        if (a) t.append(el('small', a.ok ? 'ok' : 'no', a.ok ? '已裝好（專案層）' : '沒裝成：' + (a.note || '')));
+        if (x.skillCopy) t.append(el('small', '', 'skill 合集裡的一個 skill：套用時從 ' + (x.source || '來源') + ' 只抓這個資料夾，複製到這個專案的 .claude/skills/'));
+        if (a) t.append(el('small', a.ok ? 'ok' : 'no', a.ok ? '已裝好（專案層）' + (a.note ? '：' + a.note : '') : '沒裝成：' + (a.note || '')));
         row.append(cb, t); list.append(row); if (!cb.disabled) picks.push(cb);
       }
       box.append(list);
@@ -3301,6 +3391,12 @@ async function openPluginFit(folder, cwd) {
         box.append(acts);
       }
     }
+    // installed ones it would take away (a suggestion: nothing is uninstalled from here)
+    if (res.reconsider && res.reconsider.length) {
+      box.append(el('div', 'chg-group', '已經裝的，可以考慮拿掉（' + res.reconsider.length + '）'));
+      for (const x of res.reconsider) box.append(el('div', 'chg-note', x.ref + '：' + x.why));
+      box.append(el('div', 'chg-note', '只是建議，看板不會替你移除。要拿掉：plugin 用 claude plugin uninstall（或在那個專案的對話裡說）；從 skill 合集複製來的，刪掉專案的 .claude/skills/<名稱> 資料夾。'));
+    }
     if (res.skip && res.skip.length) {
       const fold = el('details', 'chg-helpers'); fold.append(el('summary', 'chg-group', '考慮過但不建議的（' + res.skip.length + '）'));
       for (const x of res.skip) fold.append(el('div', 'chg-note', x.ref + '：' + x.why));
@@ -3315,7 +3411,17 @@ async function openPluginFit(folder, cwd) {
       if (t.changed) thread.append(el('div', 'chg-note', '↑ 這個回答改了上面的推薦清單'));
     }
     box.append(thread);
-    const form = el('div', 'fit-ask'), q = el('textarea'); q.rows = 2; q.placeholder = '例如：為什麼不推薦 figma？csharp-ls 要怎麼裝？把 qa-webwright 也加進來'; q.setAttribute('aria-label', '追問這次分析');
+    // set questions that weigh the whole, not pieces of this answer put together (asked 2026-11-21: "give some preset
+    // prompts - why recommend at random, weigh it all"); Tab puts one in the empty box, again for the next
+    const nm = (x) => String(x.ref || '').split('@')[0];
+    const ideas = ['綜合評估：已經裝的 plugin 哪些用不到、功能重疊，可以拿掉？', res.plugins[0] ? nm(res.plugins[0]) + ' 跟已經裝的有沒有重疊？常駐的代價值得嗎？' : '照這個專案最近在做的事，還缺哪一類工具？', '推薦的每一個，常駐會多佔多少上下文？要另外裝什麼程式？', '這次判斷的依據是什麼？還有哪些檔沒讀到？'];
+    const form = el('div', 'fit-ask'), q = el('textarea'); q.rows = 2; q.placeholder = '例如：' + ideas.slice(0, 3).join('　') + '（按 Tab 帶入）'; q.setAttribute('aria-label', '追問這次分析');
+    q.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+      const at = ideas.indexOf(q.value);
+      if (q.value && at < 0) return;   // words of your own: Tab moves on as it does anywhere
+      e.preventDefault(); q.value = ideas[(at + 1) % ideas.length]; q.setSelectionRange(q.value.length, q.value.length);
+    });
     const send = el('button', 'btn primary', d.asking ? '回答中…' : '問'); send.type = 'button'; send.disabled = d.asking;
     const ask = async () => {
       const text = q.value.trim(); if (!text) return;
@@ -3677,6 +3783,26 @@ async function drawSched() {
     }
   }
   if ((features.integrations || {}).goal2 !== false) await drawGoals(pane);
+  if (view === 'sched') await drawSystemJobs(pane);
+}
+// The board's own timed work (asked 2026-11-21: fetching the inbox is a schedule too): listed under the schedules, folded
+// away at first; where it is switched or set, a button goes there.
+let sysJobsOpen = false;
+async function drawSystemJobs(pane) {
+  let r; try { r = await api('/api/system-jobs'); } catch (e) { r = { ok: false }; }
+  if (view !== 'sched' || !r.ok || !Array.isArray(r.data.jobs)) return;
+  const d = el('details', 'sysjobs'); d.open = sysJobsOpen; d.addEventListener('toggle', () => { sysJobsOpen = d.open; });
+  const on = r.data.jobs.filter((x) => x.on).length;
+  d.append(el('summary', '', '系統排程：看板自己定時做的事（' + on + ' 項開著，共 ' + r.data.jobs.length + ' 項）'));
+  for (const x of r.data.jobs) {
+    const row = el('div', 'sysjob' + (x.on ? '' : ' off'));
+    const t = el('div'); t.style.minWidth = '0';
+    t.append(el('b', '', x.name), el('span', 'tag', x.on ? '開著' : '關著'), el('div', 'sj-what', x.what), el('div', 'sj-when', x.every + (x.last ? ' · 上次 ' + when(x.last) : '')));
+    row.append(t);
+    if (x.where) { const b = el('button', 'btn', x.where === 'inbox' ? '到收件設定' : '到設定'); b.type = 'button'; b.addEventListener('click', () => { if (x.where === 'inbox') { inboxPage = 'settings'; drawInbox(); } else drawSettings(); }); row.append(b); }
+    d.append(row);
+  }
+  pane.append(d);
 }
 // ── goal2's runs: what each was asked to reach and how it went (the goal2 plugin; the board only reads them, and can
 // stop one that is still going) ──
@@ -3834,6 +3960,9 @@ async function drawPlugins(refresh) {
     const lab = el('label', 'switch'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = d.selfHeal.on; const t = el('div'); t.append(el('b', '', d.selfHeal.on ? '開啟中' : '已關閉'), el('span', '', '關掉的話，它在所有專案都不提醒、不接力。'));
     cb.addEventListener('change', async () => { cb.disabled = true; const x = await api('/api/plugins/self-heal', { on: cb.checked }); cb.disabled = false; if (!x.ok) { cb.checked = !cb.checked; return say('改不了', true); } t.firstChild.textContent = x.data.on ? '開啟中' : '已關閉'; say(x.data.on ? 'self-heal 已開啟' : 'self-heal 已關閉'); });
     lab.append(cb, t); c.append(lab); }
+  // the list of others' plugins you recommend (plugin-manager's recommends.json): kept here (asked 2026-11-21); written by
+  // plugin-manager's own script, and published with the monorepo
+  await drawRecommends(card, btn);
   // everything installed
   { const c = card('已安裝的 plugin', d.installed.length + ' 個 · 某個專案該裝哪些，到辦公室那個房間按「外掛分析」', 'wide');
     for (const p of d.installed.slice().sort((a, b) => b.projects - a.projects)) { const x = row(p.name + ' ' + p.version, (p.user ? '所有專案' : p.projects + ' 個專案')); x.title = p.description; x.querySelector('.pl-m').append(el('small', '', p.description.replace(/\*\*/g, '').slice(0, 90))); c.append(x); } }
@@ -4185,7 +4314,14 @@ function tickTasks() {
 // ── the board's tooltip, for every element with a title (asked 2026-11-20: the browser's own is ugly) ──
 // The title is taken off while it shows (else the browser shows its own too) and put back after. An element may give
 // a function in `_tip` drawing richer content instead. Not on a touch screen (no hover there; a press does the thing).
-let tipFor = null, tipTimer = 0, tipBox = null;
+let tipFor = null, tipTimer = 0, tipBox = null, tipWatch = 0;
+// The pointer moved into a frame (a file's preview) tells this page nothing more: no pointerout comes and :hover is not
+// updated either (measured 2026-11-21: the resize handle's tooltip stayed over a PDF for good). So a tooltip is shown only
+// while the pointer is still on its element, and goes once this page has heard no pointer move for 4 seconds - in a
+// frame, or simply read and left resting.
+const tipStillOn = (x) => { try { return x.isConnected && x.matches(':hover'); } catch (e) { return true; } };
+let tipMovedAt = Date.now();
+document.addEventListener('pointermove', () => { tipMovedAt = Date.now(); }, { capture: true, passive: true });
 let tipPtr = { x: 0, y: 0 };
 function tipPlace() {
   if (!tipFor || !tipBox) return;
@@ -4220,7 +4356,7 @@ const tipObs = new MutationObserver((recs) => {
   if (mine && tipBox && tipBox.classList.contains('on')) { tipFill(); if (!tipBox.textContent.trim()) tipBox.classList.remove('on'); else tipPlace(); }
 });
 function tipHide() {
-  clearTimeout(tipTimer); tipObs.disconnect();
+  clearTimeout(tipTimer); clearInterval(tipWatch); tipWatch = 0; tipObs.disconnect();
   for (const x of tipHeld) if (x !== tipFor) { if (x.dataset.tipText != null && !x.hasAttribute('title')) x.setAttribute('title', x.dataset.tipText); delete x.dataset.tipText; }
   tipHeld = [];
   if (tipFor) { if (tipFor.dataset.tipText != null && !tipFor.hasAttribute('title')) tipFor.setAttribute('title', tipFor.dataset.tipText); delete tipFor.dataset.tipText; }
@@ -4234,14 +4370,19 @@ document.addEventListener('pointerover', (e) => {
   if (host === tipFor) return;
   tipHide();
   if (!host || host.closest('.tipbox')) return;
+  // a frame showing a file (the preview of a PDF, a page): its title is its name for a screen reader, not something to
+  // float over what is being read (asked 2026-11-21: the file name sat over the slides being looked at)
+  if (/^(IFRAME|EMBED|OBJECT)$/.test(host.tagName)) return;
   if (host.hasAttribute('title')) { const txt = host.getAttribute('title'); if (!txt && typeof host._tip !== 'function') return; host.dataset.tipText = txt; host.removeAttribute('title'); }
   tipFor = host; tipHeld = [host];
   for (let x = host; x && x !== document.body; x = x.parentElement) { if (x !== host) tipTake(x); tipObs.observe(x, { attributes: true, attributeFilter: ['title'] }); }
   tipTimer = setTimeout(() => {
     if (tipFor !== host || !host.isConnected) return;
+    if (!tipStillOn(host)) return tipHide();
     if (!tipBox) { tipBox = el('div', 'tipbox'); tipBox.setAttribute('role', 'tooltip'); document.body.append(tipBox); }
     tipFill(); if (!tipBox.textContent.trim()) return;
     tipBox.style.top = '-999px'; tipBox.style.left = '0px'; tipBox.classList.add('on'); tipPlace();
+    clearInterval(tipWatch); tipWatch = setInterval(() => { if (!tipFor || !tipStillOn(tipFor) || Date.now() - tipMovedAt > 4000) tipHide(); }, 300);
   }, 350);
 }, true);
 document.addEventListener('pointerout', (e) => { if (tipFor && !(e.relatedTarget && tipFor.contains(e.relatedTarget))) tipHide(); }, true);
@@ -4983,6 +5124,17 @@ function voiceStart(s, again) {
 }
 // The mic's settings beyond on/off (asked 2026-11-20, "like Typeless"): who hears (the browser, or OpenAI's transcription
 // with your own key), and your own words - kept on this computer only (lib/vocab.js), each person keeps their own.
+// The mic's words and its learned corrections, in the side panel (the + menu of the box): the same as the settings page's
+function openVocab() {
+  closePeek();
+  $('peek').hidden = false;
+  $('peekName').textContent = '語音對照表';
+  $('peekPath').textContent = '只存在這台電腦，每個人各自維護'; $('peekPath').title = '';
+  $('peekOpen').hidden = true; $('peekReveal').hidden = true; $('peekCopy').hidden = true;
+  const body = $('peekBody'); body.textContent = '';
+  const pane = el('div', 'vocab-peek'); body.append(pane);
+  voiceSettings(pane);
+}
 async function voiceSettings(pane) {
   const box = el('div'); pane.append(box);
   const draw = async () => {
@@ -5222,7 +5374,7 @@ function drawFoot() {
   const box = el('div', 'composer');
   const ta = el('textarea'); ta.rows = 1; ta.value = typed;
   const touch = onTouch();
-  ta.placeholder = touch ? (st === 'busy' ? '它正在執行，現在說的話它做完這一步就會讀到' : st === 'waiting' ? '上面有卡片等你回覆，也可以直接說' : '輸入訊息')
+  ta.placeholder = touch ? (st === 'busy' ? '它在執行，可以接著說' : st === 'waiting' ? '上面的卡片等你回覆' : '輸入訊息')
     : st === 'busy' ? 'Claude 正在執行。現在送出，它做完手上這個動作就會讀到，不用等這一輪結束' : st === 'waiting' ? '上面有卡片等你回覆。也可以直接送訊息，它處理完這個動作就會讀到' : st === 'background' ? '背景工作還在跑，你仍然可以先說話' : '輸入訊息，Enter 送出，Shift+Enter 換行';
   ta.setAttribute('aria-label', '訊息');
   // What you type and have not sent is kept by the board (a board conversation): leaving does not lose it, and it is put
@@ -5239,7 +5391,8 @@ function drawFoot() {
   // Never blocked: a message sent while Claude is working or waiting for a card is handed to it at once (lib/chat.js).
   const blocked = false;
   sendBtn.disabled = blocked;
-  const fit = () => { ta.style.height = 'auto'; ta.style.height = Math.min(200, ta.scrollHeight) + 'px'; };
+  // empty: one line, whatever the hint (a long hint wrapped to three lines on a phone and took that much room, asked 2026-11-21)
+  const fit = () => { if (!ta.value) { ta.style.height = ''; return; } ta.style.height = 'auto'; ta.style.height = Math.min(200, ta.scrollHeight) + 'px'; };
   const go = async () => {
     // never while the mic is listening or its words are being tidied (the box is locked then; this is the second lock)
     if (voiceBusy(s.sessionId)) return say(voice.state === 'tidying' ? '自動排版還沒好，排好再送' : '還在聽寫，先再按一次麥克風結束', true);
@@ -5254,7 +5407,7 @@ function drawFoot() {
     if ((!text.trim() && !imgs.length && !files.length) || sendBtn.disabled) return;
     // the words the mic gave, changed before sending: what was changed is learned ("哥特" -> "git"; lib/vocab.js) - for every
     // way of sending (it once sat in the /btw branch only, and a plain send learned nothing - review 2026-11-20)
-    if (voice.given && voice.given.sid === s.sessionId) { const g = voice.given.text; voice.given = null; if (g && g !== text) api('/api/vocab', { learn: { given: g, sent: text } }).then((x) => { if (x.ok && x.data.learned && x.data.learned.length) say('記住了：' + x.data.learned.map((y) => y.heard + ' → ' + y.meant).join('、') + '（設定 → 語音輸入 → 詞庫可以刪）'); voiceTermsLoad(); }).catch(() => {}); }
+    if (voice.given && voice.given.sid === s.sessionId) { const g = voice.given.text; voice.given = null; if (g && g !== text) api('/api/vocab', { learn: { given: g, sent: text } }).then((x) => { if (x.ok && x.data.learned && x.data.learned.length) say('記住了：' + x.data.learned.map((y) => (y.heard ? y.heard + ' → ' + y.meant : '聽 ' + y.meant)).join('、') + '（輸入框左邊的 ＋ → 語音對照表 可以看、可以刪）'); voiceTermsLoad(); }).catch(() => {}); }
     // sent (or run): what was typed is not a draft any more - nor is a save of it still waiting to go. Called only once it
     // is really going (a "!" or "/btw" with nothing after it is not: the words stay, and leaving keeps them)
     const consume = () => { clearTimeout(draftTimers.get(s.sessionId)); draftTimers.delete(s.sessionId); draftNow.delete(s.sessionId); };
@@ -5325,7 +5478,10 @@ function drawFoot() {
     const settled = await draftSettled();
     await modelReq;   // a model just chosen (its window closed by pressing send) is set before this message goes
     let r;
-    try { r = await api('/api/send', sending.length ? { sessionId: s.sessionId, text: payload, images: sending } : { sessionId: s.sessionId, text: payload }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
+    // (the board tells every page what was said, with this id: this page has drawn it itself, below)
+    const echo = Math.random().toString(36).slice(2, 12); myEchoes.add(echo);
+    try { r = await api('/api/send', Object.assign({ sessionId: s.sessionId, text: payload, echo }, sending.length ? { images: sending } : {})); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
+    if (!r.ok) myEchoes.delete(echo);   // not sent: no event will come for it
     sendingNow.delete(s.sessionId);
     if (r.ok) afterSent(s, sentAt, settled);   // words typed while it went stay the draft; the words sent do not
     if (r.ok) { pendingImgs.delete(s.sessionId); pendingFiles.delete(s.sessionId); files.length = 0; for (const x of document.querySelectorAll('#main .imgstrip')) { x.textContent = ''; x.hidden = true; }
@@ -5341,13 +5497,7 @@ function drawFoot() {
     // Kept until the transcript has it: a redraw in between puts it back (see sentLocal). Looked for only AFTER the last
     // message the transcript had when it was sent (an earlier "繼續" is not this one, and the oldest falling off a long
     // conversation's page changes nothing), and as the nth of its kind sent from here since then (sent twice quickly).
-    const said0 = sameText(payload), kept = sentLocal.get(s.sessionId) || [];
-    // (the last one the transcript gave - what came over the stream has no id, review 2026-11-19)
-    const fromLog = items.filter((i) => !localSent.has(i) && i.id != null), lastId = fromLog.length ? fromLog[fromLog.length - 1].id : null;
-    const nth = kept.filter((x) => x.lastId === lastId && x.text === said0).length;
-    append(mine); localSent.add(mine);
-    kept.push({ item: mine, text: said0, at: Date.now(), lastId, nth });
-    sentLocal.set(s.sessionId, kept);
+    keepSent(s.sessionId, mine, payload);
     toBottom();
     liveStatus = 'busy'; drawHead(); drawFoot();
   };
@@ -5512,7 +5662,8 @@ function drawFoot() {
   const addMenu = el('div', 'addmenu'); addMenu.hidden = true; addMenu.setAttribute('role', 'menu');
   const ICON = { pic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>',
     cmd: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 4 9 20"/></svg>',
-    file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>' };
+    file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+    mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>' };
   const menuItem = (icon, t, sub, run) => {
     const b = el('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.innerHTML = ICON[icon];
     const w = el('span'); w.append(el('span', 'am-t', t), document.createTextNode('  '), el('span', 'am-s', sub)); b.append(w);
@@ -5521,7 +5672,9 @@ function drawFoot() {
   addMenu.append(
     menuItem('pic', '上傳圖片', onTouch() ? '從相簿或相機' : '從這台電腦選', () => imgPick.click()),
     menuItem('file', '上傳檔案', 'PDF、Word、Excel…（Claude 照路徑讀，30 天後自動刪）', () => filePick.click()),
-    menuItem('cmd', '指令', '這個資料夾能用的 / 指令', () => { ta.value = '/'; ta.focus(); showCmds(); fit(); }));
+    menuItem('cmd', '指令', '這個資料夾能用的 / 指令', () => { ta.value = '/'; ta.focus(); showCmds(); fit(); }),
+    // the mic's own words and what it learned from your corrections, open beside the conversation (asked 2026-11-21)
+    menuItem('mic', '語音對照表', '你的詞、聽錯改成什麼；可以加、可以刪', () => openVocab()));
   if (!onTouch()) addMenu.append(el('div', 'am-tip', '也可以在輸入框按 Ctrl+V 貼上截圖，或把圖檔、檔案拖進來'));
   const outside = (e) => { if (!addMenu.contains(e.target) && !pickBtn.contains(e.target)) closeAdd(); };
   const escAdd = (e) => { if (e.key === 'Escape') { closeAdd(); pickBtn.focus(); } };
@@ -5806,7 +5959,8 @@ function node(it) {
     // what you ran yourself, then (if anything) what you said after it
     const sp = splitShell(it.text), wrap = el('div'); if (it.id) wrap.dataset.id = it.id;
     for (const x of sp.cmds) wrap.append(shellCard(x));
-    if (sp.rest.trim() || (it.images && it.images.length)) wrap.append(node(Object.assign({}, it, { text: sp.rest.replace(/^\s+/, '') })));
+    // (images is a count everywhere - the transcript's, what this page draws, what the stream tells - not a list; review 2026-11-21)
+    if (sp.rest.trim() || it.images > 0) wrap.append(node(Object.assign({}, it, { text: sp.rest.replace(/^\s+/, '') })));
     return wrap;
   }
   // sent by the board in your place: a notice, not your words
@@ -6074,12 +6228,15 @@ function redraw(more) {
   drawExtras();
 }
 
+// Text of a question or a choice as a message's is: escaped, then its links and bold (inline); the file paths in it are
+// made pressable by linkFiles once the card is built (asked 2026-11-21: the files and links in a question could not be pressed)
+const rich = (tag, cls, text) => { const x = el(tag, cls); x.innerHTML = inline(esc(String(text || ''))); return x; };
 // One question of a form, as read-only text: what was asked and what the choices were.
 function questionBlock(q) {
   const box = el('div', 'aq');
   const top = el('div', 'aqh');
   if (q.header) top.append(el('span', 'chip', q.header));
-  top.append(el('span', 'aqq', q.question));
+  top.append(rich('span', 'aqq', q.question));
   if (q.multiSelect) top.append(el('span', 'aqm', '可複選'));
   box.append(top);
   return box;
@@ -6103,9 +6260,10 @@ function askCard(it) {
   c.append(el('div', 'q', 'Claude 問了你 ' + it.questions.length + ' 個問題'));
   for (const q of it.questions) {
     const box = questionBlock(q);
-    for (const o of q.options) { const row = el('div', 'opt'); row.dataset.label = o.label; const t = el('div'); t.append(el('b', '', o.label)); if (o.description) t.append(el('div', 'od', o.description)); row.append(el('span', 'ob', '•'), t); box.append(row); }
+    for (const o of q.options) { const row = el('div', 'opt'); row.dataset.label = o.label; const t = el('div'); t.append(el('b', '', o.label)); if (o.description) t.append(rich('div', 'od', o.description)); row.append(el('span', 'ob', '•'), t); box.append(row); }
     box.dataset.q = q.question; c.append(box);
   }
+  linkFiles(c, active);
   return c;
 }
 // The answers to a form, marked on the form above them (the last copy of those questions on the page): the choices
@@ -6173,7 +6331,7 @@ function askForm(p) {
         text = el('input', 'other'); text.type = 'text'; text.placeholder = '其他（自己寫）'; text.setAttribute('aria-label', '其他回答');
         text.addEventListener('input', () => { if (text.value.trim()) inp.checked = true; check(); });
         t.append(text);
-      } else { t.append(el('b', '', label)); if (description) t.append(el('div', 'od', description)); }
+      } else { t.append(el('b', '', label)); if (description) t.append(rich('div', 'od', description)); }
       inp.addEventListener('change', check);
       row.append(inp, t);
       box.append(row);
@@ -6199,6 +6357,7 @@ function askForm(p) {
   row.append(send, skip);
   c.append(row);
   check();
+  linkFiles(c, active);
   return c;
 }
 
@@ -6433,7 +6592,29 @@ function liveDelta(text) {
 }
 function liveDone() { clearTimeout(liveTimer); liveTimer = 0; if (liveNode) { liveNode.remove(); liveNode = null; liveText = ''; } }
 
+// A message said in a conversation, drawn before the transcript has it and kept until it does (a redraw in between puts
+// it back - see sentLocal). Looked for only AFTER the last message the transcript had when it was said (an earlier
+// "繼續" is not this one), and as the nth of its kind since then (said twice quickly).
+function keepSent(sid, item, text) {
+  const said0 = sameText(text), kept = sentLocal.get(sid) || [];
+  // (the last one the transcript gave - what came over the stream has no id, review 2026-11-19)
+  const fromLog = items.filter((i) => !localSent.has(i) && i.id != null), lastId = fromLog.length ? fromLog[fromLog.length - 1].id : null;
+  const nth = kept.filter((x) => x.lastId === lastId && x.text === said0).length;
+  append(item); localSent.add(item);
+  kept.push({ item, text: said0, at: Date.now(), lastId, nth });
+  sentLocal.set(sid, kept);
+}
+const myEchoes = new Set();   // the messages this page sent and drew itself (their ids): not drawn again from the stream
 function onLive(ev) {
+  // what was said in it - by the board, a schedule, another session; one this page sent is drawn already
+  if (ev.type === 'user') {
+    if (ev.echo && myEchoes.delete(ev.echo)) return;
+    const col = $('col'); if (col) for (const x of col.querySelectorAll('.more')) if (x.textContent === '在下面輸入第一則訊息') x.remove();
+    const text = String(ev.text || '');
+    keepSent(active, Object.assign({ role: 'user', text: text.trim() }, ev.images ? { images: ev.images } : {}), text);
+    if (nearBottom()) toBottom();
+    return;
+  }
   if (ev.type === 'delta') return liveDelta(ev.text);
   if (ev.type === 'tasks') { liveTasks = Array.isArray(ev.tasks) ? ev.tasks : []; drawTasks(); drawExtras(); return; }
   if (ev.type === 'shell') { liveShell = Array.isArray(ev.notes) ? ev.notes : []; const stick = nearBottom(); drawShell(); drawExtras(); if (stick) toBottom(); return; }
@@ -6447,6 +6628,10 @@ function onLive(ev) {
     const was = liveStatus;
     liveStatus = ev.status;
     if (was !== liveStatus) { const stick = nearBottom(); drawHead(); drawFoot(); drawExtras(); if (stick) toBottom(); }
+    // A turn that ended without its result - you pressed stop - is read again from the transcript as well: the message
+    // you sent was drawn here before it had its id there, and without that it could not be edited (asked 2026-11-21:
+    // "I stopped it, why can I not edit and send it again")
+    if (was === 'busy' && liveStatus !== 'busy') { const sid = active; for (const wait of [800, 4000]) setTimeout(() => { if (sid === active && liveStatus !== 'busy') loadHistory(false, true); }, wait); }
   } else if (ev.type === 'result') {
     if (ev.isError && ev.text) append({ role: 'error', text: ev.text + (/not logged in|please run .login/i.test(ev.text) ? '　｜　這台電腦的 Claude Code 還沒有登入，看板沒辦法替你登入。請開一個終端機執行 claude，輸入 /login 完成登入，再回到這裡把訊息送一次。' : '') });
     // The transcript now holds this turn: redraw from it, so what is shown is what was saved.
@@ -6469,8 +6654,10 @@ function looksLikePath(t) {
 }
 // An absolute path in running text ends at a space or full-width punctuation: C:\... - or, on macOS and Linux,
 // /Users/x/report.pdf (two levels and an extension, nothing of a word, ':' or '/' just before it: not "and/or", not the
-// path of a web address; review 2026-11-20). The same as lib/changes.js BARE.
-const BARE = /[A-Za-z]:\\[^\s"'`<>|*?　-〿＀-￯]+|(?<![\w:/.~-])\/(?:[^\s"'`<>|*?/　-〿＀-￯]+\/)+[^\s"'`<>|*?/　-〿＀-￯]*\.[A-Za-z0-9]{1,8}(?![\w])/g;
+// path of a web address; review 2026-11-20). lib/changes.js BARE has these two.
+// And a path relative to the conversation's folder, as _tmp/review/compare.png: a folder or more, then an extension (asked
+// 2026-11-21: such a path in a question could not be pressed). Only one that is there is made pressable (linkFiles asks).
+const BARE = /[A-Za-z]:\\[^\s"'`<>|*?　-〿＀-￯]+|(?<![\w:/.~-])\/(?:[^\s"'`<>|*?/　-〿＀-￯]+\/)+[^\s"'`<>|*?/　-〿＀-￯]*\.[A-Za-z0-9]{1,8}(?![\w])|(?<![\w:/.~\\-])(?:[\w.-]+\/)+[\w.-]*\.[A-Za-z0-9]{1,8}(?![\w/])/g;
 
 let fileQueue = [];
 let fileTimer = 0;

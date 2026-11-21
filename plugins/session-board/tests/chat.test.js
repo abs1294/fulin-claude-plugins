@@ -125,7 +125,7 @@ test('Channels: a turn, an approval, and what is saved', () => {
   ch.seen(c.sessionId);
   assert.strictEqual(ch.unread(c), false);
 
-  assert.deepStrictEqual(res.events.filter((e) => e.type !== 'tasks' && e.type !== 'shell').map((e) => e.type), ['state', 'state', 'tool', 'permission', 'state', 'permission-done', 'state', 'assistant', 'result', 'state']);
+  assert.deepStrictEqual(res.events.filter((e) => e.type !== 'tasks' && e.type !== 'shell' && e.type !== 'user').map((e) => e.type), ['state', 'state', 'tool', 'permission', 'state', 'permission-done', 'state', 'assistant', 'result', 'state']);
   assert.deepStrictEqual(res.events.find((e) => e.type === 'permission'), { type: 'permission', requestId: 'r1', tool: 'Write', text: 'a.txt' });
 
   // Second message: same process, no second spawn.
@@ -235,7 +235,7 @@ test('Channels: the reply is passed on as it is written, and a subagent is not m
   p.out({ type: 'assistant', parent_tool_use_id: 'toolu_1', message: { content: [{ type: 'text', text: '子代理的整段話' }] } });
   p.out({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text: '台北是首都' }] } });
   p.out({ type: 'result', is_error: false });
-  const got = res.events.filter((e) => e.type !== 'state' && e.type !== 'tasks' && e.type !== 'shell');
+  const got = res.events.filter((e) => e.type !== 'state' && e.type !== 'tasks' && e.type !== 'shell' && e.type !== 'user');
   assert.deepStrictEqual(got, [
     { type: 'thinking' },
     { type: 'delta', text: '台北是' },
@@ -609,4 +609,20 @@ test('a slash command you ran is shown as you said it (it was dropped with the h
   assert.deepStrictEqual(H.itemsOf(Object.assign(u([{ type: 'text', text: 'Base directory for this skill: …' }]), { isMeta: true })), []);
   // the name mentioned in the middle of what you typed is just text
   assert.deepStrictEqual(H.itemsOf(u('請看 <command-name>/x</command-name> 這段')).map((i) => i.text), ['請看 <command-name>/x</command-name> 這段']);
+});
+
+test('Channels: what is said in a conversation is told to the pages showing it, with the id of the page that said it', () => {
+  // (asked 2026-11-21: a message the board itself sent - a room's 處理, a schedule - was not shown until a reload)
+  const d = tmp();
+  const log = [];
+  const ch = new Channels(path.join(d, 'c.json'), { spawn: fakeSpawn(log), transcriptOf: () => null });
+  const c = ch.create(d);
+  const res = listener();
+  ch.subscribe(c.sessionId, res);
+  ch.send(c.sessionId, '這個資料夾有 8 個檔沒 commit');
+  ch.send(c.sessionId, '從頁面送的', [{ mime: 'image/png', data: 'AAAA' }], 'abc123');
+  const said = res.events.filter((e) => e.type === 'user');
+  assert.deepStrictEqual(said, [{ type: 'user', text: '這個資料夾有 8 個檔沒 commit', images: 0, echo: '' }, { type: 'user', text: '從頁面送的', images: 1, echo: 'abc123' }]);
+  assert.deepStrictEqual(ch.send('no-such', 'x'), { ok: false, error: 'no such channel' });
+  ch.shutdown();
 });
