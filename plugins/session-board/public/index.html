@@ -399,6 +399,77 @@
   .fit-ask { display: flex; gap: 8px; align-items: flex-end; padding: 10px 16px 16px; }
   .fit-ask textarea { flex: 1; min-width: 0; resize: vertical; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-s, 6px); background: var(--bg); color: var(--ink); }
   .fit-list .pf .ok { color: var(--green, #2E7D32); } .fit-list .pf .no { color: var(--red, #C62828); white-space: pre-wrap; }
+  /* 外掛分析, laid out again (2026-11-22): header line, a card for the reading, a list with an action bar, folds */
+  .peek-extra { display: flex; gap: 8px; flex: none; } .peek-extra:empty { display: none; }
+  details.fit-how { padding: 10px 16px 0; font-size: 13px; color: var(--dim); }
+  details.fit-how > summary { cursor: pointer; width: fit-content; padding: 4px 0; }
+  details.fit-how p { margin: 4px 0 8px; line-height: 1.6; }
+  .fit-alert { margin: 10px 16px; padding: 10px 12px; border: 1px solid var(--red); background: var(--red-soft); border-radius: var(--r-m); font-size: 14px; }
+  .fit-card { margin: 10px 16px 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-m); display: grid; gap: 8px; }
+  .fit-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .fit-chip { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--side); font-size: 12px; color: var(--ink); white-space: nowrap; }
+  .fit-chip.warn { border-color: var(--amber); background: var(--amber-soft); }
+  .fit-chip.small { padding: 0 6px; font-size: 11px; color: var(--dim); }
+  .fit-sum { margin: 0; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+  .fit-sum.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .fit-link { justify-self: start; background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; }
+  .fit-basis { font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
+  .fit-sec { padding: 18px 16px 6px; font-size: 13px; font-weight: 600; color: var(--dim); }
+  .fit-sec-hint { margin-left: 8px; font-weight: 400; color: var(--faint); }
+  .fit-empty { margin: 0 16px; padding: 14px; border: 1px dashed var(--line); border-radius: var(--r-m); display: grid; gap: 4px; font-size: 14px; }
+  .fit-empty span { color: var(--dim); font-size: 13px; }
+  .fit-list { margin: 0 16px; border: 1px solid var(--line); border-radius: var(--r-m); overflow: hidden; }
+  .fit-list .pf { padding: 10px 12px; cursor: pointer; }
+  .fit-list .pf:last-child { border-bottom: 0; }
+  .fit-list .pf:hover { background: var(--side); }
+  .fit-list .pf.done { cursor: default; opacity: .75; }
+  .pf-body { min-width: 0; display: grid; gap: 3px; }
+  .pf-name { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+  .pf-name b { font-size: 14px; } .pf-src { font-size: 12px; color: var(--faint); }
+  .pf-why { font-size: 13px; } .pf-sub { font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
+  .pf-ok { font-size: 12px; color: var(--green); } .pf-no { font-size: 12px; color: var(--red); white-space: pre-wrap; }
+  .fit-bar { margin: 8px 16px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--dim); }
+  details.fit-fold { margin: 8px 16px 0; border: 1px solid var(--line); border-radius: var(--r-m); }
+  details.fit-fold > summary { cursor: pointer; padding: 10px 12px; font-size: 13px; font-weight: 600; color: var(--dim); }
+  .fit-item { padding: 6px 12px; display: grid; gap: 2px; font-size: 13px; border-top: 1px solid var(--line); }
+  .fit-item span { color: var(--dim); }
+  .fit-foot { padding: 8px 12px 10px; font-size: 12px; color: var(--dim); border-top: 1px solid var(--line); }
+  .fit-ask { position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); margin-top: 8px; }
+  .fit-ask textarea.grow { max-height: 40vh; }
+  /* CLAUDE.md 面板 (2026-11-22): a card per file (folded), its sections with 微調, the text; proposals with their diff */
+  .btn.small { padding: 2px 8px; font-size: 12px; }
+  .btn.warn { background: var(--amber-soft); border-color: var(--amber); color: var(--ink); }
+  .cm-item { cursor: default; } .fit-list .cm-item:hover { background: none; }
+  .cm-item .fit-link { margin-top: 2px; }
+  details.cm-file { margin: 8px 16px 0; border: 1px solid var(--line); border-radius: var(--r-m); }
+  details.cm-file[open] { border-color: var(--ctl); }
+  .cm-head { cursor: pointer; padding: 10px 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; list-style: none; }
+  .cm-head::-webkit-details-marker { display: none; }
+  .cm-head::before { content: '\25B8'; color: var(--faint); flex: none; transition: transform .15s; } details.cm-file[open] > .cm-head::before { transform: rotate(90deg); }
+  .cm-title { flex: 1 1 200px; min-width: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .cm-title b { font-size: 14px; } .cm-title span { font-size: 12px; color: var(--dim); }
+  .cm-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--dim); }
+  .cm-body { border-top: 1px solid var(--line); padding: 10px 12px 4px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
+  .cm-doc pre, .cm-doc table { max-width: 100%; overflow-x: auto; } .cm-doc table { display: block; }
+  .cm-path { font-family: var(--mono); font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
+  .cm-note { font-size: 13px; color: var(--dim); } .cm-note.pad { padding: 0 16px; } .cm-note.warn { color: var(--red); }
+  .cm-undo { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; padding: 6px 10px; background: var(--side); border-radius: var(--r-s, 6px); }
+  ul.cm-finds { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: 13px; }
+  ul.cm-finds li.warn::marker { color: var(--amber); } ul.cm-finds li.info { color: var(--dim); }
+  .cm-toc { border: 1px solid var(--line); border-radius: var(--r-s, 6px); padding: 4px 0; }
+  .cm-toc-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px 4px; font-size: 12px; font-weight: 600; color: var(--dim); }
+  .cm-sec { display: flex; align-items: center; gap: 8px; padding-right: 8px; min-height: 30px; }
+  .cm-sec:hover { background: var(--side); }
+  .cm-sec-t { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 4px 0; font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cm-sec-n { font-size: 11px; color: var(--faint); flex: none; }
+  .cm-tweak { margin: 4px 8px 8px; padding: 10px; border: 1px solid var(--accent); border-radius: var(--r-s, 6px); display: grid; gap: 8px; background: var(--bg); }
+  .cm-tweak textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-s, 6px); background: var(--bg); color: var(--ink); max-height: 30vh; }
+  .cm-doc { margin: 0; padding: 4px 0 8px; min-width: 0; overflow-wrap: anywhere; }
+  .cm-prop { margin: 4px 0 12px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--r-s, 6px); padding: 10px 12px; display: grid; gap: 8px; min-width: 0; }
+  .cm-prop-h { display: grid; gap: 2px; font-size: 13px; } .cm-prop-h span { color: var(--dim); }
+  .cm-prop pre.diff { max-height: 50vh; overflow: auto; margin: 0; }
+  .cm-raw { margin: 0; padding: 8px 12px; max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; border-top: 1px solid var(--line); }
+  .cm-done { font-size: 13px; color: var(--dim); align-self: center; } .cm-done.ok { color: var(--green); } .cm-done.bad { color: var(--red); }
   .desks { display: flex; flex-direction: column; border-top: 1px solid var(--line); flex: 1; min-height: 0; overflow-y: auto; }
   .desks > .desk { border-bottom: 1px solid var(--line); flex: none; }
   .desks .shelf { flex: none; padding: 6px 14px 4px; font-size: 12px; font-weight: 600; color: var(--faint); background: var(--side); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 1; }
@@ -801,7 +872,21 @@
   .opt .ot { flex: 1; min-width: 0; }
   .opt input[type=radio], .opt input[type=checkbox] { margin-top: 5px; flex: none; }
   label.opt { cursor: pointer; }
-  .wish-set { border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 12px; margin: 10px 0; }
+  .wish-set { border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 14px; margin: 10px 16px; }
+  .wish-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .wish-row { flex-wrap: nowrap; }
+  .wish-txt { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; font-size: 14px; }
+  .wish-acts .btn { white-space: nowrap; }
+  .wish-txt span { color: var(--dim); font-size: 13px; }
+  .wish-acts { display: flex; gap: 8px; margin-left: auto; }
+  details.wish-more { margin-top: 6px; font-size: 13px; color: var(--dim); }
+  details.wish-more > summary { cursor: pointer; width: fit-content; padding: 2px 0; }
+  details.wish-more ul { margin: 6px 0 2px; padding-left: 18px; display: grid; gap: 4px; }
+  .wish-txt span.bad { color: var(--red); }
+  .wish-keys { border-top: 1px solid var(--line); margin-top: 10px; padding: 10px 0 0; gap: 10px; }
+  .wish-hint { font-size: 13px; color: var(--dim); }
+  label.wish-key { display: grid; gap: 4px; font-size: 13px; }
+  label.wish-key span { color: var(--dim); }
   .wish-set .pl-form { border-top: 0; padding: 6px 0 0; }
   .rec-draft { border-left: 3px solid var(--accent); padding-left: 10px; margin: 6px 0; }
   .rec-draft .btn { margin-top: 6px; }
@@ -1447,6 +1532,7 @@
   <div id="peekGrip" role="separator" aria-orientation="vertical" aria-label="拖拉調整預覽寬度" tabindex="0" title="拖拉調整寬度，按兩下恢復預設"></div>
   <div class="peek-head">
     <div class="who"><div class="t" id="peekName"></div><div class="s" id="peekPath"></div></div>
+    <div class="peek-extra" id="peekExtra"></div>
     <button class="btn" id="peekOpen" type="button">用預設程式開啟</button>
     <button class="btn" id="peekReveal" type="button">在檔案總管顯示</button>
     <button class="btn" id="peekCopy" type="button">複製路徑</button>
@@ -1573,6 +1659,9 @@ function icon(sym) {
   sv.innerHTML = ICONS[sym];
   return sv;
 }
+// words shown as they were written - your question, Claude's answer as it came, a path: no icon for a leading arrow,
+// no Mac word for a Windows one (el does both; review 2026-11-22)
+const verbatim = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; e.textContent = String(text == null ? '' : text); return e; };
 const el = (tag, cls, text) => {
   const e = document.createElement(tag); if (cls) e.className = cls;
   if (text !== undefined) {
@@ -1587,7 +1676,7 @@ const el = (tag, cls, text) => {
 function growText(cls, placeholder, oneLine) {
   const t = el('textarea', 'grow' + (cls ? ' ' + cls : '')); t.rows = 1; if (placeholder) t.placeholder = placeholder;
   // (not on the page yet, or hidden: no height to read - left at its one row until it is)
-  const fit = () => { if (!t.isConnected || !t.offsetParent) return; t.style.height = 'auto'; t.style.height = (t.scrollHeight + t.offsetHeight - t.clientHeight) + 'px'; };
+  const fit = () => { if (!t.isConnected || !t.offsetParent) return; t.style.height = 'auto'; t.style.height = (t.scrollHeight + t.offsetHeight - t.clientHeight) + 'px'; t.style.overflowY = t.scrollHeight > t.clientHeight + 1 ? 'auto' : 'hidden'; };   // (a scroll bar only past a box's highest)
   t.addEventListener('input', () => {
     // one line kept: a line break pasted in becomes a space (review 2026-11-22: it went to the server as it was)
     if (oneLine && /[\r\n]/.test(t.value)) { const at = t.selectionStart; t.value = t.value.replace(/\r?\n|\r/g, ' '); try { t.setSelectionRange(at, at); } catch (e) {} }
@@ -2923,7 +3012,10 @@ function drawOffice(goTo) {
   // bar, not inside a room (asked 2026-11-21: "it is global, not a folder's own")
   const rec = el('button', 'btn', '推薦清單'); rec.type = 'button'; rec.style.flex = 'none'; rec.title = '所有資料夾共用的推薦清單（別人做的 plugin）：各房間的「外掛分析」從這裡和你的 plugin 庫挑。在這裡新增、修改、刪除';
   rec.addEventListener('click', () => openRecommends());
-  row.append(input, rec);
+  // the CLAUDE.md every folder loads (~/.claude/CLAUDE.md and the rules beside it): like the recommend list, not a room's own
+  const gmd = el('button', 'btn', '全域 CLAUDE.md'); gmd.type = 'button'; gmd.style.flex = 'none'; gmd.title = '你在任何資料夾開 Claude Code 都會載入的指令（~/.claude/CLAUDE.md 與 ~/.claude/rules/）：看內容、檢查、請 Claude 評估或微調';
+  gmd.addEventListener('click', () => openClaudeMd('', ''));
+  row.append(input, gmd, rec);
   const chips = el('div', 'of-chips'); chips.id = 'ofChips';
   const sub = el('div', 'past-bar'); sub.id = 'ofSub';
   const note = el('div', 'hint'); note.id = 'ofNote';
@@ -3059,6 +3151,8 @@ function fillOffice() {
     }
     // 外掛分析 (asked 2026-11-20): which plugins suit this folder, judged by plugin-manager's setup-plugins in the background
     if (cwd) { const fit = el('button', 'fit' + (fitSeen.has(low(cwd)) ? ' has' : ''), '外掛分析'); fit.type = 'button'; fit.title = '分析「' + r.folder + '」適合裝哪些 plugin（照 plugin-manager 的 setup-plugins，從你的 plugin 庫、profile 與推薦清單挑），結果看完再決定要不要裝'; fit.addEventListener('click', (e) => { e.stopPropagation(); openPluginFit(r.folder, cwd); }); head.append(fit); }
+    // CLAUDE.md (asked 2026-11-22): what Claude Code loads in this folder, read, checked, tweaked
+    if (cwd) { const cm = el('button', 'fit', 'CLAUDE.md'); cm.type = 'button'; cm.title = '「' + r.folder + '」的 Claude Code 會載入哪些指令檔（全域、上層、專案、規則、@ 引用）：看內容、檢查、請 Claude 評估或微調'; cm.addEventListener('click', (e) => { e.stopPropagation(); openClaudeMd(r.folder, cwd); }); head.append(cm); }
     if (cwd) { const add = el('button', '', '＋'); add.type = 'button'; add.title = '在「' + r.folder + '」開一個新對話'; add.setAttribute('aria-label', add.title); add.addEventListener('click', async () => { const x = await api('/api/new', { cwd }); if (!x.ok) return say(x.data.error || '開不了', true); await poll(); openChat(x.data.sessionId); }); head.append(add); }
     const desks = el('div', 'desks');
     for (const { s: o, st } of r.open) {
@@ -3371,51 +3465,61 @@ async function openPluginFit(folder, cwd) {
     const choose = async (choice, btns) => {
       btns.forEach((x) => { x.disabled = true; });
       if (choice === 'on') say('正在把 skill-fetch 裝到你的 skills（~/.claude/skills/）…');
-      let x; try { x = await api('/api/skillwish', { choice }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
+      let x; try { x = await api('/api/skillwish', { choice, cwd }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
       if (!x.ok) say((x.data && ((x.data.install && x.data.install.note) || x.data.error)) || '沒有設成', true);
       else say(choice === 'on' ? '已啟用找外掛。金鑰填一次就好，每一個都可以不填' : '已關閉找外掛');
       if (here()) draw();
     };
+    // asked once, in one row (asked 2026-11-22: "ui 有夠醜" - three paragraphs and buttons under them): what it is in a
+    // sentence, the two buttons beside it, the details folded
     if (!w.choice) {
-      b.append(el('b', '', '要啟用「找外掛」嗎？'));
-      b.append(el('div', 'chg-note', '啟用後，在下面的追問裡許願（例如「我想要一個做簡報的 skill」），Claude 會照 skill-fetch 的方法，到 SkillsMP、GitHub、skills.sh 等 skill 庫幫你找、評分，找到的列進上面的清單讓你勾選套用（只裝在這個資料夾）。找一次約半分鐘到幾分鐘，也會花一些用量（實測一次約 0.2 美元）。'));
-      b.append(el('div', 'chg-note', '啟用會做兩件事，都只做一次：把 skill-fetch 裝到你的 skills（~/.claude/skills/skill-fetch，來源 github.com/girofu/skill-fetch，MIT 授權）；請你填各個 skill 庫的金鑰（都可以不填）。'));
+      const row = el('div', 'wish-row'), txt = el('div', 'wish-txt');
+      txt.append(el('b', '', '找外掛'), el('span', '', '在追問裡許願，Claude 到外面的 skill 庫幫你找'));
       const yes = el('button', 'btn primary', '啟用'), no = el('button', 'btn', '先不要'); yes.type = no.type = 'button';
       yes.addEventListener('click', () => choose('on', [yes, no])); no.addEventListener('click', () => choose('off', [yes, no]));
-      const r = el('div', 'row'); r.style.marginTop = '8px'; r.append(yes, no); b.append(r);
+      const acts = el('div', 'wish-acts'); acts.append(yes, no);
+      row.append(txt, acts); b.append(row);
+      const more = el('details', 'wish-more'); more.append(el('summary', '', '啟用會做什麼'));
+      const ul = el('ul');
+      for (const t of ['許願例如「我想要一個做簡報的 skill」；會查 SkillsMP、GitHub、skills.sh 等，找到的列進上面的清單，勾選後只裝在這個資料夾',
+        '找一次約半分鐘到幾分鐘，約 0.2 美元的用量',
+        '只做一次：把 skill-fetch 裝到 ~/.claude/skills（github.com/girofu/skill-fetch，MIT 授權），再請你填 skill 庫的金鑰（都可以不填）']) ul.append(el('li', '', t));
+      more.append(ul); b.append(more);
       return b;
     }
-    if (w.choice === 'off') {
-      const n = el('div', 'chg-note', '找外掛：已關閉（許願不會到外面找）。 '); const on = el('button', 'btn', '啟用'); on.type = 'button';
-      on.addEventListener('click', () => choose('on', [on])); n.append(on); b.append(n); return b;
-    }
-    if (!w.installed) {
-      const n = el('div', 'chg-note bad', '找外掛已啟用，但 skill-fetch 還沒裝好。 '); const again = el('button', 'btn', '再裝一次'); again.type = 'button';
-      again.addEventListener('click', () => choose('on', [again])); n.append(again); b.append(n); return b;
-    }
+    // one row: the name, a sentence of where it stands, its buttons on the right (the same look in every state)
+    const line = (status, bad, buttons) => {
+      const row = el('div', 'wish-row'), txt = el('div', 'wish-txt');
+      txt.append(el('b', '', '找外掛'), el('span', bad ? 'bad' : '', status));
+      const acts = el('div', 'wish-acts'); acts.append(...buttons);
+      row.append(txt, acts); return row;
+    };
+    const button = (label, primary, fn) => { const x = el('button', 'btn' + (primary ? ' primary' : ''), label); x.type = 'button'; x.addEventListener('click', () => fn(x)); return x; };
+    if (w.choice === 'off') { b.append(line('已關閉：許願只在既有的清單裡找', false, [button('啟用', false, (x) => choose('on', [x]))])); return b; }
+    if (!w.installed) { b.append(line('已啟用，但 skill-fetch 還沒裝好', true, [button('再裝一次', true, (x) => choose('on', [x]))])); return b; }
     const nSet = w.keys.filter((k) => k.set).length;
-    const fold = el('details', 'chg-helpers'); fold.open = !nSet && !wishKeysSeen.has('x');
-    fold.addEventListener('toggle', () => { if (!fold.open) wishKeysSeen.add('x'); });
-    fold.append(el('summary', 'chg-group', '找外掛：已啟用 · skill 庫金鑰 ' + nSet + '/' + w.keys.length + ' 個已填'));
-    fold.append(el('div', 'chg-note', '金鑰存在你這台電腦的 ~/.claude/skills/.fetch-config.json（skill-fetch 讀的地方），填過就不會再顯示。每一個都可以不填：沒填的 skill 庫會跳過或用公開的方式查。'));
-    const f = el('div', 'pl-form'), inputs = {};
+    const why = w.implied ? (w.where === 'project' ? '本專案已裝 skill-fetch' : '已裝 skill-fetch') : '';
+    const keysB = button('金鑰 ' + nSet + '/' + w.keys.length, false, () => { form.hidden = !form.hidden; if (form.hidden) wishKeysSeen.add('x'); });
+    b.append(line('已啟用' + (why ? '・' + why : ''), false, [keysB, button('關閉', false, (x) => choose('off', [x]))]));
+    // the registries' keys: shown by themselves only until filled once (or closed)
+    const form = el('div', 'pl-form wish-keys'), inputs = {};
+    form.hidden = !!nSet || wishKeysSeen.has('x');
+    form.append(el('div', 'wish-hint', '存在這台電腦的 ~/.claude/skills/.fetch-config.json（skill-fetch 讀的地方），存了不會再顯示。每一個都可以不填：沒填的 skill 庫會跳過或用公開的方式查。'));
     for (const k of w.keys) {
-      const lab = el('div', 'chg-note'); lab.append(el('b', '', k.name), '　' + k.note + '　申請：' + k.site);
+      const lab = el('label', 'wish-key'); lab.append(el('b', '', k.name), el('span', '', k.note + '　申請：' + k.site));
       const i = el('input'); i.type = 'password'; i.autocomplete = 'off'; i.placeholder = k.set ? '已填（要換才填；填一個空格再儲存＝清掉）' : '貼上 ' + k.name + ' 的金鑰'; i.setAttribute('aria-label', k.name + ' 金鑰');
-      inputs[k.id] = i; f.append(lab, i);
+      inputs[k.id] = i; lab.append(i); form.append(lab);
     }
-    const save = el('button', 'btn primary', '儲存金鑰'); save.type = 'button';
-    save.addEventListener('click', async () => {
+    const save = button('儲存金鑰', true, async () => {
       const keys = {}; for (const [id, i] of Object.entries(inputs)) if (i.value !== '') keys[id] = i.value.trim();
       if (!Object.keys(keys).length) return say('沒有填任何金鑰', true);
       save.disabled = true;
-      let x; try { x = await api('/api/skillwish/keys', { keys }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
+      let x; try { x = await api('/api/skillwish/keys', { keys, cwd }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
       save.disabled = false;
       if (!x.ok) return say((x.data && x.data.error) || '沒有存成', true);
       wishKeysSeen.add('x'); say('金鑰存好了'); if (here()) draw();
     });
-    const offB = el('button', 'btn', '關閉找外掛'); offB.type = 'button'; offB.addEventListener('click', () => choose('off', [offB]));
-    const acts = el('div', 'row'); acts.append(save, offB); f.append(acts); fold.append(f); b.append(fold);
+    const acts = el('div', 'wish-acts'); acts.append(save); form.append(acts); b.append(form);
     return b;
   };
   // drafted recommend entries: whether each is in the list already (one look per drawing)
@@ -3431,69 +3535,88 @@ async function openPluginFit(folder, cwd) {
     box.textContent = '';
     if (!r.ok) { box.append(el('div', 'chg-note', r.status === 404 ? '這個看板還是舊的程式，不認得這個功能。重啟看板後才能用' : '看板沒有回應')); return; }
     const d = r.data;
-    const top = el('div', 'chg-note', '照 plugin-manager 的 setup-plugins 判斷：讀這個專案的 CLAUDE.md、README 和檔案類型，從你的 plugin 庫、profile（plugin 組合）和推薦清單裡挑適合的。分析只讀不改，約 1 到 3 分鐘；裝不裝由你選。');
-    const go = el('button', 'btn primary', d.state === 'running' ? '分析中…' : d.state === 'done' || d.state === 'failed' ? '重新分析' : '開始分析'); go.type = 'button'; go.style.marginLeft = '8px';
+    // one line on top: what this is and when it was done, the one button that redoes it (the how folded under it)
+    const go = el('button', 'btn' + (d.state === 'done' ? '' : ' primary'), d.state === 'running' ? '分析中…' : d.state === 'done' || d.state === 'failed' ? '重新分析' : '開始分析'); go.type = 'button';
     go.disabled = d.state === 'running' || !d.canRun;
     go.addEventListener('click', async () => { go.disabled = true; const x = await api('/api/pluginfit/analyze', { cwd }); if (!x.ok) { go.disabled = false; return say((x.data && x.data.error) || '開始不了', true); } draw(); });
-    top.append(go); box.append(top);
-    if (d.wish) box.append(wishBlock(d.wish));
-    if (!d.canRun) box.append(el('div', 'chg-note bad', '這台電腦沒有裝 plugin-manager，分析要用它的 setup-plugins。'));
-    if (d.state === 'running') { box.append(el('div', 'chg-note', '分析中…（' + ago(Date.now() - d.at) + '）')); timer = setTimeout(() => { if (here()) draw(); }, 4000); return; }
-    if (d.state === 'failed') { box.append(el('div', 'chg-note bad', '分析失敗：' + (d.error || '原因不明'))); return; }
-    if (d.state !== 'done') { box.append(el('div', 'chg-note', '這個資料夾還沒分析過。')); return; }
+    // in the panel's own title row (asked 2026-11-22: 合成一列): when, after the folder's path, and the button at the right
+    const when = d.state === 'done' ? '分析於 ' + new Date(d.at).toLocaleString('zh-TW', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : d.state === 'running' ? '分析中…（' + ago(Date.now() - d.at) + '）' : '還沒分析過';
+    $('peekPath').textContent = '‎' + cwd + '　·　' + when;
+    const extra = $('peekExtra'); extra.textContent = ''; extra.append(go);
+    const how = el('details', 'fit-how'); how.append(el('summary', '', '怎麼判斷的'), el('p', '', '照 plugin-manager 的 setup-plugins：讀這個專案的 CLAUDE.md、README 和檔案類型，從你的 plugin 庫、profile（plugin 組合）和推薦清單裡挑適合的。只讀不改，約 1 到 3 分鐘；裝不裝由你選。'));
+    box.append(how);
+    if (!d.canRun) box.append(el('div', 'fit-alert', '這台電腦沒有裝 plugin-manager，分析要用它的 setup-plugins。'));
+    if (d.state === 'running') { timer = setTimeout(() => { if (here()) draw(); }, 4000); return; }
+    if (d.state === 'failed') { box.append(el('div', 'fit-alert', '分析失敗：' + (d.error || '原因不明') + '。按「重新分析」再試一次。')); return; }
+    if (d.state !== 'done') { box.append(el('div', 'fit-empty', '這個資料夾還沒分析過。按「開始分析」，約 1 到 3 分鐘。')); return; }
     fitSeen.add(cwd.toLowerCase());
     const res = d.result, applied = d.applied || {};
-    box.append(el('div', 'chg-group', '分析結果（' + new Date(d.at).toLocaleString('zh-TW', { hour12: false }) + '）'));
-    const sm = el('div', 'chg-note', (res.confident ? '' : '沒把握：') + (res.summary || '') + (res.profile ? '（最貼的組合：' + res.profile + '）' : ''));
-    box.append(sm);
-    box.append(el('div', 'chg-note', res.read && res.read.length ? '依據：讀了 ' + res.read.map((p) => p.split(/[\\/]/).slice(-2).join('/')).join('、') : '依據：這次沒有讀專案的說明檔，判斷可能不準；可以按「重新分析」。'));
-    if (!res.plugins.length) { box.append(el('div', 'chg-note', '沒有要建議裝的：這個資料夾該有的都有了，或你的清單裡沒有適合的。')); }
-    else {
+    // the reading of the folder: its chips (the closest set, how sure), what it found, what it read
+    const card = el('div', 'fit-card'), chips = el('div', 'fit-chips');
+    if (res.profile) chips.append(el('span', 'fit-chip', '最貼的組合：' + res.profile));
+    chips.append(el('span', 'fit-chip' + (res.confident ? '' : ' warn'), res.confident ? '有把握' : '沒把握'));
+    card.append(chips);
+    const sum = el('p', 'fit-sum clamp', res.summary || '');
+    card.append(sum);
+    requestAnimationFrame(() => { if (sum.scrollHeight > sum.clientHeight + 2) { const more = el('button', 'fit-link', '展開'); more.type = 'button'; more.addEventListener('click', () => { const open = sum.classList.toggle('clamp'); more.textContent = open ? '展開' : '收起'; }); card.insertBefore(more, sum.nextSibling); } });
+    card.append(el('div', 'fit-basis', res.read && res.read.length ? '依據：' + res.read.map((p) => p.split(/[\\/]/).slice(-2).join('/')).join('、') : '依據：這次沒有讀到專案的說明檔，判斷可能不準'));
+    box.append(card);
+    // what to install: a row each, ticked by default; one bar under them says how many and installs them
+    box.append(el('div', 'fit-sec', '建議裝' + (res.plugins.length ? '（' + res.plugins.length + '）' : '')));
+    if (!res.plugins.length) {
+      const e = el('div', 'fit-empty');
+      e.append(el('b', '', '該有的都有了'), el('span', '', d.wish && d.wish.choice === 'on' && d.wish.installed ? '想要清單外的？在下面的追問裡許願，會到外面的 skill 庫找。' : '你的 plugin 庫、profile 和推薦清單裡，沒有這個資料夾還缺的。'));
+      box.append(e);
+    } else {
       const list = el('div', 'fit-list'), picks = [];
       for (const x of res.plugins) {
         const a = applied[x.ref], done = a && a.ok;
-        const row = el('label', 'pf'), cb = el('input'); cb.type = 'checkbox'; cb.checked = !done; cb.disabled = done; cb.value = x.ref;
-        const t = el('div'); t.style.minWidth = '0';
-        t.append(el('b', '', x.ref), el('small', '', [x.why, x.from + (x.note ? '：' + x.note : '')].filter(Boolean).join('\n')));
-        if (x.skillCopy) t.append(el('small', '', 'skill 合集裡的一個 skill：套用時從 ' + (x.source || '來源') + ' 只抓這個資料夾，複製到這個專案的 .claude/skills/'));
-        if (a) t.append(el('small', a.ok ? 'ok' : 'no', a.ok ? '已裝好（專案層）' + (a.note ? '：' + a.note : '') : '沒裝成：' + (a.note || '')));
+        const row = el('label', 'pf' + (done ? ' done' : '')), cb = el('input'); cb.type = 'checkbox'; cb.checked = !done; cb.disabled = done; cb.value = x.ref;
+        const t = el('div', 'pf-body');
+        const name = el('div', 'pf-name'); name.append(el('b', '', x.ref.split('@')[0]), el('span', 'pf-src', x.ref.split('@')[1] || ''), el('span', 'fit-chip small', x.skillCopy ? 'skill' : 'plugin'));
+        t.append(name);
+        if (x.why) t.append(el('div', 'pf-why', x.why));
+        const sub = [x.from + (x.note ? '：' + x.note : ''), x.skillCopy ? '只抓這個資料夾，複製到這個專案的 .claude/skills/' : ''].filter(Boolean).join('　');
+        if (sub) t.append(el('div', 'pf-sub', sub));
+        if (a) t.append(el('div', a.ok ? 'pf-ok' : 'pf-no', a.ok ? '已裝好' + (a.note ? '：' + a.note : '') : '沒裝成：' + (a.note || '')));
         row.append(cb, t); list.append(row); if (!cb.disabled) picks.push(cb);
       }
       box.append(list);
       if (picks.length) {
-        const acts = el('div', 'chg-note');
-        const apply = el('button', 'btn primary', d.installing ? '安裝中…' : '套用：裝勾選的'); apply.type = 'button'; apply.disabled = d.installing;
+        const bar = el('div', 'fit-bar'), count = el('span', '');
+        const apply = el('button', 'btn primary', d.installing ? '安裝中…' : '套用'); apply.type = 'button'; apply.disabled = d.installing;
+        const recount = () => { const n = picks.filter((c) => c.checked).length; count.textContent = n ? '已選 ' + n + ' 個 · 裝在這個專案' : '沒有選要裝的'; if (!d.installing) apply.disabled = !n; };
+        picks.forEach((c) => c.addEventListener('change', recount)); recount();
         apply.addEventListener('click', async () => {
           const refs = picks.filter((c) => c.checked).map((c) => c.value);
           if (!refs.length) return say('沒有勾要裝的', true);
           apply.disabled = true; apply.textContent = '安裝中…（' + refs.length + ' 個）';
           let x; try { x = await api('/api/pluginfit/apply', { cwd, refs }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
-          if (x.data && x.data.results) { const bad = x.data.results.filter((y) => !y.ok); say(bad.length ? bad.length + ' 個沒裝成，原因列在下面' : '裝好了。這個資料夾的 Claude Code 要重開（或執行 /reload-plugins）才會用到', !!bad.length); }
+          if (x.data && x.data.results) { const bad = x.data.results.filter((y) => !y.ok); say(bad.length ? bad.length + ' 個沒裝成，原因列在上面' : '裝好了。這個資料夾的 Claude Code 要重開（或執行 /reload-plugins）才會用到', !!bad.length); }
           else say((x.data && x.data.error) || '裝不了', true);
           instNotice(); draw();
         });
-        acts.append(apply, ' 用 Claude Code 的指令裝在這個專案（project 範圍，會寫進專案的 .claude/settings.json）。');
-        box.append(acts);
+        bar.append(count, apply); box.append(bar);
       }
     }
-    // installed ones it would take away (a suggestion: nothing is uninstalled from here)
-    if (res.reconsider && res.reconsider.length) {
-      box.append(el('div', 'chg-group', '已經裝的，可以考慮拿掉（' + res.reconsider.length + '）'));
-      for (const x of res.reconsider) box.append(el('div', 'chg-note', x.ref + '：' + x.why));
-      box.append(el('div', 'chg-note', '只是建議，看板不會替你移除。要拿掉：plugin 用 claude plugin uninstall（或在那個專案的對話裡說）；從 skill 合集複製來的，刪掉專案的 .claude/skills/<名稱> 資料夾。'));
-    }
-    if (res.skip && res.skip.length) {
-      const fold = el('details', 'chg-helpers'); fold.append(el('summary', 'chg-group', '考慮過但不建議的（' + res.skip.length + '）'));
-      for (const x of res.skip) fold.append(el('div', 'chg-note', x.ref + '：' + x.why));
-      box.append(fold);
-    }
+    // the two lists one may want to read, folded with their counts
+    const fold = (title, items, note) => {
+      const dt = el('details', 'fit-fold'); dt.append(el('summary', '', title + '（' + items.length + '）'));
+      for (const x of items) { const r = el('div', 'fit-item'); r.append(el('b', '', x.ref.split('@')[0]), el('span', '', x.why || '')); dt.append(r); }
+      if (note) dt.append(el('div', 'fit-foot', note));
+      return dt;
+    };
+    if (res.reconsider && res.reconsider.length) box.append(fold('已經裝的，可以考慮拿掉', res.reconsider, '只是建議，看板不會替你移除。plugin 用 claude plugin uninstall（或在那個專案的對話裡說）；從 skill 合集複製來的，刪掉專案的 .claude/skills/<名稱> 資料夾。'));
+    if (res.skip && res.skip.length) box.append(fold('考慮過但不建議', res.skip));
+    // 找外掛, beside the questions it works through
+    if (d.wish) box.append(wishBlock(d.wish));
     // 追問 (asked 2026-11-21): questions about this analysis, answered with the same materials; it may change the list above
-    box.append(el('div', 'chg-group', '追問'));
+    { const sec = el('div', 'fit-sec', '追問'); sec.append(el('span', 'fit-sec-hint', '輸入框裡按 Tab 帶入範例問題')); box.append(sec); }
     const thread = el('div', 'fit-thread');
     const inRec = await recState(d.thread || []);
     if (!here()) return;
     for (const t of d.thread || []) {
-      thread.append(el('div', 'msg user', t.q));
+      thread.append(verbatim('div', 'msg user', t.q));
       const a = el('div', 'msg assistant goal-md'); a.innerHTML = md(t.a); linkFiles(a, null); thread.append(a);
       if (t.wished) thread.append(el('div', 'chg-note', '↑ 找到的 ' + t.wished + ' 個已經列進上面的清單，勾選後按「套用」就會裝在這個資料夾'));
       else if (t.changed) thread.append(el('div', 'chg-note', '↑ 這個回答改了上面的推薦清單'));
@@ -3524,7 +3647,9 @@ async function openPluginFit(folder, cwd) {
     const ideas = ['綜合評估：已經裝的 plugin 哪些用不到、功能重疊，可以拿掉？', res.plugins[0] ? nm(res.plugins[0]) + ' 跟已經裝的有沒有重疊？常駐的代價值得嗎？' : '照這個專案最近在做的事，還缺哪一類工具？', '推薦的每一個，常駐會多佔多少上下文？要另外裝什麼程式？', '這次判斷的依據是什麼？還有哪些檔沒讀到？'];
     // a wish, when one can be looked for outside (找外掛 on)
     if (d.wish && d.wish.choice === 'on' && d.wish.installed) ideas.splice(1, 0, '我想要一個能幫這個專案＿＿＿的 skill，到外面找找看');
-    const form = el('div', 'fit-ask'), q = el('textarea'); q.rows = 2; q.placeholder = '例如：' + ideas.slice(0, 3).join('　') + '（按 Tab 帶入）'; q.setAttribute('aria-label', '追問這次分析');
+    // one line to start, taller as it fills; the examples come with Tab, not all written into the empty box
+    const form = el('div', 'fit-ask'), q = growText('', '問問題，或許願要什麼 skill'); q.setAttribute('aria-label', '追問這次分析'); q.title = '按 Tab 帶入範例問題';
+    q.addEventListener('keydown', () => requestAnimationFrame(() => q.fit && q.fit()));
     q.addEventListener('keydown', (e) => {
       if (e.key !== 'Tab' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
       const at = ideas.indexOf(q.value);
@@ -3535,7 +3660,7 @@ async function openPluginFit(folder, cwd) {
     const ask = async () => {
       const text = q.value.trim(); if (!text) return;
       send.disabled = true; q.disabled = true; send.textContent = '回答中…（約半分鐘到兩分鐘）';
-      thread.append(el('div', 'msg user', text));
+      thread.append(verbatim('div', 'msg user', text));
       let x; try { x = await api('/api/pluginfit/ask', { cwd, question: text }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
       if (!here()) return;
       if (!x.ok) { send.disabled = false; q.disabled = false; send.textContent = '問'; return say((x.data && x.data.error) || '沒有回答', true); }
@@ -3551,6 +3676,262 @@ async function openPluginFit(folder, cwd) {
   };
   // what is installed changed: the office asks for its rooms again
   const instNotice = () => { roomFacts.delete(cwd); harnessStates.delete(cwd); pluginsData = null; };
+  await draw();
+}
+// ── CLAUDE.md 面板 (server.js /api/claudemd, lib/claudemd.js; asked 2026-11-22): the instruction files Claude Code loads
+// for a folder (cwd '' = the office's 全域 one: the files every folder loads), each readable and checked; a section tweaked
+// by one sentence, the change shown and written only with 套用 (backed up first, 復原 puts it back); an evaluation by Claude
+// when asked; questions below, which may propose a change too. The files it names open in this panel, with a way back.
+const CM_KIND = { conflict: '互相矛盾', vague: '寫得模糊', hook: '該做成 hook', stale: '可能過時', dup: '重複', project: '跟專案重複或衝突', other: '其他' };
+const CM_GIT = { modified: ['git：有未 commit 的修改', 'warn'], added: ['git：新加入，未 commit', 'warn'], untracked: ['沒進 git', ''], ignored: ['git 忽略，只在這台電腦', ''], none: ['不在 git 裡', ''], clean: ['', ''] };
+const cmdOpenFiles = new Map();   // per panel: the files folded open, kept across redraws
+async function openClaudeMd(folder, cwd) {
+  closePeek();
+  const global = !cwd;
+  $('peek').hidden = false;
+  $('peekName').textContent = global ? '全域 CLAUDE.md' : 'CLAUDE.md：' + folder;
+  $('peekPath').textContent = '‎' + (global ? '每個專案都會載入' : cwd); $('peekPath').title = global ? '' : cwd;
+  $('peekOpen').hidden = true; $('peekReveal').hidden = true; $('peekCopy').hidden = true;
+  const body = $('peekBody'); body.textContent = '';
+  const box = el('div', 'cm'); body.append(box);
+  const here = () => !$('peek').hidden && body.contains(box);
+  // a file it names, opened in this panel: the way back is in the title row
+  const back = { label: global ? '回到全域 CLAUDE.md' : '回到 CLAUDE.md', go: () => openClaudeMd(folder, cwd) };
+  const mark = (e) => { if (e.target.closest && e.target.closest('.cm-doc .fp, .cm-thread .fp')) peekReturn = back; };
+  box.addEventListener('click', mark, true); box.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') mark(e); }, true);
+  const opened = cmdOpenFiles.get(cwd) || new Set(); cmdOpenFiles.set(cwd, opened);
+  let timer = 0, draft = '', tweakAt = null;   // the question box's words and the open tweak form, across redraws
+  const call = async (url, data) => { try { return await api(url, Object.assign({ cwd }, data || {})); } catch (e) { return { ok: false, data: { error: '看板沒有回應' } }; } };
+  const when = (t) => new Date(t).toLocaleString('zh-TW', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const name = (abs) => String(abs || '').split(/[\\/]/).pop();
+  const dirOf = (abs) => String(abs || '').replace(/[\\/][^\\/]*$/, '');
+  const same = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+  const button = (label, cls, fn) => { const b = el('button', 'btn' + (cls ? ' ' + cls : ''), label); b.type = 'button'; b.addEventListener('click', () => fn(b)); return b; };
+  let qBox = null, evWait = null, asking = '';
+  const waitText = (at) => '評估中…Claude 正在讀每一份（約 1 到 3 分鐘，已經 ' + ago(Date.now() - at) + '）';
+  // what decides whether the panel has to be drawn again (review 2026-11-22: redrawn every 4 seconds, the box being
+  // typed in lost its focus and its IME composition)
+  const sig = (d) => [d.eval && d.eval.state, d.eval && d.eval.gen, d.busy, (d.thread || []).length, Object.keys(d.proposals || {}).length].join('|');
+  // drawn: which drawing a look belongs to - a look still out when the panel is drawn again ends there (review
+  // 2026-11-22: it set its timer again, and two looks ran side by side)
+  let drawn = 0;
+  const typing = () => { const a = document.activeElement; return !!a && a.tagName === 'TEXTAREA' && box.contains(a) && !!a.value.trim(); };
+  const watch = async (shape, g) => {
+    let r; try { r = await api('/api/claudemd?cwd=' + encodeURIComponent(cwd)); } catch (e) { r = { ok: false }; }
+    if (!here() || g !== drawn) return;
+    if (r.ok && sig(r.data) === shape) { if (evWait && evWait.isConnected) evWait.textContent = waitText(Number(evWait.dataset.at)); timer = setTimeout(() => watch(shape, g), 4000); return; }
+    // something came back while you are typing: drawn when you leave the box, not under your hands (the words are kept)
+    if (typing()) { const a = document.activeElement; const note = el('div', 'chg-note', '有新的結果（評估、回答或修改提案），離開輸入框後顯示'); if (evWait && evWait.isConnected) evWait.replaceWith(note); else box.append(note); a.addEventListener('blur', () => { if (here() && g === drawn) draw(); }, { once: true }); return; }
+    draw();
+  };
+  const draw = async () => {
+    clearTimeout(timer); evWait = null; const g = ++drawn;
+    let r; try { r = await api('/api/claudemd?cwd=' + encodeURIComponent(cwd)); } catch (e) { r = { ok: false, data: {} }; }
+    if (!here()) return;
+    if (qBox) draft = qBox.value;
+    const top = body.scrollTop;
+    box.textContent = '';
+    if (!r.ok) { box.append(el('div', 'chg-note', r.status === 404 ? '這個看板還是舊的程式，不認得這個功能。重啟看板後才能用' : (r.data && r.data.error) || '看板沒有回應')); return; }
+    const d = r.data, files = d.files || [], ev = d.eval || { state: 'none' };
+    const fileOf = (abs) => files.find((f) => same(f.abs, abs));
+    const always = files.filter((f) => !f.scoped), tok = always.reduce((n, f) => n + f.tokens, 0);
+    $('peekPath').textContent = '‎' + (global ? '每個專案都會載入' : cwd) + '　·　' + files.length + ' 份 · 約 ' + sep(tok) + ' tokens';
+    // the one button that asks Claude, at the right of the title row
+    const go = button(ev.state === 'running' ? '評估中…' : ev.state === 'none' ? '綜合評估' : '重新評估', ev.state === 'done' ? '' : 'primary', async (b) => {
+      b.disabled = true; const x = await call('/api/claudemd/evaluate');
+      if (!x.ok) { b.disabled = false; return say((x.data && x.data.error) || '開始不了', true); }
+      draw();
+    });
+    go.disabled = ev.state === 'running' || !files.length; go.title = 'Claude 讀過每一份，找出互相矛盾、寫得模糊、該做成 hook、可能過時與重複的地方（約 1 到 3 分鐘，只讀不改）';
+    const extra = $('peekExtra'); extra.textContent = ''; extra.append(go);
+    const how = el('details', 'fit-how'); how.append(el('summary', '', '這裡列的是什麼'));
+    how.append(el('p', '', global
+      ? '你在任何資料夾開 Claude Code 都會載入的指令檔：~/.claude/CLAUDE.md、~/.claude/rules/ 裡的規則，以及它們用 @ 引用的檔（組織管理的那份有才列，唯讀）。改這裡會影響你所有的專案。'
+      : 'Claude Code 在這個資料夾開對話時會載入的指令檔，照它串接的順序：全域的、上層資料夾的、專案的 CLAUDE.md 與 .claude/rules/、只給你的 CLAUDE.local.md，以及它們用 @ 引用的檔。後面的不會蓋掉前面的，互相矛盾時 Claude 可能任選一個。'));
+    how.append(el('p', '', '每一份的檢查是看板自己看的（行數、壞掉的引用、找不到的路徑或指令、重複的句子、疑似金鑰），不花用量。「綜合評估」請 Claude 讀過再提建議。「微調」寫一句話，Claude 擬好改法，看過差異按「套用」才寫入；寫入前先備份，可以「復原」。'));
+    box.append(how);
+    if (!files.length) {
+      const e = el('div', 'fit-empty'); e.append(el('b', '', '這裡沒有 Claude Code 會載入的 CLAUDE.md'), el('span', '', global ? '可以自己建 ~/.claude/CLAUDE.md，寫你希望每個專案都遵守的事。' : '在這個資料夾的對話裡執行 /init，Claude 會讀過專案後寫一份。'));
+      box.append(e); return;
+    }
+    // the whole at a glance
+    const warns = d.findings.filter((x) => x.level === 'warn').length, infos = d.findings.length - warns;
+    const card = el('div', 'fit-card'), chips = el('div', 'fit-chips');
+    chips.append(el('span', 'fit-chip', files.length + ' 份'), el('span', 'fit-chip', '每次對話開頭約 ' + sep(tok) + ' tokens'));
+    chips.append(el('span', 'fit-chip' + (warns ? ' warn' : ''), warns ? warns + ' 個要注意' : '檢查沒有問題'));
+    if (infos) chips.append(el('span', 'fit-chip', infos + ' 個提醒'));
+    card.append(chips);
+    const scoped = files.filter((f) => f.scoped);
+    if (scoped.length) card.append(el('div', 'fit-basis', scoped.length + ' 份規則只在讀到特定檔案時才載入，沒算進上面的 tokens'));
+    if (tok > 8000) card.append(el('div', 'fit-basis', 'tokens 是估算（中文約一字一個，英文約四個字母一個）。每次對話一開始就佔掉這麼多，內容越長越不容易被遵守'));
+    box.append(card);
+    // ── the evaluation, when asked for ──
+    if (ev.state !== 'none') {
+      const sec = el('div', 'fit-sec', '綜合評估'); if (ev.at && ev.state !== 'running') sec.append(el('span', 'fit-sec-hint', '評估於 ' + when(ev.at))); box.append(sec);
+      if (ev.state === 'running') { evWait = el('div', 'fit-empty'); evWait.dataset.at = ev.at; evWait.textContent = waitText(ev.at); box.append(evWait); }
+      else if (ev.state === 'failed') {
+        box.append(el('div', 'fit-alert', '評估失敗：' + (ev.error || '原因不明') + '。按「重新評估」再試一次。'));
+        // the answer as it came, when it was there but did not read: to be looked at
+        if (ev.raw) { const raw = el('details', 'fit-fold'); raw.append(el('summary', '', '看 Claude 的原始回答'), verbatim('pre', 'cm-raw', ev.raw)); box.append(raw); }
+      }
+      else {
+        const res = ev.result || { items: [] };
+        const c = el('div', 'fit-card'); const sum = el('p', 'fit-sum', res.summary || ''); c.append(sum); box.append(c);
+        if (!res.items.length) box.append(el('div', 'fit-empty', '沒有找到值得改的地方'));
+        else {
+          const list = el('div', 'fit-list');
+          for (const x of res.items) {
+            const row = el('div', 'pf cm-item'), t = el('div', 'pf-body'), nm = el('div', 'pf-name');
+            nm.append(el('span', 'fit-chip small' + (x.kind === 'conflict' || x.kind === 'hook' ? ' warn' : ''), CM_KIND[x.kind] || x.kind));
+            // (which one: the global and the project's are both CLAUDE.md - its place in the set said first)
+            if (x.file) { const ff = fileOf(x.file); nm.append(el('span', 'pf-src', (ff ? ff.label + '・' : '') + name(x.file) + (x.line ? ' 第 ' + x.line + ' 行' : ''))); }
+            t.append(nm, el('div', 'pf-why', x.text));
+            if (x.suggest) t.append(el('div', 'pf-sub', '建議：' + x.suggest));
+            const f = x.file && fileOf(x.file);
+            if (f && f.editable) {
+              const b = el('button', 'fit-link', '請 Claude 照這條擬改法'); b.type = 'button';
+              b.addEventListener('click', () => { if (!qBox) return; qBox.value = '照這條建議改 ' + name(x.file) + (x.line ? ' 第 ' + x.line + ' 行附近' : '') + '：' + x.text + (x.suggest ? ' → ' + x.suggest : ''); qBox.fit && qBox.fit(); qBox.focus(); qBox.scrollIntoView({ block: 'center' }); });
+              t.append(b);
+            }
+            row.append(t); list.append(row);
+          }
+          box.append(list);
+        }
+      }
+    }
+    // ── each file, in the order Claude Code puts them ──
+    box.append(el('div', 'fit-sec', '載入的檔（照順序）'));
+    const pending = new Set(Object.values(d.proposals || {}).filter((p) => !p.applied && !p.stale).map((p) => String(p.abs).toLowerCase()));
+    for (const f of files) {
+      const fd = d.findings.filter((x) => x.id === f.id);
+      const card2 = el('details', 'cm-file'); card2.open = opened.has(f.abs);
+      const sum = el('summary', 'cm-head'), left = el('div', 'cm-title'), right = el('div', 'cm-meta');
+      left.append(el('b', '', name(f.abs)), el('span', '', f.label));
+      right.append(el('span', '', sep(f.lines) + ' 行 · 約 ' + sep(f.tokens) + ' tokens'));
+      const g = CM_GIT[f.git] || ['', '']; if (g[0]) right.append(el('span', 'fit-chip small' + (g[1] ? ' warn' : ''), g[0]));
+      const nw = fd.filter((x) => x.level === 'warn').length; if (nw) right.append(el('span', 'fit-chip small warn', nw + ' 個要注意'));
+      if (pending.has(f.abs.toLowerCase())) right.append(el('span', 'fit-chip small', '有修改提案'));
+      sum.append(left, right); card2.append(sum);
+      const inner = el('div', 'cm-body'); card2.append(inner);
+      const fill = () => {
+        inner.textContent = '';
+        const p = verbatim('div', 'cm-path', f.abs); inner.append(p);
+        if (f.from) { const by = files.find((x) => x.id === f.from); if (by) inner.append(el('div', 'cm-note', '由 ' + name(by.abs) + ' 用 @ 引用進來')); }
+        if (f.scoped) inner.append(el('div', 'cm-note', '只在 Claude 讀到符合 ' + f.scoped.join('、') + ' 的檔案時才載入'));
+        if (f.skipped) inner.append(el('div', 'cm-note warn', '超過 4 MB：Claude Code 整份跳過，一個字都不讀。這裡只顯示開頭 512 KB'));
+        if (!f.editable) inner.append(el('div', 'cm-note', f.kind === 'managed' ? '組織管理的那份：唯讀，看板不改' : f.skipped ? '超過 4 MB，看板不改它' : f.away ? '實際位置在專案外（被引用，或是捷徑指到外面）：可以看，看板不改' : !f.utf8 ? '這個檔不是 UTF-8 編碼：可以看，看板不改（以免弄壞其他內容）' : '看板不改這個檔'));
+        if (f.undoAt) { const u = el('div', 'cm-undo'); u.append(el('span', '', '看板在 ' + when(f.undoAt) + ' 改過這份'), button('復原', '', async (b) => { b.disabled = true; const x = await call('/api/claudemd/undo', { abs: f.abs }); say(x.ok ? '已復原 ' + name(f.abs) : (x.data && x.data.error) || '復原不了', !x.ok); draw(); })); inner.append(u); }
+        if (fd.length) { const ul = el('ul', 'cm-finds'); for (const x of fd) ul.append(el('li', x.level, (x.line ? '第 ' + x.line + ' 行：' : '') + x.text)); inner.append(ul); }
+        // its sections, each with 微調; the text itself under them
+        const doc = el('div', 'msg assistant cm-doc');
+        const toc = el('div', 'cm-toc');
+        const head = el('div', 'cm-toc-head'); head.append(el('span', '', '目錄'));
+        if (f.editable) head.append(button('微調整份', 'small', () => { tweakAt = { abs: f.abs, section: 'all', text: '' }; draw(); }));
+        toc.append(head);
+        f.sections.forEach((s, i) => {
+          const row = el('div', 'cm-sec'); row.style.paddingLeft = (Math.max(0, s.level - 1) * 14 + 8) + 'px';
+          const t = el('button', 'cm-sec-t', s.title); t.type = 'button';
+          t.addEventListener('click', () => { const want = s.title.replace(/[*_`]/g, '').trim(); const h = [...doc.querySelectorAll('h1,h2,h3,h4,h5,h6')].find((x) => x.textContent.trim() === want) || [...doc.querySelectorAll('h1,h2,h3,h4,h5,h6')].find((x) => x.textContent.includes(want.slice(0, 12))); if (h) h.scrollIntoView({ block: 'start', behavior: 'smooth' }); });
+          row.append(t, el('span', 'cm-sec-n', (s.end - s.start) + ' 行'));
+          if (f.editable) row.append(button('微調', 'small', () => { tweakAt = { abs: f.abs, section: i, text: '' }; draw(); }));
+          toc.append(row);
+          if (tweakAt && same(tweakAt.abs, f.abs) && tweakAt.section === i) toc.append(tweakForm(f, s.title));
+        });
+        if (tweakAt && same(tweakAt.abs, f.abs) && tweakAt.section === 'all') toc.insertBefore(tweakForm(f, '整份'), head.nextSibling);
+        inner.append(toc);
+        doc.innerHTML = md(f.text); linkFiles(doc, null, dirOf(f.abs));
+        inner.append(doc);
+      };
+      if (card2.open) fill();
+      card2.addEventListener('toggle', () => { if (card2.open) { opened.add(f.abs); if (!inner.childNodes.length) fill(); } else opened.delete(f.abs); });
+      box.append(card2);
+    }
+    // ── questions, and the changes proposed (by a question or a tweak) ──
+    { const sec = el('div', 'fit-sec', '追問與修改'); sec.append(el('span', 'fit-sec-hint', '輸入框裡按 Tab 帶入範例問題')); box.append(sec); }
+    const thread = el('div', 'fit-thread cm-thread');
+    for (const t of d.thread || []) {
+      thread.append(verbatim('div', 'msg user', t.q));
+      const a = el('div', 'msg assistant goal-md'); a.innerHTML = md(t.a); linkFiles(a, null, cwd || ''); thread.append(a);
+      if (t.edit) thread.append(proposal(d.proposals[t.edit], fileOf));
+    }
+    if (asking && d.busy === 'ask') thread.append(verbatim('div', 'msg user', asking));
+    box.append(thread);
+    if (!(d.thread || []).length && !asking) box.append(el('div', 'cm-note pad', '例如「哪幾條互相矛盾？」「這份太長，怎麼拆成 .claude/rules？」。要改哪裡也可以直接說，Claude 會擬好改法讓你看過再套用。'));
+    const ideas = ['哪幾條規則互相矛盾？各在哪裡？', '哪些寫成「必須／禁止」的，其實該做成 hook 才擋得住？', '這份太長了，建議怎麼拆成 .claude/rules 或刪掉哪些？', global ? '全域這份跟各專案的 CLAUDE.md 有哪些重複，可以只留一處？' : '這個專案的 CLAUDE.md 跟全域那份有哪些重複或講法相反？', '有哪些寫得太模糊，Claude 照著做可能會做錯？'];
+    const form = el('div', 'fit-ask'), q = growText('', '問問題，或說要改哪裡'); q.setAttribute('aria-label', '追問 CLAUDE.md'); q.title = '按 Tab 帶入範例問題'; q.value = draft; qBox = q;
+    q.addEventListener('keydown', () => requestAnimationFrame(() => q.fit && q.fit()));
+    q.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+      const at = ideas.indexOf(q.value); if (q.value && at < 0) return;
+      e.preventDefault(); q.value = ideas[(at + 1) % ideas.length]; q.setSelectionRange(q.value.length, q.value.length);
+    });
+    const send = el('button', 'btn primary', d.busy === 'ask' ? '回答中…' : '問'); send.type = 'button'; send.disabled = !!d.busy;
+    const ask = async () => {
+      const text = q.value.trim(); if (!text) return;
+      send.disabled = true; q.disabled = true; send.textContent = '回答中…（約半分鐘到兩分鐘）';
+      // (out of the box at once: a redraw while it is answered would otherwise bring the question back - review 2026-11-22)
+      q.value = ''; draft = ''; asking = text;
+      thread.append(verbatim('div', 'msg user', text));
+      const x = await call('/api/claudemd/ask', { question: text });
+      asking = '';
+      if (!here()) return;
+      if (!x.ok) { const b = qBox || q; if (!b.value) b.value = text; b.disabled = false; const s2 = b.parentNode && b.parentNode.querySelector('.btn.primary'); if (s2) { s2.disabled = false; s2.textContent = '問'; } return say((x.data && x.data.error) || '沒有回答', true); }
+      if (x.data.edit) say('Claude 擬好了一個修改，看過差異再決定要不要套用');
+      draw();
+    };
+    send.addEventListener('click', ask);
+    q.addEventListener('keydown', (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter' && !e.shiftKey && !onTouch()) { e.preventDefault(); ask(); } });
+    form.append(q, send); box.append(form);
+    if (d.busy) box.append(el('div', 'chg-note', d.busy === 'tweak' ? '正在擬改法，回來後會出現在上面。' : '上一個追問還在回答，回來後會出現在這裡。'));
+    if ((ev.state === 'running' || d.busy) && g === drawn) { const shape = sig(d); timer = setTimeout(() => watch(shape, g), 4000); }
+    requestAnimationFrame(() => { if (here()) body.scrollTop = top; });
+  };
+  // the form under a section: one sentence, Claude drafts the change
+  const tweakForm = (f, title) => {
+    const w = el('div', 'cm-tweak'), t = growText('', '這一段要怎麼改？例如「改得更具體」「刪掉過時的部分」「縮短成三條」');
+    t.value = tweakAt.text || ''; t.addEventListener('input', () => { tweakAt.text = t.value; });
+    const go = button('請 Claude 擬改法', 'primary', async (b) => {
+      const instruction = t.value.trim(); if (!instruction) return say('寫一句要怎麼改', true);
+      b.disabled = true; t.disabled = true; b.textContent = '擬改法中…（約半分鐘到兩分鐘）';
+      const x = await call('/api/claudemd/tweak', { abs: f.abs, section: tweakAt.section, title: tweakAt.section === 'all' ? undefined : title, instruction });
+      if (!here()) return;
+      if (!x.ok) { b.disabled = false; t.disabled = false; b.textContent = '請 Claude 擬改法'; return say((x.data && x.data.error) || '沒有擬成', true); }
+      tweakAt = null; say(x.data.edit ? '擬好了，差異在最下面的「追問與修改」，看過再按套用' : '這次沒有擬出可以套用的改法，原因在最下面');
+      await draw();
+      const last = [...box.querySelectorAll('.cm-thread .cm-prop')].pop(); if (last) last.scrollIntoView({ block: 'center' });
+    });
+    const no = button('取消', '', () => { tweakAt = null; draw(); });
+    const acts = el('div', 'wish-acts'); acts.append(no, go);
+    w.append(el('div', 'cm-note', '微調「' + title + '」：只改這一段，其他保持原樣'), t, acts);
+    if (!tweakAt.focused) { tweakAt.focused = true; requestAnimationFrame(() => t.focus()); }
+    return w;
+  };
+  // a change proposed: what it changes, and 套用 / 不要
+  const proposal = (p, fileOf) => {
+    const w = el('div', 'cm-prop');
+    if (!p) { w.append(el('div', 'cm-note', '（這個提案已經丟掉）')); return w; }
+    const h = el('div', 'cm-prop-h'); h.append(el('b', '', '修改提案：' + (p.title || name(p.abs)))); if (p.why) h.append(el('span', '', p.why)); w.append(h);
+    w.append(hunksPre(p.hunks));
+    const acts = el('div', 'wish-acts');
+    if (p.applied) acts.append(el('span', p.undone ? 'cm-done' : 'cm-done ok', p.undone ? '套用過，後來復原了' : '已套用（' + when(p.applied) + '）'));
+    else if (p.stale) acts.append(el('span', 'cm-done bad', '提案之後這個檔被改過，不能套用了'), button('丟掉', '', async () => { await call('/api/claudemd/discard', { id: p.id }); draw(); }));
+    else {
+      const f = fileOf(p.abs);
+      // a file more than this folder loads: asked once more on the button itself (asked 2026-11-22)
+      const wide = f && f.wide;   // (the server says it, by the folder's path - review 2026-11-22: a text prefix took C:\a\proj2 for C:\a\proj)
+      const ok = button('套用', 'primary', async (b) => {
+        if (wide && !b.dataset.sure) { b.dataset.sure = '1'; b.textContent = f.kind === 'parent' ? '確定套用？會影響「' + dirOf(f.abs) + '」底下所有專案' : '確定套用？這會影響你所有的專案'; b.classList.add('warn'); return; }
+        b.disabled = true;
+        const x = await call('/api/claudemd/apply', { id: p.id });
+        if (!x.ok) { say((x.data && x.data.error) || '沒有寫入', true); return draw(); }
+        say('已寫入 ' + name(p.abs) + '，改之前的版本有備份，可以按「復原」' + (x.data.git === 'modified' || x.data.git === 'added' ? '。這個檔在 git 裡，記得 commit' : ''));
+        draw();
+      });
+      acts.append(button('不要', '', async () => { await call('/api/claudemd/discard', { id: p.id }); draw(); }), ok);
+    }
+    w.append(acts);
+    return w;
+  };
   await draw();
 }
 function tickOffice() { if (view === 'office') fillOffice(); }
@@ -6760,7 +7141,9 @@ const EXT = /\.[A-Za-z0-9]{1,8}(:\d+(-\d+)?(:\d+)?)?$/;
 function looksLikePath(t) {
   if (!t || t.length > 400 || /[\n<>|*?]/.test(t) || /^(https?:|\/\/)/i.test(t)) return false;
   if (/^[A-Za-z]:[\\/]/.test(t) || /^~[\\/]/.test(t)) return true;
-  return EXT.test(t) && !/\s{2,}/.test(t) && !/^[-.]/.test(t);   // a relative path needs an extension
+  // a relative path needs an extension; one starting with "." only as a folder (.claude/harness/A.md - asked 2026-11-22:
+  // the harness files CLAUDE.md names could not be pressed), never a lone .bak or .env
+  return EXT.test(t) && !/\s{2,}/.test(t) && !/^-/.test(t) && (!/^\./.test(t) || /^\.[\w-]+[\\/]/.test(t));
 }
 // An absolute path in running text ends at a space or full-width punctuation: C:\... - or, on macOS and Linux,
 // /Users/x/report.pdf (two levels and an extension, nothing of a word, ':' or '/' just before it: not "and/or", not the
@@ -6908,14 +7291,15 @@ function cmdButtons(root, sid) {
     for (const r of roots) if (r.isConnected) cmdButtons(r, sid);
   });
 }
-function linkFiles(root, sid) {
+// base: the folder a relative path is from when it is not a conversation's (the CLAUDE.md panel: the file's own folder)
+function linkFiles(root, sid, base) {
   if (!root) return;
   resumeButtons(root);
   cmdButtons(root, sid);
   for (const c of root.querySelectorAll('code')) {
     if (c.closest('pre') || c.dataset.fq) continue;
     const t = c.textContent.trim();
-    if (looksLikePath(t)) { c.dataset.fq = '1'; fileQueue.push({ el: c, raw: t, sid }); }
+    if (looksLikePath(t)) { c.dataset.fq = '1'; fileQueue.push({ el: c, raw: t, sid, base }); }
   }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('code, pre, a, .fp, button') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
   const texts = [];
@@ -6931,7 +7315,7 @@ function linkFiles(root, sid) {
       const span = el('span', '', raw);
       span.dataset.fq = '1';
       frag.append(span);
-      fileQueue.push({ el: span, raw, sid });
+      fileQueue.push({ el: span, raw, sid, base });
       last = m.index + raw.length;
       BARE.lastIndex = last;
     }
@@ -6947,12 +7331,13 @@ async function checkFiles() {
   const batch = fileQueue;
   fileQueue = [];
   const bySid = new Map();
-  for (const q of batch) { if (!bySid.has(q.sid)) bySid.set(q.sid, []); bySid.get(q.sid).push(q); }
-  for (const [sid, qs] of bySid) {
+  for (const q of batch) { const g = (q.sid || '') + '\n' + (q.base || ''); if (!bySid.has(g)) bySid.set(g, []); bySid.get(g).push(q); }
+  for (const [, qs] of bySid) {
+    const sid = qs[0].sid, base = qs[0].base || '';
     for (let i = 0; i < qs.length; i += 80) {
       const part = qs.slice(i, i + 80);
       let r;
-      try { r = await api('/api/files/check', { sessionId: sid || '', paths: part.map((q) => q.raw) }); } catch (e) { continue; }
+      try { r = await api('/api/files/check', Object.assign({ sessionId: sid || '', paths: part.map((q) => q.raw) }, base ? { base } : {})); } catch (e) { continue; }
       if (!r.ok) continue;
       part.forEach((q, k) => {
         const f = r.data.files[k];
@@ -6979,6 +7364,7 @@ function closePeek() {
   clearTimeout(taskPeekTimer);
   $('peek').hidden = true;
   $('peekBody').textContent = '';
+  $('peekExtra').textContent = '';   // (a panel's own buttons in the title row: 外掛分析's 重新分析)
   if (peekUrl) { URL.revokeObjectURL(peekUrl); peekUrl = ''; }
   peekFile = null;
 }
@@ -7179,8 +7565,11 @@ async function openChanges(s) {
 }
 // what the board can show as a page of its own (/api/file/ticket): a web page, a PDF, an Office file (made a PDF)
 const browsable = (f) => !!f && (f.kind === 'pdf' || f.kind === 'office' || /\.html?$/i.test(f.name || ''));
+// a panel that opened this file (the CLAUDE.md panel: a file it names): a button back to it in the title row
+let peekReturn = null;
 async function openPeek(f) {
   closePeek();
+  if (peekReturn) { const r = peekReturn; peekReturn = null; const b = el('button', 'btn', '← ' + r.label); b.type = 'button'; b.addEventListener('click', r.go); $('peekExtra').append(b); }
   peekFile = f;
   $('peek').hidden = false;
   $('peekName').textContent = f.name;

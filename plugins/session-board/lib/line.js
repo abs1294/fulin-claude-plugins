@@ -107,6 +107,7 @@ const SYSTEM = [
   '- 他要把圖交給某個對話（例：「這張給 #3 看」「把截圖丟給做報表的那個」）：用 send 或 new，並加 "images":true，他最近傳的圖會一起送過去；text 要寫清楚要那個對話拿這些圖做什麼。',
   '- 只有圖、沒說要做什麼：簡短說你看到什麼，問他要你做什麼。',
   '',
+  require('./modeljson').PATHS,
   '只輸出一個 JSON 物件，不要其他文字、不要 markdown 圍欄：{"reply":"給他看的回覆","action":null 或上面其中一個}',
 ].join('\n');
 

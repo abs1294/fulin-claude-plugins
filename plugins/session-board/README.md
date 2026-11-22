@@ -219,14 +219,24 @@ node lib/decide.js --question 路徑/我的題目.json --model haiku < 一段文
 
 規則文字、帳本與說明的範本、帳本的節名都在 plugin 的 `collab/`（`config.json`、`ledger.md`、`brief.md`、`rules.md`、`renamed.md`、`decision.md`）；要改，放一份同名檔到 `~/.claude/session-board/collab/`（`config.json` 只要寫你要改的欄位）。
 
+## CLAUDE.md 面板
+
+辦公室每個房間的「CLAUDE.md」，和頂端工具列的「全域 CLAUDE.md」：看 Claude Code 在那個資料夾會載入哪些指令檔、各有多長、有什麼問題，需要時請 Claude 評估或微調。
+
+- **列哪些**：照 Claude Code 官方文件（code.claude.com/docs/en/memory）的載入規則與順序——組織管理的那份（有才列，唯讀）、`~/.claude/CLAUDE.md` 與 `~/.claude/rules/`、上層資料夾的 `CLAUDE.md`／`CLAUDE.local.md`、專案的 `CLAUDE.md`、`.claude/CLAUDE.md`、`.claude/rules/`、`CLAUDE.local.md`、用 `@` 引用的檔（最多四層）；沒有任何 CLAUDE.md 的資料夾列 `AGENTS.md`。子資料夾的 CLAUDE.md 是 Claude 進去工作才載入，不列。「全域 CLAUDE.md」只列每個專案都會載入的。
+- **每一份**：行數、估算的 tokens（中文約一字一個、英文約四個字母一個）、git 狀態、看板自己做的檢查（太長、壞掉的引用、寫在行內反引號裡卻找不到的路徑或指令、重複的句子、疑似金鑰或個資——金鑰只說第幾行，不顯示內容）。展開看目錄與內容；內容提到的檔案可以點開預覽，標題列有回來的按鈕。
+- **綜合評估**：按了才跑（`claude -p`，只讀不改，不載入你的設定與 hook，約 1 到 3 分鐘）。全域那個另外比對各專案的 CLAUDE.md。
+- **微調**：每一段旁的「微調」寫一句話，或在下面追問裡說要改哪裡。Claude 擬好後顯示差異，按「套用」才寫入；寫入前備份到 `~/.claude/session-board/claudemd-bak/`，可以「復原」上一次。提案之後檔案被改過就不能套用；全域與上層資料夾那份套用前要再確認一次。改完的檔在 git 裡時記得 commit。
+
 ## 外掛分析與找外掛
 
 辦公室每個房間的「外掛分析」：照 plugin-manager 的 setup-plugins，讀那個資料夾的 CLAUDE.md、README 和檔案類型，從你的 plugin 庫、profile 和推薦清單（plugin-manager 的 `recommends.json`）挑適合的，也列出已經裝的、可以考慮拿掉的。分析只讀不改，約 1 到 3 分鐘；勾選後按「套用」才裝，一律裝在那個資料夾（marketplace 型用 `claude plugin install --scope project`，skill 合集型只抓那個 skill 的資料夾，複製到 `.claude/skills/`）。下面可以追問，回答可能改上面的清單。
 
 **找外掛**：在追問裡許願（「我想要一個做簡報的 skill」），Claude 照 [skill-fetch](https://github.com/girofu/skill-fetch) 的方法到 SkillsMP、GitHub、skills.sh 等 skill 庫找、評分；找到、而且有 GitHub 資料夾網址的，列進清單讓你勾選套用。實測一次約半分鐘、約 0.2 美元。
 
-- **第一次會問要不要啟用**。啟用會把 skill-fetch 裝到全域（`~/.claude/skills/skill-fetch`），並請你填 SkillsMP、SkillHub、Skills Directory 的金鑰。金鑰只填一次，每一個都可以不填；存在 skill-fetch 讀的 `~/.claude/skills/.fetch-config.json`，畫面上只顯示有沒有填。選「先不要」，許願就只會在既有的清單裡找。
-- **搜尋時的限制**：在一個空的暫存資料夾裡跑 `claude -p`，不載入你的設定與 hook，只放行 skill-fetch 會做的事：指令只有 `gh search`、它的 npx 查詢工具和它的兩支 skill 庫腳本；網頁只有 skills.sh、skillsmp.com 和 GitHub；讀檔只有 skill-fetch 自己的檔和專案的 CLAUDE.md、README.md。其他指令、網址、檔案一律被擋（實測讀金鑰檔、`cat` 都被拒）。金鑰它讀不到：skill 庫的腳本自己讀設定檔，SkillsMP 的工具只在這次搜尋臨時提供，金鑰放在它讀不到的另一個暫存資料夾、跑完就刪（看板中途被關掉留下的，下次啟動時刪）。你自己註冊的 MCP 不會被動到。找到的每一個都先向 GitHub 確認資料夾裡真的有 SKILL.md 才列出（連不上 GitHub 的會另外說明）。同一個資料夾一次找一個願望，其他的排隊；找的途中看板重新啟動，那個願望會在對話裡註明「還沒找完」，不會自己再找一次（再找要花用量），找到但還沒寫進分析的結果則會留著寫進去。搜尋用的指令要靠 Git Bash 跑：Windows 上 Claude Code 找不到 Git Bash 時，這些指令全部被擋（不會因此放寬），只剩網頁與 SkillsMP 可查，找到的會比較少。
+- **已經有 skill-fetch 的不會問**：裝在 ~/.claude/skills 的，每個資料夾都直接啟用；只裝在某個專案的，那個專案直接啟用（搜尋時用它自己的），其他專案仍會問。你按過「啟用」或「關閉」的照你選的。
+- **沒有 skill-fetch 的，第一次會問要不要啟用**。啟用會把 skill-fetch 裝到全域（`~/.claude/skills/skill-fetch`），並請你填 SkillsMP、SkillHub、Skills Directory 的金鑰。金鑰只填一次，每一個都可以不填；存在 skill-fetch 讀的 `~/.claude/skills/.fetch-config.json`，畫面上只顯示有沒有填。選「先不要」，許願就只會在既有的清單裡找。
+- **搜尋時的限制**：在一個空的暫存資料夾裡跑 `claude -p`，不載入你的設定與 hook，只放行 skill-fetch 會做的事：指令只有 `gh search`、讀 anthropics/skills 清單的那一條 `gh api`、它的 npx 查詢工具和它的兩支 skill 庫腳本；網頁只有 skills.sh、skillsmp.com 和 GitHub；讀檔只有 skill-fetch 自己的檔和專案的 CLAUDE.md、README.md。其他指令、網址、檔案一律被擋（2026-11-22 實測：讀金鑰檔、`cat`、串接指令都被拒）。金鑰它讀不到：skill 庫的腳本自己讀設定檔（skill-fetch 的 SKILL.md 寫明它的兩支腳本從 `~/.claude/skills/.fetch-config.json` 讀金鑰），SkillsMP 的工具只在這次搜尋臨時提供，金鑰放在它讀不到的另一個暫存資料夾、跑完就刪（看板中途被關掉留下的，下次啟動時刪掉距離那次搜尋超過 15 分鐘的）。你自己註冊的 MCP 不會被動到。找到的每一個都先向 GitHub 確認資料夾裡真的有 SKILL.md 才列出（連不上 GitHub 的會另外說明）。同一個資料夾一次找一個願望，其他的排隊（最多排三個，再多的會在回答裡說明沒有去找）；找的途中看板重新啟動，那個願望會在對話裡註明「還沒找完」，不會自己再找一次（再找要花用量），找到但還沒寫進分析的結果則會留著寫進去。搜尋用的指令由 Claude Code 的 Bash 工具執行；Windows 上它需要 Git Bash，沒有的話這些指令跑不了（這是 Claude Code 的行為，看板不另外處理，也不會因此放寬），只剩網頁與 SkillsMP 可查，找到的會比較少。
 - **加入推薦清單**：用過覺得好，在追問裡說要加進推薦清單，Claude 會擬好那一筆（名稱、來源、說明、標籤），面板出現「加入推薦清單」按鈕，按了才透過 plugin-manager 的 `register-external.js` 寫入。要讓別台電腦也看到，再執行 `/plugin-manager-publish`。
 
 ## 關機後把 session 開回來（常駐）

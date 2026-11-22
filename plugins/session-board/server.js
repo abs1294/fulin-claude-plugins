@@ -68,6 +68,7 @@ const TidyLib = require('./lib/tidy');
 const Vocab = require('./lib/vocab');
 const Plugins = require('./lib/plugins');
 const PluginFit = require('./lib/pluginfit');
+const CM = require('./lib/claudemd');
 const SkillWish = require('./lib/skillwish');
 const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
@@ -616,6 +617,51 @@ function createServer(token, port, deps = {}) {
   const fitBusy = new Set();     // folders whose choices are being installed right now
   const fitAsking = new Set();   // folders with a question about their analysis being answered right now
   const fitWishing = new Set();  // folders with a wish being looked for outside right now (lib/skillwish.js)
+  // CLAUDE.md 面板 (lib/claudemd.js): per folder ('*' = the office's 全域 one) its evaluation, its questions and the changes
+  // proposed - kept in a file (an evaluation takes minutes); one running when the board ended is said to be unfinished.
+  // What the board writes is backed up first, in claudemd-bak/ (復原 puts the last one back).
+  const cmdFile = deps.claudemdFile || path.join(DATA_DIR, 'claudemd.json');
+  const cmdBak = deps.claudemdBak || path.join(DATA_DIR, 'claudemd-bak');
+  const cmds = new Map();
+  try { for (const [k, v] of Object.entries(JSON.parse(fs.readFileSync(cmdFile, 'utf8')))) if (v && typeof v === 'object') { if (v.eval && v.eval.state === 'running') v.eval = { state: 'failed', at: v.eval.at, error: '看板重新啟動時評估還沒做完，按「重新評估」再做一次' }; cmds.set(k, v); } } catch (e) {}
+  const cmdKey = (w) => (w ? fitKey(w) : '*');
+  const cmdSave = () => { try { fs.mkdirSync(path.dirname(cmdFile), { recursive: true }); const tmp = cmdFile + '.' + process.pid + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(cmds), null, 1)); fs.renameSync(tmp, cmdFile); } catch (e) {} };
+  const cmdBusy = new Map();     // folder -> 'ask' | 'tweak': one question or tweak at a time per folder
+  const cmdRaw = (abs) => CM.fileSha(abs);   // (the file's bytes as they are, as lib/claudemd.js apply checks them)
+  // the evaluation of the 全域 one also reads other projects' CLAUDE.md (the ones the board knows, latest first): to compare
+  const cmdOthers = () => {
+    const seen = new Set(), out = [];
+    let items = []; try { items = Past.list({ projectsDir: S.DEFAULTS.projectsDir, limit: 600 }).items || []; } catch (e) {}
+    for (const c of sessions().map((s) => s.cwd).concat(items.map((x) => x.cwd))) {
+      if (!c || seen.has(fitKey(c))) continue; seen.add(fitKey(c));
+      // (read the one way the model is handed a file: lib/claudemd.js loadedFile - what Claude Code itself would receive)
+      for (const n of ['CLAUDE.md', path.join('.claude', 'CLAUDE.md')]) { const x = CM.loadedFile(path.join(c, n), 6000); if (x) out.push(Object.assign(x, { label: '其他專案' })); }
+      if (out.length >= 15) break;
+    }
+    return out;
+  };
+  const cmdView = async (w) => {
+    const list = CM.layers(w), findings = CM.check(list, w), k = cmdKey(w), st = cmds.get(k) || {};
+    const git = await Promise.all(list.map((f) => CM.gitState(f.abs, { run: gitRun })));
+    const proposals = {};
+    for (const [id, x] of Object.entries(st.proposals || {})) proposals[id] = { id, abs: x.abs, why: x.why, title: x.title, at: x.at, applied: x.applied || 0, undone: x.undone || 0, stale: !x.applied && cmdRaw(x.abs) !== x.hash, hunks: CM.diff(x.before, x.after).map((h) => Object.assign(h, { oldStart: h.oldStart + (x.line0 || 0), newStart: h.newStart + (x.line0 || 0) })) };
+    // 復原 is offered while the file is as the board left it
+    const undoAt = (abs) => { const b = CM.backups(abs, cmdBak), last = b[b.length - 1]; return last && cmdRaw(abs) === last.wrote ? last.at : 0; };
+    // wide: a file more than this folder loads (yours, your rules, a folder above, an import outside it) - 套用 asks once more
+    const outside = (abs) => { if (!w) return true; const r = path.relative(w, abs); return !r || r.startsWith('..') || path.isAbsolute(r); };
+    return { global: !w, cwd: w, files: list.map((f, i) => ({ id: f.id, abs: f.abs, kind: f.kind, label: f.label, editable: f.editable && !f.cut, utf8: f.utf8, skipped: f.skipped, away: !!f.away, wide: f.kind === 'user' || f.kind === 'user-rule' || f.kind === 'parent' || (f.kind === 'import' && outside(f.abs)), text: f.text, bytes: f.bytes, lines: f.lines, tokens: f.tokens, cut: f.cut, scoped: f.scoped || null, from: f.from || null, hops: f.hops || 0, git: git[i], sections: CM.sections(f.text), undoAt: undoAt(f.abs) })),
+      findings, eval: st.eval || { state: 'none' }, thread: st.thread || [], proposals, busy: cmdBusy.get(k) || '' };
+  };
+  // a change Claude proposed, kept until it is applied or dropped (only its id comes from the page)
+  const cmdPropose = (k, e, title, from) => {
+    const st = cmds.get(k) || {}, id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    // line0: the lines above the part it changes, so its diff says the file's own line numbers
+    let line0 = 0; try { const t = fs.readFileSync(e.abs, 'utf8').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n'), at = t.indexOf(e.before); if (at > 0) line0 = t.slice(0, at).split('\n').length - 1; } catch (x) {}
+    st.proposals = Object.assign({}, st.proposals, { [id]: { abs: e.abs, before: e.before, after: e.after, why: e.why, title, from, line0, hash: cmdRaw(e.abs), at: Date.now() } });
+    // the oldest ones not applied go first when there are many
+    const ids = Object.keys(st.proposals); if (ids.length > 40) for (const x of ids.slice(0, ids.length - 40)) delete st.proposals[x];
+    cmds.set(k, st); return id;
+  };
   const Wish = deps.skillwish || SkillWish;
   if (!deps.skillwish && !deps.noTimers) Wish.sweep();   // a key file a search left when the board ended mid-way
   // 找外掛 (lib/skillwish.js): one wish at a time per folder, the others waiting their turn (three at most). What is
@@ -1468,8 +1514,10 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/plugins') return send(res, 200, await pluginsView(false));
         if (p === '/api/recommends') return send(res, 200, PluginFit.recommends());
         // 找外掛 (lib/skillwish.js): on or off, skill-fetch there or not, which keys are set (never a key itself)
-        if (p === '/api/skillwish') return send(res, 200, Wish.status());
-        if (p === '/api/pluginfit') { const w = String(q.get('cwd') || ''); return send(res, 200, Object.assign({ state: 'none' }, fits.get(fitKey(w)) || {}, { installing: fitBusy.has(fitKey(w)), asking: fitAsking.has(fitKey(w)), wishing: fitWishing.has(fitKey(w)), wish: Wish.status(), canRun: !!Plugins.rootOf('plugin-manager', instNow()) })); }
+        if (p === '/api/skillwish') return send(res, 200, Wish.status(String(q.get('cwd') || '')));
+        // CLAUDE.md 面板 (lib/claudemd.js): the files Claude Code loads for a folder (none given: for every folder), checked
+        if (p === '/api/claudemd') { const w = String(q.get('cwd') || ''); if (w && !knownFolder(w)) return send(res, 400, { ok: false, error: '這不是看板知道的專案資料夾' }); return send(res, 200, await cmdView(w)); }
+        if (p === '/api/pluginfit') { const w = String(q.get('cwd') || ''); return send(res, 200, Object.assign({ state: 'none' }, fits.get(fitKey(w)) || {}, { installing: fitBusy.has(fitKey(w)), asking: fitAsking.has(fitKey(w)), wishing: fitWishing.has(fitKey(w)), wish: Wish.status(w), canRun: !!Plugins.rootOf('plugin-manager', instNow()) })); }
         if ((p === '/api/goals' || p === '/api/goals/status') && !isOn('goal2')) return send(res, p === '/api/goals' ? 200 : 404, p === '/api/goals' ? { installed: false, runs: [] } : { ok: false, error: '這台電腦沒有裝 goal2' });
         if (p === '/api/goals') { const l = await goal2.list(); return send(res, 200, { installed: l.installed, version: l.version || '', error: l.error || '', runs: l.runs || [] }); }
         if (p === '/api/goals/status') { const r = await goal2.status(String(q.get('id') || '')); return send(res, r.ok ? 200 : 404, r); }
@@ -1707,13 +1755,14 @@ function createServer(token, port, deps = {}) {
       // 找外掛 switched on or off (asked the first time the 外掛分析 opens); on puts skill-fetch in your skills if it is not
       if (p === '/api/skillwish') {
         if (body.choice !== 'on' && body.choice !== 'off') return send(res, 400, { ok: false, error: '要啟用還是不要？' });
-        Wish.setChoice(body.choice === 'on');
+        const wcwd = typeof body.cwd === 'string' ? body.cwd : '';
+        Wish.setChoice(body.choice === 'on', wcwd);
         let inst = null;
-        if (body.choice === 'on' && !Wish.status().installed) { try { inst = await Wish.install({ run: deps.pluginsRun }); } catch (e) { inst = { ok: false, note: String((e && e.message) || e).slice(0, 200) }; } }
-        return send(res, inst && !inst.ok ? 502 : 200, Object.assign({ ok: !inst || inst.ok, install: inst }, Wish.status()));
+        if (body.choice === 'on' && Wish.status(wcwd).where !== 'global') { try { inst = await Wish.install({ run: deps.pluginsRun }); } catch (e) { inst = { ok: false, note: String((e && e.message) || e).slice(0, 200) }; } }
+        return send(res, inst && !inst.ok ? 502 : 200, Object.assign({ ok: !inst || inst.ok, install: inst }, Wish.status(wcwd)));
       }
       // the registries' keys, written where skill-fetch reads them; the answer says which are set, never what they are
-      if (p === '/api/skillwish/keys') { const r = Wish.saveKeys(body && body.keys); return send(res, r.ok ? 200 : 400, r); }
+      if (p === '/api/skillwish/keys') { const r = Wish.saveKeys(body && body.keys, typeof body.cwd === 'string' ? body.cwd : ''); return send(res, r.ok ? 200 : 400, r); }
       if (p === '/api/recommends') { const r = await (deps.saveRecommend || PluginFit.saveRecommend)(body || {}); return send(res, r.ok ? 200 : 400, r); }
       // 外掛整合分析 (lib/pluginfit.js): started here, run in the background (minutes), read with GET /api/pluginfit.
       if (p === '/api/pluginfit/analyze') {
@@ -1744,7 +1793,7 @@ function createServer(token, port, deps = {}) {
         if (!had || had.state !== 'done') return send(res, 409, { ok: false, error: '先做一次分析' });
         if (fitAsking.has(k)) return send(res, 409, { ok: false, error: '上一個追問還在回答，等它回來' });
         fitAsking.add(k);
-        const ws = Wish.status();
+        const ws = Wish.status(cwd);
         let r; try { r = await (deps.pluginfitAsk || PluginFit.ask)(cwd, had, question, { pmRoot: Plugins.rootOf('plugin-manager', instNow()), explain: explainAside, run: deps.pluginsRun, wish: { on: ws.choice === 'on', installed: ws.installed }, wishMax: SkillWish.WISH_MAX }); }
         catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; } finally { fitAsking.delete(k); }
         if (!r.ok) return send(res, 502, r);
@@ -1785,6 +1834,98 @@ function createServer(token, port, deps = {}) {
           fits.set(k, Object.assign({}, now, { applied })); fitSave();
         }
         return send(res, 200, { ok: done.every((d) => d.ok), results: done });
+      }
+      // CLAUDE.md 面板 (lib/claudemd.js). cwd '' is the office's 全域 one (the files every folder loads); a folder must be
+      // one the board knows. The model's runs are read-only (lib/aside.js explain); only 套用 and 復原 write, and only a
+      // file of the folder's set, a change proposed by the board itself (its id), the file unchanged since.
+      if (p.startsWith('/api/claudemd/')) {
+        const w = typeof body.cwd === 'string' ? body.cwd : '';
+        if (w && !knownFolder(w)) return send(res, 400, { ok: false, error: '這不是看板知道的專案資料夾' });
+        // (the global one runs in ~/.claude; a computer without it, in the home folder - a missing folder made the start fail
+        // as "claude not found")
+        const k = cmdKey(w), runCwd = w || (isDir(path.join(os.homedir(), '.claude')) ? path.join(os.homedir(), '.claude') : os.homedir());
+        const list = CM.layers(w);
+        const st = () => cmds.get(k) || {};
+        const failed = (r, what) => (r && r.error) || what;
+        if (p === '/api/claudemd/evaluate') {
+          if (!list.length) return send(res, 400, { ok: false, error: '這裡沒有 Claude Code 會載入的 CLAUDE.md' });
+          if (st().eval && st().eval.state === 'running') return send(res, 409, { ok: false, error: '評估還在跑' });
+          const findings = CM.check(list, w), others = w ? [] : cmdOthers(), gen = Date.now();
+          cmds.set(k, Object.assign({}, st(), { eval: { state: 'running', at: gen, gen } })); cmdSave();
+          Promise.resolve().then(() => explainAside(runCwd, CM.evalPrompt(list, findings, { global: !w, cwd: w, others }), { timeLimit: CM.TIME_LIMIT_MS }))
+            .catch((e) => ({ ok: false, error: String((e && e.message) || e).slice(0, 200) }))
+            .then((r) => {
+              const now = st(); if (!now.eval || now.eval.gen !== gen) return;
+              const res2 = r && r.ok ? CM.readEval(r.answer, list, others) : null;
+              now.eval = res2 ? { state: 'done', at: Date.now(), gen, result: res2, cost: r.cost || 0 } : Object.assign({ state: 'failed', at: Date.now(), gen, error: r && r.ok ? '評估的回答不是預期的格式' : failed(r, '評估沒有完成') }, r && r.ok ? { raw: String(r.answer || '').slice(0, 20000) } : {});
+              cmds.set(k, now); cmdSave();
+            });
+          return send(res, 202, { ok: true, state: 'running' });
+        }
+        if (p === '/api/claudemd/ask' || p === '/api/claudemd/tweak') {
+          if (cmdBusy.has(k)) return send(res, 409, { ok: false, error: '上一個還在回答，等它回來' });
+          let prompt, f = null, title = '', q2 = '', before = '';
+          if (p === '/api/claudemd/ask') {
+            q2 = typeof body.question === 'string' ? body.question.trim() : '';
+            if (!q2) return send(res, 400, { ok: false, error: '要問什麼？' });
+            if (q2.length > CM.QUESTION_MAX) return send(res, 400, { ok: false, error: '問題太長（上限 ' + CM.QUESTION_MAX + ' 字）' });
+            if (!list.length) return send(res, 400, { ok: false, error: '這裡沒有 Claude Code 會載入的 CLAUDE.md' });
+            prompt = CM.askPrompt(list, st(), q2, { global: !w, cwd: w });
+          } else {
+            f = list.find((x) => CM.low(x.abs) === CM.low(body.abs));
+            if (!f) return send(res, 400, { ok: false, error: '這個檔不在這組裡' });
+            if (!f.editable) return send(res, 400, { ok: false, error: f.kind === 'managed' ? '組織管理的那份看板不改' : f.cut ? '這個檔超過 4 MB，Claude Code 不會讀它，看板也不改它' : f.away ? '這個檔實際位置在專案外（被引用，或是捷徑指到外面），看板不改它' : !f.utf8 ? '這個檔不是 UTF-8 編碼，看板不改它' : '看板不改這個檔' });
+            const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : '';
+            if (!instruction) return send(res, 400, { ok: false, error: '要怎麼改？寫一句話' });
+            if (instruction.length > CM.QUESTION_MAX) return send(res, 400, { ok: false, error: '太長（上限 ' + CM.QUESTION_MAX + ' 字）' });
+            const secs = CM.sections(f.text), sec = body.section === 'all' ? null : secs[Number(body.section)];
+            // the section the page meant: by its number and its heading (the file changed since the page drew it: refused)
+            if (body.section !== 'all' && (!sec || (typeof body.title === 'string' && body.title !== sec.title))) return send(res, 409, { ok: false, error: '這個檔剛被改過，段落對不上了。重新整理再微調' });
+            before = sec ? CM.sectionText(f.text.replace(/\r\n/g, '\n'), sec) : f.text.replace(/\r\n/g, '\n');
+            title = path.basename(f.abs) + (sec ? '「' + sec.title + '」' : '（整份）');
+            q2 = '微調 ' + title + '：' + instruction;
+            prompt = CM.tweakPrompt(f, before, instruction, list);
+          }
+          cmdBusy.set(k, p === '/api/claudemd/ask' ? 'ask' : 'tweak');
+          let r; try { r = await explainAside(runCwd, prompt, { timeLimit: CM.TIME_LIMIT_MS }); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; } finally { cmdBusy.delete(k); }
+          if (!r || !r.ok) return send(res, 502, { ok: false, error: failed(r, '沒有回答') });
+          const j = CM.jsonIn(r.answer);
+          let answer, edit = null;
+          if (p === '/api/claudemd/ask') { answer = j && typeof j.answer === 'string' ? j.answer.slice(0, 8000) : String(r.answer || '').slice(0, 8000); edit = j ? CM.readEdit(j.edit, list) : null; }
+          else {
+            if (!j || typeof j.after !== 'string') return send(res, 502, { ok: false, error: '改寫的回答不是預期的格式：' + String(r.answer || '').slice(0, 200) });
+            edit = CM.readEdit({ file: f.abs, before, after: j.after, why: j.why }, list);
+            answer = String(j.why || '').slice(0, 600) || '改好了，差異在下面';
+          }
+          let id = '';
+          if (edit && edit.error) answer += '\n\n（' + edit.error + '）';
+          else if (edit) id = cmdPropose(k, edit, title || path.basename(edit.abs), p === '/api/claudemd/ask' ? 'ask' : 'tweak');
+          const now = st();
+          now.thread = (now.thread || []).concat([Object.assign({ q: q2, a: answer, at: Date.now() }, id ? { edit: id } : {})]).slice(-30);
+          cmds.set(k, now); cmdSave();
+          return send(res, 200, { ok: true, answer, edit: id });
+        }
+        if (p === '/api/claudemd/apply' || p === '/api/claudemd/discard') {
+          const id = typeof body.id === 'string' ? body.id : '', now = st(), x = now.proposals && now.proposals[id];
+          if (!x) return send(res, 404, { ok: false, error: '找不到這個提案（可能已經套用或丟掉）' });
+          if (x.applied) return send(res, 409, { ok: false, error: '這個提案已經套用過了' });
+          if (p === '/api/claudemd/discard') { delete now.proposals[id]; cmds.set(k, now); cmdSave(); return send(res, 200, { ok: true }); }
+          if (!list.some((f) => CM.low(f.abs) === CM.low(x.abs) && f.editable && !f.cut)) return send(res, 400, { ok: false, error: '這個檔已經不在這組裡，沒有寫入' });
+          const r = CM.apply(x, cmdBak);
+          if (!r.ok) return send(res, 409, r);
+          x.applied = Date.now(); cmds.set(k, now); cmdSave();
+          return send(res, 200, { ok: true, backup: r.backup, git: await CM.gitState(x.abs, { run: gitRun }) });
+        }
+        if (p === '/api/claudemd/undo') {
+          const f = list.find((x) => CM.low(x.abs) === CM.low(body.abs));
+          if (!f) return send(res, 400, { ok: false, error: '這個檔不在這組裡' });
+          const r = CM.undo(f.abs, cmdBak);
+          if (!r.ok) return send(res, 409, r);
+          const now = st(), last = Object.values(now.proposals || {}).filter((x) => x.applied && !x.undone && CM.low(x.abs) === CM.low(f.abs)).sort((a, b) => b.applied - a.applied)[0];
+          if (last) { last.undone = Date.now(); cmds.set(k, now); cmdSave(); }
+          return send(res, 200, r);
+        }
+        return send(res, 404, { ok: false, error: 'not found' });
       }
       // A question on the side (lib/aside.js): any session that has a transcript, also a terminal one and a busy one.
       if (p === '/api/btw') {
@@ -2261,7 +2402,9 @@ function createServer(token, port, deps = {}) {
       }
       if (p === '/api/files/check') {
         const s = sid ? find(sid) : null;
-        return send(res, 200, { files: F.check(body.paths, s ? s.cwd : '') });
+        // base: the folder a relative path is from, when it is not a conversation's (the CLAUDE.md panel: the file's own)
+        const base = !s && typeof body.base === 'string' && path.isAbsolute(body.base) && !F.isNetworkPath(body.base) && isDir(body.base) ? body.base : '';
+        return send(res, 200, { files: F.check(body.paths, s ? s.cwd : base) });
       }
       // Open with the default program. Limited to document, image and plain-data
       // types (lib/files.js OPENABLE): the path is text an AI wrote, so one click

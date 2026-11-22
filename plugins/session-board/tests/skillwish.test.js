@@ -133,6 +133,36 @@ test('a home folder with a mark the shell reads: the registry scripts are neithe
   } finally { process.env.USERPROFILE = was[0]; process.env.HOME = was[1]; }
 });
 
+test('not asked where skill-fetch is there: in your skills every folder is on; in a folder\'s own, that folder only; a choice made stands', async () => {
+  const was = [process.env.USERPROFILE, process.env.HOME];
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-wherehome-')), a = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-wherea-')), b = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-whereb-'));
+  const put = (dir) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'SKILL.md'), '# x'); };
+  try {
+    process.env.USERPROFILE = process.env.HOME = home;
+    assert.deepStrictEqual([W.status(a).choice, W.status(a).installed], [null, false], 'nowhere: asked');
+    // in folder a's own skills only: a is on (not asked), b is still asked
+    put(path.join(a, '.claude', 'skills', 'skill-fetch'));
+    const sa = W.status(a), sb = W.status(b);
+    assert.deepStrictEqual([sa.choice, sa.implied, sa.where], ['on', true, 'project']);
+    assert.deepStrictEqual([sb.choice, sb.installed], [null, false]);
+    // its search reads that folder's skill-fetch
+    let seen = null;
+    await W.wish(a, 'x', new Set(), { run: async (args, cwd, p) => { seen = { args, p }; return { ok: true, answer: '{}' }; }, fetch: async () => ({ status: 404 }) });
+    const own = String(path.join(a, '.claude', 'skills', 'skill-fetch')).replace(/\\/g, '/');
+    assert.ok(seen.args.includes('Read(' + own + '/**)'), 'that folder\'s skill-fetch is the one read');
+    assert.ok(seen.p.includes(own + '/SKILL.md'));
+    // in your skills: every folder is on
+    put(path.join(home, '.claude', 'skills', 'skill-fetch'));
+    assert.deepStrictEqual([W.status(b).choice, W.status(b).implied, W.status(b).where], ['on', true, 'global']);
+    // switched off by you: off everywhere, whatever is installed
+    W.setChoice(false, a);
+    assert.deepStrictEqual([W.status(a).choice, W.status(b).choice, W.status(b).implied], ['off', 'off', false]);
+  } finally {
+    process.env.USERPROFILE = was[0]; process.env.HOME = was[1];
+    for (const d of [home, a, b]) fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test('a recommend entry drafted in a question: the list form rules; a GitHub folder is a skill-copy entry', () => {
   assert.deepStrictEqual(PF.readRecommend({ key: 'frontend-slides@r', source: 'https://github.com/o/r/tree/main/skills/frontend-slides', note: '做 HTML 簡報', tags: ['slides', 'bad tag', 'html'] }),
     { key: 'frontend-slides@r', source: 'https://github.com/o/r/tree/main/skills/frontend-slides', note: '做 HTML 簡報', tags: ['slides', 'html'], installMethod: 'skill-copy' });

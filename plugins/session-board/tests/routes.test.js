@@ -417,6 +417,99 @@ test('外掛分析: analysed in the background, kept in a file, only its own ans
   assert.strictEqual(again.state, 'done'); s3.close(); if (s3.closeAllConnections) s3.closeAllConnections();
 });
 
+test('CLAUDE.md 面板: the files listed and checked, an evaluation, a tweak applied, taken back, and a stale one refused (lib/claudemd.js)', async () => {
+  for (const x of ['GET /api/claudemd', 'POST /api/claudemd/evaluate', 'POST /api/claudemd/ask', 'POST /api/claudemd/tweak', 'POST /api/claudemd/apply', 'POST /api/claudemd/discard', 'POST /api/claudemd/undo']) asked.add(x);
+  const G = path.join(CLAUDE, 'CLAUDE.md'), P = path.join(WORK, 'CLAUDE.md');
+  fs.writeFileSync(G, '# 全域\n\n- 一律用繁體中文回覆\n');
+  fs.writeFileSync(P, '# 專案\n\n看 `nope/gone.md`。\n\n@missing.md\n\napi_key = abcdefgh12345678\n\n## 規則\n\n- 先跑測試\n');
+  const prompts = []; let evalGo; const evalGate = new Promise((r) => { evalGo = r; });
+  const explain = async (cwd, prompt) => {
+    prompts.push([cwd, prompt]);
+    if (prompt.includes('請做一次綜合評估') && prompt.includes('其他專案的 CLAUDE.md')) return { ok: true, answer: '這次沒有照格式回答 {不是 JSON' };
+    if (prompt.includes('請做一次綜合評估')) { await evalGate; return { ok: true, answer: JSON.stringify({ summary: '大致清楚', items: [{ kind: 'vague', file: P, line: 3, text: '模糊', suggest: '寫具體' }, { kind: 'nonsense', file: 'C:/elsewhere/x.md', text: '別的檔' }] }) }; }
+    if (prompt.includes('照使用者的一句指示')) return { ok: true, answer: JSON.stringify({ after: '## 規則\n\n- 先跑測試，全部通過才 commit', why: '更具體' }) };
+    if (prompt.includes('改專案外的')) return { ok: true, answer: JSON.stringify({ answer: '改好了', edit: { file: path.join(HOME, 'outside.md'), before: '外面', after: '裡面' } }) };
+    if (prompt.includes('不存在的原文')) return { ok: true, answer: JSON.stringify({ answer: '改好了', edit: { file: P, before: '沒有這一句', after: 'x' } }) };
+    return { ok: true, answer: JSON.stringify({ answer: '可以這樣改', edit: { file: P, before: '- 先跑測試', after: '- 先跑測試再說' } }) };
+  };
+  const file = path.join(HOME, 'claudemd.json'), bak = path.join(HOME, 'claudemd-bak');
+  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, claudemdFile: file, claudemdBak: bak,
+    out: Object.assign({}, out, { explain, gitRun: (cmd, args, opts, cb) => cb(null, args.includes('status') ? ' M CLAUDE.md\n' : '', '') }) });
+  await new Promise((r) => s2.listen(p2, '127.0.0.1', r));
+  const call = (pp, body) => new Promise((resolve) => { const b = body ? Buffer.from(JSON.stringify(body)) : null; const q = http.request({ host: '127.0.0.1', port: p2, path: pp, method: b ? 'POST' : 'GET', headers: Object.assign({ 'x-board-token': TOKEN }, b ? { 'content-type': 'application/json', 'content-length': b.length } : {}) }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => { let j = null; try { j = JSON.parse(d); } catch (e) {} resolve({ status: res.statusCode, json: j }); }); }); if (b) q.write(b); q.end(); });
+  const view = async (w) => (await call('/api/claudemd?cwd=' + enc(w || ''))).json;
+  try {
+    // the office's 全域 one: only the files every folder loads
+    const g = await view('');
+    assert.deepStrictEqual([g.global, g.files.map((f) => [f.kind, f.abs])], [true, [['user', G]]]);
+    assert.strictEqual((await call('/api/claudemd?cwd=' + enc(path.join(WORK, 'nope')))).status, 400, 'not a folder the board knows');
+    // a folder: the 全域 one first, then the project's; each checked
+    const v = await view(WORK), pf = v.files.find((f) => f.abs === P);
+    assert.deepStrictEqual([v.files[0].kind, pf.kind, pf.git, pf.editable, pf.sections.map((s) => s.title)], ['user', 'project', 'modified', true, ['專案', '規則']]);
+    const kinds = v.findings.filter((x) => x.id === pf.id).map((x) => x.kind).sort();
+    assert.deepStrictEqual(kinds, ['import', 'path', 'secret']);
+    assert.ok(!JSON.stringify(v.findings).includes('abcdefgh'), 'where a key is, never what it is');
+    // the evaluation: in the background, one at a time, kept to the files that are there
+    assert.strictEqual((await call('/api/claudemd/evaluate', { cwd: WORK })).status, 202);
+    assert.strictEqual((await view(WORK)).eval.state, 'running');
+    assert.strictEqual((await call('/api/claudemd/evaluate', { cwd: WORK })).status, 409);
+    evalGo(); await new Promise((r) => setTimeout(r, 50));
+    const e = (await view(WORK)).eval;
+    assert.deepStrictEqual([e.state, e.result.items.map((x) => [x.kind, x.file])], ['done', [['vague', P], ['other', null]]]);
+    // a tweak of a section: proposed, shown as a diff, written only with 套用 - backed up, and taken back
+    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: P, section: 1, instruction: '' })).status, 400);
+    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: path.join(WORK, 'other.md'), section: 0, instruction: 'x' })).status, 400, 'only a file of the set');
+    const t = await call('/api/claudemd/tweak', { cwd: WORK, abs: P, section: 1, instruction: '寫具體一點' });
+    assert.ok(t.json.edit, 'a change proposed');
+    assert.strictEqual(fs.readFileSync(P, 'utf8').includes('全部通過'), false, 'nothing written yet');
+    const pr = (await view(WORK)).proposals[t.json.edit];
+    assert.ok(pr.hunks.some((h) => h.lines.includes('+- 先跑測試，全部通過才 commit')));
+    assert.strictEqual(pr.hunks[0].oldStart, 9, 'the file\'s own line numbers (the section starts at line 9), not the section\'s');
+    const before = fs.readFileSync(P, 'utf8');
+    const ap = await call('/api/claudemd/apply', { cwd: WORK, id: t.json.edit });
+    assert.deepStrictEqual([ap.status, fs.readFileSync(P, 'utf8').includes('- 先跑測試，全部通過才 commit'), fs.readFileSync(ap.json.backup, 'utf8')], [200, true, before]);
+    assert.strictEqual((await call('/api/claudemd/apply', { cwd: WORK, id: t.json.edit })).status, 409, 'once');
+    assert.ok((await view(WORK)).files.find((f) => f.abs === P).undoAt > 0);
+    assert.strictEqual((await call('/api/claudemd/undo', { cwd: WORK, abs: P })).status, 200);
+    assert.strictEqual(fs.readFileSync(P, 'utf8'), before, 'taken back');
+    assert.strictEqual((await call('/api/claudemd/undo', { cwd: WORK, abs: P })).status, 409, 'nothing more to take back');
+    // a question proposing a change; the file changed after it: refused
+    assert.strictEqual((await call('/api/claudemd/ask', { cwd: WORK, question: '' })).status, 400);
+    const q = await call('/api/claudemd/ask', { cwd: WORK, question: '改一下' });
+    assert.ok(q.json.edit);
+    fs.writeFileSync(P, fs.readFileSync(P, 'utf8') + '\n- 另外加的\n');
+    assert.strictEqual((await view(WORK)).proposals[q.json.edit].stale, true);
+    const stale = await call('/api/claudemd/apply', { cwd: WORK, id: q.json.edit });
+    assert.strictEqual(stale.status, 409); assert.ok(!fs.readFileSync(P, 'utf8').includes('先跑測試再說'));
+    assert.strictEqual((await call('/api/claudemd/discard', { cwd: WORK, id: q.json.edit })).status, 200);
+    assert.strictEqual((await call('/api/claudemd/apply', { cwd: WORK, id: q.json.edit })).status, 404, 'dropped');
+    // a change of text that is not there: said, not proposed
+    const bad = await call('/api/claudemd/ask', { cwd: WORK, question: '不存在的原文' });
+    assert.deepStrictEqual([bad.json.edit, /找不到/.test(bad.json.answer)], ['', true]);
+    assert.deepStrictEqual((await view(WORK)).thread.map((x) => !!x.edit), [true, true, false]);
+    // an import outside the project (and outside ~/.claude): shown, never changed - not by a proposal either
+    fs.writeFileSync(path.join(HOME, 'outside.md'), '外面\n'); fs.appendFileSync(P, '\n@../outside.md\n');
+    const away = (await view(WORK)).files.find((f) => f.abs === path.join(HOME, 'outside.md'));
+    assert.deepStrictEqual([away.editable, away.away, away.wide], [false, true, true]);
+    const out2 = await call('/api/claudemd/ask', { cwd: WORK, question: '改專案外的' });
+    assert.deepStrictEqual([out2.json.edit, /專案外/.test(out2.json.answer)], ['', true]);
+    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: away.abs, section: 0, instruction: 'x' })).status, 400);
+    // a tweak of a section the page drew before the file changed: its heading no longer matches, refused
+    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: P, section: 1, title: '別的標題', instruction: 'x' })).status, 409);
+    // the global one's evaluation runs in ~/.claude, and reads other projects' CLAUDE.md to compare
+    assert.strictEqual((await call('/api/claudemd/evaluate', { cwd: '' })).status, 202);
+    await new Promise((r) => setTimeout(r, 50));
+    const last = prompts[prompts.length - 1];
+    assert.deepStrictEqual([last[0], last[1].includes('其他專案的 CLAUDE.md')], [path.join(HOME, '.claude'), true]);
+    // an answer that does not read: failed, and kept whole to be looked at
+    const ge = (await view('')).eval;
+    assert.deepStrictEqual([ge.state, ge.error, ge.raw], ['failed', '評估的回答不是預期的格式', '這次沒有照格式回答 {不是 JSON']);
+  } finally { s2.close(); if (s2.closeAllConnections) s2.closeAllConnections(); fs.rmSync(P, { force: true }); fs.rmSync(G, { force: true }); fs.rmSync(path.join(HOME, 'outside.md'), { force: true }); }
+  // kept in a file: a board started again finds the evaluation and the questions
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepStrictEqual([kept[WORK.toLowerCase()].eval.state, kept[WORK.toLowerCase()].thread.length], ['done', 4]);
+});
+
 test('找外掛: switched on once (skill-fetch put in), keys saved, a wish from a question looked for and its finds installable', async () => {
   for (const x of ['GET /api/skillwish', 'POST /api/skillwish', 'POST /api/skillwish/keys']) asked.add(x);
   const calls = [];

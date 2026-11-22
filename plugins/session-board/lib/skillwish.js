@@ -22,6 +22,14 @@ const SOURCE = 'https://github.com/girofu/skill-fetch/tree/main/skills/skill-fet
 const REF = 'skill-fetch@skill-fetch';
 const HOME = () => os.homedir();
 const SKILL_DIR = () => path.join(HOME(), '.claude', 'skills', 'skill-fetch');
+// skill-fetch for a folder: the one in your skills (for every folder), else that folder's own .claude/skills (for that
+// folder only). -> {dir, where: 'global'|'project'} | null
+function whereFor(folder) {
+  if (fs.existsSync(path.join(SKILL_DIR(), 'SKILL.md'))) return { dir: SKILL_DIR(), where: 'global' };
+  const own = folder ? path.join(folder, '.claude', 'skills', 'skill-fetch') : '';
+  if (own && fs.existsSync(path.join(own, 'SKILL.md'))) return { dir: own, where: 'project' };
+  return null;
+}
 const CONFIG = () => path.join(HOME(), '.claude', 'skills', '.fetch-config.json');
 const CHOICE = () => path.join(HOME(), '.claude', 'session-board', 'skillwish.json');
 // the keys skill-fetch reads (its Step 0.5), each optional: a registry without one is skipped or searched without it
@@ -36,17 +44,23 @@ const TIME_LIMIT_MS = 10 * 60 * 1000;
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return null; } };
 const writeJson = (f, v) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const t = f + '.tmp'; fs.writeFileSync(t, JSON.stringify(v, null, 2), { mode: 0o600 }); fs.renameSync(t, f); };
 
-// -> {choice: 'on'|'off'|null, installed, keys: [{id, name, site, note, set}]}  (whether a key is there, never the key)
-function status() {
-  const c = readJson(CHOICE()) || {}, cfg = readJson(CONFIG()) || {};
+// For a folder -> {choice: 'on'|'off'|null, implied, installed, where, dir, keys: [{id, name, site, note, set}]} (whether a
+// key is there, never the key). Not asked where skill-fetch is there already (asked 2026-11-22: in your skills, every
+// folder is on; in one folder's own skills, that folder is - the others are still asked); a choice you made stands.
+function status(folder) {
+  const c = readJson(CHOICE()) || {}, cfg = readJson(CONFIG()) || {}, w = whereFor(folder);
+  const made = c.choice === 'on' || c.choice === 'off' ? c.choice : null;
   return {
-    choice: c.choice === 'on' || c.choice === 'off' ? c.choice : null,
-    installed: fs.existsSync(path.join(SKILL_DIR(), 'SKILL.md')),
+    choice: made || (w ? 'on' : null),
+    implied: !made && !!w,
+    installed: !!w,
+    where: w ? w.where : null,
+    dir: w ? w.dir : null,
     source: SOURCE,
     keys: KEYS.map((k) => Object.assign({}, k, { set: typeof cfg[k.id] === 'string' && !!cfg[k.id].trim() })),
   };
 }
-function setChoice(on) { const c = readJson(CHOICE()) || {}; c.choice = on ? 'on' : 'off'; c.at = Date.now(); writeJson(CHOICE(), c); return status(); }
+function setChoice(on, folder) { const c = readJson(CHOICE()) || {}; c.choice = on ? 'on' : 'off'; c.at = Date.now(); writeJson(CHOICE(), c); return status(folder); }
 
 // skill-fetch put in your skills, the way any skill-copy entry is (only that folder from GitHub; never over one that is there)
 async function install(o = {}) {
@@ -56,7 +70,7 @@ async function install(o = {}) {
 }
 
 // keys: {ID: 'value'} sets it, {ID: ''} takes it away; ids not skill-fetch's are ignored. Other things in the file stay.
-function saveKeys(keys) {
+function saveKeys(keys, folder) {
   const cfg = readJson(CONFIG()) || {};
   let n = 0;
   for (const k of KEYS) {
@@ -69,7 +83,7 @@ function saveKeys(keys) {
   }
   if (!n) return { ok: false, error: '沒有要存的金鑰' };
   writeJson(CONFIG(), cfg);
-  return Object.assign({ ok: true }, status());
+  return Object.assign({ ok: true }, status(folder));
 }
 
 
@@ -80,28 +94,28 @@ function saveKeys(keys) {
 const fwd = (p) => String(p).replace(/\\/g, '/');
 // how a registry script is run: its path in quotes when it has a space in it (review 2026-11-22: a home folder with a
 // space - the rule matched only the bare path, which the shell splits); the rule and the command told are the same
-const script = (name) => { const p = fwd(SKILL_DIR()) + '/scripts/' + name; if (!/^[\p{L}\p{M}\p{N}_.\/:~ -]+$/u.test(p) || /\p{Default_Ignorable_Code_Point}/u.test(p)) return null; return 'bash ' + (/ /.test(p) ? '"' + p + '"' : p); };
+const script = (name, dir) => { const p = fwd(dir || SKILL_DIR()) + '/scripts/' + name; if (!/^[\p{L}\p{M}\p{N}_.\/:~ -]+$/u.test(p) || /\p{Default_Ignorable_Code_Point}/u.test(p)) return null; return 'bash ' + (/ /.test(p) ? '"' + p + '"' : p); };
 // (a home folder whose path has a mark the shell reads - ; $ ` & quotes ... - gets no script: not let in, not told.
 // Letters, their combining marks and digits of any language are not such marks: C:/Users/林小明, José written as
 // e + U+0301, keep their scripts - review 2026-11-22. Full-width marks, other quotes, and anything not shown at all
 // (zero-width, the invisible joiners and variation selectors among the combining marks): still refused)
-function allowed(folder) {
-  const dir = fwd(SKILL_DIR()), f = fwd(folder).replace(/\/+$/, '');
+function allowed(folder, skillDir) {
+  const dir = fwd(skillDir || SKILL_DIR()), f = fwd(folder).replace(/\/+$/, '');
   return [
     'Read(' + dir + '/**)', 'Read(' + f + '/CLAUDE.md)', 'Read(' + f + '/README.md)',
     'Bash(gh search:*)', 'Bash(gh api repos/anthropics/skills/git/trees/main?recursive=1:*)',
     'Bash(npx -y clawhub:*)', 'Bash(npx -y @polyskill/cli:*)', 'Bash(npx -y @skill-hub/cli:*)',
-    ...['fetch-skillhub.sh', 'fetch-skills-directory.sh'].map(script).filter(Boolean).map((c) => 'Bash(' + c + ':*)'),
+    ...['fetch-skillhub.sh', 'fetch-skills-directory.sh'].map((n) => script(n, skillDir)).filter(Boolean).map((c) => 'Bash(' + c + ':*)'),
     'WebFetch(domain:skills.sh)', 'WebFetch(domain:skillsmp.com)', 'WebFetch(domain:github.com)', 'WebFetch(domain:api.github.com)', 'WebFetch(domain:raw.githubusercontent.com)',
     'mcp__skillsmp__skillsmp_search', 'mcp__skillsmp__skillsmp_ai_search', 'mcp__skillsmp__skillsmp_list_repo_skills', 'mcp__skillsmp__skillsmp_get_skill_content',
   ];
 }
 const DENY = ['Write', 'Edit', 'NotebookEdit', 'mcp__skillsmp__skillsmp_install_skill'];
-const argsFor = (mcp, folder) => ['-p', '--no-session-persistence', '--setting-sources', '', '--disable-slash-commands', '--strict-mcp-config']
-  .concat(mcp ? ['--mcp-config', mcp] : [], ['--allowedTools'], allowed(folder), ['--disallowedTools', DENY.join(','), '--output-format', 'json']);
+const argsFor = (mcp, folder, skillDir) => ['-p', '--no-session-persistence', '--setting-sources', '', '--disable-slash-commands', '--strict-mcp-config']
+  .concat(mcp ? ['--mcp-config', mcp] : [], ['--allowedTools'], allowed(folder, skillDir), ['--disallowedTools', DENY.join(','), '--output-format', 'json']);
 
-function prompt(folder, wish, have, keys) {
-  const dir = fwd(SKILL_DIR());
+function prompt(folder, wish, have, keys, skillDir) {
+  const dir = fwd(skillDir || SKILL_DIR());
   const on = (id) => (keys || []).some((k) => k.id === id && k.set);
   return [
     '你在替使用者找 Claude Code 的 skill。使用者想要：' + wish,
@@ -110,11 +124,12 @@ function prompt(folder, wish, have, keys) {
     '照 skill-fetch 的流程搜尋並評分：先讀 ' + dir + '/SKILL.md，以及它的 references/search-sources.md、references/quality-signals.md。這次的做法有幾處不同：',
     '- Step 0（註冊 SkillsMP MCP）不要做：' + (on('SKILLSMP_API_KEY') ? 'SkillsMP 已經以 mcp__skillsmp__ 開頭的工具提供。' : '這次沒有 SkillsMP，跳過它。'),
     '- Step 0.5 不用讀設定檔（你讀不到）：金鑰的情況是 SkillHub ' + (on('SKILLHUB_API_KEY') ? '有' : '沒有') + '、Skills Directory ' + (on('SKILLS_DIRECTORY_API_KEY') ? '有' : '沒有') + '。',
-    '- 你能跑的指令只有這些，其他都會被拒：gh search …；gh api repos/anthropics/skills/git/trees/main?recursive=1 …；npx -y clawhub …；npx -y @polyskill/cli …；npx -y @skill-hub/cli …' + (script('fetch-skillhub.sh') ? '；' + script('fetch-skillhub.sh') + ' "<查詢>"' : '') + (on('SKILLS_DIRECTORY_API_KEY') && script('fetch-skills-directory.sh') ? '；' + script('fetch-skills-directory.sh') + ' "<查詢>"' : '') + '。網頁只能抓 skills.sh、skillsmp.com、github.com、api.github.com、raw.githubusercontent.com。',
+    '- 你能跑的指令只有這些，其他都會被拒：gh search …；gh api repos/anthropics/skills/git/trees/main?recursive=1 …；npx -y clawhub …；npx -y @polyskill/cli …；npx -y @skill-hub/cli …' + (script('fetch-skillhub.sh', skillDir) ? '；' + script('fetch-skillhub.sh', skillDir) + ' "<查詢>"' : '') + (on('SKILLS_DIRECTORY_API_KEY') && script('fetch-skills-directory.sh', skillDir) ? '；' + script('fetch-skills-directory.sh', skillDir) + ' "<查詢>"' : '') + '。網頁只能抓 skills.sh、skillsmp.com、github.com、api.github.com、raw.githubusercontent.com。',
     '- Step 2 盡量查各個來源；被拒、失敗或太慢的就跳過，不要卡住，也不要想辦法繞過。',
     '- Step 3 以後不要做：不安裝、不寫任何檔、不改任何設定、不問問題（沒有人會回答）。',
     have.length ? '- 這個專案已經有的不要再推薦：' + have.join('、') : '',
     '',
+    require('./modeljson').PATHS,
     '只輸出一個 JSON 物件，前後不要有任何文字：',
     '{"answer": "繁體中文 Markdown，結論先講：找到哪些、各自做什麼、優缺點、你最推薦哪個與理由；最後一句說查了哪些來源、哪些沒查到", "skills": [{"name": "skill 名稱", "source": "https://github.com/擁有者/庫/tree/分支/那個skill的資料夾", "score": 0到100, "why": "一句話：為什麼適合這個願望", "pros": "優點", "cons": "缺點或要注意的（含安全標籤）"}]}',
     'skills 只列能給出 GitHub 資料夾網址、且那個資料夾裡有 SKILL.md 的，最多 8 個，分數高的在前；不確定網址對不對的寧可不列。',
@@ -125,8 +140,7 @@ function prompt(folder, wish, have, keys) {
 // the repository's name (ref name@repo, as the recommend list writes them). -> {answer, skills: [{ref, source, ...}]}
 function readWish(text, have, haveSources) {
   const PF = require('./pluginfit');
-  let j = null;
-  try { const s = String(text || ''); const a = s.indexOf('{'), b = s.lastIndexOf('}'); j = JSON.parse(s.slice(a, b + 1)); } catch (e) {}
+  const j = require('./modeljson').parse(text);   // (from the first { to the last; not mended)
   if (!j || typeof j !== 'object') return { answer: String(text || '').slice(0, 8000), skills: [] };
   const t = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
   const seen = new Set(), skills = [];
@@ -197,7 +211,7 @@ function sweep() {
 
 // -> {ok, answer, skills, dropped, cost} | {ok:false, error}.  o.run(args, cwd, prompt, opts): the claude -p runner (lib/aside.js runWith)
 async function wish(folder, text, have, o = {}) {
-  const st = status();
+  const st = status(folder);
   if (st.choice !== 'on') return { ok: false, error: '「找外掛」沒有啟用' };
   if (!st.installed) return { ok: false, error: '還沒裝 skill-fetch' };
   const w = String(text || '').replace(/\s+/g, ' ').trim().slice(0, WISH_MAX);
@@ -207,7 +221,7 @@ async function wish(folder, text, have, o = {}) {
     const mcp = mcpFile(keyDir);
     // (the runner's own clean environment stays unless one is given - review 2026-11-22: an undefined env here gave
     // the search the board's whole environment)
-    const r = await o.run(argsFor(mcp, folder), work, prompt(folder, w, [...(have || [])], st.keys), Object.assign({ timeLimit: o.timeLimit || TIME_LIMIT_MS }, o.env ? { env: o.env } : {}));
+    const r = await o.run(argsFor(mcp, folder, st.dir), work, prompt(folder, w, [...(have || [])], st.keys, st.dir), Object.assign({ timeLimit: o.timeLimit || TIME_LIMIT_MS }, o.env ? { env: o.env } : {}));
     if (!r || !r.ok) return { ok: false, error: (r && r.error) || '沒有找完' };
     const got = readWish(r.answer, have, o.haveSources);
     const p = await present(got.skills, o);
@@ -215,4 +229,4 @@ async function wish(folder, text, have, o = {}) {
   } finally { for (const d of [work, keyDir]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch (e) {} } }
 }
 
-module.exports = { status, setChoice, install, saveKeys, wish, sweep, prompt, readWish, present, argsFor, allowed, KEYS, SOURCE, REF, WISH_MAX, DENY };
+module.exports = { whereFor, status, setChoice, install, saveKeys, wish, sweep, prompt, readWish, present, argsFor, allowed, KEYS, SOURCE, REF, WISH_MAX, DENY };

@@ -87,6 +87,7 @@ function prompt(folder, src, have, remote, off) {
     '一定要先用 Read 讀這個資料夾的 CLAUDE.md 與 README.md（存在的話；上一層的 CLAUDE.md 也看），這是 skill 說的主訊號；再用 Glob 看副檔名與結構當輔證。讀過的檔案列在 read 欄。',
     '候選只能從下面三份清單裡挑：profile（plugin 組合，enable 值為 false 的是刻意停用，不要推薦）、使用者自己的 plugin 庫、推薦清單。「這個資料夾已經有的」不要再推薦。',
     '訊號弱或模糊就把 confident 設為 false，並在 summary 說明沒把握的原因；不要硬猜。',
+    require('./modeljson').PATHS,
     '只輸出一個 JSON 物件，前後不要有任何文字或 Markdown：',
     '{"confident": true, "profile": "<最貼的 profile 名，或 null>", "read": ["讀過的檔案路徑"], "summary":"一到三句：這個專案是什麼、依據哪些訊號、為什麼這樣推薦", "plugins": [{"ref": "name@marketplace", "why": "一句話：對這個專案有什麼用"}], "skip": [{"ref": "name@marketplace", "why": "一句話：看起來相關但為什麼不推薦（代價或重疊）"}], "reconsider": [{"ref": "name@marketplace", "why": "一句話：為什麼可以考慮拿掉"}]}',
     'plugins 只列真的建議裝的；skip 只列有認真考慮過的，最多 5 個。',
@@ -103,7 +104,8 @@ function prompt(folder, src, have, remote, off) {
 }
 
 // The JSON object in a model's answer (from the first { to the last }), or null
-function jsonIn(text) { const m = /\{[\s\S]*\}/.exec(String(text || '')); if (!m) return null; try { return JSON.parse(m[0]); } catch (e) { return null; } }
+// (lib/modeljson.js: from the first { to the last; not mended)
+const jsonIn = (text) => require('./modeljson').parse(text);
 
 // The model's answer, kept only to what it may say: known refs, not ones already there. -> result | null
 function readResult(text, cand, have, off) {
@@ -162,6 +164,7 @@ async function ask(folder, st, question, o = {}) {
       ? '使用者許願要某種 skill，而上面的候選都做不到（或他明說要到外面找）：在 wish 給一段搜尋用的描述（英文關鍵字為主，可加一句中文說明，' + (o.wishMax || 300) + ' 字內），看板會用 skill-fetch 到外面的 skill 庫找，找到的會出現在面板上讓他勾選套用；answer 告訴他「已經去外面找了，約半分鐘到幾分鐘」。候選裡就有合適的，就不要找，直接回答。不是許願就給 null。'
       : '使用者許願要的 skill 候選裡沒有：告訴他可以在面板上方啟用「找外掛」（用 skill-fetch 到外面的 skill 庫找），wish 給 null。',
     '使用者要把某一個加入「推薦清單」（plugin-manager 的 recommends.json，例如說它好用、要推薦）：在 recommend 擬好那一筆 {"key": "名稱@庫或marketplace（照它的 ref）", "source": "來源：skill-copy 型給 GitHub 資料夾網址，marketplace 型給 marketplace 位置", "note": "一句話繁體中文講它做什麼", "tags": ["英數標籤，最多 5 個"]}，看板會顯示按鈕讓他確認後才寫入；answer 告訴他按那個按鈕。不是這個要求就給 null。',
+    require('./modeljson').PATHS,
     '只輸出一個 JSON 物件，前後不要有任何文字：{"answer": "用繁體中文 Markdown 回答，結論先講", "plugins": null, "wish": null, "recommend": null}',
   ].filter((l) => l !== '').join('\n');
   const r = await o.explain(folder, p, { timeLimit: o.timeLimit || TIME_LIMIT_MS });
