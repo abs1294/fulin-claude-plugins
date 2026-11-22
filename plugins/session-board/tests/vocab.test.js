@@ -42,8 +42,41 @@ test('your words: added, taken out; one of the board\'s own taken out is hidden 
   assert.strictEqual(V.clean('a<b>\nc'), 'a b c');
 });
 
-test('kept in this person\'s own board folder, nowhere else', () => {
-  assert.strictEqual(V.FILE(), path.join(os.homedir(), '.claude', 'session-board', 'vocab.json'));
+test('one per project, in this person\'s own board folder; no folder, nothing kept (asked 2026-11-22)', () => {
+  const a = V.fileFor('C:\\work\\proj-a'), b = V.fileFor('C:\\work\\proj-b');
+  assert.ok(a.startsWith(path.join(os.homedir(), '.claude', 'session-board', 'vocab')) && a !== b);
+  assert.strictEqual(V.fileFor('C:\\WORK\\Proj-A\\'), a, 'the same folder however written');
+  assert.strictEqual(V.fileFor(''), '');
+  // one project's words are not another's
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v-')), fa = path.join(dir, 'a.json'), fb = path.join(dir, 'b.json');
+  V.add('alpha', fa); V.learn('哥特 push', 'git push', fa);
+  assert.deepStrictEqual([V.terms([], 10, fa), V.terms([], 10, fb), V.fixes(10, fb)], [['alpha', 'git'], [], []]);
+  assert.throws(() => V.add('x', ''), /專案/);
+  // the old one for every folder: copied into a project only when asked, never deleted
+  const old = path.join(dir, 'old.json'); V.save({ words: [{ term: 'legacy', at: 1 }], fixes: [{ heard: '哈', meant: 'ha', n: 1, at: 1 }], hidden: ['Noise'] }, old);
+  assert.strictEqual(V.legacyCount(fb, old), 3, 'hidden words count too');
+  assert.deepStrictEqual(V.importLegacy(fb, old), { ok: true, words: 1, fixes: 1, hidden: 1 });
+  assert.deepStrictEqual([V.terms([], 10, fb).includes('legacy'), V.load(fb).hidden, fs.existsSync(old)], [true, ['Noise'], true]);
+  assert.strictEqual(V.legacyCount(fb, old), 0, 'copied: nothing more to offer, the button goes');
+  assert.deepStrictEqual(V.importLegacy(fb, old), { ok: true, words: 0, fixes: 0, hidden: 0 }, 'twice: nothing twice');
+  // only hidden words left in the old one: still offered (review 2026-11-22)
+  const onlyHidden = path.join(dir, 'old2.json'); V.save({ words: [], fixes: [], hidden: ['Other'] }, onlyHidden);
+  assert.strictEqual(V.legacyCount(fa, onlyHidden), 1);
+  // a project whose lists are full: nothing of its own is pushed out, and nothing is offered that would not fit
+  const full = path.join(dir, 'full.json'), many = path.join(dir, 'many.json');
+  V.save({ words: Array.from({ length: V.MAX_WORDS }, (_, i) => ({ term: 'w' + i, at: 1 })), fixes: Array.from({ length: 300 }, (_, i) => ({ heard: 'h' + i, meant: 'm' + i, n: 1, at: 1 })), hidden: [] }, full);
+  V.save({ words: [{ term: 'new', at: 1 }], fixes: [{ heard: 'x', meant: 'y', n: 1, at: 1 }], hidden: [] }, many);
+  assert.strictEqual(V.legacyCount(full, many), 0, 'no room: not offered');
+  assert.deepStrictEqual(V.importLegacy(full, many), { ok: true, words: 0, fixes: 0, hidden: 0 });
+  const after = V.load(full);
+  assert.deepStrictEqual([after.words.length, after.fixes.length, after.fixes[0].heard], [V.MAX_WORDS, 300, 'h0'], 'its own corrections, the oldest too, still there');
+  // the old file's own repeats once; the newest corrections first when only some fit; hidden vs yours: yours wins
+  const messy = path.join(dir, 'messy.json'), p2 = path.join(dir, 'p2.json');
+  V.save({ words: [{ term: 'Git', at: 1 }, { term: 'git', at: 2 }], fixes: [{ heard: 'a', meant: 'A', n: 1, at: 1 }, { heard: 'b', meant: 'B', n: 1, at: 9 }], hidden: ['Mine', 'mine', 'Git'] }, messy);
+  V.save({ words: [{ term: 'Mine', at: 1 }], fixes: Array.from({ length: 299 }, (_, i) => ({ heard: 'k' + i, meant: 'v' + i, n: 1, at: 1 })), hidden: ['git'] }, p2);
+  assert.deepStrictEqual(V.importLegacy(p2, messy), { ok: true, words: 1, fixes: 1, hidden: 0 });
+  const got = V.load(p2);
+  assert.deepStrictEqual([got.words.map((w) => w.term), got.fixes.slice(-1)[0].heard, got.hidden], [['Mine', 'Git'], 'b', []], 'one Git; the newer correction; Git now yours is no longer hidden, Mine stays yours');
 });
 
 test('learning at the moment: a name put right in a sentence said again is a word to listen for; a pasted address is not', () => {

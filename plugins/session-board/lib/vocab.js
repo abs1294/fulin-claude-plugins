@@ -9,17 +9,28 @@
 //            they come and go with the board); one you do not want is put in "hidden"
 // Used three ways: as hints to the browser's recognizer (SpeechRecognition.phrases, when the browser has it), as keywords
 // for the OpenAI transcription (when that is chosen), and given to the tidying with the background.
+//
+// One per project (asked 2026-11-22: "by 專案，不能全域，畢竟排版要吃"): the tidying puts a misheard word right by these,
+// and one project's names are another's noise. Kept in vocab/<an id of the folder>.json (a hash of its path); the
+// words "auto" makes up come from that folder's own conversations only. A conversation in no known folder has none.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 
-const FILE = () => path.join(os.homedir(), '.claude', 'session-board', 'vocab.json');
+const DIR = () => path.join(os.homedir(), '.claude', 'session-board', 'vocab');
+// the one before (0.18 and earlier: one for every folder) - read only to be copied into a project when you ask
+const LEGACY = () => path.join(os.homedir(), '.claude', 'session-board', 'vocab.json');
+const keyOf = (cwd) => path.normalize(String(cwd || '')).replace(/[\\/]+$/, '').toLowerCase();
+// -> the file of a folder's words, or '' (no folder: nothing is kept)
+function fileFor(cwd) { return cwd ? path.join(DIR(), crypto.createHash('sha256').update(keyOf(cwd)).digest('hex').slice(0, 16) + '.json') : ''; }
+const FILE = fileFor;
 const MAX_WORDS = 500, MAX_FIXES = 300, MAX_TERM = 60;
 // one line, no < > (the OpenAI transcription refuses a whole request with them in a keyword)
 const clean = (t) => String(t == null ? '' : t).replace(/[\r\n<>]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_TERM);
 
-function load(file = FILE()) {
-  let j = {}; try { j = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
+function load(file) {
+  let j = {}; try { if (file) j = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
   const arr = (v) => (Array.isArray(v) ? v : []);
   return {
     words: arr(j.words).filter((w) => w && typeof w.term === 'string' && w.term).map((w) => ({ term: clean(w.term), at: Number(w.at) || 0, learned: !!w.learned })),
@@ -27,7 +38,8 @@ function load(file = FILE()) {
     hidden: arr(j.hidden).filter((h) => typeof h === 'string').map(clean),
   };
 }
-function save(v, file = FILE()) {
+function save(v, file) {
+  if (!file) throw new Error('這個對話不在任何專案資料夾裡，詞庫沒有地方存');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = file + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(v, null, 1)); fs.renameSync(tmp, file);
 }
@@ -167,4 +179,33 @@ function learn(given, sent, file) {
   save(v, file); return got;
 }
 
-module.exports = { FILE, load, save, list, terms, fixes, add, remove, unlearn, edits, learn, newNames, rewritten, autoTerms, clean, MAX_WORDS };
+// The old file's words and corrections copied into a project's (asked when it is there: kept, never deleted) -> {ok, words, fixes}
+// What a copy of the old file would add to this project's: what it does not have yet - words, corrections and hidden words
+// alike - and only as much as there is room for; what the project has is never pushed out (review 2026-11-22: hidden ones
+// were not counted; once copied the button stayed; a full list had its own older corrections cut). The count offered
+// and the copy made are this one plan.
+// (each taken once, the old file's own repeats too; the newest corrections first when not all fit, as learn() keeps them;
+// a word hidden in one and a word of yours in the other: yours wins, as add() makes it - review 2026-11-22)
+function plan(v, old) {
+  const seen = (arr, key) => { const s = new Set(); return arr.filter((x) => { const k = key(x); if (s.has(k)) return false; s.add(k); return true; }); };
+  const lw = (t) => String(t).toLowerCase();
+  const have = new Set(v.words.map((x) => lw(x.term)));
+  const words = seen(old.words.filter((w) => !have.has(lw(w.term))), (w) => lw(w.term)).slice(0, Math.max(0, MAX_WORDS - v.words.length));
+  const mine = new Set([...have, ...words.map((w) => lw(w.term))]);
+  const fixes = seen(old.fixes.filter((f) => !v.fixes.some((x) => x.heard === f.heard && x.meant === f.meant)), (f) => f.heard + '\u0000' + f.meant)
+    .sort((a, b) => b.at - a.at).slice(0, Math.max(0, MAX_FIXES - v.fixes.length));
+  const hidden = seen(old.hidden.filter((h) => !mine.has(lw(h)) && !v.hidden.some((x) => lw(x) === lw(h))), lw);
+  return { words, fixes, hidden };
+}
+function importLegacy(file, from = LEGACY()) {
+  if (!file) return { ok: false, error: '這個對話不在任何專案資料夾裡' };
+  const old = load(fs.existsSync(from) ? from : ''), v = load(file), p = plan(v, old);
+  const added = new Set(p.words.map((w) => w.term.toLowerCase()));
+  v.words.push(...p.words); v.fixes.push(...p.fixes);
+  v.hidden = v.hidden.filter((h) => !added.has(h.toLowerCase())).concat(p.hidden);   // (a word now yours is not hidden)
+  save(v, file); return { ok: true, words: p.words.length, fixes: p.fixes.length, hidden: p.hidden.length };
+}
+// -> how many entries a copy would add now (0: nothing to offer - the button goes)
+function legacyCount(file, from = LEGACY()) { if (!fs.existsSync(from)) return 0; const p = plan(load(file), load(from)); return p.words.length + p.fixes.length + p.hidden.length; }
+
+module.exports = { FILE, fileFor, DIR, LEGACY, importLegacy, legacyCount, load, save, list, terms, fixes, add, remove, unlearn, edits, learn, newNames, rewritten, autoTerms, clean, MAX_WORDS };

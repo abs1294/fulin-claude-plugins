@@ -435,7 +435,18 @@ function createServer(token, port, deps = {}) {
   // the mic's 自動排版: one Claude kept running while it is used (lib/tidy.js)
   const tidy = deps.tidy || new TidyLib.Tidy();
   // where the mic's own words come from besides you: this board's conversations' titles and folders (lib/vocab.js autoTerms)
-  const vocabSources = () => { try { return sessions().flatMap((x) => [x.title, x.folder]); } catch (e) { return []; } };
+  // The mic's words are a project's (lib/vocab.js; asked 2026-11-22, not one set for every folder): the folder of the
+  // conversation (sid), or a folder given that the board knows. Its own words come from that folder's conversations only.
+  // -> {cwd, file ('' when there is no folder: nothing kept, nothing given), sources}
+  const vocabOf = (o) => {
+    let cwd = '';
+    try {
+      if (o && typeof o.sid === 'string' && o.sid) { const x = sessions().find((y) => y.sessionId === o.sid.slice(0, 80)); const c = channels.get(o.sid.slice(0, 80)); cwd = (x && x.cwd) || (c && c.cwd) || ''; }
+      if (!cwd && o && typeof o.cwd === 'string' && o.cwd && knownFolder(o.cwd)) cwd = o.cwd;
+    } catch (e) { cwd = ''; }
+    const sources = !cwd ? [] : sessions().filter((x) => x.cwd && fitKey(String(x.cwd)) === fitKey(cwd)).flatMap((x) => [x.title, x.folder]).concat([path.basename(cwd)]);
+    return { cwd, file: Vocab.fileFor(cwd), sources };
+  };
   // your OpenAI API key, for the transcription (settings page); kept in this computer's board folder, never shown back
   const OPENAI_FILE = path.join(DATA_DIR, 'openai.json');
   const openaiKey = () => { try { return String(JSON.parse(fs.readFileSync(OPENAI_FILE, 'utf8')).apiKey || '').trim(); } catch (e) { return ''; } };
@@ -1460,8 +1471,9 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/budget') return send(res, 200, { settings: Budget.clean(config.value('budget', {})), state: config.value('budgetState', null) });
         if (p === '/api/watchdog') return send(res, 200, { on: !!dog, settings: watchSettings(), log: dog ? dog.log() : [] });
         // the mic's own words (lib/vocab.js): this person's, on this computer
-        if (p === '/api/vocab') return send(res, 200, Object.assign(Vocab.list(vocabSources()), { engine: config.value('voiceEngine', 'browser'), openaiKey: !!openaiKey() }));
-        if (p === '/api/vocab/terms') return send(res, 200, { terms: Vocab.terms(vocabSources(), 100) });
+        // (a project's: ?sid= the conversation, or ?cwd= a folder; neither - the engine only, no words)
+        if (p === '/api/vocab') { const vo = vocabOf({ sid: q.get('sid') || '', cwd: q.get('cwd') || '' }); return send(res, 200, Object.assign(Vocab.list(vo.sources, vo.file), { cwd: vo.cwd, folder: vo.cwd ? path.basename(vo.cwd) : '', legacy: vo.file ? Vocab.legacyCount(vo.file) : 0, engine: config.value('voiceEngine', 'browser'), openaiKey: !!openaiKey() })); }
+        if (p === '/api/vocab/terms') { const vo = vocabOf({ sid: q.get('sid') || '', cwd: q.get('cwd') || '' }); return send(res, 200, { cwd: vo.cwd, terms: vo.file ? Vocab.terms(vo.sources, 100, vo.file) : [] }); }
         // What the board does by itself on a timer (asked 2026-11-21: "fetching is a schedule too - show the system's own,
         // hidden at first"): each with what it does, how often, whether it is on now, and when it last ran where known.
         if (p === '/api/system-jobs') {
@@ -2002,11 +2014,15 @@ function createServer(token, port, deps = {}) {
       // heard, cleaned up; answered as lines of JSON as they come ({d: text so far}), the last one {done, text} or {error}.
       // the mic's words: add, take out, forget a correction, or learn from what you changed before sending (lib/vocab.js)
       if (p === '/api/vocab') {
-        if (typeof body.add === 'string') return send(res, 200, Vocab.add(body.add));
-        if (typeof body.remove === 'string') return send(res, 200, Vocab.remove(body.remove));
-        if (body.unlearn && typeof body.unlearn === 'object') return send(res, 200, Vocab.unlearn(String(body.unlearn.heard || ''), String(body.unlearn.meant || '')));
-        if (body.learn && typeof body.learn === 'object') return send(res, 200, { ok: true, learned: Vocab.learn(String(body.learn.given || '').slice(0, 4000), String(body.learn.sent || '').slice(0, 4000)) });
-        return send(res, 400, { ok: false, error: '要給 add、remove、unlearn 或 learn' });
+        // (the project's: the conversation's folder, sid, or a known folder, cwd)
+        const vo = vocabOf({ sid: body.sid, cwd: body.cwd });
+        if (!vo.file) return send(res, 400, { ok: false, error: '這個對話不在任何專案資料夾裡，詞庫是一個專案一份' });
+        if (typeof body.add === 'string') return send(res, 200, Vocab.add(body.add, vo.file));
+        if (typeof body.remove === 'string') return send(res, 200, Vocab.remove(body.remove, vo.file));
+        if (body.unlearn && typeof body.unlearn === 'object') return send(res, 200, Vocab.unlearn(String(body.unlearn.heard || ''), String(body.unlearn.meant || ''), vo.file));
+        if (body.learn && typeof body.learn === 'object') return send(res, 200, { ok: true, learned: Vocab.learn(String(body.learn.given || '').slice(0, 4000), String(body.learn.sent || '').slice(0, 4000), vo.file) });
+        if (body.importLegacy === true) { const r = Vocab.importLegacy(vo.file); return send(res, r.ok ? 200 : 400, r); }
+        return send(res, 400, { ok: false, error: '要給 add、remove、unlearn、learn 或 importLegacy' });
       }
       // your OpenAI API key: set (or taken away with an empty one); never answered back
       if (p === '/api/voice/key') {
@@ -2026,7 +2042,8 @@ function createServer(token, port, deps = {}) {
         const fd = new FormData();
         fd.append('file', new Blob([audio], { type: mime }), 'speech.' + ext);
         fd.append('model', 'gpt-transcribe');
-        for (const t of Vocab.terms(vocabSources(), 100)) fd.append('keywords[]', t);
+        // (the conversation's project's words only)
+        { const vo = vocabOf({ sid: body.context && body.context.sid, cwd: body.context && body.context.cwd }); if (vo.file) for (const t of Vocab.terms(vo.sources, 100, vo.file)) fd.append('keywords[]', t); }
         for (const l of ['zh', 'en']) fd.append('languages[]', l);
         const cx = body.context && typeof body.context === 'object' ? body.context : {};
         const prompt = [cx.title, cx.folder].filter((x) => typeof x === 'string' && x).join(' / ').slice(0, 300);
@@ -2049,7 +2066,9 @@ function createServer(token, port, deps = {}) {
         const context = cx ? { sid: String(cx.sid || '').slice(0, 80), title: String(cx.title || '').slice(0, 200), folder: String(cx.folder || '').slice(0, 200), recent: (Array.isArray(cx.recent) ? cx.recent : []).slice(-6).map((x) => String(x || '').slice(0, 600)),
           alts: (Array.isArray(cx.alts) ? cx.alts : []).slice(0, 20).map((a) => (Array.isArray(a) ? a : []).slice(0, 4).map((x) => String(x || '').slice(0, 300))) } : null;
         // and this person's words and the corrections learned from them (lib/vocab.js)
-        const vocab = { words: Vocab.terms(vocabSources(), 80), fixes: Vocab.fixes(40) };
+        // (of the conversation's project only: another project's names are noise to it)
+        const vo = vocabOf({ sid: context && context.sid, cwd: cx && cx.cwd });
+        const vocab = vo.file ? { words: Vocab.terms(vo.sources, 80, vo.file), fixes: Vocab.fixes(40, vo.file) } : { words: [], fixes: [] };
         const r = await tidy.run(text, (sofar) => { try { res.write(JSON.stringify({ d: sofar }) + '\n'); } catch (e) {} }, context ? Object.assign(context, vocab) : vocab);
         return res.end(JSON.stringify(r.ok ? { done: true, text: r.text, ms: r.ms } : { error: r.error }) + '\n');
       }

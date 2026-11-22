@@ -1797,25 +1797,30 @@ test('the mic: what was heard is tidied as it comes; through tailscale serve the
   assert.ok(tidyCtx.every((c) => Array.isArray(c.words)), 'with no conversation context too');
   await raw('/api/tidy', { text: '原話', context: { alts: [['a', 'b'], 'not a list'] } });
   assert.deepStrictEqual(tidyCtx[tidyCtx.length - 1].alts, [['a', 'b'], []], "the recognizer's other guesses, bounded");
-  // ── the mic's own words: this person's, kept in their board folder ──
+  // ── the mic's own words: a project's (the conversation's folder), kept in this person's board folder ──
   for (const a of ['GET /api/vocab', 'GET /api/vocab/terms', 'POST /api/vocab', 'POST /api/voice/key', 'POST /api/transcribe']) asked.add(a);
-  assert.strictEqual(JSON.parse((await raw('/api/vocab', { add: 'dapfe' })).text).ok, true);
-  const learned = JSON.parse((await raw('/api/vocab', { learn: { given: '幫我哥特 commit', sent: '幫我 git commit' } })).text);
+  assert.strictEqual(JSON.parse((await raw('/api/vocab', { cwd: WORK, add: 'dapfe' })).text).ok, true);
+  const learned = JSON.parse((await raw('/api/vocab', { cwd: WORK, learn: { given: '幫我哥特 commit', sent: '幫我 git commit' } })).text);
   assert.deepStrictEqual(learned.learned, [{ heard: '哥特', meant: 'git' }]);
-  const list = JSON.parse((await raw('/api/vocab')).text);
-  assert.deepStrictEqual([list.words.map((w) => w.term), list.fixes.map((f) => f.heard + '>' + f.meant), list.engine, list.openaiKey], [['dapfe', 'git'], ['哥特>git'], 'browser', false]);
-  assert.ok(fs.existsSync(path.join(CLAUDE, 'session-board', 'vocab.json')), "in this person's own board folder");
-  assert.deepStrictEqual(JSON.parse((await raw('/api/vocab/terms')).text).terms.slice(0, 2), ['dapfe', 'git']);
-  assert.strictEqual((await raw('/api/vocab', {})).status, 400);
+  const list = JSON.parse((await raw('/api/vocab?cwd=' + enc(WORK))).text);
+  assert.deepStrictEqual([list.words.map((w) => w.term), list.fixes.map((f) => f.heard + '>' + f.meant), list.engine, list.openaiKey, list.cwd], [['dapfe', 'git'], ['哥特>git'], 'browser', false, WORK]);
+  const Vocab = require('../lib/vocab');
+  assert.ok(Vocab.fileFor(WORK).startsWith(path.join(CLAUDE, 'session-board', 'vocab')) && fs.existsSync(Vocab.fileFor(WORK)), "the project's own, in this person's board folder");
+  assert.ok(!fs.existsSync(path.join(CLAUDE, 'session-board', 'vocab.json')), 'not one for every folder');
+  assert.deepStrictEqual(JSON.parse((await raw('/api/vocab/terms?cwd=' + enc(WORK + path.sep))).text).terms.slice(0, 2), ['dapfe', 'git'], 'the same folder however written: the same words');
+  assert.deepStrictEqual(JSON.parse((await raw('/api/vocab/terms')).text).terms, [], 'no conversation, no folder: no words');
+  assert.strictEqual((await raw('/api/vocab', { add: 'x' })).status, 400, 'nowhere to keep it');
+  assert.strictEqual((await raw('/api/vocab', { cwd: WORK })).status, 400);
+  assert.strictEqual((await raw('/api/vocab', { cwd: path.join(WORK, 'nope'), add: 'x' })).status, 400, 'a folder the board does not know');
   // the OpenAI key: checked, kept, never answered back
   assert.strictEqual((await raw('/api/transcribe', { audio: 'AAAA', mime: 'audio/webm' })).status, 409, 'no key yet');
   assert.strictEqual((await raw('/api/voice/key', { key: 'not-a-key' })).status, 400);
   const key = 'sk-' + 'x'.repeat(40);
   assert.deepStrictEqual(JSON.parse((await raw('/api/voice/key', { key })).text), { ok: true, set: true });
-  assert.ok(!(await raw('/api/vocab')).text.includes(key), 'never sent back');
+  assert.ok(!(await raw('/api/vocab?cwd=' + enc(WORK))).text.includes(key), 'never sent back');
   // the transcription: the recording, the words as keywords, both languages, the conversation as the prompt
   assert.strictEqual((await raw('/api/transcribe', { audio: 'AAAA', mime: 'video/x-evil' })).status, 400);
-  const tr = await raw('/api/transcribe', { audio: Buffer.from('fake audio').toString('base64'), mime: 'audio/webm;codecs=opus', context: { title: '發版', folder: 'repo' } });
+  const tr = await raw('/api/transcribe', { audio: Buffer.from('fake audio').toString('base64'), mime: 'audio/webm;codecs=opus', context: { sid: T1, cwd: WORK, title: '發版', folder: 'repo' } });
   assert.deepStrictEqual(JSON.parse(tr.text), { ok: true, text: 'git commit 一下' });
   const sentForm = openaiCalls[0].form;
   assert.strictEqual(openaiCalls[0].url, 'https://api.openai.com/v1/audio/transcriptions');

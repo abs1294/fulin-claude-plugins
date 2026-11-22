@@ -917,11 +917,12 @@
   .imgstrip .thumb .tag { position: absolute; left: 3px; bottom: 3px; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: var(--r-s); background: rgba(0, 0, 0, .65); color: #fff; }
   /* a file waiting to go: a card the height of a picture's, its kind, its name and its number (［檔N］) */
   .imgstrip .thumb.file { height: 64px; width: 150px; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--side); display: inline-flex; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 10px 18px; }
-  .thumb.file .fk { font-size: 11px; font-weight: 700; color: var(--dim); letter-spacing: .04em; } .thumb.file .fn { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thumb.file .fk { font-size: 11px; font-weight: 700; color: var(--dim); letter-spacing: .04em; white-space: nowrap; } .thumb.file .fn { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* in your sent message: the files it carried, as cards that open the file */
   .fchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .fchip { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--bg); color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
-  .fchip .fk { font-size: 11px; font-weight: 700; color: var(--dim); } .fchip .fn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* the kind on one line, never squeezed; the name is what gives way (2026-11-22: 「檔1 · PDF」 broke in two) */
+  .fchip .fk { font-size: 11px; font-weight: 700; color: var(--dim); white-space: nowrap; flex: none; } .fchip .fn { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .composer.drop { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
   /* the box you type in, as in the chat apps (every screen): a round + on its left (pictures), round icons on its right -
      send (an arrow), and stop (a square) only while it is working. No words on them: the names are in their labels. */
@@ -938,6 +939,15 @@
   .composer .micbtn.wait { color: var(--accent); opacity: .7; }
   @keyframes micpulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 45%, transparent); } 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--red) 0%, transparent); } }
   @media (prefers-reduced-motion: reduce) { .composer .micbtn.on { animation: none; } }
+  /* 自動排版 on the mic's hover (2026-11-22): a small pill above it; not while it listens, not on a touch screen */
+  .composer .micwrap { position: relative; display: inline-flex; flex: none; }
+  .composer .mic-pop { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); display: none; align-items: center; gap: 5px; padding: 2px 8px; font-size: 12px; line-height: 1.5; white-space: nowrap; color: var(--dim); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 2px 8px rgba(0,0,0,.12); cursor: pointer; z-index: 5; }
+  .composer .mic-pop::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 8px; }   /* the gap to the mic: still hovering */
+  .composer .mic-pop input { margin: 0; width: 13px; height: 13px; cursor: pointer; }
+  .composer .mic-pop:hover { color: var(--ink); }
+  .composer .micwrap:hover .mic-pop, .composer .micwrap:focus-within .mic-pop { display: inline-flex; }
+  .composer .micwrap:has(.micbtn.on) .mic-pop, .composer .micwrap:has(.micbtn.wait) .mic-pop { display: none; }
+  @media (hover: none) { .composer .micwrap .mic-pop { display: none !important; } }
   .composer textarea.voice-lock { color: inherit; opacity: .75; cursor: not-allowed; }
   .voice-st { font-size: 13px; color: var(--dim); padding: 0 4px 4px; }
   .composer .stopbtn:hover { background: var(--hover); }
@@ -5569,7 +5579,7 @@ function voiceLockNow() {
   if (mic) {
     mic.classList.toggle('on', busy && voice.state === 'listening'); mic.classList.toggle('wait', busy && voice.state === 'tidying');
     mic.disabled = busy && voice.state === 'tidying';
-    const t = busy && voice.state === 'listening' ? '結束語音輸入' : busy ? '自動排版中' : '語音輸入'; mic.title = t; mic.setAttribute('aria-label', t); mic.setAttribute('aria-pressed', String(busy && voice.state === 'listening'));
+    const t = busy && voice.state === 'listening' ? '結束語音輸入' : busy ? '自動排版中' : '語音輸入'; if (busy) mic.title = t; else mic.removeAttribute('title'); mic.setAttribute('aria-label', t); mic.setAttribute('aria-pressed', String(busy && voice.state === 'listening'));   // (idle: the 自動排版 pill is its hover, no tooltip over it)
   }
   if (st) { st.hidden = !busy; st.textContent = voice.state === 'listening' ? (voice.mode === 'record' ? '錄音中（OpenAI 轉錄）…說完再按一次麥克風，字會在說完後出現' : '聽寫中…說完再按一次麥克風。這段期間不能打字或送出') : voice.state === 'tidying' ? (voice.mode === 'record' && !voice.heard ? '轉錄中…' : '自動排版中…排好之前不能編輯或送出') : ''; }
   if (!busy && ta && voice.unlockFocus) { voice.unlockFocus = false; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
@@ -5586,7 +5596,7 @@ function voiceStart(s, again) {
   rec.lang = 'zh-TW'; rec.continuous = true; rec.interimResults = true;
   // its other guesses too (handed to the tidying, which picks the one that makes sense), and your words as hints
   rec.maxAlternatives = 3;
-  if (!phrasesOff() && voiceTerms.length && 'phrases' in rec && typeof window.SpeechRecognitionPhrase === 'function') {
+  if (!phrasesOff() && voiceTermsSid === s.sessionId && voiceTerms.length && 'phrases' in rec && typeof window.SpeechRecognitionPhrase === 'function') {
     try { rec.phrases = voiceTerms.slice(0, 100).map((t) => new window.SpeechRecognitionPhrase(t, 2)); } catch (e) {}
   }
   Object.assign(voice, { sid: s.sessionId, state: 'listening', rec, mode: 'browser', base: again ? voice.base : ta ? ta.value : '', heard: '', alts: [], failed: '', retry: false });
@@ -5616,20 +5626,24 @@ function voiceStart(s, again) {
 // The mic's settings beyond on/off (asked 2026-11-20, "like Typeless"): who hears (the browser, or OpenAI's transcription
 // with your own key), and your own words - kept on this computer only (lib/vocab.js), each person keeps their own.
 // The mic's words and its learned corrections, in the side panel (the + menu of the box): the same as the settings page's
-function openVocab() {
+// One per project (asked 2026-11-22: the tidying uses it, and one project's names are another's noise): opened from a
+// conversation, it is that conversation's folder's; the settings page has who hears only.
+function openVocab(s) {
   closePeek();
   $('peek').hidden = false;
-  $('peekName').textContent = '語音對照表';
-  $('peekPath').textContent = '只存在這台電腦，每個人各自維護'; $('peekPath').title = '';
+  $('peekName').textContent = '語音對照表' + (s && s.folder ? '：' + s.folder : '');
+  $('peekPath').textContent = '‎' + (s && s.cwd ? s.cwd : '') + '　·　這個專案自己的一份，只存在這台電腦'; $('peekPath').title = (s && s.cwd) || '';
   $('peekOpen').hidden = true; $('peekReveal').hidden = true; $('peekCopy').hidden = true;
   const body = $('peekBody'); body.textContent = '';
   const pane = el('div', 'vocab-peek'); body.append(pane);
-  voiceSettings(pane);
+  voiceSettings(pane, s);
 }
-async function voiceSettings(pane) {
+async function voiceSettings(pane, s) {
   const box = el('div'); pane.append(box);
+  const sid = s && s.sessionId ? s.sessionId : '', cwd = s && s.cwd ? s.cwd : '';   // (the folder too: a conversation ended while its page is open)
+  const vapi = (data) => api('/api/vocab', Object.assign({ sid, cwd }, data));
   const draw = async () => {
-    let r; try { r = await api('/api/vocab'); } catch (e) { r = { ok: false }; }
+    let r; try { r = await api('/api/vocab?sid=' + encodeURIComponent(sid) + '&cwd=' + encodeURIComponent(cwd)); } catch (e) { r = { ok: false }; }
     box.textContent = '';
     if (!r.ok) { box.append(el('p', 'hint', r.status === 404 ? '看板還是舊的程式，重開後才有詞庫與辨識引擎的設定。' : '讀不到詞庫')); return; }
     const v = r.data;
@@ -5647,11 +5661,19 @@ async function voiceSettings(pane) {
     const kb = el('button', 'btn', '儲存金鑰'); kb.type = 'button';
     kb.addEventListener('click', async () => { kb.disabled = true; const x = await api('/api/voice/key', { key: key.value }); kb.disabled = false; if (!x.ok) return say(x.data.error || '存不進去', true); key.value = ''; say(x.data.set ? '已存好金鑰（只在這台電腦）' : '已刪掉金鑰'); if (!x.data.set && prefs().voiceEngine === 'openai') await savePref({ voiceEngine: 'browser' }); draw(); });
     krow.append(key, kb); box.append(krow);
-    // your words
-    box.append(el('h3', '', '詞庫'), el('p', 'hint', '只存在這台電腦（~/.claude/session-board/vocab.json），每個人各自維護、不會分享。用在三個地方：提示瀏覽器（或 OpenAI）可能出現哪些詞、讓排版把聽錯的改回來、記住你改過的聽錯。'));
+    // your words: this project's
+    if (!sid) { box.append(el('h3', '', '詞庫'), el('p', 'hint', '詞庫是一個專案一份：在那個專案的對話裡，按輸入框左邊的 ＋ →「語音對照表」打開。')); return; }
+    if (!v.cwd) { box.append(el('h3', '', '詞庫'), el('p', 'hint', '這個對話不在任何專案資料夾裡，沒有詞庫。')); return; }
+    box.append(el('h3', '', '詞庫：' + (v.folder || v.cwd)), el('p', 'hint', '這個專案自己的一份，只存在這台電腦（~/.claude/session-board/vocab/），不跟別的專案共用、不會分享。用在三個地方：提示瀏覽器（或 OpenAI）可能出現哪些詞、讓排版把聽錯的改回來、記住你改過的聽錯。'));
+    // the one before (one for every folder): copied in only when you press it
+    if (v.legacy) {
+      const lr = el('div', 'pathrow'), lb = el('button', 'btn', '把舊的共用詞庫複製進這個專案'); lb.type = 'button';
+      lb.addEventListener('click', async () => { lb.disabled = true; const x = await vapi({ importLegacy: true }); if (!x.ok) { lb.disabled = false; return say(x.data.error || '複製不了', true); } say('複製了 ' + x.data.words + ' 個詞、' + x.data.fixes + ' 個修正、' + x.data.hidden + ' 個不要收的詞'); draw(); });
+      lr.append(el('span', 'hint', '以前所有專案共用的詞庫裡，還有 ' + v.legacy + ' 筆不在這個專案（詞、修正、不要收的詞），不會自動套用。'), lb); box.append(lr);
+    }
     const arow = el('div', 'pathrow'), inp = el('input'); inp.placeholder = '加一個詞，例如 session-board、dapfe、王小明'; inp.setAttribute('aria-label', '加進詞庫的詞');
     const ab = el('button', 'btn', '加入'); ab.type = 'button';
-    const addNow = async () => { const t = inp.value.trim(); if (!t) return; const x = await api('/api/vocab', { add: t }); if (!x.ok) return say(x.data.error || '加不進去', true); inp.value = ''; draw(); };
+    const addNow = async () => { const t = inp.value.trim(); if (!t) return; const x = await vapi({ add: t }); if (!x.ok) return say(x.data.error || '加不進去', true); inp.value = ''; draw(); };
     ab.addEventListener('click', addNow); inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addNow(); } });
     arow.append(inp, ab); box.append(arow);
     const chips = (title, list, label, onX, empty) => {
@@ -5661,25 +5683,30 @@ async function voiceSettings(pane) {
       if (!list.length) wrap.append(el('span', 'hint', empty));
       sec.append(wrap); return sec;
     };
-    box.append(chips('你的詞', v.words, (w) => w.term + (w.learned ? '（學到的）' : ''), (w) => api('/api/vocab', { remove: w.term }), '還沒有。上面加，或改過幾次聽錯它會自己記'));
-    box.append(chips('學到的修正', v.fixes, (f) => f.heard + ' → ' + f.meant + (f.n > 1 ? ' ×' + f.n : ''), (f) => api('/api/vocab', { unlearn: { heard: f.heard, meant: f.meant } }), '還沒有。麥克風排好的字你改過再送出，就會記在這裡'));
-    const d = el('details'); d.append(el('summary', '', '看板自動收集的詞（' + v.auto.length + '）：資料夾與對話標題裡的英文名稱；按 × 不再收這個'));
-    d.append(chips('', v.auto, (t) => t, (t) => api('/api/vocab', { remove: t }), '沒有'));
+    box.append(chips('你的詞', v.words, (w) => w.term + (w.learned ? '（學到的）' : ''), (w) => vapi({ remove: w.term }), '還沒有。上面加，或改過幾次聽錯它會自己記'));
+    box.append(chips('學到的修正', v.fixes, (f) => f.heard + ' → ' + f.meant + (f.n > 1 ? ' ×' + f.n : ''), (f) => vapi({ unlearn: { heard: f.heard, meant: f.meant } }), '還沒有。麥克風排好的字你改過再送出，就會記在這裡'));
+    const d = el('details'); d.append(el('summary', '', '看板自動收集的詞（' + v.auto.length + '）：這個專案的資料夾與對話標題裡的英文名稱；按 × 不再收這個'));
+    d.append(chips('', v.auto, (t) => t, (t) => vapi({ remove: t }), '沒有'));
     box.append(d);
   };
   draw();
 }
-// The words to hint the recognizer with (yours, then the board's), asked for now and then; the mic does not wait for them
-let voiceTerms = [];
-async function voiceTermsLoad() { try { const r = await api('/api/vocab/terms'); if (r.ok && Array.isArray(r.data.terms)) voiceTerms = r.data.terms; } catch (e) {} }
-voiceTermsLoad(); setInterval(voiceTermsLoad, 600000);
+// The words to hint the recognizer with (this conversation's project's: yours, then the board's), asked for when its box
+// is drawn and now and then; the mic does not wait for them
+let voiceTerms = [], voiceTermsSid = '';
+async function voiceTermsLoad(sid) {
+  sid = sid || voiceTermsSid; if (!sid) return;
+  const s = sessions.find((x) => x.sessionId === sid);
+  try { const r = await api('/api/vocab/terms?sid=' + encodeURIComponent(sid) + '&cwd=' + encodeURIComponent((s && s.cwd) || '')); if (r.ok && Array.isArray(r.data.terms)) { voiceTerms = r.data.terms; voiceTermsSid = sid; } } catch (e) {}
+}
+setInterval(() => voiceTermsLoad(), 600000);
 // The conversation the words were said in, for the tidying to put misheard English words, commands and names right
 // (the recognizer listens for Chinese: "git" comes back as 哥特; asked 2026-11-20): its title, its folder, the last few
 // messages on screen.
 function voiceContext(sid) {
   const s = sessions.find((x) => x.sessionId === sid);
   const recent = active === sid ? (items || []).filter((i) => (i.role === 'user' || i.role === 'assistant') && i.text).slice(-6).map((i) => String(i.text).slice(0, 400)) : [];
-  return s ? { sid, title: s.title || '', folder: s.folder || '', recent } : { sid, recent };
+  return s ? { sid, cwd: s.cwd || '', title: s.title || '', folder: s.folder || '', recent } : { sid, recent };
 }
 // The other way to hear (the setting 「誰來聽」: OpenAI 轉錄): the browser records, and what was said is written out by
 // OpenAI's transcription once you finish, with your words as keywords (server.js /api/transcribe). No words as you
@@ -5898,7 +5925,7 @@ function drawFoot() {
     if ((!text.trim() && !imgs.length && !files.length) || sendBtn.disabled) return;
     // the words the mic gave, changed before sending: what was changed is learned ("哥特" -> "git"; lib/vocab.js) - for every
     // way of sending (it once sat in the /btw branch only, and a plain send learned nothing - review 2026-11-20)
-    if (voice.given && voice.given.sid === s.sessionId) { const g = voice.given.text; voice.given = null; if (g && g !== text) api('/api/vocab', { learn: { given: g, sent: text } }).then((x) => { if (x.ok && x.data.learned && x.data.learned.length) say('記住了：' + x.data.learned.map((y) => (y.heard ? y.heard + ' → ' + y.meant : '聽 ' + y.meant)).join('、') + '（輸入框左邊的 ＋ → 語音對照表 可以看、可以刪）'); voiceTermsLoad(); }).catch(() => {}); }
+    if (voice.given && voice.given.sid === s.sessionId) { const g = voice.given.text; voice.given = null; if (g && g !== text) api('/api/vocab', { sid: s.sessionId, cwd: s.cwd || '', learn: { given: g, sent: text } }).then((x) => { if (x.ok && x.data.learned && x.data.learned.length) say('記住了（這個專案的詞庫）：' + x.data.learned.map((y) => (y.heard ? y.heard + ' → ' + y.meant : '聽 ' + y.meant)).join('、') + '（輸入框左邊的 ＋ → 語音對照表 可以看、可以刪）'); voiceTermsLoad(s.sessionId); }).catch(() => {}); }
     // sent (or run): what was typed is not a draft any more - nor is a save of it still waiting to go. Called only once it
     // is really going (a "!" or "/btw" with nothing after it is not: the words stay, and leaving keeps them)
     const consume = () => { clearTimeout(draftTimers.get(s.sessionId)); draftTimers.delete(s.sessionId); draftNow.delete(s.sessionId); };
@@ -6165,7 +6192,7 @@ function drawFoot() {
     menuItem('file', '上傳檔案', 'PDF、Word、Excel…（Claude 照路徑讀，30 天後自動刪）', () => filePick.click()),
     menuItem('cmd', '指令', '這個資料夾能用的 / 指令', () => { ta.value = '/'; ta.focus(); showCmds(); fit(); }),
     // the mic's own words and what it learned from your corrections, open beside the conversation (asked 2026-11-21)
-    menuItem('mic', '語音對照表', '你的詞、聽錯改成什麼；可以加、可以刪', () => openVocab()));
+    menuItem('mic', '語音對照表', '這個專案的詞、聽錯改成什麼；可以加、可以刪', () => openVocab(s)));
   if (!onTouch()) addMenu.append(el('div', 'am-tip', '也可以在輸入框按 Ctrl+V 貼上截圖，或把圖檔、檔案拖進來'));
   const outside = (e) => { if (!addMenu.contains(e.target) && !pickBtn.contains(e.target)) closeAdd(); };
   const escAdd = (e) => { if (e.key === 'Escape') { closeAdd(); pickBtn.focus(); } };
@@ -6180,8 +6207,24 @@ function drawFoot() {
   // the mic (beside send): press to speak, press again to finish
   const micBtn = el('button', 'btn micbtn'); micBtn.type = 'button';
   micBtn.innerHTML = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>';
-  micBtn.title = '語音輸入'; micBtn.setAttribute('aria-label', '語音輸入'); micBtn.setAttribute('aria-pressed', 'false');
+  // (no tooltip of its own: on hover the 自動排版 pill shows, and two at once covered each other - 2026-11-22)
+  micBtn.setAttribute('aria-label', '語音輸入'); micBtn.setAttribute('aria-pressed', 'false');
   micBtn.addEventListener('click', () => { if (voice.state === 'listening' && voice.sid === s.sessionId) voiceFinish(); else voiceStart(s); });
+  // this conversation's project's words, ready before the mic is pressed
+  if (voiceTermsSid !== s.sessionId) voiceTermsLoad(s.sessionId);
+  // 自動排版 on or off, from the mic itself (asked 2026-11-22: shown on hover, and small): the settings page's same switch
+  const micWrap = el('span', 'micwrap'), micPop = el('label', 'mic-pop'), micTidy = el('input');
+  micTidy.type = 'checkbox'; micTidy.checked = prefs().voiceTidy !== false;
+  micPop.append(micTidy, el('span', '', '自動排版'));
+  micTidy.addEventListener('change', async () => {
+    micTidy.disabled = true; const on = micTidy.checked;
+    const ok = await savePref({ voiceTidy: on }); micTidy.disabled = false;
+    if (!ok) { micTidy.checked = !on; return; }
+    say(on ? '已開啟自動排版' : '已關閉自動排版：聽到什麼留什麼');
+  });
+  micWrap.addEventListener('pointerenter', () => { if (!micTidy.disabled) micTidy.checked = prefs().voiceTidy !== false; });
+  micWrap.addEventListener('focusin', () => { if (!micTidy.disabled) micTidy.checked = prefs().voiceTidy !== false; });
+  micWrap.append(micBtn, micPop);
   drawImgs();
   col.append(strip);
   // While it is working: a stop button beside the send button (the only stop of a conversation - the turn ends there;
@@ -6191,8 +6234,8 @@ function drawFoot() {
     const stopBtn = el('button', 'btn stopbtn'); stopBtn.type = 'button'; stopBtn.title = '停止它現在做的事。再送一則訊息就會接著原本的對話繼續'; stopBtn.setAttribute('aria-label', '停止');
     stopBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor"/></svg>';
     stopBtn.addEventListener('click', async () => { stopBtn.disabled = true; let r; try { r = await api('/api/stop', { sessionId: s.sessionId }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; } if (!r.ok || r.data.ok === false) { stopBtn.disabled = false; return say(r.data.error || '它現在沒有在跑，沒有東西可以停', true); } say('已停止。再送一則訊息就會接著原本的對話繼續。'); });
-    box.append(ta, imgPick, filePick, pickBtn, micBtn, stopBtn, sendBtn);
-  } else box.append(ta, imgPick, filePick, pickBtn, micBtn, sendBtn);
+    box.append(ta, imgPick, filePick, pickBtn, micWrap, stopBtn, sendBtn);
+  } else box.append(ta, imgPick, filePick, pickBtn, micWrap, sendBtn);
   col.style.position = 'relative';
   if (s.notStarted && !sentOnce.has(s.sessionId)) col.append(roleRow(s));
   const q = carry.get(s.sessionId);
