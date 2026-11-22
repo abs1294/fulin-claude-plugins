@@ -68,6 +68,7 @@ const TidyLib = require('./lib/tidy');
 const Vocab = require('./lib/vocab');
 const Plugins = require('./lib/plugins');
 const PluginFit = require('./lib/pluginfit');
+const SkillWish = require('./lib/skillwish');
 const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
 const Rewind = require('./lib/rewind');
@@ -402,7 +403,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Everything the server does outside its own process. A test hands in its own (deps.out) so that no window is opened,
 // no program started, nothing written to the registry and no process ended while the routes are exercised.
 const REAL_OUT = { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify,
-  kill: (pid) => process.kill(pid), exit: (code) => process.exit(code), gitRun: execFile, btw: (sid, cwd, question) => Aside.ask(sid, cwd, question, { env: K.cleanEnv(process.env) }), explain: (cwd, prompt, o) => Aside.explain(cwd, prompt, Object.assign({ env: K.cleanEnv(process.env) }, o)), pluginInstall: (folder, items) => PluginFit.apply(folder, items), shell: (command, cwd) => Shell.run(command, cwd) };
+  kill: (pid) => process.kill(pid), exit: (code) => process.exit(code), gitRun: execFile, btw: (sid, cwd, question) => Aside.ask(sid, cwd, question, { env: K.cleanEnv(process.env) }), explain: (cwd, prompt, o) => Aside.explain(cwd, prompt, Object.assign({ env: K.cleanEnv(process.env) }, o)), wishRun: (args, cwd, prompt, o) => Aside.runWith(args, cwd, prompt, Object.assign({ env: K.cleanEnv(process.env) }, o)), pluginInstall: (folder, items) => PluginFit.apply(folder, items), shell: (command, cwd) => Shell.run(command, cwd) };
 
 // The next steps a conversation can be given from the board: a plugin's own command, sent into it. Offered only when
 // that plugin is installed for the folder (or for the whole user); which ones fit the turn just ended is decided by
@@ -425,7 +426,7 @@ const nextSteps = (inst, folder) => NEXT.filter((n) => installedFor(inst, n.plug
 
 function createServer(token, port, deps = {}) {
   // eslint-disable-next-line no-shadow
-  const { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside, explain: explainAside, pluginInstall } = Object.assign({}, REAL_OUT, deps.out);
+  const { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside, explain: explainAside, wishRun, pluginInstall } = Object.assign({}, REAL_OUT, deps.out);
   const allowedHosts = new Set([`${HOST}:${port}`, `localhost:${port}`]);
   // Who may talk to the board at all: this computer, and - when reaching it through Tailscale is switched on - only the
   // devices of your own Tailscale account (lib/remote.js). Checked before anything else, the key after it.
@@ -614,6 +615,114 @@ function createServer(token, port, deps = {}) {
   const fitSave = () => { try { fs.mkdirSync(path.dirname(fitFile), { recursive: true }); fs.writeFileSync(fitFile, JSON.stringify(Object.fromEntries([...fits].filter(([, v]) => v.state !== 'running')), null, 1)); } catch (e) {} };
   const fitBusy = new Set();     // folders whose choices are being installed right now
   const fitAsking = new Set();   // folders with a question about their analysis being answered right now
+  const fitWishing = new Set();  // folders with a wish being looked for outside right now (lib/skillwish.js)
+  const Wish = deps.skillwish || SkillWish;
+  if (!deps.skillwish && !deps.noTimers) Wish.sweep();   // a key file a search left when the board ended mid-way
+  // 找外掛 (lib/skillwish.js): one wish at a time per folder, the others waiting their turn (three at most). What is
+  // found is written into the folder's finished analysis (wished: candidates for later questions too; put among the
+  // ones to install unless the list or the folder has it); one that comes back while there is none waits for the next
+  // that finishes. All of it - the one looked for, the ones waiting, the ones waiting to be written in - is kept in a
+  // file as it changes (review 2026-11-22: each was lost when the board started again, or ended at the wrong moment):
+  // a board started again writes in what came back, and says of a wish it was still looking for that it was not
+  // finished (it is not looked for again by itself: that costs). Each wish has an id written with its answer, so one
+  // already written is never written again, whenever the board ended between the two files.
+  const srcKey = (v) => String(v || '').toLowerCase().replace(/\/+$/, '');
+  const wishQueue = new Map();   // folder -> [{cwd, text}] waiting
+  const wishNow = new Map();     // folder -> {cwd, text} being looked for
+  const lateWish = new Map();    // folder -> [{cwd, text, r}] come back with no finished analysis to be written into
+  const wishFile = fitFile.replace(/\.json$/, '') + '-wish.json';
+  const LATE_MAX = 8;   // (one looked for and three waiting at most, per folder: never reached)
+  const wishId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const wishSave = () => {
+    try {
+      const o = {};
+      for (const k of new Set([...wishQueue.keys(), ...wishNow.keys(), ...lateWish.keys()])) {
+        const pending = [].concat(wishNow.has(k) ? [wishNow.get(k)] : [], wishQueue.get(k) || []), late = lateWish.get(k) || [];
+        if (pending.length || late.length) o[k] = { pending, late };
+      }
+      if (!Object.keys(o).length) { fs.rmSync(wishFile, { force: true }); return; }
+      fs.mkdirSync(path.dirname(wishFile), { recursive: true });
+      const t = wishFile + '.tmp'; fs.writeFileSync(t, JSON.stringify(o, null, 1)); fs.renameSync(t, wishFile);
+    } catch (e) {}
+  };
+  try {
+    const w = (x) => x && typeof x.text === 'string' && typeof x.cwd === 'string';
+    const find = (y) => y && typeof y.ref === 'string' && PluginFit.REF.test(y.ref) && typeof y.source === 'string' && PluginFit.GH_TREE.test(y.source);
+    for (const [k, v] of Object.entries(JSON.parse(fs.readFileSync(wishFile, 'utf8')) || {})) {
+      const late = (Array.isArray(v && v.late) ? v.late : []).filter((x) => w(x) && x.r && typeof x.r === 'object' && (x.r.ok ? Array.isArray(x.r.skills) && x.r.skills.every(find) : typeof x.r.error === 'string'));
+      const cut = (Array.isArray(v && v.pending) ? v.pending : []).filter(w).map((x) => ({ id: x.id, cwd: x.cwd, text: x.text, r: { ok: false, error: '看板重新啟動時這個願望還沒找完，沒有結果；要的話請再許一次' } }));
+      const all = late.concat(cut).slice(-LATE_MAX); if (all.length) lateWish.set(k, all);
+    }
+  } catch (e) {}
+  // waiting ones written into the finished analysis there; taken off the file only after they are in it
+  const flushLate = (k) => {
+    const late = lateWish.get(k); const now = fits.get(k);
+    if (!late || !late.length || !now || now.state !== 'done' || !now.result) return;
+    for (const x of late) { try { writeWish(k, fits.get(k), x.cwd, x.text, x.r, x.id); } catch (e) {} }   // (a bad one left out)
+    lateWish.delete(k); wishSave();
+  };
+  const startWish = (k, cwd, text, gen) => {
+    const at = fits.get(k); if (!at || at.gen !== gen) return false;
+    if (wishNow.has(k)) { const q = wishQueue.get(k) || []; if (q.length >= 3) return false; q.push({ id: wishId(), cwd, text }); wishQueue.set(k, q); wishSave(); return true; }
+    return runWish(k, cwd, text, wishId());
+  };
+  const runWish = (k, cwd, text, id) => {
+    const at = fits.get(k); if (!at) return false;
+    wishNow.set(k, { id, cwd, text }); fitWishing.add(k); wishSave();
+    const listed = [...((at.result && at.result.plugins) || []), ...(at.wished || [])];
+    const have = new Set(listed.map((x) => x.ref)), haveSources = new Set(listed.map((x) => srcKey(x.source)).filter(Boolean));
+    Promise.resolve().then(() => Wish.wish(cwd, text, have, { run: wishRun, haveSources }))
+      .catch((e) => ({ ok: false, error: String((e && e.message) || e).slice(0, 200) }))
+      .then((r) => {
+        const now = fits.get(k);
+        let written = false;
+        if (now && now.state === 'done' && now.result) { try { writeWish(k, now, cwd, text, r, id); written = true; } catch (e) {} }
+        if (!written) lateWish.set(k, (lateWish.get(k) || []).concat([{ id, cwd, text, r }]).slice(-LATE_MAX));
+        wishNow.delete(k); fitWishing.delete(k);
+        const q = wishQueue.get(k) || []; wishQueue.delete(k);
+        wishSave();
+        // the next one waiting, in the analysis there now; the rest wait behind it
+        for (let i = 0; i < q.length; i++) {
+          if (!runWish(k, q[i].cwd, q[i].text, q[i].id || wishId())) continue;
+          const rest = q.slice(i + 1); if (rest.length) { wishQueue.set(k, (wishQueue.get(k) || []).concat(rest)); wishSave(); }
+          break;
+        }
+      });
+    return true;
+  };
+  // what was found, written in - told by where it comes from: the same folder once (already on the list: counted);
+  // another of a name already there numbered; one the folder has a skill of that name for already counted apart
+  const writeWish = (k, now, cwd, text, r, id) => {
+    if (id && (now.thread || []).some((t) => t.wishId === id)) return now;   // written already
+    const known = new Map([...(now.result.plugins || []), ...(now.wished || [])].map((x) => [x.ref, srcKey(x.source)]));
+    const sources = new Set([...known.values()].filter(Boolean));
+    let onList = 0, installedAlready = 0, noName = 0; const found = [];
+    for (const x0 of r.ok ? r.skills : []) {
+      const src = srcKey(x0.source);
+      if (sources.has(src)) { onList++; continue; }
+      let ref = x0.ref; const [nm, rp] = ref.split('@');
+      for (let i = 2; known.has(ref) && i < 10; i++) ref = nm + '-' + i + '@' + rp;
+      if (known.has(ref)) { noName++; continue; }
+      if (fs.existsSync(path.join(cwd, '.claude', 'skills', ref.split('@')[0]))) { installedAlready++; continue; }
+      known.set(ref, src); sources.add(src); found.push(Object.assign({}, x0, { ref }));
+    }
+    const note = (n, t) => (n ? '\n\n（另有 ' + n + ' 個' + t + '）' : '');
+    const a = !r.ok ? '沒有找成：' + r.error : (r.answer || '')
+      + note(onList, '已經在上面的清單裡')
+      + note(installedAlready, '在這個資料夾的 .claude/skills/ 裡已經有同名的 skill，沒有再列')
+      + note(noName, '同名的太多，沒有列')
+      + note(r.dropped, '的網址在 GitHub 上找不到 SKILL.md，沒有列進清單')
+      + note(r.unsure, '這次連不上 GitHub 確認，沒有列進清單；可以再許一次')
+      + note(r.versions, '的網址看起來指向某個版本（commit），看板只裝分支或標籤上的，沒有列進清單')
+      + (found.length || onList || installedAlready || noName ? '' : '\n\n（沒有找到能直接安裝的：要有 GitHub 上、裡面有 SKILL.md 的資料夾網址）');
+    const wished = found.concat((now.wished || []).filter((w) => !found.some((x) => x.ref === w.ref))).slice(0, 30);
+    const entry = Object.assign({ q: '找外掛：' + text, a, at: Date.now(), wished: found.length, changed: !!found.length }, id ? { wishId: id } : {});
+    const done = Object.assign({}, now, { wished, result: Object.assign({}, now.result, { plugins: (now.result.plugins || []).concat(found) }), thread: (now.thread || []).concat([entry]).slice(-30) });
+    fits.set(k, done); fitSave(); return done;
+  };
+  // a board started again: what came back is written into the finished analyses there now
+  for (const k of [...lateWish.keys()]) { try { flushLate(k); } catch (e) { lateWish.delete(k); } }
+  wishSave();
   // a folder the board knows: of an open session, of a conversation of the last 30 days, or one Claude Code keeps
   // conversations for (as /api/harness)
   const knownFolder = (w) => {
@@ -1358,7 +1467,9 @@ function createServer(token, port, deps = {}) {
         }
         if (p === '/api/plugins') return send(res, 200, await pluginsView(false));
         if (p === '/api/recommends') return send(res, 200, PluginFit.recommends());
-        if (p === '/api/pluginfit') { const w = String(q.get('cwd') || ''); return send(res, 200, Object.assign({ state: 'none' }, fits.get(fitKey(w)) || {}, { installing: fitBusy.has(fitKey(w)), asking: fitAsking.has(fitKey(w)), canRun: !!Plugins.rootOf('plugin-manager', instNow()) })); }
+        // 找外掛 (lib/skillwish.js): on or off, skill-fetch there or not, which keys are set (never a key itself)
+        if (p === '/api/skillwish') return send(res, 200, Wish.status());
+        if (p === '/api/pluginfit') { const w = String(q.get('cwd') || ''); return send(res, 200, Object.assign({ state: 'none' }, fits.get(fitKey(w)) || {}, { installing: fitBusy.has(fitKey(w)), asking: fitAsking.has(fitKey(w)), wishing: fitWishing.has(fitKey(w)), wish: Wish.status(), canRun: !!Plugins.rootOf('plugin-manager', instNow()) })); }
         if ((p === '/api/goals' || p === '/api/goals/status') && !isOn('goal2')) return send(res, p === '/api/goals' ? 200 : 404, p === '/api/goals' ? { installed: false, runs: [] } : { ok: false, error: '這台電腦沒有裝 goal2' });
         if (p === '/api/goals') { const l = await goal2.list(); return send(res, 200, { installed: l.installed, version: l.version || '', error: l.error || '', runs: l.runs || [] }); }
         if (p === '/api/goals/status') { const r = await goal2.status(String(q.get('id') || '')); return send(res, r.ok ? 200 : 404, r); }
@@ -1593,6 +1704,16 @@ function createServer(token, port, deps = {}) {
         return send(res, r.ok ? 200 : 502, r);
       }
       // the list of others' plugins you recommend: changed through plugin-manager's register-external.js (lib/pluginfit.js)
+      // 找外掛 switched on or off (asked the first time the 外掛分析 opens); on puts skill-fetch in your skills if it is not
+      if (p === '/api/skillwish') {
+        if (body.choice !== 'on' && body.choice !== 'off') return send(res, 400, { ok: false, error: '要啟用還是不要？' });
+        Wish.setChoice(body.choice === 'on');
+        let inst = null;
+        if (body.choice === 'on' && !Wish.status().installed) { try { inst = await Wish.install({ run: deps.pluginsRun }); } catch (e) { inst = { ok: false, note: String((e && e.message) || e).slice(0, 200) }; } }
+        return send(res, inst && !inst.ok ? 502 : 200, Object.assign({ ok: !inst || inst.ok, install: inst }, Wish.status()));
+      }
+      // the registries' keys, written where skill-fetch reads them; the answer says which are set, never what they are
+      if (p === '/api/skillwish/keys') { const r = Wish.saveKeys(body && body.keys); return send(res, r.ok ? 200 : 400, r); }
       if (p === '/api/recommends') { const r = await (deps.saveRecommend || PluginFit.saveRecommend)(body || {}); return send(res, r.ok ? 200 : 400, r); }
       // 外掛整合分析 (lib/pluginfit.js): started here, run in the background (minutes), read with GET /api/pluginfit.
       if (p === '/api/pluginfit/analyze') {
@@ -1608,7 +1729,7 @@ function createServer(token, port, deps = {}) {
         fits.set(k, { state: 'running', at: gen, gen, folder: cwd });
         (deps.pluginfitAnalyze || PluginFit.analyze)(cwd, { pmRoot, explain: explainAside, run: deps.pluginsRun })
           .catch((e) => ({ ok: false, error: String((e && e.message) || e).slice(0, 200) }))
-          .then((r) => { fits.set(k, r.ok ? { state: 'done', at: Date.now(), gen, folder: cwd, result: r.result, cost: r.cost } : { state: 'failed', at: Date.now(), gen, folder: cwd, error: r.error }); fitSave(); });
+          .then((r) => { fits.set(k, r.ok ? { state: 'done', at: Date.now(), gen, folder: cwd, result: r.result, cost: r.cost } : { state: 'failed', at: Date.now(), gen, folder: cwd, error: r.error }); fitSave(); if (r.ok) flushLate(k); });
         return send(res, 202, { ok: true, state: 'running' });
       }
       // A question about the analysis (lib/pluginfit.js ask): answered in no conversation, kept with the analysis; it may
@@ -1623,15 +1744,25 @@ function createServer(token, port, deps = {}) {
         if (!had || had.state !== 'done') return send(res, 409, { ok: false, error: '先做一次分析' });
         if (fitAsking.has(k)) return send(res, 409, { ok: false, error: '上一個追問還在回答，等它回來' });
         fitAsking.add(k);
-        let r; try { r = await (deps.pluginfitAsk || PluginFit.ask)(cwd, had, question, { pmRoot: Plugins.rootOf('plugin-manager', instNow()), explain: explainAside, run: deps.pluginsRun }); }
+        const ws = Wish.status();
+        let r; try { r = await (deps.pluginfitAsk || PluginFit.ask)(cwd, had, question, { pmRoot: Plugins.rootOf('plugin-manager', instNow()), explain: explainAside, run: deps.pluginsRun, wish: { on: ws.choice === 'on', installed: ws.installed }, wishMax: SkillWish.WISH_MAX }); }
         catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; } finally { fitAsking.delete(k); }
         if (!r.ok) return send(res, 502, r);
         // written into the analysis as it is now (an install may have finished meanwhile), unless it is another analysis
         const now = fits.get(k);
         if (!now || now.gen !== had.gen || now.state !== 'done') return send(res, 409, { ok: false, error: '回答回來時已經重新分析了，這個回答沒有存' });
-        const entry = { q: question, a: r.answer, at: Date.now(), changed: !!r.result };
-        fits.set(k, Object.assign({}, now, r.result ? { result: r.result } : {}, { thread: (now.thread || []).concat([entry]).slice(-30) })); fitSave();
-        return send(res, 200, { ok: true, answer: r.answer, changed: !!r.result });
+        const taken = !!r.wish && startWish(k, cwd, r.wish, had.gen);
+        const entry = Object.assign({ q: question, a: r.answer + (r.wish && !taken ? '\n\n（這個願望沒有去找：已經有三個在排隊；等前面的找完再許一次）' : ''), at: Date.now(), changed: !!r.result }, r.recommend ? { recommend: r.recommend } : {}, taken ? { wish: r.wish } : {});
+        let result = r.result;
+        if (result) {
+          const before = new Set((had.result.plugins || []).map((x) => x.ref));
+          const added = (now.result.plugins || []).filter((x) => !before.has(x.ref) && !result.plugins.some((y) => y.ref === x.ref));
+          if (added.length) result = Object.assign({}, result, { plugins: result.plugins.concat(added) });
+        }
+        fits.set(k, Object.assign({}, now, result ? { result } : {}, { thread: (now.thread || []).concat([entry]).slice(-30) })); fitSave();
+        // a wish: looked for outside in the background (minutes); what is found joins the ones to install
+        const looking = taken;
+        return send(res, 200, { ok: true, answer: r.answer, changed: !!r.result, wishing: looking });
       }
       // The ones chosen from the analysis, installed for that folder - only refs the analysis gave, nothing from the page
       if (p === '/api/pluginfit/apply') {

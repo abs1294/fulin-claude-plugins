@@ -417,6 +417,158 @@ test('外掛分析: analysed in the background, kept in a file, only its own ans
   assert.strictEqual(again.state, 'done'); s3.close(); if (s3.closeAllConnections) s3.closeAllConnections();
 });
 
+test('找外掛: switched on once (skill-fetch put in), keys saved, a wish from a question looked for and its finds installable', async () => {
+  for (const x of ['GET /api/skillwish', 'POST /api/skillwish', 'POST /api/skillwish/keys']) asked.add(x);
+  const calls = [];
+  let choice = null, installed = false, wishGo, askGo; const wishGate = new Promise((r) => { wishGo = r; }), askGate = new Promise((r) => { askGo = r; });
+  const skillwish = {
+    status: () => ({ choice, installed, keys: [{ id: 'SKILLSMP_API_KEY', set: false }] }),
+    setChoice: (on) => { choice = on ? 'on' : 'off'; },
+    install: async () => { calls.push('install'); installed = true; return { ok: true }; },
+    saveKeys: (k) => { calls.push(['keys', Object.keys(k || {})]); return k && k.SKILLSMP_API_KEY ? { ok: true, choice, installed, keys: [{ id: 'SKILLSMP_API_KEY', set: true }] } : { ok: false, error: '沒有要存的金鑰' }; },
+    wish: async (cwd, text, have) => {
+      calls.push(['wish', text, [...have]]);
+      if (text === 'tables') return { ok: true, answer: '找到 tables', skills: [{ ref: 'tables@t', source: 'https://github.com/o/t/tree/main/tables', skillCopy: true, from: '找外掛（70 分）', why: '做表格', note: '' }] };
+      await wishGate; return { ok: true, answer: '找到 frontend-slides', skills: [{ ref: 'frontend-slides@r', source: 'https://github.com/o/r/tree/main/skills/frontend-slides', skillCopy: true, from: '找外掛（88 分）', why: '做簡報', note: '' }] };
+    },
+  };
+  const installedRefs = [], file = path.join(HOME, 'pluginfit-wish.json');
+  const p2 = await freePort(); const s2 = createServer(TOKEN, p2, { channels, noTimers: true, noSchedules: true, pluginfitFile: file, skillwish,
+    out: Object.assign({}, out, { pluginInstall: async (cwd, items) => { installedRefs.push(items.map((x) => [x.ref, !!x.skillCopy, x.source])); return items.map((x) => ({ ref: x.ref, ok: true })); } }),
+    pluginfitAnalyze: async () => ({ ok: true, result: { confident: true, profile: null, summary: 's', plugins: [{ ref: 'harness@fulin-plugins', from: 'x', note: '' }], skip: [] }, cost: 0 }),
+    pluginfitAsk: async (cwd, st, question, o) => {
+      // an answer that takes harness off the list, worked out from the list as it was when asked (and slow)
+      if (question === '拿掉 harness') { await askGate; return { ok: true, answer: '拿掉了', result: Object.assign({}, st.result, { plugins: st.result.plugins.filter((x) => x.ref !== 'harness@fulin-plugins') }) }; }
+      return { ok: true, answer: o.wish.on ? '去外面找了' : '先啟用', wish: o.wish.on && o.wish.installed ? (question === '還要做表格的' ? 'tables' : 'slides') : undefined, recommend: { key: 'frontend-slides@r', source: 'https://github.com/o/r/tree/main/skills/frontend-slides', note: '做簡報', tags: [], installMethod: 'skill-copy' } };
+    } });
+  await new Promise((r) => s2.listen(p2, '127.0.0.1', r));
+  const call = (pp, body) => new Promise((resolve) => { const b = body ? Buffer.from(JSON.stringify(body)) : null; const q = http.request({ host: '127.0.0.1', port: p2, path: pp, method: b ? 'POST' : 'GET', headers: Object.assign({ 'x-board-token': TOKEN }, b ? { 'content-type': 'application/json', 'content-length': b.length } : {}) }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => { let j = null; try { j = JSON.parse(d); } catch (e) {} resolve({ status: res.statusCode, json: j }); }); }); if (b) q.write(b); q.end(); });
+  const st = async () => (await call('/api/pluginfit?cwd=' + enc(WORK))).json;
+  try {
+    assert.deepStrictEqual((await call('/api/skillwish')).json.choice, null, 'not asked yet');
+    assert.strictEqual((await call('/api/skillwish', { choice: 'maybe' })).status, 400);
+    const off = await call('/api/skillwish', { choice: 'off' }); assert.deepStrictEqual([off.status, off.json.choice, calls.length], [200, 'off', 0], 'off: nothing installed');
+    await call('/api/pluginfit/analyze', { cwd: WORK }); await new Promise((r) => setTimeout(r, 50));
+    const q0 = await call('/api/pluginfit/ask', { cwd: WORK, question: '我想要做簡報的 skill' });
+    assert.deepStrictEqual([q0.status, q0.json.wishing], [200, false], 'switched off: not looked for');
+    const on = await call('/api/skillwish', { choice: 'on' }); assert.deepStrictEqual([on.status, on.json.choice, on.json.installed, calls], [200, 'on', true, ['install']]);
+    assert.strictEqual((await call('/api/skillwish/keys', { keys: {} })).status, 400);
+    const k = await call('/api/skillwish/keys', { keys: { SKILLSMP_API_KEY: 'sk_x' } }); assert.deepStrictEqual([k.status, k.json.keys[0].set], [200, true]);
+    const q1 = await call('/api/pluginfit/ask', { cwd: WORK, question: '我想要做簡報的 skill' });
+    assert.deepStrictEqual([q1.status, q1.json.wishing], [200, true]);
+    const mid = await st(); assert.deepStrictEqual([mid.wishing, mid.thread[1].wish, mid.thread[1].recommend.key], [true, 'slides', 'frontend-slides@r'], 'the wish and the drafted entry kept with the answer');
+    assert.deepStrictEqual(calls.find((c) => c[0] === 'wish'), ['wish', 'slides', ['harness@fulin-plugins']], 'what the list has already is not looked for again');
+    // a second wish while the first is looked for: waits its turn, and is looked for after (review 2026-11-22: it was
+    // written down as looked for and never was)
+    const q2 = await call('/api/pluginfit/ask', { cwd: WORK, question: '還要做表格的' });
+    assert.deepStrictEqual([q2.status, q2.json.wishing], [200, true]);
+    // an answer changing the list, asked before the finds come and answered after: the finds stay on the list
+    const slowAsk = call('/api/pluginfit/ask', { cwd: WORK, question: '拿掉 harness' });
+    await new Promise((r) => setTimeout(r, 30));
+    wishGo(); await new Promise((r) => setTimeout(r, 80));
+    assert.deepStrictEqual(calls.filter((c) => c[0] === 'wish').map((c) => c[1]), ['slides', 'tables'], 'the waiting one looked for after');
+    askGo(); assert.strictEqual((await slowAsk).status, 200);
+    const got = await st();
+    assert.deepStrictEqual([got.wishing, got.result.plugins.map((x) => x.ref), got.wished.map((x) => x.ref)], [false, ['frontend-slides@r', 'tables@t'], ['tables@t', 'frontend-slides@r']]);
+    assert.deepStrictEqual(got.thread.filter((x) => /^找外掛/.test(x.q)).map((x) => [x.q, x.wished]), [['找外掛：slides', 1], ['找外掛：tables', 1]]);
+    const a = await call('/api/pluginfit/apply', { cwd: WORK, refs: ['frontend-slides@r'] });
+    assert.deepStrictEqual([a.status, installedRefs], [200, [[['frontend-slides@r', true, 'https://github.com/o/r/tree/main/skills/frontend-slides']]]], 'a found one installed as a skill copy');
+  } finally { s2.close(); if (s2.closeAllConnections) s2.closeAllConnections(); }
+});
+
+test('找外掛: a wish that comes back while the analysis is redone and fails is written into the next one that finishes, also after the board starts again', async () => {
+  let wishGo; const wishGate = new Promise((r) => { wishGo = r; });
+  let failNext = false, analyzeGo = null;
+  const skillwish = {
+    status: () => ({ choice: 'on', installed: true, keys: [] }), setChoice: () => {}, install: async () => ({ ok: true }), saveKeys: () => ({ ok: false }),
+    wish: async () => { await wishGate; return { ok: true, answer: '找到 deck', unsure: 1, versions: 1, dropped: 0, skills: [{ ref: 'deck@r', source: 'https://github.com/o/r/tree/main/deck', skillCopy: true, from: '找外掛（80 分）', why: 'x', note: '' }, { ref: 'inst@r', source: 'https://github.com/o/r/tree/main/inst', skillCopy: true, from: '找外掛（70 分）', why: 'y', note: '' }] }; },
+  };
+  fs.mkdirSync(path.join(WORK, '.claude', 'skills', 'inst'), { recursive: true });   // the folder has inst already
+  const file = path.join(HOME, 'pluginfit-wish.json');
+  const deps = () => ({ channels, noTimers: true, noSchedules: true, pluginfitFile: file, skillwish, out,
+    pluginfitAnalyze: async () => { if (failNext) { failNext = false; await new Promise((r) => { analyzeGo = r; }); return { ok: false, error: '分析失敗' }; } return { ok: true, result: { confident: true, profile: null, summary: 's', plugins: [{ ref: 'harness@fulin-plugins', from: 'x', note: '' }], skip: [] }, cost: 0 }; },
+    pluginfitAsk: async () => ({ ok: true, answer: '去找了', wish: 'deck' }) });
+  let port = await freePort(); let s2 = createServer(TOKEN, port, deps());
+  await new Promise((r) => s2.listen(port, '127.0.0.1', r));
+  const call = (pp, body) => new Promise((resolve) => { const b = body ? Buffer.from(JSON.stringify(body)) : null; const q = http.request({ host: '127.0.0.1', port, path: pp, method: b ? 'POST' : 'GET', headers: Object.assign({ 'x-board-token': TOKEN }, b ? { 'content-type': 'application/json', 'content-length': b.length } : {}) }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => { let j = null; try { j = JSON.parse(d); } catch (e) {} resolve({ status: res.statusCode, json: j }); }); }); if (b) q.write(b); q.end(); });
+  const st = async () => (await call('/api/pluginfit?cwd=' + enc(WORK))).json;
+  const tick = (ms) => new Promise((r) => setTimeout(r, ms || 40));
+  try {
+    await call('/api/pluginfit/analyze', { cwd: WORK }); await tick();
+    assert.strictEqual((await call('/api/pluginfit/ask', { cwd: WORK, question: '我想要 deck' })).json.wishing, true);
+    failNext = true; await call('/api/pluginfit/analyze', { cwd: WORK }); await tick();   // analysed again, while the wish is looked for
+    analyzeGo(); await tick();                                                           // ...and that fails
+    assert.strictEqual((await st()).state, 'failed');
+    wishGo(); await tick();                                                              // the wish comes back now
+    assert.strictEqual((await st()).state, 'failed', 'nothing to write it into yet');
+    assert.ok(fs.existsSync(file.replace(/\.json$/, '') + '-wish.json'), 'kept in a file too');
+    // the board started again before the next analysis
+    s2.close(); if (s2.closeAllConnections) s2.closeAllConnections();
+    port = await freePort(); s2 = createServer(TOKEN, port, deps()); await new Promise((r) => s2.listen(port, '127.0.0.1', r));
+    await call('/api/pluginfit/analyze', { cwd: WORK }); await tick();                   // the next analysis finishes
+    const got = await st();
+    assert.deepStrictEqual([got.state, got.result.plugins.map((x) => x.ref), got.wished.map((x) => x.ref)], ['done', ['harness@fulin-plugins', 'deck@r'], ['deck@r']], 'kept, and written in');
+    const a = got.thread.slice(-1)[0].a;
+    assert.match(a, /連不上 GitHub/); assert.match(a, /指向某個版本（commit）/); assert.match(a, /1 個在這個資料夾的 \.claude\/skills\/ 裡已經有同名的 skill/);
+    assert.ok(!fs.existsSync(file.replace(/\.json$/, '') + '-wish.json'), 'written in: the file is gone');
+  } finally { s2.close(); if (s2.closeAllConnections) s2.closeAllConnections(); fs.rmSync(path.join(WORK, '.claude', 'skills', 'inst'), { recursive: true, force: true }); }
+});
+
+test('找外掛: a wish still looked for when the board starts again is said to be unfinished; the same source (a / at the end aside) is not listed twice', async () => {
+  const never = new Promise(() => {});
+  let mode = 'hang';
+  const skillwish = {
+    status: () => ({ choice: 'on', installed: true, keys: [] }), setChoice: () => {}, install: async () => ({ ok: true }), saveKeys: () => ({ ok: false }),
+    wish: async () => { if (mode === 'hang') await never; return { ok: true, answer: '找到', skills: [{ ref: 'kit@r', source: 'https://github.com/o/r/tree/main/kit', skillCopy: true, from: 'x', why: 'x', note: '' }] }; },
+  };
+  const file = path.join(HOME, 'pluginfit-restart.json');
+  const deps = () => ({ channels, noTimers: true, noSchedules: true, pluginfitFile: file, skillwish, out,
+    pluginfitAnalyze: async () => ({ ok: true, result: { confident: true, profile: null, summary: 's', plugins: [{ ref: 'kit@r', from: 'x', note: '', source: 'https://github.com/o/r/tree/main/kit/', skillCopy: true }], skip: [] }, cost: 0 }),
+    pluginfitAsk: async () => ({ ok: true, answer: '去找了', wish: 'kit' }) });
+  let port = await freePort(); let s2 = createServer(TOKEN, port, deps()); await new Promise((r) => s2.listen(port, '127.0.0.1', r));
+  const call = (pp, body) => new Promise((resolve) => { const b = body ? Buffer.from(JSON.stringify(body)) : null; const q = http.request({ host: '127.0.0.1', port, path: pp, method: b ? 'POST' : 'GET', headers: Object.assign({ 'x-board-token': TOKEN }, b ? { 'content-type': 'application/json', 'content-length': b.length } : {}) }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => { let j = null; try { j = JSON.parse(d); } catch (e) {} resolve({ status: res.statusCode, json: j }); }); }); if (b) q.write(b); q.end(); });
+  const st = async () => (await call('/api/pluginfit?cwd=' + enc(WORK))).json;
+  const tick = (ms) => new Promise((r) => setTimeout(r, ms || 40));
+  try {
+    await call('/api/pluginfit/analyze', { cwd: WORK }); await tick();
+    assert.strictEqual((await call('/api/pluginfit/ask', { cwd: WORK, question: '要 kit' })).json.wishing, true);
+    assert.strictEqual((await call('/api/pluginfit/ask', { cwd: WORK, question: '還要 kit' })).json.wishing, true, 'the second waits');
+    // the board started again while the first is still looked for
+    s2.close(); if (s2.closeAllConnections) s2.closeAllConnections();
+    port = await freePort(); s2 = createServer(TOKEN, port, deps()); await new Promise((r) => s2.listen(port, '127.0.0.1', r));
+    const after = await st();
+    assert.strictEqual(after.wishing, false, 'nothing is being looked for in the board started again');
+    assert.deepStrictEqual(after.thread.filter((x) => /^找外掛/.test(x.q)).map((x) => [x.q, /還沒找完/.test(x.a)]), [['找外掛：kit', true], ['找外掛：kit', true]], 'both said to be unfinished, none left waiting');
+    assert.ok(!fs.existsSync(file.replace(/\.json$/, '') + '-wish.json'), 'nothing left in the file');
+    // a find whose source is one on the list but for a / at the end: not listed again, said so
+    mode = 'find';
+    await call('/api/pluginfit/ask', { cwd: WORK, question: '再找 kit' }); await tick();
+    const got = await st();
+    assert.deepStrictEqual(got.result.plugins.map((x) => x.ref), ['kit@r']);
+    assert.match(got.thread.slice(-1)[0].a, /1 個已經在上面的清單裡/);
+  } finally { s2.close(); if (s2.closeAllConnections) s2.closeAllConnections(); }
+});
+
+test('找外掛: the journal read back - a wish already written is not written again; a broken entry never stops the board', async () => {
+  const file = path.join(HOME, 'pluginfit-journal.json'), k = path.normalize(WORK).replace(/[\\/]+$/, '').toLowerCase();
+  const src = 'https://github.com/o/r/tree/main/kit';
+  // the analysis has the answer of wish w1 already (the board ended after writing it, before taking it off the journal)
+  fs.writeFileSync(file, JSON.stringify({ [k]: { state: 'done', at: 1, gen: 1, folder: WORK, result: { confident: true, summary: 's', plugins: [{ ref: 'kit@r', source: src, skillCopy: true }], skip: [] }, wished: [{ ref: 'kit@r', source: src }], thread: [{ q: '找外掛：kit', a: '找到', wishId: 'w1', wished: 1 }] } }));
+  fs.writeFileSync(file.replace(/\.json$/, '') + '-wish.json', JSON.stringify({ [k]: {
+    pending: [{ id: 'w1', cwd: WORK, text: 'kit' }, { id: 'w2', cwd: WORK, text: 'deck' }],
+    late: [{ id: 'w1', cwd: WORK, text: 'kit', r: { ok: true, answer: '找到', skills: [{ ref: 'kit@r', source: src }] } },
+      { id: 'w3', cwd: WORK, text: 'bad', r: { ok: true, answer: 'x', skills: [{}, null, { ref: 5 }] } }] } }));
+  const skillwish = { status: () => ({ choice: 'on', installed: true, keys: [] }), setChoice: () => {}, install: async () => ({ ok: true }), saveKeys: () => ({ ok: false }), wish: async () => ({ ok: false, error: 'x' }) };
+  const port = await freePort(); let s2;
+  assert.doesNotThrow(() => { s2 = createServer(TOKEN, port, { channels, noTimers: true, noSchedules: true, pluginfitFile: file, skillwish, out }); });
+  await new Promise((r) => s2.listen(port, '127.0.0.1', r));
+  try {
+    const got = await new Promise((resolve) => http.get({ host: '127.0.0.1', port, path: '/api/pluginfit?cwd=' + enc(WORK), headers: { 'x-board-token': TOKEN } }, (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => resolve(JSON.parse(d))); }));
+    assert.deepStrictEqual(got.thread.map((t) => [t.q, t.wishId || '', /還沒找完/.test(t.a)]), [['找外掛：kit', 'w1', false], ['找外掛：deck', 'w2', true]], 'w1 not written again (neither as found nor as unfinished); w2 said unfinished; the broken w3 left out');
+    assert.ok(!fs.existsSync(file.replace(/\.json$/, '') + '-wish.json'), 'the journal emptied');
+  } finally { s2.close(); if (s2.closeAllConnections) s2.closeAllConnections(); }
+});
+
 test('a source of the inbox: its connection taken away and made again from the page', async () => {
   asked.add('POST /api/inbox/source');
   assert.strictEqual((await post('/api/inbox/source', { source: 'nope' })).status, 400);

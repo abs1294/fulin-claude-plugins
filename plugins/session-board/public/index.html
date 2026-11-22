@@ -801,7 +801,13 @@
   .opt .ot { flex: 1; min-width: 0; }
   .opt input[type=radio], .opt input[type=checkbox] { margin-top: 5px; flex: none; }
   label.opt { cursor: pointer; }
-  .opt input.other { width: 100%; border: 1px solid var(--line); border-radius: var(--r-m); padding: 4px 8px; background: var(--bg); color: inherit; font: inherit; }
+  .wish-set { border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 12px; margin: 10px 0; }
+  .wish-set .pl-form { border-top: 0; padding: 6px 0 0; }
+  .rec-draft { border-left: 3px solid var(--accent); padding-left: 10px; margin: 6px 0; }
+  .rec-draft .btn { margin-top: 6px; }
+  textarea.grow, .pl-form textarea.grow { resize: none; overflow: hidden; min-height: 0; line-height: 1.45; }
+  .opt textarea.other { display: block; }
+  .opt input.other, .opt textarea.other { width: 100%; border: 1px solid var(--line); border-radius: var(--r-m); padding: 4px 8px; background: var(--bg); color: inherit; font: inherit; }
   .asknote { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 14px; }
   .asknote > span { flex: 1; min-width: 200px; }
   /* a form answered: the choices taken stand out, the rest step back */
@@ -1576,6 +1582,23 @@ const el = (tag, cls, text) => {
   }
   return e;
 };
+// A box for a sentence you write (an answer, a note): one line to start, taller as it fills, never scrolled sideways
+// (asked 2026-11-22: "輸入框請自行長高，不要讓我左右滑"). oneLine: Enter does not start a new line (what is kept is one line).
+function growText(cls, placeholder, oneLine) {
+  const t = el('textarea', 'grow' + (cls ? ' ' + cls : '')); t.rows = 1; if (placeholder) t.placeholder = placeholder;
+  // (not on the page yet, or hidden: no height to read - left at its one row until it is)
+  const fit = () => { if (!t.isConnected || !t.offsetParent) return; t.style.height = 'auto'; t.style.height = (t.scrollHeight + t.offsetHeight - t.clientHeight) + 'px'; };
+  t.addEventListener('input', () => {
+    // one line kept: a line break pasted in becomes a space (review 2026-11-22: it went to the server as it was)
+    if (oneLine && /[\r\n]/.test(t.value)) { const at = t.selectionStart; t.value = t.value.replace(/\r?\n|\r/g, ' '); try { t.setSelectionRange(at, at); } catch (e) {} }
+    fit();
+  });
+  if (oneLine) t.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) e.preventDefault(); });
+  // narrower (the window, a panel) or shown after being hidden: measured again, so no line is cut off
+  if (window.ResizeObserver) { let w = -1; new ResizeObserver(() => { if (t.clientWidth !== w) { w = t.clientWidth; fit(); } }).observe(t); }
+  t.fit = fit; requestAnimationFrame(fit);
+  return t;
+}
 // A "choose a folder" button for a path field: opens the Windows folder window (on this computer, by the board),
 // and puts what was chosen into the field. Typing a path stays possible. then(path) runs after a choice.
 function folderButton(input, then) {
@@ -3296,7 +3319,7 @@ async function drawRecommends(card, btn) {
     const inp = (ph, v, label) => { const i = el('input'); i.type = 'text'; i.placeholder = ph; i.value = v || ''; i.setAttribute('aria-label', label); i.style.cssText = 'width:100%;box-sizing:border-box;margin-top:6px'; return i; };
     const key = inp('名稱：plugin名@marketplace名，例如 codex@openai-codex', x && x.key, '名稱'); if (x) key.disabled = true;
     const source = inp('來源：marketplace 的位置，例如 openai/codex-plugin-cc 或 GitHub 網址', x && x.source, '來源');
-    const note = inp('說明：一句話講它做什麼', x && x.note, '說明');
+    const note = growText('', '說明：一句話講它做什麼', true); note.value = (x && x.note) || ''; note.setAttribute('aria-label', '說明'); note.style.marginTop = '6px';
     const tags = inp('標籤（可不填，逗號分開，英數）', x && x.tags.join(', '), '標籤');
     const kind = el('select'); for (const [v, t] of [['marketplace', 'marketplace plugin（用 claude plugin install 裝）'], ['skill-copy', '裸 skill 合集（複製 skill 目錄）']]) { const o = el('option', '', t); o.value = v; kind.append(o); } kind.value = (x && x.installMethod) || 'marketplace'; kind.style.cssText = 'width:100%;box-sizing:border-box;margin-top:6px';
     const msg = el('div', 'bad');
@@ -3330,6 +3353,7 @@ async function drawRecommends(card, btn) {
 }
 // ── 外掛分析 (server.js /api/pluginfit, lib/pluginfit.js): which plugins suit a folder; the chosen ones installed ──
 const fitSeen = new Set();       // folders (lower case) with an analysis done: their button is marked
+const wishKeysSeen = new Set();  // the 找外掛 keys box closed or saved once: not opened by itself again on this page
 async function openPluginFit(folder, cwd) {
   closePeek();
   $('peek').hidden = false;
@@ -3340,6 +3364,66 @@ async function openPluginFit(folder, cwd) {
   const box = el('div'); body.append(box);
   const here = () => !$('peek').hidden && body.contains(box);
   let timer = 0;
+  // 找外掛 (lib/skillwish.js, asked 2026-11-22): asked the first time; on, skill-fetch is put in your skills and the
+  // registries' keys are asked for once (each optional); a wish in the questions below is then looked for outside
+  const wishBlock = (w) => {
+    const b = el('div', 'wish-set');
+    const choose = async (choice, btns) => {
+      btns.forEach((x) => { x.disabled = true; });
+      if (choice === 'on') say('正在把 skill-fetch 裝到你的 skills（~/.claude/skills/）…');
+      let x; try { x = await api('/api/skillwish', { choice }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
+      if (!x.ok) say((x.data && ((x.data.install && x.data.install.note) || x.data.error)) || '沒有設成', true);
+      else say(choice === 'on' ? '已啟用找外掛。金鑰填一次就好，每一個都可以不填' : '已關閉找外掛');
+      if (here()) draw();
+    };
+    if (!w.choice) {
+      b.append(el('b', '', '要啟用「找外掛」嗎？'));
+      b.append(el('div', 'chg-note', '啟用後，在下面的追問裡許願（例如「我想要一個做簡報的 skill」），Claude 會照 skill-fetch 的方法，到 SkillsMP、GitHub、skills.sh 等 skill 庫幫你找、評分，找到的列進上面的清單讓你勾選套用（只裝在這個資料夾）。找一次約半分鐘到幾分鐘，也會花一些用量（實測一次約 0.2 美元）。'));
+      b.append(el('div', 'chg-note', '啟用會做兩件事，都只做一次：把 skill-fetch 裝到你的 skills（~/.claude/skills/skill-fetch，來源 github.com/girofu/skill-fetch，MIT 授權）；請你填各個 skill 庫的金鑰（都可以不填）。'));
+      const yes = el('button', 'btn primary', '啟用'), no = el('button', 'btn', '先不要'); yes.type = no.type = 'button';
+      yes.addEventListener('click', () => choose('on', [yes, no])); no.addEventListener('click', () => choose('off', [yes, no]));
+      const r = el('div', 'row'); r.style.marginTop = '8px'; r.append(yes, no); b.append(r);
+      return b;
+    }
+    if (w.choice === 'off') {
+      const n = el('div', 'chg-note', '找外掛：已關閉（許願不會到外面找）。 '); const on = el('button', 'btn', '啟用'); on.type = 'button';
+      on.addEventListener('click', () => choose('on', [on])); n.append(on); b.append(n); return b;
+    }
+    if (!w.installed) {
+      const n = el('div', 'chg-note bad', '找外掛已啟用，但 skill-fetch 還沒裝好。 '); const again = el('button', 'btn', '再裝一次'); again.type = 'button';
+      again.addEventListener('click', () => choose('on', [again])); n.append(again); b.append(n); return b;
+    }
+    const nSet = w.keys.filter((k) => k.set).length;
+    const fold = el('details', 'chg-helpers'); fold.open = !nSet && !wishKeysSeen.has('x');
+    fold.addEventListener('toggle', () => { if (!fold.open) wishKeysSeen.add('x'); });
+    fold.append(el('summary', 'chg-group', '找外掛：已啟用 · skill 庫金鑰 ' + nSet + '/' + w.keys.length + ' 個已填'));
+    fold.append(el('div', 'chg-note', '金鑰存在你這台電腦的 ~/.claude/skills/.fetch-config.json（skill-fetch 讀的地方），填過就不會再顯示。每一個都可以不填：沒填的 skill 庫會跳過或用公開的方式查。'));
+    const f = el('div', 'pl-form'), inputs = {};
+    for (const k of w.keys) {
+      const lab = el('div', 'chg-note'); lab.append(el('b', '', k.name), '　' + k.note + '　申請：' + k.site);
+      const i = el('input'); i.type = 'password'; i.autocomplete = 'off'; i.placeholder = k.set ? '已填（要換才填；填一個空格再儲存＝清掉）' : '貼上 ' + k.name + ' 的金鑰'; i.setAttribute('aria-label', k.name + ' 金鑰');
+      inputs[k.id] = i; f.append(lab, i);
+    }
+    const save = el('button', 'btn primary', '儲存金鑰'); save.type = 'button';
+    save.addEventListener('click', async () => {
+      const keys = {}; for (const [id, i] of Object.entries(inputs)) if (i.value !== '') keys[id] = i.value.trim();
+      if (!Object.keys(keys).length) return say('沒有填任何金鑰', true);
+      save.disabled = true;
+      let x; try { x = await api('/api/skillwish/keys', { keys }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
+      save.disabled = false;
+      if (!x.ok) return say((x.data && x.data.error) || '沒有存成', true);
+      wishKeysSeen.add('x'); say('金鑰存好了'); if (here()) draw();
+    });
+    const offB = el('button', 'btn', '關閉找外掛'); offB.type = 'button'; offB.addEventListener('click', () => choose('off', [offB]));
+    const acts = el('div', 'row'); acts.append(save, offB); f.append(acts); fold.append(f); b.append(fold);
+    return b;
+  };
+  // drafted recommend entries: whether each is in the list already (one look per drawing)
+  const recState = async (thread) => {
+    if (!thread.some((t) => t.recommend)) return new Set();
+    let r; try { r = await api('/api/recommends'); } catch (e) { return new Set(); }
+    return new Set(r.ok && r.data.items ? r.data.items.map((x) => x.key) : []);
+  };
   const draw = async () => {
     clearTimeout(timer);
     let r; try { r = await api('/api/pluginfit?cwd=' + encodeURIComponent(cwd)); } catch (e) { r = { ok: false, data: {} }; }
@@ -3352,6 +3436,7 @@ async function openPluginFit(folder, cwd) {
     go.disabled = d.state === 'running' || !d.canRun;
     go.addEventListener('click', async () => { go.disabled = true; const x = await api('/api/pluginfit/analyze', { cwd }); if (!x.ok) { go.disabled = false; return say((x.data && x.data.error) || '開始不了', true); } draw(); });
     top.append(go); box.append(top);
+    if (d.wish) box.append(wishBlock(d.wish));
     if (!d.canRun) box.append(el('div', 'chg-note bad', '這台電腦沒有裝 plugin-manager，分析要用它的 setup-plugins。'));
     if (d.state === 'running') { box.append(el('div', 'chg-note', '分析中…（' + ago(Date.now() - d.at) + '）')); timer = setTimeout(() => { if (here()) draw(); }, 4000); return; }
     if (d.state === 'failed') { box.append(el('div', 'chg-note bad', '分析失敗：' + (d.error || '原因不明'))); return; }
@@ -3405,16 +3490,40 @@ async function openPluginFit(folder, cwd) {
     // 追問 (asked 2026-11-21): questions about this analysis, answered with the same materials; it may change the list above
     box.append(el('div', 'chg-group', '追問'));
     const thread = el('div', 'fit-thread');
+    const inRec = await recState(d.thread || []);
+    if (!here()) return;
     for (const t of d.thread || []) {
       thread.append(el('div', 'msg user', t.q));
       const a = el('div', 'msg assistant goal-md'); a.innerHTML = md(t.a); linkFiles(a, null); thread.append(a);
-      if (t.changed) thread.append(el('div', 'chg-note', '↑ 這個回答改了上面的推薦清單'));
+      if (t.wished) thread.append(el('div', 'chg-note', '↑ 找到的 ' + t.wished + ' 個已經列進上面的清單，勾選後按「套用」就會裝在這個資料夾'));
+      else if (t.changed) thread.append(el('div', 'chg-note', '↑ 這個回答改了上面的推薦清單'));
+      if (t.wish) thread.append(el('div', 'chg-note', '→ 已經去外面找：「' + t.wish + '」（找完會接在下面）'));
+      // a recommend entry Claude drafted: written into plugin-manager's list only when you press it
+      if (t.recommend) {
+        const r = t.recommend, n = el('div', 'chg-note rec-draft');
+        n.append(el('b', '', '擬好的推薦清單條目：' + r.key), el('br'), '來源：' + r.source, el('br'), '說明：' + r.note + (r.tags && r.tags.length ? '（' + r.tags.join(', ') + '）' : ''), el('br'));
+        if (inRec.has(r.key)) n.append(el('span', 'ok', '已在推薦清單裡'));
+        else {
+          const add = el('button', 'btn primary', '加入推薦清單'); add.type = 'button';
+          add.addEventListener('click', async () => {
+            add.disabled = true;
+            let x; try { x = await api('/api/recommends', { key: r.key, source: r.source, note: r.note, tags: (r.tags || []).join(','), installMethod: r.installMethod }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
+            if (!x.ok) { add.disabled = false; return say((x.data && x.data.error) || '沒有加成', true); }
+            say('已加入推薦清單：' + r.key + '。要推上 GitHub 讓別台電腦也看到，執行 /plugin-manager-publish'); if (here()) draw();
+          });
+          n.append(add);
+        }
+        thread.append(n);
+      }
     }
     box.append(thread);
+    if (d.wishing) { box.append(el('div', 'chg-note', '正在外面找 skill（skill-fetch 查各個 skill 庫，約半分鐘到幾分鐘）…找完會出現在上面的對話裡。')); timer = setTimeout(() => { if (here()) draw(); }, 6000); }
     // set questions that weigh the whole, not pieces of this answer put together (asked 2026-11-21: "give some preset
     // prompts - why recommend at random, weigh it all"); Tab puts one in the empty box, again for the next
     const nm = (x) => String(x.ref || '').split('@')[0];
     const ideas = ['綜合評估：已經裝的 plugin 哪些用不到、功能重疊，可以拿掉？', res.plugins[0] ? nm(res.plugins[0]) + ' 跟已經裝的有沒有重疊？常駐的代價值得嗎？' : '照這個專案最近在做的事，還缺哪一類工具？', '推薦的每一個，常駐會多佔多少上下文？要另外裝什麼程式？', '這次判斷的依據是什麼？還有哪些檔沒讀到？'];
+    // a wish, when one can be looked for outside (找外掛 on)
+    if (d.wish && d.wish.choice === 'on' && d.wish.installed) ideas.splice(1, 0, '我想要一個能幫這個專案＿＿＿的 skill，到外面找找看');
     const form = el('div', 'fit-ask'), q = el('textarea'); q.rows = 2; q.placeholder = '例如：' + ideas.slice(0, 3).join('　') + '（按 Tab 帶入）'; q.setAttribute('aria-label', '追問這次分析');
     q.addEventListener('keydown', (e) => {
       if (e.key !== 'Tab' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
@@ -3430,7 +3539,8 @@ async function openPluginFit(folder, cwd) {
       let x; try { x = await api('/api/pluginfit/ask', { cwd, question: text }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
       if (!here()) return;
       if (!x.ok) { send.disabled = false; q.disabled = false; send.textContent = '問'; return say((x.data && x.data.error) || '沒有回答', true); }
-      if (x.data.changed) say('推薦清單照這個回答改了');
+      if (x.data.wishing) say('已經去外面找了，約半分鐘到幾分鐘，找到的會列進清單');
+      else if (x.data.changed) say('推薦清單照這個回答改了');
       draw();
     };
     send.addEventListener('click', ask);
@@ -3578,7 +3688,7 @@ async function drawCollab(preselect) {
     const row = el('div', 'cp-row');
     const ck = el('input'); ck.type = 'checkbox'; ck.checked = s.sessionId === preselect; ck.setAttribute('aria-label', '加入：' + (s.title || s.sessionId));
     const role = el('input'); role.placeholder = '角色，例如 ALPHA'; role.value = folderName(s.cwd); role.setAttribute('aria-label', '角色');
-    const does = el('input'); does.placeholder = '負責什麼'; does.setAttribute('aria-label', '負責什麼');
+    const does = growText('', '負責什麼', true); does.setAttribute('aria-label', '負責什麼');
     const lab = el('div', 'cp-who'); lab.append(el('span', 't', s.title || s.sessionId.slice(0, 8)), el('span', 'm', folderName(s.cwd) + ' · ' + (s.owner === 'board' ? '看板對話' : '終端機') + (s.name ? ' · ' + s.name : '')));
     row.append(ck, lab, role, does); tbl.append(row);
     rows.push({ s, ck, role, does });
@@ -6328,7 +6438,7 @@ function askForm(p) {
       const t = el('div', 'ot');
       let text = null;
       if (isOther) {
-        text = el('input', 'other'); text.type = 'text'; text.placeholder = '其他（自己寫）'; text.setAttribute('aria-label', '其他回答');
+        text = growText('other', '其他（自己寫）'); text.setAttribute('aria-label', '其他回答');
         text.addEventListener('input', () => { if (text.value.trim()) inp.checked = true; check(); });
         t.append(text);
       } else { t.append(el('b', '', label)); if (description) t.append(rich('div', 'od', description)); }

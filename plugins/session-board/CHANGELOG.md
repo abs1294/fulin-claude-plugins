@@ -2,6 +2,15 @@
 
 格式依 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)，最新在上。
 
+## [0.17.0] - 2026-11-22
+### Added
+- 外掛分析多了「找外掛」：在追問裡許願（例如「我想要一個做簡報的 skill」），Claude 照 skill-fetch 的方法到 SkillsMP、GitHub、skills.sh 等 skill 庫找、評分，找到的（有 GitHub 資料夾網址的）列進上面的清單，勾選後按「套用」只裝在這個資料夾。實測一次約半分鐘、約 0.2 美元。搜尋時不載入你的設定與 hook，只放行 skill-fetch 會做的事（`gh search`、它的 npx 查詢工具與兩支腳本、skill 庫與 GitHub 的網頁、skill-fetch 自己的檔和專案的 CLAUDE.md／README.md），讀不到任何金鑰；SkillsMP 的工具只在這次搜尋臨時提供，你自己的 MCP 設定不動。找到的先向 GitHub 確認資料夾裡有 SKILL.md 才列出；同一個資料夾一次找一個願望，其他的排隊。
+- 第一次打開外掛分析時詢問要不要啟用「找外掛」。啟用會把 skill-fetch 裝到全域（~/.claude/skills/skill-fetch，來源 github.com/girofu/skill-fetch），並請你一次填好 SkillsMP、SkillHub、Skills Directory 的金鑰（都可以不填；存在 skill-fetch 讀的 ~/.claude/skills/.fetch-config.json，畫面只顯示有沒有填）。
+- 追問裡說要把某個 skill 或 plugin 加入推薦清單，Claude 會擬好那一筆（名稱、來源、說明、標籤），面板出現「加入推薦清單」按鈕，按了才透過 plugin-manager 的 register-external.js 寫入；已在清單裡的會標明。
+
+### Changed
+- 會讓人打一整句話的輸入框改成從一行開始、隨內容自己長高，不再左右捲動：問題卡片的「其他（自己寫）」、推薦清單的「說明」、合作的「負責什麼」。
+
 ## [0.16.2] - 2026-11-21
 ### Fixed
 - 打開「使用收件」時跳出的訊息還寫「到『抓取設定』選來源」（勾選制度的舊說法），改成「連上的來源會開始抓，不要的刪除連接」。

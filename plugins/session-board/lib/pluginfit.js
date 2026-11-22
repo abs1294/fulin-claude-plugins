@@ -140,19 +140,29 @@ async function ask(folder, st, question, o = {}) {
   const src = o.sources || sources(o.pmRoot);
   if (!src.ok) return { ok: false, error: '找不到 plugin-manager 的 setup-plugins skill' };
   const all = o.installs || installs(), have = present(folder, all), off = switchedOff(folder), cand = candidates(src);
+  // what 找外掛 found for this folder (lib/skillwish.js) is among the candidates too
+  const wished = Array.isArray(st.wished) ? st.wished.filter((w) => w && REF.test(String(w.ref)) && GH_TREE.test(String(w.source || ''))) : [];
+  for (const w of wished) if (!cand.has(w.ref)) cand.set(w.ref, { ref: w.ref, from: w.from || '找外掛', note: w.note || '', source: w.source, skillCopy: true });
   for (const [ref, c] of cand) if (c.skillCopy && fs.existsSync(skillDir(folder, ref))) have.add(ref);
   const res = st.result, thread = (st.thread || []).slice(-6);
+  const look = o.wish || {};   // {on, installed}: whether a wish can be looked for outside
   const p = [
     prompt(folder, src, have, await git(folder, o.run), off),
     '',
     '=== 先前的分析結果 ===', JSON.stringify({ confident: res.confident, profile: res.profile, summary: res.summary, read: res.read, plugins: res.plugins.map((x) => ({ ref: x.ref, why: x.why })), skip: (res.skip || []).map((x) => ({ ref: x.ref, why: x.why })) }, null, 1),
+    wished.length ? '=== 「找外掛」先前在外面找到的（也是候選，skill-copy 型，ref 照寫）===\n' + JSON.stringify(wished.map((w) => ({ ref: w.ref, source: w.source, why: w.why, note: w.note })), null, 1) : '',
     thread.length ? '=== 先前的追問 ===\n' + thread.map((t) => '使用者：' + t.q + '\n你：' + t.a).join('\n\n') : '',
     '=== 使用者現在的追問 ===', question,
     '',
     '這次改成回答使用者的追問，不是重做分析。讀專案裡的檔案就能確認的事（例如 .claude/settings.json 啟用了哪些 plugin、CLAUDE.md 怎麼寫），先用 Read／Glob／Grep 讀過再回答，不要把「可以去查」留給使用者；讀不到或真的無從確認的，才說不確定並說明原因，不要猜。',
     '如果使用者要你改推薦清單（加、拿掉、換），或回答後你認為清單該改，就在 plugins 給「改過之後完整的清單」；不用改就給 null。候選規則和上面一樣。',
     '使用者說要裝某一個（在候選裡的）：你這次不能自己裝，但要把它放進 plugins，並在 answer 告訴他按面板上的「套用」就會裝好（marketplace 型用 claude plugin install；skill-copy 型由看板從來源複製到這個專案的 .claude/skills/）。你可以照實說明代價或重疊，但決定權在使用者，不要因為「只做分析」就拒絕放進清單。',
-    '只輸出一個 JSON 物件，前後不要有任何文字：{"answer": "用繁體中文 Markdown 回答，結論先講", "plugins": null}',
+    // 找外掛 (lib/skillwish.js): a wish for something none of the candidates does is looked for outside, by the board
+    look.on && look.installed
+      ? '使用者許願要某種 skill，而上面的候選都做不到（或他明說要到外面找）：在 wish 給一段搜尋用的描述（英文關鍵字為主，可加一句中文說明，' + (o.wishMax || 300) + ' 字內），看板會用 skill-fetch 到外面的 skill 庫找，找到的會出現在面板上讓他勾選套用；answer 告訴他「已經去外面找了，約半分鐘到幾分鐘」。候選裡就有合適的，就不要找，直接回答。不是許願就給 null。'
+      : '使用者許願要的 skill 候選裡沒有：告訴他可以在面板上方啟用「找外掛」（用 skill-fetch 到外面的 skill 庫找），wish 給 null。',
+    '使用者要把某一個加入「推薦清單」（plugin-manager 的 recommends.json，例如說它好用、要推薦）：在 recommend 擬好那一筆 {"key": "名稱@庫或marketplace（照它的 ref）", "source": "來源：skill-copy 型給 GitHub 資料夾網址，marketplace 型給 marketplace 位置", "note": "一句話繁體中文講它做什麼", "tags": ["英數標籤，最多 5 個"]}，看板會顯示按鈕讓他確認後才寫入；answer 告訴他按那個按鈕。不是這個要求就給 null。',
+    '只輸出一個 JSON 物件，前後不要有任何文字：{"answer": "用繁體中文 Markdown 回答，結論先講", "plugins": null, "wish": null, "recommend": null}',
   ].filter((l) => l !== '').join('\n');
   const r = await o.explain(folder, p, { timeLimit: o.timeLimit || TIME_LIMIT_MS });
   if (!r || !r.ok) return { ok: false, error: (r && r.error) || '沒有回答' };
@@ -164,7 +174,22 @@ async function ask(folder, st, question, o = {}) {
     const changed = readResult(JSON.stringify({ confident: res.confident, profile: res.profile, read: res.read, summary: res.summary, plugins: j.plugins, skip: res.skip, reconsider: res.reconsider }), cand, have, off);
     if (changed) out.result = Object.assign({}, res, { plugins: changed.plugins });
   }
+  if (look.on && look.installed && typeof j.wish === 'string' && j.wish.trim()) out.wish = j.wish.replace(/\s+/g, ' ').trim().slice(0, o.wishMax || 300);
+  const rec = readRecommend(j.recommend);
+  if (rec) out.recommend = rec;
   return out;
+}
+// A recommend-list entry Claude drafted (shown with a button; written only when you press it): the same rules as the
+// list's own form - name@where, a source, a sentence; a GitHub folder address is a skill-copy entry. -> entry | null
+function readRecommend(x) {
+  if (!x || typeof x !== 'object') return null;
+  const t = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
+  const key = t(x.key, 161), source = t(x.source, 400), note = t(x.note, 200);
+  if (!REF.test(key) || !source || !note || /^--/.test(source) || /^--/.test(note)) return null;
+  const skillCopy = GH_TREE.test(source);
+  if (!skillCopy && !SOURCE.test(source)) return null;
+  const tags = (Array.isArray(x.tags) ? x.tags : []).map((g) => t(g, 30)).filter((g) => /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(g)).slice(0, 5);
+  return { key, source, note, tags, installMethod: skillCopy ? 'skill-copy' : 'marketplace' };
 }
 
 // A skill-copy entry (not a marketplace plugin: a skill's folder in a repository on GitHub) is installed by copying that
@@ -318,4 +343,4 @@ function saveRecommend(x, o = {}) {
     (e, out, err) => resolve(e ? { ok: false, error: String(err || out || e.message).replace(/^ERROR:\s*/m, '').trim().slice(0, 300) } : { ok: true, out: String(out || '').trim().slice(0, 600) })));
 }
 
-module.exports = { copySkill, hasLink, branchOf, GH_TREE, switchedOff, recommends, saveRecommend, analyze, ask, QUESTION_MAX, apply, installs, installedFor, present, sources, candidates, prompt, readResult, REF, SOURCE };
+module.exports = { readRecommend, copySkill, hasLink, branchOf, GH_TREE, switchedOff, recommends, saveRecommend, analyze, ask, QUESTION_MAX, apply, installs, installedFor, present, sources, candidates, prompt, readResult, REF, SOURCE };

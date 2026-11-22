@@ -87,4 +87,7 @@ function explainPrompt(x, before) {
   ].filter((l) => l !== '').concat(again).join('\n');
 }
 
-module.exports = { ask, explain, explainPrompt, argsFor, explainArgs, TIME_LIMIT_MS, QUESTION_MAX };
+// The same run with the arguments given (lib/skillwish.js: the 找外掛 search, with its own tools)
+function runWith(args, cwd, prompt, o = {}) { return run(args, cwd, prompt, o); }
+
+module.exports = { ask, explain, runWith, explainPrompt, argsFor, explainArgs, TIME_LIMIT_MS, QUESTION_MAX };
