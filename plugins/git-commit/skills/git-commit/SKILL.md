@@ -70,7 +70,7 @@ description: >
 
 `prepare` 判成低風險的改動（見上節）不用豁免，照「只送 C 軌」走。下面的豁免留給低風險判定認不出來的情況（例如純 CSS、template class 調整）。
 
-`Style`（純 CSS／`<style>` 區塊／template class 調整／i18n value／格式化）與 `Docs`（純 `.md`／註解文字／XML doc 內文）可**同時豁免兩軌**（不得只豁免一軌），敏感掃描仍必做，1.3a 預覽仍要出並標示「已豁免——未回覆將自動 commit + push」。豁免也要落紀錄：`flow.sh review-record <repo> --exempt "Style：<為什麼只動到樣式>"`，否則 ship 會拒絕。
+`Style`（純 CSS／`<style>` 區塊／template class 調整／i18n value／格式化）與 `Docs`（純 `.md`／註解文字／XML doc 內文）可**同時豁免兩軌**（不得只豁免一軌），敏感掃描仍必做，1.3a 預覽仍要出並標示「已豁免——未回覆將自動 commit（本機；push 需另外核可）」。豁免也要落紀錄：`flow.sh review-record <repo> --exempt "Style：<為什麼只動到樣式>"`，否則 ship 會拒絕。
 
 判斷原則一句話：**diff 觸及「會被執行到的程式邏輯」一律不豁免**——`.vue` 的 `<script>`、`v-if`/`@click` 綁定、i18n 的 **key**（value 不算）、任何 `.cs`/`.js`/`.ts` 邏輯行，都算。使用者標 Style/Docs 但 diff 含邏輯行 → 告知「diff 含邏輯修改，仍送審」，禁止私下豁免。
 
@@ -207,9 +207,9 @@ Commit message 用 unicode double-line box 框住＋包 fenced code block（高�
 ╚══════════════════════════════════════════╝
 \```
 
-🚀 兩軌 Review 非 BLOCK 後將自動 commit + push；要攔截／改 message／調 staging 請在審查完成前回覆
-**🔍 Codex Review：**🟡 進行中｜✅ 已豁免（理由）— 未回覆將自動 commit + push
-**🔍 code-reviewer：**🟡 進行中｜✅ 已豁免（理由）— 未回覆將自動 commit + push
+🚀 兩軌 Review 非 BLOCK 後將自動 commit（本機）；push 需你另外明確核可；要攔截／改 message／調 staging 請在審查完成前回覆
+**🔍 Codex Review：**🟡 進行中｜✅ 已豁免（理由）— 未回覆將自動 commit（本機；push 需另外核可）
+**🔍 code-reviewer：**🟡 進行中｜✅ 已豁免（理由）— 未回覆將自動 commit（本機；push 需另外核可）
 ```
 
 #### 1.3b Codex（B 軌）
