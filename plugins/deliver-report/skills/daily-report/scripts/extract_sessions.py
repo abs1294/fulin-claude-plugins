@@ -23,6 +23,9 @@ Exit code：0 成功；3 = 該日無任何 session（呼叫端可據此提示）
 設計要點（為何這樣做）：
 - mtime 預過濾：jsonl 檔 mtime 早於目標日 00:00 就整檔跳過——當天沒動過的檔
   不可能含當天記錄，大幅減少要解析的檔案數。
+- 看板（session-board）的對話：看板是用 claude -p 跑的，逐字紀錄寫成 sdk-cli／promptSource=sdk，
+  跟程式開的長得一樣。哪些是看板開的，看板自己記在 board.db，從那裡認；沒裝看板就沒有這份名單。
+- 執行中補打的話：Claude Code 不寫成 user 記錄，而是 attachment（queued_command），要另外讀。
 - isSidechain 過濾：subagent 對話（isSidechain=true）不是使用者本人說的話，
   混進 prompts 會讓日報充滿派工雜訊。
 - ai-title 直取：Claude Code 自動為每個 session 生成標題，是現成的主題訊號，
@@ -34,9 +37,11 @@ import glob
 import json
 import os
 import re
+import sqlite3
 import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 # Windows 主控台預設 cp950，強制 UTF-8 輸出避免中文炸編碼
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
@@ -44,6 +49,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stderr.reconfigure(encoding="utf-8")
 
 PROJECTS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "projects")
+BOARD_DB = os.path.join(os.path.expanduser("~"), ".claude", "session-board", "board.db")
 DEFAULT_OUT_DIR = os.path.join(os.path.expanduser("~"), ".claude", "daily-report", "out")
 PROMPT_MAX = 400
 
@@ -56,11 +62,102 @@ NOISE_PREFIXES = (
     "This session is being continued",     # 續接 session 的自動摘要
     "The previous response failed",        # tool call 失敗的系統重試提示
     "[Image: source:",                     # 圖片附件路徑列
+    "<artifact-content-authored-by-others", # 續接摘要的另一種開頭
+    "<agent-message", "<cross-session", "<user-prompt-submit-hook",
+    "Another Claude session sent a message", # 別的 session 傳來的（舊格式沒有 origin）
+    "（看板自動送出）", "【看板自動處理",      # 看板替人接續時送的話
 )
 
-# 人打的 prompt 才進日報。promptSource 'system'（task 通知/peer 訊息）與 'sdk'
-# 是程式注入；'typed'/'queued' 是人；None 是舊格式（多為人打，靠 NOISE_PREFIXES 兜底）。
-HUMAN_PROMPT_SOURCES = (None, "typed", "queued")
+# 人打的 prompt 才進日報。'typed'／'queued'／'suggestion_accepted'（按建議送出）是人；
+# 'system'（task 通知/peer 訊息）是程式注入；'sdk' 要看是不是看板開的對話；
+# None 是舊格式（多為人打，靠 NOISE_PREFIXES 兜底）。
+HUMAN_PROMPT_SOURCES = ("typed", "queued", "suggestion_accepted")
+
+
+OPENING_BEFORE, OPENING_AFTER = timedelta(seconds=5), timedelta(seconds=60)
+
+
+def board_sessions():
+    """看板（session-board）的對話 → (id 集合, {id: [看板自己送話的時間]})。看板的小秘書自己開的不算。
+
+    後者是排程、自動健檢、小秘書送進對話的那一句：不是人說的。
+    沒裝看板 → 空的。裝了卻讀不到或格式不對 → 空的並在 stderr 說明，不可靜默少掉一整天。
+    """
+    if not os.path.isfile(BOARD_DB):
+        return set(), {}
+    try:
+        con = sqlite3.connect(Path(BOARD_DB).as_uri() + "?mode=ro", uri=True, timeout=5)
+        try:
+            def value(key, kind):
+                row = con.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+                v = json.loads(row[0]) if row else kind()
+                if not isinstance(v, kind):
+                    raise ValueError(key + " 的格式不對")
+                return v
+            own = {x for x in value("boardStarted", list) if isinstance(x, str)}
+            own -= {x for x in value("lineSessions", list) if isinstance(x, str)}
+            sent = {}
+            for sid, o in value("openedBy", dict).items():
+                if isinstance(o, dict) and isinstance(o.get("at"), (int, float)):
+                    sent.setdefault(sid, []).append(o["at"])
+            if con.execute("SELECT 1 FROM sqlite_master WHERE name = 'schedule_run'").fetchone():
+                for sid, at in con.execute("SELECT session_id, started_at FROM schedule_run WHERE session_id <> ''"):
+                    sent.setdefault(sid, []).append(at)
+            return own, {k: sorted(set(v)) for k, v in sent.items()}
+        finally:
+            con.close()
+    except (sqlite3.Error, ValueError, TypeError) as e:
+        print("WARN: 讀不到看板的對話名單，看板裡的對話這次不會進日報：{}".format(e), file=sys.stderr)
+        return set(), {}
+
+
+def said_by_person(o, on_board):
+    """這一列（user 記錄或 queued_command 附件）是不是人說的"""
+    # isMeta＝hook 回饋、skill 全文等注入；compact＝續接摘要
+    if o.get("isMeta") or o.get("isCompactSummary") or o.get("isVisibleInTranscriptOnly"):
+        return False
+    att = o.get("attachment") if isinstance(o.get("attachment"), dict) else {}
+    if att.get("isMeta"):
+        return False
+    origin = o.get("origin") or att.get("origin")
+    if (origin.get("kind") if isinstance(origin, dict) else origin) not in (None, "human"):
+        return False
+    src = o.get("promptSource")
+    if src in HUMAN_PROMPT_SOURCES:
+        return True
+    if src == "sdk" or (src is None and str(o.get("entrypoint") or "").startswith("sdk")):
+        return on_board
+    return src is None
+
+
+def sent_by_hand(o):
+    """明確是人打的（終端機打的、按建議的）"""
+    return o.get("promptSource") in HUMAN_PROMPT_SOURCES
+
+
+def is_message(o, content):
+    """這一列（user 記錄或 queued_command 附件）是送進對話的一句話：別的 session 送的算；
+    工具回傳、hook 注入、續接摘要、背景工作回報不算"""
+    att = o.get("attachment") if isinstance(o.get("attachment"), dict) else {}
+    origin = o.get("origin") or att.get("origin")
+    kind = origin.get("kind") if isinstance(origin, dict) else origin
+    if kind not in (None, "human", "peer") or o.get("isCompactSummary"):
+        return False
+    if kind != "peer" and (o.get("isMeta") or att.get("isMeta")):
+        return False
+    if isinstance(content, list):
+        content = "\n".join(str(b.get("text") or "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    return isinstance(content, str) and bool(content.strip()) and not content.lstrip().startswith("<task-notification")
+
+
+def queued_prompt(o):
+    """執行中補打的話 → content；不是就 None"""
+    a = o.get("attachment")
+    if o.get("type") != "attachment" or not isinstance(a, dict) or a.get("type") != "queued_command":
+        return None
+    if a.get("commandMode") not in (None, "prompt"):
+        return None   # 背景工作回報等
+    return a.get("prompt")
 
 
 def parse_tz(tz_str):
@@ -111,7 +208,7 @@ def in_scope(cwd, scope_root):
     return a == b or a.startswith(b + os.sep)
 
 
-def scan_file(path, day_start, day_end, tz, include_auto=False):
+def scan_file(path, day_start, day_end, tz, include_auto=False, board=frozenset(), sent=None):
     """解析一個 session jsonl，回傳該日摘要 dict；該日無記錄回 None"""
     title = None
     prompts = []
@@ -120,7 +217,17 @@ def scan_file(path, day_start, day_end, tz, include_auto=False):
     cwd = None
     git_branch = None
     assistant_turns = 0
-    is_sdk = False  # entrypoint 'sdk-cli' = headless/程式驅動 session（自動化雜訊）
+    sid = os.path.splitext(os.path.basename(path))[0]
+    on_board = sid in board
+    # 看板自己送話的時間：每一次拿掉之後的第一句（同一時間可能記兩處，差幾秒以內算同一次）
+    openings = []
+    for at in (sent or {}).get(sid, []):
+        try:
+            t0 = datetime.fromtimestamp(at / 1000, tz)
+        except (OverflowError, OSError, ValueError, TypeError):
+            continue
+        if not openings or t0 - openings[-1] > timedelta(seconds=30):
+            openings.append(t0)
 
     try:
         fh = open(path, encoding="utf-8", errors="replace")
@@ -138,7 +245,8 @@ def scan_file(path, day_start, day_end, tz, include_auto=False):
             if t == "ai-title":
                 title = o.get("aiTitle") or title  # 取最後一個（標題會隨對話演進更新）
                 continue
-            if t not in ("user", "assistant"):
+            queued = queued_prompt(o)
+            if t not in ("user", "assistant") and queued is None:
                 continue
             ts = parse_ts(o.get("timestamp"), tz)
             if ts is None or not (day_start <= ts < day_end):
@@ -154,16 +262,18 @@ def scan_file(path, day_start, day_end, tz, include_auto=False):
             message = o.get("message")
             if not isinstance(message, dict):
                 message = {}
-            if t == "user":
-                if o.get("entrypoint") == "sdk-cli":
-                    is_sdk = True
-                src = o.get("promptSource")
-                origin = o.get("origin")
-                origin_kind = origin.get("kind") if isinstance(origin, dict) else origin
-                # 非人打的注入（task 通知、peer 訊息、SDK 程式輸入）不進 prompts
-                if src not in HUMAN_PROMPT_SOURCES or origin_kind not in (None, "human"):
+            if t != "assistant":
+                content = message.get("content") if queued is None else queued
+                # 看板自己送的那一句（純文字、斜線指令、送進終端機的 peer 訊息、對話正忙時排進去的都算）：每次拿掉一句，人打的不會被當成它
+                if not sent_by_hand(o) and is_message(o, content):
+                    opening = next((x for x in openings if x - OPENING_BEFORE <= ts <= x + OPENING_AFTER), None)
+                    if opening is not None:
+                        openings.remove(opening)
+                        continue
+                # 非人打的注入（task 通知、peer 訊息、程式輸入）不進 prompts
+                if not said_by_person(o, on_board):
                     continue
-                p = clean_prompt(message.get("content"))
+                p = clean_prompt(content)
                 if p:
                     prompts.append({"time": ts.strftime("%H:%M"), "text": p})
             else:  # assistant
@@ -176,12 +286,12 @@ def scan_file(path, day_start, day_end, tz, include_auto=False):
 
     if first_ts is None:
         return None
-    # 程式驅動 session（SDK 或整場零人打 prompt）預設不進日報——日報涵蓋的是「人做的工作」，
+    # 整場沒有一句是人說的＝程式驅動 session，預設不進日報——日報涵蓋的是「人做的工作」，
     # 自動化跑批（隔離複本改碼、tunnel 測試等）只會稀釋內容。要看可用 --include-auto。
-    if not include_auto and (is_sdk or not prompts):
+    if not include_auto and not prompts:
         return None
     return {
-        "session_id": os.path.splitext(os.path.basename(path))[0],
+        "session_id": sid,
         "title": title,
         "cwd": cwd,
         "git_branch": git_branch,
@@ -199,7 +309,7 @@ def main():
     ap.add_argument("--tz", default="+08:00")
     ap.add_argument("--out", help="輸出 JSON 路徑")
     ap.add_argument("--include-auto", action="store_true",
-                    help="連程式驅動 session（SDK/零人打 prompt）也納入")
+                    help="連程式驅動 session（零人打 prompt）也納入")
     ap.add_argument("--project", help="只掃此專案路徑底下的 session（省略=目前工作目錄）")
     ap.add_argument("--all-projects", action="store_true", help="掃全機器所有專案")
     args = ap.parse_args()
@@ -228,6 +338,7 @@ def main():
     day_end = day_start + timedelta(days=1)
 
     sessions = []
+    board, sent = board_sessions()
     # mtime 預過濾：檔案最後修改早於當日 00:00 → 不可能含當日記錄
     cutoff = day_start.timestamp()
     for path in glob.glob(os.path.join(PROJECTS_DIR, "*", "*.jsonl")):
@@ -236,7 +347,7 @@ def main():
                 continue
         except OSError:
             continue
-        s = scan_file(path, day_start, day_end, tz, args.include_auto)
+        s = scan_file(path, day_start, day_end, tz, args.include_auto, board, sent)
         if not s:
             continue
         # 用 session 記錄裡的 cwd 判斷歸屬，而非目錄名——目錄名是編碼過的路徑，

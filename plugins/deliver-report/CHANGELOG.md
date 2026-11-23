@@ -2,6 +2,11 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.7.4] - 2026-11-23
+### Fixed
+- 日報萃取（extract_sessions.py）漏掉人說的話、又混進不是人說的。漏的：看板（session-board）裡的對話——看板用 claude -p 跑，逐字紀錄是 `sdk-cli`／`promptSource=sdk`，跟程式開的一樣，整場被丟掉（2026-11-21、22、23 萃取 0 場，實際 7、5、6 場；11-20 是 1 場，實際 6 場）；改成從看板自己的紀錄（`~/.claude/session-board/board.db`，唯讀）認哪些是它替人開的，小秘書自己開的不算，沒裝看板行為不變，裝了卻讀不到會在 stderr 說 WARN；執行中補打的話（`queued_command` 附件）從沒讀過；按建議送出的（`suggestion_accepted`）被濾掉；同一場先在終端機、後在看板接手的整場被丟。混進的：Stop hook 回饋與 skill 全文（`isMeta`）、續接摘要（`isCompactSummary`）、別的 session 傳來的舊格式訊息、看板自動送出的接續句、排程與自動健檢送進對話的那一句。新增 hooks/tests/extract-sessions.test.py。
+- attach-handback-gate 把講功能的句子當成在問：功能清單裡的「另一台電腦預覽檔案可以下載」被擋，要求先下載附件。現在看得出是講功能的放行：「可以…下載」整句沒有你／我／請、沒有等待的意思，整行沒有附件、信件字眼，也沒有問號或嗎／呢，這一回合沒動信件。其他照舊擋；「請讓我下載附件」與「下載…嗎」後面還有字的也擋。同型一起改：「你可以上傳檔案」「你能把檔案拖進來」要有信件或附檔語境才算叫使用者自己附檔，指名自行／手動的照樣算。
+
 ## [2.7.3] - 2026-11-21
 ### Fixed
 - 回覆草稿帶進原信附件沒有任何閘擋得住，模型還三次宣稱「讀回確認過沒帶入」。由來（2026-11-20 華邦合約回信）：用 `replyToMessageId` 掛原信串時，Gmail **伺服器端**會把原信附件整批複製進草稿——對方簽名檔的兩張 logo（image001.png／image002.png）就這樣進了回覆草稿；那些檔不在 `create_draft` 的 `attachments` 參數裡，PreToolUse 的 gmail-draft-attachment-gate 完全看不到。四道關卡同時失效：SKILL.md 寫了但只是文字提醒、PostToolUse 提醒連發三次沒被理、PreToolUse 看不到伺服器端加的檔、模型自己的「檢查」是無效驗證。**關鍵事實（實測三種 messageFormat 全部確認）：`create_draft`／`get_draft` 的回傳一律不含 `attachments`／`attachmentIds` 欄位（`FULL_CONTENT` 也沒有），`attachmentIds` 只出現在 `get_thread`／`search_threads` 讀既有信件時** —— 所以 `resultAttachmentCount` 對草稿恆回傳 0，「讀回沒看到附件」只代表欄位不存在，不代表附件區乾淨。做法：判準 `replyDraftsNeedingCleanup()` 加進 draft-checks.core.js（本回合成功建立且帶 `replyToMessageId` 的 `create_draft`，之後沒有導覽到該草稿 viewUrl 的 nav 事件 → 回報；`update_draft` 不觸發、上一回合建的不算、抽不到草稿 id 或呼叫失敗一律 fail-open），併進 Stop hook upload-count-gate（不另開一支：它本來就在讀 transcript、追草稿 id、比對附件，分開寫會把同一份解析複製兩份、各自演化再長出同型漏洞）；`mayTrigger` 加 `create_draft` 讓回覆草稿也能觸發全檔掃描。擋下時要求用 `browser_navigate` 開草稿 viewUrl 看附件區、點掉原信帶進來的檔；第二次 Stop（`stop_hook_active`）改提醒放行不卡死；瀏覽器工具在該 session 不可用時（新增 `browserAvailable()`：transcript 裡瀏覽器工具的呼叫是否全部回 error）自動退回提醒，並要求在回覆裡明講「這封是回覆草稿、可能已帶入原信附件，請在 Gmail 畫面上點掉」、**不得說「我確認過附件沒問題」**。SKILL.md 第三步之三要點 5 改寫：刪掉誤導的「`get_draft` 讀回檢查附件區也要看」（那句暗示 API 讀得到），改為明寫 API 驗不到、唯一有效檢查是開瀏覽器，並補上機械閘說明。新增 hooks/tests/reply-attachment.test.js（14 例：單元 11 ＋ evaluate 整合 3），以當日真實 transcript 實跑驗證——精確抓到該封草稿 r-1247992294936873129 與其回覆的原信 1a1ede924b06cddc，端對端確認 `decision: block` 與第二次放行皆正確；既有 22 支測試全綠。

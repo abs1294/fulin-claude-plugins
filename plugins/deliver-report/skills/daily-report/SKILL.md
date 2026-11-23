@@ -33,7 +33,8 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/daily-report/scripts/extract_sessions.py" -
 
 - stdout 唯一輸出＝中間檔路徑（`~/.claude/daily-report/out/<date>-<專案>.json`），直接 Read 它。
 - exit 3 = 該日無記錄 → 告知使用者，不硬產空報告。
-- 腳本已自動濾掉：subagent 對話、SDK/程式驅動 session、系統注入訊息、指令回顯。留下的都是「人打的 prompt」與 session 標題（ai-title）。
+- 腳本已自動濾掉：subagent 對話、程式驅動 session、系統注入訊息、指令回顯。留下的都是「人打的 prompt」（含執行中補打的、在看板 session-board 裡打的）與 session 標題（ai-title）。
+- stderr 出現 `WARN: 讀不到看板的對話名單` → 當天看板裡的對話沒有進來，要告訴使用者，不可當成完整的一天。
 - 要連自動化 session 一起看時加 `--include-auto`（罕用）。
 
 ### 3. 生成日報

@@ -134,7 +134,7 @@
 
 跟 Claude 說「產今天的日報」「昨天的日報補寄」即觸發。流程：
 
-1. 掃描 `~/.claude/projects/` 當日 session（自動濾掉 subagent、SDK 自動化、系統注入雜訊，只留人的工作）
+1. 掃描 `~/.claude/projects/` 當日 session（自動濾掉 subagent、程式驅動的、系統注入雜訊，只留人的工作；在看板 session-board 裡打的、執行中補打的都算）
 2. 按專案分組生成日報（做了什麼＋待辦/未完成；統計數據只在對話顯示、不寄出）
 3. **呈現給你過目**
 4. 交付：預設**你說「寄」才寄**，沒回就不寄。運作順利後，可以在設定檔把 `require_approval` 改成 `false`（專案的 `.claude/daily-report.json` 或家目錄 `config.json` 最外層），之後每次呈現會開一段確認窗口（預設 30 分鐘，`confirm_wait_minutes` 可調），**窗口內沒喊停就自動寄出**。這個開關由寄送腳本強制：沒改成 `false` 前，自動寄一律被拒；設定檔讀不到也當作要人工核可

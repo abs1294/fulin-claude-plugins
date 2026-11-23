@@ -57,6 +57,10 @@ const NAMED = new RegExp([
   '(?:自行|手動|(?<![我們])自己)(?:附|上傳|夾帶|拖)',
 ].join('|'), 'i');
 const DRAG_ONLY = (bare) => DRAG.test(bare) && !NAMED.test(bare);
+// 「你可以上傳檔案」「你能把檔案拖進來」是在講功能（與上面 2026-11-23 的下載誤判同型）：同樣要有信件或附檔語境才算
+//   （「可能」不是「可以」；「只能」不是在講功能；指名自行／手動、請你做的照樣算）
+const CAN = /(?:你|您|使用者)[^。！？\n]{0,4}(?:可以|可(?!能)|也能|就能|(?<![可只])能)[^。！？\n]{0,12}(?:上傳|拖)/;
+const BY_HAND = /(?:自行|手動|自己|請[你您]|麻煩)[^。！？\n]{0,10}(?:附|上傳|夾帶|拖)/;
 // 信件語境：句子本身有信件字眼（短說法「信裡／信中／寄」也算；單一個「信」字不算——相信、信心），
 // 或這一回合真的動過 Gmail（見 mailCall：Gmail 的工具，或瀏覽器開著 mail.google.com）。不看前一句：前一句提到附件、
 // 下一句描述產品拖放，曾因此誤擋。
@@ -68,16 +72,24 @@ const mailCall = (b) => /gmail/i.test(String(b.name || '')) || /mail\.google\.co
 // 判準：同一句是在徵求下載許可——
 //   一般問法（要我／要不要…下載、下載…嗎、可以讓我下載、是否下載）要同句有附件對象；
 //   明講等核可的問法（下載前要你同意、你回…我就下載）本身就是在等許可，不必有附件對象。
+// 講功能的放行（saysMay）：預設擋，只放行看得出不是在跟使用者說話的，不反過來列舉「在等回覆」的說法（列不完）。
+// 2026-11-23 誤判實案：列功能清單的「另一台電腦預覽檔案可以下載」命中「可以…下載」。
 const ASK_DL = new RegExp([
   '要(?:我|不要)[^。！？\\n]{0,24}(?:下載|抓下來)',
-  '(?:下載|抓下來)[^。！？\\n]{0,24}(?:嗎|好嗎|可以嗎)\\s*$',
-  '(?:可以|能不能|能否|是否)[^。！？\\n]{0,10}下載',
+  '(?:下載|抓下來)[^。！？\\n]{0,24}嗎',
+  '(?:能不能|可不可以|能否|可否|是否|請讓我)[^。！？\\n]{0,10}下載',
   '\\b(?:shall|should|may|can) I download\\b',
 ].join('|'), 'i');
+const MAY_DL = /可以[^。！？\n]{0,10}下載/;
 const ASK_DL_STRONG = new RegExp([
   '下載(?:前|之前)[^。！？\\n]{0,12}(?:你|您)?[^。！？\\n]{0,4}(?:同意|核可|允許|點頭)',
   '(?:你|您)(?:回|說|同意|核可)[^。！？\\n]{0,12}就[^。！？\\n]{0,4}(?:下載|抓)',
 ].join('|'), 'i');
+const ATTACHED = /附件|附檔|attachment/i;   // 比 OBJ 窄：不含「檔案」
+// 講功能、不是在問：只有「可以…下載」一種，而且整行沒有附件、信件字眼，這一回合沒動信件，整句沒有對象（你／我／請）
+// 也沒有等待的意思，整行沒有問的意思
+const saysMay = (s, line, mailTurn) => !mailTurn && !ATTACHED.test(line) && !MAIL_CTX.test(line) &&
+  !/[你您我請等待回]|確認|核可|同意|的話|說一聲|\bI\b/.test(s) && !/[?？]|[嗎呢]/.test(line);
 // 「要不要」裡的「不要」不算否定
 const DL_RETRO = /上次|為什麼|為何|沒照|(?<!要)不要|不必|不用|不需要|別再|禁止|已(?:經)?下載|我已|無法代下載/;
 
@@ -90,24 +102,25 @@ function sentences(text) {
       const s = raw.trim();
       if (!s) continue;
       // 引號裡是被引用的字（描述規則或這道閘本身時的例句）——判斷動作前先拿掉
-      out.push({ s, bare: s.replace(/「[^」]*」|『[^』]*』|“[^”]*”|`[^`]*`/g, '') });
+      out.push({ s, line, bare: s.replace(/「[^」]*」|『[^』]*』|“[^”]*”|`[^`]*`/g, '') });
     }
   }
   return out;
 }
 const clip = (s) => (s.length > 80 ? s.slice(0, 80) + '…' : s);
 
-// mailTurn: this turn called a Gmail draft tool
+// mailTurn：這一回合動過 Gmail（mailCall）
 function punts(text, mailTurn) {
   return sentences(text)
-    .filter(({ s, bare }) => OBJ.test(s) && USER_ACT.test(bare) && !RETRO.test(s) && (!DRAG_ONLY(bare) || mailTurn || MAIL_CTX.test(s)))
+    .filter(({ s, bare }) => OBJ.test(s) && USER_ACT.test(bare) && !RETRO.test(s) && (!(DRAG_ONLY(bare) || (CAN.test(bare) && !BY_HAND.test(bare))) || mailTurn || MAIL_CTX.test(s)))
     .map(({ s }) => clip(s));
 }
 
-function asksDownload(text) {
+function asksDownload(text, mailTurn) {
   return sentences(text)
-    .filter(({ s, bare }) => !DL_RETRO.test(s) &&
-      (ASK_DL_STRONG.test(bare) || (OBJ.test(s) && ASK_DL.test(bare))))
+    .filter(({ s, bare, line }) => !DL_RETRO.test(s) &&
+      (ASK_DL_STRONG.test(bare) || (OBJ.test(s) &&
+        (ASK_DL.test(bare) || (MAY_DL.test(bare) && !saysMay(s, line, mailTurn))))))
     .map(({ s }) => clip(s));
 }
 
@@ -146,7 +159,7 @@ function main(raw) {
   }
   const text = finalText.join(NL);
   const hits = punts(text, mailTurn);
-  const dl = asksDownload(text);
+  const dl = asksDownload(text, mailTurn);
   if (!hits.length && !dl.length) return allow();
 
   const body = [];
