@@ -21,12 +21,12 @@ const TAIL = 512 * 1024;
 
 // What you typed, on one line; '' for the things Claude Code puts in the user's
 // place (<command-name>…, <task-notification>…, tool results).
-function said(content) {
+function said(content, max = 200) {
   let t = '';
   if (typeof content === 'string') t = content;
   else if (Array.isArray(content)) t = content.map((b) => (b && b.type === 'text' && typeof b.text === 'string' ? b.text : '')).join(' ');
   t = t.replace(/\[Image #\d+\]/g, ' ').replace(/\s+/g, ' ').trim();
-  return t.startsWith('<') ? '' : t.slice(0, 200);
+  return t.startsWith('<') ? '' : t.slice(0, max);
 }
 
 const USER = Buffer.from('"type":"user"');
@@ -53,7 +53,7 @@ function scanPiece(buf, skipFirst, out) {
     if (isUser && j.type === 'user' && j.isMeta !== true && !j.isSidechain && !notSaid(j) && j.message) {
       // the first message's form: the board sends what you type as content blocks (stream-json); a program running
       // `claude -p "..."` is recorded with a plain string. Tells the board's own conversations from programs' runs.
-      if (out.blocks === null) out.blocks = Array.isArray(j.message.content);
+      if (out.blocks === null) { out.blocks = Array.isArray(j.message.content); if (typeof j.promptSource === 'string') out.src = j.promptSource; }   // (promptSource: typed | queued by you, sdk by a program - Claude Code 2.1.18x and later)
       const t = said(j.message.content);
       if (t) { if (!out.first) out.first = t; out.last = t; out.lastAt = Date.parse(j.timestamp) || out.lastAt; }
     }
@@ -61,20 +61,23 @@ function scanPiece(buf, skipFirst, out) {
 }
 
 function readEnds(file, size) {
-  const out = { cwd: '', first: '', last: '', lastAt: 0, entry: '', blocks: null };
+  const out = { cwd: '', first: '', last: '', lastAt: 0, entry: '', src: '', blocks: null };
   let fd;
   try {
     fd = fs.openSync(file, 'r');
     const read = (pos, len) => { const b = Buffer.allocUnsafe(len); let got = 0; while (got < len) { const n = fs.readSync(fd, b, got, len - got, pos + got); if (n <= 0) break; got += n; } return b.subarray(0, got); };
     if (size <= HEAD + TAIL) scanPiece(read(0, size), false, out);
     else {
-      const head = { cwd: '', first: '', last: '', lastAt: 0, entry: '', blocks: null };
+      const head = { cwd: '', first: '', last: '', lastAt: 0, entry: '', src: '', blocks: null };
       scanPiece(read(0, HEAD), false, head);
-      const tail = { cwd: head.cwd || 'x', first: '', last: '', lastAt: 0, entry: '', blocks: null };
+      const tail = { cwd: head.cwd || 'x', first: '', last: '', lastAt: 0, entry: '', src: '', blocks: null };
       scanPiece(read(size - TAIL, TAIL), true, tail);
-      out.cwd = head.cwd; out.first = head.first; out.last = tail.last || head.last; out.lastAt = tail.lastAt || head.lastAt;
+      out.cwd = head.cwd; out.first = head.first; out.last = tail.last; out.lastAt = tail.lastAt;
+      // nothing of yours in the end of it (a long turn since): the latest is further back than that - never the head's,
+      // which is how the conversation began (2026-11-23: the line under a name showed the first thing said, 11 days old)
+      out.deep = !tail.last;
       out.entry = head.entry === 'cli' || tail.entry === 'cli' ? 'cli' : head.entry || tail.entry;
-      out.blocks = head.blocks;
+      out.src = head.src; out.blocks = head.blocks;
     }
   } catch (e) {
   } finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
@@ -93,43 +96,53 @@ const BY_BOARD = /^（看板自動送出）/;
 const BACK_CAP = 96 * 1024 * 1024;
 const GROW_MAX = 8 * 1024 * 1024;       // more than this added at once: read backward again instead
 const { eachLineBackward } = require('./history');
-function saidLineAt(line) {
+// -> {at, text, board} | null; board: sent by the board in your place
+function saidLine(line, max) {
   const isUser = line.indexOf(USER) >= 0, isMid = line.indexOf(QUEUED) >= 0;
-  if (!isUser && !isMid) return 0;
-  let j; try { j = JSON.parse(line.toString('utf8')); } catch (e) { return 0; }
+  if (!isUser && !isMid) return null;
+  let j; try { j = JSON.parse(line.toString('utf8')); } catch (e) { return null; }
   let text = null, pic = false;
-  if (isMid) { const q = queuedSaid(j); if (q) { text = said(q.text); pic = q.blocks.some((b) => b && b.type === 'image'); } }
+  if (isMid) { const q = queuedSaid(j); if (q) { text = said(q.text, max); pic = q.blocks.some((b) => b && b.type === 'image'); } }
   if (text === null && j.type === 'user' && j.isMeta !== true && !j.isSidechain && !notSaid(j) && j.message) {
-    text = said(j.message.content);
+    text = said(j.message.content, max);
     pic = Array.isArray(j.message.content) && j.message.content.some((b) => b && b.type === 'image');
   }
-  if (text === null || (!text && !pic) || BY_BOARD.test(text)) return 0;
-  return Date.parse(j.timestamp) || 0;
+  if (text === null || (!text && !pic)) return null;
+  return { at: Date.parse(j.timestamp) || 0, text: text || '（圖片）', board: BY_BOARD.test(text) };
 }
-const saidCache = new Map();   // file -> {size: bytes read so far (whole lines only), at}
-function saidAtOf(file) {
-  let st; try { st = fs.statSync(file); } catch (e) { return 0; }
+const saidCache = new Map();   // file -> {size: bytes read so far (whole lines only), seen, at, text, textAt}
+// -> {at: when YOU last said something, text: the latest words put in (yours, or the board's in your place), textAt}
+function saidOf(file) {
+  let st; try { st = fs.statSync(file); } catch (e) { return { at: 0, text: '', textAt: 0 }; }
   const c = saidCache.get(file);
-  if (c && st.size === c.seen) return c.at;
+  if (c && st.size === c.seen) return c;
   if (c && st.size > c.size && st.size - c.size <= GROW_MAX) {
     // what was added since: read forward, whole lines only (the last one may still be being written)
-    let fd, at = c.at, size = c.size;
+    let fd, at = c.at, size = c.size, text = c.text, textAt = c.textAt;
     try {
       fd = fs.openSync(file, 'r');
       const len = st.size - c.size, buf = Buffer.allocUnsafe(len);
       let got = 0; while (got < len) { const n = fs.readSync(fd, buf, got, len - got, c.size + got); if (n <= 0) break; got += n; }
       let start = 0;
-      for (;;) { const end = buf.indexOf(10, start); if (end < 0 || end >= got) break; const t = saidLineAt(buf.subarray(start, end)); if (t) at = t; start = end + 1; }
+      for (;;) { const end = buf.indexOf(10, start); if (end < 0 || end >= got) break; const t = saidLine(buf.subarray(start, end)); if (t) { text = t.text; textAt = t.at; if (!t.board && t.at) at = t.at; } start = end + 1; }
       size = c.size + start;
-    } catch (e) { return c.at; } finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
-    saidCache.set(file, { size, seen: st.size, at });
-    return at;
+    } catch (e) { return c; } finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
+    const got = { size, seen: st.size, at, text, textAt };
+    saidCache.set(file, got);
+    return got;
   }
-  let at = 0;
-  eachLineBackward(file, BACK_CAP, (line) => { const t = saidLineAt(line); if (t) { at = t; return false; } return true; });
-  saidCache.set(file, { size: st.size, seen: st.size, at });
-  return at;
+  let at = 0, text = '', textAt = 0;
+  eachLineBackward(file, BACK_CAP, (line) => {
+    const t = saidLine(line); if (!t) return true;
+    if (!text) { text = t.text; textAt = t.at; }
+    if (t.board || !t.at) return true;   // the board's words: what you said yourself is further back
+    at = t.at; return false;
+  });
+  const got = { size: st.size, seen: st.size, at, text, textAt };
+  saidCache.set(file, got);
+  return got;
 }
+const saidAtOf = (file) => saidOf(file).at;
 
 const cache = new Map();   // file -> {size, mtimeMs, ends}
 function ends(file, st) {
@@ -137,6 +150,8 @@ function ends(file, st) {
   const c = cache.get(file);
   if (c && c.size === st.size && c.mtimeMs === st.mtimeMs) return c.ends;
   const e = readEnds(file, st.size);
+  if (e.deep) { const d = saidOf(file); e.last = d.text; e.lastAt = d.textAt; }
+  delete e.deep;
   cache.set(file, { size: st.size, mtimeMs: st.mtimeMs, ends: e });
   return e;
 }
@@ -178,7 +193,7 @@ function interrupted(file) {
 }
 
 // The latest thing you said in a conversation (for the line under its name).
-const lastSaid = (file) => (file ? ends(file).last : '');
+const lastSaid = (file) => (file ? saidOf(file).text : '');
 
 // Main transcripts touched since `since`, newest first: [{file, sessionId, size, mtimeMs}].
 function files(projectsDir, since) {
@@ -204,7 +219,7 @@ function files(projectsDir, since) {
 function describe(f) {
   const e = ends(f.file, f);
   const t = S.cachedTitles(f.file);
-  return { sessionId: f.sessionId, cwd: e.cwd, folder: e.cwd ? baseName(e.cwd) : '', title: t.custom || t.ai || e.first || '', named: !!(t.custom || t.ai), entry: e.entry || '', blocks: e.blocks === true, first: e.first, last: e.last, at: f.mtimeMs, size: f.size };
+  return { sessionId: f.sessionId, cwd: e.cwd, folder: e.cwd ? baseName(e.cwd) : '', title: t.custom || t.ai || e.first || '', named: !!(t.custom || t.ai), entry: e.entry || '', blocks: e.blocks === true, src: e.src || '', first: e.first, last: e.last, at: f.mtimeMs, size: f.size };
 }
 
 // o: {projectsDir, exclude: Set of session ids (open now, hidden), q, limit, now, days}
@@ -234,7 +249,10 @@ function listing(o) {
     if (o.hide && o.hide(d)) { st.hidden++; return true; }
     // o.names: names given on the board ({sessionId: name}) - found by them too, not only by Claude Code's titles
     const given = o.names && typeof o.names[d.sessionId] === 'string' ? o.names[d.sessionId] : '';
-    if (q && !(given + '\n' + d.title + '\n' + d.folder + '\n' + d.first + '\n' + d.last).toLowerCase().includes(q)) return true;
+    // o.deep: session id -> where in it you said it (lib/saidindex.js); the title, the folder, the first and latest words as before
+    const deep = q && o.deep ? o.deep.get(d.sessionId) : null;
+    if (deep) d.hit = deep;   // {who, text}
+    if (q && !deep && !(given + '\n' + d.title + '\n' + d.folder + '\n' + d.first + '\n' + d.last).toLowerCase().includes(q)) return true;
     st.matched++;
     if (st.items.length < st.limit) st.items.push(d);
     return true;
@@ -296,4 +314,4 @@ function which(projectsDir, keys, now = Date.now()) {
   return out;
 }
 
-module.exports = { interrupted, list, listAsync, dirKey, files, find, which, lastSaid, said, ends, saidAtOf, DAYS };
+module.exports = { interrupted, list, listAsync, dirKey, files, find, which, lastSaid, said, ends, saidAtOf, saidOf, saidLine, DAYS };

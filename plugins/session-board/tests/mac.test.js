@@ -45,6 +45,21 @@ test('Terminal: opened with open -a Terminal; the tab found by the session tty a
   const d = stand([{ out: '??\n' }]); assert.strictEqual((await M.focus(1, { run: d.run })).state, 'miss', 'no terminal (a background process)');
 });
 
+test('Terminal: its tab found before the session ends, its window closed after - never one with another tab or something running', async () => {
+  const f = stand([{ out: 'ttys004\n' }, { out: 'hit\n' }]); assert.deepStrictEqual(await M.find(4321, { run: f.run }), { state: 'hit', hwnd: '/dev/ttys004' });
+  assert.ok(!f.calls[1].some((x) => /activate|set selected|set index|close/.test(x)), 'looked for, not touched');
+  assert.strictEqual((await M.find(1, { run: stand([{ out: '??\n' }]).run })).state, 'miss'); assert.strictEqual((await M.find(0, { run: stand().run })).state, 'miss');
+  assert.strictEqual((await M.find(1, { run: stand([{ out: 'ttys004' }, { out: 'miss' }]).run })).state, 'miss', 'in another terminal program');
+  const close = (answers) => { const c = stand(answers); return M.closeWindow('/dev/ttys004', { run: c.run, waitMs: 1 }).then((r) => [r, c.calls]); };
+  let [r, calls] = await close([{ out: 'closed\n' }]); assert.deepStrictEqual(r, { state: 'closed' }); assert.strictEqual(calls[0][calls[0].length - 1], '/dev/ttys004', 'the tty is an argument');
+  const script = calls[0].join('\n'); assert.ok(script.indexOf('count of tabs') < script.indexOf('close w') && script.indexOf('busy of t') < script.indexOf('close w'), 'asked before it is closed');
+  [r, calls] = await close([{ out: 'busy' }, { out: 'busy' }, { out: 'closed' }]); assert.deepStrictEqual([r, calls.length], [{ state: 'closed' }, 3], 'its shell comes back a moment later');
+  [r, calls] = await close(Array.from({ length: 9 }, () => ({ out: 'busy' }))); assert.deepStrictEqual([r, calls.length], [{ state: 'left', why: 'busy' }, 5]);
+  for (const why of ['tabs', 'gone']) { [r, calls] = await close([{ out: why }]); assert.deepStrictEqual([r, calls.length], [{ state: 'left', why }, 1]); }
+  [r] = await close([{ err: new Error('x'), errOut: 'Not authorized to send Apple events to Terminal. (-1743)' }]); assert.deepStrictEqual([r.state, r.why, /-1743/.test(r.error)], ['left', 'error', true]);
+  for (const bad of ['', null, '/dev/ttys004"', 'ttys004', '/tmp/x']) { const c = stand(); assert.strictEqual((await M.closeWindow(bad, { run: c.run })).why, 'gone'); assert.strictEqual(c.calls.length, 0, String(bad)); }
+});
+
 test('notifications, folders, Finder, command lines: the values are arguments, never script text', async () => {
   const a = stand(); await M.notify('標題 "x"', 'end tell\ndo shell script "rm"', { run: a.run });
   const args = a.calls[0];

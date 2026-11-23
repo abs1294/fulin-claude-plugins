@@ -36,6 +36,7 @@ const T1 = uuid(1), T2 = uuid(2), PAST = uuid(3), PAST2 = uuid(4);
 // ── what stands in for the outside world ──
 const did = [];                                   // every outward action asked for, in order
 const explained = [];                             // the prompts the 說明 of a harness suggestion was asked with
+let lineOn = false; const pushed = [];              // LINE: connected or not, what was pushed
 const procs = [];                                 // Claude processes "started"
 const fakeSpawn = (bin, args, opts) => {
   const p = new EventEmitter(); p.pid = 900000 + procs.length; p.stdout = new EventEmitter(); p.stderr = new EventEmitter();
@@ -122,7 +123,7 @@ test.before(async () => {
   inbox = new InboxService({ fetch: async () => ({ ok: false, status: 500, json: async () => ({}) , text: async () => '' }), triageRun: async () => ({ ok: true, items: [] }) });
   const monthly = new Monthly({ run: (exe, args, opts, cb) => cb(null, JSON.stringify({ ok: true, month: args[1], computedAt: Date.now(), daysInMonth: 30, total: { cost: 12.5, tok: 1000 }, files: 1, sessions: [], roles: [], days: [], models: [], projects: [] })) });
   port = await freePort();
-  server = createServer(TOKEN, port, { channels, keeper, inbox, monthly, ruleAsk, calFetch, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [{ scope: 'user', project: '' }] }, goal2: { name: 'goal2', installs: [] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }), remoteInfo: async () => ({ ok: false, why: 'test' }), noTimers: true, out, tell: (t, x) => did.push('tell ' + t), peer: async () => ({ ok: true }), peerCheck: async () => true });
+  server = createServer(TOKEN, port, { recFetch: async () => ({ ok: false, status: 404 }), recAsk: async () => ({ ok: false }), drawLook: async () => ({ ok: true, text: '橘色', turns: 2, tokens: 5 }), drawAsk: async () => ({ ok: true, tokens: 9, text: [1, 2].map((r) => '<svg viewBox="0 0 96 96"><circle cx="48" cy="48" r="' + r + '" fill="#f90"/></svg>').join('') }), lineConnected: () => lineOn, linePush: async (t) => { pushed.push(t); return pushed.length > 1 ? { ok: false, error: 'LINE 沒有收下（429）' } : { ok: true }; }, digestAsk: async () => ({ ok: true, text: '{"items":[]}' }), channels, keeper, inbox, monthly, ruleAsk, calFetch, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [{ scope: 'user', project: '' }] }, goal2: { name: 'goal2', installs: [] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }), remoteInfo: async () => ({ ok: false, why: 'test' }), noTimers: true, out, tell: (t, x) => did.push('tell ' + t), peer: async () => ({ ok: true }), peerCheck: async () => true });
   await new Promise((r) => server.listen(port, '127.0.0.1', r));
 });
 test.after(() => {
@@ -219,6 +220,29 @@ test('when you last spoke: told with each session, and what the board sent in yo
   fs.writeFileSync(g, u('（看板自動送出）只有這一句', 3000000) + '\n');
   assert.strictEqual(Past.saidAtOf(g), 0);
   assert.strictEqual(Past.saidAtOf(path.join(HOME, 'no-such.jsonl')), 0);
+});
+
+test('what you said last, after a long turn: never how the conversation began, and the same message the time is of (2026-11-23)', async () => {
+  const Past = require('../lib/past');
+  const f = path.join(HOME, 'long-turn.jsonl');
+  const u = (text, at) => line({ type: 'user', sessionId: 'x', cwd: WORK, timestamp: new Date(at).toISOString(), message: { role: 'user', content: text } });
+  const noise = line({ type: 'assistant', sessionId: 'x', message: { role: 'assistant', content: [{ type: 'text', text: 'y'.repeat(4000) }] } });
+  const much = new Array(400).fill(noise).join('\n');   // 1.6 MB: more than the end that is looked at
+  fs.writeFileSync(f, [u('最開頭那句', 1000000), much, u('跑', 2000000), much, u('<task-notification>不是你說的</task-notification>', 3000000)].join('\n') + '\n');
+  assert.deepStrictEqual([Past.lastSaid(f), Past.saidAtOf(f), Past.ends(f).last, Past.ends(f).lastAt, Past.ends(f).first], ['跑', 2000000, '跑', 2000000, '最開頭那句']);
+  // what is added later is read forward, words and time together
+  fs.appendFileSync(f, u('再說一句', 4000000) + '\n' + much + '\n');
+  assert.deepStrictEqual([Past.lastSaid(f), Past.saidAtOf(f), Past.ends(f).last], ['再說一句', 4000000, '再說一句']);
+  // the board's words in your place: shown as the latest (the page says 看板：), the time stays yours
+  fs.appendFileSync(f, u('（看板自動送出）接著做', 5000000) + '\n');
+  assert.deepStrictEqual([Past.lastSaid(f), Past.saidAtOf(f)], ['（看板自動送出）接著做', 4000000]);
+  // read from the start by another file: the same answer
+  const g = path.join(HOME, 'long-turn2.jsonl'); fs.copyFileSync(f, g);
+  assert.deepStrictEqual([Past.lastSaid(g), Past.saidAtOf(g)], ['（看板自動送出）接著做', 4000000]);
+  // a picture with no words: yours, said so
+  fs.appendFileSync(g, line({ type: 'user', timestamp: new Date(6000000).toISOString(), message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } }] } }) + '\n');
+  assert.deepStrictEqual([Past.lastSaid(g), Past.saidAtOf(g)], ['（圖片）', 6000000]);
+  assert.strictEqual(Past.lastSaid(path.join(HOME, 'no-such.jsonl')), '');
 });
 
 test('what a session changed: from its own transcript, and what is uncommitted in its folder', async () => {
@@ -457,9 +481,11 @@ test('CLAUDE.md 面板: the files listed and checked, an evaluation, a tweak app
     const e = (await view(WORK)).eval;
     assert.deepStrictEqual([e.state, e.result.items.map((x) => [x.kind, x.file])], ['done', [['vague', P], ['other', null]]]);
     // a tweak of a section: proposed, shown as a diff, written only with 套用 - backed up, and taken back
-    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: P, section: 1, instruction: '' })).status, 400);
-    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: path.join(WORK, 'other.md'), section: 0, instruction: 'x' })).status, 400, 'only a file of the set');
-    const t = await call('/api/claudemd/tweak', { cwd: WORK, abs: P, section: 1, instruction: '寫具體一點' });
+    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: P, section: 'all', instruction: '' })).status, 400);
+    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: path.join(WORK, 'other.md'), section: 'all', instruction: 'x' })).status, 400, 'only a file of the set');
+    const L9 = pf.text.replace(/\r\n/g, '\n').split('\n'), sec1 = pf.sections[1], orig = L9.slice(sec1.start, sec1.end).join('\n').replace(/\n+$/, ''), to = sec1.start + orig.split('\n').length;
+    const t = await call('/api/claudemd/tweak', { cwd: WORK, abs: P, from: sec1.start, to, orig, picked: '先跑測試', instruction: '寫具體一點' });
+    assert.ok(prompts[prompts.length - 1][1].includes('框選的字') && prompts[prompts.length - 1][1].includes('只改框選到的地方'), 'what was selected is told');
     assert.ok(t.json.edit, 'a change proposed');
     assert.strictEqual(fs.readFileSync(P, 'utf8').includes('全部通過'), false, 'nothing written yet');
     const pr = (await view(WORK)).proposals[t.json.edit];
@@ -493,9 +519,9 @@ test('CLAUDE.md 面板: the files listed and checked, an evaluation, a tweak app
     assert.deepStrictEqual([away.editable, away.away, away.wide], [false, true, true]);
     const out2 = await call('/api/claudemd/ask', { cwd: WORK, question: '改專案外的' });
     assert.deepStrictEqual([out2.json.edit, /專案外/.test(out2.json.answer)], ['', true]);
-    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: away.abs, section: 0, instruction: 'x' })).status, 400);
-    // a tweak of a section the page drew before the file changed: its heading no longer matches, refused
-    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: P, section: 1, title: '別的標題', instruction: 'x' })).status, 409);
+    assert.strictEqual((await call('/api/claudemd/tweak', { cwd: WORK, abs: away.abs, section: 'all', instruction: 'x' })).status, 400);
+    // words selected before the file changed: those lines are no longer what the page showed, refused; nor lines that are not there
+    for (const x of [{ from: 0, to: 1, orig: '別的內容' }, { from: 0, to: 9999, orig }, { from: 3, to: 3, orig: '' }, { from: -1, to: 1, orig }, { from: '0', to: 1, orig }, {}]) assert.strictEqual((await call('/api/claudemd/tweak', Object.assign({ cwd: WORK, abs: P, instruction: 'x' }, x))).status, 409, JSON.stringify(x));
     // the global one's evaluation runs in ~/.claude, and reads other projects' CLAUDE.md to compare
     assert.strictEqual((await call('/api/claudemd/evaluate', { cwd: '' })).status, 202);
     await new Promise((r) => setTimeout(r, 50));
@@ -711,11 +737,13 @@ test('a name given on the board stays above every other title; empty gives the a
 test('settings kept in the board: the left column, the office, sessions a program started', async () => {
   const config = require('../lib/config');
   const cfg = (await get('/api/config')).json.prefs;
-  assert.deepStrictEqual([cfg.sidebarCollapsed, cfg.sidebarShortcut, cfg.officeFavorites, cfg.hideProgramSessions, cfg.decideModel], [false, true, [], false, 'haiku'], 'the defaults');
+  assert.deepStrictEqual([cfg.sidebarCollapsed, cfg.sidebarShortcut, cfg.officeFavorites, cfg.hideProgramSessions, cfg.decideModel], [false, true, [], true, 'haiku'], 'the defaults');
   assert.strictEqual((await post('/api/config', { sidebarCollapsed: true, officeFavorites: [WORK], officeOrder: [WORK, HOME] })).status, 200);
   const f = (await get('/api/sessions')).json.features.prefs;
   assert.deepStrictEqual([f.sidebarCollapsed, f.officeFavorites, f.officeOrder], [true, [WORK], [WORK, HOME]], 'sent with the list');
-  for (const [k, v] of [['sidebarCollapsed', 'yes'], ['officeFavorites', 'C:\\x'], ['hideProgramFolders', [5]], ['decideModel', 'gpt-4'], ['sidebarWidth', 100], ['sidebarWidth', 900], ['sidebarWidth', 300.5]]) assert.strictEqual((await post('/api/config', { [k]: v })).status, 400, k);
+  for (const [k, v] of [['sidebarCollapsed', 'yes'], ['officeFavorites', 'C:\\x'], ['hideProgramFolders', [5]], ['decideModel', 'gpt-4'], ['sidebarWidth', 100], ['sidebarWidth', 900], ['sidebarWidth', 300.5], ['navOrder', 'war'], ['navOrder', ['war', 'war']], ['navOrder', ['WAR']], ['navOrder', Array.from({ length: 13 }, (_, i) => 'a' + 'b'.repeat(i + 1))]]) assert.strictEqual((await post('/api/config', { [k]: v })).status, 400, k);
+  assert.strictEqual((await post('/api/config', { navOrder: ['sched', 'war'] })).status, 200);
+  assert.deepStrictEqual((await get('/api/sessions')).json.features.prefs.navOrder, ['sched', 'war'], 'the order of the left column');
   // a conversation a program started (entrypoint sdk-cli), one the board started, one of yours
   const PROG = uuid(71), MINE = uuid(72), BOARDS = uuid(73);
   const OTHER = path.join(HOME, 'tools'); fs.mkdirSync(OTHER, { recursive: true });
@@ -725,12 +753,14 @@ test('settings kept in the board: the left column, the office, sessions a progra
   };
   write(PROG, OTHER, 'sdk-cli'); write(MINE, OTHER, 'cli'); write(BOARDS, OTHER, 'sdk-cli');
   // an older board conversation (before the board remembered its own): its first message is content blocks, as the board sends them
-  const OLDB = uuid(74); { const dir = path.join(CLAUDE, 'projects', S.encodeCwd(OTHER)); fs.writeFileSync(path.join(dir, OLDB + '.jsonl'), line({ type: 'user', sessionId: OLDB, cwd: OTHER, entrypoint: 'sdk-cli', timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'text', text: '看板開的舊對話' }] } }) + '\n'); }
+  const OLDB = uuid(74); { const dir = path.join(CLAUDE, 'projects', S.encodeCwd(OTHER)); const f = path.join(dir, OLDB + '.jsonl'); fs.writeFileSync(f, line({ type: 'user', sessionId: OLDB, cwd: OTHER, entrypoint: 'sdk-cli', timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'text', text: '看板開的舊對話' }] } }) + '\n'); const when = new Date(2026, 10, 17); fs.utimesSync(f, when, when); }
   config.setValue('boardStarted', [BOARDS]);
   const past = async (qs) => JSON.stringify((await get('/api/past' + (qs || ''))).json);
+  assert.ok(!(await past()).includes(PROG), 'left out unless you say otherwise');
+  assert.strictEqual((await post('/api/config', { hideProgramSessions: false })).status, 200);
   assert.ok((await past()).includes(PROG), 'off: everything is listed');
   assert.strictEqual((await post('/api/config', { hideProgramSessions: true })).status, 200);
-  const p = (await get('/api/past')).json, ps = JSON.stringify(p.items);
+  const p = (await get('/api/past?days=all')).json, ps = JSON.stringify(p.items);
   assert.deepStrictEqual([ps.includes(PROG), ps.includes(MINE), ps.includes(BOARDS), ps.includes(OLDB), p.programHidden >= 1], [false, true, true, true, true], 'only the one a program started is left out');
   assert.ok((await past('?programs=1')).includes(PROG), 'shown when asked for');
   // a folder named: everything in it is left out
@@ -759,7 +789,7 @@ test('settings kept in the board: the left column, the office, sessions a progra
   const reg = JSON.parse(fs.readFileSync(regFile, 'utf8')); const was = reg.entrypoint; reg.entrypoint = 'sdk-cli'; fs.writeFileSync(regFile, JSON.stringify(reg));
   await new Promise((r) => setTimeout(r, 1100));
   const t2 = (await get('/api/sessions')).json.sessions.find((x) => x.sessionId === T2);
-  assert.deepStrictEqual([t2.entrypoint, t2.byProgram, t2.programHidden], ['sdk-cli', undefined, undefined], 'its first message is content blocks, as the board sends them: taken for the board\'s own');
+  assert.deepStrictEqual([t2.entrypoint, t2.byProgram, t2.programHidden], ['sdk-cli', true, true], 'open now and not the board\'s: a program\'s, also when its first message is content blocks');
   // started through the Agent SDK (claude-mem sets sdk-ts): a program's, even with content blocks
   reg.entrypoint = 'sdk-ts'; fs.writeFileSync(regFile, JSON.stringify(reg));
   await new Promise((r) => setTimeout(r, 1100));
@@ -771,6 +801,21 @@ test('settings kept in the board: the left column, the office, sessions a progra
   assert.deepStrictEqual([t2b.byProgram, t2b.programHidden], [true, true], 'in a folder named: hidden');
   await post('/api/config', { sidebarCollapsed: false, officeFavorites: [], officeOrder: [], hideProgramSessions: false, hideProgramFolders: [] });
   config.setValue('boardStarted', []);
+});
+
+test('a conversation the board opened by itself says so, and whose its first words are', async () => {
+  const config = require('../lib/config');
+  const row = async (sid) => { await new Promise((r) => setTimeout(r, 1100)); return (await get('/api/sessions')).json.sessions.find((x) => x.sessionId === sid); };
+  const mine = (await post('/api/new', { cwd: WORK })).json.sessionId, sec = (await post('/api/new', { cwd: WORK, by: 'line' })).json.sessionId;
+  assert.strictEqual((await row(mine)).openedBy, undefined, 'opened by you');
+  assert.deepStrictEqual([(await row(sec)).openedBy.by, (await row(sec)).secretary], ['line', true]);
+  // T1's latest words of yours: at the moment it was opened they are what it was opened with; later ones are yours
+  const at = (await row(T1)).saidAt; assert.ok(at);
+  config.setValue('openedBy', Object.assign({}, config.value('openedBy', {}), { [T1]: { by: 'schedule', name: '晨報', at: at - 2000 } }));
+  let r = await row(T1); assert.deepStrictEqual([r.openedBy, r.saidByBoard], [{ by: 'schedule', name: '晨報', at: at - 2000 }, true]);
+  config.setValue('openedBy', Object.assign({}, config.value('openedBy', {}), { [T1]: { by: 'schedule', name: '晨報', at: at - 600000 } }));
+  r = await row(T1); assert.deepStrictEqual([r.openedBy.by, r.saidByBoard], ['schedule', undefined], 'you spoke in it since');
+  config.setValue('openedBy', {}); await post('/api/close', { sessionId: mine }); await post('/api/close', { sessionId: sec }); config.setValue('lineSessions', []);
 });
 
 test('a session with nothing new for the set number of days leaves the list by itself', async () => {
@@ -1082,6 +1127,7 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
   const sh2 = await post('/api/shell', { sessionId: B, command: 'git status' });
   const sh3 = await post('/api/shell', { sessionId: B, command: 'boom' }); assert.strictEqual(sh3.status, 200); assert.strictEqual(sh3.json.ran, false);
   assert.strictEqual((await post('/api/shell/drop', { sessionId: B, id: sh1.json.id })).json.ok, true, 'the one with the secret is not for Claude');
+  assert.strictEqual((await post('/api/unsent', { sessionId: B, id: 'no-such', action: 'resend' })).status, 409, 'nothing of that id waits to be sent again');
   assert.strictEqual((await post('/api/shell/drop', { sessionId: B, id: sh1.json.id })).json.ok, false);
   await post('/api/shell/drop', { sessionId: B, id: sh3.json.id });
 
@@ -1249,6 +1295,32 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
   assert.ok(!((await get('/api/sessions')).json.sessions || []).find((x) => x.sessionId === sentId).draft, 'and the list no longer shows one');
   assert.strictEqual((await post('/api/draft', { sessionId: dft, text: 'x' })).status, 404, 'a conversation no longer there');
   assert.strictEqual((await post('/api/draft', { sessionId: e.json.sessionId })).status, 400, 'no text');
+  // put aside with Ctrl+S: one place, kept with the conversation; it is not empty because of it, and sending leaves it
+  const st = (await post('/api/new', { cwd: WORK })).json.sessionId, of = async () => ((await get('/api/sessions')).json.sessions || []).find((x) => x.sessionId === st);
+  assert.strictEqual((await post('/api/stash', { sessionId: st, text: '先放著的話' })).json.ok, true);
+  assert.deepStrictEqual([(await of()).stash, (await of()).title, (await of()).notStarted], ['先放著的話', '暫存：先放著的話', undefined]);
+  assert.strictEqual((await post('/api/close-empty', { sessionId: st })).json.ok, false, 'words put aside: not closed');
+  await post('/api/stash', { sessionId: st, text: '換一段' }); assert.strictEqual(channels.get(st).stash, '換一段', 'one place');
+  await post('/api/draft', { sessionId: st, text: '要送的' }); assert.strictEqual((await post('/api/send', { sessionId: st, text: '要送的' })).json.ok, true);
+  assert.deepStrictEqual([channels.get(st).draft, channels.get(st).stash], ['', '換一段'], 'sending takes the draft, not what is put aside');
+  assert.strictEqual((await post('/api/stash', { sessionId: st, text: '  ' })).json.ok, true); assert.strictEqual((await of()).stash, undefined);
+  assert.strictEqual((await post('/api/stash', { sessionId: 'nope', text: 'x' })).status, 404); assert.strictEqual((await post('/api/stash', { sessionId: st })).status, 400);
+  await post('/api/close', { sessionId: st });
+  // a terminal has no place for what is not sent: said, not lost
+  const tt = (await post('/api/new', { cwd: WORK })).json.sessionId; await post('/api/stash', { sessionId: tt, text: '先放著' });
+  const mv = await post('/api/to-terminal', { sessionId: tt }); assert.deepStrictEqual([mv.status, /暫存.*拿不回來/.test(mv.json.error), channels.get(tt).stash], [409, true, '先放著']);
+  assert.match((await post('/api/stash', { sessionId: tt, text: 'x'.repeat(160000) })).json.error, /太長/); await post('/api/close', { sessionId: tt });
+  // pictures or files only, not sent: the page has them, the board keeps the conversation for them
+  const hd = (await post('/api/new', { cwd: WORK })).json.sessionId, hel = async () => ((await get('/api/sessions')).json.sessions || []).find((x) => x.sessionId === hd);
+  assert.strictEqual((await post('/api/held', { sessionId: hd, page: 'pageA', n: 2 })).json.ok, true);
+  assert.deepStrictEqual([(await hel()).held, (await hel()).title, (await hel()).notStarted], [2, '還沒送出：2 個附件', undefined]);
+  assert.strictEqual((await post('/api/close-empty', { sessionId: hd })).json.ok, false, 'not closed under them');
+  await post('/api/held', { sessionId: hd, page: 'pageB', n: 0 }); assert.strictEqual((await post('/api/close-empty', { sessionId: hd })).json.ok, false, 'another page has none: this one\'s stay');
+  assert.strictEqual((await post('/api/held', { sessionId: hd, page: '', n: 0 })).json.ok, false);
+  assert.match((await post('/api/to-terminal', { sessionId: hd })).json.error, /還沒送出的附件/);
+  channels.get(hd).held.pageA.at -= 10 * 60000; assert.deepStrictEqual([channels.held(channels.get(hd)), channels.held(channels.get(hd), 180000)], [2, 0], 'a page that went without a word');
+  await post('/api/held', { sessionId: hd, page: 'pageA', n: 'x' }); assert.strictEqual((await post('/api/close-empty', { sessionId: hd })).json.ok, true, 'none any more: closed');
+  assert.strictEqual((await post('/api/held', { sessionId: hd, page: 'pageA', n: 1 })).json.ok, false, 'a conversation no longer there');
 });
 
 test('files: preview, open, show - and what is refused', WIN_ONLY, async () => {
@@ -1403,6 +1475,166 @@ test('a schedule of its own rule: said in words, checked, shown with its next ru
     const c = await post('/api/workdays/countries', {}); assert.strictEqual(c.status, 200, c.text);
     assert.ok(c.json.countries.some((x) => x.code === 'TW'), 'Taiwan is there even when the list cannot be fetched');
   } finally { await post('/api/config', { workdayCountry: before }); }
+});
+
+test('a link to localhost pressed on another device: passed on only there', async () => {
+  assert.strictEqual((await post('/api/localweb', { port: 57570 })).status, 400, 'on this computer itself it is just opened');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const local = new Function(/const localLink = [^\n]+/.exec(src)[0] + '; return localLink;')();
+  assert.deepStrictEqual([local('http://localhost:57570/a?b=1#c'), local('https://127.0.0.1/'), local('http://[::1]:8080/').port], [{ port: 57570, secure: false, path: '/a?b=1#c' }, { port: 443, secure: true, path: '/' }, 8080]);
+  for (const u of ['http://example.com/', 'http://localhost.evil.com/', 'http://192.168.1.5/', 'file:///c:/x', '/api/x']) assert.strictEqual(local(u), null, u);
+});
+
+test('what the board refuses from another device is not offered there', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'), page = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8').split('\n');
+  const list = [.../const onThisScreen = \[([^\]]+)\]/.exec(src)[1].matchAll(/'(\/api\/[^']+)'/g)].map((m) => m[1]);
+  assert.ok(list.length >= 7);
+  // each place in the page that asks for one of them, or opens something in a terminal, looks at REMOTE just above or on it
+  const bad = [];
+  page.forEach((l, i) => { if (list.some((p) => l.includes("api('" + p + "'")) || /(openPast|bringBack)\([^)]*'terminal'\)/.test(l)) { if (!page.slice(Math.max(0, i - 28), i + 1).some((x) => /\bREMOTE\b/.test(x))) bad.push((i + 1) + ': ' + l.trim().slice(0, 90)); } });
+  assert.deepStrictEqual(bad, []);
+});
+
+test('a search: what you said in the middle of it, the open ones, and the ones taken off the list', async () => {
+  const SI = require('../lib/saidindex'), config = require('../lib/config'), dbFile = path.join(path.dirname(config.CONFIG_FILE), 'said.db');
+  const MID = uuid(171), OFF = uuid(172), dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK)); fs.mkdirSync(dir, { recursive: true });
+  const said = (sid, t) => line({ type: 'user', sessionId: sid, cwd: WORK, entrypoint: 'cli', timestamp: new Date().toISOString(), message: { role: 'user', content: t } });
+  fs.writeFileSync(path.join(dir, MID + '.jsonl'), [said(MID, '開頭'), said(MID, '中間提到石虎保育'), said(MID, '結尾')].join('\n') + '\n');
+  fs.writeFileSync(path.join(dir, OFF + '.jsonl'), said(OFF, '石虎不列出的那個') + '\n');
+  const ask = async () => (await get('/api/past?q=' + encodeURIComponent('石虎'))).json;
+  assert.deepStrictEqual((await ask()).indexing, true, 'not looked through yet: said so');
+  SI.scan(dbFile, path.join(CLAUDE, 'projects'));
+  let r = await ask(); assert.strictEqual(r.indexing, false);
+  assert.deepStrictEqual(r.items.find((x) => x.sessionId === MID).hit, { who: 'you', text: '中間提到石虎保育' });
+  await post('/api/hide', { sessionId: OFF, hidden: true });
+  assert.strictEqual((await ask()).items.find((x) => x.sessionId === OFF).offList, true, 'found, and said to be off the list');
+  assert.ok(!(await get('/api/past')).json.items.some((x) => x.sessionId === OFF), 'without a search it stays off');
+  await post('/api/hide', { sessionId: OFF, hidden: false });
+  // one that is open is in no list of the not open: where in it is told apart
+  const tf = S.findTranscript(T1, WORK, S.DEFAULTS.projectsDir) || path.join(dir, T1 + '.jsonl'); fs.appendFileSync(tf, said(T1, '開著的也提到石虎') + '\n');
+  SI.scan(dbFile, path.join(CLAUDE, 'projects')); r = await ask();
+  assert.deepStrictEqual(r.said[T1], { who: 'you', text: '開著的也提到石虎' }); assert.ok(!r.items.some((x) => x.sessionId === T1));
+});
+
+test('an Office file is converted once for what is in it; opened again it is not sent again', async () => {
+  const F = require('../lib/files'), dir = path.join(WORK, 'pdf'); fs.mkdirSync(dir, { recursive: true });
+  const a = path.join(dir, 'a.pptx'), b = path.join(dir, 'b.pptx'); fs.writeFileSync(a, 'deck one');
+  const n = () => did.filter((x) => x === 'convertOffice').length, was = n();
+  const ask = (file, more, headers) => new Promise((done) => http.get({ host: '127.0.0.1', port, path: '/api/file/pdf?path=' + encodeURIComponent(file) + (more || ''), headers: Object.assign({ 'x-board-token': TOKEN }, headers) }, (r) => { let t = ''; r.on('data', (c) => { t += c; }); r.on('end', () => done({ code: r.statusCode, h: r.headers, t })); }));
+  const ready = async (file) => JSON.parse((await ask(file, '&ready=1')).t).cached;
+  assert.strictEqual(await ready(a), false); assert.strictEqual(n(), was, 'asking does not convert');
+  const x = await ask(a); assert.deepStrictEqual([x.code, x.t, n() - was], [200, '%PDF-1.4 test', 1]); assert.strictEqual(await ready(a), true);
+  assert.strictEqual((await ask(a, '', { 'if-none-match': x.h.etag })).code, 304, 'the browser has it');
+  // saved again with nothing changed, and a copy of it elsewhere
+  fs.utimesSync(a, new Date(), new Date(Date.now() + 60000)); fs.copyFileSync(a, b);
+  assert.deepStrictEqual([(await ask(a)).code, (await ask(b)).code, n() - was], [200, 200, 1]);
+  fs.writeFileSync(a, 'deck two'); const y = await ask(a, '', { 'if-none-match': x.h.etag }); assert.deepStrictEqual([y.code, n() - was], [200, 2], 'changed: converted again');
+  // one converted by an earlier version (named by path and time) is still used
+  const c = path.join(dir, 'c.docx'); fs.writeFileSync(c, 'old'); fs.writeFileSync(F.cachePathFor(c), '%PDF old'); assert.deepStrictEqual([(await ask(c)).t, n() - was], ['%PDF old', 2]);
+});
+
+test('harness: the chart drawn for a project, the page before the table; artifacts are on for the board unless you said', () => {
+  const H = require('../lib/harness'), { claudeEnv } = require('../lib/chat'), d = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-flow-')), h = path.join(d, '.claude', 'harness');
+  fs.mkdirSync(h, { recursive: true }); fs.writeFileSync(path.join(h, 'README.md'), 'x');
+  assert.deepStrictEqual([H.stateOf(d).installed, H.stateOf(d).flowFile], [true, '']);
+  fs.writeFileSync(path.join(h, 'flow.md'), '# x'); assert.strictEqual(H.stateOf(d).flowFile, path.join(h, 'flow.md'));
+  fs.writeFileSync(path.join(h, 'flow.html'), '<p>'); const s = H.stateOf(d); assert.strictEqual(s.flowFile, path.join(h, 'flow.html')); assert.ok(s.flowAt > 0);
+  assert.deepStrictEqual([claudeEnv({ A: '1' }).CLAUDE_CODE_ARTIFACT, claudeEnv({ A: '1' }).A, claudeEnv({ CLAUDE_CODE_ARTIFACT: '0' }).CLAUDE_CODE_ARTIFACT, claudeEnv({}).CLAUDE_CODE_ARTIFACT_AUTO_OPEN], ['1', '1', '0', '0']);
+});
+
+test('a day\'s summary: asked for, where it stands, what is wrong said', async () => {
+  const m = (await get('/api/daily?month=2026-11')).json; assert.strictEqual(typeof m.ready, 'boolean'); assert.deepStrictEqual(m.days, {});
+  assert.deepStrictEqual([(await get('/api/daily?date=2026-11-03')).json.state, (await post('/api/daily', { date: '2099-01-01' })).status], ['none', 409]);
+});
+
+test('a conversation some program started is left out, whichever program it was - told by what Claude Code records', async () => {
+  const dir = (cwd) => { const d = path.join(CLAUDE, 'projects', S.encodeCwd(cwd)); fs.mkdirSync(d, { recursive: true }); return d; };
+  const put = (n, cwd, entry, o = {}) => { const f = path.join(dir(cwd), uuid(n) + '.jsonl'); fs.writeFileSync(f, line(Object.assign({ type: 'user', sessionId: uuid(n), cwd, entrypoint: entry, timestamp: new Date().toISOString(), message: { role: 'user', content: o.blocks ? [{ type: 'text', text: '第一句 ' + n }] : '第一句 ' + n } }, o.src ? { promptSource: o.src } : {})) + '\n'); const when = o.old || new Date(Date.UTC(2026, 11, 1)); fs.utimesSync(f, when, when); };
+  const was = (await get('/api/config')).json.prefs.hideProgramSessions; await post('/api/config', { hideProgramSessions: true });
+  const OLD = new Date(2026, 10, 17), CASES = [
+    [181, path.join(HOME, '.claude-mem', 'observer-sessions', '-958'), 'cli', {}, false, "claude-mem's folder"],
+    [182, WORK, 'sdk-cli', { blocks: true, old: OLD }, true, "an old one of the board's, from before it remembered them"],
+    [183, WORK, 'sdk-cli', { blocks: true }, false, 'content blocks, since'],
+    [184, WORK, 'sdk-cli', { src: 'sdk' }, false, 'claude -p'],
+    [185, WORK, 'sdk-ts', { blocks: true, old: OLD }, false, 'the Agent SDK, however old'],
+    [186, WORK, 'my-tool', { src: 'sdk', blocks: true }, false, 'a name of its own'],
+    [187, WORK, 'cli', { src: 'sdk' }, true, 'begun by a program, then opened in a terminal'], [191, WORK, undefined, { src: 'sdk' }, false, 'nothing recorded but where its words came from'], [192, WORK, undefined, {}, true, 'nothing recorded at all'],
+    [188, WORK, 'cli', { src: 'typed' }, true, 'typed'], [189, WORK, 'cli', { src: 'queued' }, true, 'queued'], [190, WORK, 'cli', {}, true, 'an old one of a terminal, nothing recorded'],
+  ];
+  for (const [n, cwd, entry, o] of CASES) put(n, cwd, entry, o);
+  const ids = JSON.stringify((await get('/api/past?days=all')).json.items), all = JSON.stringify((await get('/api/past?days=all&programs=1')).json.items);
+  for (const [n, , , , listed, why] of CASES) { assert.strictEqual(ids.includes(uuid(n)), listed, why); assert.ok(all.includes(uuid(n)), why + ': there when asked for'); }
+  await post('/api/config', { hideProgramSessions: was });
+});
+
+test('a recommend entry from an address: what is wrong with it is said', async () => {
+  assert.match((await post('/api/recommends/draft', { url: 'nonsense' })).json.error, /看不懂/);
+  const r = await post('/api/recommends/draft', { url: 'https://github.com/a/b' }); assert.deepStrictEqual([r.status, /找不到 a\/b/.test(r.json.error)], [400, true]);
+});
+
+test('what the LINE secretary opens is on no list, until you write in it', async () => {
+  const n = (await post('/api/new', { cwd: WORK, by: 'line' })).json.sessionId; await post('/api/send', { sessionId: n, text: '找一份簡報', by: 'line' });
+  const of = async () => (await get('/api/sessions')).json.sessions.find((x) => x.sessionId === n);
+  assert.deepStrictEqual([(await of()).secretary, (await of()).programHidden], [true, true]);
+  await post('/api/send', { sessionId: n, text: '我自己說的' });
+  assert.deepStrictEqual([(await of()).secretary, (await of()).programHidden], [undefined, undefined], 'yours');
+  await post('/api/close', { sessionId: n });
+});
+
+test('the pictures shown while something is awaited: every one of every set there, one a day, each told where it is from', async () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const cut = (a, z) => src.slice(src.indexOf(a), src.indexOf(z, src.indexOf(a)));
+  const sets = new Function(cut('const LOAD_SETS = [', 'let ldChosen') + '; return LOAD_SETS;')(), dir = path.join(__dirname, '..', 'public', 'load'), lic = fs.readFileSync(path.join(dir, 'LICENSE.txt'), 'utf8');
+  assert.deepStrictEqual(sets.map((x) => x[0]), ['animals', 'fox', 'blob', 'mine']);
+  const raw = (p) => new Promise((done) => http.get({ host: '127.0.0.1', port, path: p }, (x) => { const b = []; x.on('data', (d) => b.push(d)); x.on('end', () => done([x.statusCode, x.headers['content-type'], Buffer.concat(b), x.headers['content-security-policy'] || ''])); }));
+  for (const [k, name, , ext, list, , from] of sets) {
+    if (k === 'mine') continue;
+    assert.deepStrictEqual(fs.readdirSync(path.join(dir, k)).sort(), list.map((n) => n + '.' + ext).sort(), k + ': no file missing, none left over');
+    assert.strictEqual(new Set(list).size, list.length); assert.ok(list.length >= 29, k + ' ' + list.length);
+    for (const n of list) { const [code, type, b, csp] = await raw('/load/' + k + '/' + n + '.' + ext); assert.deepStrictEqual([code, type, b.length > 200, /sandbox/.test(csp)], [200, ext === 'svg' ? 'image/svg+xml' : 'image/webp', true, true], n); if (ext === 'svg') assert.ok(!/<script|javascript:|foreignObject|href="(?!#)/i.test(b.toString()), n + ' is a plain picture'); }
+    assert.ok(from && new RegExp('^' + k + ' ', 'm').test(lic), name + ' says where it is from');
+  }
+  for (const p of ['/load/fox/no-such.webp', '/load/fox/..%2f..%2findex.webp', '/load/LICENSE.txt', '/load/hedgehog.webp']) assert.strictEqual((await raw(p))[0], 404, p);
+  const day = new Function(cut('const ldDay = ', '\n') + '; return ldDay;')();
+  assert.strictEqual(new Set(Array.from({ length: 30 }, (_, i) => day(30, new Date(2026, 10, 1 + i, 9).getTime()))).size, 30, '30 days, 30 pictures');
+  assert.strictEqual(day(30, new Date(2026, 10, 23, 0, 1).getTime()), day(30, new Date(2026, 10, 23, 23, 59).getTime()), 'the same all day');
+  assert.strictEqual((await post('/api/config', { loadIcon: 'nope' })).status, 400); assert.strictEqual((await post('/api/config', { loadIcon: 'fox' })).json.prefs.loadIcon, 'fox'); await post('/api/config', { loadIcon: 'animals' });
+  for (const x of ['rice', 'three', 'none']) assert.strictEqual((await post('/api/config', { loadIcon: x })).status, 400, x + ' is no longer one of them');
+  assert.deepStrictEqual(fs.readdirSync(dir).sort(), ['LICENSE.txt', 'animals', 'blob', 'fox']);
+  // drawn by Claude: a draft, then yours - and the one shown
+  assert.deepStrictEqual((await get('/api/loaddraw')).json, { ok: true, busy: null, error: '', mine: null, draft: null }); assert.strictEqual((await get('/api/sessions')).json.features.loadMine, null);
+  assert.strictEqual((await post('/api/loaddraw', { do: 'x' })).status, 400); assert.strictEqual((await post('/api/loaddraw', { do: 'use' })).status, 400); assert.strictEqual((await post('/api/loaddraw', { do: 'draw', ref: '' })).status, 400);
+  assert.strictEqual((await post('/api/loaddraw', { do: 'draw', ref: '橘貓' })).status, 200);
+  let st; for (let i = 0; i < 50; i++) { st = (await get('/api/loaddraw')).json; if (!st.busy) break; await new Promise((r2) => setTimeout(r2, 20)); }
+  assert.deepStrictEqual([st.error, st.draft.n, st.draft.ref, st.mine], ['', 2, '橘貓', null]);
+  const at = (w, v, i, ext) => raw('/load/' + w + '/' + v + '-' + i + '.' + (ext || 'svg'));
+  const pic = await at('draft', st.draft.v, 1); assert.deepStrictEqual([pic[0], pic[1], /sandbox/.test(pic[3])], [200, 'image/svg+xml', true]);
+  assert.strictEqual((await at('mine', st.draft.v, 1))[0], 404); assert.strictEqual((await at('draft', '0123456789abcdef', 1))[0], 404); assert.strictEqual((await at('draft', st.draft.v, 1, 'webp'))[0], 404);
+  assert.strictEqual((await post('/api/loaddraw', { do: 'use' })).json.mine.v, st.draft.v); assert.strictEqual((await at('mine', st.draft.v, 2))[0], 200);
+  { const f = (await get('/api/sessions')).json.features; assert.deepStrictEqual([f.loadMine.v, f.prefs.loadIcon], [st.draft.v, 'mine']); }
+  await post('/api/config', { loadIcon: 'animals' });
+});
+
+test('每天上班統整: a switch where LINE is connected, one schedule, its time kept, what came of it recorded', async () => {
+  assert.deepStrictEqual((await get('/api/digest')).json, { line: false, on: false, schedule: null });
+  assert.strictEqual((await post('/api/digest', { on: true })).status, 409, 'LINE is not connected');
+  assert.strictEqual((await post('/api/digest', {})).status, 400);
+  lineOn = true;
+  const on = (await post('/api/digest', { on: true })).json, s = on.schedule;
+  assert.deepStrictEqual([on.on, s.target, s.kind, s.days, s.at, s.enabled], [true, 'digest', 'weekly', '1,2,3,4,5', '09:30', true]);
+  // its time is the schedule page's; a second one, or another schedule made into one, is not
+  const body = { id: s.id, target: 'digest', name: s.name, kind: 'daily', at: '08:45' };
+  assert.strictEqual((await post('/api/schedule/save', body)).status, 200);
+  assert.strictEqual((await post('/api/schedule/save', { target: 'digest', kind: 'daily', at: '08:00' })).status, 400);
+  assert.strictEqual((await post('/api/schedule/save', { id: s.id, target: 'folder', cwd: WORK, prompt: 'x', kind: 'daily', at: '08:00' })).status, 400);
+  assert.strictEqual((await post('/api/digest', { on: false })).json.on, false);
+  const again = (await post('/api/digest', { on: true })).json.schedule;
+  assert.deepStrictEqual([again.id, again.at, again.kind], [s.id, '08:45', 'daily'], 'switched on again with the time you gave it');
+  const run = async () => { await post('/api/schedule/run', { id: s.id }); for (let i = 0; i < 100; i++) { const r = (await get('/api/schedules')).json.log.find((x) => x.scheduleId === s.id); if (r && r.status !== 'running') return r; await new Promise((x) => setTimeout(x, 50)); } return null; };
+  const a = await run(); assert.deepStrictEqual([a.status, /已用 LINE 送出/.test(a.note)], ['done', true]); assert.match(pushed[0], /上班統整/);
+  const b = await run(); assert.deepStrictEqual([b.status, /429/.test(b.note)], ['failed', true], 'LINE did not take it: failed, not done');
+  lineOn = false; assert.match((await run()).note, /LINE 還沒有接通/); assert.strictEqual(pushed.length, 2);
+  await post('/api/schedule/delete', { id: s.id });
 });
 
 test('schedules', async () => {

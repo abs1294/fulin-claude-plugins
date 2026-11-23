@@ -125,7 +125,7 @@ test('Channels: a turn, an approval, and what is saved', () => {
   ch.seen(c.sessionId);
   assert.strictEqual(ch.unread(c), false);
 
-  assert.deepStrictEqual(res.events.filter((e) => e.type !== 'tasks' && e.type !== 'shell' && e.type !== 'user').map((e) => e.type), ['state', 'state', 'tool', 'permission', 'state', 'permission-done', 'state', 'assistant', 'result', 'state']);
+  assert.deepStrictEqual(res.events.filter((e) => e.type !== 'tasks' && e.type !== 'shell' && e.type !== 'unsent' && e.type !== 'user').map((e) => e.type), ['state', 'state', 'tool', 'permission', 'state', 'permission-done', 'state', 'assistant', 'result', 'state']);
   assert.deepStrictEqual(res.events.find((e) => e.type === 'permission'), { type: 'permission', requestId: 'r1', tool: 'Write', text: 'a.txt' });
 
   // Second message: same process, no second spawn.
@@ -235,7 +235,7 @@ test('Channels: the reply is passed on as it is written, and a subagent is not m
   p.out({ type: 'assistant', parent_tool_use_id: 'toolu_1', message: { content: [{ type: 'text', text: '子代理的整段話' }] } });
   p.out({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text: '台北是首都' }] } });
   p.out({ type: 'result', is_error: false });
-  const got = res.events.filter((e) => e.type !== 'state' && e.type !== 'tasks' && e.type !== 'shell' && e.type !== 'user');
+  const got = res.events.filter((e) => e.type !== 'state' && e.type !== 'tasks' && e.type !== 'shell' && e.type !== 'unsent' && e.type !== 'user');
   assert.deepStrictEqual(got, [
     { type: 'thinking' },
     { type: 'delta', text: '台北是' },
@@ -625,4 +625,120 @@ test('Channels: what is said in a conversation is told to the pages showing it, 
   assert.deepStrictEqual(said, [{ type: 'user', text: '這個資料夾有 8 個檔沒 commit', images: 0, echo: '' }, { type: 'user', text: '從頁面送的', images: 1, echo: 'abc123' }]);
   assert.deepStrictEqual(ch.send('no-such', 'x'), { ok: false, error: 'no such channel' });
   ch.shutdown();
+});
+
+test('Channels: a message still queued when its turn is stopped is kept - never taken for said (2026-11-23)', async () => {
+  const d = tmp(), log = [], f = path.join(d, 't.jsonl');
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const make = () => new Channels(path.join(d, 'c.json'), { spawn: fakeSpawn(log), transcriptOf: () => (fs.existsSync(f) ? f : null), settleMs: 5 });
+  const rec = (o) => fs.appendFileSync(f, JSON.stringify(o) + '\n');
+  const said = (text) => rec({ type: 'user', uuid: 'u', timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'text', text }] } });
+  const queued = (text) => rec({ type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', prompt: [{ type: 'text', text }] } });
+  let ch = make();
+  const c = ch.create(d), res = listener();
+  ch.subscribe(c.sessionId, res);
+  const list = () => res.events.filter((e) => e.type === 'unsent').pop().list;
+  // three said: the first is the turn's own, the second is read while it works, the third is still waiting when it is stopped
+  ch.send(c.sessionId, '第一件'); said('第一件');
+  ch.send(c.sessionId, '第二件'); queued('第二件');
+  ch.send(c.sessionId, '第三件', [{ mime: 'image/png', data: 'AAAA' }]);
+  ch.send(c.sessionId, '/compact');   // a command is recorded in another form: not followed
+  rec({ type: 'user', isMeta: true, message: { role: 'user', content: '第三件' } });   // not something you said
+  rec({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: '第三件' }] } });
+  ch.stop(c.sessionId); await wait(60);
+  assert.deepStrictEqual(list().map((x) => [x.text, x.images, x.kept]), [['第三件', 1, true]]);
+  // the same words said earlier do not make a later message one that was read
+  ch.send(c.sessionId, '第一件'); ch.stop(c.sessionId); await wait(60);
+  assert.deepStrictEqual(list().map((x) => x.text), ['第三件', '第一件']);
+  // sent again, changed: it goes to Claude with its picture, and is off the list; pressed twice, once
+  const id = list()[0].id, before = log.length;
+  assert.deepStrictEqual(ch.unsent(c.sessionId, id, 'resend', '第三件改'), { ok: true });
+  assert.strictEqual(ch.unsent(c.sessionId, id, 'resend').ok, false);
+  const w = log[log.length - 1].p.stdin.written.filter((x) => x.type === 'user').pop().message.content;
+  assert.deepStrictEqual([log.length > before, w.some((b) => b.type === 'image'), w.filter((b) => b.type === 'text').map((b) => b.text).join('')], [true, true, '第三件改']);
+  assert.deepStrictEqual(list().map((x) => x.text), ['第一件']);
+  // that one is read; the turn ends by itself: nothing is called lost
+  said('第三件改'); log[log.length - 1].p.out({ type: 'result', is_error: false, result: 'ok' }); await wait(40);
+  assert.deepStrictEqual([list().map((x) => x.text), (c.said || []).length], [['第一件'], 0]);
+  // thrown away
+  assert.deepStrictEqual(ch.unsent(c.sessionId, list()[0].id, 'drop'), { ok: true });
+  assert.deepStrictEqual([list(), ch.unsent(c.sessionId, 'x', 'drop').ok, ch.unsent('no-such', 'x', 'drop').ok], [[], false, false]);
+  // a message sent right after the stop is the next process's: not called lost with the one before it
+  ch.send(c.sessionId, '被停掉的'); ch.stop(c.sessionId); ch.send(c.sessionId, '停了之後說的'); await wait(60);
+  assert.deepStrictEqual([list().map((x) => x.text), c.said.map((x) => x.text)], [['被停掉的'], ['停了之後說的']]);
+  // the board ends while it works: told when it is started again, without the pictures (they are not written down)
+  ch.send(c.sessionId, '看板關掉時還沒讀到', [{ mime: 'image/png', data: 'AAAA' }]);
+  ch = make();
+  const c2 = ch.get(c.sessionId);
+  assert.deepStrictEqual(c2.unsent.map((x) => [x.text, x.n, !!x.images]), [['被停掉的', 0, false], ['停了之後說的', 0, false], ['看板關掉時還沒讀到', 1, false]]);
+  assert.ok(!fs.readFileSync(path.join(d, 'c.json'), 'utf8').includes('AAAA'), 'the pictures are in a file of their own');
+  // its picture is still there after the board was started again: sent with it, and then let go of
+  const last = c2.unsent[2].id; res.events.length = 0; ch.subscribe(c.sessionId, res);
+  assert.deepStrictEqual(list().map((x) => x.kept), [false, false, true]);
+  ch.unsent(c.sessionId, last, 'resend');
+  assert.ok(log[log.length - 1].p.stdin.written.filter((x) => x.type === 'user').pop().message.content.some((b) => b.type === 'image'));
+  assert.deepStrictEqual(fs.readdirSync(path.join(d, 'unsent')).filter((n) => n.startsWith(last)), []);
+  // an update of the board: not while a message is still to be taken in, also when the turn before it is over
+  ch.send(c.sessionId, '排隊中', [{ mime: 'image/png', data: 'BBBB' }]);
+  log[log.length - 1].p.out({ type: 'result', is_error: false, result: 'ok' });
+  assert.deepStrictEqual([ch.status(c2), ch.active().length, c2.said.map((x) => x.text)], ['idle', 1, ['排隊中']]);
+  queued('排隊中'); await wait(20); ch._settle(c2, null);
+  assert.deepStrictEqual([ch.active().length, fs.readdirSync(path.join(d, 'unsent'))], [0, []]);
+  ch.shutdown();
+});
+
+test('Channels: a long turn before the stop: what was waiting is not lost, what was read is not called lost', async () => {
+  const d = tmp(), log = [], f = path.join(d, 't.jsonl'), big = (n) => fs.appendFileSync(f, JSON.stringify({ type: 'assistant', pad: 'x'.repeat(n * 1024 * 1024) }) + '\n');
+  const ch = new Channels(path.join(d, 'c.json'), { spawn: fakeSpawn(log), transcriptOf: () => f, settleMs: 5 }); fs.writeFileSync(f, '');
+  const c = ch.create(d); ch.send(c.sessionId, '讀到的'); big(20);
+  fs.appendFileSync(f, JSON.stringify({ type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', prompt: [{ type: 'text', text: '讀到的' }] } }) + '\n'); big(17);
+  ch.send(c.sessionId, '還在排'); big(40); ch.stop(c.sessionId);
+  for (let i = 0; i < 200 && !(c.unsent || []).length; i++) await new Promise((r) => setTimeout(r, 25));
+  assert.deepStrictEqual([c.unsent.map((x) => x.text), c.said.length], [['還在排'], 0]);
+  // looked at while it works: the next look starts after what was read
+  ch.send(c.sessionId, '還沒讀到'); const at0 = c.said[0].from; big(1); ch._settle(c, null); assert.ok(c.said[0].from > at0);
+  fs.appendFileSync(f, JSON.stringify({ type: 'user', message: { role: 'user', content: '還沒讀到' } }) + '\n'); ch._settle(c, null); assert.strictEqual(c.said.length, 0);
+  // the transcript cannot be read: tried again, and told rather than let go of
+  ch.send(c.sessionId, '讀不到紀錄'); ch.transcriptOf = () => { throw new Error('busy'); }; ch._settle(c, new Set(c.said.map((x) => x.id)), 2); assert.strictEqual(c.said.length, 1);
+  for (let i = 0; i < 80 && c.said.length; i++) await new Promise((r) => setTimeout(r, 25)); assert.deepStrictEqual([c.said.length, c.unsent.slice(-1)[0].text], [0, '讀不到紀錄']);
+  // the board started again: what pages hold counts from now
+  ch.transcriptOf = () => f; ch.setHeld(c.sessionId, 'pageA', 1, Date.now() - 3600000); ch._save();
+  const ch2 = new Channels(path.join(d, 'c.json'), { spawn: fakeSpawn(log), transcriptOf: () => f, settleMs: 5 }); assert.strictEqual(ch2.held(ch2.get(c.sessionId), 600000), 1); ch2.shutdown();
+  ch.shutdown();
+});
+
+test('Channels: kept whole or not at all; what is waiting goes when its conversation does, or along with it', async () => {
+  const d = tmp(), log = [], ch = new Channels(path.join(d, 'c.json'), { spawn: fakeSpawn(log), transcriptOf: () => null, settleMs: 5 }), pics = () => { try { return fs.readdirSync(path.join(d, 'unsent')); } catch (e) { return []; } };
+  const c = ch.create(d), long = '字'.repeat(120000), PIC = [{ mime: 'image/png', data: 'AAAA' }];
+  assert.deepStrictEqual([ch.setStash(c.sessionId, long), c.stash.length], [true, 120000]);
+  assert.deepStrictEqual([ch.setStash(c.sessionId, long + long), c.stash.length], [false, 120000], 'too long: said so, nothing cut');
+  ch.send(c.sessionId, '還在排', PIC); const was = c.said.map((x) => x.text); ch.stop(c.sessionId); await ch.settled(c.sessionId);
+  assert.deepStrictEqual([was, (c.unsent || []).map((x) => x.text), pics().length], [['還在排'], ['還在排'], 1], 'told before the conversation goes');
+  c.fromHereNext = true; ch.send(c.sessionId, '一'); assert.strictEqual(c.fromHere, true); ch.send(c.sessionId, '排程送的'); assert.strictEqual(c.fromHere, false, 'this message, not the one after it');
+  // sent again with what stood in front of it: Claude has both, the page shows the words
+  const x = Object.assign(c.unsent[0], { pre: '<bash-input>ls</bash-input>' }); ch.unsent(c.sessionId, x.id, 'resend');
+  const w = log[log.length - 1].p.stdin.written.filter((m) => m.type === 'user').pop().message.content.map((b) => b.text || '').join('');
+  assert.deepStrictEqual([/<bash-input>ls<\/bash-input>還在排/.test(w), c.said[c.said.length - 1].text], [true, '還在排']);
+  for (let i = 0; i < 40; i++) ch.send(c.sessionId, '第 ' + i, PIC);
+  assert.deepStrictEqual([c.said.length, pics().length], [30, 30], 'one no longer kept takes its picture with it');
+  ch.remove(c.sessionId); assert.deepStrictEqual(pics(), []);
+  ch.shutdown();
+});
+
+test('an Artifact published is told once, with where it was asked from; a new version, a refusal, another address are not', () => {
+  const { Channels } = require('../lib/chat');
+  const ch = Object.create(Channels.prototype), got = [], opened = [];
+  Object.assign(ch, { _emit: (c, e) => { if (e.type === 'artifact') got.push(e); }, _setState() {}, _save() {}, rolesSeen: {}, onArtifact: (c, a) => opened.push(a.url) });
+  const c = { state: 'busy', pending: new Map(), fromHere: true, cwd: 'x' };
+  const use = (id) => ch._onLine(c, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Artifact', input: { file_path: 'a.html' } }] } }));
+  const res = (id, text, more) => ch._onLine(c, JSON.stringify(Object.assign({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: text, is_error: !!(more && more.bad) }] } }, more && more.r ? { tool_use_result: more.r } : {})));
+  const say = (u) => 'Published C:\\x\\a.html at ' + u + ' (Version 1, version id 1-a)';
+  use('1'); res('1', say('https://claude.ai/artifact/SsKu3gK2jnLV'), { r: { title: '表', updated: false } });
+  use('2'); res('2', say('https://claude.ai/artifact/SsKu3gK2jnLV'));                       // again: open already
+  use('3'); res('3', say('https://claude.ai/artifact/Another00001'), { r: { updated: true } });   // a new version of one put up earlier
+  use('4'); res('4', say('https://claude.ai/artifact/Refused00001'), { bad: true });
+  use('5'); res('5', say('https://evil.example/artifact/abcdefgh'));
+  res('9', say('https://claude.ai/artifact/NotAsked00001'));                                     // another tool's words
+  assert.deepStrictEqual(got, [{ type: 'artifact', url: 'https://claude.ai/artifact/SsKu3gK2jnLV', title: '表', here: true }]);
+  assert.deepStrictEqual(opened, ['https://claude.ai/artifact/SsKu3gK2jnLV']);
 });

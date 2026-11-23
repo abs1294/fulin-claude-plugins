@@ -40,7 +40,7 @@ test('past: what you said is read from the two ends of a transcript, however lon
   fs.utimesSync(old, new Date(Date.now() - 60 * 86400000), new Date(Date.now() - 60 * 86400000));
 
   assert.ok(fs.statSync(big).size > 2 * 1024 * 1024);
-  assert.deepStrictEqual(Past.ends(big), { cwd: 'C:\\w\\proj', first: '第一句 問延長線', last: '最後一句', lastAt: Date.parse('2026-11-12T03:00:00.000Z'), entry: '', blocks: false });
+  assert.deepStrictEqual(Past.ends(big), { cwd: 'C:\\w\\proj', first: '第一句 問延長線', last: '最後一句', lastAt: Date.parse('2026-11-12T03:00:00.000Z'), entry: '', src: '', blocks: false });
   assert.strictEqual(Past.lastSaid(big), '最後一句');
 
   const all = Past.list({ projectsDir: d });

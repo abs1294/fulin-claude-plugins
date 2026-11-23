@@ -221,17 +221,17 @@ test('files: kinds, what may be opened, and resolving what was written', WIN_ONL
 test('a file mentioned by name only is found inside the session folder, and nowhere else', () => {
   const base = tmp();
   const d = path.join(base, 'work', 'proj');            // deep enough to be searchable
-  fs.mkdirSync(path.join(d, 'claire', '一卡通'), { recursive: true });
+  fs.mkdirSync(path.join(d, 'claire', '星河卡'), { recursive: true });
   fs.mkdirSync(path.join(d, 'old'), { recursive: true });
   fs.mkdirSync(path.join(d, 'node_modules', 'x'), { recursive: true });
-  const real = path.join(d, 'claire', '一卡通', '簡報_AWS版.pptx');
+  const real = path.join(d, 'claire', '星河卡', '簡報_AWS版.pptx');
   fs.writeFileSync(real, 'new');
   fs.writeFileSync(path.join(d, 'old', '簡報_AWS版.pptx'), 'old');
   fs.utimesSync(path.join(d, 'old', '簡報_AWS版.pptx'), new Date(Date.now() - 86400000), new Date(Date.now() - 86400000));
   fs.writeFileSync(path.join(d, 'node_modules', 'x', 'hidden.js'), '');
   fs.writeFileSync(path.join(base, 'outside.txt'), '');
 
-  const [byName, byTail, wrongTail, skipped, outside, up] = F.check(['簡報_AWS版.pptx', '一卡通/簡報_AWS版.pptx', 'nope/簡報_AWS版.pptx', 'hidden.js', 'outside.txt', '../../outside.txt'], d);
+  const [byName, byTail, wrongTail, skipped, outside, up] = F.check(['簡報_AWS版.pptx', '星河卡/簡報_AWS版.pptx', 'nope/簡報_AWS版.pptx', 'hidden.js', 'outside.txt', '../../outside.txt'], d);
   assert.deepStrictEqual([byName.abs, byName.searched, byName.others, byName.kind], [real, true, 1, 'office']);   // two by that name: the newer one
   assert.strictEqual(byTail.abs, real);
   assert.strictEqual(byTail.others, 0);
@@ -252,7 +252,7 @@ test('a file mentioned by name only is found inside the session folder, and nowh
 test('files.check answers per path, and officePdf caches by content identity', async () => {
   const d = tmp();
   fs.mkdirSync(path.join(d, 'sub'));
-  fs.writeFileSync(path.join(d, 'sub', '報告.docx'), 'fake');
+  fs.writeFileSync(path.join(d, 'sub', '報告.docx'), 'fake ' + d);   // (its own words: the cache goes by what is in it)
   fs.writeFileSync(path.join(d, 'note.md'), '# hi');
   const r = F.check(['sub/報告.docx', 'note.md:3', 'nope.txt', 'sub', path.join(d, 'note.md'), 'v1.2.3'], d);
   assert.deepStrictEqual(r.map((x) => x && [x.kind, x.name]), [['office', '報告.docx'], ['text', 'note.md'], null, ['dir', 'sub'], ['text', 'note.md'], null]);
@@ -261,16 +261,15 @@ test('files.check answers per path, and officePdf caches by content identity', a
   assert.strictEqual(F.realFile('note.md'), null);                    // must be absolute
 
   const src = path.join(d, 'sub', '報告.docx');
-  const out = F.cachePathFor(src);
-  try { fs.unlinkSync(out); } catch (e) {}
+  const out = F.contentPathFor(src);
   let calls = 0;
   const convert = async (s, dst) => { calls++; fs.writeFileSync(dst, '%PDF-fake'); return { ok: true }; };
   const [a, b] = await Promise.all([F.officePdf(src, convert), F.officePdf(src, convert)]);   // two at once: one conversion
   assert.deepStrictEqual([a.ok, b.ok, calls], [true, true, 1]);
   assert.strictEqual((await F.officePdf(src, convert)).cached, true);
   assert.strictEqual(calls, 1);
-  fs.writeFileSync(src, 'changed content');                           // edited file -> a different cache entry
-  const out2 = F.cachePathFor(src);
+  fs.writeFileSync(src, 'changed content ' + d);                         // edited file -> a different cache entry
+  const out2 = F.contentPathFor(src);
   assert.notStrictEqual(out2, out);
   const fail = await F.officePdf(src, async () => ({ ok: false, error: 'Word said no' }));
   assert.deepStrictEqual(fail, { ok: false, error: 'Word said no' });

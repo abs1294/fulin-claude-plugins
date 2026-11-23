@@ -143,6 +143,8 @@ class InboxService {
   // Removes the attachments of threads that have not been handed over for attachDays: a thread's folder goes when
   // the newest thing in it (a file, or the mark written at each hand-over) is older than that. Only folders named
   // like a thread id, directly under the attachments folder, are ever touched. -> {removed, bytes, kept}
+  // Gmail's API, read-only, for lib/digest.js: (path under users/me/) -> its answer. null when Gmail is not connected.
+  async gmailReader() { return Src.gmailReader(this.cfg(), this.fetch); }
   purgeAttachments(now = Date.now()) {
     const dir = this.attachDir(), limit = (Number(this.settings().attachDays) || DEFAULTS.attachDays) * 86400000;
     const out = { removed: 0, bytes: 0, kept: 0 };

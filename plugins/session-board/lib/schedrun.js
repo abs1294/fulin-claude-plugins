@@ -28,6 +28,7 @@
 //   ops.takeOver(session)         -> Promise<{ok, error}>   ends the terminal one, so the board may carry it on
 //   ops.newId()                   -> a fresh session id (for a copy)
 //   ops.goal                      -> lib/goal2.js: start(task, condition, cwd), state(runId)   (schedules of target 'goal')
+//   ops.digest()                  -> Promise<{ok, note, error}>   每天上班統整 put together and sent (schedules of target 'digest')
 //   ops.tell(title, text)         -> shows a notification outside the page (optional)
 
 const LATE_MS = 3 * 60 * 1000;       // how late a run may start and still count as "on time"
@@ -86,11 +87,20 @@ class Runner {
       if (s.skipPermissions) c.skipPermissions = true;
       if (how === 'new' && s.agent) c.agent = s.agent;   // the role the schedule names, for the conversation it starts
       if (forkOf) c.forkOf = forkOf;
+      if ((how === 'new' || how === 'fork') && this.ops.opened) this.ops.opened(c.sessionId, 'schedule', s.name);   // one it opened itself, not one of yours it went on in
       const r = ch.send(c.sessionId, unattended(s.prompt));
       if (r && r.ok === false) return fail('送不進對話：' + (r.error || ''));
       return done('running', how, c.sessionId);
     };
     try {
+      // Takes a minute or two: the round does not wait for it, what came of it is written when it is there.
+      if (s.target === 'digest') {
+        if (!this.ops.digest) return fail('這個看板不會統整');
+        const r = done('running', 'digest', '', '核對中');
+        Promise.resolve().then(() => this.ops.digest()).catch((e) => ({ ok: false, error: String((e && e.message) || e).slice(0, 200) }))
+          .then((x) => { if (x && x.ok) this.store.updateRun(run, { status: 'done', note: x.note || '', endedAt: Date.now() }); else fail((x && x.error) || '沒有完成'); });
+        return r;
+      }
       if (!this.ops.isDir(s.cwd)) return fail('資料夾已經不存在：' + s.cwd);
       if (s.target === 'folder') return onBoard('new', s.cwd, undefined, '⏰ ' + s.name);
       // Handed to goal2, which runs it on its own until the condition holds. The run is followed by its goal2 id.

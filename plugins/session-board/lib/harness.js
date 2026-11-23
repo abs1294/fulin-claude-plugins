@@ -23,12 +23,12 @@ const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
 const mtime = (p) => { try { return fs.statSync(p).mtimeMs; } catch (e) { return 0; } };
 
 const cache = new Map();   // folder -> {key, at, data}
-// -> {installed: false} or {installed: true, pending: [...], pendingCount, lastReview, reviewFile, daysSince, requestsSince, due: [..reasons]}
+// -> {installed: false} or {installed: true, pending: [...], pendingCount, lastReview, reviewFile, flowFile, flowAt, daysSince, requestsSince, due: [..reasons]}
 function stateOf(folder, now = Date.now()) {
   const h = path.join(folder, '.claude', 'harness');
   if (!fs.existsSync(path.join(h, 'README.md'))) return { installed: false };
   const L = path.join(h, 'learning'), R = path.join(h, 'reviews');
-  const key = [path.join(L, 'pending.json'), path.join(L, 'usage.json'), path.join(L, 'health-baseline.json'), R].map(mtime).join('|');
+  const key = [path.join(L, 'pending.json'), path.join(L, 'usage.json'), path.join(L, 'health-baseline.json'), R, path.join(h, 'flow.html'), path.join(h, 'flow.md')].map(mtime).join('|');
   const c = cache.get(folder);
   if (c && c.key === key && now - c.at < 600000) return c.data;
   const p = readJson(path.join(L, 'pending.json'));
@@ -43,7 +43,9 @@ function stateOf(folder, now = Date.now()) {
   if (daysSince != null && daysSince >= DAYS_DUE) due.push('距上次健檢 ' + daysSince + ' 天');
   if (requestsSince != null && requestsSince >= REQUESTS_DUE) due.push('距上次健檢已 ' + requestsSince + ' 次對話');
   if (!last) due.push('還沒做過健檢');
-  const data = { installed: true, pending, pendingCount: pending.length, lastReview: last, reviewFile: last ? path.join(R, last + '.md') : '', daysSince, requestsSince, due };
+  // the chart page (flow.html of three pictures), or the table written where there is no archify (flow.md)
+  let flowFile = '', flowAt = 0; for (const n of ['flow.html', 'flow.md']) { try { const p = path.join(h, n), st = fs.statSync(p); if (st.isFile()) { flowFile = p; flowAt = Math.round(st.mtimeMs); break; } } catch (e) {} }
+  const data = { installed: true, flowFile, flowAt, pending, pendingCount: pending.length, lastReview: last, reviewFile: last ? path.join(R, last + '.md') : '', daysSince, requestsSince, due };
   cache.set(folder, { key, at: now, data });
   return data;
 }

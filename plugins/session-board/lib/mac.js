@@ -4,7 +4,7 @@
 // Each function takes o.run (an execFile stand-in) so it can be checked on any computer.
 //   terminal    a conversation opened in Terminal.app: a small .command file (cd, claude --resume, then a shell stays),
 //               opened with `open -a Terminal`
-//   focus       the Terminal tab whose tty is the session's (ps -o tty=), brought to the front
+//   focus       the Terminal tab whose tty is the session's (ps -o tty=), brought to the front; its window closed after it ended
 //   notify      a notification from Notification Center (display notification)
 //   folder      the system's "choose folder" window
 //   reveal/open Finder (open -R) and the default program (open)
@@ -60,6 +60,30 @@ async function focus(pid, o) {
   // the script selects the tab, puts its window first and activates Terminal: found is in front (the page reads
   // {state:'hit'} without focused as "found but not brought forward", which is only a Windows case)
   return r.ok && /hit/.test(r.out) ? { state: 'hit', focused: true } : { state: 'miss', error: r.ok ? '找不到它的 Terminal 分頁' : r.err.slice(0, 200) };
+}
+
+// Its tab, without touching it: the tty is what it is closed by afterwards (looked up while its process is still there).
+async function find(pid, o) {
+  const tty = pid ? await ttyOf(pid, o) : '';
+  if (!tty) return { state: 'miss' };
+  const r = await osa(['on run argv', 'tell application "Terminal"', 'repeat with w in windows', 'repeat with t in tabs of w', 'if tty of t is (item 1 of argv) then return "hit"', 'end repeat', 'end repeat', 'end tell', 'return "miss"', 'end run'], [tty], o);
+  return r.ok && /hit/.test(r.out) ? { state: 'hit', hwnd: tty } : { state: 'miss', error: r.ok ? '' : r.err.slice(0, 200) };
+}
+// Closes the Terminal window a session was in, once its process has ended - only when that window has no other tab and
+// nothing runs in this one any more (its shell coming back takes a moment: asked a few times). The tab is told by its tty.
+// -> {state: 'closed'} | {state: 'left', why: 'tabs' | 'busy' | 'gone' | 'error'}
+async function closeWindow(tty, o = {}) {
+  if (!/^\/dev\/tty[a-z0-9]+$/i.test(String(tty))) return { state: 'left', why: 'gone' };
+  let last = 'busy';
+  for (let i = 0; i < (o.tries || 5); i++) {
+    if (i) await new Promise((r) => setTimeout(r, o.waitMs === undefined ? 500 : o.waitMs));
+    const r = await osa(['on run argv', 'tell application "Terminal"', 'repeat with w in windows', 'repeat with t in tabs of w', 'if tty of t is (item 1 of argv) then',
+      'if (count of tabs of w) > 1 then return "tabs"', 'if busy of t then return "busy"', 'close w saving no', 'return "closed"', 'end if',
+      'end repeat', 'end repeat', 'end tell', 'return "gone"', 'end run'], [tty], o);
+    if (!r.ok) return { state: 'left', why: 'error', error: r.err.slice(0, 200) };
+    last = r.out.trim(); if (last !== 'busy') break;
+  }
+  return last === 'closed' ? { state: 'closed' } : { state: 'left', why: /^(tabs|busy|gone)$/.test(last) ? last : 'error' };
 }
 
 async function notify(title, text, o) { return osa(['on run argv', 'display notification (item 2 of argv) with title (item 1 of argv)', 'end run'], [String(title).slice(0, 200), String(text).slice(0, 400)], o); }
@@ -131,4 +155,4 @@ function setAgent(k, on, startJs, o = {}) {
 }
 const agentOn = (k) => fs.existsSync(agentFile(k));
 
-module.exports = { launcherText, writeLauncher, openTerminal, ttyOf, focus, notify, pickFolder, openFile, reveal, commandLines, soffice, convertOffice, plist, setAgent, agentOn, agentFile, LABEL };
+module.exports = { launcherText, writeLauncher, openTerminal, ttyOf, focus, find, closeWindow, notify, pickFolder, openFile, reveal, commandLines, soffice, convertOffice, plist, setAgent, agentOn, agentFile, LABEL };

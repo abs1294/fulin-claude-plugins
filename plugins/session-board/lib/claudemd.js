@@ -143,6 +143,16 @@ function sections(text) {
   out.forEach((s, k) => { let e = lines.length; for (let j = k + 1; j < out.length; j++) if (out[j].level <= s.level || s.level === 0) { e = out[j].start; break; } s.end = e; });
   return out;
 }
+// Lines from..to (0-based, end exclusive) of a file as one piece that is in it once: the lines beside it are taken in
+// until it is (a rule may be there twice). orig: what the page showed there - other than what is there now: null
+function piece(text, from, to, orig) {
+  const t = String(text).replace(/\r\n/g, '\n'), lines = t.split('\n');
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to <= from || to > lines.length) return null;
+  const at = () => lines.slice(from, to).join('\n');
+  if (at() !== orig || !orig.trim()) return null;
+  while (t.indexOf(at()) !== t.lastIndexOf(at()) && (from > 0 || to < lines.length)) { if (from > 0) from--; if (to < lines.length) to++; }
+  return { before: at(), from, to };
+}
 const sectionText = (text, s) => String(text).split(/\r?\n/).slice(s.start, s.end).join('\n').replace(/\n+$/, '');
 
 // ── which files, for a folder (cwd) or for every folder (cwd '') ──
@@ -410,12 +420,14 @@ function askPrompt(list, st, question, o = {}) {
     material(list, o.others),
   ].filter((l) => l !== '').join('\n');
 }
-function tweakPrompt(f, before, instruction, list) {
+// picked: the words selected on the page, when a part was selected (before: the whole lines they are in)
+function tweakPrompt(f, before, instruction, list, picked) {
   return [
     '你要照使用者的一句指示，改寫 Claude Code 指令檔裡的一段。',
     ...RULES,
     '要改的檔：' + f.abs + '（' + f.label + '）',
     '=== 要改的那一段（原文）===', before,
+    ...(picked ? ['=== 使用者在畫面上框選的字（排版後的樣子，沒有 markdown 記號）===', picked, '只改框選到的地方；同幾行裡沒有框選到的字，一字不動照抄。'] : []),
     '=== 使用者的指示 ===', instruction,
     '',
     '規則：只改這一段；指示沒提到的內容保持原樣（措辭、格式、標題、清單符號）；改寫要具體、可執行，寫給 Claude 看；不要加說明自己改了什麼的字句；和其他檔已經寫的不要重複或矛盾（其他檔附在後面）。',
@@ -502,4 +514,4 @@ function undo(abs, dir) {
 // the sha of a file's bytes as they are now, or null
 function fileSha(abs) { try { return sha(fs.readFileSync(fs.realpathSync.native(abs))); } catch (e) { return null; } }
 
-module.exports = { loadedFile, layers, check, sections, sectionText, importsOf, prose, scopeOf, tokens, pathLike, commandNames, gitState, diff, evalPrompt, askPrompt, tweakPrompt, readEval, readEdit, jsonIn, apply, undo, backups, sha, fileSha, isUtf8, low, LONG_LINES, QUESTION_MAX, TIME_LIMIT_MS, MANAGED, BUILTIN };
+module.exports = { piece, loadedFile, layers, check, sections, sectionText, importsOf, prose, scopeOf, tokens, pathLike, commandNames, gitState, diff, evalPrompt, askPrompt, tweakPrompt, readEval, readEdit, jsonIn, apply, undo, backups, sha, fileSha, isUtf8, low, LONG_LINES, QUESTION_MAX, TIME_LIMIT_MS, MANAGED, BUILTIN };

@@ -9,5 +9,5 @@ const gmail = byId('gmail'), teams = byId('teams'), slack = byId('slack');
 
 module.exports = { list, ids, byId,
   // by name, for the callers that mean one source in particular (handing over a mail's attachments, the tests)
-  safeName: gmail.safeName, gmailAttachments: gmail.gmailAttachments, pollGmail: gmail.pollGmail, gmailConfigured: gmail.gmailConfigured, gmailBody: gmail.gmailBody, ReauthError: gmail.ReauthError,
+  safeName: gmail.safeName, gmailReader: gmail.gmailReader, gmailAttachments: gmail.gmailAttachments, pollGmail: gmail.pollGmail, gmailConfigured: gmail.gmailConfigured, gmailBody: gmail.gmailBody, ReauthError: gmail.ReauthError,
   pollSlack: slack.pollSlack, pollTeams: teams.pollTeams, guessTeamsSelf: teams.guessTeamsSelf };

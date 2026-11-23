@@ -49,6 +49,7 @@ function keepMost(had, now) {
   const out = Object.assign({}, had, { rescannedAt: now.computedAt });
   if (Array.isArray(now.roles) && now.roles.length && !(Array.isArray(had.roles) && had.roles.length && !had.rolesCover)) { out.roles = now.roles; out.rolesCover = b; }
   else if (!Array.isArray(had.roles)) { out.roles = []; out.rolesCover = 0; }   // looked for, none to be had: not asked for again
+  if (had.slice === undefined) out.slice = null;   // each day's part: no longer to be had whole, not asked for again
   return out;
 }
 
@@ -108,10 +109,10 @@ class Monthly {
     return true;
   }
 
-  // The months on record that were written before there were per-role figures get them: scanned again, once each,
+  // The months on record that were written before there were per-role figures (or each day's part) get them: scanned again, once each,
   // one after another. Called at start. -> the months asked for
   async addRoles() {
-    const todo = this.stored().map((m) => m.month).filter((ym) => { const d = this._disk(ym); return d && !Array.isArray(d.roles); });
+    const todo = this.stored().map((m) => m.month).filter((ym) => { const d = this._disk(ym); return d && (!Array.isArray(d.roles) || d.slice === undefined); });
     for (const ym of todo) { try { await this.get(ym, true); } catch (e) {} }
     return todo;
   }

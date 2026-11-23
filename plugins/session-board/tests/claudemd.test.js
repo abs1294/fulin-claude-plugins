@@ -6,6 +6,23 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const test = require('node:test');
+test('the lines a selection is in: as the page showed them, and a piece that is there once', () => {
+  const { piece } = require('../lib/claudemd');
+  const t = 'a\r\n- x\r\n\r\nb\r\n- x\r\nc';
+  require('node:assert').deepStrictEqual(piece(t, 0, 1, 'a'), { before: 'a', from: 0, to: 1 });
+  require('node:assert').deepStrictEqual(piece(t, 4, 5, '- x'), { before: 'b\n- x\nc', from: 3, to: 6 }, 'there twice: the lines beside it are taken in');
+  require('node:assert').deepStrictEqual(piece('x\nx', 0, 1, 'x'), { before: 'x\nx', from: 0, to: 2 });
+  for (const a of [[0, 1, 'b'], [2, 3, ''], [5, 9, 'c'], [1, 1, ''], [1.5, 2, 'x'], [undefined, 1, 'a']]) require('node:assert').strictEqual(piece(t, ...a), null);
+});
+test('the page\'s pieces of a file: every line with words in exactly one, the same as md() makes of the whole', () => {
+  const assert = require('node:assert'), src = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const a = src.indexOf('function cmBlocks('), z = src.indexOf('\n}\n', a) + 3, cmBlocks = new Function(src.slice(a, z) + '; return cmBlocks;')();
+  const text = ['---', 'paths: x', '---', '# T', 'para 1', 'para 2', '', '- a', '  more of a', '- b', '  - c', '1. one', '2. two', '   more', '', '```js', '# not a heading', '', '- not a bullet', '```', '| h | i |', '|---|---|', '| 1 | 2 |', 'after', '---', '```', 'never closed', ''];
+  const B = cmBlocks(text); const seen = text.map(() => 0); for (const b of B) for (let i = b.from; i < b.to; i++) seen[i]++;
+  text.forEach((l, i) => { if (l.trim()) assert.strictEqual(seen[i], 1, i + ' ' + l); else assert.ok(seen[i] <= 1); });
+  assert.deepStrictEqual(B.map((b) => [b.from, b.to]), [[0, 1], [1, 2], [2, 3], [3, 4], [4, 6], [7, 9], [9, 10], [10, 11], [11, 14], [15, 20], [20, 23], [23, 24], [24, 25], [25, 28]]);
+  assert.deepStrictEqual(cmBlocks(['', ' ']), []);
+});
 const assert = require('node:assert');
 const C = require('../lib/claudemd');
 

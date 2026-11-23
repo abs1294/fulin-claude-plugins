@@ -37,6 +37,7 @@ const { Channels } = require('./lib/chat');
 const W = require('./lib/warroom');
 const F = require('./lib/files');
 const { sessionStats } = require('./lib/stats');
+const { limitFor } = require('./lib/ctxlimit');
 const config = require('./lib/config');
 const { readQuota } = require('./lib/quota');
 const { Monthly, ymOf } = require('./lib/monthly');
@@ -72,6 +73,12 @@ const CM = require('./lib/claudemd');
 const SkillWish = require('./lib/skillwish');
 const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
+const Digest = require('./lib/digest');
+const { LocalWeb } = require('./lib/localweb');
+const { SaidIndex } = require('./lib/saidindex');
+const RecFill = require('./lib/recfill');
+const { Daily, sentByBoard, notYours, TIME_MS: DAILY_MS } = require('./lib/daily');
+const { LoadDraw, LOOK_MS, DRAW_MS, TOOLS: DRAW_TOOLS } = require('./lib/loaddraw');
 const Rewind = require('./lib/rewind');
 const rewinding = new Set();   // the board conversations being carried on from an edited message right now (/api/rewind)
 const { Auto, newer } = require('./lib/auto');
@@ -334,8 +341,16 @@ function powershell(script, args, timeout) {
   });
 }
 
+const HELD_MS = 10 * 60000;   // a page still holding pictures says so every minute (one in the background: every few)
+// why a window is still there after its session ended, in words
+function leftNote(r, mac = MAC) {
+  if (r.state === 'closed') return '終端機視窗裡還有其他分頁，Windows Terminal 會問你要不要一起關';
+  if (!mac) return r.state === 'miss' ? '找不到它的終端機視窗，所以沒有關視窗' : '終端機視窗沒有關成功，請自己關';
+  return r.why === 'tabs' ? '那個 Terminal 視窗還有其他分頁，所以留著' : r.why === 'busy' ? '那個分頁還有別的程式在跑，所以留著' : r.why === 'gone' ? '那個 Terminal 分頁已經不在了'
+    : r.why === 'error' ? 'macOS 沒有讓看板控制 Terminal（系統設定 → 隱私權與安全性 → 自動化），視窗請自己關' : '原本的視窗請自己關（它不是開在內建的 Terminal，或 macOS 還沒允許看板控制 Terminal）';
+}
 async function closeWindow(hwnd) {
-  if (MAC) return { state: 'error', error: 'mac: the Terminal tab is left open' };
+  if (MAC) return Mac.closeWindow(hwnd);
   const r = await powershell('focus-window.ps1', ['-Mode', 'close', '-Hwnd', String(hwnd)], 15000);
   try { return JSON.parse(r.line); } catch (e) { return { state: 'error', error: 'no result' }; }
 }
@@ -343,8 +358,8 @@ async function closeWindow(hwnd) {
 // mode: 'focus' brings the window to the front; 'find' only reports its handle.
 // pid: the window is looked up through that process's console first (both modes); titles are then only the fallback.
 async function focusWindow(titles, mode = 'focus', pid = 0) {
-  // a Mac: the Terminal tab of that process (found by its tty); 'find' has nothing to close afterwards, so it is a miss
-  if (MAC) return mode === 'find' ? { state: 'miss' } : Mac.focus(pid);
+  // a Mac: the Terminal tab of that process (found by its tty)
+  if (MAC) return mode === 'find' ? Mac.find(pid) : Mac.focus(pid);
   const payload = Buffer.from(JSON.stringify({ titles: titles || [] }), 'utf8').toString('base64');
   const r = await powershell('focus-window.ps1', ['-Payload', payload, '-Mode', mode].concat(pid ? ['-ProcId', String(pid)] : []), 15000);
   try { return JSON.parse(r.line); }
@@ -379,6 +394,12 @@ function terminalArgs(sid, cwd, hasTranscript, command, dir = path.join(DATA_DIR
 const CONTINUE_PROMPT = '（看板自動送出）這個 session 上次是在工作進行到一半時被中斷的（電腦關機、重開機或程序被結束）。請先確認剛才做到哪裡，再接著把被中斷的工作做完。';
 // No windowsHide: it is passed on as "start hidden", and the new terminal
 // window then exists but cannot be seen (measured 2026-11-12).
+// a page of claude.ai (lib/chat.js onArtifact), in this computer's own browser
+function openUrl(url) {
+  if (!/^https:\/\/claude\.ai\/[\w\/-]+$/.test(url)) return;
+  const [bin, args] = MAC ? ['open', [url]] : process.platform === 'win32' ? ['rundll32.exe', ['url.dll,FileProtocolHandler', url]] : ['xdg-open', [url]];
+  spawn(bin, args, { detached: true, stdio: 'ignore', windowsHide: true }).on('error', () => {}).unref();
+}
 function openTerminal(args) {
   if (args && args.mac) return Mac.openTerminal(args.mac);
   spawn('wt.exe', args, { detached: true, stdio: 'ignore', env: K.cleanEnv(process.env) }).on('error', () => {}).unref();
@@ -403,7 +424,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Everything the server does outside its own process. A test hands in its own (deps.out) so that no window is opened,
 // no program started, nothing written to the registry and no process ended while the routes are exercised.
-const REAL_OUT = { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify,
+const REAL_OUT = { openUrl, focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify,
   kill: (pid) => process.kill(pid), exit: (code) => process.exit(code), gitRun: execFile, btw: (sid, cwd, question) => Aside.ask(sid, cwd, question, { env: K.cleanEnv(process.env) }), explain: (cwd, prompt, o) => Aside.explain(cwd, prompt, Object.assign({ env: K.cleanEnv(process.env) }, o)), wishRun: (args, cwd, prompt, o) => Aside.runWith(args, cwd, prompt, Object.assign({ env: K.cleanEnv(process.env) }, o)), pluginInstall: (folder, items) => PluginFit.apply(folder, items), shell: (command, cwd) => Shell.run(command, cwd) };
 
 // The next steps a conversation can be given from the board: a plugin's own command, sent into it. Offered only when
@@ -427,7 +448,7 @@ const nextSteps = (inst, folder) => NEXT.filter((n) => installedFor(inst, n.plug
 
 function createServer(token, port, deps = {}) {
   // eslint-disable-next-line no-shadow
-  const { focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside, explain: explainAside, wishRun, pluginInstall } = Object.assign({}, REAL_OUT, deps.out);
+  const { openUrl: openWeb, focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside, explain: explainAside, wishRun, pluginInstall } = Object.assign({}, REAL_OUT, deps.out);
   const allowedHosts = new Set([`${HOST}:${port}`, `localhost:${port}`]);
   // Who may talk to the board at all: this computer, and - when reaching it through Tailscale is switched on - only the
   // devices of your own Tailscale account (lib/remote.js). Checked before anything else, the key after it.
@@ -490,17 +511,20 @@ function createServer(token, port, deps = {}) {
   const PREFS = {
     sidebarCollapsed: { def: false, ok: isBool, why: '只能是開或關' },        // the left column folded away
     sidebarWidth: { def: 324, ok: (v) => Number.isInteger(v) && v >= 240 && v <= 640, why: '要是 240 到 640 的整數（像素）' },   // the left column's width, dragged at its edge
+    // the places at the top of the left column, in the order you put them (names the page knows; the ones not named come after)
+    navOrder: { def: [], ok: (v) => Array.isArray(v) && v.length <= 12 && new Set(v).size === v.length && v.every((x) => typeof x === 'string' && /^[a-z]{2,12}$/.test(x)), why: '要是左欄項目的清單' },
     sidebarShortcut: { def: true, ok: isBool, why: '只能是開或關' },          // Ctrl+B folds / unfolds it
     officeFavorites: { def: [], ok: isPaths, why: '要是資料夾路徑的清單' },    // rooms starred: shown first
     officeOrder: { def: [], ok: isPaths, why: '要是資料夾路徑的清單' },        // the order rooms were dragged into
     officeCollapseOthers: { def: false, ok: isBool, why: '只能是開或關' },    // the rooms that are not starred folded up
-    hideProgramSessions: { def: false, ok: isBool, why: '只能是開或關' },     // sessions a program started (not you) kept out of the lists
+    hideProgramSessions: { def: true, ok: isBool, why: '只能是開或關' },     // sessions a program started (not you) kept out of the lists
     hideProgramFolders: { def: [], ok: isPaths, why: '要是資料夾路徑的清單' }, // and every session in these folders
     // collaborations: the name each member is given ({id} the collaboration, {short} the member's short name; empty =
     // the one in collab/config.json), and whether board conversations are switched to bypass when they join
     collabNamePattern: { def: '', ok: (v) => typeof v === 'string' && v.length <= 60 && !/[\r\n]/.test(v) && (v === '' || v.includes('{id}')), why: '要包含 {id}，60 字以內、一行' },
     collabBypass: { def: true, ok: isBool, why: '只能是開或關' },
     // the look (外觀 A-D), one for a phone and one for everything else; '' = not chosen: a phone D, the rest B
+    loadIcon: { def: 'animals', ok: (v) => ['animals', 'fox', 'blob', 'mine'].includes(v), why: '沒有這套圖示' },   // what moves while something is awaited (public/load; 'mine': drawn by Claude for you, lib/loaddraw.js)
     skin: { def: '', ok: (v) => ['', 'a', 'b', 'c', 'd'].includes(v), why: '只能是 a、b、c、d 或空白（用預設）' },
     skinPhone: { def: '', ok: (v) => ['', 'a', 'b', 'c', 'd'].includes(v), why: '只能是 a、b、c、d 或空白（用預設）' },
     // what is said into the microphone is tidied by Claude before it stays in the box (lib/tidy.js); off = the words as heard
@@ -525,33 +549,55 @@ function createServer(token, port, deps = {}) {
     if (!add.length) return;
     config.setValue('boardStarted', [...known, ...add].slice(-5000));
   };
-  // Started by a program, not by you: an entrypoint other than a terminal window's ('cli'), and not one of the board's
-  // own conversations (remembered since 0.4.0, or - for older ones - recognised by their first message being content
-  // blocks, the form the board sends; a program's `claude -p "..."` records a plain string), nor one you named here -
-  // or in a folder named in hideProgramFolders.
+  // Opened by the LINE secretary to do what you asked it (asked 2026-11-23: 不是我開的不應該顯示): on no list, no notice - what
+  // comes of it is told in LINE (lib/line.js follow). Written to on the page, it is yours from then on.
+  const bySecretary = () => new Set(Array.isArray(config.value('lineSessions', [])) ? config.value('lineSessions', []) : []);
+  const setSecretary = (sid, on) => { const was = bySecretary(); if (was.has(sid) === on) return; if (on) was.add(sid); else was.delete(sid); config.setValue('lineSessions', [...was].slice(-500)); };
+  // Which conversations the board opened by itself, and for what: 'schedule' (name: which), 'health' (the automatic
+  // harness check), 'line' (the secretary). Said on their row in the left column (asked 2026-11-23: 看板替你開的，左邊側邊欄要標註).
+  // Kept after they end: opened again later, it is still so.
+  const openedBy = () => { const v = config.value('openedBy', {}); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; };
+  const noteOpened = (sid, by, name, at = Date.now()) => { const v = openedBy(); if (!sid || v[sid]) return; v[sid] = { by, name: String(name || '').slice(0, 80), at }; config.setValue('openedBy', Object.fromEntries(Object.entries(v).slice(-2000))); };
+  // Started by a program, not by you (byProgram): not one of the board's own conversations (remembered since 0.4.0), nor one
+  // you named here - or in a folder named in hideProgramFolders.
   const inFolders = (cwd, list) => { const f = path.normalize(String(cwd || '')).toLowerCase(); return !!cwd && list.some((x) => { const d = path.normalize(x).toLowerCase(); return f === d || f.startsWith(d + path.sep); }); };
   // The board itself runs `claude -p` (entrypoint sdk-cli, measured). Anything started through the Agent SDK
   // (sdk-ts, sdk-py: claude-mem sets CLAUDE_CODE_ENTRYPOINT="sdk-ts" in its worker) is a program's whatever form its
   // messages take - the SDK sends content blocks too, so the first-message test would let it through.
   const SDK_ONLY = /^sdk-(ts|py)$/;
-  const byProgram = (sid, entry, known, blocks) => !!entry && entry !== 'cli' && entry !== 'board' && !known.has(sid) && !Object.prototype.hasOwnProperty.call(customTitles(), sid) && (SDK_ONLY.test(entry) || !blocks);
+  // Told by what Claude Code itself records, not by which program it was (measured 2026-11-23, six ways of starting one, also
+  // from a hook or a Bash tool with the terminal's CLAUDE_CODE_ENTRYPOINT in its environment): how it was started is never
+  // 'cli' ('cli' anywhere: you opened it in a terminal, also one a program began). Where that was not recorded: first words
+  // that came from 'sdk', not typed, or one that is open without a window.
+  // Content blocks speak for a conversation only where the board did not remember its own yet: last said something in
+  // before BLOCKS_UNTIL (0.4.0 was 2026-11-18) and not open now. Any program's blocks were let through by that until then.
+  // What runs in claude-mem's folder is its own, whatever is recorded.
+  const BLOCKS_UNTIL = Date.UTC(2026, 10, 21), MEM = /[\\/]\.claude-mem[\\/]/i;
+  // x: {sid, entry, src, blocks, at (when it was last written to; now for one that is open), cwd, bare: no window of its own and nothing recorded}
+  const byProgram = (x, known) => {
+    if (known.has(x.sid) || x.entry === 'board') return false;
+    if (MEM.test(String(x.cwd || '') + '/')) return true;
+    if (Object.prototype.hasOwnProperty.call(customTitles(), x.sid)) return false;
+    if (x.entry ? x.entry === 'cli' : x.src !== 'sdk' && !x.bare) return false;
+    return SDK_ONLY.test(x.entry || '') || !x.blocks || !(x.at < BLOCKS_UNTIL);
+  };
+  const pastProgram = (d, known) => byProgram({ sid: d.sessionId, entry: d.entry, src: d.src, blocks: d.blocks, at: d.at, cwd: d.cwd }, known);
   // hideProgramFolders is its own rule ("一律不列出"): it hides whatever is in those folders, whether or not
   // hideProgramSessions is on.
   const inHiddenFolder = (cwd) => inFolders(cwd, pref('hideProgramFolders'));
-  // Whether a conversation's first message was content blocks (the form the board sends): it never changes once it is
-  // written, so it is read once per session - not on every poll, while the conversation keeps growing.
-  const firstForm = new Map();   // transcript file -> true | false (only once a first message was found)
+  // Where a conversation's first words came from ('typed', 'queued', 'sdk', '' not recorded): it never changes once they
+  // are written, so it is read once per transcript - not on every poll, while the conversation keeps growing.
   // Kept by transcript file, not by session id alone: a session that comes to be written to another file (moved to
   // another folder) is read again from that file.
-  const firstIsBlocks = (sid, cwd) => {
+  const firstSrc = new Map();   // transcript file -> source (only once a first message was found)
+  const firstSource = (sid, cwd) => {
     let f = null; try { f = S.findTranscript(sid, cwd, S.DEFAULTS.projectsDir); } catch (e) {}
-    if (!f) return false;
-    if (firstForm.has(f)) return firstForm.get(f);
-    let v = null;
-    try { const e = Past.ends(f); if (typeof e.blocks === 'boolean') v = e.blocks; } catch (e) {}
-    if (v === null) return false;   // nothing written yet: asked again next time
-    firstForm.set(f, v); if (firstForm.size > 2000) firstForm.delete(firstForm.keys().next().value);
-    return v;
+    if (!f) return '';
+    if (firstSrc.has(f)) return firstSrc.get(f);
+    let e = null; try { e = Past.ends(f); } catch (x) {}
+    if (!e || typeof e.blocks !== 'boolean') return '';   // nothing written yet: asked again next time
+    firstSrc.set(f, e.src || ''); if (firstSrc.size > 2000) firstSrc.delete(firstSrc.keys().next().value);
+    return e.src || '';
   };
   const autoHideDays = () => { const v = config.value('autoHideDays', 7); return Number.isInteger(v) && v >= 0 && v <= 365 ? v : 7; };
   // One fixed question to a small model about a text (lib/decide.js): "is something left undone?" for the goal2 next step, and
@@ -809,12 +855,12 @@ function createServer(token, port, deps = {}) {
       const pidAlive = (pid) => !channels.deadPids.has(pid) && S.pidAlive(pid);
       noteBoardStarted(views.map((v) => v.sessionId));
       const list = S.buildSessions({ channels: views, pidAlive, titles: config.value('movedTitles', {}), customTitles: customTitles() }, now);
-      const known = boardStarted(), hideProg = pref('hideProgramSessions');
+      const known = boardStarted(), hideProg = pref('hideProgramSessions'), sec = bySecretary(), opened = openedBy();
       for (const s of list) {
+        if (sec.has(s.sessionId)) { s.secretary = true; s.programHidden = true; }
         if (inHiddenFolder(s.cwd)) { s.folderHidden = true; s.programHidden = true; }
         if (s.owner === 'board') continue;
-        let blocks = false; if (s.entrypoint && s.entrypoint !== 'cli') blocks = firstIsBlocks(s.sessionId, s.cwd);
-        if (byProgram(s.sessionId, s.entrypoint, known, blocks)) { s.byProgram = true; if (hideProg) s.programHidden = true; }
+        if (byProgram({ sid: s.sessionId, entry: s.entrypoint, src: s.entrypoint ? '' : firstSource(s.sessionId, s.cwd), blocks: false, at: now, cwd: s.cwd, bare: s.headless && !s.parked && !s.entrypoint }, known)) { s.byProgram = true; if (hideProg) s.programHidden = true; }
       }
       if (keeper) for (const s of list) if (keepable(s)) s.kept = keeper.isKept(s.sessionId);
       for (const s of list) if (s.cwd) s.next = nextFor(s.cwd);
@@ -824,15 +870,17 @@ function createServer(token, port, deps = {}) {
         // When anything was last written to its transcript: what "busy, but nothing has happened for a while" is told by.
         try { const f = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir); if (f) s.activeAt = Math.round(fs.statSync(f).mtimeMs); } catch (e) {}
         // Opened but nothing sent yet: the page keeps it out of every list (it is shown only to the one typing in it).
-        if (s.owner === 'board' && channels.isEmpty) { const c = channels.get(s.sessionId); if (c && channels.isEmpty(c)) s.notStarted = true; if (c && c.draft) { s.draft = c.draft; if (!c.title) s.title = '草稿：' + c.draft.replace(/\s+/g, ' ').trim().slice(0, 40); } }
+        if (s.owner === 'board' && channels.isEmpty) { const c = channels.get(s.sessionId); if (c && channels.isEmpty(c)) s.notStarted = true; if (c && c.draft) { s.draft = c.draft; if (!c.title) s.title = '草稿：' + c.draft.replace(/\s+/g, ' ').trim().slice(0, 40); } if (c && c.stash) { s.stash = c.stash; if (!c.title && !c.draft) s.title = '暫存：' + c.stash.replace(/\s+/g, ' ').trim().slice(0, 40); } const hn = c && channels.held ? channels.held(c) : 0; if (hn) { s.held = hn; if (!c.title && !c.draft && !c.stash) s.title = '還沒送出：' + hn + ' 個附件'; } }
         if (s.owner === 'board') { const c = channels.get(s.sessionId); if (c && c.agent) s.agent = c.agent; }   // the role it runs as
         // Whether it asks before acting: what its process said (after the first message), else what it will be started with.
         if (s.owner === 'board') { const c = channels.get(s.sessionId); if (c) { s.mode = c.skipPermissions ? 'bypassPermissions' : c.mode || ''; if (!s.mode) s.modeDefault = defaultMode(); s.model = c.model || ''; s.effort = c.effort || ''; s.modelSeen = c.modelSeen || ''; } }
         if (hidden.has(s.sessionId)) s.hidden = true;
         // When you last said something in it: what the left list is ordered by (lib/past.js saidAtOf; after the first look only what was added to the transcript is read).
-        try { const f = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir); if (f) s.saidAt = Past.saidAtOf(f); } catch (e) {}
-        // The line under the name: the latest thing you said. The status line's
-        // record of it where there is one, else the end of the transcript.
+        try { const f = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir); if (f) { const d = Past.saidOf(f); s.saidAt = d.at; if (d.text) s.lastUser = d.text; } } catch (e) {}
+        // opened by the board itself; nothing said in it since but what it was opened with: those words are not yours
+        { const o = opened[s.sessionId] || (s.secretary ? { by: 'line' } : null); if (o && o.by) { s.openedBy = { by: o.by, name: o.name || '', at: o.at || 0 }; if (s.saidAt && Math.abs(s.saidAt - o.at) < 60000) s.saidByBoard = true; } }
+        // The line under the name: the latest thing you said - from the transcript (above), the same reading as when you
+        // said it. The status line's record only where the transcript gives none: it misses some (2026-11-23).
         // (The status line also records what Claude Code put in your place, e.g. <task-notification>: not something you said.)
         // Nothing new in it for a number of days (a setting; 7 unless changed, 0 = never): it leaves the list by itself.
         // "New" is anything written to its transcript, anything you said, a change of its state - or your putting it
@@ -841,7 +889,7 @@ function createServer(token, port, deps = {}) {
           const last = Math.max(s.activeAt || 0, s.saidAt || 0, s.since || 0, Number(shownAt[s.sessionId]) || 0);
           if (last && now - last > quietDays * 86400000) { s.hidden = true; s.autoHidden = Math.floor((now - last) / 86400000); }
         }
-        if (!s.lastUser || /^\s*</.test(s.lastUser)) { try { s.lastUser = Past.lastSaid(S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir)); } catch (e) {} }
+        if (/^\s*</.test(s.lastUser || '')) s.lastUser = '';
       }
       cache = { at: now, list };
       try { trackCollabNames(list); } catch (e) {}   // a collaboration member whose name changed: ledger and the others told (after the list is kept: telling a member asks for it)
@@ -909,7 +957,7 @@ function createServer(token, port, deps = {}) {
     setInterval(() => monthly.ensurePrevious(), 6 * 3600000).unref();
   }
   const monthly = deps.monthly || new Monthly();
-  const statsExtra = (sid) => ({ windows: channels.modelWindows, boardUsage: channels.get(sid) });
+  const statsExtra = (sid, cwd) => ({ windows: channels.modelWindows, boardUsage: channels.get(sid), limit: (model) => limitFor(cwd, model) });
   const quota = () => readQuota([channels.quotaSnap]);
 
   // ── schedules: what the runner needs from the board ──
@@ -1141,8 +1189,10 @@ function createServer(token, port, deps = {}) {
   const notices = deps.notices || new Notices();
   const titleOf = (sid, fallback) => { try { fresh(); const s = sessions().find((x) => x.sessionId === sid); return (s && s.title) || fallback || ''; } catch (e) { return fallback || ''; } };
   // 1. Conversations the board runs: told by lib/chat.js the moment their state changes or they are taken off.
-  channels.onStatus = (c, from, to) => { if (channels.isEmpty && channels.isEmpty(c)) return; notices.status({ sessionId: c.sessionId, title: c.title || '新對話' }, from, to); };
+  channels.onStatus = (c, from, to) => { if (bySecretary().has(c.sessionId)) return; if (channels.isEmpty && channels.isEmpty(c)) return; notices.status({ sessionId: c.sessionId, title: c.title || '新對話' }, from, to); };
   channels.onGone = (sid) => { notices.gone(sid); };
+  // an Artifact published: opened here when what asked for it was said on this computer; on another device its page opens it
+  channels.onArtifact = (c, a) => { if (c.fromHere === true) openWeb(a.url); };
   // 2. Sessions in a terminal: Claude Code rewrites ~/.claude/sessions/<pid>.json whenever one changes state and
   // removes it when the session ends. The folder is watched: Windows reports each write as it happens (measured
   // 2026-11-16: new -> idle -> busy -> idle of one short turn, each within the same second). No timer looks at it.
@@ -1180,7 +1230,41 @@ function createServer(token, port, deps = {}) {
     const b64 = (x) => Buffer.from(String(x), 'utf8').toString('base64');
     try { spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(__dirname, 'scripts', 'toast.ps1'), '-TitleB64', b64(title), '-MsgB64', b64(text)], { detached: true, stdio: 'ignore', windowsHide: true }).on('error', () => {}).unref(); } catch (e) {}
   };
-  runner = deps.noSchedules ? null : new Runner(schedules, { goal: goal2, sessions, channels, isDir, peer, peerCheck: deps.peerCheck || peerSeen, takeOver, tell: deps.tell || tell, newId: () => crypto.randomUUID() });
+  // 每天上班統整 (lib/digest.js): put together from the inbox, Gmail, the conversations and git, and pushed over LINE
+  const LineLib = require('./lib/line');
+  const lineUp = () => { try { return (deps.lineConnected || LineLib.connected)(); } catch (e) { return false; } };
+  const ownDigest = () => schedules.list().find((x) => x.target === 'digest') || null;
+  let digestJob = null;
+  const runDigest = () => digestJob || (digestJob = (async () => {
+    if (!lineUp()) return { ok: false, error: 'LINE 還沒有接通（/session-board:line）' };
+    const on = !!inbox && inbox.enabled();
+    let gmail = null; if (on) { try { gmail = await inbox.gmailReader(); } catch (e) { gmail = null; } }
+    fresh();
+    const r = await Digest.build({ inbox: on ? inbox.inbox : null, poll: on ? () => inbox.poll() : null, gmail, ask: deps.digestAsk || LineLib._claudeAsk({}),
+      talks: async (since) => {
+        const open = sessions().filter((s) => !s.programHidden && (s.saidAt || 0) >= since).map((s) => ({ at: s.saidAt, cwd: s.cwd || '', folder: s.folder || '', title: s.title || '', last: s.lastUser || '' }));
+        const past = (await Past.listAsync({ projectsDir: S.DEFAULTS.projectsDir, limit: 120, exclude: new Set(sessions().map((s) => s.sessionId)), hide: (d) => inHiddenFolder(d.cwd) || (pref('hideProgramSessions') && pastProgram(d, boardStarted())), names: customTitles() })).items.filter((x) => x.at >= since).map((x) => ({ at: x.at, cwd: x.cwd, folder: x.folder, title: x.title, last: x.last }));
+        return open.concat(past).sort((a, b) => b.at - a.at);
+      },
+      // yours only: a repository others commit to says nothing about what you did
+      commits: async (folders, since) => { const git = (cwd, a) => new Promise((done) => { try { gitRun('git', ['-C', cwd, ...a], { windowsHide: true, timeout: 8000, encoding: 'utf8' }, (e, out) => done(e ? '' : String(out || ''))); } catch (e) { done(''); } });
+        return (await Promise.all(folders.filter(isDir).map(async (cwd) => {
+          const me = (await git(cwd, ['config', 'user.email'])).trim(); if (!me) return [];
+          const out = await git(cwd, ['log', '--since=' + new Date(since).toISOString(), '--no-merges', '-n', '30', '--fixed-strings', '--author=' + me, '--date=short', '--pretty=%ad %s']);
+          return out.split(/\r?\n/).filter(Boolean).map((t) => ({ folder: path.basename(cwd), text: t }));
+        }))).flat();
+      },
+      waiting: async () => sessions().filter((s) => !s.hidden && !s.programHidden && (s.status === 'waiting' || s.unread)).map((s) => ({ title: String(s.title || '').slice(0, 60), folder: s.folder || '', what: s.status === 'waiting' ? '等你核准或回答' : '做完了，你還沒看' })),
+      schedules: async () => { const end = new Date(); end.setHours(23, 59, 59, 999); return schedules.list().filter((s) => s.enabled && s.target !== 'digest' && s.next && s.next <= end.getTime()).sort((a, b) => a.next - b.next).map((s) => ({ name: s.name, time: new Date(s.next).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false }) })); },
+    });
+    const p = await (deps.linePush || LineLib.push)(r.text);
+    const c = r.counts;
+    return p.ok ? { ok: true, note: '已用 LINE 送出：今天 ' + c.today + '、還沒做 ' + c.rest + '、看起來做完 ' + (c.done + c.answered) + '、對話在等你 ' + c.waiting } : { ok: false, error: p.error };
+  })().finally(() => { digestJob = null; }));
+  if (schedules && schedules.endStale) { try { schedules.endStale(); } catch (e) {} }
+  runner = deps.noSchedules ? null : new Runner(schedules, { digest: deps.digest || runDigest, goal: goal2, sessions, channels, isDir, peer, peerCheck: deps.peerCheck || peerSeen, takeOver, tell: deps.tell || tell, newId: () => crypto.randomUUID(), opened: noteOpened });
+  // those opened before the board kept this (0.20.0): the schedules' own record of their runs says which
+  try { const v = openedBy(), add = schedules.runs(2000).filter((r) => (r.how === 'new' || r.how === 'fork') && r.sessionId && !v[r.sessionId]); if (add.length) config.setValue('openedBy', Object.assign({}, ...add.map((r) => ({ [r.sessionId]: { by: 'schedule', name: String(r.name || '').slice(0, 80), at: r.startedAt } })), v)); } catch (e) {}
   if (runner && !deps.noTimers) { const t = setInterval(() => { runner.tick(); }, 20000); if (t.unref) t.unref(); setTimeout(() => { runner.tick(); }, 4000).unref(); }
   // The working-day calendar of the country chosen (lib/workdays.js), for the schedules that go by working days: looked
   // for once a day, fetched only when
@@ -1247,13 +1331,16 @@ function createServer(token, port, deps = {}) {
       return { ok: !!(pm && pm.checked), error: (pm && pm.error) || '', behind: ((pm && pm.behind) || []).map((b) => ({ name: b.name, from: b.from, to: b.to })), board };
     },
     harnessDue: () => { if (!isOn('harness')) return []; const x = instNow().harness; return x ? [...new Set(x.installs.map((i) => i.project).filter(Boolean))].filter(isDir).map((p) => ({ folder: p, name: path.basename(p), st: Harness.stateOf(p) })).filter((p) => p.st.installed && p.st.due && p.st.due.length) : []; },
-    startReview: async (folder) => { try { const c = channels.create(path.resolve(folder)); const r = channels.send(c.sessionId, '/harness:review'); fresh(); return r && r.ok === false ? r : { ok: true }; } catch (e) { return { ok: false, error: String(e.message || e) }; } },
+    startReview: async (folder) => { try { const c = channels.create(path.resolve(folder)); noteOpened(c.sessionId, 'health', path.basename(folder)); const r = channels.send(c.sessionId, '/harness:review'); fresh(); return r && r.ok === false ? r : { ok: true }; } catch (e) { return { ok: false, error: String(e.message || e) }; } },
     tell: (t, x) => (deps.tell || tell)(t, x),
   });
   if (!deps.noSchedules && !deps.noTimers) { const t = setInterval(() => { auto.tick(); }, 600000); if (t.unref) t.unref(); setTimeout(() => { auto.tick(); }, 90000).unref(); }
   if (dog && !deps.noTimers) { const t = setInterval(() => { dog.tick(); }, 30000); if (t.unref) t.unref(); setTimeout(() => { dog.tick(); }, 15000).unref(); }
   // The ends of every old transcript read once, a little at a time, a minute after starting: the first search (never
   // limited in time) and 「更早的」 then answer from what is remembered instead of reading a thousand files first.
+  // everything said in every conversation, for the search (lib/saidindex.js): looked through a minute and a half after starting, then whenever a search finds it a minute old
+  const saidIndex = deps.saidIndex || new SaidIndex({ dbFile: path.join(path.dirname(config.CONFIG_FILE), 'said.db'), projectsDir: S.DEFAULTS.projectsDir });
+  if (!deps.noTimers) { const t = setTimeout(() => { saidIndex.refresh(); }, 90000); if (t.unref) t.unref(); const h = setInterval(() => { saidIndex.refresh(); }, 15 * 60000); if (h.unref) h.unref(); }
   if (!deps.noTimers) setTimeout(() => { Past.listAsync({ projectsDir: S.DEFAULTS.projectsDir, days: 0, limit: 5000 }).catch(() => {}); }, 60000).unref();
 
   const server = http.createServer(async (req, res) => {
@@ -1275,6 +1362,9 @@ function createServer(token, port, deps = {}) {
       const q = url.searchParams;
 
       if (req.method === 'GET' && (p === '/' || p === '/index.html')) return sendPage(res, page().toString('utf8'));
+      // the pictures shown while something is being read (public/load): nothing of yours, the page's <img> carries no key
+      const lp = /^\/load\/([a-z]{2,10})\/([a-z0-9-]{2,40})\.(webp|svg)$/.exec(p);
+      if (req.method === 'GET' && lp) { const drawn = lp[1] === 'mine' || lp[1] === 'draft'; let b = null; try { b = drawn ? (lp[3] === 'svg' ? loadDraw.picture(lp[1], lp[2]) : null) : fs.readFileSync(path.join(__dirname, 'public', 'load', lp[1], lp[2] + '.' + lp[3])); } catch (e) {} if (!b) return send(res, 404, { error: 'not found' }); res.writeHead(200, { 'Content-Type': lp[3] === 'svg' ? 'image/svg+xml' : 'image/webp', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox", 'Content-Length': b.length, 'Cache-Control': 'max-age=604800', 'X-Content-Type-Options': 'nosniff' }); return res.end(b); }
       if (req.method === 'GET' && p === '/api/ping') return send(res, 200, { app: 'session-board', version: VERSION, pid: process.pid });
       if (!p.startsWith('/api/')) return send(res, 404, { error: 'not found' });
 
@@ -1335,9 +1425,13 @@ function createServer(token, port, deps = {}) {
             let isPage = false; try { isPage = real === fs.realpathSync.native(t.abs); } catch (e) {}
             if (open.nlink > 1n && !isPage) throw new Error('more than one name');
           } catch (e) { if (fd !== null) fs.closeSync(fd); return send(res, 404, { error: '找不到' }); }
+          // A page put inside the page (harness's flow.html is three charts of their own): the one around it is shut in, so it
+          // is of no origin at all and "frame-ancestors 'self'" would never be it - left out for those. They are shut in the same way,
+          // and their address is this ticket's: not to be guessed, and only for the device that asked.
+          let onPage = true; try { onPage = real === fs.realpathSync.native(t.abs); } catch (e) {}
           if (!type || !st.isFile() || st.size > 50 * 1024 * 1024) { fs.closeSync(fd); return send(res, 404, { error: '找不到' }); }
           res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
-            'Content-Security-Policy': "sandbox allow-scripts allow-popups; default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'none'; form-action 'none'; base-uri 'self'; frame-ancestors 'self'" });
+            'Content-Security-Policy': "sandbox allow-scripts allow-popups; default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'none'; form-action 'none'; base-uri 'self'" + (onPage ? "; frame-ancestors 'self'" : '') });
           return sendFile(fs.createReadStream(null, { fd, autoClose: true }), res);
         }
         let file = t.abs;
@@ -1366,7 +1460,7 @@ function createServer(token, port, deps = {}) {
         // opened before the file changed sees a different value and reloads
         // itself; otherwise it keeps running old code until someone presses F5
         // (which is how "the links still are not clickable" happened, 2026-11-13).
-        if (p === '/api/sessions') return send(res, 200, { now: Date.now(), version: VERSION, page: pageTag(), features: { platform: process.platform, textSize: textSize(), textSizeTouch: textSize('textSizeTouch'), prefs: prefs(), fork: config.value('showFork', false) === true, goal2: isOn('goal2') && !!goal2.root(), integrations: Object.fromEntries(Object.entries(integrationsNow()).map(([k, x]) => [k, x.on])) }, sessions: sessions(), inbox: inbox && inbox.enabled() ? inbox.inbox.counts() : null /* null: the inbox is off, the page does not show it */, noticeOpen: notices.openCount() + schedules.noticeCount(), schedNotices: schedules.noticeCount() });
+        if (p === '/api/sessions') return send(res, 200, { now: Date.now(), version: VERSION, page: pageTag(), features: { platform: process.platform, loadMine: loadDraw.mine(), textSize: textSize(), textSizeTouch: textSize('textSizeTouch'), prefs: prefs(), fork: config.value('showFork', false) === true, goal2: isOn('goal2') && !!goal2.root(), integrations: Object.fromEntries(Object.entries(integrationsNow()).map(([k, x]) => [k, x.on])) }, sessions: sessions(), inbox: inbox && inbox.enabled() ? inbox.inbox.counts() : null /* null: the inbox is off, the page does not show it */, noticeOpen: notices.openCount() + schedules.noticeCount(), schedNotices: schedules.noticeCount() });
         if (p === '/api/inbox') {
           if (!inbox) return send(res, 200, { threads: [], status: null });
           return send(res, 200, { threads: inbox.inbox.threads({ status: q.get('status') || '', triage: q.get('triage') || '', open: q.get('open') === '1', source: q.get('source') || '', q: String(q.get('q') || '').slice(0, 100), limit: 200 }), status: inbox.status(), routes: inbox.inbox.routes() });
@@ -1412,15 +1506,22 @@ function createServer(token, port, deps = {}) {
           remote: Object.assign({ on: config.value('remoteTailscale', false) === true }, server.remoteState(), q.get('devices') === '1' ? { tailscale: await (deps.remoteInfo || Remote.info)() } : {}) });
         // Conversations of the last 30 days that are not open now, newest first; q searches title, folder and what you said first and last.
         if (p === '/api/past') {
-          const exclude = new Set([...sessions().map((s) => s.sessionId), ...hiddenList()]);
+          // a search finds what you took off the lists too (2026-11-23: 「怎麼可能沒有」), and says so
+          const words = String(q.get('q') || '').trim().slice(0, 100), offList = new Set(hiddenList()), openNow = sessions();
+          const exclude = new Set([...openNow.map((s) => s.sessionId), ...(words ? [] : offList)]);
+          const deep = words ? await saidIndex.search(words) : null;
+          if (words && !deps.noTimers) saidIndex.refresh();
           const known = boardStarted(), hideProg = pref('hideProgramSessions');
-          const hide = q.get('programs') === '1' ? null : (d) => inHiddenFolder(d.cwd) || (hideProg && byProgram(d.sessionId, d.entry, known, d.blocks));
+          const sec = bySecretary(), hide = q.get('programs') === '1' ? null : (d) => sec.has(d.sessionId) || inHiddenFolder(d.cwd) || (hideProg && pastProgram(d, known));
           const given = customTitles();
           // ?days=all: the earlier ones too (asked for on the page); a search is never limited in time (lib/past.js)
           const days = q.get('days') === 'all' ? 0 : undefined, limit = days === 0 || q.get('q') ? 5000 : 600;
-          const pl = await Past.listAsync({ projectsDir: S.DEFAULTS.projectsDir, exclude, hide, names: given, q: String(q.get('q') || '').slice(0, 100), limit, days });   /* all of them: the page lists them by folder */
+          const pl = await Past.listAsync({ projectsDir: S.DEFAULTS.projectsDir, exclude, hide, names: given, deep, q: words, limit, days });   /* all of them: the page lists them by folder */
           for (const x of pl.items) if (given[x.sessionId]) { x.title = given[x.sessionId]; x.named = true; }   // a name given on the board, here too
-          return send(res, 200, Object.assign(pl, { hidden: hiddenList().length }));
+          for (const x of pl.items) if (offList.has(x.sessionId)) x.offList = true;
+          // said: where in the open ones; indexing: not every conversation has been looked at yet
+          const inOpen = {}; if (deep) for (const s of openNow) if (deep.has(s.sessionId)) inOpen[s.sessionId] = deep.get(s.sessionId);
+          return send(res, 200, Object.assign(pl, { hidden: hiddenList().length }, words ? { said: inOpen, indexing: !saidIndex.ready() } : {}));
         }
         // What one tool call of a conversation actually did (lib/history.js toolDetailAt): asked for when its line is opened.
         // One picture of a message, out of the session's transcript (lib/history.js imageAt): asked for when the message is drawn.
@@ -1536,6 +1637,8 @@ function createServer(token, port, deps = {}) {
         // collaborations: the list, and one in full (members now, the ledger, what is open in it, the messages between them)
         if (p === '/api/collabs') { const list = sessions(); return send(res, 200, { collabs: collabList().map((c) => collabView(c, list)).reverse(), bypassDefault: pref('collabBypass') }); }
         if (p === '/api/collab') { const d = collabDetail(Number(q.get('id'))); return d ? send(res, 200, d) : send(res, 404, { ok: false, error: '找不到這個合作' }); }
+        // 每天上班統整: whether LINE is connected, the schedule of it (its switch is on the inbox page)
+        if (p === '/api/digest') { const d = ownDigest(); return send(res, 200, { line: lineUp(), on: !!(d && d.enabled), schedule: d }); }
         if (p === '/api/schedules') return send(res, 200, { schedules: schedules.list(), runs: !!runner, notices: schedules.notices(), log: schedules.runs(20) });
         if (p === '/api/keep') {
           if (!keeper) return send(res, 200, { restorable: [], closed: [], autoContinue: true });
@@ -1556,7 +1659,7 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/warroom') {
           const now = Date.now();
           if (now - war.at > 2500) {
-            const data = W.build(sessions(), { windows: channels.modelWindows, boardUsage: (sid) => channels.get(sid) }, now);
+            const data = W.build(sessions(), { windows: channels.modelWindows, boardUsage: (sid) => channels.get(sid), limit: limitFor }, now);
             data.quota = quota();
             war = { at: now, data };
           }
@@ -1592,9 +1695,14 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/file/pdf') {
           const abs = F.realFile(q.get('path'));
           if (!abs || F.kindOf(abs) !== 'office') return send(res, 404, { error: '找不到這個 Office 檔案' });
+          // is it there already? (what the page says while it waits: reading it, or converting it)
+          if (q.get('ready') === '1') return send(res, 200, { cached: !!F.cachedPdf(abs) });
           const r = await F.officePdf(abs, convertOffice);
           if (!r.ok) return send(res, 500, { error: r.error });
-          res.writeHead(200, { 'Content-Type': 'application/pdf', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+          // kept by the browser, asked about each time: opened again it is not sent again (over Tailscale that took seconds)
+          const tag = '"' + path.basename(r.file, '.pdf') + '"';
+          if (req.headers['if-none-match'] === tag) { res.writeHead(304, { ETag: tag, 'Cache-Control': 'private, no-cache' }); return res.end(); }
+          res.writeHead(200, { 'Content-Type': 'application/pdf', 'Cache-Control': 'private, no-cache', ETag: tag, 'X-Content-Type-Options': 'nosniff' });
           return sendFile(fs.createReadStream(r.file), res);
         }
         // Figures for one conversation, shown above it: cost, tokens, compactions, context in use, ...
@@ -1603,13 +1711,20 @@ function createServer(token, port, deps = {}) {
           if (!s) return send(res, 404, { error: 'session not found' });
           const file = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir);
           const items = file ? cachedHistory(file, { max: W.TURN_ITEMS }).items : [];
-          const st = sessionStats(s.sessionId, S.DEFAULTS.stateDir, items, statsExtra(s.sessionId));
+          const st = sessionStats(s.sessionId, S.DEFAULTS.stateDir, items, statsExtra(s.sessionId, s.cwd));
           // a terminal session: what each running subagent is doing, from its transcript (lib/agents.js)
           if (s.owner === 'terminal' && file && st.agents) { try { st.agents.detail = Agents.running(file); } catch (e) {} }
           return send(res, 200, Object.assign(st, { quota: quota() }));
         }
         if (p === '/api/quota') return send(res, 200, quota());
         // Tokens and API-equivalent cost for a calendar month, all sessions on this machine.
+        // a day's summary: which days of a month have one (?month=), or one of them (?date=)
+        if (p === '/api/loaddraw') return send(res, 200, loadDraw.state());
+        if (p === '/api/daily') {
+          const date = String(q.get('date') || ''), ym = String(q.get('month') || date.slice(0, 7)), days = daily.month(ym), ready = !!daily.o.root();
+          if (!date) return send(res, 200, { ready, days });
+          return send(res, 200, Object.assign({ ready, date }, daily.read(date) || {}, days[date] || { state: 'none' }));
+        }
         if (p === '/api/usage') {
           const r = await monthly.get(String(q.get('month') || ymOf(new Date())), q.get('force') === '1');
           return send(res, r.ok ? 200 : 400, r);
@@ -1722,6 +1837,8 @@ function createServer(token, port, deps = {}) {
           }
         }
         if (!text.trim() && !images.length) return send(res, 400, { ok: false, error: 'empty message' });
+        if (body.by !== 'line') setSecretary(sid, false);   // you wrote in it: yours
+        { const c = channels.get(sid); if (c) c.fromHereNext = isLocal(req) && body.by !== 'line'; }   // (where its Artifacts are opened)
         const r = channels.send(sid, text, images, typeof body.echo === 'string' ? body.echo : '');
         fresh();
         return send(res, r.ok ? 200 : 409, r);
@@ -1746,6 +1863,8 @@ function createServer(token, port, deps = {}) {
         return send(res, 200, Object.assign({}, r, { ok: true, ran: r.ok, id, cwd: c.cwd }));
       }
       // Not for Claude after all (a password was in it): what was kept is thrown away.
+      // a message Claude never took in (it was still queued when its turn was stopped): sent again, changed first or not, or thrown away
+      if (p === '/api/unsent') { const uc = channels.get(sid); if (uc && body.action === 'resend') uc.fromHereNext = isLocal(req); const r = channels.unsent(sid, String(body.id || ''), String(body.action || ''), typeof body.text === 'string' ? body.text.slice(0, 200000) : undefined); fresh(); return send(res, r.ok ? 200 : 409, r); }
       if (p === '/api/shell/drop') return send(res, 200, { ok: channels.dropShell(sid, body.id === undefined ? null : Number(body.id)) });
       // The 說明 button of a harness suggestion (lib/aside.js explain): Claude says in plain words what it is, in no
       // conversation - nothing saved, so none of your sessions gains a turn and no new one is listed. The suggestion is
@@ -1775,6 +1894,8 @@ function createServer(token, port, deps = {}) {
       }
       // the registries' keys, written where skill-fetch reads them; the answer says which are set, never what they are
       if (p === '/api/skillwish/keys') { const r = Wish.saveKeys(body && body.keys, typeof body.cwd === 'string' ? body.cwd : ''); return send(res, r.ok ? 200 : 400, r); }
+      // an entry (or several) filled in from an address only; nothing is written
+      if (p === '/api/recommends/draft') { const r = await RecFill.draft(String(body.url || '').slice(0, 400), { fetch: deps.recFetch, ask: deps.recAsk || LineLib._claudeAsk({ model: 'haiku' }) }); return send(res, r.ok ? 200 : 400, r); }
       if (p === '/api/recommends') { const r = await (deps.saveRecommend || PluginFit.saveRecommend)(body || {}); return send(res, r.ok ? 200 : 400, r); }
       // 外掛整合分析 (lib/pluginfit.js): started here, run in the background (minutes), read with GET /api/pluginfit.
       if (p === '/api/pluginfit/analyze') {
@@ -1890,13 +2011,15 @@ function createServer(token, port, deps = {}) {
             const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : '';
             if (!instruction) return send(res, 400, { ok: false, error: '要怎麼改？寫一句話' });
             if (instruction.length > CM.QUESTION_MAX) return send(res, 400, { ok: false, error: '太長（上限 ' + CM.QUESTION_MAX + ' 字）' });
-            const secs = CM.sections(f.text), sec = body.section === 'all' ? null : secs[Number(body.section)];
-            // the section the page meant: by its number and its heading (the file changed since the page drew it: refused)
-            if (body.section !== 'all' && (!sec || (typeof body.title === 'string' && body.title !== sec.title))) return send(res, 409, { ok: false, error: '這個檔剛被改過，段落對不上了。重新整理再微調' });
-            before = sec ? CM.sectionText(f.text.replace(/\r\n/g, '\n'), sec) : f.text.replace(/\r\n/g, '\n');
-            title = path.basename(f.abs) + (sec ? '「' + sec.title + '」' : '（整份）');
-            q2 = '微調 ' + title + '：' + instruction;
-            prompt = CM.tweakPrompt(f, before, instruction, list);
+            // the whole file, or the lines the words selected on the page are in: those lines as the page showed them
+            // (the file changed since: refused)
+            const whole = body.section === 'all', picked = whole ? '' : String(typeof body.picked === 'string' ? body.picked : '').trim().slice(0, 4000);
+            const part = whole ? null : CM.piece(f.text, body.from, body.to, typeof body.orig === 'string' ? body.orig : '');
+            if (!whole && !part) return send(res, 409, { ok: false, error: '這個檔剛被改過，框選的地方對不上了。重新整理再框選一次' });
+            before = whole ? f.text.replace(/\r\n/g, '\n') : part.before;
+            title = path.basename(f.abs) + (whole ? '（整份）' : ' 第 ' + (body.from + 1) + (body.to > body.from + 1 ? '–' + body.to : '') + ' 行');
+            q2 = '微調 ' + title + (picked ? '「' + picked.replace(/\s+/g, ' ').slice(0, 60) + (picked.length > 60 ? '…' : '') + '」' : '') + '：' + instruction;
+            prompt = CM.tweakPrompt(f, before, instruction, list, picked);
           }
           cmdBusy.set(k, p === '/api/claudemd/ask' ? 'ask' : 'tweak');
           let r; try { r = await explainAside(runCwd, prompt, { timeLimit: CM.TIME_LIMIT_MS }); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; } finally { cmdBusy.delete(k); }
@@ -1906,7 +2029,7 @@ function createServer(token, port, deps = {}) {
           if (p === '/api/claudemd/ask') { answer = j && typeof j.answer === 'string' ? j.answer.slice(0, 8000) : String(r.answer || '').slice(0, 8000); edit = j ? CM.readEdit(j.edit, list) : null; }
           else {
             if (!j || typeof j.after !== 'string') return send(res, 502, { ok: false, error: '改寫的回答不是預期的格式：' + String(r.answer || '').slice(0, 200) });
-            edit = CM.readEdit({ file: f.abs, before, after: j.after, why: j.why }, list);
+            edit = CM.readEdit({ file: f.abs, before, after: /\n$/.test(before) ? j.after : j.after.replace(/\n+$/, ''), why: j.why }, list);
             answer = String(j.why || '').slice(0, 600) || '改好了，差異在下面';
           }
           let id = '';
@@ -2120,6 +2243,10 @@ function createServer(token, port, deps = {}) {
       }
       if (p === '/api/stop') { const ok = channels.stop(sid); fresh(); return send(res, 200, { ok }); }
       // What is typed in a board conversation's box and not sent, kept so that leaving does not lose it (lib/chat.js setDraft)
+      // pictures and files a page holds for it, not sent (lib/chat.js setHeld)
+      if (p === '/api/held') { const ok = channels.setHeld ? channels.setHeld(sid, body.page, body.n) : false; if (ok) fresh(); return send(res, 200, { ok }); }
+      // put aside from its box with Ctrl+S (lib/chat.js setStash)
+      if (p === '/api/stash') { if (typeof body.text !== 'string') return send(res, 400, { ok: false, error: '要給 text' }); const ok = channels.setStash ? channels.setStash(sid, body.text) : false; if (ok) fresh(); return send(res, ok ? 200 : 404, ok ? { ok } : { ok, error: channels.get(sid) ? '太長，看板存不下' : '找不到這個對話' }); }
       if (p === '/api/draft') { if (typeof body.text !== 'string') return send(res, 400, { ok: false, error: '要給 text' }); const ok = channels.setDraft ? channels.setDraft(sid, body.text) : false; if (ok) fresh(); return send(res, ok ? 200 : 404, { ok }); }
       if (p === '/api/close-empty') { const ok = channels.removeIfEmpty ? channels.removeIfEmpty(sid) : false; if (ok) fresh(); return send(res, 200, { ok }); }
 
@@ -2166,25 +2293,27 @@ function createServer(token, port, deps = {}) {
           const old = c.proc;
           channels.stop(sid);
           if (old && old.exitCode == null) await new Promise((done) => { const t = setTimeout(done, 3000); old.once('exit', () => { clearTimeout(t); done(); }); });
+          if (channels.settled) await channels.settled(sid);   // what was still waiting in its queue is among what goes along
         } finally { rewinding.delete(sid); }
         if (channels.get(sid) !== c) return send(res, 409, { ok: false, error: '這個對話在停下來的時候被關掉了，沒有重來' });
         const n = channels.create(c.cwd, crypto.randomUUID());
         if (rp.at) { n.forkOf = sid; n.resumeAt = rp.at; }
         // its settings go with it; its title only when it carries on (started afresh, the title comes from the new words);
         // what you ran with "!" and had not sent yet goes with the new words (send() puts it in front of them)
-        for (const k of ['model', 'effort', 'agent', 'skipPermissions'].concat(rp.at ? ['title'] : [])) if (c[k]) n[k] = c[k];
+        for (const k of ['model', 'effort', 'agent', 'skipPermissions', 'stash'].concat(rp.at ? ['title'] : [])) if (c[k]) n[k] = c[k];
         if (Array.isArray(c.shellNotes) && c.shellNotes.length) { n.shellNotes = c.shellNotes.slice(); n.shellSeq = c.shellSeq; }
+        if (Array.isArray(c.unsent) && c.unsent.length) n.unsent = c.unsent.slice();   // what Claude never took in goes along
         const named = customTitles()[sid];
         if (named) config.setValue('customTitles', Object.assign({}, customTitles(), { [n.sessionId]: named }));
         if (channels._save) channels._save();
         const r = channels.send(n.sessionId, text);
         if (r && r.ok === false) {
-          channels.remove(n.sessionId);
+          n.unsent = []; channels.remove(n.sessionId);   // (the old one still has them, pictures and all)
           if (named) { const t = Object.assign({}, customTitles()); delete t[n.sessionId]; config.setValue('customTitles', t); }
           fresh();
           return send(res, 500, { ok: false, error: (r.error || '送不出去') + '。原本的對話已停下，還在清單上，沒有關掉' });
         }
-        channels.remove(sid);
+        c.unsent = []; channels.remove(sid);   // (they went along: their pictures stay)
         fresh();
         return send(res, 200, { ok: true, sessionId: n.sessionId, fromStart: !rp.at });
       }
@@ -2292,6 +2421,29 @@ function createServer(token, port, deps = {}) {
         }
         return send(res, 404, { error: 'not found' });
       }
+      // waiting pictures drawn by Claude: asked for, taken (then they are the ones shown), or not
+      if (p === '/api/loaddraw') {
+        const r = body.do === 'draw' ? loadDraw.draw(body.ref, body.image && typeof body.image === 'object' ? { mime: String(body.image.mime || ''), data: body.image.data } : null) : body.do === 'use' ? loadDraw.use() : body.do === 'drop' ? loadDraw.drop() : { ok: false, error: '不認得的動作' };
+        if (r.ok && body.do === 'use') config.setValue('loadIcon', 'mine');
+        return send(res, r.ok ? 200 : 400, Object.assign({}, loadDraw.state(), r));
+      }
+      if (p === '/api/daily') { const r = daily.make(String(body.date || '')); return send(res, r.ok ? 200 : 409, r); }
+      // a link to localhost, pressed on another device: that port of this computer is passed on to it
+      if (p === '/api/localweb') {
+        if (isLocal(req)) return send(res, 400, { ok: false, error: '就在這台電腦上，直接開就好' });
+        const r = await server.localWeb.open(body.port, body.secure === true);
+        return send(res, r.ok ? 200 : 409, r);
+      }
+      // the switch of 每天上班統整: the first time its schedule is made (Monday to Friday, 09:30), after that switched on and off -
+      // with the time you gave it
+      if (p === '/api/digest') {
+        if (typeof body.on !== 'boolean') return send(res, 400, { ok: false, error: '要給 on' });
+        if (body.on && !lineUp()) return send(res, 409, { ok: false, error: 'LINE 還沒有接通。先用 /session-board:line 接好' });
+        const d = ownDigest();
+        if (d) schedules.setEnabled(d.id, body.on);
+        else if (body.on) { const c = Sched.clean({ target: 'digest', kind: 'weekly', days: [1, 2, 3, 4, 5], at: '09:30' }, isDir); schedules.save(c.value); }
+        const now = ownDigest(); return send(res, 200, { ok: true, on: !!(now && now.enabled), schedule: now });
+      }
       if (p === '/api/schedule/save') {
         // "After the 5-hour quota resets": the reset time as it stands now, a minute after, as a one-off. (What goal2's
         // delaylocal does - but kept by the board, so Claude Code does not have to stay open until then.)
@@ -2303,6 +2455,8 @@ function createServer(token, port, deps = {}) {
         }
         const c = Sched.clean(body, isDir);
         if (!c.ok) return send(res, 400, { ok: false, error: c.error });
+        if (c.value.target === 'digest') { const d = ownDigest(); if (!d || Number(body.id) !== d.id) return send(res, 400, { ok: false, error: '每天上班統整在收件頁打開，這裡只改它的時間' }); }
+        else if (body.id && (schedules.get(body.id) || {}).target === 'digest') return send(res, 400, { ok: false, error: '每天上班統整不能改成別的排程' });
         if (c.value.target === 'session' && !c.value.sessionTitle) { const s = find(c.value.sessionId); if (s) c.value.sessionTitle = s.title || ''; }
         if (c.value.target === 'goal' && (!isOn('goal2') || !(await goal2.list()).installed)) return send(res, 400, { ok: false, error: '這台電腦沒有裝 goal2，不能交辦 goal' });
         if (c.value.agent && !channels.roles(c.value.cwd).some((r) => r.name === c.value.agent)) return send(res, 400, { ok: false, error: '這個資料夾沒有「' + c.value.agent + '」這個角色' });
@@ -2404,9 +2558,10 @@ function createServer(token, port, deps = {}) {
         if (S.pidAlive(s.pid)) return send(res, 500, { ok: false, error: '那個程序沒有結束，請到它的視窗按兩次 Ctrl+C' });
         if (keeper) keeper.markClosed(sid, Date.now(), { cwd: s.cwd, title: s.title });
         fresh();
-        let windowClosed = false;
-        if (win.state === 'hit' && win.hwnd) { const r = await closeWindow(win.hwnd); windowClosed = r.state === 'closed' && !r.stillOpen; }
-        return send(res, 200, { ok: true, windowClosed });
+        let windowClosed = false, windowNote = '';
+        if (win.state === 'hit' && win.hwnd) { const r = await closeWindow(win.hwnd); windowClosed = r.state === 'closed' && !r.stillOpen; if (!windowClosed) windowNote = leftNote(r); }
+        else windowNote = win.state === 'ambiguous' ? '有兩個以上終端機視窗標題相同，分不出是哪一個，所以沒有關視窗，請自己關' : leftNote({ state: 'miss' });
+        return send(res, 200, { ok: true, windowClosed, windowNote });
       }
       if (p === '/api/keep/set') {
         if (!keeper || !keeper.setKeep(sid, body.keep === true)) return send(res, 404, { ok: false, error: '找不到這個 session' });
@@ -2460,6 +2615,7 @@ function createServer(token, port, deps = {}) {
       if (p === '/api/new') {
         if (!isDir(body.cwd)) return send(res, 400, { ok: false, error: '這個資料夾不存在：' + String(body.cwd || '').slice(0, 200) });
         const c = channels.create(path.resolve(body.cwd));
+        if (body.by === 'line') { setSecretary(c.sessionId, true); noteOpened(c.sessionId, 'line'); }
         fresh();
         return send(res, 200, { ok: true, sessionId: c.sessionId });
       }
@@ -2487,8 +2643,8 @@ function createServer(token, port, deps = {}) {
         if (win.state === 'hit' && win.hwnd) {
           const r = await closeWindow(win.hwnd);
           windowClosed = r.state === 'closed' && !r.stillOpen;
-          if (!windowClosed) windowNote = r.state === 'closed' ? '終端機視窗裡還有其他分頁，Windows Terminal 會問你要不要一起關' : '終端機視窗沒有關成功，請自己關';
-        } else windowNote = win.state === 'ambiguous' ? '有兩個以上終端機視窗標題相同，分不出是哪一個，所以沒有關視窗，請自己關' : '找不到它的終端機視窗，所以沒有關視窗';
+          if (!windowClosed) windowNote = leftNote(r);
+        } else windowNote = win.state === 'ambiguous' ? '有兩個以上終端機視窗標題相同，分不出是哪一個，所以沒有關視窗，請自己關' : leftNote({ state: 'miss' });
         return send(res, 200, { ok: true, windowClosed, windowNote });
       }
       // Board -> terminal: stop running it here, open a terminal window that resumes it.
@@ -2496,6 +2652,9 @@ function createServer(token, port, deps = {}) {
         const c = channels.get(sid);
         if (!c) return send(res, 404, { ok: false, error: '這不是看板裡的對話' });
         if (channels.status(c) === 'busy') return send(res, 409, { ok: false, error: '它還在執行，等它做完或先按停止' });
+        // a terminal has no place for these: they would be gone with the board's record of it
+        const kept = [c.draft ? '還沒送出的字' : '', c.stash ? '暫存的內容' : '', channels.held && channels.held(c, HELD_MS) ? '還沒送出的附件（或只留在某一頁的暫存）' : '', c.unsent && c.unsent.length ? c.unsent.length + ' 則 Claude 沒讀到的訊息' : ''].filter(Boolean);
+        if (kept.length) return send(res, 409, { ok: false, error: '這個對話有' + kept.join('、') + '，移到終端機就拿不回來。先送出或拿掉，再移過去' });
         const cwd = c.cwd;
         const known = keeper && keeper.get(sid);
         const args = terminalArgs(sid, cwd, !!S.findTranscript(sid, cwd, S.DEFAULTS.projectsDir), known ? known.command : 'claude');
@@ -2566,7 +2725,7 @@ function createServer(token, port, deps = {}) {
     // off: not waited for - the request asking may have come through this very listener (it would wait for itself), and an
     // open stream (/api/stream) never ends on its own. Stopped taking new connections now; the ones it has are cut a moment
     // later, after this request has had its answer.
-    if (!on) { if (remote) { const r = remote; remote = null; r.server.close(() => {}); const cut = setTimeout(() => { if (r.server.closeAllConnections) r.server.closeAllConnections(); }, 300); if (cut.unref) cut.unref(); } return { ok: true, listening: false }; }
+    if (!on) { localWeb.closeAll(); if (remote) { const r = remote; remote = null; r.server.close(() => {}); const cut = setTimeout(() => { if (r.server.closeAllConnections) r.server.closeAllConnections(); }, 300); if (cut.unref) cut.unref(); } return { ok: true, listening: false }; }
     if (remote) return { ok: true, listening: true, ip: remote.ip, name: remote.name };
     const i = await (deps.remoteInfo || Remote.info)();
     if (!i.ok) return { ok: false, listening: false, error: i.why };
@@ -2579,6 +2738,29 @@ function createServer(token, port, deps = {}) {
     gate.refresh().catch(() => {});
     return { ok: true, listening: true, ip: i.ip, name: i.name };
   };
+  const loadDraw = deps.loadDraw || new LoadDraw({ dir: path.join(path.dirname(config.CONFIG_FILE), 'load'), look: deps.drawLook || LineLib._claudeAsk({ model: 'sonnet', timeout: LOOK_MS, tools: DRAW_TOOLS }), ask: deps.drawAsk || LineLib._claudeAsk({ model: 'opus', timeout: DRAW_MS }) });
+  // a day's summary (lib/daily.js): which conversations are yours is told as the lists tell it
+  let dayAbout = new Map();
+  const daily = deps.daily || new Daily({
+    dir: path.join(path.dirname(config.CONFIG_FILE), 'daily'), root: () => Plugins.rootOf('deliver-report', instNow()),
+    ask: deps.dailyAsk || LineLib._claudeAsk({ timeout: DAILY_MS }),
+    day: async (from, to) => {
+      if (!deps.noTimers) { saidIndex.at = 0; await saidIndex.refresh(); }   // what was said since the last look is in it too
+      const known = boardStarted(), sec = bySecretary(), given = customTitles(), m = new Map();
+      for (const x of (await Past.listAsync({ projectsDir: S.DEFAULTS.projectsDir, days: 0, limit: 5000 })).items) if (!sec.has(x.sessionId) && !inHiddenFolder(x.cwd) && !pastProgram(x, known)) m.set(x.sessionId, { title: given[x.sessionId] || x.title, cwd: x.cwd, folder: x.folder });
+      for (const s of sessions()) { if (s.secretary || s.folderHidden || s.byProgram) m.delete(s.sessionId); else m.set(s.sessionId, { title: s.title, cwd: s.cwd, folder: s.folder }); }
+      dayAbout = m;
+      // what the board itself sent into a conversation (a schedule, a health check, the secretary) was not said by you
+      let runs = []; try { runs = schedules.runs(2000); } catch (e) {}
+      const said = await saidIndex.day(from, to); if (!said) return null;
+      return notYours(said, sentByBoard(openedBy(), runs, (id) => (schedules.get(id) || {}).prompt));
+    },
+    about: (sid) => dayAbout.get(sid) || null,
+  });
+  // sites of this computer's localhost, for a device that has the board open through Tailscale (lib/localweb.js)
+  const localWeb = deps.localWeb || new LocalWeb({ ip: () => (remote ? remote.ip : ''), names: () => (remote && remote.name ? [remote.name, remote.name.split('.')[0]] : []), allows: (a) => gate.allows(a), never: [Number(port), LineLib.PORT] });
+  server.localWeb = localWeb;
+  server.on('close', () => { localWeb.closeAll(); if (saidIndex.close) saidIndex.close(); });
   server.remoteState = () => (remote ? { listening: true, ip: remote.ip, name: remote.name, port } : { listening: false, port });
   // Tailscale may not be up yet when the board starts (at sign-in it often is not): while the setting is on and the board
   // is not listening there, it tries again every `every` ms, so it is reachable as soon as Tailscale is. `say` gets a line

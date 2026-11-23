@@ -230,11 +230,17 @@ if (db) {
   } catch (e) { try { db.exec('ROLLBACK'); } catch (x) {} }
 }
 
+// Each day's part of every figure, so the page can add up any days of the month by itself (asked 2026-11-23: pick a start and
+// an end on the bars). One cell per day, record, model and session; the names are in the tables, once each.
+// cells: [day, run, model, session, in, out, cw, cr, cost, n]; runs: [project, role, 1 for a team member]
+const slice = { models: [], projects: [], roles: [], runs: [], sessions: [], cells: [] };
+const at = (table, index, key, row) => { let i = index.get(key); if (i === undefined) { i = table.length; index.set(key, i); table.push(row); } return i; };
+const ix = { m: new Map(), p: new Map(), r: new Map(), s: new Map(), c: new Map() };
 // ── adding up ──
 // Subagents' own records first: should a message ever stand in both a conversation and a subagent's record, it is the subagent's.
 states.sort((a, b) => (a.role === '' ? 1 : 0) - (b.role === '' ? 1 : 0));
 for (const st of states) {
-  let counted = false;
+  let counted = false, run = -1;
   duplicates += st.dups;
   if (st.cwd && !projPath.has(st.proj)) projPath.set(st.proj, st.cwd);
   for (const [sid, [t, custom]] of Object.entries(st.titles)) { const cur = titles.get(sid); if (custom || !cur || !cur.custom) titles.set(sid, { t, custom: !!custom }); }
@@ -259,6 +265,10 @@ for (const st of states) {
     who.models[r.key] = (who.models[r.key] || 0) + part.cost;
     who.projects[st.proj] = (who.projects[st.proj] || 0) + part.cost;
     counted = true;
+    if (run < 0) { run = slice.runs.length; slice.runs.push([at(slice.projects, ix.p, st.proj, st.proj), at(slice.roles, ix.r, st.role || st.as || '', st.role || st.as || ''), st.team ? 1 : 0]); }
+    { const day = new Date(ts).getDate(), mi = at(slice.models, ix.m, r.key, [r.key, r.exact ? 1 : 0, r.pr ? 1 : 0]), si = at(slice.sessions, ix.s, sid, sid), key = day + ',' + run + ',' + mi + ',' + si;
+      let c = ix.c.get(key); if (!c) { c = [day, run, mi, si, 0, 0, 0, 0, 0, 0]; ix.c.set(key, c); slice.cells.push(c); }
+      c[4] += part.in; c[5] += part.out; c[6] += part.cw; c[7] += part.cr; c[8] += part.cost; c[9] += 1; }
   }
   // runs: how many records (one conversation, or one subagent sent out) had usage in the month; team: how many of them were team members.
   if (counted) { const who = roles.get(st.role || st.as || ''); who.runs++; if (st.team) who.team++; }
@@ -282,4 +292,7 @@ process.stdout.write(JSON.stringify({
     models: Object.entries(r.models).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([model, cost]) => ({ model, cost })),
     projects: Object.entries(r.projects).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, cost]) => ({ name: projPath.has(id) ? baseName(projPath.get(id)) : id, cost })) })),
   sessionCount: sessions.size,
+  slice: { models: slice.models, roles: slice.roles, runs: slice.runs, cells: slice.cells.map((c) => { c[8] = Math.round(c[8] * 1e8) / 1e8; return c; }),
+    projects: slice.projects.map((id) => [id, projPath.has(id) ? baseName(projPath.get(id)) : id, projPath.get(id) || '']),
+    sessions: slice.sessions.map((sid) => [sid, ix.p.get(sessions.get(sid).project), (titles.get(sid) || {}).t || '']) },
 }));

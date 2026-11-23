@@ -45,6 +45,7 @@ function fakeBoard(d) {
   const ops = { sessions: () => open, channels, isDir: (p) => p === d, newId: () => 'copy-1', tell: (t, x) => told.push(x),
     peer: async (s, text, mark) => { ops.peerCalls.push([s.sessionId, text, mark]); return ops.peerAnswer; }, takeOver: async (s) => { ops.took.push(s.sessionId); return ops.takeAnswer; },
     peerCheck: () => ops.seen, seen: 'delivered',
+    opened: (sid, by, name) => ops.openedList.push([sid, by, name]), openedList: [],
     peerCalls: [], took: [], peerAnswer: { state: 'sent' }, takeAnswer: { ok: true } };
   return { ops, convs, sent, told, open };
 }
@@ -58,6 +59,7 @@ test('a schedule fires when due, once; one that came due while the board was dow
   assert.strictEqual(b.sent.length, 0);                                                       // not yet
   await R.tick(at(2026, 11, 14, 9, 0) + 20000);
   assert.deepStrictEqual([b.sent.length, b.sent[0][1], [...b.convs.values()][0].skipPermissions, [...b.convs.values()][0].title], [1, '整理昨天', true, '⏰ 晨報']);
+  assert.deepStrictEqual(b.ops.openedList, [['new-1', 'schedule', '晨報']], 'the one it opened is told');
   await R.tick(at(2026, 11, 14, 9, 1)); await R.tick(at(2026, 11, 14, 9, 2));
   assert.strictEqual(b.sent.length, 1);                                                       // the same due time is not run twice
   const again = new Runner(new Schedules(path.join(d, 'b.db')), b.ops);                       // nor by a board that restarts in that minute
@@ -187,4 +189,12 @@ test('a schedule that hands a goal to goal2: started through goal2, followed unt
   S.save(clean({ kind: 'daily', at: '12:00', target: 'goal', cwd: d, prompt: 'x', goal: 'z' }, () => true).value, null, at(2026, 11, 14, 8, 0));
   await R2.tick(at(2026, 11, 14, 12, 0) + 5000);
   assert.ok(/沒有裝 goal2/.test(S.runs(1)[0].note));
+});
+
+test('only a conversation the schedule opened itself is told as opened by it, not one of yours it went on in', async () => {
+  const d = tmp(); const S = new Schedules(path.join(d, 'b.db')); const b = fakeBoard(d); const R = new Runner(S, b.ops);
+  const s = S.get(S.save(clean({ kind: 'daily', at: '09:00', name: '接著做', target: 'session', sessionId: SID, cwd: d, prompt: 'x' }, () => true).value, null, 1));
+  await R.fire(s, 1000); assert.deepStrictEqual(b.ops.openedList, [], 'gone on with');
+  b.open.push({ sessionId: SID, owner: 'terminal', cwd: d });
+  await R.fire(s, 2000, 2000, 'fork'); assert.deepStrictEqual(b.ops.openedList, [['copy-1', 'schedule', '接著做']], 'a copy of it');
 });

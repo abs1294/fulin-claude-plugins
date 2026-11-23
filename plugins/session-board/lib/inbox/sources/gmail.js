@@ -86,6 +86,17 @@ const idTail = (id) => String(id || '').replace(/[^0-9a-z]/gi, '').slice(-6) || 
 // Then no dots or spaces at either end, at most 120 characters. Written with character codes so that it reads the same everywhere.
 const BAD_NAME_CODES = new Set([92, 47, 60, 62, 58, 34, 124, 63, 42]);
 const safeName = (n) => ([...String(n || '')].map((ch) => { const c = ch.codePointAt(0); return c < 32 || BAD_NAME_CODES.has(c) ? '_' : ch; }).join('').replace(/^[.\s]+|[.\s]+$/g, '').slice(-120) || 'attachment');
+// reads what is asked for, with one token for all of it
+async function gmailReader(cfg, fetchImpl = fetch) {
+  if (!gmailConfigured(cfg)) return null;
+  const token = await gmailToken(cfg, fetchImpl);
+  return async (p) => {
+    const res = await fetchImpl('https://gmail.googleapis.com/gmail/v1/users/me/' + p, { headers: { authorization: 'Bearer ' + token } });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error('Gmail 讀取失敗：' + ((j.error && j.error.message) || 'HTTP ' + res.status));
+    return j;
+  };
+}
 async function gmailAttachments(cfg, threadId, destDir, fetchImpl = fetch) {
   const tid = String(threadId).replace(/^gmail:/, '');
   if (!/^[0-9a-f]{6,32}$/i.test(tid)) throw new Error('不是 Gmail 的討論串編號');
@@ -277,7 +288,7 @@ async function pollGmail(inbox, cfg, fetchImpl = fetch) {
   return { source: 'gmail', ingested, own, routed, reactivated, recipientsFilled: filled, recipientsFailed: fillFailed, threads: threadIds.size, listed: listedMessages, listedThreads: listed.size, incremental, scope, days, account: me };
 }
 
-module.exports = { recipientsOf, addrs,
+module.exports = { gmailReader, recipientsOf, addrs,
   id: 'gmail', name: 'Gmail', kind: 'mail',
   routeHint: '標籤名稱（信全部都會抓，帶這個標籤的自動分派）',
   fields: [

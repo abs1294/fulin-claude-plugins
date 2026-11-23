@@ -45,6 +45,7 @@ function top(obj, n, extra) {
 // used for the size of the context as of the newest reply.
 // extra.windows     {model id: context size}, learned by lib/chat.js
 // extra.boardUsage  {cost, tok} kept by the board for a conversation it runs
+// extra.limit       (model) -> the window set for it in its folder, or 0 (lib/ctxlimit.js)
 function sessionStats(sid, stateDir, items, extra = {}) {
   const key = sidKey(sid);
   const file = (kind, ext) => path.join(stateDir, `claude-${kind}-${key}${ext}`);
@@ -72,6 +73,9 @@ function sessionStats(sid, stateDir, items, extra = {}) {
     const known = extra.windows && extra.windows[context.model];
     if (typeof known === 'number' && known > 0) context.window = known;
     else if (context.tokens > 200000) { context.window = 1000000; context.assumed = true; }
+    // what is set for it, where that is less than the model's own size (autoCompactWindow, read from the settings files)
+    const own = context.window, set = extra.limit ? extra.limit(context.model) : 0;
+    if (set && (!own || set < own)) { context.window = set; context.limited = true; if (own) context.own = own; }
     if (context.window) context.pct = Math.min(100, Math.round((context.tokens / context.window) * 100));
   }
 

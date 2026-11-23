@@ -107,7 +107,7 @@ function build(sessions, opts = {}, now = Date.now()) {
         since: s.since, action: file ? lastAction(file) : { state: 'starting' }, quietMs, stuck: quietMs >= STUCK_QUIET_MS,
       });
     }
-    const st = sessionStats(s.sessionId, o.stateDir, hist.items, { windows: o.windows, boardUsage: o.boardUsage ? o.boardUsage(s.sessionId) : null });
+    const st = sessionStats(s.sessionId, o.stateDir, hist.items, { windows: o.windows, boardUsage: o.boardUsage ? o.boardUsage(s.sessionId) : null, limit: o.limit ? (model) => o.limit(s.cwd, model) : null });
     usage.push({
       sessionId: s.sessionId, title: s.title, folder: s.folder, status: s.status, group: s.group,
       cost: st.usage ? st.usage.cost : null, estimated: !!(st.usage && st.usage.estimated),

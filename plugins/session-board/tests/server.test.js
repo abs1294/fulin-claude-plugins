@@ -117,18 +117,21 @@ test('monthly keepMost: a later scan that finds less never replaces what was rec
 test('monthly addRoles: months stored without role figures are scanned once, and not again', async () => {
   const dbFile = path.join(HOME, 'm.db');
   const calls = [];
-  const found = { '2026-08': month('2026-08', 30, { roles: [{ name: 'main', cost: 30 }] }), '2026-09': month('2026-09', 0, { roles: [] }) };
+  const found = { '2026-08': month('2026-08', 30, { roles: [{ name: 'main', cost: 30 }] }), '2026-09': month('2026-09', 0, { roles: [] }), '2026-07': month('2026-07', 70, { roles: [{ name: 'main', cost: 70 }], slice: { cells: [] } }), '2026-06': month('2026-06', 5, { roles: [{ name: 'main', cost: 5 }], slice: { cells: [] } }) };
   const run = (exe, args, opts, cb) => { calls.push(args[1]); cb(null, JSON.stringify(found[args[1]])); };
   const m = new Monthly({ db: dbFile, legacyDir: null, run, now: () => new Date(2026, 10, 16) });
   m._write(m._db(), month('2026-08', 100), false);
   m._write(m._db(), month('2026-09', 200), false);
-  m._write(m._db(), month('2026-10', 50, { roles: [{ name: 'main', cost: 50 }] }), false);
-  assert.deepStrictEqual((await m.addRoles()).sort(), ['2026-08', '2026-09']);
-  assert.deepStrictEqual(calls.sort(), ['2026-08', '2026-09']);
+  m._write(m._db(), month('2026-10', 50, { roles: [{ name: 'main', cost: 50 }], slice: { cells: [] } }), false);
+  // with roles, without each day's part: one still whole, one partly cleared away
+  for (const [k, c] of [['2026-07', 70], ['2026-06', 60]]) m._write(m._db(), month(k, c, { roles: [{ name: 'main', cost: c }] }), false);
+  assert.deepStrictEqual((await m.addRoles()).sort(), ['2026-06', '2026-07', '2026-08', '2026-09']);
+  assert.deepStrictEqual(calls.sort(), ['2026-06', '2026-07', '2026-08', '2026-09']);
   const fresh = new Monthly({ db: dbFile, legacyDir: null, run, now: () => new Date(2026, 10, 16) });
   const aug = fresh._disk('2026-08'), sep = fresh._disk('2026-09');
   assert.strictEqual(aug.total.cost, 100); assert.strictEqual(aug.rolesCover, 30);
   assert.strictEqual(sep.total.cost, 200); assert.deepStrictEqual(sep.roles, []);
+  assert.deepStrictEqual([fresh._disk('2026-07').slice, fresh._disk('2026-06').slice, fresh._disk('2026-06').total.cost, fresh._disk('2026-06').roles[0].cost], [{ cells: [] }, null, 60, 60], 'a part of what there was is not taken for each day');
   assert.deepStrictEqual(await fresh.addRoles(), [], 'nothing left to ask for');
 });
 

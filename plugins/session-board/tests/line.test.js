@@ -24,6 +24,7 @@ function rig(answers, o = {}) {
   ];
   const board = async (method, p, b) => {
     boardCalls.push(method + ' ' + p + (b ? ' ' + JSON.stringify(b) : ''));
+    if (o.board) { const x = o.board(method, p, b, sessions); if (x) return x; }
     if (p === '/api/sessions') return { status: 200, json: { sessions } };
     if (method === 'STREAM') return { events: p.includes('s2') ? [{ type: 'permission', requestId: 'r9', tool: 'Bash', text: 'rm -rf build' }] : [] };
     if (p.startsWith('/api/messages')) return { status: 200, json: { items: [{ role: 'user', text: '改費率' }, { role: 'assistant', text: '改好了兩處，第三處要你決定' }] } };
@@ -36,7 +37,7 @@ function rig(answers, o = {}) {
   const imageDir = path.join(path.dirname(stateFile), 'imgs');
   const sec = new L.Secretary({ config: { secret: SECRET, token: 't', userId: ME }, board, ask, line, stateFile, imageDir, fetchImage: o.fetchImage, ackMs: 30 });
   const said = () => sent.filter((x) => /message\/(reply|push)/.test(x.p)).map((x) => x.b.messages.map((m) => m.text).join(''));
-  return { sec, sent, said, boardCalls, prompts, imagesAsked, stateFile, imageDir };
+  return { sec, sent, said, boardCalls, prompts, imagesAsked, stateFile, imageDir, sessions };
 }
 const hook = async (r, raw, sig) => { const code = r.sec.hook(raw, sig === undefined ? sign(raw) : sig); await r.sec.queue; return code; };
 
@@ -69,8 +70,8 @@ test('a change waits for your yes, shown in the program\'s own words; no and any
   assert.match(r.said()[0], /要我這樣做嗎？\n送給 「Ebilling 費率表」（Ebilling）：\n把費率表要改的地方列出來，先不要改/);
   assert.ok(!r.boardCalls.some((c) => c.startsWith('POST /api/send')), 'not sent yet');
   await hook(r, body(ev('好')));
-  assert.ok(r.boardCalls.includes('POST /api/send {"sessionId":"s1","text":"把費率表要改的地方列出來，先不要改"}'));
-  assert.strictEqual(r.said()[1], '已送出。');
+  assert.ok(r.boardCalls.includes('POST /api/send {"sessionId":"s1","text":"把費率表要改的地方列出來，先不要改","by":"line"}'));
+  assert.strictEqual(r.said()[1], '已送出，做完會告訴你。');
   assert.strictEqual(r.prompts.length, 1, 'the yes was decided without the model');
   // no
   await hook(r, body(ev('停掉 ebilling')));
@@ -94,7 +95,7 @@ test('what cannot be done is said, not offered: a terminal session, an unknown f
   await hook(r, body(ev('a'))); await hook(r, body(ev('b'))); await hook(r, body(ev('c')));
   const s = r.said();
   assert.match(s[0], /開在終端機視窗，看板不能替它送訊息/);
-  assert.match(s[1], /不在看板上出現過的資料夾裡/);
+  assert.match(s[1], /不在可以開對話的資料夾裡/);
   assert.match(s[2], /找不到那個等你核准的請求/);
   assert.strictEqual(r.sec.state.pending, null);
   await hook(r, body(ev('d')));
@@ -278,8 +279,8 @@ test('pictures handed on to a conversation only with your yes, and then not hand
   await hook(r, body(ev('好')));
   const s = r.boardCalls.find((c) => c.startsWith('POST /api/send'));
   const b = JSON.parse(s.slice('POST /api/send '.length));
-  assert.deepStrictEqual(b, { sessionId: 's1', text: '看這張截圖，修掉錯誤', images: [{ mime: 'image/png', data: PNG.toString('base64') }] });
-  assert.strictEqual(r.said()[1], '已送出（含 1 張圖）。');
+  assert.deepStrictEqual(b, { sessionId: 's1', text: '看這張截圖，修掉錯誤', by: 'line', images: [{ mime: 'image/png', data: PNG.toString('base64') }] });
+  assert.strictEqual(r.said()[1], '已送出（含 1 張圖），做完會告訴你。');
   assert.deepStrictEqual(r.sec.state.images, [], 'handed on: not handed again');
   // a new conversation with the pictures too
   const r2 = rig([{ reply: '開新的', action: { type: 'new', folder: 'C:\\work\\KMS', text: '照圖改', images: true } }], { fetchImage: fetchOk() });
@@ -287,7 +288,7 @@ test('pictures handed on to a conversation only with your yes, and then not hand
   await hook(r2, body(ev('好')));
   const s2 = r2.boardCalls.find((c) => c.startsWith('POST /api/send'));
   assert.strictEqual(JSON.parse(s2.slice('POST /api/send '.length)).images.length, 1);
-  assert.strictEqual(r2.said()[1], '已開新對話並交代了（含 1 張圖）。');
+  assert.strictEqual(r2.said()[1], '已開新對話並交代了（含 1 張圖），做完會告訴你。');
 });
 
 test('pictures: none to hand on, too old, gone by the yes - said, nothing sent without them', async () => {
@@ -380,4 +381,79 @@ test('the model is asked with the pictures as a stream-json message, plain text 
   assert.strictEqual(a[a.indexOf('--tools') + 1], '');
   assert.strictEqual(a[a.indexOf('--setting-sources') + 1], '');
   assert.deepStrictEqual(JSON.parse(runs[1].input), { type: 'user', message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'QUJD' } }, { type: 'text', text: '這是什麼' }] } });
+});
+
+test('what is handed out is told when it is done: waiting (a no refuses), finished, gone, still going', async () => {
+  const st = { events: [] };
+  const r = rig([{ reply: '我開一個去找', action: { type: 'new', folder: 'C:\\work', why: '跨專案的搜尋', text: '找星河卡簡報' } }, '找到了：C:\\x\\a.pptx（11/13）'], { board: (m, p) => {
+    if (p === '/api/config') return { status: 200, json: { config: { pickerStartDir: 'C:\\work' } } };
+    if (m === 'STREAM' && p.includes('n1')) return { events: st.events };
+    if (p.startsWith('/api/messages') && p.includes('n1')) return { status: 200, json: { items: [{ role: 'user', text: '找' }, { role: 'assistant', text: '在 C:\\x\\a.pptx' }] } };
+    return null;
+  } });
+  const now = { t: Date.now() }; r.sec.now = () => now.t;
+  await hook(r, body(ev('幫我找星河卡的簡報')));
+  assert.match(r.prompts[0], /可以開對話的資料夾：\n・C:\\work（工作區根目錄）\n・C:\\work\\Ebilling 做過：Ebilling 費率表/);
+  assert.match(r.said()[0], /在「C:\\work」開新對話（跨專案的搜尋），交代：/);
+  await hook(r, body(ev('好')));
+  assert.match(r.said()[1], /做完會告訴你/);
+  assert.ok(r.boardCalls.includes('POST /api/new {"cwd":"C:\\\\work","by":"line"}'));
+  const s = { sessionId: 'n1', title: '找星河卡簡報', cwd: 'C:\\work', status: 'busy', owner: 'board', programHidden: true, secretary: true }; r.sessions.push(s);
+  await r.sec.follow(); assert.strictEqual(r.said().length, 2, 'working: nothing to say');
+  now.t += 46 * 60000; await r.sec.follow(); await r.sec.follow(); assert.match(r.said()[2], /還在做，已經 46 分鐘/); assert.strictEqual(r.said().length, 3, 'said once');
+  s.status = 'waiting'; st.events = [{ type: 'permission', requestId: 'q1', tool: 'Bash', text: 'del x' }];
+  await r.sec.follow(); await r.sec.follow(); assert.match(r.said()[3], /在等你核准：\nBash del x/); assert.strictEqual(r.said().length, 4);
+  await hook(r, body(ev('不要'))); assert.ok(r.boardCalls.includes('POST /api/permission {"sessionId":"n1","requestId":"q1","allow":false}'), 'no refuses it: it is not left waiting');
+  s.status = 'idle'; st.events = []; await r.sec.follow();
+  assert.strictEqual(r.said()[5], '「找星河卡簡報」回覆你：\n找到了：C:\\x\\a.pptx（11/13）');
+  await r.sec.follow(); assert.strictEqual(r.said().length, 6, 'told once');
+  // you went on in it yourself: what came of the words handed out, not of yours; said before it answered: what came after
+  const it = (role, text) => ({ role, text }), rep = (...l) => r.sec.replyTo(l, '找星河卡的簡報').filter((i) => i.role === 'assistant').map((i) => i.text);
+  assert.deepStrictEqual(rep(it('user', '早的'), it('assistant', '早的答'), it('user', '找星河卡 的簡報'), it('assistant', '找到了'), it('user', '我自己說的'), it('assistant', '別的')), ['找到了']);
+  assert.deepStrictEqual(rep(it('user', '找星河卡的簡報'), it('user', '快點'), it('assistant', '找到了')), ['找到了']);
+  assert.deepStrictEqual(rep(it('user', '找星河卡的簡報'), it('assistant', '我先找找看'), Object.assign(it('user', '順便看月光卡'), { mid: true }), it('assistant', '找到了')), ['我先找找看', '找到了'], 'added while it worked: the same turn');
+  assert.deepStrictEqual(r.sec.replyTo([it('user', '繼續'), it('assistant', '做完'), it('user', '好，繼續寫測試'), it('assistant', '測試寫完')], '繼續').map((i) => i.text), ['做完'], 'short words: only as they are');
+  assert.deepStrictEqual([rep(it('user', '別的'), it('assistant', '答')), rep(it('assistant', '答'))], [['答'], ['答']]);
+  // taken off the board before it was done; the model silent: its own words
+  r.sec.watch('gone', '另一件', 'x'); now.t += 40000; await r.sec.follow(); assert.match(r.said()[6], /另一件」這個對話被結束或關掉了/);
+  r.sec.watch('n1', '再問', 'x'); now.t += 40000; await r.sec.follow(); assert.match(r.said()[7], /回覆你：\n在 C:\\x\\a\.pptx/);
+});
+
+test('LINE does not take it: not counted as told, tried again in a while; an approval you were never shown cannot be said yes to', async () => {
+  const st = { events: [{ type: 'permission', requestId: 'q1', tool: 'Bash', text: 'rm -rf /' }] };
+  const r = rig([{ reply: '嗯', action: null }, { reply: '嗯', action: null }, '做完了'], { board: (m, p) => (m === 'STREAM' && p.includes('n1') ? { events: st.events } : null) });
+  const now = { t: Date.now() }; r.sec.now = () => now.t; const real = r.sec.line; let down = true; const tries = [];
+  r.sec.line = async (p, b) => { if (down && /push/.test(p)) { tries.push(b.messages[0].text); return { status: 429, json: {} }; } return real(p, b); };
+  r.sec.watch('n1', '一件事', 'x'); const s = { sessionId: 'n1', title: '一件事', cwd: 'C:\\w', status: 'waiting', owner: 'board' }; r.sessions.push(s); now.t += 60000;
+  await r.sec.follow(); await r.sec.follow(); assert.strictEqual(tries.length, 1, 'not again at once');
+  await hook(r, body(ev('好'))); assert.ok(!r.boardCalls.some((c) => c.startsWith('POST /api/permission')), 'a yes to something else');
+  down = false; now.t += 6 * 60000; await r.sec.follow(); assert.match(r.said().pop(), /在等你核准：\nBash rm -rf/);
+  // written before it was asked, read after: not a yes to it, and it still waits
+  await r.sec.think('好', now.t - 1000); assert.ok(!r.boardCalls.some((c) => c.startsWith('POST /api/permission'))); assert.ok(r.sec.state.pending);
+  await r.sec.think('好', now.t + 1000); assert.ok(r.boardCalls.some((c) => c.startsWith('POST /api/permission')));
+  // what it asks here does not reach you either (the answer fails): a yes later is not a yes to it
+  st.events = []; s.status = 'busy'; const perm = () => r.boardCalls.filter((c) => c.startsWith('POST /api/permission')).length, n0 = perm();
+  const think = r.sec.think.bind(r.sec), lineWas = r.sec.line; r.sec.think = async () => { r.sec.state.pending = { type: 'answer', sid: 'n1', requestId: 'q2', allow: true, say: 'x', at: now.t }; return '要我這樣做嗎'; };
+  r.sec.line = async () => ({ status: 429, json: {} }); await r.sec.handle('核准那個', 'rt', now.t); assert.strictEqual(r.sec.state.pending, null); r.sec.think = think; r.sec.line = lineWas;
+  assert.strictEqual(perm(), n0);
+  // done while LINE is down: put in words once, told when it can be
+  s.status = 'idle'; st.events = []; down = true; tries.length = 0; const asked = r.prompts.length;
+  for (let i = 0; i < 3; i++) { now.t += 6 * 60000; await r.sec.follow(); } assert.deepStrictEqual([tries.length, r.prompts.length - asked], [3, 1]);
+  down = false; now.t += 6 * 60000; await r.sec.follow(); assert.match(r.said().pop(), /回覆你/); const n = r.said().length; now.t += 6 * 60000; await r.sec.follow(); assert.strictEqual(r.said().length, n);
+});
+
+test('it looks in everything said in every conversation - hidden and not open too - before saying there is none; what is found can be carried on', async () => {
+  const r = rig([{ reply: '', action: { type: 'find', q: '星河卡' } }, { reply: '接著那個做', action: { type: 'send', n: 5, text: '把簡報路徑給我' } }], { board: (m, p, b, sessions) => {
+    if (p.startsWith('/api/past?q=')) return { status: 200, json: { items: [{ sessionId: 'old1', title: '星河卡提案', cwd: 'C:\\ppt', at: 5, hit: { who: 'claude', text: '星河卡簡報在這' } }], said: { h1: { who: 'you', text: '做星河卡的簡報' } } } };
+    if (p === '/api/past') return { status: 200, json: { items: [{ sessionId: 'old1', title: '星河卡提案', cwd: 'C:\\ppt', at: 5 }] } };
+    if (p === '/api/past/open') return { status: 200, json: { ok: true } };
+    return null;
+  } });
+  r.sessions.push({ sessionId: 'h1', title: '提案', cwd: 'C:\\ppt', status: 'idle', owner: 'board', hidden: true, autoHidden: 10, activeAt: 9 });
+  await hook(r, body(ev('星河卡那份簡報在哪')));
+  assert.ok(!/提案」/.test(r.prompts[0].split('可以開對話的資料夾')[0]), 'hidden: not in the list');
+  assert.match(r.prompts[1], /找到 2 個/); assert.match(r.prompts[1], /#4 "提案" 資料夾：C:\\ppt 開在看板（隱藏）[\s\S]*他說過："做星河卡的簡報"/); assert.match(r.prompts[1], /#5 "星河卡提案" 資料夾：C:\\ppt 沒開著/);
+  assert.match(r.said()[0], /在看板打開舊對話，再送給 「星河卡提案」/);
+  await hook(r, body(ev('好')));
+  assert.ok(r.boardCalls.indexOf('POST /api/past/open {"sessionId":"old1","to":"board"}') < r.boardCalls.findIndex((c) => c.startsWith('POST /api/send {"sessionId":"old1"')) && r.boardCalls.includes('POST /api/past/open {"sessionId":"old1","to":"board"}'));
 });

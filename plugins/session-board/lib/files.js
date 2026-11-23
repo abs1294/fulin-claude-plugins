@@ -197,6 +197,21 @@ function cachePathFor(abs) {
   return path.join(CACHE_DIR, key + '.pdf');
 }
 
+// The same by what is in the file: one saved again without a change, copied or moved elsewhere is not converted a second
+// time (2026-11-23: two PDFs of the same length a day apart). Read only where the path and time do not tell.
+const byContent = new Map();   // the first key -> the second (so a file is read once for it)
+function contentPathFor(abs) {
+  const first = cachePathFor(abs); if (byContent.has(first)) return byContent.get(first);
+  const out = path.join(CACHE_DIR, 'c-' + crypto.createHash('sha1').update(path.extname(abs).toLowerCase() + '|').update(fs.readFileSync(abs)).digest('hex') + '.pdf');
+  if (byContent.size > 500) byContent.clear();
+  byContent.set(first, out); return out;
+}
+// The PDF already there, or ''. Looked at: it is kept from being cleared away as old.
+function cachedPdf(abs) {
+  for (const f of [cachePathFor, contentPathFor]) { let p = ''; try { p = f(abs); if (!fs.existsSync(p)) continue; } catch (e) { continue; } try { const t = new Date(); fs.utimesSync(p, t, t); } catch (e) {} return p; }
+  return '';
+}
+
 function pruneCache(now = Date.now()) {
   try {
     for (const f of fs.readdirSync(CACHE_DIR)) {
@@ -211,8 +226,9 @@ function pruneCache(now = Date.now()) {
 // {ok, error}. Two requests for the same file share one conversion.
 const converting = new Map();
 async function officePdf(abs, convert) {
-  const out = cachePathFor(abs);
-  if (fs.existsSync(out)) return { ok: true, file: out, cached: true };
+  const had = cachedPdf(abs);
+  if (had) return { ok: true, file: had, cached: true };
+  const out = contentPathFor(abs);
   if (converting.has(out)) return converting.get(out);
   const job = (async () => {
     fs.mkdirSync(CACHE_DIR, { recursive: true });
@@ -227,4 +243,4 @@ async function officePdf(abs, convert) {
   return job;
 }
 
-module.exports = { isNetworkPath, kindOf, canOpen, mimeOf, resolve, check, realFile, findByName, searchableRoot, cachePathFor, officePdf, pruneCache, CACHE_DIR, TEXT_LIMIT, leadsToNetwork };
+module.exports = { isNetworkPath, kindOf, canOpen, mimeOf, resolve, check, realFile, findByName, searchableRoot, cachePathFor, contentPathFor, cachedPdf, officePdf, pruneCache, CACHE_DIR, TEXT_LIMIT, leadsToNetwork };

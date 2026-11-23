@@ -54,8 +54,26 @@ function contentOf(text, images) {
 
 // A role's name as Claude Code writes it: letters, digits, '-', '_', '.', and ':' between a plugin and its role.
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];   // claude --effort
+const KEPT_MAX = 150000;   // characters of a draft, or of what is put aside (what one request to the board may hold)
 const ROLE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/;
 const BUILT_IN_ROLES = new Set(['claude', 'Plan', 'Explore', 'general-purpose', 'statusline-setup', 'claude-code-guide']);
+
+const bare = (x) => ({ id: x.id, text: x.text, pre: x.pre || undefined, n: x.n || 0, at: x.at, from: x.from || 0, mid: x.mid || undefined });
+// the pictures of a message not taken in yet, in a file of their own until it is (the board may be started again)
+const picFile = (dir, id) => path.join(dir, 'unsent', String(id).replace(/[^0-9a-f-]/gi, '') + '.json');
+const tight = (t) => String(t || '').replace(/\s+/g, '');
+const SETTLE_PIECE = 16 * 1024 * 1024;
+// Artifacts: off in a -p session unless switched on (measured 2026-11-23 on 2.1.330: without this no Artifact tool, with it
+// Artifact, ArtifactComments, ArtifactData; asked: 看板的 session 為什麼沒有 artifact). What you turned off yourself
+// (enableArtifact, CLAUDE_CODE_DISABLE_ARTIFACT, a deny rule) and your organization's rule stay off: Claude Code looks at
+// those as well. A published page is opened by the board, on the device it was asked from (_onLine, server.js onArtifact) -
+// not by Claude Code, which would open it on the board's computer whoever asked.
+function claudeEnv(env = process.env) {
+  const out = Object.assign({}, env), has = (k) => Object.keys(env).some((x) => x.toUpperCase() === k);
+  if (!has('CLAUDE_CODE_ARTIFACT')) out.CLAUDE_CODE_ARTIFACT = '1';
+  if (!has('CLAUDE_CODE_ARTIFACT_AUTO_OPEN')) out.CLAUDE_CODE_ARTIFACT_AUTO_OPEN = '0';
+  return out;
+}
 
 class Channels {
   constructor(file, opts = {}) {
@@ -76,11 +94,14 @@ class Channels {
     try { const j = JSON.parse(fs.readFileSync(this.rolesFile, 'utf8')); if (j && typeof j === 'object' && !Array.isArray(j)) this.rolesSeen = j; } catch (e) {}
     this.homeDir = opts.homeDir || os.homedir();
     this.quotaSnap = null;   // the account limits as last reported to a conversation run here
+    this.settleMs = opts.settleMs === undefined ? 400 : opts.settleMs;   // see _settleSoon
     this.wakeGraceMs = opts.wakeGraceMs === undefined ? 6000 : opts.wakeGraceMs;   // see status()
     // Slash commands per folder, asked from Claude Code itself (see commandsFor).
     this.commandCache = new Map();   // folder (lower-cased) -> {at, commands}
     this.commandJobs = new Map();    // folder -> the request in flight, so two askers share one process
-    for (const c of this._load()) this.map.set(c.sessionId, this._wrap(c));
+    for (const c of this._load()) { for (const x of Object.values(c.held || {})) if (x) x.at = Date.now(); this.map.set(c.sessionId, this._wrap(c)); }   // (what pages hold counts from now: they say so again, or go)
+    // a board that ended while a conversation worked: what was sent and had not been taken in is told as such
+    for (const c of this.map.values()) if (Array.isArray(c.said) && c.said.length) this._settle(c, new Set(c.said.map((x) => x.id)));
     this.timer = setInterval(() => this._reap(), 60000);
     if (this.timer.unref) this.timer.unref();
   }
@@ -105,7 +126,9 @@ class Channels {
       agent: c.agent || undefined,
       model: c.model || undefined, effort: c.effort || undefined, modelSeen: c.modelSeen || undefined,   // the model it was switched to (setModel); none = Claude Code's default
       mode: c.mode || undefined,   // the permission mode its process last said it runs in
-      draft: c.draft || undefined,   // what you typed in its box and have not sent (setDraft)
+      draft: c.draft || undefined, stash: c.stash || undefined, held: c.held && Object.keys(c.held).length ? c.held : undefined,   // what you typed in its box and have not sent (setDraft)
+      // what was sent and is not in the transcript yet, and what Claude never took in (_track, _settle); no pictures
+      said: c.said && c.said.length ? c.said.map(bare) : undefined, unsent: c.unsent && c.unsent.length ? c.unsent.map(bare) : undefined,
     }));
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
@@ -185,7 +208,7 @@ class Channels {
   // come back (2026-11-19: "I wrote something and it was closed" - a new conversation was closed on leaving even with
   // a message typed in its box, and the message went with it).
   isEmpty(c) {
-    if (c.title || c.draft || c.proc || c.lastResultAt || c.pending.size || c.tasks.size || (c.shellNotes && c.shellNotes.length)) return false;
+    if (c.title || c.draft || c.stash || this.held(c) || (c.unsent && c.unsent.length) || c.proc || c.lastResultAt || c.pending.size || c.tasks.size || (c.shellNotes && c.shellNotes.length)) return false;
     return !this.transcriptOf(c.sessionId, c.cwd);
   }
 
@@ -193,9 +216,38 @@ class Channels {
   setDraft(sid, text) {
     const c = this.map.get(sid);
     if (!c) return false;
-    const t = String(text || '').slice(0, 20000);
+    const t = String(text || '').slice(0, KEPT_MAX);
     if ((c.draft || '') === (t.trim() ? t : '')) return true;
     c.draft = t.trim() ? t : '';
+    this._save();
+    return true;
+  }
+
+  // How many pictures and files a page holds for it, not sent (in its box, or put aside): the board has no copy of them,
+  // only that they are there, so the conversation is not closed under them. Page by page: another page open on it has
+  // none, and says nothing of this one's. Said again every minute by a page that still holds some. -> boolean
+  setHeld(sid, page, n, now = Date.now()) {
+    const c = this.map.get(sid);
+    if (!c || !/^[\w-]{4,40}$/.test(String(page))) return false;
+    const v = Math.max(0, Math.min(99, Math.floor(Number(n)) || 0)), h = Object.assign({}, c.held), was = h[page] ? h[page].n : 0;
+    if (v) h[page] = { n: v, at: now }; else delete h[page];
+    const keys = Object.keys(h).sort((a, b) => h[a].at - h[b].at); for (const k of keys.slice(0, Math.max(0, keys.length - 20))) delete h[k];
+    c.held = h;
+    if (was !== v) this._save();
+    return true;
+  }
+  // freshMs: only what a page has said within that time (a page that went without a word is not told about for ever)
+  held(c, freshMs, now = Date.now()) { return Object.values(c.held || {}).reduce((t, x) => t + (x && x.n > 0 && (!freshMs || now - x.at < freshMs) ? x.n : 0), 0); }
+
+  // What was put aside from its box (Ctrl+S, as in a terminal): one place, put back when asked or after the next message
+  // goes. '' = nothing. Too long to be kept whole: not kept at all, and said so (the page still has it). -> boolean
+  setStash(sid, text) {
+    const c = this.map.get(sid);
+    if (!c) return false;
+    const t = String(text || ''), v = t.trim() ? t : '';
+    if (v.length > KEPT_MAX) return false;
+    if ((c.stash || '') === v) return true;
+    c.stash = v;
     this._save();
     return true;
   }
@@ -206,6 +258,7 @@ class Channels {
     this.stop(sid);
     for (const res of c.listeners) { try { res.end(); } catch (e) {} }
     this.map.delete(sid);
+    for (const x of (c.said || []).concat(c.unsent || [])) this._dropPics(x);
     this._save();
     if (this.onGone) { try { this.onGone(sid); } catch (e) {} }
     return true;
@@ -229,7 +282,10 @@ class Channels {
 
   // Conversations that would lose work if their process were ended now.
   active() {
-    return [...this.map.values()].filter((c) => c.proc && this.status(c) !== 'idle')
+    // (also one whose last message Claude has not taken in: between two turns it looks idle while the message waits in
+    // Claude Code's queue - an update of the board then lost it. A couple of minutes at most - 2026-11-23)
+    const waits = (c) => (c.said || []).some((x) => Date.now() - x.at < 120000);
+    return [...this.map.values()].filter((c) => c.proc && (this.status(c) !== 'idle' || waits(c)))
       .map((c) => ({ sessionId: c.sessionId, title: c.title, status: this.status(c), tasks: c.tasks.size }));
   }
 
@@ -347,6 +403,7 @@ class Channels {
     res.write('data: ' + JSON.stringify({ type: 'tasks', tasks: this._taskList(c) }) + '\n\n');
     for (const p of c.pending.values()) res.write('data: ' + JSON.stringify(this._permissionEvent(p)) + '\n\n');
     res.write('data: ' + JSON.stringify({ type: 'shell', notes: c.shellNotes || [] }) + '\n\n');
+    res.write('data: ' + JSON.stringify({ type: 'unsent', list: this._unsentList(c) }) + '\n\n');
     res.on('close', () => c.listeners.delete(res));
     return true;
   }
@@ -382,7 +439,7 @@ class Channels {
     // The model it runs on, when one was chosen for it (setModel); otherwise Claude Code's own default.
     if (c.model && /^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,60}$/.test(c.model)) args.push('--model', c.model);
     if (c.effort && EFFORTS.includes(c.effort)) args.push('--effort', c.effort);
-    const p = this.spawn(CLAUDE_BIN, args, { cwd: c.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const p = this.spawn(CLAUDE_BIN, args, { cwd: c.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: claudeEnv() });
     c.proc = p;
     c.buf = '';
     c.stderr = '';
@@ -403,7 +460,7 @@ class Channels {
     p.on('error', (e) => {
       c.stderr = String((e && e.message) || e);
       if (c.proc !== p) return;
-      c.proc = null; c.pending.clear();
+      c.proc = null; c.pending.clear(); this._settleSoon(c, null);
       if (c.tasks.size) { c.tasks.clear(); this._emit(c, { type: 'tasks', tasks: [] }); }
       this._emit(c, { type: 'error', text: (e && e.code === 'ENOENT' ? '啟動不了 Claude Code：找不到 claude 這個程式。請開一個終端機確認打 claude 能執行（還沒安裝，或看板啟動時的 PATH 裡沒有它），再把訊息送一次。' : '啟動不了 Claude Code：' + c.stderr.slice(0, 300)) });
       this._setState(c, 'off');
@@ -413,7 +470,7 @@ class Channels {
       if (Number.isInteger(p.pid)) this.deadPids.add(p.pid);
       if (c.proc !== p) return;
       const wasBusy = c.state === 'busy' || c.pending.size > 0 || c.tasks.size > 0;
-      c.proc = null;
+      c.proc = null; this._settleSoon(c, null);
       c.pending.clear();
       if (c.tasks.size) { c.tasks.clear(); this._emit(c, { type: 'tasks', tasks: [] }); }
       if (wasBusy) this._emit(c, { type: 'error', text: `對話程序中途結束了（結束碼 ${code}）。${c.stderr ? '最後的錯誤輸出：' + c.stderr.trim().slice(-400) : ''}` });
@@ -436,8 +493,16 @@ class Channels {
         if (e.type === 'assistant' && b && b.type === 'tool_use' && b.input && b.input.run_in_background && typeof b.input.command === 'string') {
           (c.bgCmd = c.bgCmd || new Map()).set(b.id, b.input.command.slice(0, 4000));
           if (c.bgCmd.size > 50) c.bgCmd.delete(c.bgCmd.keys().next().value);
+        } else if (e.type === 'assistant' && b && b.type === 'tool_use' && b.name === 'Artifact') {
+          (c.artAsked = c.artAsked || new Set()).add(b.id);
         } else if (e.type === 'user' && b && b.type === 'tool_result') {
           const text = typeof b.content === 'string' ? b.content : Array.isArray(b.content) ? b.content.map((x) => (x && x.text) || '').join('\n') : '';
+          // a page of claude.ai put up by this conversation: opened as soon as it is there (asked 2026-11-23) - once, not at
+          // every new version of it (the page open already shows those)
+          if (c.artAsked && c.artAsked.delete(b.tool_use_id) && !b.is_error) {
+            const a = /^Published [\s\S]{0,600}? at (https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9-]{6,64})(?![\w-])/.exec(text), seen = (c.artSeen = c.artSeen || new Set());
+            if (a && !seen.has(a[1])) { seen.add(a[1]); const r = e.tool_use_result; if (!(r && r.updated === true)) { const art = { url: a[1], title: String((r && r.title) || '').slice(0, 120) }; this._emit(c, Object.assign({ type: 'artifact' }, art, { here: c.fromHere === true })); if (this.onArtifact) { try { this.onArtifact(c, art); } catch (x) {} } } }
+          }
           const m = /Output is being written to:\s*(\S.*?\.output)(?=[\s.,;]|$)/.exec(text) || /Output is being written to:\s*(\S+?)[.,;]?(?=\s|$)/.exec(text);
           if (m) {
             (c.bgOut = c.bgOut || new Map()).set(b.tool_use_id, m[1]); if (c.bgOut.size > 50) c.bgOut.delete(c.bgOut.keys().next().value);
@@ -507,8 +572,11 @@ class Channels {
       if (tok >= c.procTok) { c.tok += tok - c.procTok; c.procTok = tok; }
       c.lastResultAt = Date.now();
       this._emit(c, { type: 'result', isError: !!e.is_error, text: e.is_error ? String(e.result || '') : '' });
+      // the message a turn began with was taken in, the turn is over; one sent while it worked may still be waiting
+      if (c.said) { for (const x of c.said) if (!x.mid) this._dropPics(x); c.said = c.said.filter((x) => x.mid); }
       this._setState(c, 'idle');   // the turn is over: your move
       this._save();
+      { const t = setTimeout(() => this._settle(c, null), this.settleMs); if (t.unref) t.unref(); }
     }
   }
 
@@ -542,10 +610,13 @@ class Channels {
   _shellChanged(c) { this._emit(c, { type: 'shell', notes: c.shellNotes || [] }); this._save(); }
 
   // echo: the id the page that sent it gave it, so that page does not show it twice (it drew it already)
-  send(sid, text, images, echo) {
+  // pre: what stands in front of it for Claude and is not shown (one sent again, with what you had run with "!")
+  send(sid, text, images, echo, pre) {
     const c = this.map.get(sid);
     if (!c) return { ok: false, error: 'no such channel' };
     const said = String(text || '');   // what is shown: not the notes of commands run, put in front below
+    if (pre) text = pre + said;
+    c.fromHere = c.fromHereNext === true; c.fromHereNext = false;   // asked for at this computer: this message, not the one a schedule sends after it
     if (Array.isArray(c.shellNotes) && c.shellNotes.length) { text = require('./shell').noteText(c.shellNotes) + '\n' + String(text || ''); c.shellNotes = []; this._shellChanged(c); }
     const imgs = Array.isArray(images) && images.length ? images : null;
     // A message can be sent at any time, and it is handed to Claude Code at once - also while Claude is working, and
@@ -558,6 +629,7 @@ class Channels {
     // -> {ok, queued: false, mid}   mid: it went in while a turn was running
     const mid = !!c.proc && (c.state === 'busy' || c.pending.size > 0);
     const r = this._deliver(c, text, imgs);
+    if (r.ok) this._track(c, said, String(text || ''), imgs, mid);
     // Every page showing this conversation is told what was said, whoever said it: a message sent by the board itself (a
     // room's 處理, an approval, a schedule, a message from another session) was not shown until the transcript was read
     // again - the conversation stood empty under its first reply (asked 2026-11-21)
@@ -620,7 +692,7 @@ class Channels {
     if (c.proc && (c.state === 'busy' || c.pending.size)) return { ok: false, error: '它還在執行' };
     if (model !== undefined) c.model = String(model || '');
     if (effort !== undefined) c.effort = EFFORTS.includes(effort) ? effort : '';
-    if (c.proc) { const p = c.proc; c.proc = null; try { p.stdin.end(); } catch (e) {} try { p.kill(); } catch (e) {} this._setState(c, 'off'); }
+    if (c.proc) { const p = c.proc; c.proc = null; this._settleSoon(c, p); try { p.stdin.end(); } catch (e) {} try { p.kill(); } catch (e) {} this._setState(c, 'off'); }
     this._save();
     return { ok: true };
   }
@@ -637,7 +709,7 @@ class Channels {
     let now = true;
     if (c.proc) {
       if (c.state === 'busy' || c.pending.size) { c.restartWhenIdle = true; now = false; }
-      else { const p = c.proc; c.proc = null; try { p.stdin.end(); } catch (e) {} try { p.kill(); } catch (e) {} this._setState(c, 'off'); }
+      else { const p = c.proc; c.proc = null; this._settleSoon(c, p); try { p.stdin.end(); } catch (e) {} try { p.kill(); } catch (e) {} this._setState(c, 'off'); }
     }
     this._save();
     return { ok: true, now };
@@ -650,9 +722,113 @@ class Channels {
     c.proc = null;
     c.pending.clear();
     if (c.tasks.size) { c.tasks.clear(); this._emit(c, { type: 'tasks', tasks: [] }); }
+    this._settleSoon(c, p);
     try { p.kill(); } catch (e) {}
     this._setState(c, 'off');
     return true;
+  }
+
+  // ── What was sent and Claude has not taken in ──
+  // A message sent while a turn runs waits in Claude Code's own queue until the action in hand is done. Ended before
+  // that (you pressed stop), the queue goes with the process: the message is in no transcript and Claude never sees
+  // it - while the page showed it as sent, could not edit it (it has no id), and let it go after two minutes (found
+  // 2026-11-23: "I stopped it, why can I not edit it"). So each message is kept here until the transcript has it; when
+  // the process ends, the ones it never got are told to the page, to be edited, sent again or thrown away. (A slash
+  // command is not kept: the transcript records it in another form.)
+  _track(c, shown, delivered, images, mid) {
+    if (/^\s*\//.test(delivered)) return;
+    let from = 0; try { const f = this.transcriptOf(c.sessionId, c.cwd); if (f) from = fs.statSync(f).size; } catch (e) {}
+    const pre = shown && delivered.endsWith(shown) ? delivered.slice(0, delivered.length - shown.length) : '', id = crypto.randomUUID();
+    if (images) { try { const f = picFile(path.dirname(this.file), id); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify(images)); } catch (e) {} }
+    c.said = this._last((Array.isArray(c.said) ? c.said : []).concat([{ id, text: shown, pre, images: images || null, n: images ? images.length : 0, at: Date.now(), from, mid: !!mid }]));
+    this._save();
+  }
+  // after the process has ended (p: the one being ended; null: it has), with a moment for its last lines to be there.
+  // Only what was sent before now: a message sent right after the stop is another process's.
+  _settleSoon(c, p) {
+    const ids = new Set((c.said || []).map((x) => x.id)); if (!ids.size) return;
+    let done = false;
+    const go = () => { if (done) return; done = true; const t = setTimeout(() => this._settle(c, ids), this.settleMs); if (t.unref) t.unref(); };
+    if (!p) return go();
+    p.once('exit', go); const t = setTimeout(go, 3000); if (t.unref) t.unref();
+  }
+  // ended: the ids of the messages whose process has ended (null: it has not - the ones read are only let go of)
+  _settle(c, ended, tries = 0) {
+    const list = Array.isArray(c.said) ? c.said : []; if (!list.length || this.map.get(c.sessionId) !== c) return;
+    const from = Math.min(...list.map((x) => x.from || 0));
+    let heard = [], whole = true, upTo = 0;
+    try {
+      const f = this.transcriptOf(c.sessionId, c.cwd), size = f ? fs.statSync(f).size : 0;
+      if (size > from) {
+        // a piece at a time, whole lines (a long turn can write a lot before it is stopped)
+        const fd = fs.openSync(f, 'r'), piece = Buffer.allocUnsafe(Math.min(SETTLE_PIECE, size - from)); let rest = [], restAt = from, pos = from;
+        try {
+          while (pos < size) {
+            const n = fs.readSync(fd, piece, 0, Math.min(piece.length, size - pos), pos); if (n <= 0) break;
+            const last = piece.lastIndexOf(10, n - 1);
+            if (last < 0) rest.push(Buffer.from(piece.subarray(0, n)));
+            else { const head = Buffer.concat([...rest, piece.subarray(0, last + 1)]); heard.push(...this._heard(head, restAt)); restAt = pos + last + 1; rest = [Buffer.from(piece.subarray(last + 1, n))]; }
+            pos += n;
+          }
+        } finally { fs.closeSync(fd); }
+        if (rest.length) heard.push(...this._heard(Buffer.concat(rest), restAt));
+        upTo = restAt;
+      }
+    } catch (e) { whole = false; }
+    // it cannot be read just now: again in a moment; still not, then told as not taken in - one shown that was is thrown
+    // away with a press, one let go of is gone
+    if (!whole && (!ended || tries < 3)) { if (ended) { const t = setTimeout(() => this._settle(c, ended, tries + 1), 1000); if (t.unref) t.unref(); } return; }
+    const left = [];
+    for (const x of list) {
+      const t = tight(x.pre) + tight(x.text), i = heard.findIndex((h) => h && h.at >= (x.from || 0) && (t ? h.text === t || h.text.endsWith(t) : h.pics > 0));
+      if (i >= 0) { heard[i] = null; this._dropPics(x); } else left.push(x);
+      if (i < 0 && upTo > (x.from || 0)) x.from = upTo;   // not in what was read: the next look starts after it
+    }
+    const lost = ended ? left.filter((x) => ended.has(x.id)) : [];
+    c.said = ended ? left.filter((x) => !ended.has(x.id)) : left;
+    if (lost.length) { c.unsent = this._last((Array.isArray(c.unsent) ? c.unsent : []).concat(lost)); this._emit(c, { type: 'unsent', list: this._unsentList(c) }); }
+    this._save();
+  }
+  // what a piece of a transcript has of what was said to Claude: [{text (no spaces), pics, at: where in the file}]
+  _heard(buf, base) {
+    const { queuedSaid } = require('./history'), out = [];
+    for (let start = 0; start < buf.length;) {
+      let end = buf.indexOf(10, start); if (end < 0) end = buf.length;
+      const line = buf.subarray(start, end), at = base + start; start = end + 1;
+      if (line.indexOf('"type":"user"') < 0 && line.indexOf('"type":"queued_command"') < 0) continue;
+      let e; try { e = JSON.parse(line.toString('utf8')); } catch (x) { continue; }
+      const q = queuedSaid(e);
+      if (q) { out.push({ text: tight(q.text), pics: q.blocks.filter((b) => b && b.type === 'image').length, at }); continue; }
+      if (e.type !== 'user' || e.isMeta || e.isSidechain || !e.message) continue;
+      const m = e.message.content, blocks = typeof m === 'string' ? [{ type: 'text', text: m }] : Array.isArray(m) ? m : [];
+      if (blocks.some((b) => b && b.type === 'tool_result')) continue;
+      out.push({ text: tight(blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('')), pics: blocks.filter((b) => b && b.type === 'image').length, at });
+    }
+    return out;
+  }
+  _pics(x) { if (x.images) return x.images; if (!x.n) return null; try { const a = JSON.parse(fs.readFileSync(picFile(path.dirname(this.file), x.id), 'utf8')); return Array.isArray(a) && a.length ? a : null; } catch (e) { return null; } }
+  // the latest 30 are kept; a picture goes with its message
+  _last(list) { for (const x of list.slice(0, -30)) this._dropPics(x); return list.slice(-30); }
+  // its process has ended: what Claude never took in is told now, not in a moment (a conversation about to be gone) -> Promise
+  async settled(sid) { const c = this.map.get(sid); if (!c || !(c.said || []).length) return; const ids = new Set(c.said.map((x) => x.id)); await new Promise((r) => setTimeout(r, this.settleMs)); this._settle(c, ids); }
+  _dropPics(x) { if (x.n) { try { fs.unlinkSync(picFile(path.dirname(this.file), x.id)); } catch (e) {} } }
+  _unsentList(c) { return (Array.isArray(c.unsent) ? c.unsent : []).map((x) => ({ id: x.id, text: x.text, images: x.n || 0, kept: !!this._pics(x), at: x.at })); }
+  // One that was never taken in: sent again (text: changed first), or thrown away. -> {ok, error?}
+  unsent(sid, id, what, text) {
+    const c = this.map.get(sid), list = c && Array.isArray(c.unsent) ? c.unsent : [], x = list.find((y) => y.id === id);
+    if (!x) return { ok: false, error: '這則已經處理過了' };
+    if (what !== 'drop' && what !== 'resend') return { ok: false, error: '不認得的動作' };
+    const words = typeof text === 'string' ? text : x.text, pics = this._pics(x);
+    if (what === 'resend' && !words.trim() && !pics) return { ok: false, error: '訊息是空的' };
+    c.unsent = list.filter((y) => y !== x);
+    if (what === 'resend') {
+      const r = this.send(sid, words, pics || undefined, '', x.pre);
+      if (!r.ok) { c.unsent = list; return r; }
+    }
+    this._dropPics(x);
+    this._emit(c, { type: 'unsent', list: this._unsentList(c) });
+    this._save();
+    return { ok: true };
   }
 
   // The slash commands available in one folder: [{name, description, argumentHint}].
@@ -684,7 +860,7 @@ class Channels {
       };
       const timer = setTimeout(() => finish({ error: 'Claude Code 沒有在時限內回答' }), 30000);
       try {
-        p = this.spawn(CLAUDE_BIN, ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'], { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+        p = this.spawn(CLAUDE_BIN, ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'], { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: claudeEnv() });
       } catch (e) { return finish({ error: String(e.message || e) }); }
       // This helper registers itself with Claude Code like any session. It is
       // not one: keep it off the board from its first moment, not only once it has ended.
@@ -737,4 +913,4 @@ class Channels {
   }
 }
 
-module.exports = { Channels, IDLE_MS, contentOf };
+module.exports = { Channels, IDLE_MS, contentOf, claudeEnv };

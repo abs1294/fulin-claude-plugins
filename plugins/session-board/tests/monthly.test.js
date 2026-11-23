@@ -62,6 +62,18 @@ test('usage-scan: one month, every session, each API message once, priced per mo
   // The pieces add up to the whole.
   for (const list of [out.days, out.models, out.projects]) assert.ok(Math.abs(list.reduce((a, x) => a + x.cost, 0) - out.total.cost) < 1e-9);
 
+  // each day's part: added up by the page for any days, the same as the whole
+  const page = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8'), a0 = page.indexOf('function sliceUsage('), sliceUsage = new Function(page.slice(a0, page.indexOf('\n}\n', a0) + 3) + '; return sliceUsage;')();
+  const near = (x, y, m) => assert.ok(Math.abs(x - y) < 1e-6, m + ' ' + x + ' ' + y), all = sliceUsage(out, 1, 30);
+  for (const k of ['in', 'out', 'cw', 'cr', 'tok', 'n']) assert.strictEqual(all.total[k], out.total[k], k);
+  near(all.total.cost, out.total.cost, 'cost');
+  assert.deepStrictEqual([all.sessionCount, all.records, all.unpricedTok, all.approxTok], [out.sessionCount, out.records, out.unpricedTok, out.approxTok]);
+  for (const [k, id] of [['models', 'model'], ['projects', 'id'], ['roles', 'role'], ['sessions', 'sessionId']]) { assert.deepStrictEqual(all[k].map((x) => [x[id], x.tok, x.n]), out[k].map((x) => [x[id], x.tok, x.n]), k); all[k].forEach((x, i) => near(x.cost, out[k][i].cost, k)); }
+  assert.deepStrictEqual(all.roles.map((x) => [x.role, x.runs, x.team, x.models.map((y) => y.model), x.projects.map((y) => y.name)]), out.roles.map((x) => [x.role, x.runs, x.team, x.models.map((y) => y.model), x.projects.map((y) => y.name)]));
+  assert.deepStrictEqual([all.projects[0].name, all.projects[0].path, all.sessions[0].title, all.sessions[0].projectName], ['proj', 'C:\\w\\proj', '測試用的對話', 'proj']);
+  const some = sliceUsage(out, 2, 12); assert.deepStrictEqual([some.total.tok, some.models.map((x) => x.model), some.days.map((x) => x.day).length, some.sessions[0].firstDay, some.sessions[0].lastDay, some.roles.length], [30, ['sonnet-4-6'], 11, 12, 12, 1]);
+  const none = sliceUsage(out, 3, 4); assert.deepStrictEqual([none.total.tok, none.models, none.sessions, none.sessionCount], [0, [], [], 0]);
+
   assert.deepStrictEqual(JSON.parse(execFileSync(process.execPath, [SCAN, '2026-13'], { encoding: 'utf8' })), { ok: false, error: 'month must be YYYY-MM' });
 });
 

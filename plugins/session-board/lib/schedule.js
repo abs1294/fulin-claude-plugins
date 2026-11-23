@@ -16,6 +16,7 @@
 //            custom its own `rule` (lib/rule.js: cron and more - working days, the Nth weekday, every N weeks, until, how many times)
 //   target   folder   a new conversation in `cwd`, each time
 //            goal     a goal handed to the goal2 plugin in `cwd`: `prompt` is the task, `goal` the condition it runs until
+//            digest  每天上班統整 (lib/digest.js): put together by the board and pushed over LINE; no folder, nothing to say. One of it.
 //            session  carry on session `sessionId` (its folder is kept in `cwd`, its name in `sessionTitle`)
 //   fallback what to do when the session is open in a terminal and the message cannot be handed to it:
 //            notify (only tell you) | fork (run a copy of it on the board) | takeover (move it to the board and run)
@@ -71,9 +72,9 @@ const clock = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim
 function clean(input, isDir = () => true) {
   const o = input || {};
   const v = { name: str(o.name, 80), kind: KINDS.includes(o.kind) ? o.kind : '', at: '', date: '', days: '', everyHours: 0,
-    target: o.target === 'session' ? 'session' : o.target === 'goal' ? 'goal' : 'folder', goal: o.target === 'goal' ? str(o.goal, 3500) : '', cwd: str(o.cwd, 400), sessionId: '', sessionTitle: str(o.sessionTitle, 200),
+    target: ['session', 'goal', 'digest'].includes(o.target) ? o.target : 'folder', goal: o.target === 'goal' ? str(o.goal, 3500) : '', cwd: str(o.cwd, 400), sessionId: '', sessionTitle: str(o.sessionTitle, 200),
     prompt: str(o.prompt, 20000), fallback: FALLBACKS.includes(o.fallback) ? o.fallback : 'notify', skipPermissions: o.skipPermissions === true, enabled: o.enabled !== false,
-    agent: o.target !== 'session' && o.target !== 'goal' && typeof o.agent === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/.test(o.agent) ? o.agent : '' };
+    agent: !['session', 'goal', 'digest'].includes(o.target) && typeof o.agent === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/.test(o.agent) ? o.agent : '' };
   if (!v.kind) return { ok: false, error: '請選擇什麼時候執行' };
   if (v.kind === 'custom') {
     const r = Rule.check(o.rule);
@@ -104,6 +105,7 @@ function clean(input, isDir = () => true) {
     if (!days.length) return { ok: false, error: '每月至少選一天' };
     v.days = days.join(',');
   }
+  if (v.target === 'digest') return { ok: true, value: Object.assign(v, { name: v.name || '每天上班統整', cwd: '', prompt: '用 LINE 告訴我今天要做什麼、還有什麼沒做（先核對過）', fallback: 'notify', skipPermissions: false, sessionTitle: '' }) };
   if (v.target === 'session') {
     if (!/^[0-9a-f-]{8,64}$/i.test(String(o.sessionId || ''))) return { ok: false, error: '請選擇要接續的 session' };
     v.sessionId = String(o.sessionId);
@@ -184,6 +186,8 @@ class Schedules {
   _run(r) { return { id: r.id, scheduleId: r.schedule_id, name: r.name, dueAt: r.due_at, startedAt: r.started_at, endedAt: r.ended_at, status: r.status, how: r.how, sessionId: r.session_id, note: r.note }; }
   runs(limit = 20) { return this.db.prepare('SELECT * FROM schedule_run ORDER BY id DESC LIMIT ?').all(limit).map((r) => this._run(r)); }
   // Runs that went to a conversation on the board and have not finished.
+  // a digest the board was putting together when it ended: it is not going on
+  endStale(now = Date.now()) { this.db.prepare("UPDATE schedule_run SET status = 'failed', ended_at = ?, note = '統整到一半看板關掉了' WHERE status = 'running' AND how = 'digest'").run(now); }
   openRuns() { return this.db.prepare("SELECT * FROM schedule_run WHERE (status IN ('running', 'waiting') AND session_id <> '' AND how <> 'peer') OR status = 'sent'").all().map((r) => this._run(r)); }
 
   // ── notices ──
