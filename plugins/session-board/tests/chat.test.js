@@ -506,6 +506,7 @@ test('a conversation with a fixed name is started under it every time; a kept on
   assert.deepStrictEqual([log.length, nameOf(log[2]), log[2].p.stdin.written.length, ch.status(a)], [3, 'S1-A', 0, 'idle'], 'started again under its name, nothing sent, no turn');
   ch.stop(a.sessionId); ch._reap();
   assert.strictEqual(log.length, 3, 'not again within a few minutes');
+  { const n = log.length; ch.wake(a.sessionId); }   // (nothing: woken a moment ago)
   a.lastResultAt = 1;   // (the clock below is moved by hand)
   a.wokenAt -= 6 * 60000; ch._reap(); a.proc = null;   // ended by itself
   a.wokenAt -= 6 * 60000; ch._reap();
@@ -767,4 +768,23 @@ test('an Artifact published is told once, with where it was asked from; a new ve
   res('9', say('https://claude.ai/artifact/NotAsked00001'));                                     // another tool's words
   assert.deepStrictEqual(got, [{ type: 'artifact', url: 'https://claude.ai/artifact/SsKu3gK2jnLV', title: '表', here: true }]);
   assert.deepStrictEqual(opened, ['https://claude.ai/artifact/SsKu3gK2jnLV']);
+});
+
+test('a command of the board\'s own (quietly) leaves your draft, what you ran and what is unread; /clear is followed; a kept process is renewed only after the old one is gone', () => {
+  const d = tmp(), log = [];
+  const ch = new Channels(path.join(d, 'channels.json'), { spawn: fakeSpawn(log), transcriptOf: () => null, keepAlive: () => true, mustBypass: (s) => s === 'x' });
+  const c = ch.create(d); ch.send(c.sessionId, '你好'); const p = log[0].p; p.out({ type: 'result', is_error: false });
+  c.draft = '打到一半'; c.shellNotes = [{ id: 1 }]; c.lastSeenAt = c.lastResultAt = 5;
+  assert.strictEqual(ch.quietly(c.sessionId, '/rename S1-a'), true); assert.strictEqual(ch.quietly(c.sessionId, 'again'), false, 'one at a time');
+  p.out({ type: 'result', is_error: false });
+  assert.deepStrictEqual([c.draft, c.shellNotes.length, ch.unread(c), ch.status(c)], ['打到一半', 1, false, 'idle']);
+  c.shellNotes = []; const moved = [], got = []; ch.onMoved = (a, b) => moved.push([a, b]); const from = c.sessionId, to = '00000000-0000-4000-8000-0000000000aa', emit = ch._emit; ch._emit = function (x, e) { got.push(e.type); return emit.call(ch, x, e); };
+  p.out({ type: 'system', subtype: 'init', session_id: to }); assert.deepStrictEqual(moved, [], 'another id without a clear: not followed');
+  p.out({ type: 'conversation_reset', trigger: 'clear', session_id: from }); p.out({ type: 'system', subtype: 'hook_started', session_id: to });
+  assert.deepStrictEqual([moved, ch.get(from), ch.get(to) === c, got.includes('moved')], [[[from, to]], null, true, true]);
+  p.out({ type: 'result', is_error: false, session_id: to });
+  // renewed: ended first, started when it has gone
+  c.procAt = Date.now() - 7 * 3600000; c.lastActivity = Date.now() - 3600000; c.said = []; const n = log.length; let gone = null; p.once = (ev, f) => { if (ev === 'exit') gone = f; };
+  ch._reap(); assert.deepStrictEqual([log.length, c.proc], [n, null]); gone(); assert.strictEqual(log.length, n + 1);
+  ch.shutdown();
 });

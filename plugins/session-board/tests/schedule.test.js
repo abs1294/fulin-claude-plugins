@@ -94,3 +94,15 @@ test('monthly: on the days of the month chosen, the last day, and a day a month 
   assert.strictEqual(nextRun({ kind: 'monthly', at: '00:30', days: '29' }, at(2028, 2, 10)), at(2028, 2, 29, 0, 30), 'a leap year has the 29th');
   assert.strictEqual(lastDue({ kind: 'monthly', at: '09:00', days: '31' }, at(2026, 12, 5)), at(2026, 11, 30), 'November has no 31st: its 30th');
 });
+
+test('a conversation that goes on under another id: its schedules follow, and keep their time', () => {
+  const os2 = require('os'), fs2 = require('fs'), path2 = require('path'), d = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'session-board-test-'));
+  try {
+    const s = new Schedules(path2.join(d, 'b.db')), A = '00000000-0000-4000-8000-000000000001', B = '00000000-0000-4000-8000-000000000002', t0 = Date.now() - 3.9 * 3600000;
+    const v = clean({ name: 'n', kind: 'every', everyHours: 4, target: 'session', cwd: d, sessionId: A, prompt: 'p' }, () => true); assert.ok(v.ok, JSON.stringify(v));
+    const id = s.save(v.value, undefined, t0), before = s.get(id), next = nextRun(before, Date.now());
+    assert.strictEqual(s.moveSession(A, B), 1); const after = s.get(id);
+    assert.deepStrictEqual([after.sessionId, after.updatedAt, nextRun(after, Date.now())], [B, before.updatedAt, next]);
+    if (s.db && s.db.close) s.db.close();
+  } finally { try { fs2.rmSync(d, { recursive: true, force: true }); } catch (e) {} }
+});

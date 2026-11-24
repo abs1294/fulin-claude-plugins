@@ -389,6 +389,7 @@ async function pickFolder() {
 // opened by hand.
 function terminalArgs(sid, cwd, hasTranscript, command, dir = path.join(DATA_DIR, 'launch'), prompt = '', naming = null) {
   command = command || 'claude';
+  if (naming && naming.bypass && !/--dangerously-skip-permissions/.test(command)) command += ' --dangerously-skip-permissions';
   // its fixed name goes with it (lib/codes.js), and no other session's
   if (naming) command = K.withName(command, Collab.safeName(naming.code), naming.known);
   if (MAC) return { mac: Mac.writeLauncher(dir, cwd, sid, command, hasTranscript, prompt) };   // a .command file Terminal opens
@@ -681,7 +682,7 @@ function createServer(token, port, deps = {}) {
   // 外掛整合分析 per folder (lib/pluginfit.js): {state: running|done|failed, at, result?, error?, applied?}. Kept in a
   // file, so an answer that took minutes is still there after the board restarts; one running is not (it ended with it).
   const fitFile = deps.pluginfitFile || path.join(DATA_DIR, 'pluginfit.json');
-  const fits = new Map(); try { for (const [k, v] of Object.entries(JSON.parse(fs.readFileSync(fitFile, 'utf8')))) if (v && v.state !== 'running') fits.set(k, v); } catch (e) {}
+  const fits = new Map(); try { for (const [k, v] of Object.entries(JSON.parse(fs.readFileSync(fitFile, 'utf8')))) if (v && v.state !== 'running') fits.set(k, Object.assign({}, v, Array.isArray(v.applied) ? { applied: v.applied.filter((x) => !(x && x.ok === false && /^還沒加入 .* 這個 marketplace/.test(String(x.note || '')))) } : {})); } catch (e) {}
   const fitKey = (f) => path.normalize(f).replace(/[\\/]+$/, '').toLowerCase();
   const fitSave = () => { try { fs.mkdirSync(path.dirname(fitFile), { recursive: true }); fs.writeFileSync(fitFile, JSON.stringify(Object.fromEntries([...fits].filter(([, v]) => v.state !== 'running')), null, 1)); } catch (e) {} };
   const fitBusy = new Set();     // folders whose choices are being installed right now
@@ -894,7 +895,7 @@ function createServer(token, port, deps = {}) {
         if (s.owner === 'board' && channels.isEmpty) { const c = channels.get(s.sessionId); if (c && channels.isEmpty(c)) s.notStarted = true; if (c && c.draft) { s.draft = c.draft; if (!c.title) s.title = '草稿：' + c.draft.replace(/\s+/g, ' ').trim().slice(0, 40); } if (c && c.stash) { s.stash = c.stash; if (!c.title && !c.draft) s.title = '暫存：' + c.stash.replace(/\s+/g, ' ').trim().slice(0, 40); } const hn = c && channels.held ? channels.held(c) : 0; if (hn) { s.held = hn; if (!c.title && !c.draft && !c.stash) s.title = '還沒送出：' + hn + ' 個附件'; } }
         if (s.owner === 'board') { const c = channels.get(s.sessionId); if (c && c.agent) s.agent = c.agent; }   // the role it runs as
         // Whether it asks before acting: what its process said (after the first message), else what it will be started with.
-        if (s.owner === 'board') { const c = channels.get(s.sessionId); if (c) { s.mode = c.skipPermissions ? 'bypassPermissions' : c.mode || ''; if (!s.mode) s.modeDefault = defaultMode(); s.model = c.model || ''; s.effort = c.effort || ''; s.modelSeen = c.modelSeen || ''; } }
+        if (s.owner === 'board') { const c = channels.get(s.sessionId); if (c) { s.mode = channels.bypasses(c) ? 'bypassPermissions' : c.mode || ''; if (!s.mode) s.modeDefault = defaultMode(); s.model = c.model || ''; s.effort = c.effort || ''; s.modelSeen = c.modelSeen || ''; } }
         if (hidden.has(s.sessionId)) s.hidden = true;
         // When you last said something in it: what the left list is ordered by (lib/past.js saidAtOf; after the first look only what was added to the transcript is read).
         try { const f = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir); if (f) { const d = Past.saidOf(f); s.saidAt = d.at; if (d.text) s.lastUser = d.text; } } catch (e) {}
@@ -1071,31 +1072,66 @@ function createServer(token, port, deps = {}) {
   const collabList = () => { const v = config.value('collabs', []); return Array.isArray(v) ? v.filter((c) => c && Number.isInteger(c.id) && Array.isArray(c.members)) : []; };
   const saveCollabs = (list) => config.setValue('collabs', list);
   // Fixed names (lib/codes.js): given when a session first joins a collaboration and the same from then on.
-  let codesSeen = { at: 0, v: {}, known: new Set() };   // asked for at every refresh and every process start: read at most once a second
-  const codes = () => { if (!codesSeen.at) { try { Codes.freeze(config.value, config.setValue); } catch (e) {} } if (Date.now() - codesSeen.at > 1000) codesSeen = { at: Date.now(), v: Codes.book(config.value).codes, known: Codes.known(config.value) }; return codesSeen.v; };
-  // a copy of one that has a name gets its own: the transcript it takes over names it like the first, and they would share it
-  const codeOf = (sid) => {
+  const codes = () => Codes.cached(config.value, config.setValue).codes;
+  // One going on in another's place (/api/rewind) is that one, until everything has gone along: its name, whether it runs
+  // without asking - whatever is asked of it meanwhile.
+  const inPlaceOf = (sid) => { const c = channels.get(sid); return (c && c.nameOf) || sid; };
+  // a copy of one that has a name gets its own as it starts: the transcript it takes over names it like the first, and they
+  // would share it. (One that has a transcript of its own already was started before the first had a name.)
+  const codeOf = (sid0) => {
+    const sid = inPlaceOf(sid0);
     if (Object.prototype.hasOwnProperty.call(codes(), sid)) return codes()[sid];
-    const c = channels.get(sid); return c && c.forkOf && codes()[c.forkOf] ? giveCode(sid, path.basename(c.cwd || '').slice(0, 20), namePattern()) : '';
+    const c = channels.get(sid);
+    return c && c.forkOf && codes()[c.forkOf] && !S.findTranscript(sid, c.cwd, S.DEFAULTS.projectsDir) ? giveCode(sid, path.basename(c.cwd || '').slice(0, 20), namePattern()) : '';
   };
-  const allCodes = () => { codes(); return codesSeen.known; };
+  const allCodes = () => Codes.cached(config.value, config.setValue).known;
   const naming = (sid) => ({ code: codeOf(sid), known: allCodes() });
   const namePattern = () => pref('collabNamePattern') || Collab.settings().namePattern;
-  const giveCode = (sid, short, pattern) => { const n = Codes.give(config.value, config.setValue, sid, short, pattern); codesSeen.at = 0; return n; };
-  // Kept running: the board's members of a collaboration under way, while any of them had a turn within keepHours - not
-  // one that runs somewhere else now (opened by hand in a terminal): the same session in two places spoils its record.
+  const giveCode = (sid, short, pattern) => { const n = Codes.give(config.value, config.setValue, sid, short, pattern, S.readRegistry(S.DEFAULTS.sessionsDir).filter((r) => r.sessionId !== sid).map((r) => r.name)); return n; };
+  // Kept running: the board's members of a collaboration under way, while any of them - in a terminal too - was at work
+  // within keepHours (Claude said something in it) - not one that also runs somewhere else now (opened by hand in a
+  // terminal): the same session in two places spoils its record. Nor one being carried on as another one.
+  const workedAt = (m) => { const ch = channels.get(m.sessionId); if (ch && ch.proc && channels.status(ch) !== 'idle') return Date.now(); const f = S.findTranscript(m.sessionId, m.cwd, S.DEFAULTS.projectsDir); return f ? S.lastTurnAt(f) : 0; };
   const kept = (sid) => {
     const ms = Collab.settings().keepHours * 3600000; if (!ms) return false;
-    const own = channels.get(sid); if (!own) return false;
-    if (!own.proc && S.readRegistry(S.DEFAULTS.sessionsDir).some((r) => r.sessionId === sid && !channels.deadPids.has(r.pid) && S.pidAlive(r.pid))) return false;
-    return collabList().some((c) => c.state === 'active' && c.members.some((m) => m.sessionId === sid) && c.members.some((m) => { const ch = channels.get(m.sessionId); return ch && Date.now() - (ch.lastResultAt || 0) < ms; }));
+    const own = channels.get(sid); if (!own || rewinding.has(sid)) return false;
+    const mine = collabList().filter((c) => c.state === 'active' && c.members.some((m) => m.sessionId === sid)); if (!mine.length) return false;
+    const pid = own.proc ? own.proc.pid : 0;
+    if (S.readRegistry(S.DEFAULTS.sessionsDir).some((r) => r.sessionId === sid && r.pid !== pid && !channels.deadPids.has(r.pid) && S.pidAlive(r.pid))) return false;
+    return mine.some((c) => c.members.some((m) => Date.now() - workedAt(m) < ms));
   };
-  channels.codeOf = codeOf; channels.keepAlive = kept;
+  // A collaboration that runs without asking: so does each of its conversations on the board, however it came here.
+  const mustBypass = (sid0) => { const sid = inPlaceOf(sid0); return collabList().some((c) => c.state === 'active' && c.bypass && c.members.some((m) => m.sessionId === sid)); };
+  channels.codeOf = codeOf; channels.keepAlive = kept; channels.mustBypass = mustBypass;
+  // A conversation that goes on as another one (/api/rewind): its name and its place in the collaborations under way go
+  // along - to the other members nothing changed.
+  const moveMember = (from, to) => {
+    const moved = Codes.move(config.value, config.setValue, from, to);
+    const all = collabList(), mine = all.filter((c) => c.state === 'active' && c.members.some((m) => m.sessionId === from));
+    for (const c of mine) for (const m of c.members) if (m.sessionId === from) m.sessionId = to;
+    if (moved) giveCode(from, path.basename((mine[0] && mine[0].folder) || '').slice(0, 20), namePattern());   // the one left behind can be opened again: under a name of its own
+    if (!mine.length) return moved;
+    saveCollabs(all);
+    const st = Collab.settings();
+    for (const c of mine) { try { Collab.writeSection(c.ledger, st.sections.members, Collab.membersBlock(c)); } catch (e) {} }
+    return moved;
+  };
+  // What goes along when a conversation goes on under another id: its name, its place among members, what the schedules
+  // carry on, the name you gave it, whether it is the LINE secretary's.
+  const carryOn = (from, to) => {
+    moveMember(from, to);
+    const named = customTitles()[from]; if (named) config.setValue('customTitles', Object.assign({}, customTitles(), { [to]: named }));   // (the one left behind keeps it as well: that is what it was)
+    for (const k of ['openedBy', 'shownAt']) { const v = config.value(k, {}); if (v && typeof v === 'object' && v[from]) config.setValue(k, Object.assign({}, v, { [to]: v[from] })); }
+    try { if (schedules && schedules.moveSession) schedules.moveSession(from, to); } catch (e) {}
+    if (bySecretary().has(from)) { setSecretary(to, true); setSecretary(from, false); }
+    fresh();
+  };
+  channels.onMoved = carryOn;   // /clear in a conversation of the board
   // A member's process that runs under another name is told its own; one not running is started with it (chat.js _start).
-  const nameIt = (m) => { const c = channels.get(m.sessionId); if (!c || !c.proc || c.startedAs === m.name) return 'start'; const r = channels.send(m.sessionId, '/rename ' + m.name); if (r.ok) c.startedAs = m.name; return r.ok ? 'sent' : 'failed: ' + r.error; };
+  const nameIt = (m) => { const c = channels.get(m.sessionId); if (!c || !c.proc) return 'start'; const s = cache.list.find((x) => x.sessionId === m.sessionId); if (((s && s.addr) || c.startedAs) === m.name) return 'start'; const r = channels.send(m.sessionId, '/rename ' + m.name); if (r.ok) c.startedAs = m.name; return r.ok ? 'sent' : 'failed: ' + r.error; };
   // A member's permission mode: a board conversation by what it runs (or will run) with, a terminal session by its transcript.
   const memberMode = (m, s) => {
-    const ch = channels.get(m.sessionId); if (ch) return ch.skipPermissions ? 'bypassPermissions' : ch.mode || defaultMode();
+    const ch = channels.get(m.sessionId); if (ch) return channels.bypasses(ch) ? 'bypassPermissions' : ch.mode || defaultMode();
     return s ? modeOf(s) : '';
   };
   const collabView = (c, list) => {
@@ -1117,8 +1153,21 @@ function createServer(token, port, deps = {}) {
   // Every refresh: a member whose registered name changed - the ledger's members section is rewritten. Nobody is told: a
   // message wakes the others, whose own processes start again under another name, and so on (2026-11-24: two members
   // woke each other at every change of a title). They are reached by the name they were given, which does not change.
+  let lastPids = new Map(); const turned = new Map(), healed = new Map();   // sessionId -> the other name it was called back from: once for each
   const trackCollabNames = (list) => {
-    const all = collabList(); const moved = new Set(), later = []; let changed = false;
+    // /clear in a terminal: the same process (its start time stays - measured 2026-11-25; a process id used again has
+    // another) under another session id, whose transcript begins with that very command, given after the old id was last
+    // seen there - the member follows. /resume changes the id too, to a conversation that was there before: not followed.
+    const seenAt = Date.now(), begun = new Map(S.readRegistry(S.DEFAULTS.sessionsDir).map((r) => [r.pid, r.startedAt])), pids = new Map(list.filter((s) => s.owner === 'terminal' && s.pid).map((s) => [s.pid + ':' + begun.get(s.pid), { sid: s.sessionId, at: seenAt }]));
+    for (const [k, x] of pids) { const was = lastPids.get(k); if (was && was.sid !== x.sid && codeOf(was.sid) && !codeOf(x.sid)) turned.set(k, { was: was.sid, at: was.at, sid: x.sid, since: seenAt }); }
+    lastPids = pids;
+    for (const [k, t] of turned) {
+      const x = pids.get(k);
+      if (!x || x.sid !== t.sid || channels.has(t.was) || list.some((s) => s.sessionId === t.was) || seenAt - t.since > 120000) { turned.delete(k); continue; }
+      const f = S.findTranscript(t.sid, (list.find((s) => s.sessionId === t.sid) || {}).cwd || '', S.DEFAULTS.projectsDir);
+      if (f && S.clearedAt(f) >= t.at - 5000) { turned.delete(k); carryOn(t.was, t.sid); }   // (not written yet: looked at again the next time)
+    }
+    const all = collabList(); const moved = new Set(), later = [], heal = []; let changed = false;
     for (const c of all) {
       if (c.state !== 'active') continue;
       for (const m of c.members) {
@@ -1127,6 +1176,8 @@ function createServer(token, port, deps = {}) {
         const code = codeOf(m.sessionId); if (code && code !== m.name) { also.push(m.name); m.name = code; diff = true; }   // one it was given in another collaboration before 0.22.0
         const owner = s ? (s.owner === 'board' ? 'board' : 'terminal') : m.owner; if (owner !== m.owner) { m.owner = owner; diff = true; }   // moved between the board and a terminal
         if (now && now !== m.seenName) { m.seenName = now; also.push(now); diff = true; }
+        // renamed in Claude Code (a /rename typed in it): the others look for it by its own name - told again, once it is idle
+        if (now && now !== m.name && s.owner === 'board' && !m.pending && channels.get(m.sessionId) && channels.get(m.sessionId).proc && channels.status(channels.get(m.sessionId)) === 'idle' && healed.get(m.sessionId) !== now) heal.push([m, now]);
         if (!diff) continue;
         m.names = [...new Set([...(Array.isArray(m.names) ? m.names : []), ...also])].filter(Boolean).slice(-20); changed = true;
         moved.add(c);
@@ -1137,7 +1188,7 @@ function createServer(token, port, deps = {}) {
     for (const c of all) {
       if (c.state !== 'active') continue;
       for (const m of c.members) {
-        if (!m.pending) continue;
+        if (!m.pending || rewinding.has(m.sessionId)) continue;
         const ch = channels.get(m.sessionId);
         if (!ch) { if (m.owner === 'terminal' && list.some((x) => x.sessionId === m.sessionId && x.owner !== 'board')) { delete m.pending; changed = true; later.push([m, Collab.briefText(c, m)]); } continue; }   // moved to a terminal meanwhile: told there, once it is open
         if (channels.status(ch) !== 'idle') continue;
@@ -1145,6 +1196,7 @@ function createServer(token, port, deps = {}) {
         later.push([m, Collab.briefText(c, m), true]);
       }
     }
+    for (const [m, other] of heal) setImmediate(() => { try { if (healed.get(m.sessionId) !== other && channels.quietly(m.sessionId, '/rename ' + m.name)) healed.set(m.sessionId, other); } catch (e) {} });
     if (!changed) return;
     saveCollabs(all);
     // after it is written down: telling a member asks for the list, which comes back here
@@ -1951,7 +2003,7 @@ function createServer(token, port, deps = {}) {
       // the registries' keys, written where skill-fetch reads them; the answer says which are set, never what they are
       if (p === '/api/skillwish/keys') { const r = Wish.saveKeys(body && body.keys, typeof body.cwd === 'string' ? body.cwd : ''); return send(res, r.ok ? 200 : 400, r); }
       // an entry (or several) filled in from an address only; nothing is written
-      if (p === '/api/recommends/draft') { const r = await RecFill.draft(String(body.url || '').slice(0, 400), { fetch: deps.recFetch, ask: deps.recAsk || LineLib._claudeAsk({ model: pref('decideModel') }) }); return send(res, r.ok ? 200 : 400, r); }
+      if (p === '/api/recommends/draft') { const r = await RecFill.draft(String(body.url || '').slice(0, 400), { fetch: deps.recFetch, ask: deps.recAsk || (deps.claudeAsk || LineLib._claudeAsk)({ model: pref('decideModel') }) }); return send(res, r.ok ? 200 : 400, r); }
       if (p === '/api/recommends') { const r = await (deps.saveRecommend || PluginFit.saveRecommend)(body || {}); return send(res, r.ok ? 200 : 400, r); }
       // 外掛整合分析 (lib/pluginfit.js): started here, run in the background (minutes), read with GET /api/pluginfit.
       if (p === '/api/pluginfit/analyze') {
@@ -2336,12 +2388,12 @@ function createServer(token, port, deps = {}) {
         const keep = Array.isArray(body.pics) ? [...new Set(body.pics)].filter((i) => Number.isInteger(i) && i >= 0) : [];
         if (keep.length > 8) return send(res, 400, { ok: false, error: '一則最多 8 張圖，這則留了 ' + keep.length + ' 張，請拿掉幾張' });
         if (!text.trim() && !keep.length) return send(res, 400, { ok: false, error: '改好的訊息是空的' });
-        // a member of a collaboration under way: the others write to it by its name and the ledger lists its id - a new
-        // conversation in its place would drop out of it
-        if (collabList().some((x) => x.state !== 'ended' && x.members.some((m) => m.sessionId === sid))) return send(res, 409, { ok: false, error: '這個對話正在合作中，換成新對話會讓其他成員找不到它。要改的話，先在合作頁結束這個合作' });
+        // a member of collaborations under way: the new conversation takes its place (moveMember); gone back to before it was
+        // told of one, it is told again
+        const inCollabs = collabList().filter((x) => x.state === 'active' && x.members.some((m) => m.sessionId === sid)), tag = (x) => '【合作 #' + x.id + '】';
         const file = S.findTranscript(sid, c.cwd, S.DEFAULTS.projectsDir);
         if (!file) return send(res, 400, { ok: false, error: '這個對話還沒有紀錄' });
-        const rp = Rewind.resumePoint(file, body.at);
+        const rp = Rewind.resumePoint(file, body.at, inCollabs.map(tag));
         if (!rp.ok) return send(res, 400, rp);
         const pics = keep.length ? require('./lib/history').picturesOf(file, body.at, keep) : [];
         if (!pics) return send(res, 400, { ok: false, error: '這則訊息的圖在紀錄裡讀不到，沒有重來' });
@@ -2364,17 +2416,18 @@ function createServer(token, port, deps = {}) {
         for (const k of ['model', 'effort', 'agent', 'skipPermissions', 'stash'].concat(rp.at ? ['title'] : [])) if (c[k]) n[k] = c[k];
         if (Array.isArray(c.shellNotes) && c.shellNotes.length) { n.shellNotes = c.shellNotes.slice(); n.shellSeq = c.shellSeq; }
         if (Array.isArray(c.unsent) && c.unsent.length) n.unsent = c.unsent.slice();   // what Claude never took in goes along
-        const named = customTitles()[sid];
-        if (named) config.setValue('customTitles', Object.assign({}, customTitles(), { [n.sessionId]: named }));
         if (channels._save) channels._save();
-        const r = channels.send(n.sessionId, text, pics.length ? pics : undefined);
+        n.nameOf = sid;   // started under its name; everything else goes along once it has been sent
+        let r; try { r = channels.send(n.sessionId, text, pics.length ? pics : undefined); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 160) }; }
         if (r && r.ok === false) {
           n.unsent = []; channels.remove(n.sessionId);   // (the old one still has them, pictures and all)
-          if (named) { const t = Object.assign({}, customTitles()); delete t[n.sessionId]; config.setValue('customTitles', t); }
           fresh();
           return send(res, 500, { ok: false, error: (r.error || '送不出去') + '。原本的對話已停下，還在清單上，沒有關掉' });
         }
+        delete n.nameOf; carryOn(sid, n.sessionId);
         c.unsent = []; channels.remove(sid);   // (they went along: their pictures stay)
+        // gone back to before it was told of a collaboration: told again, as a message of the board's own after yours
+        for (const x of inCollabs) if (!(rp.had || []).includes(tag(x))) { const now = collabList().find((y) => y.id === x.id), m = now && now.members.find((y) => y.sessionId === n.sessionId); if (m && !m.pending) channels.send(n.sessionId, Collab.briefText(now, m)); }
         fresh();
         return send(res, 200, { ok: true, sessionId: n.sessionId, fromStart: !rp.at });
       }
@@ -2696,7 +2749,7 @@ function createServer(token, port, deps = {}) {
         for (let i = 0; i < 40 && S.pidAlive(s.pid); i++) await sleep(150);
         if (S.pidAlive(s.pid)) return send(res, 500, { ok: false, error: '終端機裡的那個程序沒有結束，為了不讓同一個 session 兩邊同時跑，沒有接手' });
         const c = channels.create(s.cwd, sid);
-        c.title = s.title;
+        c.title = allCodes().has(s.title) ? '' : s.title;
         fresh();
         // Then close the now-empty window. Only when exactly one window matched:
         // closing the wrong window is far worse than leaving one open.
@@ -2712,13 +2765,13 @@ function createServer(token, port, deps = {}) {
       if (p === '/api/to-terminal') {
         const c = channels.get(sid);
         if (!c) return send(res, 404, { ok: false, error: '這不是看板裡的對話' });
-        if (channels.status(c) === 'busy') return send(res, 409, { ok: false, error: '它還在執行，等它做完或先按停止' });
+        if (channels.status(c) !== 'idle') return send(res, 409, { ok: false, error: channels.status(c) === 'waiting' ? '它在等你核准或回答，先處理再移過去' : channels.status(c) === 'background' ? '它還有背景工作在跑，移過去會中斷它。等它做完或先按停止' : '它還在執行，等它做完或先按停止' });
         // a terminal has no place for these: they would be gone with the board's record of it
         const kept = [c.draft ? '還沒送出的字' : '', c.stash ? '暫存的內容' : '', channels.held && channels.held(c, HELD_MS) ? '還沒送出的附件（或只留在某一頁的暫存）' : '', c.unsent && c.unsent.length ? c.unsent.length + ' 則 Claude 沒讀到的訊息' : ''].filter(Boolean);
         if (kept.length) return send(res, 409, { ok: false, error: '這個對話有' + kept.join('、') + '，移到終端機就拿不回來。先送出或拿掉，再移過去' });
         const cwd = c.cwd;
         const known = keeper && keeper.get(sid);
-        const args = terminalArgs(sid, cwd, !!S.findTranscript(sid, cwd, S.DEFAULTS.projectsDir), known ? known.command : 'claude', undefined, '', naming(sid));
+        const args = terminalArgs(sid, cwd, !!S.findTranscript(sid, cwd, S.DEFAULTS.projectsDir), known ? known.command : 'claude', undefined, '', Object.assign(naming(sid), { bypass: mustBypass(sid) }));
         // its name goes with it (lib/sessions.js o.titles); the last 200 are remembered
         if (c.title) { const t = Object.assign({}, config.value('movedTitles', {})); delete t[sid]; t[sid] = String(c.title).slice(0, 120); const keys = Object.keys(t); for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete t[k]; config.setValue('movedTitles', t); }
         channels.remove(sid);

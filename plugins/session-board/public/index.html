@@ -324,7 +324,7 @@
     html body details.tools summary { padding-top: 11px; padding-bottom: 11px; }
     html body .rail-t { width: 44px; height: 44px; }
     html body .list-more { min-height: 44px; }
-    html body .cp-row { grid-template-columns: 44px minmax(0, 1fr) 140px 200px; }
+    html body .cp-row { grid-template-columns: 44px minmax(0, 1fr) 140px 200px; } html body .cp-row:not(.on) { grid-template-columns: 44px minmax(0, 1fr); }
     html body .cp-row input[type=checkbox] { width: 26px; height: 26px; margin: 9px; }
     input[type=checkbox], input[type=radio] { width: 26px; height: 26px; }
     /* (the boxes in a row of settings, of rooms and of options have their own size further down: outranked here, not by order) */
@@ -3335,14 +3335,14 @@ async function drawSettings() {
     const h2 = el('h2', '', '小模型判斷'); h2.style.marginTop = '40px'; pane.append(h2);
     pane.append(el('p', 'lead', '看板有幾個地方會請一個快又便宜的模型做小判斷，這裡選用哪個模型：'));
     const uses = el('ul', 'set-uses');
-    for (const [t, d] of [['下一步', '這一輪有沒有說要做、還沒做完的事，有才出現「交給 goal2 做完」'], ['收件', '新進來的訊息是不是要你處理、要做什麼'], ['推薦的外部 plugin', '貼上網址時，從那一頁讀出名稱和說明先填好']]) { const li = el('li'); li.append(el('b', '', t), '：' + d); uses.append(li); }
+    for (const [t, d] of [['下一步', '這一輪有沒有說要做、還沒做完的事，有才出現「交給 goal2 做完」'], ['收件', '新進來的訊息是不是要你處理、要做什麼'], ['推薦的外部 plugin', '貼上網址時，先寫好說明和標籤']]) { const li = el('li'); li.append(el('b', '', t), '：' + d); uses.append(li); }
     pane.append(uses);
     const row = el('div', 'pathrow'), sel = el('select'); sel.setAttribute('aria-label', '判斷用的模型');
     for (const m of ['haiku', 'sonnet', 'opus']) { const o = el('option', '', m); o.value = m; sel.append(o); }
-    sel.value = (r.data.prefs || {}).decideModel || 'haiku';
+    { const v = (r.data.prefs || {}).decideModel || 'haiku'; if (![...sel.options].some((o) => o.value === v)) { const o = el('option', '', v); o.value = v; sel.append(o); } sel.value = v; }
     sel.addEventListener('change', async () => { if (await savePref({ decideModel: sel.value })) say('已儲存：判斷用 ' + sel.value); });
     row.append(sel); pane.append(row);
-    pane.append(el('div', 'hint', '不照這個設定的：排程的一句話、語音整理、每天上班統整、戰情室的每日摘要、LINE 秘書固定用 sonnet；載入動畫由 sonnet 看、opus 畫；轉送訊息給終端機 session 固定用 haiku；解釋與旁問用 Claude Code 的預設模型。「下一步」的題目可以改：放一份 unfinished.json 到 ~/.claude/session-board/questions/。'));
+    pane.append(el('div', 'hint', '不照這個設定的：排程的一句話、語音整理、每天上班統整、戰情室的每日摘要、LINE 秘書固定用 sonnet；載入動畫由 sonnet 看、opus 畫；轉送訊息給終端機 session 固定用 haiku；解釋、旁問、外掛分析與追問、找外掛、CLAUDE.md 面板用 Claude Code 的預設模型。「下一步」的題目可以改：放一份 unfinished.json 到 ~/.claude/session-board/questions/。'));
   }
   {
     const h2 = el('h2', '', '從另一台電腦操作'); h2.style.marginTop = '40px'; pane.append(h2);
@@ -4713,7 +4713,7 @@ async function drawCollab(preselect) {
     const here = (x) => { x.scrollIntoView({ block: 'center' }); x.focus({ preventScroll: true }); };
     if (!goal.value.trim()) { here(goal); return say('要寫共同目標', true); }
     if (members.length < 2) { here(find); return say('要勾 2 個以上的 session', true); }
-    go.disabled = true; msg.textContent = '建立中：寫帳本、替看板對話改名、送合作說明給每一位…'; msg.scrollIntoView({ block: 'nearest' });
+    go.disabled = true; msg.textContent = '建立中：寫帳本、給每一位固定代號、送合作說明給每一位…'; msg.scrollIntoView({ block: 'nearest' });
     let x; try { x = await api('/api/collab/create', { goal: goal.value.trim(), folder: folder.value, bypass: by.checked, members }); } catch (e) { x = { ok: false, data: { error: '看板程序沒有回應' } }; }
     go.disabled = false;
     if (!x.ok) { msg.textContent = ''; return say(x.data.error || '建不起來', true); }
@@ -5401,6 +5401,24 @@ function tellHeld(sid) {
 function syncHeld() { for (const sid of new Set([...pendingImgs.keys(), ...pendingFiles.keys(), ...uploading.keys(), ...stashMem.keys(), ...toldHeld.keys()])) tellHeld(sid); }
 // the page goes for good (not only put away by the browser, from where it can come back): it holds nothing any more
 addEventListener('pagehide', (e) => { if (e.persisted) return; for (const [sid, x] of toldHeld) if (x.n) { try { fetch('/api/held', { method: 'POST', keepalive: true, headers: { 'x-board-token': TOKEN, 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: sid, page: PAGE_ID, n: 0 }) }).catch(() => {}); } catch (err) {} } });
+// A conversation that goes on as another one: what was in the box below and not sent goes along (a draft saved to the one
+// put away would be refused and lost): the box as it is now when it is still on screen - also words put back from a kept
+// draft and not touched - else what was last typed or kept for it. And the pictures, files, inbox message and what was put
+// aside (each held for one conversation only: moved, not shared).
+// What takes a moment (an upload, a picture being read) holds on to its conversation, not to the id it had: {sid}, moved
+// along with it while it is under way. (One begun later, in the old conversation opened again, is that one's.)
+const underWay = new Set();
+const holdOn = async (sid, f) => { const at = { sid }; underWay.add(at); try { return await f(at); } finally { underWay.delete(at); } };
+async function moveHeld(was, to) {
+  if (!was || was === to) return;
+  for (const x of underWay) if (x.sid === was) x.sid = to;
+  const ta = active === was && $('foot') && $('foot').querySelector('textarea'), kept = [...sessions, ...unstarted].find((y) => y.sessionId === was);
+  const typed = ta ? ta.value.replace(/［[檔圖]\d+］/g, '') : draftNow.get(was) !== undefined ? draftNow.get(was) : kept ? kept.draft : undefined;
+  draftNow.delete(was); clearTimeout(draftTimers.get(was)); draftTimers.delete(was);
+  for (const held of [pendingImgs, pendingFiles, carry, stashMem, stashSaid, uploading]) if (held.has(was)) { const x = held.get(was); held.delete(was); held.set(to, Array.isArray(x) ? x.slice() : x); }
+  toldHeld.delete(was);
+  if (typed && typed.trim()) { draftShown.delete(to); await saveDraft(to, typed); }
+}
 function leaveIfEmpty(sid) {
   const s = sessions.find((x) => x.sessionId === sid) || unstarted.find((x) => x.sessionId === sid);
   if (!s || s.owner !== 'board') return;
@@ -5943,6 +5961,7 @@ async function openChat(sid, at) {
   const wait = ldBox('讀取對話中…'); col.append(wait);   // (a long conversation takes a moment; what is drawn clears it)
   await loadHistory(true);
   wait.remove();
+  if (active !== sid) return;   // another was opened meanwhile: its stream and messages are not taken over
   if (active === sid) {
     const target = typeof at === 'string' && at ? col.querySelector('.msg.user[data-id="' + CSS.escape(at) + '"]') : null;
     if (target) { const mine = myMessages().find((x) => x.e === target); scroll.scrollTop = mine ? mine.top : 0; flash(target); }
@@ -5951,7 +5970,7 @@ async function openChat(sid, at) {
   const s = cur();
   if (s && s.owner === 'board') {
     loadCommands(sid);
-    api('/api/seen', { sessionId: sid });
+    sawIt(sid);
     stream = new EventSource('/api/stream?sid=' + encodeURIComponent(sid) + '&t=' + encodeURIComponent(TOKEN));
     const mine = stream;
     stream.onmessage = (ev) => { if (stream === mine) onLive(JSON.parse(ev.data)); };
@@ -6844,13 +6863,13 @@ function drawFoot() {
   // tagged: each picture gets a number, to be marked in the text where it belongs. -> the numbers given, one per file (0 = not added)
   // A file that is not a picture: kept on this computer by the board (/api/upload), and its path put into the message
   // for Claude to read - from the phone as well, where the file would not be on this computer otherwise.
-  const uploadFile = async (f) => {
+  const uploadFile = (f) => holdOn(s.sessionId, async (at) => {
     if (f.size > 30 * 1024 * 1024) return say('「' + f.name + '」太大（上限 30 MB）', true);
     say('上傳「' + f.name + '」中…');
     uploading.set(s.sessionId, (uploading.get(s.sessionId) || 0) + 1); drawImgs();
-    try { return await uploadOne(f); } finally { const n = (uploading.get(s.sessionId) || 1) - 1; if (n > 0) uploading.set(s.sessionId, n); else uploading.delete(s.sessionId); drawImgs(); if (!uploading.get(s.sessionId)) for (const x of document.querySelectorAll('#foot .up-now')) x.remove(); }   // (the strip on the page now may not be the one drawn here)
-  };
-  const uploadOne = async (f) => {
+    try { return await uploadOne(f, at); } finally { const sid = at.sid, n = (uploading.get(sid) || 1) - 1; if (n > 0) uploading.set(sid, n); else uploading.delete(sid); drawImgs(); if (sid !== s.sessionId && active === sid) drawFoot(); if (!uploading.get(sid)) for (const x of document.querySelectorAll('#foot .up-now')) x.remove(); }   // (the strip on the page now may not be the one drawn here)
+  });
+  const uploadOne = async (f, at) => {
     let data;
     try { data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).replace(/^data:[^,]*,/, '')); fr.onerror = () => rej(fr.error); fr.readAsDataURL(f); }); }
     catch (e) { return say('讀不到「' + f.name + '」', true); }
@@ -6859,18 +6878,18 @@ function drawFoot() {
     // The upload takes a moment, and the box may be drawn again meanwhile (a poll, the stream): what is changed is the
     // list kept for the conversation and the box on the page NOW - not the ones this box was drawn with - and then the
     // strip is drawn again, so the card shows (seen 2026-11-19: the card was added to a box no longer on the page).
-    const list = pendingFiles.get(s.sessionId) || []; pendingFiles.set(s.sessionId, list);
+    const sid = at.sid, list = pendingFiles.get(sid) || []; pendingFiles.set(sid, list);
     const had = list.find((x) => x.path === r.data.path);   // the same file twice in one message is one card, one mark
-    const box2 = active === s.sessionId && $('foot') ? $('foot').querySelector('textarea') : null;
+    const box2 = active === sid && $('foot') ? $('foot').querySelector('textarea') : null;
     if (!had) {
       const tag = Math.max(0, ...list.map((x) => x.tag)) + 1;
       list.push({ tag, name: f.name, path: r.data.path });
       if (box2) { const a = box2.selectionStart, b = box2.selectionEnd; box2.setRangeText('［檔' + tag + '］', a, b, 'end'); box2.dispatchEvent(new Event('input', { bubbles: true })); box2.focus(); }
     }
-    if (active === s.sessionId) drawFoot();   // the box drawn again from the list: its cards, and the words in it kept
+    if (active === sid) drawFoot();   // the box drawn again from the list: its cards, and the words in it kept
     say(had ? '「' + f.name + '」已經在這則訊息裡了' : r.data.reused ? '「' + f.name + '」之前傳過，沿用同一份（沒有多存一份）' : '已上傳「' + f.name + '」（存在看板那台電腦，30 天後自動刪掉）');
   };
-  const addFiles = async (files, tagged) => {
+  const addFiles = (files, tagged) => holdOn(s.sessionId, async (at) => {
     const tags = [];
     for (const f of files) {
       tags.push(0);
@@ -6878,11 +6897,11 @@ function drawFoot() {
       if (imgs.length >= 8) { say('一則訊息最多 8 張圖', true); break; }
       try { const x = await readImage(f); if (tagged) { x.tag = Math.max(0, ...imgs.map((y) => y.tag || 0)) + 1; tags[tags.length - 1] = x.tag; } imgs.push(x); } catch (e) { say('這張圖讀不進來：' + String(e.message || e).slice(0, 60), true); }
     }
-    pendingImgs.set(s.sessionId, imgs);
+    pendingImgs.set(at.sid, imgs);
     // a file among them drew the box again (uploadFile): this box is gone, so the one on the page is drawn with the pictures
-    if (ta.isConnected) drawImgs(); else if (active === s.sessionId) drawFoot();
+    if (ta.isConnected) drawImgs(); else if (active === at.sid) drawFoot();
     return tags;
-  };
+  });
   ta.addEventListener('paste', async (e) => {
     const files = [...((e.clipboardData && e.clipboardData.items) || [])].filter((it) => it.kind === 'file' && /^image\//.test(it.type)).map((it) => it.getAsFile()).filter(Boolean);
     const html = (e.clipboardData && e.clipboardData.getData('text/html')) || '';
@@ -7391,19 +7410,10 @@ function editMsg(m, it) {
     if (uploading.get(active)) return say('下方還有檔案在上傳，傳完再重來', true);
     go.disabled = cancel.disabled = ta.disabled = true; go.textContent = '重來中…'; ld(go);
     // the conversation this is in, taken now (another may be on screen by the time the board answers)
-    const was = active, boxNow = () => (active === was && $('foot') && $('foot').querySelector('textarea') ? $('foot').querySelector('textarea').value.replace(/［[檔圖]\d+］/g, '') : null);
-    const draftOf = (sid) => { const x = sessions.find((y) => y.sessionId === sid) || unstarted.find((y) => y.sessionId === sid); return x ? x.draft : undefined; };
+    const was = active;
     let r; try { r = await api('/api/rewind', { sessionId: was, at: it.id, text, pics: keep }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
     if (!r.ok || !r.data || r.data.ok === false) { go.disabled = cancel.disabled = ta.disabled = false; go.textContent = '送出，從這則重來'; return say((r.data && r.data.error) || '沒辦法重來', true); }
-    // What was in the box below, not sent yet, goes along to the conversation that goes on (the old one is put away: a
-    // draft saved to it would be refused and lost): the box as it is now when that conversation is still on screen -
-    // also words put back from a kept draft and not touched - else what was last typed or kept for it.
-    const shown = boxNow(), typed = shown !== null ? shown : (draftNow.get(was) !== undefined ? draftNow.get(was) : draftOf(was));
-    draftNow.delete(was); clearTimeout(draftTimers.get(was)); draftTimers.delete(was);
-    if (typed && typed.trim() && r.data.sessionId !== was) { draftShown.delete(r.data.sessionId); await saveDraft(r.data.sessionId, typed); }
-    // and the pictures, files and inbox message added below and not sent yet, with them (each held for one conversation
-    // only: moved, not shared)
-    if (r.data.sessionId !== was) for (const held of [pendingImgs, pendingFiles, carry]) if (held.has(was)) { const x = held.get(was); held.delete(was); held.set(r.data.sessionId, Array.isArray(x) ? x.slice() : x); }
+    await moveHeld(was, r.data.sessionId);
     await poll(); openChat(r.data.sessionId);
     say(r.data.fromStart ? '已用改好的訊息重新開始這個對話' : '已從這則之前重來。原本的對話在「沒開著」裡');
   });
@@ -7970,6 +7980,8 @@ function onLive(ev) {
     a.href = ev.url; a.target = '_blank'; a.rel = 'noopener'; a.addEventListener('click', () => bar.remove()); x.type = 'button'; x.setAttribute('aria-label', '關閉'); x.addEventListener('click', () => bar.remove()); bar.append(a, x); document.body.append(bar);
     return;
   }
+  // /clear: the conversation goes on under another id (the one before is under 沒開著)
+  if (ev.type === 'moved' && ev.sessionId) { const was = active; poll().then(async () => { await moveHeld(was, ev.sessionId); if (active === was) openChat(ev.sessionId); }); return; }
   if (ev.type === 'shell') { liveShell = Array.isArray(ev.notes) ? ev.notes : []; const stick = nearBottom(); drawShell(); drawExtras(); if (stick) toBottom(); return; }
   if (ev.type === 'thinking') { const t = $('col') && $('col').querySelector('.typing'); if (t) { const sp = t.querySelector('.ld'); t.textContent = 'Claude 正在思考…'; t.prepend(sp || ldIcon()); } return; }
   if (ev.type === 'assistant') { liveDone(); append({ role: 'assistant', text: ev.text }); }
@@ -7989,12 +8001,27 @@ function onLive(ev) {
     if (ev.isError && ev.text) append({ role: 'error', text: ev.text + (/not logged in|please run .login/i.test(ev.text) ? '　｜　這台電腦的 Claude Code 還沒有登入，看板沒辦法替你登入。請開一個終端機執行 claude，輸入 /login 完成登入，再回到這裡把訊息送一次。' : '') });
     // The transcript now holds this turn: redraw from it, so what is shown is what was saved.
     const sid = active;
-    api('/api/seen', { sessionId: sid });
+    sawIt(sid);
     loadCommands(sid);
     setTimeout(() => loadStats(sid), 1500);   // cost and message count moved with this turn
     for (const wait of [800, 4000]) setTimeout(() => { if (sid === active && liveStatus !== 'busy') loadHistory(false, true); }, wait);
   }
 }
+
+// A reply counts as read when you were at this page as it came, or the next time you are (moved the mouse, a key, a scroll,
+// back to this window) - not because the page happened to stand open on that conversation (2026-11-24: left open, a reply
+// that came meanwhile was never shown as new, here or on the phone).
+// What is unread is what the board's list says, not what this page happened to hear: a reply that came while the page was
+// cut off (a phone locked, the board restarted) counts as well.
+let atScreenAt = 0, seeing = false;
+function sawIt(sid) {
+  if (seeing || document.hidden || Date.now() - atScreenAt > 5000) return;
+  seeing = true;
+  const done = () => { seeing = false; };
+  api('/api/seen', { sessionId: sid }).then(() => poll()).then(done, done);
+}
+function sawOpen() { const s = active && cur(); if (s && s.owner === 'board' && s.group === 'yours' && s.status === 'idle') sawIt(active); }
+function atScreen() { atScreenAt = Date.now(); sawOpen(); }
 
 /* ── files mentioned in a conversation ──
    Anything in a reply that looks like a path is sent to the server, and only
@@ -9628,7 +9655,10 @@ function goPlace(at) {
 let beats = 0;
 const warSubInfo = { at: 0, text: '' };
 setInterval(() => { beats++; if (!document.hidden || beats % 5 === 0) poll(); }, 3000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { atScreen(); poll(); } });
+for (const t of ['pointerdown', 'click', 'keydown', 'input', 'wheel', 'touchstart']) window.addEventListener(t, atScreen, { capture: true, passive: true });
+window.addEventListener('pointermove', (e) => { if (e.movementX || e.movementY) atScreen(); }, { capture: true, passive: true });   // (the page moving under a still mouse is not you)
+window.addEventListener('focus', atScreen);
 </script>
 </body>
 </html>

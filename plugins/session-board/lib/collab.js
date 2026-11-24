@@ -46,7 +46,7 @@ function fill(tpl, vars, s) {
 // SendMessage to). {id} is a number of its own. It goes on command lines (--name): no blanks, quotes or shell characters.
 // Only what needs no quoting anywhere, and never read as an option.
 function safeName(v) {
-  return String(v || '').replace(/[\s"'`$&|<>^%!;:(){}\[\]*?~#\\\/,=@]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+  return String(v || '').normalize('NFC').replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Extended_Pictographic}]/gu, '').replace(/[\s"'`$&|<>^%!;:(){}\[\]*?~#\\\/,=@]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
 }
 function fixedName(pattern, id, short) {
   const text = String(pattern || 'S{id}-{short}').split('{id}').join(String(id)).split('{short}').join(safeName(short) || 'x');

@@ -31,7 +31,7 @@ const finish = () => {
     try {
       title = S.readSummary(sid, S.DEFAULTS) || '';
       if (!title) { const f = S.findTranscript(sid, String(input.cwd || (regEntry && regEntry.cwd) || ''), S.DEFAULTS.projectsDir); const t = f ? S.lastTitles(f, { ignore: require('../lib/codes').known(config.value) }) : {}; title = t.custom || t.ai || ''; }
-      if (!title && regEntry && typeof regEntry.name === 'string') title = regEntry.name;
+      if (!title && regEntry && typeof regEntry.name === 'string' && !require('../lib/codes').known(config.value).has(regEntry.name)) title = regEntry.name;
     } catch (e) {}
     out = N.decide(input, { enabled: config.value('notify', true) !== false, ownChain: N.ownChainPresent(), entrypoint: regEntry && typeof regEntry.entrypoint === 'string' ? regEntry.entrypoint : '', onBoard, title: String(title).slice(0, 60) });
     if (out.show && !dry) {

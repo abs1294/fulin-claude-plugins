@@ -1171,6 +1171,7 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
 
   assert.strictEqual((await get('/api/commands?sid=' + uuid(99))).status, 404);
   assert.strictEqual((await post('/api/to-terminal', { sessionId: B })).status, 409, 'not while it is working');
+  { const bg = channels.get(B), st = bg.state; bg.state = 'idle'; bg.tasks.set('t1', {}); const r = await post('/api/to-terminal', { sessionId: B }); assert.deepStrictEqual([r.status, /背景工作/.test(r.json.error)], [409, true], 'nor while something it started runs'); bg.tasks.delete('t1'); bg.state = st; }
   const blocked = await post('/api/shutdown'); assert.strictEqual(blocked.status, 409); assert.ok(blocked.json.active.length >= 1, 'the board is not stopped under a working conversation');
   { const shown = new Map((await get('/api/sessions')).json.sessions.map((x) => [x.sessionId, x.title])); for (const x of blocked.json.active) assert.strictEqual(x.title, shown.get(x.sessionId), 'told by the name the board shows'); }
   assert.ok(!did.includes('exit 0'));
@@ -1986,12 +1987,19 @@ test('the model for small judgements: one setting for the next step, the inbox a
   const r = await post('/api/config', { decideModel: 'sonnet' });
   assert.strictEqual(r.status, 200, JSON.stringify(r.json));
   assert.strictEqual(inbox.triageModel(), 'sonnet');
+  // ... down to the call itself, for a recommended plugin
+  const p5 = await freePort(), asked5 = [], j = (v) => ({ ok: true, status: 200, json: async () => v, text: async () => JSON.stringify(v) });
+  const s5 = createServer(TOKEN, p5, { channels, noTimers: true, noSchedules: true, out, claudeAsk: (o) => { asked5.push(o.model); return async () => ({ ok: false }); }, recFetch: async () => ({ ok: false, status: 404 }) });
+  await new Promise((r) => s5.listen(p5, '127.0.0.1', r));
+  await fetch('http://127.0.0.1:' + p5 + '/api/recommends/draft', { method: 'POST', headers: { 'x-board-token': TOKEN, 'content-type': 'application/json', origin: 'http://127.0.0.1:' + p5 }, body: JSON.stringify({ url: 'https://github.com/a/b' }) });
+  s5.close(); if (s5.closeAllConnections) s5.closeAllConnections();
+  assert.deepStrictEqual(asked5, ['sonnet']);
   await post('/api/config', { decideModel: 'haiku' });
 });
 
 test('collaborations: started (ledger, names, bypass, briefs), read back, a decision passed on, ended', async () => {
   for (const r of ['GET /api/collabs', 'GET /api/collab', 'POST /api/collab/create', 'POST /api/collab/decide', 'POST /api/collab/end']) asked.add(r);
-  const B = (await post('/api/new', { cwd: WORK })).json.sessionId;
+  let B = (await post('/api/new', { cwd: WORK })).json.sessionId;
   const TT = uuid(77); terminalSession(TT); await new Promise((r) => setTimeout(r, 1100));   // a terminal session of its own (the earlier tests end theirs)
   // what is refused
   assert.strictEqual((await post('/api/collab/create', { goal: '', members: [{ sessionId: B }, { sessionId: TT }] })).status, 400, 'a goal');
@@ -2012,7 +2020,7 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
   assert.ok(['now', 'after-turn'].includes(byRole.ALPHA.bypass));
   // the board conversation: started without approvals, told its name and the brief
   assert.strictEqual(channels.get(B).skipPermissions, true);
-  const started = procs.slice(n0).find((x) => x.args.includes('--dangerously-skip-permissions'));
+  let started = procs.slice(n0).find((x) => x.args.includes('--dangerously-skip-permissions'));
   assert.ok(started, 'its process runs in bypass');
   const said = started.p.stdin.written.map((w) => JSON.stringify(w)).join('\n');
   assert.strictEqual(started.args[started.args.indexOf('--name') + 1], codeA, 'started under its fixed name');
@@ -2025,9 +2033,35 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
   assert.deepStrictEqual([d.goal, d.ledgerMissing, d.members.map((m) => m.role)], ['對齊增量同步規格', false, ['ALPHA', 'BETA']]);
   assert.deepStrictEqual(d.renameCommands.map((x) => x.command), ['/rename ' + codeB], 'the terminal session: the line to paste');
   assert.strictEqual((await get('/api/collab?id=999')).status, 404);
-  // a member of a collaboration under way is not edited and sent again (a new conversation would drop out of it)
-  const rwc = await post('/api/rewind', { sessionId: B, at: uuid(1), text: 'x' });
-  assert.deepStrictEqual([rwc.status, /合作/.test(rwc.json.error)], [409, true]);
+  // a member of a collaboration edits a message and sends it again: the conversation that goes on has its name and its place
+  {
+    const dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK)), ts = new Date().toISOString();
+    const said = (sid, u, p, text) => line({ type: 'user', uuid: uuid(u), parentUuid: p, sessionId: sid, cwd: WORK, timestamp: ts, message: { role: 'user', content: text } });
+    const reply = (sid, u, p) => line({ type: 'assistant', uuid: uuid(u), parentUuid: uuid(p), sessionId: sid, cwd: WORK, timestamp: ts, message: { role: 'assistant', content: [{ type: 'text', text: '好' }] } });
+    const rows = (sid) => [said(sid, 81, null, '第一句'), reply(sid, 82, 81), said(sid, 83, uuid(82), '（看板自動送出）【合作 #' + id + '】說明'), reply(sid, 84, 83), said(sid, 85, uuid(84), '第二句')].join('\n') + '\n';
+    const go = async (from, at, text) => {
+      fs.writeFileSync(path.join(dir, from + '.jsonl'), rows(from)); const n0 = procs.length; delete channels.get(from).skipPermissions;   // (one that came from a terminal has none of its own)
+      const r = await post('/api/rewind', { sessionId: from, at: uuid(at), text }); assert.strictEqual(r.status, 200, r.text);
+      const to = r.json.sessionId, pr = procs.slice(n0).find((x) => x.args.includes(to));
+      assert.strictEqual(pr.args[pr.args.indexOf('--name') + 1], codeA, 'under the same name');
+      assert.ok(pr.args.includes('--dangerously-skip-permissions'), 'and without asking, as its collaboration does');
+      assert.deepStrictEqual([channels.get(from), channels.codeOf(to)], [null, codeA]);
+      const left = channels.codeOf(from); assert.ok(left && left !== codeA, 'the one left behind: a name of its own (' + left + ')');
+      const now = (await get('/api/collab?id=' + id)).json;
+      assert.deepStrictEqual(now.members.map((m) => [m.role, m.sessionId, m.name]), [['ALPHA', to, codeA], ['BETA', TT, codeB]]);
+      const led = fs.readFileSync(ledger, 'utf8'); assert.ok(led.includes(to) && !led.includes(from), 'the ledger has the one that goes on');
+      return { to, words: JSON.stringify(pr.p.stdin.written) };
+    };
+    const tt = procs.length;
+    const a = await go(B, 85, '改過的第二句'); assert.ok(a.words.includes('改過的第二句') && !a.words.includes('【合作 #'), 'it knows of the collaboration already');
+    const b = await go(a.to, 83, '回到說明之前'); assert.ok(b.words.includes('回到說明之前') && b.words.includes('【合作 #' + id + '】') && b.words.includes(codeB), 'from before it was told: told again');
+    { const w = procs.find((x) => x.args.includes(b.to)).p.stdin.written.filter((x) => x.type === 'user').map((x) => JSON.stringify(x.message.content)); assert.deepStrictEqual([w.length, /回到說明之前/.test(w[0]) && !/合作 #/.test(w[0]), /看板自動送出/.test(w[1])], [2, true, true], 'yours by itself, first; the board\'s after it'); }
+    const c = await go(b.to, 81, '從頭'); assert.ok(c.words.includes('【合作 #' + id + '】'), 'started afresh: told again');
+    assert.strictEqual(channels.get(c.to).title, '從頭', 'the title from your words, not the board\'s');
+    assert.strictEqual(procs.length - tt, 3, 'nobody else was told anything');
+    const last = c.to, ch = channels.get(last);
+    started = procs.find((x) => x.args.includes(last)); B = last; ch.state = 'idle';
+  }
   // a name given to it on the board: its own title there, not what the others reach it by
   const rn = await post('/api/rename', { sessionId: B, name: '我取的標題' });
   assert.deepStrictEqual([rn.json.name, rn.json.synced], ['我取的標題', false]);
@@ -2056,24 +2090,44 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
   assert.strictEqual((await post('/api/collab/decide', { id, question: '髒資料誰處理？', answer: 'again' })).status, 404, 'decided once');
   // its process is kept while the collaboration is under way - not when it also runs somewhere else
   const cb = channels.get(B), procB = cb.proc;
-  cb.lastResultAt = 0; assert.strictEqual(channels.keepAlive(B), false, 'no turn yet');
-  cb.lastResultAt = Date.now(); assert.strictEqual(channels.keepAlive(B), true);
+  const trB = path.join(CLAUDE, 'projects', S.encodeCwd(WORK), B + '.jsonl'), trT = S.findTranscript(TT, WORK, path.join(CLAUDE, 'projects'));
+  fs.writeFileSync(trB, line({ type: 'user', uuid: uuid(81), parentUuid: null, sessionId: B, cwd: WORK, timestamp: new Date().toISOString(), message: { role: 'user', content: 'x' } }) + '\n');
+  let tick = 0; const at = (t) => { fs.writeFileSync(trB, line({ type: 'assistant', uuid: uuid(82), parentUuid: null, sessionId: B, cwd: WORK, timestamp: new Date(t).toISOString(), message: { role: 'assistant', model: 'claude-x', content: [{ type: 'text', text: 'x' }] } }) + '\n' + line({ type: 'assistant', uuid: uuid(83), timestamp: new Date().toISOString(), message: { model: '<synthetic>', content: [] } }) + '\n'); tick++; fs.utimesSync(trB, Date.now() / 1000, Date.now() / 1000 - 60 + tick); };
+  if (trT) fs.rmSync(trT, { force: true });
+  cb.state = 'idle'; at(Date.now() - 3 * 86400000);   // (the file itself was written just now: a process started, not work)
+   assert.strictEqual(channels.keepAlive(B), false, 'nobody at work for days');
+  cb.state = 'busy'; assert.strictEqual(channels.keepAlive(B), true, 'in the middle of a turn');
+  cb.state = 'idle'; at(Date.now() - 3600000); assert.strictEqual(channels.keepAlive(B), true);
   cb.proc = null;
   const other = path.join(CLAUDE, 'sessions', '999901.json');
   fs.writeFileSync(other, JSON.stringify({ pid: process.pid, sessionId: B, cwd: WORK, kind: 'interactive', entrypoint: 'cli', status: 'idle', name: 'x' }));
   assert.strictEqual(channels.keepAlive(B), false, 'open in a terminal: left alone');
   fs.rmSync(other); cb.proc = procB;
   assert.deepStrictEqual([channels.keepAlive(B), channels.keepAlive(TT), channels.codeOf(B), channels.codeOf(uuid(98))], [true, false, codeA, '']);
+  // however it comes back onto the board, it runs without asking (its collaboration does)
+  { const back = channels.create(WORK, B); assert.deepStrictEqual([channels.bypasses(back), back.skipPermissions], [true, undefined], 'asked at every start, not written down'); channels.map.set(B, cb); const other = channels.create(WORK, uuid(97)); assert.strictEqual(channels.bypasses(other), false); channels.remove(uuid(97)); }
   // a copy of it has a name of its own; a terminal opened for another session does not get this one's
   const F = channels.create(WORK); F.forkOf = B;
   const codeF = channels.codeOf(F.sessionId); assert.ok(codeF && codeF !== codeA && channels.codeOf(F.sessionId) === codeF, codeF);
   channels.remove(F.sessionId);
+  const G = channels.create(WORK); G.forkOf = B; const trG = path.join(CLAUDE, 'projects', S.encodeCwd(WORK), G.sessionId + '.jsonl'); fs.writeFileSync(trG, '{}\n');
+  assert.strictEqual(channels.codeOf(G.sessionId), '', 'a copy that has long been going its own way: left as it is'); channels.remove(G.sessionId); fs.rmSync(trG);
   // running under another name when it joins another collaboration: told its own once, not at every one
   const renames = () => procs.flatMap((x) => x.p.stdin.written || []).filter((w) => JSON.stringify(w).includes('/rename ' + codeA)).length;
   cb.startedAs = 'x'; cb.state = 'idle';
   for (let k = 0; k < 2; k++) await post('/api/collab/create', { goal: 'once ' + k, bypass: false, members: [{ sessionId: B, role: 'ALPHA' }, { sessionId: TT, role: 'BETA' }] });
   assert.strictEqual(renames(), 1);
   const extra = (await get('/api/collabs')).json.collabs.filter((c) => /^once /.test(c.goal)).map((c) => c.id); for (const k of extra) await post('/api/collab/end', { id: k });
+  // /clear: the conversation goes on under another id - its name, place, schedule and the name you gave it along
+  {
+    const to = uuid(96), pB = cb.proc; await post('/api/rename', { sessionId: B, name: '我的名字' });
+    cb.proc = started.p; started.p.out({ type: 'conversation_reset', trigger: 'clear', session_id: B, new_conversation_id: uuid(95) }); started.p.out({ type: 'system', subtype: 'session_title_changed', session_id: to });
+    assert.deepStrictEqual([channels.get(B), channels.get(to) === cb, channels.codeOf(to)], [null, true, codeA]);
+    const now = (await get('/api/collab?id=' + id)).json; assert.deepStrictEqual(now.members.map((m) => m.sessionId), [to, TT]);
+    assert.ok(fs.readFileSync(ledger, 'utf8').includes(to));
+    assert.strictEqual((await get('/api/sessions')).json.sessions.find((s) => s.sessionId === to).title, '我的名字');
+    await post('/api/rename', { sessionId: to, name: '' }); cb.proc = pB; B = to; cb.state = 'idle';
+  }
   // ended: kept, marked; no more decisions
   assert.strictEqual((await post('/api/collab/end', { id })).status, 200);
   assert.strictEqual((await get('/api/collab?id=' + id)).json.state, 'ended');
@@ -2105,6 +2159,22 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
   assert.ok(written().includes('/rename ' + g.name) && written().includes('【合作 #' + busy.json.id + '】'), 'sent once it is idle');
   const left = (await get('/api/collab?id=' + busy.json.id)).json.members.find((m) => m.role === 'GAMMA');
   assert.ok(!left.pending, 'and not again');
+  // /clear typed in a member's terminal: the same process, another session id just begun - the member follows; /resume, to
+  // a conversation that was there before: it does not
+  {
+    const cid = busy.json.id, nowBeta = async () => (await get('/api/collab?id=' + cid)).json.members.find((m) => m.role === 'BETA').sessionId, look = async () => { await new Promise((r) => setTimeout(r, 1100)); await get('/api/sessions'); await get('/api/sessions'); };
+    const f = fs.readdirSync(path.join(CLAUDE, 'sessions')).map((x) => path.join(CLAUDE, 'sessions', x)).find((x) => { try { return JSON.parse(fs.readFileSync(x, 'utf8')).sessionId === TT; } catch (e) { return false; } });
+    const was = JSON.parse(fs.readFileSync(f, 'utf8')), as = (sid) => fs.writeFileSync(f, JSON.stringify(Object.assign({}, was, { sessionId: sid })));
+    await look();
+    const OLD = uuid(93), oldF = path.join(CLAUDE, 'projects', S.encodeCwd(was.cwd), OLD + '.jsonl'); fs.mkdirSync(path.dirname(oldF), { recursive: true }); fs.writeFileSync(oldF, '{}\n');
+    // (one that was itself begun by clearing, long ago, and is resumed now: still not it)
+    const cleared = (t) => line({ type: 'user', timestamp: new Date(t).toISOString(), message: { role: 'user', content: '<command-name>/clear</command-name>\n<command-message>clear</command-message>' } }) + '\n';
+    fs.writeFileSync(oldF, cleared(Date.now() - 60000)); as(OLD); await look(); assert.deepStrictEqual([await nowBeta(), channels.codeOf(OLD)], [TT, '']);
+    as(TT); await look();
+    const T2 = uuid(94), f2 = path.join(path.dirname(oldF), T2 + '.jsonl'); as(T2); await look(); assert.strictEqual(await nowBeta(), TT, 'nothing written yet: not decided');
+    fs.writeFileSync(f2, line({ type: 'mode' }) + '\n' + cleared(Date.now())); await look();
+    assert.deepStrictEqual([await nowBeta(), channels.codeOf(T2)], [T2, codeB]);
+  }
 });
 
 test('the mic: what was heard is tidied as it comes; through tailscale serve the device behind it is checked, Funnel never gets in', async () => {

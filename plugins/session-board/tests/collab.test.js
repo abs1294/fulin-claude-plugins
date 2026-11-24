@@ -23,6 +23,7 @@ test('names: the pattern filled, one line, kept short', () => {
   assert.strictEqual(C.fixedName('合作{id}-{short}', 3, 'ALPHA'), '合作3-ALPHA');
   assert.strictEqual(C.fixedName('S{id}-{short}', 3, 'a\n b;"c" $d'), 'S3-a-b-c-d', 'it goes on command lines');
   assert.strictEqual(C.fixedName('', 3, 'A'), 'S3-A');
+  assert.strictEqual(C.fixedName('', 3, 'cafe\u0301\u200b\u0000😀x'), 'S3-café' + 'x', 'one form of each letter; nothing invisible');
   assert.ok(!C.fixedName('--x{id}', 3, '').startsWith('-'), 'never read as an option');
   assert.strictEqual(C.fixedName('合作{id}-{short}', 3, 'x'.repeat(100)).length, 60);
 });
@@ -47,6 +48,8 @@ test('fixed names: given once, unique whatever the pattern, those of before 0.22
   assert.strictEqual(Codes.book(ov).codes[id(1)], '合作2-A', 'the collaboration it came from ends: the same name');
   assert.ok(Codes.known(ov).has('合作2 ; B'), 'the old ones are still no titles');
   assert.strictEqual(Codes.freeze(ov, oput), false, 'once');
+  assert.strictEqual(Codes.move(ov, oput, id(2), id(8)), '合作2-B');
+  assert.deepStrictEqual([Codes.book(ov).codes[id(8)], Codes.book(ov).codes[id(2)], Codes.move(ov, oput, id(2), id(9))], ['合作2-B', undefined, ''], 'moved along, not left behind');
   Codes.give(ov, oput, id(7), 'N', 'S{id}-{short}'); assert.ok(Codes.known(ov).has('合作3-A') && Codes.book(ov).codes[id(7)] === 'S1-N');
   assert.deepStrictEqual(Codes.book((k, d) => d), { n: 0, codes: {}, old: [] });
 });

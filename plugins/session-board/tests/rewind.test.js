@@ -63,3 +63,20 @@ test('the newest reply before the message; none for the first; refused before a 
   assert.deepStrictEqual(R.resumePoint(h, U(36)), { ok: true, at: U(32) });
   fs.rmSync(d, { recursive: true, force: true });
 });
+
+test('what the board told it of before: its own messages on the way there - also said while it worked, or through another session; not a mention, not a way gone back from', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-rewind-')), f = path.join(d, 't.jsonl'), tag = '【合作 #7】', brief = '（看板自動送出）' + tag + '你加入了一個合作';
+  const had = (mid) => {
+    fs.writeFileSync(f, [
+      L({ type: 'user', uuid: U(1), parentUuid: null, message: { role: 'user', content: '第一句' } }), L({ type: 'assistant', uuid: U(2), parentUuid: U(1), message: { content: [{ type: 'text', text: '好' }] } }),
+      L(Object.assign({ uuid: U(3), parentUuid: U(2) }, mid)), L({ type: 'assistant', uuid: U(4), parentUuid: U(3), message: { content: [{ type: 'text', text: '好' }] } }),
+      L({ type: 'user', uuid: U(5), parentUuid: U(4), message: { role: 'user', content: '改我' } }),
+      L({ type: 'user', uuid: U(6), parentUuid: U(2), message: { role: 'user', content: '另一條路' } }),
+    ].join('\n'));
+    return [R.resumePoint(f, U(5), [tag]).had, R.resumePoint(f, U(6), [tag]).had];
+  };
+  for (const m of [{ type: 'user', message: { role: 'user', content: brief } }, { type: 'user', message: { role: 'user', content: [{ type: 'text', text: brief }] } }, { type: 'attachment', attachment: { type: 'queued_command', prompt: brief } },
+    { type: 'user', message: { role: 'user', content: 'Another Claude session sent a message:\n<cross-session-message from="uds:x" from-name="y">\n' + brief } }]) assert.deepStrictEqual(had(m), [[tag], []], JSON.stringify(m).slice(0, 60));
+  assert.deepStrictEqual(had({ type: 'user', message: { role: 'user', content: '你看過 ' + tag + ' 嗎' } }), [[], []], 'merely mentioned');
+  fs.rmSync(d, { recursive: true, force: true });
+});

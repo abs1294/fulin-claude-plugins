@@ -52,6 +52,19 @@ test('the hook script itself: reads stdin, never fails, says what it decided', (
   assert.strictEqual(JSON.parse(run('{ broken')).show, false);
 });
 
+test('the hook script: the title is what the conversation is about, not its fixed name', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'session-board-test-')), cl = path.join(home, '.claude'), sid = '11111111-2222-4333-8444-555555555555', cwd = path.join(home, 'w');
+  try {
+    const pr = path.join(cl, 'projects', require('../lib/sessions').encodeCwd(cwd)); for (const d of [pr, path.join(cl, 'sessions'), path.join(cl, 'session-board')]) fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(pr, sid + '.jsonl'), JSON.stringify({ type: 'custom-title', customTitle: '談什麼', sessionId: sid }) + '\n' + JSON.stringify({ type: 'custom-title', customTitle: 'S9-w', sessionId: sid }) + '\n');
+    fs.writeFileSync(path.join(cl, 'sessions', '1.json'), JSON.stringify({ pid: 1, sessionId: sid, cwd, kind: 'interactive', entrypoint: 'cli', name: 'S9-w' }));
+    const env = Object.assign({}, process.env, { USERPROFILE: home, HOME: home });
+    execFileSync(process.execPath, ['--no-warnings', '-e', "require(" + JSON.stringify(path.join(__dirname, '..', 'lib', 'config.js')) + ").setValue('sessionCodes', { n: 9, codes: { x: 'S9-w' } })"], { env });
+    const out = JSON.parse(execFileSync(process.execPath, ['--no-warnings', path.join(__dirname, '..', 'scripts', 'notify-hook.js'), '--dry'], { input: JSON.stringify({ session_id: sid, cwd, hook_event_name: 'Stop' }), encoding: 'utf8', env }));
+    assert.ok(/談什麼/.test(JSON.stringify(out)) && !/S9-w/.test(JSON.stringify(out)), JSON.stringify(out));
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('Teams: which account is yours is worked out only when it is clear', () => {
   const m = (o) => new Map(Object.entries(o).map(([k, v]) => [k, new Set(v)]));
   assert.strictEqual(guessTeamsSelf(m({ a: ['me', 'x'], b: ['me', 'y'], c: ['me', 'z', 'x'], d: ['me'] })), 'me');

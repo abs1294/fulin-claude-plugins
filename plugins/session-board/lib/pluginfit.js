@@ -284,20 +284,29 @@ async function copySkill(folder, x, o) {
   } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {} }
 }
 
-// Claude Code's own command, the way setup-plugins step 6 runs it -> {ok, out}
+// Claude Code's own command, the way setup-plugins step 6 runs it -> {ok, stdout: all it printed, out: the end of it, to be shown}
 const cli = (args, cwd, o) => new Promise((resolve) => (o.run || execFile)(o.bin || 'claude', args, { cwd, windowsHide: true, timeout: 180000, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' },
-  (e, out, err) => resolve({ ok: !e, out: (String(out || '') + '\n' + String(err || (e && e.message) || '')).trim().slice(-600) })));
+  (e, out, err) => resolve({ ok: !e, stdout: String(out || ''), out: (String(out || '') + '\n' + String(err || (e && e.message) || '')).trim().slice(-600) })));
 
 // Installs the chosen ones for this folder (project scope). items: entries of an analysis' plugins (never refs from
 // outside it). -> [{ref, ok, note}]
 async function apply(folder, items, o = {}) {
   const out = [];
-  let known = null;
-  const markets = async () => { if (known) return known; const r = await cli(['plugin', 'marketplace', 'list', '--json'], folder, o); let l = []; try { l = JSON.parse(r.out.slice(r.out.indexOf('['))); } catch (e) {} known = new Set(l.map((x) => x && x.name).filter(Boolean)); return known; };
+  let known = null, asked = false;
+  const markets = async () => {
+    if (asked) return known;
+    // (the whole of it is read: cut to its end, a list of three or more was taken for none - 2026-11-25. Not readable: null,
+    // and the install itself says what is missing)
+    const r = await cli(['plugin', 'marketplace', 'list', '--json'], folder, o); let l = null; try { l = JSON.parse(r.stdout.slice(Math.max(0, r.stdout.indexOf('[')))); } catch (e) {}
+    known = Array.isArray(l) ? new Set(l.map((x) => x && x.name).filter(Boolean)) : null; asked = true; return known;
+  };
   for (const x of items) {
     if (x.skillCopy) { const c = await (o.copySkill || copySkill)(folder, x, o); out.push(Object.assign({ ref: x.ref }, c)); continue; }
     const mk = x.ref.split('@')[1];
-    if (!(await markets()).has(mk)) {
+    const have = await markets();
+    // not readable: added when its source is known (one already there is left as it is), and the install says the rest
+    if (!have && x.source && SOURCE.test(x.source)) await cli(['plugin', 'marketplace', 'add', x.source], folder, o);
+    if (have && !have.has(mk)) {
       if (!x.source || !SOURCE.test(x.source)) { out.push({ ref: x.ref, ok: false, note: '還沒加入 ' + mk + ' 這個 marketplace，推薦清單裡也沒有可用的來源' }); continue; }
       const a = await cli(['plugin', 'marketplace', 'add', x.source], folder, o);
       if (!a.ok) { out.push({ ref: x.ref, ok: false, note: '加入 marketplace ' + mk + ' 失敗：' + a.out }); continue; }

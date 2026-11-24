@@ -124,7 +124,9 @@ let codes = new Set();
 function setCodes(list) {
   const next = new Set(list || []);
   if (next.size === codes.size && [...next].every((x) => codes.has(x))) return;
-  codes = next; titleCache.clear();
+  const gone = [...codes].some((x) => !next.has(x));   // a name that is one no more: what was passed over may be a title again
+  codes = next;
+  if (gone) titleCache.clear(); else for (const [f, c] of titleCache) if (c.res && codes.has(c.res.custom)) titleCache.delete(f);
 }
 function cachedTitles(file) {
   let st;
@@ -134,6 +136,40 @@ function cachedTitles(file) {
   const res = lastTitles(file, { ignore: codes });
   titleCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, res });
   return res;
+}
+
+// A conversation begun by clearing another one: when the command was given (its transcript begins with it). 0 = it was not.
+function clearedAt(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r'); const b = Buffer.alloc(256 * 1024), n = fs.readSync(fd, b, 0, b.length, 0);
+    for (const line of b.toString('utf8', 0, n).split('\n')) {
+      let j; try { j = JSON.parse(line); } catch (e) { continue; }
+      if (j.type === 'assistant') return 0;
+      if (j.type === 'user' && j.message && typeof j.message.content === 'string' && /^\s*<command-name>\/(clear|reset|new)<\/command-name>/.test(j.message.content)) return Date.parse(j.timestamp) || 0;
+    }
+  } catch (e) {} finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
+  return 0;
+}
+
+// When Claude last said something in it (a reply of a model, read from the end of the transcript): not the file's own time,
+// which a process merely started also moves. 0 = none in the last few MB.
+const turnCache = new Map();
+function lastTurnAt(file, CAP = 4 * 1024 * 1024) {
+  let st; try { st = fs.statSync(file); } catch (e) { return 0; }
+  const c = turnCache.get(file); if (c && c.size === st.size && c.mtimeMs === st.mtimeMs) return c.at;
+  let at = 0, fd;
+  try {
+    fd = fs.openSync(file, 'r'); const n = Math.min(st.size, CAP), b = Buffer.alloc(n); fs.readSync(fd, b, 0, n, st.size - n);
+    for (let i = b.lastIndexOf('"type":"assistant"'); i >= 0 && !at; i = i ? b.lastIndexOf('"type":"assistant"', i - 1) : -1) {
+      const s = b.lastIndexOf(10, i) + 1; let e = b.indexOf(10, i); if (e < 0) e = n;
+      try { const j = JSON.parse(b.toString('utf8', s, e)); if (j.type === 'assistant' && j.message && j.message.model !== '<synthetic>') at = Date.parse(j.timestamp) || 0; } catch (x) {}
+    }
+  } catch (e) {} finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
+  if (!at && c && st.size >= c.size) at = c.at;   // further back than was read: what was seen before
+  if (turnCache.size > 500) turnCache.delete(turnCache.keys().next().value);
+  turnCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, at });
+  return at;
 }
 
 const transcriptCache = new Map();
@@ -302,7 +338,7 @@ function buildSessions(opts = {}, now = Date.now()) {
     // o.customTitles: names given on the board ({sessionId: name}). They come first: the status line's summary is
     // rewritten as the conversation goes on, and would otherwise replace a name you gave a few messages later.
     const given = o.customTitles && typeof o.customTitles[r.sessionId] === 'string' ? o.customTitles[r.sessionId] : '';
-    const title = given || title0 || moved || name || (ch && ch.title) || (ch ? '新對話' : `session ${r.sessionId.slice(0, 8)}`);
+    const title = given || title0 || (codes.has(moved) ? '' : moved) || (codes.has(name) ? '' : name) || (ch && ch.title) || (ch ? '新對話' : `session ${r.sessionId.slice(0, 8)}`);
     const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
     const since = num(r.statusUpdatedAt) || num(r.updatedAt) || num(r.startedAt) || now;
     const status = typeof r.status === 'string' ? r.status : 'unknown';
@@ -356,6 +392,6 @@ function buildSessions(opts = {}, now = Date.now()) {
 }
 
 module.exports = {
-  DEFAULTS, STALE_MS, sidKey, encodeCwd, pidAlive, readRegistry, lastTitles, cachedTitles, setCodes,
+  DEFAULTS, STALE_MS, sidKey, encodeCwd, pidAlive, readRegistry, lastTitles, cachedTitles, setCodes, lastTurnAt, clearedAt,
   findTranscript, readSummary, lastMessages, gitBranch, groupOf, groupUnknown, WRITING_MS, compareSessions, buildSessions,
 };

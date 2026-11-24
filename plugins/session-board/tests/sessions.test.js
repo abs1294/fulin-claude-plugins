@@ -83,6 +83,8 @@ test('a fixed name the board gave (--name) is written down as a title too: the t
     assert.deepStrictEqual([s.title, s.titleCandidates, s.addr], ['談什麼', ['談什麼', 'AI 標題', 'S7-work'], 'S7-work']);
     fs.writeFileSync(f, title('ai-title', 'aiTitle', '只有 AI 標題') + '\n' + title('custom-title', 'customTitle', 'S7-work') + '\n');
     assert.strictEqual(S.buildSessions(o, Date.now())[0].title, '只有 AI 標題');
+    fs.writeFileSync(f, title('custom-title', 'customTitle', 'S7-work') + '\n');
+    assert.ok(!/S7-work/.test(S.buildSessions(o, Date.now())[0].title), 'nothing but its fixed name: not shown as its title either');
   } finally { S.setCodes([]); }
 });
 
@@ -245,4 +247,13 @@ test('buildSessions: drops dead pids, picks the title by trust, sorts by lane', 
   assert.strictEqual(c.titleSource, 'name');
   assert.deepStrictEqual(c.titleCandidates, []);
   assert.strictEqual(b.folder, 'proj');
+});
+
+test('lastTurnAt: when a model last replied - not when the file was last written, nor what Claude Code put there itself', () => {
+  const d = tmp(), f = path.join(d, 't.jsonl'), a = (ts, model) => JSON.stringify({ type: 'assistant', timestamp: new Date(ts).toISOString(), message: { model, content: [] } });
+  fs.writeFileSync(f, [a(1000000, 'claude-x'), a(2000000, 'claude-x'), a(3000000, '<synthetic>'), JSON.stringify({ type: 'user', timestamp: new Date(4000000).toISOString(), message: { content: 'it says "type":"assistant" here' } }), title('custom-title', 'customTitle', 'S1-x')].join('\n') + '\n');
+  assert.strictEqual(S.lastTurnAt(f), 2000000);
+  fs.appendFileSync(f, title('custom-title', 'customTitle', 'S1-x') + '\n'); assert.strictEqual(S.lastTurnAt(f), 2000000, 'a process merely started');
+  fs.appendFileSync(f, a(5000000, 'claude-x') + '\n'); assert.strictEqual(S.lastTurnAt(f), 5000000);
+  assert.deepStrictEqual([S.lastTurnAt(path.join(d, 'none')), (fs.writeFileSync(f, ''), S.lastTurnAt(f))], [0, 0]);
 });

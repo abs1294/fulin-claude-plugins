@@ -158,11 +158,12 @@ function readAnswer(text, count) {
 }
 
 // One model call. run: replaces the process in tests -> async (prompt) => {ok, text, cost?, error?}
+const argsFor = (o = {}) => ['-p', '--model', o.model || 'haiku', '--output-format', 'json', '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands', '--tools', '', '--setting-sources', '', '--system-prompt', o.system || SYSTEM];
 function callClaude(prompt, o = {}) {
   return new Promise((resolve) => {
     const cwd = o.cwd || path.join(os.homedir(), '.claude', 'session-board', 'triage');
     try { fs.mkdirSync(cwd, { recursive: true }); } catch (e) {}
-    const args = ['-p', '--model', o.model || 'haiku', '--output-format', 'json', '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands', '--tools', '', '--setting-sources', '', '--system-prompt', o.system || SYSTEM];   // no settings: no hooks of yours run in it (lib/aside.js)
+    const args = argsFor(o);   // no settings: no hooks of yours run in it (lib/aside.js)
     let child;
     try { child = spawn('claude', args, { cwd, env: cleanEnv(process.env), windowsHide: true, shell: false }); }
     catch (e) { return resolve({ ok: false, error: '啟動不了 claude：' + String(e.message || e).slice(0, 120) }); }
@@ -221,4 +222,4 @@ async function runAll(dbFile, o = {}) {
   return sum;
 }
 
-module.exports = { buildPrompt, runAll, VALID, MAX_PASSES, runOnce, pending, pendingCount, promptFor, readAnswer, firstArray, migrate, callClaude, CATS, SYSTEM, BATCH };
+module.exports = { buildPrompt, runAll, VALID, MAX_PASSES, runOnce, pending, pendingCount, promptFor, readAnswer, firstArray, migrate, callClaude, argsFor, CATS, SYSTEM, BATCH };

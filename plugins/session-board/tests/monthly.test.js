@@ -78,6 +78,11 @@ test('usage-scan: one month, every session, each API message once, priced per mo
   { const pre = path.join(home, 'pre.js'); fs.writeFileSync(pre, "const fs=require('fs'),o=fs.readFileSync;fs.readFileSync=function(p,...a){if(/2026-11.*jsonl$/.test(String(p)))throw Object.assign(new Error('x'),{code:'EBUSY'});return o.call(fs,p,...a);};"); const z = JSON.parse(execFileSync(process.execPath, ['-r', pre, SCAN, '2026-11'], { env, encoding: 'utf8' })); assert.ok(z.ok === false && /一時讀不到/.test(z.error)); fs.writeFileSync(pre, fs.readFileSync(pre, 'utf8').replace('EBUSY', 'ENOENT')); const z2 = JSON.parse(execFileSync(process.execPath, ['-r', pre, SCAN, '2026-11'], { env, encoding: 'utf8' })); assert.ok(z2.ok === false, 'listed, and gone when it is read'); }
   // the title is kept when the conversation is cleared away, and read again when it changes
   fs.appendFileSync(path.join(proj, 'S1.jsonl'), '\n' + JSON.stringify({ type: 'custom-title', customTitle: '改過的名字', sessionId: 'S1' }) + '\n'); assert.strictEqual(scan().sessions[0].title, '改過的名字');
+  // a fixed name of a collaboration (--name) is written down as a title too: passed over, also one kept before it was known as such
+  { const DB = require('../lib/db').open(path.join(home, '.claude', 'session-board', 'board.db')); const set = (v) => DB.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, 1) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('sessionCodes', JSON.stringify(v));
+    fs.appendFileSync(path.join(proj, 'S1.jsonl'), JSON.stringify({ type: 'custom-title', customTitle: 'S9-proj', sessionId: 'S1' }) + '\n'); assert.strictEqual(scan().sessions[0].title, 'S9-proj');
+    set({ n: 9, codes: { x: 'S9-proj' } }); assert.strictEqual(scan().sessions[0].title, '改過的名字');
+    { const off = JSON.parse(execFileSync(process.execPath, [SCAN, '2026-11'], { env: Object.assign({}, env, { SESSION_BOARD_SCAN_CACHE: '0' }), encoding: 'utf8' })); assert.strictEqual(off.sessions[0].title, '改過的名字', 'with nothing kept as well'); } set({}); }
   fs.rmSync(path.join(proj, 'S1.jsonl')); { const z = scan(); assert.deepStrictEqual([z.sessions[0].title, z.total.tok], ['改過的名字', out.total.tok]); }
 
   assert.deepStrictEqual(JSON.parse(execFileSync(process.execPath, [SCAN, '2026-13'], { encoding: 'utf8' })), { ok: false, error: 'month must be YYYY-MM' });

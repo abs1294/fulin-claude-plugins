@@ -24,6 +24,7 @@ const { spawn } = require('child_process');
 
 const IDLE_MS = 15 * 60 * 1000;
 const WAKE_MS = 5 * 60 * 1000;   // see wake()
+const RECYCLE_MS = 6 * 3600 * 1000;   // see _reap()
 const COMMANDS_TTL_MS = 10 * 60 * 1000;   // plugins get installed and removed; ask again after this
 const UNSTARTED_MS = 2 * 60 * 1000;   // how long a conversation nothing was sent in is kept once no page has it open
 const CLAUDE_BIN = process.env.SESSION_BOARD_CLAUDE || 'claude';
@@ -106,6 +107,10 @@ class Channels {
     // running (keepAlive) - lib/collab.js: what the other members of a collaboration reach it by.
     this.codeOf = opts.codeOf || (() => '');
     this.keepAlive = opts.keepAlive || (() => false);
+    // ... whether it is to run without asking (a member of a collaboration that does, as long as that is under way): asked
+    // at every start, wherever it came onto the board from; and told when one goes on under another id (onMoved).
+    this.mustBypass = opts.mustBypass || (() => false);
+    this.onMoved = null;
     this.timer = setInterval(() => this._reap(), 60000);
     if (this.timer.unref) this.timer.unref();
   }
@@ -440,8 +445,8 @@ class Channels {
     // 2.1.331: with --name it stays, also across a resume and with another title written into the transcript meanwhile.
     let code = ''; try { code = String(this.codeOf(c.sessionId) || ''); } catch (e) {}
     if (code && !code.startsWith('-')) args.push('--name', code);
-    c.startedAs = code;
-    if (c.skipPermissions) args.push('--dangerously-skip-permissions');
+    c.startedAs = code; c.procAt = Date.now(); c.quiet = c.cleared = false;
+    if (this.bypasses(c)) args.push('--dangerously-skip-permissions');
     // Given every time, also when carrying a conversation on (measured 2026-11-15: both a new and a resumed one answer as the role).
     if (c.agent && ROLE_NAME.test(c.agent)) args.push('--agent', c.agent);
     // The model it runs on, when one was chosen for it (setModel); otherwise Claude Code's own default.
@@ -490,6 +495,11 @@ class Channels {
     let e;
     try { e = JSON.parse(line); } catch (x) { return; }
     c.lastActivity = Date.now();
+    // /clear: the same process goes on under a new session id (measured 2026-11-25 on 2.1.331: conversation_reset, then
+    // every event with the new id; the old transcript stays as it was). Not followed, the board would read and, started
+    // again, carry on the conversation from before it was cleared.
+    if (e.type === 'conversation_reset' && e.trigger === 'clear') c.cleared = true;
+    else if (c.cleared && typeof e.session_id === 'string' && e.session_id !== c.sessionId && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(e.session_id)) { c.cleared = false; this._moveTo(c, e.session_id); }
     // Events that belong to a subagent carry the id of the tool call that
     // started it. Its chatter is not this conversation's reply: only the main
     // thread is shown (the subagent's result comes back as a tool result).
@@ -563,7 +573,7 @@ class Channels {
         const w = m && typeof m === 'object' ? m.contextWindow : 0;
         if (typeof w === 'number' && Number.isFinite(w) && w > 0 && this.modelWindows[model] !== w) { this.modelWindows[model] = w; this._saveWindows(); }
       }
-      c.lastResultAt = Date.now();
+      if (c.quiet) c.quiet = false; else c.lastResultAt = Date.now();
       this._emit(c, { type: 'result', isError: !!e.is_error, text: e.is_error ? String(e.result || '') : '' });
       // the message a turn began with was taken in, the turn is over; one sent while it worked may still be waiting
       if (c.said) { for (const x of c.said) if (!x.mid) this._dropPics(x); c.said = c.said.filter((x) => x.mid); }
@@ -730,6 +740,7 @@ class Channels {
   // the process ends, the ones it never got are told to the page, to be edited, sent again or thrown away. (A slash
   // command is not kept: the transcript records it in another form.)
   _track(c, shown, delivered, images, mid) {
+    if (/^\s*\/(clear|reset|new)(?=\s|$)/.test(delivered)) c.clearAt = Date.now();
     if (/^\s*\//.test(delivered)) return;
     let from = 0; try { const f = this.transcriptOf(c.sessionId, c.cwd); if (f) from = fs.statSync(f).size; } catch (e) {}
     const pre = shown && delivered.endsWith(shown) ? delivered.slice(0, delivered.length - shown.length) : '', id = crypto.randomUUID();
@@ -897,7 +908,15 @@ class Channels {
       // A member of a collaboration is reached by the others only while its process runs: not ended, and started again
       // (nothing is sent to it, so no turn and no cost) when it is gone - after a restart of the board, or a crash.
       let keep = false; try { keep = !!this.keepAlive(c.sessionId); } catch (e) {}
-      if (keep) { if (!c.proc) this.wake(c.sessionId, now); continue; }
+      if (keep) {
+        if (!c.proc) this.wake(c.sessionId, now);
+        // now and then started again while nothing goes on in it: it would run an old Claude Code and old plugins for days
+        else if (this.status(c) === 'idle' && now - (c.procAt || now) > RECYCLE_MS && now - c.lastActivity > IDLE_MS && !(c.said || []).length) {
+          const old = c.proc, again = () => { let on = false; try { on = this.map.get(c.sessionId) === c && !!this.keepAlive(c.sessionId); } catch (e) {} if (on) { c.wokenAt = 0; this.wake(c.sessionId); } };
+          this.stop(c.sessionId); if (old.once) old.once('exit', again); else again();   // one at a time: after the old one is gone
+        }
+        continue;
+      }
       // Never while background work is running: ending the process would end that work with it.
       if (c.proc && c.state !== 'busy' && !c.pending.size && !c.tasks.size && now - c.lastActivity > IDLE_MS) {
         try { c.proc.stdin.end(); } catch (e) {}
@@ -905,11 +924,32 @@ class Channels {
     }
   }
 
+  bypasses(c) { if (c.skipPermissions) return true; try { return !!this.mustBypass(c.sessionId); } catch (e) { return false; } }
+  // A command of the board's own to an idle process (/rename): your draft, what you ran with "!" and what is unread are left
+  // as they are, and its result is no reply.
+  quietly(sid, text) {
+    const c = this.map.get(sid); if (!c || !c.proc || this.status(c) !== 'idle') return false;
+    c.quiet = true; c.proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: text } }) + '\n'); this._setState(c, 'busy');
+    return true;
+  }
+
+  // The conversation goes on under another id: the same process, pages and settings, a transcript of its own.
+  _moveTo(c, to) {
+    const from = c.sessionId; if (this.map.has(to)) return;
+    this.map.delete(from); c.sessionId = to; this.map.set(to, c);
+    c.forkOf = c.resumeAt = undefined; c.title = ''; c.lastResultAt = Date.now(); c.lastSeenAt = c.lastResultAt;
+    // sent before the clear: read there, or gone with it; after: still waiting, and kept track of
+    { const all = c.said || []; c.said = all.filter((x) => c.clearAt && x.at >= c.clearAt).map((x) => Object.assign(x, { from: 0 })); for (const x of all) if (!c.said.includes(x)) this._dropPics(x); }
+    this._save();
+    if (this.onMoved) { try { this.onMoved(from, to); } catch (e) {} }
+    this._emit(c, { type: 'moved', sessionId: to });
+  }
+
   // Starts the process without sending anything. At most once every few minutes, and less and less often when nothing was
   // done in it since the last time (one that keeps ending).
   wake(sid, now = Date.now()) {
     const c = this.map.get(sid);
-    if (!c || c.proc || this.isEmpty(c)) return false;
+    if (!c || c.proc || this.isEmpty(c) || !fs.existsSync(c.cwd)) return false;
     if (c.lastResultAt > (c.wokenAt || 0)) c.wakeFails = 0;   // worked since: not one that keeps ending
     if (now - (c.wokenAt || 0) < WAKE_MS * 2 ** (c.wakeFails || 0)) return false;
     c.wakeFails = c.wokenAt && !(c.lastResultAt > c.wokenAt) ? Math.min((c.wakeFails || 0) + 1, 7) : 0;

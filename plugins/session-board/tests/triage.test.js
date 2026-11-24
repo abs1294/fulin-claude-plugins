@@ -103,12 +103,14 @@ test('a failed or garbled answer changes nothing and is reported; a partly answe
 
 test('judging follows fetching, and can be turned off', async () => {
   const d = tmp();
-  let asked = 0;
-  const svc = new InboxService({ db: path.join(d, 'b.db'), secretDir: d, oldEnv: '', fetch: async () => ({ ok: true, json: async () => ({}) }), triageRun: async (p) => { asked++; return { ok: true, text: '[{"i":1,"category":"question","title":"t","summary":"s"}]' }; } });
+  let asked = 0; const models = [];
+  const svc = new InboxService({ db: path.join(d, 'b.db'), secretDir: d, oldEnv: '', fetch: async () => ({ ok: true, json: async () => ({}) }), triageModel: () => 'opus', triageRun: async (p, o) => { asked++; models.push(o.model); return { ok: true, text: '[{"i":1,"category":"question","title":"t","summary":"s"}]' }; } });
   svc.saveSettings({ enabled: true, slackOn: true });
   seed(svc.inbox, 1);
   const r = await svc.poll('slack');                                         // a fetch of anything: what waits is judged after it
   assert.deepStrictEqual([asked, r.triage.done, svc.status().counts.valid], [1, 1, 1]);
+  assert.deepStrictEqual(models, ['opus'], 'on the model the board says');
+  const arg = (o) => { const a = T.argsFor(o); return a[a.indexOf('--model') + 1]; }; assert.deepStrictEqual([arg({ model: 'opus' }), arg({})], ['opus', 'haiku']);
   svc.saveSettings({ triage: false });
   seed(svc.inbox, 2);
   const r2 = await svc.poll('slack');

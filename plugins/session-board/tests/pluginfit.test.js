@@ -51,6 +51,20 @@ test('the analysis: handed the skill, the lists and what is there; asked to only
   assert.deepStrictEqual(await F.analyze(dir, { sources: Object.assign({}, SRC, { ok: false }), explain }), { ok: false, error: '找不到 plugin-manager 的 setup-plugins skill：這台電腦要先裝 plugin-manager' });
 });
 
+test('installing: a list of many marketplaces is read whole; one that cannot be read is not taken for none', async () => {
+  const many = JSON.stringify(Array.from({ length: 9 }, (_, i) => ({ name: i === 3 ? 'fulin-plugins' : 'other-' + i, source: 'github', repo: 'someone/with-a-long-name-' + i, installLocation: 'C:\\Users\\x\\.claude\\plugins\\marketplaces\\other-' + i })), null, 2);
+  assert.ok(many.length > 1200);
+  for (const list of [many, 'not json']) {
+    const ran = [];
+    const run = (bin, args, o, cb) => { ran.push(args.join(' ')); cb(null, args[2] === 'list' ? list : 'done', ''); };
+    const r = await F.apply('C:/w', [{ ref: 'wtf@fulin-plugins' }, { ref: 'harness@fulin-plugins' }], { run });
+    assert.deepStrictEqual(r, [{ ref: 'wtf@fulin-plugins', ok: true, note: '' }, { ref: 'harness@fulin-plugins', ok: true, note: '' }], list.slice(0, 20));
+    assert.deepStrictEqual(ran, ['plugin marketplace list --json', 'plugin install wtf@fulin-plugins --scope project', 'plugin install harness@fulin-plugins --scope project'], 'asked once');
+  }
+  const none = await F.apply('C:/w', [{ ref: 'x@nowhere' }], { run: (bin, args, o, cb) => cb(null, many, '') });
+  assert.deepStrictEqual([none[0].ok, /還沒加入 nowhere/.test(none[0].note)], [false, true], 'one that is really missing');
+});
+
 test('installing: a missing marketplace added from its source, project scope, a skill-copy one not', async () => {
   const ran = [];
   const run = (bin, args, o, cb) => { ran.push(args.join(' ')); if (args[1] === 'marketplace' && args[2] === 'list') return cb(null, JSON.stringify([{ name: 'fulin-plugins' }]), ''); if (args.includes('bad@fulin-plugins')) return cb(new Error('exit 1'), '', 'Plugin not found'); cb(null, 'ok', ''); };

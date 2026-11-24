@@ -113,7 +113,7 @@ function one(proj, r) {
 // What each session was about: its title, from its conversation (cleared away: none). Kept in the board's database while the file does not change.
 {
   const { lastTitles } = require(path.join(__dirname, '..', 'lib', 'sessions.js'));
-  let ignore = new Set(); try { ignore = require(path.join(__dirname, '..', 'lib', 'codes.js')).known(require(path.join(__dirname, '..', 'lib', 'config.js')).value); } catch (e) {}   // fixed names are not titles
+  let ignore = new Set(); if (fs.existsSync(path.join(os.homedir(), '.claude', 'session-board', 'board.db'))) try { ignore = require(path.join(__dirname, '..', 'lib', 'codes.js')).known(require(path.join(__dirname, '..', 'lib', 'config.js')).value); } catch (e) {}   // fixed names are not titles
   let db = null, get = null;
   if (process.env.SESSION_BOARD_SCAN_CACHE !== '0') {
     try {

@@ -18,8 +18,9 @@ const fs = require('fs');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// -> {ok: true, at: '<uuid of the whole place>' | null} | {ok: false, error}
-function resumePoint(file, uuid) {
+// words: which of these the board had told it of before that message (had; none when it starts afresh)
+// -> {ok: true, at: '<uuid of the whole place>' | null, had?: [words]} | {ok: false, error}
+function resumePoint(file, uuid, words = []) {
   if (!UUID.test(String(uuid || ''))) return { ok: false, error: '缺少要編輯的那則訊息' };
   let text;
   try { text = fs.readFileSync(file, 'utf8'); } catch (e) { return { ok: false, error: '讀不到這個對話的紀錄' }; }
@@ -32,7 +33,7 @@ function resumePoint(file, uuid) {
     if (!e || typeof e.uuid !== 'string') continue;
     const mid = e.type === 'assistant' && e.message && typeof e.message.id === 'string' ? e.message.id : '';
     if (mid && Array.isArray(e.message.content) && e.message.content.some((b) => b && b.type === 'tool_use')) calling.add(mid);
-    by.set(e.uuid, { type: e.type, parent: typeof e.parentUuid === 'string' ? e.parentUuid : null, line, said: said(e), whole: whole(e), mid });
+    by.set(e.uuid, { type: e.type, parent: typeof e.parentUuid === 'string' ? e.parentUuid : null, line, said: said(e), whole: whole(e), board: boardSaid(e), mid });
     if ((e.type === 'system' && e.subtype === 'compact_boundary') || (e.type === 'user' && e.isCompactSummary)) lastCompact = line;
     if (e.uuid === uuid) at = line;
   }
@@ -43,10 +44,23 @@ function resumePoint(file, uuid) {
   for (let p = me.parent, n = 0; p && n < 100000; n++) {
     const e = by.get(p);
     if (!e) break;
-    if (e.whole && !(e.mid && calling.has(e.mid))) return { ok: true, at: p };   // words of a reply that goes on to call a tool: part of a reply, not its end
+    if (e.whole && !(e.mid && calling.has(e.mid))) return Object.assign({ ok: true, at: p }, words.length ? { had: hadIn(by, p, words) } : {});   // words of a reply that goes on to call a tool: part of a reply, not its end
     p = e.parent;
   }
   return { ok: true, at: null };
+}
+// told by the board itself (a message of its own that begins with it), on the way that leads here - not merely mentioned,
+// and not on a way gone back from
+function hadIn(by, from, words) {
+  const had = new Set();
+  for (let p = from, n = 0; p && n < 1000000; n++) { const e = by.get(p); if (!e) break; for (const w of words) if (e.board.includes(w)) had.add(w); p = e.parent; }
+  return words.filter((w) => had.has(w));
+}
+function boardSaid(e) {
+  // (said while it worked: an attachment; to a session in a terminal: inside a message from another session)
+  const c = e.type === 'attachment' ? e.attachment && e.attachment.type === 'queued_command' && e.attachment.prompt : e.type === 'user' && e.message ? e.message.content : '';
+  const t = (typeof c === 'string' ? c : Array.isArray(c) ? c.map((b) => (b && b.type === 'text' ? b.text : '')).join('') : '').replace(/^\s*(Another Claude session sent a message:\s*)?(<cross-session-message\b[^>]*>)?\s*/, '');
+  return t.startsWith('（看板自動送出）') ? t.slice(0, 60) : '';
 }
 
 // a whole place to carry on from: a reply in words that calls no tool, or a tool's result (one entry by itself; the

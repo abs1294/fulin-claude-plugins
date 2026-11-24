@@ -168,6 +168,9 @@ class Schedules {
     return role(Number(this.db.prepare('INSERT INTO schedule (name, kind, at, date, days, every_hours, target, cwd, session_id, session_title, prompt, fallback, skip_permissions, enabled, updated_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(...args, now).lastInsertRowid));
   }
   setEnabled(id, on, now = Date.now()) { return this.db.prepare('UPDATE schedule SET enabled = ?, updated_at = ? WHERE id = ?').run(on ? 1 : 0, now, Number(id) || 0).changes > 0; }
+  // a conversation that goes on under another id: the schedules that carry it on follow (updated_at stays: every few hours
+  // is counted from it)
+  moveSession(from, to) { return this.db.prepare("UPDATE schedule SET session_id = ? WHERE session_id = ? AND target = 'session'").run(String(to), String(from)).changes; }
   remove(id) { return this.db.prepare('DELETE FROM schedule WHERE id = ?').run(Number(id) || 0).changes > 0; }
   lastDue(s, now) { return lastDue(s, now); }
   setLastDue(id, t) { this.db.prepare('UPDATE schedule SET last_due = ? WHERE id = ?').run(t, Number(id)); }
