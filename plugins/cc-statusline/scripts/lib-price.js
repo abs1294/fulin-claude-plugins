@@ -173,15 +173,18 @@ const makeResolver = (table) => {
   };
 };
 
-const usageCost = (u, pr) => {
+// The four parts of it: input, output, cache write, cache read.
+const usageParts = (u, pr) => {
   const cwAll = num(u.cache_creation_input_tokens);
   const cw1h = Math.min(cwAll, num(u.cache_creation && u.cache_creation.ephemeral_1h_input_tokens));
-  return (num(u.input_tokens) * pr.in
-        + num(u.output_tokens) * pr.out
-        + (cwAll - cw1h) * pr.cw
-        + cw1h * pr.cw1h
-        + num(u.cache_read_input_tokens) * pr.cr) / 1e6;
+  return {
+    in: num(u.input_tokens) * pr.in / 1e6,
+    out: num(u.output_tokens) * pr.out / 1e6,
+    cw: ((cwAll - cw1h) * pr.cw + cw1h * pr.cw1h) / 1e6,
+    cr: num(u.cache_read_input_tokens) * pr.cr / 1e6,
+  };
 };
+const usageCost = (u, pr) => { const p = usageParts(u, pr); return p.in + p.out + p.cw + p.cr; };
 
 const usageTok = (u) => num(u.input_tokens) + num(u.output_tokens)
   + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens);
@@ -208,4 +211,4 @@ const requestLookup = (keys, cache) => {
   } catch (e) { return false; }
 };
 
-module.exports = { PRICE_CACHE, RUN_LOCK, RETRY_MS, LOCK_STALE_MS, acquireRunLock, ownsRunLock, releaseRunLock, BUILTIN, normKey, validPrice, readCache, loadTable, makeResolver, usageCost, usageTok, requestLookup, num };
+module.exports = { PRICE_CACHE, RUN_LOCK, RETRY_MS, LOCK_STALE_MS, acquireRunLock, ownsRunLock, releaseRunLock, BUILTIN, normKey, validPrice, readCache, loadTable, makeResolver, usageParts, usageCost, usageTok, requestLookup, num };

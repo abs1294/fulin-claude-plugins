@@ -52,6 +52,7 @@ process.stdin.on('end', () => {
       const text = i.prompt.replace(/\n/g, ' ').trim();
       if (text.length > 2) pushUnique('u', text);
     } else if (i.hook_event_name === 'Stop') {
+      try { require('./account-limits').kick(); } catch (e) {}   // the account's limits, in the background (at most every 5 minutes)
       // Read last assistant message from transcript tail
       const tp = i.transcript_path;
       if (tp && fs.existsSync(tp)) {

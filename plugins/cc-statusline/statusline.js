@@ -705,6 +705,10 @@ process.stdin.on('end', () => {
     // observation. Share snapshots via ~/.claude/rate-limit-snapshots.json so
     // every session can see the highest observed %used within the same window.
     const rlSnapFile = path.join(os.homedir(), '.claude', 'rate-limit-snapshots.json');
+    // t is when this was WRITTEN (the prune below goes by it); seen[window] is when
+    // that window's figure last changed. A session that only repeats what it was once told keeps
+    // its old seen; one that appears with a figure already there has none (it may
+    // be hours old: a laptop that slept, an entry that was pruned).
     const mySnap = {
       t: _nowSec,
       five_hour: i.rate_limits?.five_hour || null,
@@ -716,6 +720,8 @@ process.stdin.on('end', () => {
     // retry until our own sid entry is visible after write.
     const rlSnaps = casMerge(rlSnapFile,
       (snaps) => {
+        const was = snaps[sid], same = (f) => JSON.stringify(was[f] ?? null) === JSON.stringify(mySnap[f]);
+        if (was) for (const f of ['five_hour', 'seven_day']) { const t = same(f) ? was.seen?.[f] : _nowSec; if (t) (mySnap.seen ||= {})[f] = t; }
         snaps[sid] = mySnap;
         for (const k of Object.keys(snaps)) {
           if (!snaps[k]?.t || _nowSec - snaps[k].t > STALE_SEC) delete snaps[k];
@@ -737,21 +743,28 @@ process.stdin.on('end', () => {
     // Sanity cap: 5h window resets within 5h, 7d within 7d. Anything >8d in
     // the future is garbage (malformed payload or bad test data) and would
     // otherwise win the "latest resets_at" tiebreak and poison the display.
-    const MAX_FUTURE_SEC = 8 * 86400;
+    //
+    // What Claude Code answered when asked (hooks/account-limits.js, after an answer
+    // of any conversation) comes before all of that; a session's figure counts next
+    // to it only when it changed since. Without an answer: 1-5 as they are.
+    // (What a window says -- running, idle, over -- is told there, for both.)
+    let asked = null, stateOf = (w, n) => (w && typeof w.used_percentage === 'number' && w.resets_at > n && w.resets_at - n <= 8 * 86400 ? 'running' : '');   // (statusline.js copied on its own)
+    try { const al = require('./hooks/account-limits'); stateOf = al.stateOf; asked = al.current(); } catch (e) {}
+    const liveWin = (s) => stateOf(s, _nowSec) === 'running';
+    // -> { pct, resets_at } or null (no such window now)
     const aggMax = (field) => {
       const myRL = i.rate_limits?.[field];
       const liveSnaps = [];
-      for (const snap of Object.values(rlSnaps)) {
-        const s = snap?.[field];
-        if (s && typeof s.used_percentage === 'number'
-            && s.resets_at > _nowSec
-            && s.resets_at - _nowSec <= MAX_FUTURE_SEC) {
-          liveSnaps.push(s);
-        }
+      for (const snap of asked ? [asked, ...Object.values(rlSnaps || {}).filter(s => s?.seen?.[field] * 1000 > asked.at)] : Object.values(rlSnaps || {})) {
+        let s = snap?.[field];
+        if (!liveWin(s)) continue;
+        // The answer's times are to the minute: a session's a little off it is the same window.
+        if (asked && snap !== asked && liveWin(asked[field]) && Math.abs(s.resets_at - asked[field].resets_at) <= 120) s = { ...s, resets_at: asked[field].resets_at };
+        liveSnaps.push(s);
       }
       if (liveSnaps.length === 0) {
-        return (myRL?.resets_at > _nowSec && typeof myRL.used_percentage === 'number')
-          ? myRL.used_percentage : 0;
+        return (!asked && myRL?.resets_at > _nowSec && typeof myRL.used_percentage === 'number')
+          ? { pct: myRL.used_percentage, resets_at: myRL.resets_at } : null;
       }
       // Pick the window the MOST sessions agree on (plurality by resets_at).
       // Taking the latest resets_at let a single idle session holding a stale/
@@ -768,10 +781,11 @@ process.stdin.on('end', () => {
       for (const s of liveSnaps) {
         if (s.resets_at === bestR && s.used_percentage > max) max = s.used_percentage;
       }
-      return max;
+      return { pct: max, resets_at: bestR };
     };
-    const r5h = Math.round(aggMax('five_hour'));
-    const r7d = Math.round(aggMax('seven_day'));
+    const agg5h = aggMax('five_hour'), agg7d = aggMax('seven_day');
+    const r5h = Math.round(agg5h?.pct ?? 0);
+    const r7d = Math.round(agg7d?.pct ?? 0);
     const added = cum.add.settled + cum.add.peak;
     const removed = cum.rm.settled + cum.rm.peak;
     const tokTotal = cum.tok.settled + cum.tok.peak;
@@ -807,12 +821,12 @@ process.stdin.on('end', () => {
     };
     let resetInfo = '';
     {
-      const s = countdownSec(i.rate_limits?.five_hour?.resets_at, 5 * 3600);
+      const s = countdownSec(agg5h?.resets_at ?? (asked ? null : i.rate_limits?.five_hour?.resets_at), 5 * 3600);
       if (s != null) resetInfo = `${DIM}resets${R} ${fmtCountdown(s)}`;
     }
     let reset7dInfo = '';
     {
-      const s = countdownSec(i.rate_limits?.seven_day?.resets_at, 7 * 86400);
+      const s = countdownSec(agg7d?.resets_at ?? (asked ? null : i.rate_limits?.seven_day?.resets_at), 7 * 86400);
       if (s != null) reset7dInfo = `${DIM}resets${R} ${fmtCountdown(s)}`;
     }
 
@@ -1093,7 +1107,7 @@ process.stdin.on('end', () => {
     // The scan is far too heavy for a render, so allUsageRefresh writes a cache and
     // this only reads it. A missing cache shows nothing rather than a wrong number.
     const allCachePath = path.join(os.homedir(), '.claude', 'usage-data', 'cc-statusline-all-usage.json');
-    let allCost = null, allTok = null, allUnpriced = 0, allStale = false;
+    let allCost = null, allTok = null, allUnpriced = 0, allStale = false, noDetail = true;
     try {
       const c = JSON.parse(fs.readFileSync(allCachePath, 'utf8'));
       if (c && typeof c.cost === 'number' && typeof c.tok === 'number') {
@@ -1102,6 +1116,9 @@ process.stdin.on('end', () => {
         // is close enough for an at-a-glance figure, older is flagged rather than
         // silently presented as current. A scan priced under another table is
         // stale too, so a backfilled price reaches (all) without waiting 6h.
+        // The detail file is written by the same scan; a version before 1.9.0 left none. One
+        // that could not be written is not tried again before the next scan.
+        noDetail = !c.detailFailed && !fs.existsSync(path.join(os.homedir(), '.claude', 'usage-data', 'cc-statusline-usage-detail.json'));
         allStale = !c.at || (Date.now() - c.at) > 6 * 3600 * 1000 || c.sig !== priceSig;
         if (Array.isArray(c.missing)) for (const k of c.missing) missingPriceKeys.add(k);
       }
@@ -1111,7 +1128,7 @@ process.stdin.on('end', () => {
     // another one is already running or the cache is fresh.
     try {
       const refresher = path.join(__dirname, 'scripts', 'all-usage-refresh.js');
-      if ((allCost === null || allStale) && fs.existsSync(refresher)) {
+      if ((allCost === null || allStale || noDetail) && fs.existsSync(refresher)) {
         const { spawn } = require('child_process');
         const p2 = spawn(process.execPath, [refresher], { detached: true, stdio: 'ignore', windowsHide: true });
         p2.on('error', () => {});  // async spawn failure must not kill the render
@@ -1162,18 +1179,17 @@ process.stdin.on('end', () => {
     // with an empty bar, which reads as a real, unused quota. When no session
     // reports a 5h window at all, the segment is dropped and the row carries
     // 7d-quota alone; the `quota` row switch still hides the whole row.
-    // A window counts only while it is live (resets_at in the future): an
-    // expired one makes aggMax report 0, and showing that as "0%" is the same
-    // fabricated figure this guard exists to remove.
-    const live5h = (w) => w && typeof w.used_percentage === 'number' && w.resets_at > _nowSec;
-    const has5h = live5h(i.rate_limits?.five_hour)
-      || Object.values(rlSnaps || {}).some(s => live5h(s?.five_hour));
+    // A window counts only while it is live (resets_at in the future): aggMax
+    // gives null for any other, and "0%" for it would be the same fabricated
+    // figure. The 7d one is left out only when the answer is that the account
+    // does not have it.
+    const has5h = !!agg5h, has7d = !!agg7d || !asked || !!asked.seven_day;
     const quota5h = `${DIM}5h-quota${R} ${cc(r5h)}${bar(r5h)} ${r5h}%${R} ${reset5hCompact}`;
     const quota7d = `${DIM}7d-quota${R} ${cc(r7d)}${bar(r7d)} ${r7d}%${R} ${reset7dCompact}`;
-    const quotaLine = has5h ? `${quota5h}     ${quota7d}` : quota7d;
+    const quotaLine = [has5h && quota5h, has7d && quota7d].filter(Boolean).join('     ');
     const fullLeftRows = [];
     if (showRow('usage')) fullLeftRows.push(ctxLine);
-    if (showRow('quota')) fullLeftRows.push(quotaLine);
+    if (showRow('quota') && quotaLine) fullLeftRows.push(quotaLine);
     // agents / skills moved to the third (far-right) column — see r3rows below.
     const memStr = memParts.length ? `${DIM}memory${R} ${memParts.join(`${DIM} \u00b7 ${R}`)}` : '';
     let mcpStr = '';
@@ -1556,7 +1572,7 @@ process.stdin.on('end', () => {
         // in the same cell when they sit one above the other.
         const contextPart = `${fit(`${DIM}context${R}`, 8)} ${cc(ctx)}${bar(ctx, barLen)} ${ctx}%${R}`;
         const q5 = showRow('quota') && has5h ? quotaPart('5h-quota', r5h, reset5hCompact) : '';
-        const q7 = showRow('quota') ? quotaPart('7d-quota', r7d, reset7dCompact) : '';
+        const q7 = showRow('quota') && has7d ? quotaPart('7d-quota', r7d, reset7dCompact) : '';
         const subCols = [];
         if (q5) {
           if (showRow('usage') && cfgTokensWith5h) subCols.push([tokensPart, compactPart], [q5, q7], [contextPart, '']);
@@ -1612,9 +1628,9 @@ process.stdin.on('end', () => {
       // full-width form, then the activity rows. The columns layout may have
       // folded its skills/crons rows into fullLeftRows on a narrow terminal;
       // those belong to the activity rows here, so they are filtered out.
+      // (The usage and quota rows are in the panel above; told by what they are: either may not be there.)
       const extraRows = fullLeftRows
-        .slice((showRow('usage') ? 1 : 0) + (showRow('quota') ? 1 : 0))
-        .filter(r => !r3rows.includes(r) && !r3fixed.includes(r));
+        .filter(r => r !== ctxLine && r !== quotaLine && !r3rows.includes(r) && !r3fixed.includes(r));
       const LABEL_W = 8;
       const activityRow = (label, items, total) => {
         const avail = INNER - 1 - LABEL_W;        // 1 = leading pad inside fullRow

@@ -2,6 +2,15 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.9.0] - 2026-11-24
+### Added
+- 額度改成真的去查：一段對話問答結束時（Stop hook，終端機與看板的對話都算），在背景用 Claude Code 的 get_usage 查一次 5 小時與 7 天額度，5 分鐘內查過（含沒查到）就不再查。不送訊息、不跑模型、不花 token、不載入使用者的任何設定，人不用等；帳號沒有這種額度（API key）時 1 小時才再看一次，而且不會蓋掉一天內的數字；查的是登入的那個帳號，不受單一 session 的 API key／Bedrock／Vertex 設定影響。結果在 ~/.claude/cc-statusline/state/account-limits.json，附真正查到的時間，這是所有 plugin 查額度的唯一介面（session-board、goal2 都讀它；欄位只加不改，`v` 是介面版本）。視窗是 null＝帳號沒有這個額度；`resets_at` 是 null＝有這個額度、目前沒有在計時。
+- rate-limit-snapshots.json 每筆多一個 `seen`：兩個時間窗的數字各自最後一次變動的時間。原有欄位不變。
+- 用量明細檔 `~/.claude/usage-data/cc-statusline-usage-detail.json`：`scripts/all-usage-refresh.js` 同一次全機掃描（每 6 小時、背景、本來就在跑）多寫一份「花在哪」的美元明細，給需要它的 plugin 讀（harness 的健檢）：按日、按模型、按專案（含每個專案每天的金額與四項成本）、按 session（含輸入／輸出／快取寫入／快取讀取四項金額、subagent 金額、開場固定底 token、thinking token），加上牌價快照 `prices` 與原始模型 id 對照 `modelIds`。金額是 API 等值金額（不是訂閱的實際扣款），跨檔去重（subagent 回應也被抄進主對話時只算一次）。另寫一個檔，不加大 statusline.js 每次渲染都讀的 `cc-statusline-all-usage.json`（它的欄位沒動）。明細檔不存在或牌價表變了時，即使總額檔還新鮮也會重掃，所以舊版升級後第一次會自動補出來。對帳：真實 13768 個逐字紀錄檔、1253 個 session，按日、按模型、按專案、按 session 的加總都等於總額。session 只列花最多的 1500 個，其餘的個數與合計在 `sessionsRest`。新增 hooks/tests/all-usage-detail.test.js。
+### Fixed
+- 狀態列的額度會停在舊值（實例：3%，官網 34%）：各 session 每 30 秒把自己上次被告知的數字重寫一次、蓋上新的時間。現在以查到的為準，查到之後才變動的 session 數字才會一起算；額度被重設變小也跟得上。重置倒數跟著採用的那個時間窗。還沒查到之前照舊。
+- 新增 hooks/tests/account-limits.test.js
+
 ## [1.8.4] - 2026-11-11
 ### Fixed
 - summary-updater 找最近一筆 custom-title 改成從檔尾分塊往回找，不再每次送出訊息都整份讀 transcript（360 MB 實測峰值 1072 MB → 49 MB）。新增 hooks/tests/summary-title.test.js

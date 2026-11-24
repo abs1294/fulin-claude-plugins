@@ -26,7 +26,7 @@ status line 上的 agents / MCP 呼叫 / skills / 近期編輯 / 動作歷史 / 
 | `compact-monitor.js` | PreCompact | compact 計數 |
 | `cron-tracker.js` | PostToolUse (CronCreate|CronDelete|ScheduleWakeup) | crons（排程狀態，有排程時佔 agents/skills 欄底兩行、無排程不佔位；一次性排程逾時自動視為已觸發剔除，循環排程顯示至刪除） |
 
-這些 hooks 由本 plugin 的 `hooks/hooks.json` **在安裝啟用時自動註冊**（v0.2.0 起），不需手動設定。沒有它們，上述各列會永遠空白（其餘列如 dir/repo/model/cost/quota 不受影響）。
+這些 hooks 由本 plugin 的 `hooks/hooks.json` **在安裝啟用時自動註冊**（v0.2.0 起），不需手動設定。沒有它們，上述各列會永遠空白（其餘列如 dir/repo/model/cost 不受影響）。quota 沒有 hooks 也會顯示，但只有各 session 上次被告知的數字；有 hooks 時每次問答結束會在背景查一次真正的額度（5 分鐘內不重複、不花 token），結果在 `~/.claude/cc-statusline/state/account-limits.json`。
 
 > **狀態檔位置**（v1.7.0 起）：原本放在系統暫存目錄（`%TEMP%` / `/tmp`），Windows 的 Storage Sense／磁碟清理會按檔齡清掉，開了十天的 session 會發現 agents／skills 歷史憑空消失（實際發生於 2026-11-03：所有三天前的狀態檔一次全沒）。現改放 `~/.claude/cc-statusline/state/`，只有本 plugin 會動它；`message-tracker` 每天掃一次、刪 30 天未更新的檔。升級後舊 session 的 temp 檔會在較新時自動複製過來，不用手動搬。
 
@@ -37,7 +37,7 @@ status line 上的 agents / MCP 呼叫 / skills / 近期編輯 / 動作歷史 / 
 `cost $X (all $Y) · N min` 各段：
 
 - **`$X`**：本 session（主對話＋所有 subagent）照 API 牌價換算的等值金額。從 transcript 每一輪的 token 用量逐筆計價（依 message.id 去重），不是讀 Claude Code 給的 `total_cost_usd`（那個不含 subagent）。
-- **`(all $Y)`**：本機 `~/.claude/projects` 底下所有 session 的同一種換算加總。全量掃描很重，由背景的 `scripts/all-usage-refresh.js` 算好寫進快取，最多每 6 小時重掃一次。
+- **`(all $Y)`**：本機 `~/.claude/projects` 底下所有 session 的同一種換算加總。全量掃描很重，由背景的 `scripts/all-usage-refresh.js` 算好寫進快取，最多每 6 小時重掃一次。同一次掃描還會另外寫 `~/.claude/usage-data/cc-statusline-usage-detail.json`：按日、按模型、按專案、按 session 的美元明細（含輸入／輸出／快取寫入／快取讀取四項、開場固定底、thinking token）與牌價快照，給別的 plugin 查「花在哪」用（harness 的健檢讀它）；金額是 API 等值，不是訂閱的實際扣款。
 - **`N min`**：本 session 開著的時間（Claude Code 給的 `total_duration_ms`，含閒置）。
 
 單價表在 `scripts/lib-price.js`，分五種計價：輸入、輸出、5 分鐘快取寫入、1 小時快取寫入、快取讀取。模型 id 先正規化（`claude-opus-5-5`、`claude-haiku-4-5-20251001` → `opus-5-5`、`haiku-4-5`），**只認完全相同的 key**。
