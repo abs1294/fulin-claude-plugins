@@ -851,6 +851,13 @@ function createServer(token, port, deps = {}) {
   let cache = { at: 0, list: [] };
   let war = { at: 0, data: null };
   const fresh = () => { cache.at = 0; war.at = 0; };
+  // The conversations that would lose work, by the names the board shows (a conversation keeps its first words as its own
+  // title: told by those, nobody knew which one it was - 2026-11-24).
+  const working = () => {
+    const a = channels.active(); if (!a.length) return a;
+    let t = new Map(); try { t = new Map(sessions().map((s) => [s.sessionId, s.title])); } catch (e) {}
+    return a.map((x) => Object.assign({}, x, { title: t.get(x.sessionId) || x.title }));
+  };
   const sessions = () => {
     const now = Date.now();
     if (now - cache.at > 1000) {
@@ -2702,7 +2709,7 @@ function createServer(token, port, deps = {}) {
           if (body.onlyIfNewer === true || newest === VERSION) return send(res, 200, { ok: true, restarted: false, version: VERSION });
           return send(res, 409, { ok: false, error: '裝好的看板 ' + newest + ' 比正在跑的 ' + VERSION + ' 舊，不換回去', version: VERSION, newest });
         }
-        const active = channels.active();
+        const active = working();
         if (active.length) return send(res, 409, { ok: false, active, version: VERSION, newest });
         try {
           spawn(process.execPath, [path.join(root, 'scripts', 'start.js'), '--after', String(process.pid), '--port', String(port)],
@@ -2724,7 +2731,7 @@ function createServer(token, port, deps = {}) {
         // them any turn in progress and any background work (a restart on
         // 2026-11-12 killed a test a conversation was waiting on). So it is
         // refused while anything is active, unless explicitly forced.
-        const active = channels.active();
+        const active = working();
         if (active.length && body.force !== true) return send(res, 409, { ok: false, active });
         send(res, 200, { ok: true });
         channels.shutdown();

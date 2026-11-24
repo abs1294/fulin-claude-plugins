@@ -1172,6 +1172,7 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
   assert.strictEqual((await get('/api/commands?sid=' + uuid(99))).status, 404);
   assert.strictEqual((await post('/api/to-terminal', { sessionId: B })).status, 409, 'not while it is working');
   const blocked = await post('/api/shutdown'); assert.strictEqual(blocked.status, 409); assert.ok(blocked.json.active.length >= 1, 'the board is not stopped under a working conversation');
+  { const shown = new Map((await get('/api/sessions')).json.sessions.map((x) => [x.sessionId, x.title])); for (const x of blocked.json.active) assert.strictEqual(x.title, shown.get(x.sessionId), 'told by the name the board shows'); }
   assert.ok(!did.includes('exit 0'));
 
   assert.strictEqual((await post('/api/stop', { sessionId: B })).json.ok, true);
