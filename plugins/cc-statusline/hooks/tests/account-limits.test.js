@@ -32,6 +32,8 @@ const fileOf = (h) => path.join(h, '.claude', 'cc-statusline', 'state', 'account
 const get = (h) => { try { return JSON.parse(fs.readFileSync(fileOf(h), 'utf8')); } catch (e) { return null; } };
 // (tried alone: the time not to ask before follows from it, as the asking writes it)
 const put = (h, j) => { if (typeof j === 'object' && Number.isFinite(j.tried)) j = Object.assign({}, j, { next: j.tried + (Number.isFinite(j.none_at) ? 3600000 : 300000) }); fs.mkdirSync(path.dirname(fileOf(h)), { recursive: true }); fs.writeFileSync(fileOf(h), typeof j === 'string' ? j : JSON.stringify(Object.assign({ v: 1 }, j))); };
+// so long ago: as the asking wrote it, nothing worked out again here
+const ago = (h, ms) => { const j = JSON.parse(fs.readFileSync(fileOf(h), 'utf8')); j.tried -= ms; j.next -= ms; fs.writeFileSync(fileOf(h), JSON.stringify(j)); };
 const asked = (h) => { try { return fs.readFileSync(path.join(h, 'asked.txt'), 'utf8').trim().split('\n').map((x) => JSON.parse(x)); } catch (e) { return []; } };
 const envOf = (h, more) => { const e = Object.assign({}, process.env, { HOME: h, USERPROFILE: h, NODE_OPTIONS: '--require ' + JSON.stringify(PRE.replace(/\\/g, '/')), CLAUDE_CODE_SESSION_ID: 'mine', CLAUDE_CODE_MESSAGING_TOKEN: 'secret', Anthropic_Api_Key: 'k', ANTHROPIC_AUTH_TOKEN: 't', CLAUDE_CODE_USE_BEDROCK: '1' }, more); delete e.CC_STATUSLINE_ASKING; if (more && more.CC_STATUSLINE_ASKING) e.CC_STATUSLINE_ASKING = more.CC_STATUSLINE_ASKING; return e; };
 const iso = (inSec) => new Date((sec() + inSec) * 1000 - 144).toISOString();
@@ -56,14 +58,14 @@ put(h, Object.assign({}, was, { tried: Date.now() + 86400000 })); run(h, answer(
 put(h, '{"at":'); run(h, answer(null, 37)); check(get(h).seven_day.used_percentage === 37, 'a file that cannot be read', get(h));
 h = home(); run(h, JSON.stringify({ type: 'control_response', response: { subtype: 'success', response: { rate_limits_available: false, rate_limits: null } } })); j = get(h);
 check(j && j.none === true && !j.at && Math.abs(j.none_at - Date.now()) < 20000, 'an account without such limits', j);
-put(h, Object.assign(j, { tried: Date.now() - 1800000 })); run(h, answer(null, 5)); check(asked(h).length === 1, '... is not asked so often', asked(h).length);
+ago(h, 1800000); run(h, answer(null, 5)); check(asked(h).length === 1, '... is not asked so often', asked(h).length);
 put(h, Object.assign(j, { tried: Date.now() - 7 * 3600000 })); run(h, answer(null, 5)); check(get(h).seven_day.used_percentage === 5 && !get(h).none, '... and has them when it does', get(h));
 // "no limits" (nobody signed in, say) does not wipe out today's figures; older ones it does
 h = home(); run(h, answer(null, 34)); const NONE = JSON.stringify({ type: 'control_response', response: { subtype: 'success', response: { rate_limits_available: false, rate_limits: null } } });
 put(h, Object.assign(get(h), { tried: Date.now() - 301000 })); run(h, NONE); j = get(h); check(j.seven_day && j.seven_day.used_percentage === 34 && !j.none && Date.now() - j.tried < 20000, '"no limits" does not wipe out figures of today', j);
-{ const n = asked(h).length; put(h, Object.assign(get(h), { tried: j.tried - 1800000 })); run(h, NONE); check(asked(h).length === n, '... and is not asked every 5 minutes then', asked(h).length);
+{ const n = asked(h).length; ago(h, 1800000); run(h, NONE); check(asked(h).length === n, '... and is not asked every 5 minutes then', asked(h).length);
   // an asking that fails keeps to that; figures again, and it is every 5 minutes again
-  put(h, Object.assign(get(h), { tried: Date.now() - 3700000 })); run(h, 'silent'); const m = asked(h).length; put(h, Object.assign(get(h), { tried: Date.now() - 1800000 })); run(h, NONE); check(m === n + 1 && asked(h).length === m, '... nor after an asking that failed', [n, m, asked(h).length]);
+  put(h, Object.assign(get(h), { tried: Date.now() - 3700000 })); run(h, 'silent'); const m = asked(h).length; ago(h, 1800000); run(h, NONE); check(m === n + 1 && asked(h).length === m, '... nor after an asking that failed', [n, m, asked(h).length]);
   put(h, Object.assign(get(h), { tried: Date.now() - 3700000 })); run(h, answer(null, 34)); check(get(h).none_at === undefined && get(h).next - get(h).tried === 300000, '... until there are figures again', get(h)); }
 put(h, Object.assign(get(h), { at: Date.now() - 25 * 3600000, tried: Date.now() - 301000 })); run(h, NONE); check(get(h).none === true, '... older ones it does', get(h));
 h = home(); fs.mkdirSync(path.dirname(fileOf(h)), { recursive: true }); fs.writeFileSync(fileOf(h), JSON.stringify({ at: Date.now(), tried: Date.now(), seven_day: { used_percentage: 99, resets_at: sec() + 9999 } })); run(h, answer(null, 34)); check(get(h).v === 1 && get(h).seven_day.used_percentage === 34, 'a file of before v is asked afresh, not taken over', get(h));
@@ -115,7 +117,7 @@ check(/7d-quota .* 0%/.test(out) && !/ 3%| \d+d\d+h\d+m/.test(out), 'neither win
 check(!/44%|50%|-quota/.test(out), 'an account without limits: no quota at all', out);
 put(h, { at: Date.now() - 60000, five_hour: w(9, -5), seven_day: w(9, -5), tried: Date.now() }); out = line(h, 'a', lim(50, 36));
 check(/7d-quota .*36%/.test(out) && /5h-quota .*50%/.test(out), 'an answer whose windows are over: as before', out);
-check(['five_hour', 'seven_day', 't'].every((k) => k in snap(h).a) && snap(h).a.five_hour.resets_at === R5, 'what goal2 reads is as it was', snap(h));
+check(['five_hour', 'seven_day', 't'].every((k) => k in snap(h).a) && snap(h).a.five_hour.resets_at === R5, 'the fields there were are as they were', snap(h));
 
 // what the status line started in the background writes into these homes for a moment yet
 for (let k = 0; k < 8; k++) { sleep(1000); try { fs.rmSync(W, { recursive: true, force: true }); } catch (_) { /* in use */ } }

@@ -94,7 +94,7 @@ try {
   fs.unlinkSync(tot); spawnSync(process.execPath, [SCRIPT], { env: { ...process.env, TZ: 'UTC', USERPROFILE: HOME, HOME, CC_USAGE_DETAIL_SESSIONS: '1' }, encoding: 'utf8' });
   { const x = JSON.parse(fs.readFileSync(det, 'utf8')); check(x.sessions.length === 1 && x.sessionsTotal === 3 && x.sessionsRest.count === 2 && near(x.sessions[0].cost + x.sessionsRest.cost, J().cost), 'sessions-rest', JSON.stringify(x.sessionsRest)); }
   // 檔名排在 subagent 資料夾前面的主對話也抄了它的回應：仍算在 subagent
-  put('proj-c/s9.jsonl', [msg('s9m', '2026-11-11T03:00:06.000Z', SONNET, u3)]); put('proj-c/s9/subagents/agent-y.jsonl', [msg('s9m', '2026-11-11T03:00:06.000Z', SONNET, u3)]);
+  put('proj-c/aa.jsonl', [msg('s9m', '2026-11-11T03:00:06.000Z', SONNET, u3)]); put('proj-c/s9/subagents/agent-y.jsonl', [msg('s9m', '2026-11-11T03:00:06.000Z', SONNET, u3)]);
   fs.unlinkSync(tot); run(); { const x = JSON.parse(fs.readFileSync(det, 'utf8')).sessions.find((y) => y.id === 's9'); check(x && x.requests === 1 && near(x.subCost, cost(u3, SONNET)), 'subagent-keeps-its-own-turn', JSON.stringify(x)); }
   fs.rmSync(path.join(PROJ, 'proj-c'), { recursive: true });
   // projects/ 根層散落的逐字紀錄不會讓整支當掉

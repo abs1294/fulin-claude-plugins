@@ -2,6 +2,17 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.7.0] - 2026-11-24
+### Changed
+- delaylocal 的額度重置時間改讀 cc-statusline（>= 1.9.0）在背景向 Claude Code 查到的帳號額度（`~/.claude/cc-statusline/state/account-limits.json`），不再讀 `~/.claude/rate-limit-snapshots.json`。那個檔是各終端機 session 最後一次被告知的數字，會每 30 秒用新時間重寫舊數字（2026-11-24 實例：顯示 3%、官網 34%），沒有終端機的對話根本不寫。邏輯抽到 `lib/quota.js`。
+- 使用者裁定（2026-11-24，看板合作 #1）兩條：①帳號沒有 5 小時視窗（`five_hour` 為 null）→ 改等 7 天額度的重置時間，輸出多 `quota_window`、`quota_warning`；②沒裝或太舊的 cc-statusline → 擋下並提示安裝／更新，不退回讀快照檔。已實測的現況：這台機器的額度檔是 `five_hour: null`、`seven_day` 有值，舊版會因找不到 5 小時重置時間退成「現在」而**立刻排**，現在改等 7 天。
+- 裁定沒講到的兩種情況照「擋下並說明」：帳號沒有額度限制（`none`，建議改用 goal skill 立即跑）、兩個視窗都查不到。版本判斷看額度檔自己的介面版本 `v`（cc-statusline 1.9.0 起有；沒有 `v`、不是數字或小於 1＝太舊，擋下並提示更新；更大的 `v` 與不認得的欄位照常讀，欄位只加不改）。舊版不會更新額度檔，所以檔案在也不算數；不再讀 `installed_plugins.json`（少依賴別人的檔）。
+- 有 5 小時額度、但目前沒有視窗在跑（`five_hour` 是物件且 `resets_at` 明確為 null）：視為額度是滿的、不用等，不走 7 天，避免有 5 小時額度的人閒置後被誤等好幾天（cc-statusline 介面約定：帳號沒有這個額度＝`five_hour: null`，有但沒在跑＝`{used_percentage:0, resets_at:null}`）。這時輸出 `quota_idle: true`，`quota_warning` 說明不用等。用量 ≥ 100% 且查不到重置時間則擋下並說明。
+- 7 天額度也分「沒在計時」（不用等）；要看的額度沒在計時或時間已過、而資料滿一天（不知道現在如何）就擋下並說明；視窗格式不認得、時間太離譜的不採用。`--show-config` 多 `quota`，在問使用者之前就看得到會不會被擋。
+- 7 天額度已經用完時，等 7 天與 5 小時兩者較晚的重置時間（只等 5 小時會跑不動）；用完又查不到何時重置就擋下。
+- 新增 `tests/quota.test.js`（含真的跑 delaylocal.js）。實檔實測（2026-11-24，`five_hour` 為 null、`seven_day` 重置 11/25 21:00）：排在 11/25 21:15，約 31 小時後。
+- **相依**：goal2 0.7.0 需要 cc-statusline >= 1.9.0。
+
 ## [0.6.0] - 2026-11-18
 ### Changed
 - goal skill 加接續模式（/goal2:goal 不接任務＝從本對話前幾輪整理目標，問題與啟動照設定檔）與無人值守模式（--unattended：不問問題、每題採建議並寫進脈絡與約束、一律直接啟動；看板排程送出時自動加）

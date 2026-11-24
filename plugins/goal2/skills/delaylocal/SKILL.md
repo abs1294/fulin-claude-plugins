@@ -9,14 +9,14 @@ description: 當使用者要「把一段 prompt 排程到 5 小時 quota 重置�
 
 確定性邏輯全在工具裡，skill 只負責「呼叫工具 → 拿結果 → CronCreate」，不靠 AI 即興。
 
-- `delaylocal.js`：鎖定**當前 session**（讀 `CLAUDE_CODE_SESSION_ID`）的 5h quota 重置時間。goal 模式（預設）：排程時就把引擎 prompt（只有 `/goal <條件>；已發 LINE` 加一句指向錨定區，≤3900 字）落到 `~/.claude/goal2/runs/<id>/prompt.txt`，任務全文、工作清單、報告格式、notify 指令全進同目錄 `anchor.md`（走系統提示，不受 /goal 的 4000 字元限制），cron 的 final_prompt 只做「session 守衛 → 叫 Claude 背景執行 `delaylocal.js --run <run_dir>`」；到點後 `--run` 起子程序 `claude -p "/goal …"` 跑官方引擎到達成。plain 模式：final_prompt 內建「session 守衛 + 無人值守文字紀律 + 任務 + LINE 通知」，不起子程序。
+- `delaylocal.js`：算「帳號額度重置時間」（讀 cc-statusline >= 1.9.0 查到的 `~/.claude/cc-statusline/state/account-limits.json`：有 5 小時視窗等 5 小時的重置；**帳號沒有 5 小時視窗就改等 7 天額度**；7 天額度已用完時等兩者較晚的；沒裝或太舊的 cc-statusline 擋下並提示安裝，不退回讀 `rate-limit-snapshots.json`）。`CLAUDE_CODE_SESSION_ID` 用在 final_prompt 的 session 守衛與暫存報告檔名（缺了會拒絕）；額度是帳號層級，不看它。goal 模式（預設）：排程時就把引擎 prompt（只有 `/goal <條件>；已發 LINE` 加一句指向錨定區，≤3900 字）落到 `~/.claude/goal2/runs/<id>/prompt.txt`，任務全文、工作清單、報告格式、notify 指令全進同目錄 `anchor.md`（走系統提示，不受 /goal 的 4000 字元限制），cron 的 final_prompt 只做「session 守衛 → 叫 Claude 背景執行 `delaylocal.js --run <run_dir>`」；到點後 `--run` 起子程序 `claude -p "/goal …"` 跑官方引擎到達成。plain 模式：final_prompt 內建「session 守衛 + 無人值守文字紀律 + 任務 + LINE 通知」，不起子程序。
 - **為什麼 goal 模式要繞子程序**：2.1.196 起 cron fire 的 prompt 不再解析 slash command，開頭 `/goal` 只是純文字（官方 scheduled-tasks 文件、GitHub #75837）；`claude -p "/goal …"` 是唯一入口（見 `../../lib/engine.js` 檔頭與 goal skill 的 SKILL.md）。
 - `notify-line.js`：LINE push 通知工具（node https，處理中文 / emoji）。
 
 > 本 skill 的 js（`delaylocal.js` / `notify-line.js`）與這份 `SKILL.md` **同目錄**。
 > 執行時用「本 SKILL.md 所在目錄」組出 js 絕對路徑即可——user-level skill、symlink、plugin 安裝
 > 三種情境都成立（不依賴 `CLAUDE_PLUGIN_ROOT` 是否存在）。
-> `delaylocal.js` 另依賴 plugin 根層的 `../../lib/`（`goal-head.js`：/goal 第一行 4000 字元門檻；`cron-time.js`：cron 轉換與跨月警告；`config.js`：設定檔讀取；`engine.js`：子程序引擎），
+> `delaylocal.js` 另依賴 plugin 根層的 `../../lib/`（`goal-head.js`：/goal 第一行 4000 字元門檻；`cron-time.js`：cron 轉換與跨月警告；`config.js`：設定檔讀取；`engine.js`：子程序引擎；`quota.js`：額度重置時間），
 > 與同 plugin 的 goal skill 共用。**須整個 plugin 一起安裝**，只複製 `skills/delaylocal/` 資料夾會找不到 lib（工具會明確報錯）。
 
 ## 前置設定（一次性，每台機器）
@@ -32,6 +32,8 @@ description: 當使用者要「把一段 prompt 排程到 5 小時 quota 重置�
 - 或三平台都可改用 `/plugin install goal2@fulin-plugins`（免手動 symlink，**建議**；觸發名為 `/goal2:delaylocal`）
 
 （`delaylocal.js` / `notify-line.js` 以 `__dirname` 解析同目錄與 `../../lib`，Node 對 symlink 取真身路徑，所以 symlink、plugin 安裝、user-level 三情境都成立，不依賴執行平台。）
+
+**必要**：cc-statusline 1.9.0 以上（額度資料由它查；沒裝或太舊會擋下並印安裝指令）。**先跑 `--show-config` 就看得到 `quota`**：`quota.ok` 是 false 時，propose 之前就把 `quota.message` 告訴使用者，不要問完一整輪才被擋。
 
 **設定檔（選用）**：`~/.claude/goal2/config.json`（家目錄，重裝 plugin 不會被清掉；範本在 plugin 根層 `config.example.json`）。本 skill 用的欄位：`delaylocal.confirmTimeoutMinutes`（propose 後等使用者確認的逾時，**預設 10 分鐘**）、`delaylocal.bufferSeconds`（quota 重置後再等幾秒才 fire，**預設 900**，CLI 裸數字可臨時覆蓋）、`engine.permissionMode`（子程序權限模式，**預設 bypassPermissions**）、`engine.stopHookBlockCap`（引擎連續擋停上限，**預設 0＝做到達成為止**）、`engine.model`、`engine.autocompact`（子程序壓縮視窗，預設 auto；長任務可調大）、`engine.maxBudgetUsd`（子程序 `--max-budget-usd`，花到自停 `status: budget`，**預設 300**）、`engine.maxMinutes`（runner 時限，超過殺樹標 timeout，**預設 480**）。沒檔就用預設；檔案壞掉或欄位錯會直接報錯不靜默退回。`node "<skill_dir>/delaylocal.js" --show-config` 可看生效值與當下的 `confirm_timer_cron`。
 
@@ -112,7 +114,7 @@ node "<skill_dir>/delaylocal.js" [bufferSeconds] --prompt-file <步驟2的唯一
 - **`--cwd` 必帶**（goal 模式），且要是 CLAUDE.md／自動記憶所在的專案根（不是子目錄）：輸出的 `cwd_inspection`／`warnings` 會告訴你子程序載得到哪些 CLAUDE.md、記憶、project-scope plugin；有警告就改傳祖先目錄。任務書同樣要有 `## 脈絡與約束` 節（對話裡已決定的事；沒有只警告）。不帶 `--cwd` 會退回 Bash 工具當下的 cwd，那會漂移。同一棵工作樹已有活著的 run 不會擋，JSON 的 `active_runs_in_tree` 會列出來，排程回報時一併提醒。**並行時路徑不重疊不代表沒干擾**（共用 DB／測試結果／dev server port／git 工作樹），任務書要寫明本 run 的範圍切分與「別的 run 可能同時在動什麼」。`--stop` 殺不到引擎內用 `&`／nohup 起、已脫離父子鏈的背景服務，停完提醒使用者查 port。
 - `bufferSeconds` 預設 900（15 分），可在設定檔 `~/.claude/goal2/config.json` 的 `delaylocal.bufferSeconds` 改預設；要臨時不同緩衝就帶數字（例 `1800`=30 分，CLI 優先於設定檔）。輸出的 `buffer_source` 說明用了哪個（cli / config / default）。
 - 準備成功後工具才刪 `--prompt-file`／`--goal-file`；失敗保留。未知旗標（例 `--cwdd`）直接報錯，不會靜默吃掉。
-- 工具輸出 JSON：`{ ok, plugin_version, plugin_root, sessionId, snapshotKey, resets_at_local, target_local, cron, cron_warning, fire_in_minutes, buffer_seconds, buffer_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, config_path, config_loaded, mode, run_dir, run_command, stop_command, engine, engine_prompt, final_prompt }`。goal 模式時 `run_dir` 已建好、`engine_prompt`（`/goal` 開頭）已落在裡面；plain 模式這三個為 null。
+- 工具輸出 JSON：`{ ok, plugin_version, plugin_root, sessionId, snapshotKey, quota_window（five_hour｜seven_day）, quota_idle（true＝不用等）, quota_source, quota_limits_at, quota_limits_age_minutes, quota_warning, resets_at_local, target_local, cron, cron_warning, fire_in_minutes, buffer_seconds, buffer_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, config_path, config_loaded, mode, run_dir, run_command, stop_command, engine, engine_prompt, final_prompt }`。goal 模式時 `run_dir` 已建好、`engine_prompt`（`/goal` 開頭）已落在裡面；plain 模式這三個為 null。
 - `ok:false` → 把 error 告訴使用者，停止。
 
 ### 4. 用工具輸出的 cron + final_prompt 排程
@@ -130,7 +132,8 @@ CronCreate({
 - Cron Job ID
 - 觸發時間：`JSON.target_local`（約 `JSON.fire_in_minutes` 分鐘後）
 - **若 `JSON.cron_warning` 非 null → 必須把它原文一併回報給使用者**（跨月/跨年時 cron 可能 fire 到非預期年份的警告；請使用者核對觸發時間是否為預期那天）。為 null 則略過此行。
-- quota 重置時間：`JSON.resets_at_local`、緩衝秒數
+- quota 重置時間：`JSON.resets_at_local`、緩衝秒數；先看 `JSON.quota_idle`：true 時只講「不用等，緩衝時間後就跑」；不是的話，`JSON.quota_window` 是 `seven_day` 時要明講等的是 7 天額度、為什麼（沒有 5 小時額度，或 7 天額度已用完，照 `quota_warning`）、約 N 天後才會跑（`fire_in_minutes` 換算）；`JSON.quota_warning` 不是 null 就照實轉述
+- **擋下時**（`ok:false`，錯誤訊息帶代碼）：`cc-statusline-missing`／`cc-statusline-too-old`＝把訊息裡的安裝／更新指令原文給使用者（這是使用者裁定：擋下並提示安裝，**不准**自己改去讀 `rate-limit-snapshots.json` 或猜一個時間排）；`no-limits`＝這個帳號沒有額度限制，沒有重置可等，建議改用 `goal` skill 立即跑；`limits-stale`（資料超過一天）／`limits-not-answered`＝這一輪回答結束後 cc-statusline 才會查，照訊息說明、請使用者再說一句就重跑一次；`limits-unreadable`＝格式不認得，把訊息裡的安裝／更新指令給使用者；`no-window`＝照訊息說明，請使用者稍後重試
 - 綁定 session：`JSON.sessionId`；goal 模式另報 `JSON.run_dir`
 - 提醒（純陳述事實，不加 offer）：
   - cron 只活在本 Claude Code process，且 REPL idle 才 fire（`durable` 無效，關掉程式排程就沒了）
@@ -160,7 +163,7 @@ goal 是**預設模式**。通用骨架（為什麼要 propose、可測量條件
 
 ## 運作原理（why，不是執行步驟）
 
-- **算哪個 session 的 quota**：工具讀 `CLAUDE_CODE_SESSION_ID`（去 dash 取前 24 字元 = snapshot key）→ 精準鎖定當前 session。
+- **算哪個額度**：帳號層級，不分 session。額度資料來自 cc-statusline 在每次回答結束時向 Claude Code 查的結果（5 分鐘內不重複，約 2 秒、不花 token），不是各終端機 session 最後一次被告知的數字（那個會停在舊值）。`CLAUDE_CODE_SESSION_ID`（去 dash 取前 24 字元 = snapshot key）用來讓暫存報告檔名不重複，以及 session 守衛。
 - **排到哪個 session 執行**：cron 是 session-only（`durable` 無效），fire 時仍以 final prompt 第一步的 session 守衛保險 → 只有目標 session 執行。
 - **無人值守（unattended）**：plain 模式的 final prompt 內建紀律——假設使用者不在線、不停下來問、持續執行直到無可執行項目、每次收尾前強制自問清單全「否」才可結束、只有真 blocker 才停。goal 模式則交給官方引擎的檢查器。
 - **goal 引擎在子程序**：/goal 引擎契約（第一行必須是 `/goal`、4000 字元上限、達成後自動清除、本質是 Stop hook）見 `../../references/goal-propose-flow.md` 第 4 節。2.1.195 時 cron 送 `/goal` 曾能啟動引擎；**2.1.196 起不再解析**（GitHub #75837），所以現在分兩層：
@@ -172,6 +175,6 @@ goal 是**預設模式**。通用骨架（為什麼要 propose、可測量條件
 
 ## 注意
 
-- `rate-limit-snapshots.json` 的 `resets_at` 只在送訊息時更新；skill 由使用者送 prompt 觸發 → 即時可信。
+- 額度檔 `account-limits.json` 的 `resets_at` 是絕對時間；`quota_limits_age_minutes` 超過 60 會附警告，仍可用；要看的額度沒在計時而資料滿一天，會擋（`limits-stale`）。
 - 只用 CronCreate 排程，不可用 SQL 偽造。
 - LINE 憑證放本機 `notify-line.config.json` 或環境變數，**不進 git**（已被 .gitignore 排除）。

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// delaylocal 主工具（goal2 plugin 的 delaylocal skill）：算當前 session 的 5h quota 重置時間，組裝排程用的 final prompt。
+// delaylocal 主工具（goal2 plugin 的 delaylocal skill）：算帳號額度重置時間（cc-statusline >= 1.9.0 查到的；沒有 5 小時視窗改等 7 天，見 ../../lib/quota.js），組裝排程用的 final prompt。
 // /goal 第一行組裝與 cron 轉換抽在 plugin 根層 ../../lib/（goal-head.js、cron-time.js），與 goal skill 共用。
 //
 // 用法：
@@ -21,7 +21,7 @@
 //        所以不能再把 /goal 放 cron prompt 第一行；唯一可用入口是 claude -p（見 ../../lib/engine.js）。
 //   - --plain：final_prompt 內建「session 守衛 + 無人值守文字紀律 + 任務 + 發 LINE」，不需完成條件、不起子程序。
 //
-// 輸出：JSON { ok, sessionId, snapshotKey, resets_at_local, target_local, cron, cron_warning, fire_in_minutes, buffer_seconds, buffer_source,
+// 輸出：JSON { ok, sessionId, snapshotKey, quota_window, quota_idle, quota_source, quota_limits_at, quota_limits_age_minutes, quota_warning, resets_at_local, target_local, cron, cron_warning, fire_in_minutes, buffer_seconds, buffer_source,
 //             confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, config_path, config_loaded, mode,
 //             run_dir, run_command, engine, engine_prompt（goal 模式）, final_prompt（cron 用） }
 // --run 模式輸出：{ mode:"ran", ok, goal_set, goal_achieved, continuations, num_turns, result_text, stream_path, … }
@@ -39,11 +39,12 @@ function fail(msg) {
 
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
-let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd;
+let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd, resolveQuota;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute, crossMonthWarning } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
+  ({ resolveQuota } = require(path.join(LIB, 'quota.js')));
   ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
@@ -55,8 +56,8 @@ versionFields = VERSION_FIELDS;
 // --- 暫存檔清理（防止 os.tmpdir() 無限累積、殘留任務報告等敏感內容）---
 // 生命週期分析：
 //   • delaylocal-report-*.txt：本檔在「排程時」決定路徑，但實際「寫入 + 由 notify-line.js 讀取」
-//     發生在 cron fire（quota 重置後、通常數小時內）。所以「當下這次執行」不可刪任何 report 檔
-//     ——可能是等待中排程的目標檔。安全窗：cron fire 至遲在建立後幾小時，故超過 CLEANUP_MAX_AGE_DAYS
+//     發生在 cron fire（額度重置後；沒有 5 小時額度或 7 天額度用完時可能是好幾天後，最多 7 天）。所以「當下這次執行」不可刪任何 report 檔
+//     ——可能是等待中排程的目標檔。安全窗：cron fire 最遲在建立後 7 天加緩衝，故超過 CLEANUP_MAX_AGE_DAYS
 //     的檔一定是已完成 / 已放棄的殘留，刪之安全。
 //   • delaylocal-line-*.txt：notify-line.js 在「內容過長」時寫的完整內容備份，供使用者事後翻閱。
 //     同樣以年齡為準清理（幾天後使用者若沒看即視為過期）。
@@ -64,7 +65,7 @@ versionFields = VERSION_FIELDS;
 //   — 只碰 delaylocal-report-* / delaylocal-line- * 這兩個專屬前綴，絕不動別的檔 / 別的目錄。
 //   — 以 mtime 年齡為閾值，不刪近期（可能仍在等 fire 或剛寫入）的檔。
 //   — 清理失敗一律吞掉（best-effort），不影響主流程。
-const CLEANUP_MAX_AGE_DAYS = 7;
+const CLEANUP_MAX_AGE_DAYS = 9;
 function sweepStaleTempFiles() {
   try {
     const dir = os.tmpdir();
@@ -137,9 +138,9 @@ if (runDir) {
   return; // 下面是排程準備流程
 }
 
-// --- 2. 當前 session id（排程準備才需要：鎖定要算誰的 quota）---
+// --- 2. 當前 session id（排程準備才需要：final_prompt 的 session 守衛與暫存檔名；額度是帳號層級，不看它）---
 const envId = process.env.CLAUDE_CODE_SESSION_ID || '';
-if (!envId) fail('CLAUDE_CODE_SESSION_ID 環境變數不存在，無法鎖定當前 session');
+if (!envId) fail('CLAUDE_CODE_SESSION_ID 環境變數不存在，無法在排程的 prompt 裡寫明由哪個 session 執行');
 const snapshotKey = envId.replace(/-/g, '').slice(0, 24);
 // propose 確認逾時 timer 的 cron：現在 + confirmTimeoutMinutes，向上取整到整分（同 goal.js 的取整理由）。
 // --show-config 也輸出它：skill 在 propose 當下跑 --show-config 就能直接拿 cron 去 CronCreate timer。
@@ -149,7 +150,8 @@ if (showConfig) {
   console.log(JSON.stringify({
     ok: true, mode: 'show-config', ...VERSION_FIELDS, config_path: cfg.path, config_loaded: cfg.loaded, delaylocal: dlConfig, goal: cfg.config.goal, engine: cfg.config.engine,
     confirm_timeout_minutes: dlConfig.confirmTimeoutMinutes, confirm_timer_cron: confirmTimerCron,
-    confirm_timer_target_local: new Date(confirmTarget * 1000).toLocaleString(), buffer_seconds_default: dlConfig.bufferSeconds
+    confirm_timer_target_local: new Date(confirmTarget * 1000).toLocaleString(), buffer_seconds_default: dlConfig.bufferSeconds,
+    quota: resolveQuota()   // 額度現在排不排得了：ok 是 false 時 message 說為什麼（propose 之前就該告訴使用者）
   }, null, 2));
   process.exit(0);
 }
@@ -171,23 +173,13 @@ if (!plainMode && !goalCondition) fail('delaylocal 預設為 goal 模式：需�
 const suff = selfSufficiency(userPrompt);
 if (!plainMode && !suff.self_sufficient) fail(`任務不自足：原文含對話指涉「${suff.conversational_refs.join('、')}」但沒有「## 項目清單」節。引擎到點時在另一個 headless session 跑，看不到本對話——這是 Claude（主 session）的工作、不要回去問使用者：從本對話與相關文件把要做的項目逐條展開成「## 項目清單」（編號、內容、驗收方式、來源檔:行）寫進任務書，再重跑。`);
 
-// --- 3. 讀 quota 重置時間（鎖定當前 session）---
-const snapFile = path.join(os.homedir(), '.claude', 'rate-limit-snapshots.json');
-let snaps;
-try { snaps = JSON.parse(fs.readFileSync(snapFile, 'utf8')); } catch (e) { fail('讀 rate-limit-snapshots.json 失敗: ' + e.message); }
+// --- 3. 讀 quota 重置時間（帳號額度，來源是 cc-statusline >= 1.9.0 查到的 account-limits.json）---
+// 使用者裁定（2026-11-24）：沒有 5 小時視窗就改等 7 天額度；沒裝或太舊的 cc-statusline 擋下並提示安裝，
+// 不退回讀 rate-limit-snapshots.json（那個檔會把舊數字用新時間重寫，見 ../../lib/quota.js 檔頭）。
 const now = Math.floor(Date.now() / 1000);
-
-let base;
-const entry = snaps[snapshotKey];
-if (entry && entry.five_hour && typeof entry.five_hour.resets_at === 'number') {
-  base = entry.five_hour.resets_at;
-} else {
-  // fallback：當前 session 沒快照 → 取所有 session 最晚的未來 resets_at（最保守）
-  const future = Object.values(snaps)
-    .map((s) => s && s.five_hour && s.five_hour.resets_at)
-    .filter((x) => typeof x === 'number' && x > now);
-  base = future.length ? Math.max(...future) : now;
-}
+const quota = resolveQuota({ now });
+if (!quota.ok) fail(`${quota.message}（代碼：${quota.code}）`);
+let base = quota.base;
 // 若 resets_at 已過期 → 用 now（quota 應已重置）
 if (base < now) base = now;
 
@@ -343,6 +335,12 @@ console.log(JSON.stringify({
   ...VERSION_FIELDS,
   sessionId: envId,
   snapshotKey,
+  quota_window: quota.window,                    // five_hour｜seven_day（帳號沒有 5 小時視窗、或 7 天額度用完時等 7 天）
+  quota_idle: !!quota.idle,                      // true＝要看的那個額度目前沒在計時（沒用到，或剛重置）：不用等
+  quota_source: quota.source,
+  quota_limits_at: quota.limits_at,
+  quota_limits_age_minutes: quota.limits_age_minutes,
+  quota_warning: quota.warning,                  // 非 null 時要照實告訴使用者（改等 7 天、資料偏舊）
   resets_at_local: new Date(base * 1000).toLocaleString(),
   target_local: d.toLocaleString(),
   cron,
