@@ -298,7 +298,7 @@ const rows = (f) => (read(f) || '').replace(/^﻿/, '').split('\n').map((l, i) =
 const blocks = (o) => { const c = o.message && o.message.content; return typeof c === 'string' ? [{ type: 'text', text: c }] : (Array.isArray(c) ? c : []); };
 const textOf = (b) => typeof b.content === 'string' ? b.content : (Array.isArray(b.content) ? b.content.map((x) => x.text || '').join('') : '');
 const where = (f, o) => path.basename(f) + ':' + o.__line;
-const norm = (x) => path.resolve(x).toLowerCase();
+const norm = (x) => (process.platform === 'win32' || process.platform === 'darwin' ? path.resolve(x).toLowerCase() : path.resolve(x));   // Linux 分大小寫
 const isMine = (c) => norm(c) === norm(root) || norm(c).startsWith(norm(root) + path.sep);
 // 每列標上 __mine；回傳不是這個專案的列數
 function markRows(R) {
@@ -1130,5 +1130,5 @@ out.summary = {
 out.notes = [...new Set(out.notes)];   // 同一條提醒（例如壞掉的必讀規則）每個 subagent 都會觸發一次
 const json = JSON.stringify(redactDeep(out), null, 2);
 const dest = opt('--out');
-if (dest) { fs.mkdirSync(path.dirname(path.resolve(dest)), { recursive: true }); fs.writeFileSync(dest, json); console.log(JSON.stringify(redactDeep(out.summary), null, 2)); console.log('完整結果：' + path.resolve(dest)); }
+if (dest) { try { fs.mkdirSync(path.dirname(path.resolve(dest)), { recursive: true }); fs.writeFileSync(dest, json); } catch (e) { console.error('寫不進 --out 指定的檔：' + path.resolve(dest) + '（' + e.code + '）'); process.exit(2); } console.log(JSON.stringify(redactDeep(out.summary), null, 2)); console.log('完整結果：' + path.resolve(dest)); }
 else console.log(json);

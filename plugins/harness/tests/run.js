@@ -7,7 +7,7 @@
  *   --skip-probe：跳過 hooks/templates 的 probe-hooks 全量（兩輪約 10 分鐘），只供開發中快速迭代；完成驗收一律不跳。
  * 結束碼：0＝全數通過；1＝有失敗。最後一行「合計 PASS n / FAIL n」。
  *
- * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、transcript-io、review-collect、flow-current、ledger-diff、integration、probe
+ * 套件：size、b5、b8、b9、split-audit、fixtures、golden、init-flow、schema、required-skill、delegation-gate、plugin-hooks、learn-offline、transcript-io、review-collect、flow-current、ledger-diff、token-scan、api-use、compact-reinject-files、integration、probe
  * 不在這裡的：真實端到端（claude -p 跑一次完整 /harness:init），只跑一次當驗收證據，結論記在 docs/learning-loop-design.md §11。
  */
 const fs = require('fs');
@@ -123,7 +123,8 @@ if (want('split-audit')) {
 // ── fixtures：四個範例專案的形狀（Phase 0-1 三分類、參考模式）──
 if (want('fixtures')) {
   const isRepo = (d) => spawnSync('git', ['-C', d, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-  const same = (a, b) => path.resolve(String(a).trim()).toLowerCase() === path.resolve(b).toLowerCase();
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };   // macOS 的暫存目錄是 symlink
+  const same = (a, b) => real(String(a).trim()).toLowerCase() === real(b).toLowerCase();
   const root = tmp('h-fx-');
   try {
     const sw = makeFixture('single-web', path.join(root, 'single-web'));
@@ -792,6 +793,29 @@ if (want('ledger-diff')) {
   const r = node([ld, '--self-test'], { timeout: 60000 });
   for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('ledger-diff', m[1] === 'PASS', m[2]); }
   check('ledger-diff', r.status === 0, `ledger-diff.js --self-test exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
+}
+
+// ── compact-reinject-files：有交接信時程式要附「改過的檔」「讀過的規範檔」兩節，且最壞情況不超過 HANDOFF_MAX ──
+if (want('compact-reinject-files')) {
+  const cf = path.join(__dirname, 'lib', 'compact-reinject-files.js');
+  const r = node([cf], { timeout: 60000 });
+  for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('compact-reinject-files', m[1] === 'PASS', m[2]); }
+  check('compact-reinject-files', r.status === 0, `compact-reinject-files.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
+}
+
+// ── token-scan：健檢的 token 花費腳本（去重、倍率、重建、長壽、subagent 占比、不外洩專案外檔名）合成逐字紀錄回歸 ──
+if (want('token-scan')) {
+  const ts = path.join(__dirname, 'lib', 'token-scan.js');
+  const r = node([ts], { timeout: 60000 });
+  for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('token-scan', m[1] === 'PASS', m[2]); }
+  check('token-scan', r.status === 0, `token-scan.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
+}
+
+// ── api-use：專案自己有沒有呼叫 Claude API（健檢第 2.6 步第 5 點）──
+if (want('api-use')) {
+  const r = node([path.join(__dirname, 'lib', 'api-use.js')], { timeout: 300000 });
+  for (const l of (r.stdout || '').split('\n')) { const m = l.match(/^(PASS|FAIL)\s+(.*)$/); if (m) check('api-use', m[1] === 'PASS', m[2]); }
+  check('api-use', r.status === 0, `api-use.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
 }
 
 // ── integration：壓縮交接範本（compact-*）整合測試；compact_chain_test 的 --real 會呼叫 claude -p，維持手動 ──

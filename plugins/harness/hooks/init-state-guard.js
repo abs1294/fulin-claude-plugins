@@ -23,7 +23,8 @@ try {
   const ti = input.tool_input || {};
   const fp = String(ti.file_path || ti.path || '');
   if (!fp) process.exit(0);
-  const abs = path.resolve(input.cwd || process.cwd(), fp);
+  // 反斜線寫的路徑在 macOS／Linux 也照樣認（當成分隔符，寧可多擋）
+  const abs = path.resolve(input.cwd || process.cwd(), process.platform === 'win32' ? fp : fp.replace(/\\/g, '/'));
   if (!GUARDED.test(abs)) process.exit(0);
   // 答案檔：只有 init 還在進行中才擋（之後 init-flow 不再收答案，修訂只能直接改檔）。狀態檔在 init 的目標目錄，
   // 落點可能是它底下的子目錄，所以從答案檔所在專案往上找；找不到狀態檔（例如隊友 clone 下來，狀態檔不進版控）也放行。狀態檔本身照擋

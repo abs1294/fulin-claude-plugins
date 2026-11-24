@@ -22,7 +22,9 @@
 // fail-open：任何例外 exit 0，stderr 印 `[learn-usage] ERROR: …`；取不到鎖就本次不計（不擋工具）。
 //
 // 自行決定的細節：
-// - 路徑比對在 Windows 上不分大小寫；相對路徑以 payload 的 cwd 解析。
+// - 路徑比對在 Windows 上不分大小寫；相對路徑以 payload 的 cwd 解析。專案根目錄有兩種寫法：
+//   node 給的實際路徑（本檔的位置）與對話用的寫法（payload 的 cwd 往上推）——專案放在 symlink 底下、或 macOS 的 /var
+//   時兩者不同，兩種都比。被讀的路徑本身不解開 symlink：skill 資料夾可以是連結（納管的 skill 就是）。
 // - 讀 MEMORY.md 本身不計（它是索引，每個 session 都會自動載入）。
 
 'use strict';
@@ -88,6 +90,28 @@ try {
   const lib = require('./learn-lib.js');
   const root = lib.rootOf(__dirname);
   const P = lib.paths(root);
+  const roots = (() => {
+    const out = [root], rc = input.cwd ? lib.realPathOf(input.cwd) : null;
+    if (rc && lib.isInside(rc, root)) {
+      const up = path.relative(root, rc).split(/[\\/]/).filter(Boolean).length;
+      const r = path.resolve(input.cwd, ...Array(up).fill('..'));
+      // cwd 經過指到專案深處的連結時，往上推的層數會對不上：推出來的要真的是專案根
+      const rr = lib.realPathOf(r);
+      if (rr && lib.normPath(r) !== lib.normPath(root) && lib.normPath(rr) === lib.normPath(lib.realPathOf(root) || root)) out.push(r);
+    }
+    return out;
+  })();
+  // 是不是 memory 目錄裡的檔：家目錄經過連結時兩種寫法都認
+  const isMemory = (abs) => {
+    const d = path.dirname(abs);
+    if (lib.normPath(d) === lib.normPath(P.memoryDir)) return true;
+    if (path.basename(d).toLowerCase() !== path.basename(P.memoryDir).toLowerCase() || /^[\\/]{2}/.test(d)) return false;   // 網路路徑不去查（主機不通會卡住）
+    const a = lib.realPathOf(d), b = lib.realPathOf(P.memoryDir);
+    return !!a && !!b && lib.normPath(a) === lib.normPath(b);
+  };
+  const under = (rel) => roots.map((r) => path.join(r, rel));
+  // 讀的是哪一個 skill（路徑在 .claude/skills/<名>/ 底下），不是就 null
+  const skillOf = (abs) => { for (const s of under(SKILLS_DIR)) if (lib.isInside(abs, s) && lib.normPath(abs) !== lib.normPath(s)) return path.relative(s, abs).split(/[\\/]/)[0]; return null; };
   const debug = !!process.env.HARNESS_LEARN_DEBUG;
 
   const bump = (mut) => {
@@ -110,18 +134,17 @@ try {
     const abs = path.resolve(input.cwd || process.cwd(), raw);
     const n = lib.normPath(abs);
     const base = path.basename(abs);
-    const skillsRoot = path.join(root, SKILLS_DIR);
-    if (/\.md$/i.test(base) && base.toLowerCase() !== 'memory.md' && lib.normPath(path.dirname(abs)) === lib.normPath(P.memoryDir)) {
+    const skill = skillOf(abs);
+    if (/\.md$/i.test(base) && base.toLowerCase() !== 'memory.md' && isMemory(abs)) {
       key = 'memory:' + base; kind = 'memory';
-    } else if (lib.isInside(abs, skillsRoot) && lib.normPath(abs) !== lib.normPath(skillsRoot)) {
-      const name = path.relative(skillsRoot, abs).split(/[\\/]/)[0];
-      key = 'skill:' + name; kind = 'skill';
-    } else if (/\.md$/i.test(base) && lib.normPath(path.dirname(abs)) === lib.normPath(path.join(root, HARNESS_DOC_DIR))) {
+    } else if (skill) {
+      key = 'skill:' + skill; kind = 'skill';
+    } else if (/\.md$/i.test(base) && under(HARNESS_DOC_DIR).some((d) => lib.normPath(path.dirname(abs)) === lib.normPath(d))) {
       key = 'harness:' + base; kind = 'harness';
     } else {
       for (const k of ['glossary', 'flows', 'qa-knowledge']) {
         const rel = lib.knowledgeRel(P, k);
-        if (n === lib.normPath(path.join(root, rel))) { key = 'knowledge:' + rel; kind = 'knowledge'; break; }
+        if (under(rel).some((f) => n === lib.normPath(f))) { key = 'knowledge:' + rel; kind = 'knowledge'; break; }
       }
     }
     field = 'view';
@@ -132,15 +155,14 @@ try {
     key = 'skill:' + name; kind = 'skill'; field = 'use';
   } else if (tool === 'Bash' || tool === 'PowerShell') {
     const cwd = input.cwd || process.cwd();
-    const skillsRoot = path.join(root, SKILLS_DIR);
     const hits = new Map();
     for (const words of shellSegments(ti.command || '')) {
       for (const w of readArgs(words)) {
         if (/[*?]/.test(w)) continue;   // 萬用字元展開成哪些檔看不出來，不猜
         const abs = shellPath(w, cwd);
         const base = path.basename(abs);
-        if (/\.md$/i.test(base) && base.toLowerCase() !== 'memory.md' && lib.normPath(path.dirname(abs)) === lib.normPath(P.memoryDir)) hits.set('memory:' + base, 'memory');
-        else if (lib.isInside(abs, skillsRoot) && lib.normPath(abs) !== lib.normPath(skillsRoot)) hits.set('skill:' + path.relative(skillsRoot, abs).split(/[\\/]/)[0], 'skill');
+        if (/\.md$/i.test(base) && base.toLowerCase() !== 'memory.md' && isMemory(abs)) hits.set('memory:' + base, 'memory');
+        else { const skill = skillOf(abs); if (skill) hits.set('skill:' + skill, 'skill'); }
       }
     }
     if (!hits.size) process.exit(0);

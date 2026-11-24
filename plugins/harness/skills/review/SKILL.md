@@ -11,7 +11,7 @@ description: 制度健檢——檢查 /harness:init 在專案裝的那套開發�
 1. **數字由腳本抽，模型只判讀**。不准憑讀逐字紀錄的印象寫數字；每個數字都要有出處（逐字紀錄檔名:行號）。
 2. **收集只讀；修正先列清單、一次核可、當場修完再逐項驗**。第 1 到 2.7 步（收集、清單逐項、判讀、交叉比對、指令帳本）不改專案裡任何東西（1.5 的 dry-run 只寫臨時目錄）。修正分兩種：**可逆的**（改之前把原檔存一份到系統暫存目錄、或本來就能重建，報告寫得出怎麼還原）列成一批，使用者一次核可後當場修，修完每一項都要有驗證輸出；**不可逆的、或改變規則本身的**（刪使用者資料、commit／push、改權限設定、對外動作、改判斷規則或熔斷清單的內容）仍逐項提案，照 05 §1 分級流程走。使用者沒核可的一項都不動。
 3. **沒機會驗證的照實寫**。例如專案不是 git repo，commit 前的審查就沒被觸發過——寫「沒機會驗證」，不是「通過」。
-4. **指揮官不下場**。清單逐項檢查交給 subagent 跑（照 02 派工），主對話只判讀與彙整——健檢清單二三十項全由主對話自己跑，context 會被檢查輸出塞滿，判讀品質跟著掉。
+4. **指揮官不下場**。**模型分工：跑腳本、跑清單、查事實用 `sonnet` subagent；判讀、交叉比對、指令帳本、決策單與報告由主對話（Opus 等級）做**——便宜的模型做搬運，貴的模型只花在要判斷的地方。清單逐項檢查交給 subagent 跑（照 02 派工），主對話只判讀與彙整——健檢清單二三十項全由主對話自己跑，context 會被檢查輸出塞滿，判讀品質跟著掉。
 
 對使用者講話照 init 的「對使用者講話的寫法」（`../init/SKILL.md` 同名一節）：不用內部代號、題號照實際順序連號。
 
@@ -19,8 +19,8 @@ description: 制度健檢——檢查 /harness:init 在專案裝的那套開發�
 
 ```
 0 找範圍、背景跑 /doctor、/doctor prompt-audit，/insights 連跑到沒有新增
-→ 1 收集（腳本，一律 --probe）＋ 1.5 健檢清單逐項（subagent，會執行專案程式的檢查一律跑）
-→ 2 判讀（回原文核對）＋ 2.5 四軌交叉比對 ＋ 2.7 指令帳本（subagent）
+→ 1 收集（腳本，一律 --probe；另跑 token-scan.js、api-use.js）＋ 1.5 健檢清單逐項（subagent，會執行專案程式的檢查一律跑）
+→ 2 判讀（回原文核對）＋ 2.5 四軌交叉比對 ＋ 2.6 token 花費（sonnet 查出處）＋ 2.7 指令帳本（subagent）
 → 3 問使用者三題 → 4 報告（使用者親自看的放最前）＋修正清單
 → 5 一次核可後當場修、逐項驗證 → 6 留紀錄 → 7 畫目前的 harness 流程圖
 ```
@@ -52,6 +52,8 @@ description: 制度健檢——檢查 /harness:init 在專案裝的那套開發�
 
 ## 1. 收集（腳本，不准手抽）
 
+**誰跑：派一支 subagent，`sonnet`**（照 02 派工三件套；prompt 帶「搜尋限定專案目錄、禁止全碟掃描」與「不准修改專案任何檔案、不准 commit」）。它依序跑下面的 review-collect.js、token-scan.js、api-use.js（有修正回流帳本時再加 ledger-diff.js），回：每支的 exit code、`--out` 檔的路徑、腳本印出的摘要原文、`notes` 全文；不判讀、不改檔、不補跑沒要它跑的東西。結果檔在系統暫存目錄，判讀在第 2 步由主對話讀 JSON、回原文核對。
+
 ```
 node <本 plugin>/skills/review/scripts/review-collect.js <落點> --since <日期> --out <系統暫存目錄>/harness-review-<今天>.json --probe
 ```
@@ -60,8 +62,10 @@ node <本 plugin>/skills/review/scripts/review-collect.js <落點> --since <日�
 - `notes` 要先看：略過了哪些 session、哪些行解析失敗、範圍內有沒有 session——範圍內沒有 session 時數字全是 0，代表沒資料，不代表流程沒起作用。
 - 腳本預設只讀、不執行專案裡的程式。輸出不含指令、使用者發言、擋下訊息的原文，只有出處（`檔名:行號`）與抽出的線索（指令名、命中的關鍵詞、擋下的標籤、已知的角色／模型／hook 檔名）；要看內容就照出處回原文。它只收 cwd 是這個專案的列，並略過跑 `/harness:init` 的 session 與安裝時的冷啟探針 session（探針會故意觸發擋下）。
 - **`--probe` 一律加，不先問**（見上面「實跑不再問」）：它會在實例的 `.claude/hooks/` 跑 `probe-hooks.js`（語法樹與正則兩條路徑）。實例沒有 `probe-hooks.js` 時腳本會照實記下，報告寫「自動檢查沒有實際試跑：實例沒有 probe-hooks.js」。
-- 逐字紀錄目錄預設是 `~/.claude/projects/<落點換算的名稱>`（英數字以外的字元換成 `-`）；找不到時腳本會在 `notes` 說明，這時問使用者目錄在哪，用 `--transcripts` 指定。
+- 逐字紀錄目錄預設是 `~/.claude/projects/<落點換算的名稱>`（英數字以外的字元換成 `-`）；找不到時腳本會在 `notes` 說明，這時問使用者目錄在哪，用 `--transcripts` 指定。token-scan.js 用同一個目錄，找不到時它 exit 2、不產生結果檔（stderr 寫了換算出來的路徑與常見原因）；問到目錄後兩支都帶 `--transcripts <目錄>` 重跑，還是沒有就在報告第 11 段寫「沒跑成：找不到逐字紀錄目錄」，不准寫成沒有花費。
 - **實例有修正回流帳本（`.claude/harness/sync-ledger.md`）時順手跑** `node <本 plugin>/skills/review/scripts/ledger-diff.js <落點>`：它抽出帳本裡宣稱「與範本同文」的 hook 檔名，對實例 `.claude/hooks/` 與本 plugin `hooks/templates/` 比對（忽略 CR 與 harness-wire 標記行），列 SAME／DRIFT／缺檔。帳本是人寫的，同文主張不會自己過期，這支腳本就是它的讀者；輸出貼進第 4 步報告第 9 段「版本差距」前，DRIFT 的檔列成提案（哪邊先改的、要不要回流）。沒有帳本的實例印一行略過。
+- **token 花費（面向 K）另跑一支腳本，不在 review-collect.js 裡**：`node <本 plugin>/skills/review/scripts/token-scan.js <落點> --since <日期> [--transcripts <目錄>] --out <系統暫存目錄>/harness-review-<今天>-tokens.json`（`--transcripts` 只在預設目錄找不到時才帶）。純 node、只讀、不叫模型，跟上面兩支一樣由這支 sonnet subagent 跑。**金額不自己算，讀 cc-statusline 的明細檔** `~/.claude/usage-data/cc-statusline-usage-detail.json`（cc-statusline 的 `scripts/all-usage-refresh.js` 每 6 小時在背景掃全機逐字紀錄、照官方牌價換算後寫出；牌價依模型分，新模型自動回填）。它回：這個專案範圍內的總額與每天的金額、輸入／輸出／快取寫入／快取讀取四項各占多少、按模型的占比、開場固定底（每個 session 第一則回應就背著的上下文）的中位數（分叉或從壓縮摘要起頭的 session，明細檔記的不是真正的開場，偵測得到的會排除並寫在 notes；對不到逐字紀錄的個數在 `breakdown.startup.unverified`）；花費最多的前 5 個 session（加上超過中位數 3 倍的）各自的金額、明細與「訊號」（快取重建、長壽、上下文太大、開場固定底太大、thinking 太多、單次工具結果太大、同一檔反覆讀、subagent 占比、輸出占比、非互動起的）——訊號只對這幾個 session 讀逐字紀錄診斷。**金額是 API 等值金額，不是實際帳單**（訂閱方案的實際扣款不同）。輸出的 `unit` 是 `usd`；是 `units` 就代表沒有明細檔可用，退回不分模型的比例排序，**沒有美元、不能比較不同模型的花費**，報告要照實寫「沒有金額」，原因照 `notes` 寫（沒裝 cc-statusline、版本沒有這個輸出、背景掃描還沒跑過、或明細寫入失敗——最後一種是磁碟或權限問題，不要叫使用者重裝）。比例模式也會給 `startup-heavy`／`output-heavy`／`think-heavy`，但那是用比例倍率算的，只能當線索；逐字紀錄沒有 thinking token 欄位時 `think-heavy` 不會出現，要照 `notes` 寫明，不准當成 thinking 不多。**金額有兩種口徑，輸出的 `fields` 逐欄寫明**：`totals.cost`（同 `totals.dayCost`）與 `byDay` 只算 `--since` 當天起的花費；`totals.sessionsFullCost`、`breakdown`、`flagged`、`allSessions` 是範圍內有活動的 session 的整個花費，含 `--since` 之前的。明細檔只列全機花最多的 1500 個 session，這個專案有被截掉的會寫在 `notes`（個別 session 看不到它們，`totals.cost` 與 `byDay` 仍含）。不同資料夾可能換算成同一個逐字紀錄目錄名，腳本照 cwd 略過別的專案的 session 與列；明細檔的每天金額拆不開，`notes` 會說偏高。輸出同樣不含對話與工具結果原文，只有數字、工具名、專案內相對路徑與出處（另有三欄寫這次讀的來源路徑）。
+- **專案自己有沒有呼叫 Claude API 也跑一支腳本**：`node <本 plugin>/skills/review/scripts/api-use.js <落點> --out <系統暫存目錄>/harness-review-<今天>-api-use.json`。純 node、只讀原始碼、不叫模型、不連網，輸出只有檔名、行號與種類。它只認「程式真的引用 SDK、打 api.anthropic.com、或用 Bedrock／Vertex 的 Claude 模型」；相依檔列了但沒引用（`declaredOnly`）、只有測試裡用到（`testsOnly`）、起 `claude -p` 子程序的都不算。結果只給第 2.6 步第 5 點用。
 
 輸出分十個面向，對應下一步的判讀：
 
@@ -122,6 +126,27 @@ node <本 plugin>/skills/review/scripts/review-collect.js <落點> --since <日�
 - **軌四 `/doctor prompt-audit`**：它的每一條發現（`檔:行`、哪一種過時寫法、為什麼過時、把握度）交給第 2.7 步的指令帳本當證據，跟帳本對同一條指令的裁決並列：兩邊都說該刪或該改寫的，帳本照收；兩邊說法相反的（例：它說過時、帳本說要留），兩種理由並列進第 8 段讓使用者決定，不准自己挑一邊。它建議的修改一律不直接套用（改的是規則文件，屬第 8 段逐項決定）。
 - **多軌都看到的同一件事**，在報告結論裡講，那通常是最該先處理的。
 
+## 2.6 token 花費（K）：sonnet 查出處，主對話下建議
+
+花費異常是「某個 session 發生了什麼事」，數字只告訴你哪裡貴，不告訴你為什麼。分兩段，貴的模型只做判斷：
+
+1. **查事實（subagent，`sonnet`）**：對 token-scan 的 `flagged`（前 5 名加上超過中位數 3 倍的；超過 8 個只派前 8 個，其餘在報告寫「另有 N 個未查」）各派一支，可平行；照 02 派工三件套，prompt 帶「搜尋限定專案目錄、禁止全碟掃描」與「不准修改任何檔案、不准 commit」。交給它：該 session 的逐字紀錄路徑、`signals` 指到的出處（`cacheRebuilds[].at`、`bigToolResults[].at`、`maxContextAt`、`topDays` 的日期）。要它回：這些出處前後「使用者要什麼、Claude 做了什麼」的事實清單，每條附 `檔名:行號`；**不要原文、不要建議**。
+2. **下結論（主對話）**：每個 session 先回出處抽查至少 3 條（鐵則 1），再寫三句——**發生什麼事**、**花費集中在哪**（引 `cost` 美元與占比；`parts` 看是輸出、快取寫入還是快取讀取最貴）、**可以怎麼減**。「可以怎麼減」只列有訊號撐著的，沒有證據的不列。**順序有講究：先做不犧牲品質的（免費的），再做要拿品質換錢的（要取捨的）**；這是 `/claude-api cost-optimize` 的原則，成本看的是「每完成一件事花多少」，不是每個 token 多貴：
+   - `long-lived`／`big-context`／`context-never-compacted`／`cache-rebuild`／`rebuild-cost`：換主題或隔天就開新 session（用交接檔或 memory 銜接）、上下文大了先 `/compact` 或 `/clear`、閒置很久後回來先壓縮再繼續（快取過期後整段上下文要重寫一次，上下文越大越貴）。
+   - `big-tool-result`／`repeated-read`：Read 帶 offset／limit、搜尋用 Grep 不整檔讀、指令輸出接 `| head`、大檔交給 subagent 讀完只回摘要；同一檔反覆讀要先分清是改檔後必要重讀，還是上下文被壓掉才重讀。
+   - `startup-heavy`：開場固定底（CLAUDE.md、規則檔、hook 開場輸出、MCP 工具定義、skill 清單）每個回合都要再讀一次；逐項看哪些每回合都真的需要，不需要的移到要用時才載入。這是免費的做法。金額只算主對話的回應與主對話用的模型（subagent 不背主對話的固定底），是下限；`startCtxIsOpening` 是 `false`（分叉或從壓縮摘要起頭）的 session 沒有這個訊號，它的 `startCtx` 不是開場固定底，不准拿來引用；是 `null` 代表沒有逐字紀錄可核對。
+   - `subagent-heavy`：同類派工合併、要求回報限長（免費）。能用 `sonnet`／`haiku` 的不用 Opus 屬下面「要取捨的」。
+   - `output-heavy`：回報限長、不重貼大段內容（免費）。
+   - **以下是要取捨品質的做法，只能列成提案、不准當成已確認的建議**：`think-heavy`（降 effort、減少 thinking）與 `models` 分布（Opus 占比高、但工作是搬運／檢索／照清單執行 → 改派 `sonnet` subagent，Opus 只留判斷）。每一項寫明「要先有品質檢查才套用」，並請使用者給一個判斷品質的方法（現成的測試、驗收條件，或自己抽驗幾筆實際產出）；使用者給不出來，就維持提案、不套用。
+   - `not-interactive`：看是誰起的（排程、goal 引擎、健檢、別的 plugin）、頻率與上限。
+   - `over-3x-median` 只是「比別人貴多少」的排序依據，本身不給建議，看同一個 session 的其他訊號。
+3. 建議分兩種寫進決策單，要標明：**用法建議**（使用者自己改習慣就能做到，例如隔天開新 session）只放第 11 段，決策單帶一列、建議欄寫「自己改習慣，不動專案」；**要改規則或 hook 才做得到**的（例如擋整檔讀大檔、上下文過大時提醒）進第 8 段逐項決定。**不承諾省多少錢**：下次健檢用同一支腳本比 `totals.cost`（範圍內的金額，同 `totals.dayCost`）與 `byDay`，兩次範圍的天數不同就比每天平均，才看得出有沒有變少；**不准拿 `totals.sessionsFullCost`、`breakdown`、`flagged` 的金額去比**，它們是整個 session 的花費、含範圍之前的，只用來看這次花在哪（cc-statusline 每 6 小時重算、歷史都在逐字紀錄裡，不必另存基準檔；報告第 11 段寫下這次的 `totals.cost` 與起訖日期，下次對照用）。一次只改一個做法，才分得出是哪個有效；沒變少就還原，不要疊加。報告要列出**刻意不動的做法與理由**（例如「換模型：沒有品質檢查，不動」），免得下次又從頭討論。
+4. 腳本沒回 `flagged`（或範圍內沒有 session）就在報告寫「範圍內沒有花費異常」或「沒有資料」，不要硬找；`notes` 說 session 被明細檔的上限截掉、但 `totals.cost` 不是 0 時，寫「有花費 X，個別 session 沒列在明細」，不准寫成沒有資料。
+5. **專案真的有呼叫 Claude API 才提醒跑 `/claude-api cost-optimize`**（看 api-use 的 `uses`；它優化的是專案程式呼叫 API 的花費，跟上面幾點講的 Claude Code 用量是兩回事）：
+   - `uses: true`：先照 `calls` 的出處開幾處確認是專案自己的程式（不是夾帶的第三方檔、不是範例），是才在決策單加一列——發生了什麼事寫「這個專案的程式會呼叫 Claude API（N 處）」；建議寫「想省這筆錢時，在這個專案打 `/claude-api cost-optimize`」；做了會動到什麼寫「它會先問你範圍與品質標準，要花錢的步驟會先問你，提出的修改你同意才改」。第 11 段列出處。
+   - **健檢不代跑**：它中途要問人、花錢的步驟要先核可，背景跑沒人能答；也不准替使用者回答它的問題。
+   - `uses: false`：決策單與第 11 段都不提；附錄一行「這個專案沒有呼叫 Claude API，沒有提醒 cost-optimize」（`declaredOnly` 或 `testsOnly` 時照實寫是哪一種）。腳本沒跑成就寫「沒查成：<錯誤原文>」，不准當成沒有。
+
 ## 2.7 指令帳本（派 subagent，只提案）
 
 把 CLAUDE.md、`.claude/rules/`、`.claude/harness/*.md`、agent 檔、專案 skill 的指令逐條裁決為留／改寫／搬／改成自動檢查／刪，每條附證據與刪除風險，給瘦身一個依據。範圍、粒度、裁決判準、證據來源與輸出格式見 `references/instruction-ledger.md`；派一支 subagent 照它做（照 02 派工，交給它那份檔、落點、收集結果的 C、D、G、J、2.5 的對照結論與軌四 prompt-audit 的發現（已跑完的話）；prompt 帶「搜尋限定專案目錄、禁止全碟掃描」與「不准改專案裡的檔、不准 commit；帳本寫到 `<系統暫存目錄>/harness-review-<今天>-ledger.md`」）。
@@ -152,7 +177,8 @@ node <本 plugin>/skills/review/scripts/review-collect.js <落點> --since <日�
 8. **要逐項決定的提案**（不可逆或改規則的）：每項一列——要改什麼、為什麼、屬於哪一類（改規則文件／補自動檢查／放寬擋錯的規則／升級範本／移除沒用的東西）、風險區（紅區要先問、黃區當次講明、綠區可直接改）、預估影響；軌三的「已經有規則只是沒被照做」「不屬於這個專案」也列在這裡；第 2.7 步的指令帳本在這裡放一行總數與帳本檔路徑（`reviews/<今天>-ledger.md`），明細不抄進報告
 9. **版本差距**：目前 plugin 有、這個實例沒有的功能，與升級方式（沒有學習迴路的實例：照 init 的 `phases/phase-4-hooks.md`「學習迴路」那段補裝，屬改 hook 與 settings，走第 8 段逐項決定）。另列**修正層級差距**：拿 `hooks/templates/cases/` 現行 cases 跑實例同名 hook 的 FAIL 清單（做法見 `docs/maintaining.md` §3），每筆標「範本補的漏洞實例沒拿」或「實例刻意分岔」——`hooksDifferentFromCurrentTemplate` 只列檔名，分不出這兩種
 10. **學習迴路**（J；沒裝就寫「沒有裝」）：①待核提案逐筆列（編號、主題、目標、出處；升格提案標明是第幾次出現）——請使用者在提示列打「核可 <編號>」或「駁回 <編號>」，不要替他跑核可；②淘汰候選逐筆列，**只列不動**，要歸檔或刪除走第 8 段逐項決定；③用量統計：request 數、最常用的幾項、從沒觸發過的規則（列「候選降級」，也是只列不動）；④反思失敗或一直被跳過的原因（例：暫停、每天上限、子程序失敗）
-11. **附錄**：這次看了哪些 session、略過了哪些、用的範圍（--since）；收集結果在系統暫存目錄，不隨報告保存
+11. **token 花費**（K；範圍內沒有 session 就照第 2.6 步第 4 點寫）：範圍內的總額與每天的金額（`totals.cost`、`byDay`；美元，API 等值，來自 cc-statusline；沒有明細檔就寫「沒有金額」）、四項成本與按模型的占比（註明是範圍內有活動的 session 的整個花費）、開場固定底、前 5 名與異常的 session 各一段（發生什麼事、花費集中在哪、可以怎麼減，照第 2.6 步）、免費的做法與要取捨品質的提案分開列、刻意不動的做法與理由、用法建議與要改規則的提案分開列；專案有呼叫 Claude API 的，另列出處與 `/claude-api cost-optimize` 的提醒（第 2.6 步第 5 點）。
+12. **附錄**：這次看了哪些 session、略過了哪些、用的範圍（--since）；收集結果在系統暫存目錄，不隨報告保存
 
 交付前跑 init 的易讀性自檢，**exit 0 才可以交付**（它掃本 plugin 的內部用語表 `../init/plain-language-terms.json` 與未定義代號；有命中就改寫整份再跑，不只改被點到的那一處）：
 
@@ -191,4 +217,4 @@ node <本 plugin>/skills/init/scripts/readability-check.js <落點> <落點>/.cl
 - **舊圖直接覆蓋**：`.claude/harness/flow-1.json`～`flow-3.json`、`flow-1.html`～`flow-3.html`、`flow.html` 是上一次 init 或健檢畫的，這次重畫後覆蓋（覆蓋前不用另存：它們是產生物，舊版在 git 或上一份健檢報告的路徑裡）。
 - **節點小字寫這次健檢的結論**：例如某支 hook 這次試跑擋不住、某份知識筆記沒被用過，就在那個節點小字寫一句（短，寫不下就只寫「健檢：有問題，見報告」），讓圖跟報告對得上。
 
-沒有 archify（或使用者不裝）時照 phase-6 第 6 節退回寫 `flow.md`，完整性檢查一樣用 `current`。圖的路徑寫進報告第 11 段附錄，並在回覆最後一行給出。
+沒有 archify（或使用者不裝）時照 phase-6 第 6 節退回寫 `flow.md`，完整性檢查一樣用 `current`。圖的路徑寫進報告第 12 段附錄，並在回覆最後一行給出。

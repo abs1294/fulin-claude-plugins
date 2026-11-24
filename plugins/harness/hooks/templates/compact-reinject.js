@@ -32,7 +32,15 @@ const HANDOFF_MAX = 9800;
 // 交接信路徑扣在 HANDOFF_MAX 內（交接信本體讓出空間），快照清單路徑另外加在 MAX 之外（3500＋2400＋1200 仍在平台上限內）
 const DECISION_MAX = 2400;
 const TASK_MAX = 1200;
+// 檔名、描述可以有換行等控制字元（檔名在 macOS、Linux）：換成 ?，不讓它變成輸出裡的另一行
+const oneLine = (x) => String(x == null ? '' : x).replace(/\t/g, ' ').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '?');
 const FIELD_MAX = 400;      // 單一題目、答案、附註超過就截斷（全文在快照檔）
+// 「改過的檔」「讀過的規範檔」兩節各自的字數上限（只列路徑、不貼內容）。同樣由程式附在交接信後，
+// 寫信模型不一定會提到已完成工作改過哪些檔；規範檔壓縮後不會自動重讀，漏了會讓後面的判斷少一層規則
+const EDITS_MAX = 800;
+const DOCS_MAX = 600;
+// 背景任務（最多 10 筆）每筆描述的字數上限：沒有上限的話，幾筆很長的描述就能讓整段超過 HANDOFF_MAX
+const RUN_DESC_MAX = 200;
 // ─────────────────────────────────────────────────────────────────────────────
 
 // 切點往前退到不會落在 surrogate pair 中間，否則輸出半個字元；下限 0（slice 收到負數會從尾端倒數）
@@ -96,7 +104,7 @@ function taskLines(snap) {
     : '■ 任務清單（壓縮前最後狀態；依對話紀錄重建，可能與實際清單有出入，接續前先跑 TaskList 對一次）：';
   const open = ts.filter(t => t.status !== 'completed');
   const done = ts.filter(t => t.status === 'completed');
-  const line = t => `  - [${t.status || '?'}] ${field(t.subject)}`;
+  const line = t => `  - [${oneLine(t.status || '?')}] ${oneLine(field(t.subject))}`;
   const out = [head];
   let total = head.length + 1;
   let skipped = 0;
@@ -108,6 +116,32 @@ function taskLines(snap) {
   if (skipped) out.push(`  （另有 ${skipped} 項放不下，見快照檔 tasks 欄）`);
   return out;
 }
+
+// 路徑清單：快照存的是絕對路徑，在專案底下的改成相對路徑（短、也讀得出是哪個專案的檔）。
+// 較新的在前（快照已依新舊排好）；超過上限就只收放得下的，並註明另有幾個
+function pathLines(list, head, max, cwd) {
+  const arr = Array.isArray(list) ? list.filter(x => typeof x === 'string' && x) : [];
+  if (!arr.length) return [];
+  // 先正規化（吃掉 .. 與 .）再比對：<專案>/../x 不能顯示成「看起來在專案內」的相對路徑。
+  // 平台給的 cwd 正常是字串；不是字串就當沒有，不能讓這個新依賴弄丟整份交接信
+  // UNC 路徑（\\主機\共用\…）開頭的兩個斜線要留住，normalize 會把它併成一個
+  const norm = s => { const f = String(s).replace(/\\/g, '/'); return (/^\/\/[^/]/.test(f) ? '/' : '') + path.posix.normalize(f); };
+  const base = typeof cwd === 'string' && cwd ? norm(cwd).replace(/\/+$/, '') + '/' : null;
+  // 磁碟代號或 UNC 開頭的路徑是 Windows 路徑，大小寫不分；其餘（Linux、mac）區分大小寫
+  const under = n => base && (/^(?:[A-Za-z]:|\/\/)/.test(n) ? n.toLowerCase().startsWith(base.toLowerCase()) : n.startsWith(base));
+  const show = arr.map(p => { const n = norm(p); return oneLine(under(n) ? n.slice(base.length) : n); });
+  const out = [head];
+  let total = head.length + 1, kept = 0;
+  for (const s of show) {
+    const l = '  - ' + s;
+    if (total + l.length + 1 > max - 40) continue;   // 這一筆太長就略過，後面放得下的照列
+    out.push(l); total += l.length + 1; kept++;
+  }
+  if (kept < show.length) out.push(`  （另有 ${show.length - kept} 個放不下，見快照檔）`);
+  return out;
+}
+const editLines = (snap, cwd) => pathLines(snap.edits, '■ 本 session 改過的檔（較新的在前；壓縮後系統只自動重讀最近幾個，要驗收或接著改之前先確認內容）：', EDITS_MAX, cwd);
+const docLines = (snap, cwd) => pathLines(snap.docs, '■ 本 session 讀過的規範文件（壓縮後不會自動重讀；要依其規則行事前先重讀）：', DOCS_MAX, cwd);
 
 if (process.env.COMPACT_HANDOFF_CHILD) process.exit(0);
 let input = null;
@@ -132,22 +166,45 @@ try {
       '',
     ].join('\n') + '\n';
     // 背景任務清單由程式從 transcript 算出，不靠寫信模型記得；它漏寫時完成通知送來會被當成陌生事件
-    const running = (snap.running || []).map(a => `  - ${a.desc}（${a.id}）`);
+    const clip = (s, n) => { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, safeCut(s, n)) + '…' : s; };
+    const running = (snap.running || []).slice(-10).map(a => `  - ${oneLine(clip(a.desc, RUN_DESC_MAX))}（${oneLine(clip(a.id, 80))}）`);   // 快照端本來就限 10 筆，這裡再守一次
     // 裁決與任務清單同理：由程式附在信後原樣注入，不交給寫信模型抄（它會改寫或漏抄，見 compact-handoff.js 的 keysMangled）
     const decided = decisionLines(snap);
     const taskList = taskLines(snap);
-    const tail = '\n\n' + [
-      ...(running.length ? ['■ 壓縮前仍在背景執行、尚未回報的任務（完成通知會照常送來，勿重複派工）：', ...running] : []),
-      ...(decided.length ? [...(running.length ? [''] : []), ...decided] : []),
-      ...(taskList.length ? [...(running.length || decided.length ? [''] : []), ...taskList] : []),
-      `交接信全文：${path.join(dir, snap.stamp + '.handoff.md')}`,
-      '⚠ 交接信與壓縮摘要都是二手紀錄：「已完成／已驗證／不存在」這類主張，據以行動前先對回原始證據。',
-    ].join('\n') + '\n';
+    // 改過的檔、讀過的規範檔也由程式附（路徑清單，不貼內容）
+    const editList = editLines(snap, input.cwd);
+    const docList = docLines(snap, input.cwd);
+    const buildTail = (extra, note) => {
+      const sections = [
+        running.length ? ['■ 壓縮前仍在背景執行、尚未回報的任務（完成通知會照常送來，勿重複派工）：', ...running] : [],
+        decided, taskList, ...extra,
+      ].filter(s => s.length);
+      return '\n\n' + [
+        ...sections.flatMap((s, i) => (i ? ['', ...s] : s)),
+        ...(note ? [note] : []),
+        `交接信全文：${path.join(dir, snap.stamp + '.handoff.md')}`,
+        '⚠ 交接信與壓縮摘要都是二手紀錄：「已完成／已驗證／不存在」這類主張，據以行動前先對回原始證據。',
+      ].join('\n') + '\n';
+    };
     // 上限算的是整段 stdout，預算要扣掉前後固定文字，不能只量交接信本身
     const mark = '\n…（已截斷，全文見下方路徑）';
+    // 「改過的檔」「讀過的規範檔」是補充清單，優先級低於信本體（尤其是排在「已完成」之後的硬約束與關鍵值）：
+    // 依序試 兩份都附 → 只附改過的檔 → 都不附，取第一個「信只截已完成節就放得下」的；都放不下才從信尾硬截，並註明清單沒附
+    // 註明「沒附」只在真的丟掉了有內容的清單時才寫
+    const variants = [
+      [[editList, docList], ''],
+      [[editList], docList.length ? '（讀過的規範文件清單因交接信太長沒附，見快照檔 docs 欄；需要時重讀）' : ''],
+      [[], editList.length || docList.length ? '（改過的檔與讀過的規範文件清單因交接信太長沒附，見快照檔 edits／docs 欄）' : ''],
+    ];
+    let tail, body;
+    for (const [extra, note] of variants) {
+      tail = buildTail(extra, note);
+      const budget = Math.max(0, HANDOFF_MAX - head.length - tail.length);
+      // 超長時先截「已完成」節：它排在硬約束、關鍵值之後，從信尾砍會先砍掉這些不能丟的節
+      body = shrinkDone(handoff, budget);
+      if (body.length <= budget) break;
+    }
     const budget = Math.max(0, HANDOFF_MAX - head.length - tail.length);
-    // 超長時先截「已完成」節：它排在硬約束、關鍵值之後，從信尾砍會先砍掉這些不能丟的節
-    let body = shrinkDone(handoff, budget);
     if (body.length > budget) body = body.slice(0, safeCut(body, budget - mark.length)) + mark;
     process.stdout.write(head + body + tail);
     process.exit(0);
@@ -160,23 +217,23 @@ try {
   } else {
     if (snap.running && snap.running.length) {
       L.push('', '■ 壓縮前仍在背景執行、尚未回報的任務（完成通知會照常送來，勿重複派工）：');
-      for (const a of snap.running) L.push(`  - ${a.desc}（${a.id}）`);
+      for (const a of snap.running) L.push(`  - ${oneLine(a.desc)}（${oneLine(a.id)}）`);
     }
     if (snap.docs && snap.docs.length) {
       L.push('', '■ 本 session 讀過的任務規範文件（壓縮後不會自動重讀；要依其規則行事前先重讀）：');
-      for (const f of snap.docs) L.push(`  - ${f}`);
+      for (const f of snap.docs) L.push(`  - ${oneLine(f)}`);
     }
     if (snap.edits && snap.edits.length) {
       L.push('', '■ 本 session 改過的檔（系統只自動重讀最近 5 個）：');
-      L.push('  ' + snap.edits.map(f => path.basename(f)).join('、'));
+      L.push('  ' + snap.edits.map(f => oneLine(path.basename(f))).join('、'));
     }
     if (snap.skills && snap.skills.length) {
       L.push('', '■ 本 session 用過的 skill（重新注入有總量上限，最舊的會被丟掉；要照其流程走就重新呼叫）：');
-      L.push('  ' + snap.skills.join('、'));
+      L.push('  ' + snap.skills.map(oneLine).join('、'));
     }
     if (snap.prompts && snap.prompts.length) {
       L.push('', '■ 使用者最後幾則指示（原文）：');
-      for (const p of snap.prompts) L.push('  > ' + p.replace(/\s*\n\s*/g, ' ／ '));
+      for (const p of snap.prompts) L.push('  > ' + oneLine(String(p).replace(/\s*[\r\n\u2028\u2029]+\s*/g, ' ／ ')));
     }
     L.push('', `快照：${path.join(dir, snap.stamp + '.json')}`);
   }

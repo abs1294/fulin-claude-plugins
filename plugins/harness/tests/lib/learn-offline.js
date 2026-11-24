@@ -626,6 +626,38 @@ module.exports = function run() {
         u.items['memory:db.md'].view === 2 && u.items['knowledge:GLOSSARY.md'].view === 1 && u.items['skill:bug-hunt'].use === 1 && Object.keys(u.items).length === 3, JSON.stringify(u.items));
       hook(p, 'learn-usage.js', { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: path.join(p.mem, 'db.md') } }, { HARNESS_LEARN_CHILD: '1' });
       ok('usage：反思子程序裡的 Read 不計', J(path.join(p.learn, 'usage.json')).items['memory:db.md'].view === 2, '');
+      // skill 資料夾本身是連結（納管的 skill）：Read 與 shell 都照樣記
+      {
+        const real = fs.mkdtempSync(path.join(SUITE, 'skill-')); fs.writeFileSync(path.join(real, 'SKILL.md'), '# s');
+        let linked = true; try { fs.symlinkSync(real, path.join(p.dir, '.claude', 'skills', 'adopted'), 'junction'); } catch { linked = false; }
+        if (linked) {
+          pre('Read', { file_path: path.join(p.dir, '.claude', 'skills', 'adopted', 'SKILL.md') });
+          pre('Bash', { command: 'cat .claude/skills/adopted/SKILL.md' });
+          ok('usage：skill 資料夾是連結的照樣記（Read 與 shell）', (J(path.join(p.learn, 'usage.json')).items['skill:adopted'] || {}).view === 2, JSON.stringify(J(path.join(p.learn, 'usage.json')).items));
+          fs.rmSync(path.join(p.dir, '.claude', 'skills', 'adopted'), { recursive: false, force: true });
+        }
+      }
+      // 專案路徑經過連結（cwd 在子目錄）照樣記；cwd 是專案裡指到深處的連結時，不把專案上一層當成專案
+      {
+        const link = path.join(SUITE, 'proj-link'); let linked = true;
+        try { fs.symlinkSync(p.dir, link, 'junction'); } catch { linked = false; }
+        if (linked) {
+          fs.mkdirSync(path.join(p.dir, 'a', 'b'), { recursive: true });
+          const read = (cwd, f) => hook(p, 'learn-usage.js', { hook_event_name: 'PreToolUse', tool_name: 'Read', cwd, tool_input: { file_path: f } });
+          const count = (k) => (J(path.join(p.learn, 'usage.json')).items[k] || {}).view || 0;
+          const b0 = count('skill:bug-hunt');
+          read(path.join(link, 'a', 'b'), path.join(link, '.claude', 'skills', 'bug-hunt', 'SKILL.md'));
+          ok('usage：專案路徑經過連結、cwd 在子目錄照樣記', count('skill:bug-hunt') === b0 + 1, JSON.stringify(J(path.join(p.learn, 'usage.json')).items));
+          const memUp = path.join(SUITE, 'mem-up'); fs.symlinkSync(path.dirname(p.mem), memUp, 'junction');
+          const m0 = count('memory:db.md'); read(p.dir, path.join(memUp, path.basename(p.mem), 'db.md'));
+          ok('usage：memory 目錄經過連結的寫法照樣記', count('memory:db.md') === m0 + 1, '');
+          fs.rmSync(memUp, { recursive: false, force: true });
+          fs.symlinkSync(path.join(p.dir, 'a', 'b'), path.join(p.dir, 'lnk'), 'junction');
+          read(path.join(p.dir, 'lnk'), path.join(path.dirname(p.dir), '.claude', 'skills', 'outer', 'SKILL.md'));
+          ok('usage：cwd 是指到專案深處的連結時，專案上一層的 skill 不記', count('skill:outer') === 0, '');
+          for (const x of [path.join(p.dir, 'lnk'), link]) fs.rmSync(x, { recursive: false, force: true });
+        }
+      }
       // 並行 20 次 Stop：requests 要剛好 +20
       const before = J(path.join(p.learn, 'usage.json')).requests || 0;
       const env = envFor(p);

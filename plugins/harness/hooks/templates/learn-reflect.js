@@ -417,7 +417,7 @@ function selfTest() {
     if (flog) {
       const a = flog.argv.join(' ');
       check('子程序只給 Read,Grep,Glob 且 --permission-mode default、--setting-sources local', /--tools Read,Grep,Glob/.test(a) && /--permission-mode default/.test(a) && /--setting-sources local/.test(a) && /--no-session-persistence/.test(a), a.slice(0, 160));
-      check('子程序 cwd 在系統暫存目錄的沙箱', lib.isInside(flog.cwd, os.tmpdir()) && /harness-learn-r-/.test(flog.cwd), flog.cwd);
+      check('子程序 cwd 在系統暫存目錄的沙箱', [os.tmpdir(), lib.realPathOf(os.tmpdir()) || os.tmpdir()].some((t) => lib.isInside(flog.cwd, t)) && /harness-learn-r-/.test(flog.cwd), flog.cwd);
       check('子程序環境帶 HARNESS_LEARN_CHILD=1、沒有 CLAUDECODE', flog.child === '1' && !flog.claudecode, 'child=' + flog.child);
       check('輸入含 transcript 片段（L3 工具錯誤）', flog.inputHasSegment === true, '');
       check('跑完沙箱已刪', !fs.existsSync(flog.cwd), flog.cwd);
