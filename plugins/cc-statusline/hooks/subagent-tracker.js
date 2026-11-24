@@ -76,6 +76,7 @@ process.stdin.on('end', () => {
     const i = JSON.parse(d);
     const event = i.hook_event_name;
     if (event !== 'SubagentStart' && event !== 'SubagentStop') return;
+    if (event === 'SubagentStop') try { require('../scripts/session-usage').kick(i); } catch (e) {}   // what this conversation has used, in the background
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
     const file = stateFile(`claude-agents-${sid}.json`);
 

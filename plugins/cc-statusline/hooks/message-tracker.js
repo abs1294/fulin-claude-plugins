@@ -29,6 +29,7 @@ process.stdin.on('end', () => {
     const i = JSON.parse(d);
     const sid = (i.session_id || 'default').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
     const file = stateFile(`claude-msgs-${sid}.json`);
+    try { require('../scripts/session-usage').kick(i); } catch (e) {}   // what this conversation has used, in the background
     pruneState();   // at most one scan a day; drops state files untouched for 30 days
 
     // Dedup: Stop can fire multiple times per assistant turn, and duplicate user prompts

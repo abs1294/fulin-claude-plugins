@@ -40,6 +40,7 @@ fulin 的**自製 Claude Code plugin monorepo**。所有自製 plugin 集中在 
 4. **「一定要落地」的動作需機制閘**，不能只寫「必須」（skill 的「必須」是自律、AI 會繞；只有 hook 是他律）。範式：`qa-webwright` 的 qa-flow.sh + Stop hook、`git-commit` 流程。
 5. **改既有檔前建 `.bak`**。
 6. **debug 前先給三件套**（錯誤行 / 讀過的碼 / 哪台機器），猜測標 HYPOTHESIS（見全域 CLAUDE.md）。
+7. **用量資料只由 cc-statusline 蒐集**（額度、token、花費、context、對話活動）；匯總可以各自做。界線與公開介面：`plugins/cc-statusline/docs/data-boundary.md`。
 
 ---
 

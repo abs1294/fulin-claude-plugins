@@ -3,7 +3,6 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { StringDecoder } = require('string_decoder');
 
 let d = '';
 process.stdin.on('data', c => d += c);
@@ -309,130 +308,14 @@ process.stdin.on('end', () => {
     // transcript is still counted once.
     // Known and accepted: a resumed session that copies its transcript can be
     // counted in both entries of the (all) figure.
-    // v2: state now carries per-file offsets plus cost. The filename is versioned so
-    // a v1 file is ignored rather than misread as a costless single-file scan.
-    const tokStatePath = stateFile(`claude-toksum2-${sid}.json`);
-    // The main transcript plus every subagent transcript beside it. Claude Code
-    // stores those under <dir>/<session-id>/subagents/*.jsonl.
-    const transcriptTargets = () => {
-      const tp = i.transcript_path;
-      if (!tp) return [];
-      const out = [tp];
-      try {
-        const dir = path.join(path.dirname(tp), path.basename(tp, '.jsonl'), 'subagents');
-        for (const f of fs.readdirSync(dir)) if (f.endsWith('.jsonl')) out.push(path.join(dir, f));
-      } catch (e) { /* no subagents dir: main transcript only */ }
-      return out;
-    };
-    // Returns { tok, cost, unpricedTok, approxTok }, or null when no transcript could
-    // be read. Each file keeps its own byte offset so renders stay incremental.
-    // The state records the price-table signature it was computed under; when the
-    // table changes (a backfilled price) the sums are stale and everything rescans.
+    // The reading itself is scripts/lib-session-usage.js: the hooks run it too, so the
+    // figure keeps counting where there is no status line (session-board, claude -p).
     const readTranscriptUsage = () => {
-      if (!priceLib) return null;
-      const targets = transcriptTargets();
-      if (!targets.length) return null;
-
-      let prev = { files: {}, ids: [], missing: [] };
-      try {
-        const raw = JSON.parse(fs.readFileSync(tokStatePath, 'utf8'));
-        if (raw && typeof raw === 'object' && raw.files && typeof raw.files === 'object' && raw.sig === priceSig) {
-          prev = { files: raw.files, ids: Array.isArray(raw.ids) ? raw.ids : [], missing: Array.isArray(raw.missing) ? raw.missing : [] };
-        }
-      } catch (e) {}
-      // Keys seen in bytes consumed by earlier renders still need their lookup.
-      for (const k of prev.missing) missingPriceKeys.add(k);
-
-      const seen = new Set(prev.ids);
-      const files = {};
-      let tok = 0, cost = 0, unpricedTok = 0, approxTok = 0;
-      let readAny = false;
-
-      for (const tp of targets) {
-        let st;
-        try { st = fs.statSync(tp); } catch (e) { continue; }
-        // size 0 is a not-yet-written transcript or (on Windows) a directory, which
-        // statSync also reports as size 0 while openSync would happily open it.
-        if (!st.isFile() || st.size === 0) continue;
-
-        const p0 = prev.files[tp];
-        let off = p0 ? num(p0.off) : 0;
-        let fTok = p0 ? num(p0.tok) : 0;
-        let fCost = p0 ? num(p0.cost) : 0;
-        let fUnp = p0 ? num(p0.unpricedTok) : 0;
-        let fApx = p0 ? num(p0.approxTok) : 0;
-        // Offset past EOF means truncation or a rotated path: rescan from scratch
-        // rather than trusting sums that describe different bytes.
-        if (off > st.size) { off = 0; fTok = 0; fCost = 0; fUnp = 0; fApx = 0; }
-
-        readAny = true;
-        if (off === st.size) {
-          files[tp] = { off, tok: fTok, cost: fCost, unpricedTok: fUnp, approxTok: fApx };
-          tok += fTok; cost += fCost; unpricedTok += fUnp; approxTok += fApx;
-          continue;
-        }
-
-        let buf = '';
-        let consumed = off;
-        let fd = null;
-        try {
-          fd = fs.openSync(tp, 'r');
-          const CHUNK = 1 << 20;
-          const chunk = Buffer.allocUnsafe(CHUNK);
-          // StringDecoder, not chunk.toString(): a multi-byte character straddling a
-          // chunk boundary would otherwise decode as two U+FFFD replacements. That
-          // corrupts the JSON on that line AND inflates Buffer.byteLength by 2 bytes
-          // per occurrence, so the stored offset drifts past the real position and
-          // the next render skips live data. The decoder holds the partial sequence
-          // until the next chunk completes it.
-          const decoder = new StringDecoder('utf8');
-          let pos = off;
-          while (pos < st.size) {
-            const n = fs.readSync(fd, chunk, 0, Math.min(CHUNK, st.size - pos), pos);
-            if (n <= 0) break;
-            pos += n;
-            buf += decoder.write(chunk.subarray(0, n));
-            // Only whole lines are processed; a trailing partial line stays in buf
-            // and is re-read next time, because consumed never advances past it.
-            let nl;
-            while ((nl = buf.indexOf('\n')) !== -1) {
-              const line = buf.slice(0, nl);
-              buf = buf.slice(nl + 1);
-              consumed += Buffer.byteLength(line, 'utf8') + 1;
-              if (!line) continue;
-              try {
-                const j = JSON.parse(line);
-                const u = j.message && j.message.usage;
-                if (!u) continue;
-                // Dedup by message.id across ALL files: the same assistant turn is
-                // written several times, and a subagent turn can also be echoed into
-                // the parent transcript. keep-first, per the note above.
-                const id = j.message.id;
-                if (id) { if (seen.has(id)) continue; seen.add(id); }
-                const t = priceLib.usageTok(u);
-                fTok += t;
-                const r = resolvePrice(j.message.model);
-                if (!r.exact) missingPriceKeys.add(r.key);
-                if (!r.pr) fUnp += t;
-                else { fCost += priceLib.usageCost(u, r.pr); if (!r.exact) fApx += t; }
-              } catch (e) { /* half-written or non-JSON line: skip */ }
-            }
-          }
-        } catch (e) {
-          // Keep whatever this file contributed before the failure.
-        } finally {
-          if (fd !== null) { try { fs.closeSync(fd); } catch (_) {} }
-        }
-        files[tp] = { off: consumed, tok: fTok, cost: fCost, unpricedTok: fUnp, approxTok: fApx };
-        tok += fTok; cost += fCost; unpricedTok += fUnp; approxTok += fApx;
-      }
-
-      if (!readAny) return null;
-      // Cap the id list: only ids that could still reappear matter, and an unbounded
-      // array would grow the state file forever on long sessions.
-      const ids = [...seen].slice(-4000);
-      try { atomicWrite(tokStatePath, JSON.stringify({ files, ids, sig: priceSig, missing: [...missingPriceKeys] })); } catch (e) {}
-      return { tok, cost, unpricedTok, approxTok };
+      if (!priceLib || !i.transcript_path) return null;
+      const r = require('./scripts/lib-session-usage').update({ transcript: i.transcript_path, file: stateFile(`claude-toksum2-${sid}.json`), resolvePrice, priceSig, write: atomicWrite });
+      if (!r) return null;
+      for (const k of r.missing) missingPriceKeys.add(k);
+      return r.total;
     };
     let sessionUsage = null;
     try { sessionUsage = readTranscriptUsage(); } catch (e) { sessionUsage = null; }

@@ -1,0 +1,26 @@
+# Only cc-statusline collects usage data (plugins/cc-statusline/docs/data-boundary.md): a plugin that starts to collect
+# it itself makes this fail. Runs on every push to main that touches a plugin, and on pull requests.
+name: data-boundary
+on:
+  push:
+    branches: [main]
+    paths: ['plugins/**', '.github/workflows/data-boundary.yml']
+  pull_request:
+    paths: ['plugins/**']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node plugins/cc-statusline/hooks/tests/data-boundary.test.js
+      - name: the usage records, on Linux
+        run: |
+          node plugins/cc-statusline/hooks/tests/records.test.js
+          node plugins/cc-statusline/hooks/tests/session-usage.test.js
+          node plugins/cc-statusline/hooks/tests/all-usage-detail.test.js

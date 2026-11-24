@@ -11,6 +11,8 @@
 
 ---
 
+> **別的 plugin 要用額度、token、花費、對話活動**：先看 [docs/data-boundary.md](docs/data-boundary.md)。cc-statusline 負責蒐集，其他 plugin 只讀公開介面、不碰原始來源；匯總兩邊都可以做。介面清單、使用規則、還沒搬的地方都在那份，`hooks/tests/data-boundary.test.js` 會掃。
+
 ## 資料從哪來：8 支 tracker hooks（裝 plugin 即自動註冊）
 
 status line 上的 agents / MCP 呼叫 / skills / 近期編輯 / 動作歷史 / 頂部摘要 / compact 次數，不是 statusline.js 自己變出來的——它們由 8 支 tracker hooks 在對應事件時寫入狀態檔（`~/.claude/cc-statusline/state/claude-<kind>-<sid>.json`），statusline.js 只負責讀：
@@ -36,8 +38,8 @@ status line 上的 agents / MCP 呼叫 / skills / 近期編輯 / 動作歷史 / 
 
 `cost $X (all $Y) · N min` 各段：
 
-- **`$X`**：本 session（主對話＋所有 subagent）照 API 牌價換算的等值金額。從 transcript 每一輪的 token 用量逐筆計價（依 message.id 去重），不是讀 Claude Code 給的 `total_cost_usd`（那個不含 subagent）。
-- **`(all $Y)`**：本機 `~/.claude/projects` 底下所有 session 的同一種換算加總。全量掃描很重，由背景的 `scripts/all-usage-refresh.js` 算好寫進快取，最多每 6 小時重掃一次。同一次掃描還會另外寫 `~/.claude/usage-data/cc-statusline-usage-detail.json`：按日、按模型、按專案、按 session 的美元明細（含輸入／輸出／快取寫入／快取讀取四項、開場固定底、thinking token）與牌價快照，給別的 plugin 查「花在哪」用（harness 的健檢讀它）；金額是 API 等值，不是訂閱的實際扣款。
+- **`$X`**：本 session（主對話＋所有 subagent）照 API 牌價換算的等值金額。從 transcript 每一輪的 token 用量逐筆計價（依 message.id 去重），不是讀 Claude Code 給的 `total_cost_usd`（那個不含 subagent）。1.10.0 起不只狀態列會更新，回覆完、送出訊息、子代理結束時 hook 也在背景接著算，看板裡的對話、`claude -p` 都算得到；其他 plugin 一律讀 `~/.claude/cc-statusline/state/claude-toksum2-<sid>.json` 的 `v`、`at`、`total`，不自己算。
+- **`(all $Y)`**：本機 `~/.claude/projects` 底下所有 session 的同一種換算加總。由背景的 `scripts/all-usage-refresh.js` 從每則用量紀錄（`~/.claude/usage-data/records/`，見 docs/data-boundary.md）匯總好寫進快取，最多每 15 分鐘一次。同時另外寫 `~/.claude/usage-data/cc-statusline-usage-detail.json`：按日、按模型、按專案、按 session 的美元明細（含輸入／輸出／快取寫入／快取讀取四項、開場固定底、thinking token）與牌價快照，給別的 plugin 查「花在哪」用（harness 的健檢讀它）；金額是 API 等值，不是訂閱的實際扣款。
 - **`N min`**：本 session 開著的時間（Claude Code 給的 `total_duration_ms`，含閒置）。
 
 單價表在 `scripts/lib-price.js`，分五種計價：輸入、輸出、5 分鐘快取寫入、1 小時快取寫入、快取讀取。模型 id 先正規化（`claude-opus-5-5`、`claude-haiku-4-5-20251001` → `opus-5-5`、`haiku-4-5`），**只認完全相同的 key**。

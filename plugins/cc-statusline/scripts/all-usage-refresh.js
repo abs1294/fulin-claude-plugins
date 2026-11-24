@@ -2,12 +2,12 @@
 /**
  * all-usage-refresh.js — cross-session API-equivalent usage for the (all) figure.
  *
- * Walks every transcript under ~/.claude/projects (main sessions AND subagents),
- * sums billed token components, prices them with the same table statusline.js uses,
+ * Brings the usage records up to date (lib-records.js: every message of every transcript,
+ * main sessions AND subagents, once), adds them up with the same price table statusline.js uses,
  * and writes ~/.claude/usage-data/cc-statusline-all-usage.json.
  *
- * Spawned detached by statusline.js when its cache is missing or stale. Never runs
- * inline: a full scan is seconds of IO on a multi-GB history.
+ * Spawned detached by statusline.js and by the hooks (session-usage.js) when its cache is missing or
+ * stale. Never runs inline: adding up takes seconds.
  *
  * Why a full scan rather than the cumulative store: the store only ever held
  * sessions that rendered a statusline (68 of 591 main transcripts locally) and its
@@ -24,7 +24,7 @@ const CACHE = path.join(os.homedir(), '.claude', 'usage-data', 'cc-statusline-al
 const DETAIL = path.join(os.homedir(), '.claude', 'usage-data', 'cc-statusline-usage-detail.json');
 const DETAIL_SESSIONS_MAX = Number(process.env.CC_USAGE_DETAIL_SESSIONS) || 1500;   // （環境變數給測試用）
 const LOCK = CACHE + '.lock';
-const FRESH_MS = 6 * 3600 * 1000;   // re-scan at most this often
+const FRESH_MS = 15 * 60 * 1000;   // at most this often
 const LOCK_STALE_MS = 30 * 60 * 1000;
 
 // Pricing is shared with statusline.js (exact model match, stand-in price for
@@ -55,82 +55,65 @@ if (!priceLib.ownsRunLock(LOCK)) process.exit(0);
 process.on('SIGINT', () => process.exit(1));
 process.on('SIGTERM', () => process.exit(1));
 
-const root = path.join(os.homedir(), '.claude', 'projects');
-const files = [];
-const walk = (d) => {
-  let ents;
-  try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
-  for (const e of ents) {
-    const p = path.join(d, e.name);
-    if (e.isDirectory()) walk(p);
-    else if (e.name.endsWith('.jsonl')) files.push(p);
-  }
-};
-walk(root);
-// subagent 的檔先掃：它的回應也被抄進主對話，跨檔去重要把它算在 subagent，不隨列舉順序變
-const deep = (f) => (path.relative(root, f).split(path.sep).length > 2 ? 0 : 1);
-files.sort((a, b) => deep(a) - deep(b) || (a < b ? -1 : 1));
+// The usage records are brought up to date first, then added up: nothing is read from the transcripts here
+// (lib-records.js). Another run bringing them up to date is waited for, up to a minute.
+const records = require('./lib-records');
+let current = false;
+for (let n = 0; n < 60; n++) {
+  let r = null;
+  try { r = records.collect(); } catch (e) { r = undefined; }
+  if (r) current = true;
+  if (r !== null) break;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+}
+// Nothing collected yet (the records could not be written): no figure rather than a wrong one. They could not be brought
+// up to date and there is a figure: it stays, with the time it has.
+if (!fs.existsSync(records.META) || (!current && fs.existsSync(CACHE))) process.exit(0);
+let recordsAt = 0; try { recordsAt = JSON.parse(fs.readFileSync(records.META, 'utf8')).at || 0; } catch (e) {}
+if (!recordsAt) process.exit(0);   // the first collecting is still going on: half of it is not a figure
 
-// Dedup by message.id across every file, keep-first: the same assistant turn is
-// written to a transcript several times, and a subagent turn is also echoed into
-// its parent. Summing raw lines roughly doubles the total.
-const seen = new Set();
-let tok = 0, cost = 0, unpricedTok = 0, approxTok = 0, recs = 0;
+let tok = 0, cost = 0, unpricedTok = 0, approxTok = 0, recs = 0, files = 0;
 const missing = new Set();
-// 明細：金額拆成輸入、輸出、快取寫入、快取讀取四項；本地日期；session 以檔名（主對話）或所在資料夾（subagent）認
+// 明細：金額拆成輸入、輸出、快取寫入、快取讀取四項；本地日期
 const byDay = {}, byModel = {}, byProject = {}, bySession = {}, modelIds = {};
-const localDay = (ts) => { const d = new Date(ts); if (isNaN(d)) return '（未知）'; const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
+const localDay = (ts) => { const d = new Date(ts); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
 const newParts = () => ({ in: 0, out: 0, cw: 0, cr: 0 });
 const add = (o, k, init) => o[k] || (o[k] = init());
-const sessionOf = (f) => {
-  const rel = path.relative(root, f).split(path.sep);     // <專案資料夾>/<sid>.jsonl 或 <專案資料夾>/<sid>/subagents/…/agent-x.jsonl
-  if (rel.length < 2) return { project: '（專案目錄外）', sid: rel[0].replace(/\.jsonl$/, ''), sub: false };   // projects/ 根層散落的檔
-  return { project: rel[0], sid: rel[1].replace(/\.jsonl$/, ''), sub: rel.length > 2 };
-};
-for (const f of files) {
-  const who = sessionOf(f);
-  let raw;
-  try { raw = fs.readFileSync(f, 'utf8'); } catch (e) { continue; }
-  for (const line of raw.split('\n')) {
-    if (!line) continue;
-    let j;
-    try { j = JSON.parse(line); } catch (e) { continue; }
-    const m = j.message;
-    if (!m || !m.usage) continue;
-    const id = m.id;
-    if (id) { if (seen.has(id)) continue; seen.add(id); }
-    const u = m.usage;
-    const t = priceLib.usageTok(u);
+for (const f of records.recordFiles()) {
+  files++;
+  records.eachRecord(f.p, (x) => {
+    if (!(x.ts > 0)) return;
+    const n = (v) => v || 0, t = n(x.in) + n(x.out) + n(x.cw5) + n(x.cw1) + n(x.rd);
     tok += t; recs++;
-    const r = resolvePrice(m.model);
-    if (!r.exact) missing.add(r.key);
-    if (!r.pr) { unpricedTok += t; continue; }
-    const c = priceLib.usageCost(u, r.pr);
+    const r = resolvePrice(x.model || '');
+    if (r.key && !r.exact) missing.add(r.key);
+    if (!r.pr) { unpricedTok += t; return; }
+    const pt = { in: n(x.in) * r.pr.in / 1e6, out: n(x.out) * r.pr.out / 1e6, cw: (n(x.cw5) * r.pr.cw + n(x.cw1) * r.pr.cw1h) / 1e6, cr: n(x.rd) * r.pr.cr / 1e6 };
+    const c = pt.in + pt.out + pt.cw + pt.cr;
     cost += c;
     if (!r.exact) approxTok += t;
     // ── 明細 ──
-    const cwAll = priceLib.num(u.cache_creation_input_tokens);
-    const pt = priceLib.usageParts(u, r.pr);
-    const day = localDay(j.timestamp);
+    const day = localDay(x.ts), iso = new Date(x.ts).toISOString();
     const dd = add(byDay, day, () => ({ cost: 0, requests: 0, models: {}, parts: newParts() }));
     dd.cost += c; dd.requests++; dd.models[r.key] = (dd.models[r.key] || 0) + c;
     const mm = add(byModel, r.key, () => ({ cost: 0, requests: 0, exact: r.exact, parts: newParts() }));
     mm.cost += c; mm.requests++;
-    const pj = add(byProject, who.project, () => ({ cost: 0, requests: 0, sessions: new Set(), byDay: {}, models: {}, parts: newParts() }));
-    pj.cost += c; pj.requests++; pj.sessions.add(who.sid);
+    const pj = add(byProject, f.project, () => ({ cost: 0, requests: 0, sessions: new Set(), byDay: {}, models: {}, parts: newParts() }));
+    pj.cost += c; pj.requests++; pj.sessions.add(x.sid);
     pj.byDay[day] = (pj.byDay[day] || 0) + c; pj.models[r.key] = (pj.models[r.key] || 0) + c;
-    const ss = add(bySession, who.project + '/' + who.sid, () => ({ id: who.sid, project: who.project, cost: 0, subCost: 0, requests: 0, first: null, last: null, models: {}, parts: newParts(), tok: { in: 0, out: 0, cw: 0, cr: 0 }, startCtx: null, think: 0 }));
-    ss.cost += c; if (who.sub) ss.subCost += c; ss.requests++;
-    if (j.timestamp) { if (!ss.first || j.timestamp < ss.first) ss.first = j.timestamp; if (!ss.last || j.timestamp > ss.last) ss.last = j.timestamp; }
+    const ss = add(bySession, f.project + '/' + x.sid, () => ({ id: x.sid, project: f.project, cost: 0, subCost: 0, requests: 0, first: null, last: null, models: {}, parts: newParts(), tok: { in: 0, out: 0, cw: 0, cr: 0 }, startCtx: null, think: 0, _line: Infinity }));
+    ss.cost += c; if (x.agent) ss.subCost += c; ss.requests++;
+    if (!ss.first || iso < ss.first) ss.first = iso; if (!ss.last || iso > ss.last) ss.last = iso;
     ss.models[r.key] = (ss.models[r.key] || 0) + c;
-    ss.tok.in += priceLib.num(u.input_tokens); ss.tok.out += priceLib.num(u.output_tokens); ss.tok.cw += cwAll; ss.tok.cr += priceLib.num(u.cache_read_input_tokens);
+    ss.tok.in += n(x.in); ss.tok.out += n(x.out); ss.tok.cw += n(x.cw5) + n(x.cw1); ss.tok.cr += n(x.rd);
     for (const k of ['in', 'out', 'cw', 'cr']) { dd.parts[k] += pt[k]; mm.parts[k] += pt[k]; ss.parts[k] += pt[k]; pj.parts[k] += pt[k]; }
     // 開場固定底：主對話檔的第一則回應（跨檔去重之後的；分叉出來的 session 是分叉後第一則）讀到的上下文（專案說明檔、規則、hook 輸出、工具定義、skill 清單都在裡面）；thinking token 另記
-    if (!who.sub && ss.startCtx == null) ss.startCtx = priceLib.num(u.input_tokens) + cwAll + priceLib.num(u.cache_read_input_tokens);
-    ss.think += priceLib.num(u.output_tokens_details && u.output_tokens_details.thinking_tokens);
-    modelIds[m.model] = r.key;
-  }
+    if (!x.agent && n(x.line) < ss._line) { ss._line = n(x.line); ss.startCtx = n(x.in) + n(x.cw5) + n(x.cw1) + n(x.rd); }
+    ss.think += n(x.think);
+    modelIds[x.model] = r.key;
+  });
 }
+for (const x of Object.values(bySession)) delete x._line;
 
 let detailFailed = true;
 // 明細檔（先寫，免得上面小檔更新後、明細檔還是舊的，讀者看到兩份對不上）
@@ -144,7 +127,7 @@ try {
   const sessions = ranked.slice(0, DETAIL_SESSIONS_MAX)
     .map((s) => ({ ...rd(s), subCost: R(s.subCost), models: Object.fromEntries(Object.entries(s.models).map(([k, v]) => [k, R(v)])) }));
   const detail = {
-    v: 1, at: Date.now(), sig, tz: -new Date().getTimezoneOffset() / 60, prices,
+    v: 1, at: recordsAt, sig, tz: -new Date().getTimezoneOffset() / 60, prices,
     byDay: Object.fromEntries(Object.entries(byDay).sort().map(([d, v]) => [d, { ...rd(v), models: Object.fromEntries(Object.entries(v.models).map(([k, x]) => [k, R(x)])) }])),
     byModel: Object.fromEntries(Object.entries(byModel).map(([k, v]) => [k, rd(v)])),
     byProject: Object.fromEntries(Object.entries(byProject).sort((a, b) => b[1].cost - a[1].cost).map(([k, v]) => [k, { cost: R(v.cost), requests: v.requests, sessions: v.sessions.size, byDay: Object.fromEntries(Object.entries(v.byDay).sort().map(([d, x]) => [d, R(x)])), models: Object.fromEntries(Object.entries(v.models).map(([m, x]) => [m, R(x)])), parts: Object.fromEntries(Object.entries(v.parts).map(([p, x]) => [p, R(x)])) }])),
@@ -156,7 +139,7 @@ try {
 } catch (e) {}
 const tmp = CACHE + '.' + process.pid + '.tmp';
 try {
-  fs.writeFileSync(tmp, JSON.stringify({ at: Date.now(), sig, cost, tok, unpricedTok, approxTok, missing: [...missing], records: recs, files: files.length, ...(detailFailed ? { detailFailed: true } : {}) }));
+  fs.writeFileSync(tmp, JSON.stringify({ at: recordsAt, sig, cost, tok, unpricedTok, approxTok, missing: [...missing], records: recs, files, ...(detailFailed ? { detailFailed: true } : {}) }));
   fs.renameSync(tmp, CACHE);
 } catch (e) {
   try { fs.unlinkSync(tmp); } catch (_) {}

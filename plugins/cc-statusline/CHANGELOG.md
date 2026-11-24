@@ -2,6 +2,18 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.10.0] - 2026-11-24
+### Added
+- 每個對話的花費與用量不再只靠狀態列更新：回覆完、送出訊息、子代理結束時（Stop、UserPromptSubmit、SubagentStop hook）在背景從對話紀錄接著算，看板（session-board）裡的對話、`claude -p` 也算得到，人不用等。這是其他 plugin 讀「這個對話用了多少」的唯一介面：`~/.claude/cc-statusline/state/claude-toksum2-<sid>.json` 的 `v`（介面版本）、`at`（更新時間，毫秒）、`total`（cost、tok、mainCost、mainTok、agentCost、agentTok、agentRuns、unpricedTok、approxTok）；欄位只加不改，其餘欄位是自己用的。
+- 每則用量紀錄 `~/.claude/usage-data/records/`：全機每一則模型回應一行，去重、計價，按月再按專案分檔，只讀對話紀錄新增的部分，Claude Code 清掉對話紀錄之後仍留著（看板每月用量、健檢都讀它）。附回到對話紀錄的檔名與行號，不含對話內容。單價補到或改變時會把算過的重算；寫到一半中斷會自己修好，不會重複。第一次會在背景把全部對話整理一遍（實測 49.5 萬則、83 秒、占 145 MB），之後全部掃一次 2 秒。
+- 單一對話用量加 `context`：最近一則回覆送進模型的量、模型、effort。
+- 全機用量明細改從這份紀錄匯總，不再每次重讀全部對話紀錄；最多 15 分鐘更新一次（原本 6 小時），沒有終端機開著時也會跑。複製出來的對話，帶過來的內容算原本那個對話的（原本看檔名先後）。
+- docs/data-boundary.md：誰蒐集、誰匯總的界線（cc-statusline 負責蒐集，匯總可以由它或各 plugin 做）、公開介面清單、使用規則、還沒搬的地方；hooks/tests/data-boundary.test.js 掃其他 plugin，沒登記就碰原始用量資料的會失敗。
+### Fixed
+- 對話從終端機搬進看板之後，花費停在搬進來那一刻（實例：顯示 1147，實際 1631）。
+- 工作流程（workflow）派出的子代理在更深一層資料夾，對話的花費漏算（實例：顯示 54，實際 185）；複製出來的對話把帶過來的舊內容也算進去（實例：顯示 52，實際 0.25）。舊版算過的會自動重算一次。
+- 新增 hooks/tests/session-usage.test.js
+
 ## [1.9.0] - 2026-11-24
 ### Added
 - 額度改成真的去查：一段對話問答結束時（Stop hook，終端機與看板的對話都算），在背景用 Claude Code 的 get_usage 查一次 5 小時與 7 天額度，5 分鐘內查過（含沒查到）就不再查。不送訊息、不跑模型、不花 token、不載入使用者的任何設定，人不用等；帳號沒有這種額度（API key）時 1 小時才再看一次，而且不會蓋掉一天內的數字；查的是登入的那個帳號，不受單一 session 的 API key／Bedrock／Vertex 設定影響。結果在 ~/.claude/cc-statusline/state/account-limits.json，附真正查到的時間，這是所有 plugin 查額度的唯一介面（session-board、goal2 都讀它；欄位只加不改，`v` 是介面版本）。視窗是 null＝帳號沒有這個額度；`resets_at` 是 null＝有這個額度、目前沒有在計時。
