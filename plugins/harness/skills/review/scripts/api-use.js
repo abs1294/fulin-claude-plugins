@@ -39,26 +39,63 @@ const CODE = /\.(js|mjs|cjs|jsx|ts|mts|cts|tsx|vue|svelte|py|ipynb|cs|vb|fs|java
 const DECLARES = /^(package\.json|requirements[^/\\]*\.txt|pyproject\.toml|setup\.py|setup\.cfg|Pipfile|.*\.csproj|.*\.fsproj|Directory\.Packages\.props|packages\.config|pom\.xml|build\.gradle(\.kts)?|go\.mod|Gemfile|composer\.json|Cargo\.toml)$/i;
 const MAX_FILE = 1024 * 1024, MINIFIED = 500, MAX_FILES = 60000, MAX_HITS = 30;
 
-// 種類 → 樣子。SDK 一律要是「引用」的寫法，不是名字出現就算。
+// [種類, 適用的副檔名（null＝都看）, 樣子, 寫在字串裡也算]。SDK 一律要是「引用」的寫法，不是名字出現就算；整段都在字串裡的不是引用。
+// shell 裡可以夾別的語言（heredoc、node -e），JavaScript 與 Python 的寫法也看
+const E = (s) => new Set(s.split(' ')), SHELL = 'sh bash ps1', JS = E('js mjs cjs jsx ts mts cts tsx vue svelte ipynb ' + SHELL), PY = E('py ipynb ' + SHELL), JVM = E('java kt kts scala');
 const USES = [
-  ['官方 SDK（JavaScript／TypeScript）', /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*|\bimport\s*)['"`]@anthropic-ai\/(?:sdk|bedrock-sdk|vertex-sdk|foundry-sdk|claude-agent-sdk)(?:\/[^'"`]*)?['"`]/],
-  ['官方 SDK（Python）', /\b(?:import_module|__import__)\(\s*['"](?:anthropic|claude_agent_sdk)\b/],
-  ['官方 SDK（Python）', /(?:^|[:;]|>>>)\s*(?:from\s+(?:anthropic|claude_agent_sdk)(?:\.[\w.]+)?\s+import\b|import\s+(?:[\w.]+(?:\s+as\s+\w+)?\s*,\s*)*(?:anthropic|claude_agent_sdk)(?![\w]))/],
-  ['官方 SDK（C#）', /\bnew\s+(?:global::)?Anthropic\.[\w.]+\s*[({]/],
-  ['官方 SDK（F#）', /^\s*open\s+Anthropic(?:\.[\w.]+)?\s*$/],
-  ['官方 SDK（C#）', /^\s*(?:global\s+)?using\s+(?:static\s+)?(?:\w+\s*=\s*)?Anthropic(?:\.[\w.]+)?\s*;/],
-  ['官方 SDK（Java／Kotlin）', /(?<![\w.'"`\/])com\.anthropic\.\w/],
-  ['官方 SDK（Go）', /["`]github\.com\/anthropics\/anthropic-sdk-go(?:\/[^"`]*)?["`]/],
-  ['官方 SDK（Ruby）', /^\s*require\s*\(?\s*['"]anthropic['"]|(?<![\w:\\])Anthropic::[A-Z]/],
-  ['官方 SDK（VB）', /^\s*Imports\s+Anthropic(?:\.[\w.]+)?\s*$/i],
-  ['官方 SDK（PHP）', /^\s*use\s+\\?Anthropic(?:\\|\s*;)|(?<![\w\\])\\Anthropic(?:::|\\)|(?<![\w\\])Anthropic::[a-z]/],
-  ['社群 SDK', /^\s*use\s+anthropic(?:_\w+)?(?:::|\s*;)|['"]package:anthropic\w*\/|^\s*import\s+SwiftAnthropic\b|\bAnthropix\b|\blibrary\(\s*['"]?anthropic\b/],
-  ['框架的 Claude 介接', /(?:from\s+['"]|require\(\s*['"]|from\s+|import\s+)(?:@langchain\/anthropic|@ai-sdk\/anthropic|langchain_anthropic|llama_index\.llms\.anthropic|pydantic_ai\.models\.anthropic)\b/],
-  ['直接打 API', /api\.anthropic\.com\/v1\/(?:messages|complete)|(?:https?:\/\/|["'`])api\.anthropic\.com(?:\/v1)?\/?(?=["'`\s)]|$)/],
-  ['Bedrock 的 Claude 模型', /["'`](?:(?:us|eu|apac|jp|au|global)\.)?anthropic\.claude-[\w.:-]+["'`]/],
-  ['Vertex 的 Claude 模型', /publishers\/anthropic\/models\/|["'`]claude-[\w.-]+@\d{8}["'`]/],
-  ['經轉接的 Claude 模型', /["'`](?:vertex_ai|bedrock|anthropic|azure_ai|openrouter\/anthropic)\/(?:[\w.]+\.)?claude-[\w.@:-]+["'`]/],
-];
+  ['官方 SDK（JavaScript／TypeScript）', JS, /(?:\bfrom\s*|[rR]equire\s*\(\s*|\bimport\s*\(\s*|\bimport\s*)['"`]@anthropic-ai\/(?:sdk|bedrock-sdk|vertex-sdk|foundry-sdk|claude-agent-sdk)(?:\/[^'"`]*)?['"`]/],
+  ['官方 SDK（Python）', PY, /\b(?:import_module|__import__)\(\s*(['"])(?:anthropic|claude_agent_sdk)(?:\.[\w.]+)?\1/],
+  ['官方 SDK（Python）', PY, /(?:^|[:;]|>>>)\s*(?:from\s+(?:anthropic|claude_agent_sdk)(?:\.[\w.]+)?\s+import\b|import\s+(?:[\w.]+(?:\s+as\s+\w+)?\s*,\s*)*(?:anthropic|claude_agent_sdk)(?![\w]))/],
+  ['官方 SDK（C#）', E('cs ipynb'), /\bnew\s+(?:global::)?Anthropic\.[\w.]+\s*(?:<[^;{}]*>\s*)?[({[]/],
+  ['官方 SDK（C#）', E('cs ipynb'), /^\s*(?:global\s+)?using\s+(?:static\s+)?(?:\w+\s*=\s*)?Anthropic(?:\.[\w.]+)?\s*;/],
+  ['官方 SDK（F#）', E('fs'), /^\s*open\s+Anthropic(?:\.[\w.]+)?\s*$|\bnew\s+Anthropic\.[\w.]+\s*(?:<[^;{}]*>\s*)?\(/],
+  ['官方 SDK（VB）', E('vb'), /^\s*Imports\s+(?:\w+\s*=\s*)?Anthropic(?:\.[\w.]+)?\s*$|\bNew\s+(?:Global\.)?Anthropic\.\w/i],
+  ['官方 SDK（Java／Kotlin／Scala）', JVM, /(?<![\w.'"`\/])com\.anthropic\.\w/],
+  ['官方 SDK（Go）', E('go'), /["`]github\.com\/anthropics\/anthropic-sdk-go(?:\/[^"`]*)?["`]/],
+  ['官方 SDK（Ruby）', E('rb'), /^\s*require\s*\(?\s*['"]anthropic['"]|(?<![\w:\\])Anthropic::[A-Z]/],
+  ['官方 SDK（PHP）', E('php'), /^\s*use\s+\\?Anthropic(?:\\|\s*;)|(?<![\w\\])\\Anthropic(?:::|\\)|(?<![\w\\])Anthropic::[a-z]/],
+  ['社群 SDK（Rust）', E('rs'), /^\s*use\s+anthropic(?:_\w+)?(?:::|\s*;)/],
+  ['社群 SDK（Dart）', E('dart'), /['"]package:anthropic\w*\//],
+  ['社群 SDK（Swift）', E('swift'), /^\s*import\s+SwiftAnthropic\b/],
+  ['社群 SDK（Elixir）', E('ex exs'), /\bAnthropix\b/],
+  ['社群 SDK（R）', E('r ipynb'), /\blibrary\(\s*['"]?anthropic\b/],
+  ['框架的 Claude 介接（JavaScript／TypeScript）', JS, /(?:\bfrom\s*|[rR]equire\s*\(\s*|\bimport\s*\(\s*|\bimport\s*)['"`]@(?:langchain|ai-sdk)\/anthropic(?:\/[^'"`]*)?['"`]/],
+  ['框架的 Claude 介接（Python）', PY, /(?:(?:^|[:;]|>>>)\s*(?:from\s+|import\s+(?:[\w.]+(?:\s+as\s+\w+)?\s*,\s*)*)|\b(?:import_module|__import__)\(\s*['"])(?:langchain_anthropic|llama_index\.llms\.anthropic|pydantic_ai\.models\.anthropic)(?![\w-])/],
+  ['直接打 API', null, /(?:https?:\/\/)?api\.anthropic\.com\/v1\/(?:messages|complete)|(?:https?:\/\/|["'`])api\.anthropic\.com(?:\/v1)?\/?(?=["'`\s)]|$)/, true],
+  ['Bedrock 的 Claude 模型', null, /["'`](?:(?:us|eu|apac|jp|au|global)\.)?anthropic\.claude-[\w.:-]+["'`]/, true],
+  ['Vertex 的 Claude 模型', null, /publishers\/anthropic\/models\/|["'`]claude-[\w.-]+@\d{8}["'`]/, true],
+  ['經轉接的 Claude 模型', null, /["'`](?:vertex_ai|bedrock|anthropic|azure_ai|openrouter\/anthropic)\/(?:[\w.]+\.)?claude-[\w.@:-]+["'`]/, true],
+].map(([kind, exts, re, inText]) => ({ kind, exts, re: new RegExp(re.source, re.flags + 'g'), inText: !!inText }));
+const IN = '\u0001';   // 遮罩裡代表「字串的內容」的字元
+// shell 的一行裡，哪些字串是程式：同一段指令（; & | ( ` 隔開，字串裡的不算分隔）裡有直譯器，字串前面緊接 -c／-e／-p 這類旗標。
+// 印字與搜尋的指令（echo、grep …）帶的是文字，不算。回傳那些字串的內容
+const INTERPRETER = /^(?:node|deno|bun|tsx|ts-node|python[\d.]*|py|ruby|php|perl|Rscript|bash|sh|zsh|pwsh|powershell)(?:\.exe)?$/i, RUN_FLAG = /^-(?:[a-z]*[cep]|-eval|-print|Command)$/i;
+const PRINTS = /^(?:echo|printf|cat|grep|egrep|rg|find|sed|awk|tar|Write-(?:Host|Output|Verbose|Warning|Error)|Select-String)$/i;
+function programs(s, m) {
+  const out = [];
+  for (let k = 0, from = 0; k < s.length; k++) {
+    if (m[k] !== IN) { if (/[;&|(`]/.test(s[k])) from = k + 1; continue; }
+    let e = k; while (e < s.length && m[e] === IN) e++;
+    const words = s.slice(from, k - 1).split(/\s+/).map((w) => w.replace(/^["']|["']$/g, '')).filter(Boolean);
+    const first = words.find((w) => !/^(?:[A-Za-z_]\w*=.*|sudo|exec|time|nohup|env|command|then|do|else|if|while|!)$/.test(w)) || '';
+    if (words.length > 1 && RUN_FLAG.test(words[words.length - 1]) && !PRINTS.test(first) && words.some((w) => INTERPRETER.test(w.replace(/^.*[\\/]/, '')))) out.push(s.slice(k, e));
+    k = e - 1;
+  }
+  return out;
+}
+// 一行（s）與它的遮罩（m，一樣長）有沒有這一種。引用的寫法：整段都在字串裡的不算（shell 的 -c／-e 後面那個字串是程式，算）；
+// 網址與模型名本來就寫在字串裡，只有一般字串裡用反引號框起來的（說明文字）不算
+function hit(u, s, m, e) {
+  if (u.exts && !u.exts.has(e)) return false;
+  const shell = SHELL.split(' ').includes(e);
+  if (shell && !u.inText) for (const t of programs(s, m)) { u.re.lastIndex = 0; if (u.re.test(t)) { u.re.lastIndex = 0; return true; } }
+  for (const x of s.matchAll(u.re)) {
+    const i = x.index;
+    if (u.inText) { const q = s[i] === '`' ? i : s[i - 1] === '`' ? i - 1 : -1; if (q < 0 || m[q] !== IN || shell) return true; }
+    else for (let k = i; k < i + x[0].length; k++) if (m[k] !== IN && /\S/.test(m[k])) return true;
+  }
+  return false;
+}
 const DECLARED = /@anthropic-ai\/(?:sdk|bedrock-sdk|vertex-sdk|foundry-sdk|claude-agent-sdk)\b|@langchain\/anthropic\b|@ai-sdk\/anthropic\b|com\.anthropic\b|anthropics\/anthropic-sdk-go\b|anthropic-ai\/sdk\b|(?:Include|id)\s*=\s*"Anthropic(?:\.[\w.]+)?"|(?:^|["'\s])(?:anthropic|claude-agent-sdk|langchain-anthropic)(?=\s*(?:["']|[=<>~!\[]|$))/;
 const notes = [];
 const oneLine = (x) => x.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '?');   // 檔名可以有換行：輸出只佔一行
@@ -76,9 +113,10 @@ LANG.ps1 = { ...HASH, block: [['<#', '#>']] };
 LANG.lua = { line: ['--'], block: [['--[[', ']]']], quote: '"\'' };
 LANG.vb = { line: ["'"], quote: '"' };
 LANG.fs = { line: ['//'], block: [['(*', '*)']], quote: '"' };
-// 把註解剝掉，只留程式與一般字串（網址、套件名寫在字串裡），行號不變。Python 的三引號字串整段拿掉（docstring、提示詞常數）。
+// 把註解剝掉，只留程式與一般字串（網址、套件名寫在字串裡），行號不變；回每行的 {s, m}，m 是遮罩：字串的內容換成 IN、引號與其餘照原樣。Python 的三引號字串整段拿掉（docstring、提示詞常數）。
 // 這裡不是完整的語法分析：分不清時當成程式（多列由人確認），不當成註解（會漏）——
-// 區塊註解與三引號到檔尾都沒關就不算；/* 前面要是空白、行首或標點（image/*、正則 [^/*] 不是）、前面是反斜線或 [ 的 // 是正則，前面是冒號的 // 是網址，# 前面要是空白或行首（Python、PHP 除外）；一行內沒關的引號當一般字元
+// 區塊註解與三引號到檔尾都沒關就不算；/* 前面要是空白、行首或標點（image/*、正則 [^/*] 不是）、前面是反斜線或 [ 的 // 是正則，前面是冒號的 // 是網址，# 前面要是空白或行首（Python、PHP 除外）；一行內沒關的引號當一般字元；
+// 跨行的反引號字串、裡面有 ${} 的、Vue／Svelte 的屬性值（="…"）、夾著 <? 的不遮（裡面可能是程式）
 function stripped(text, ext) {
   const g = LANG[ext.slice(1).toLowerCase()], anyHash = /^\.(?:py|ipynb|php)$/i.test(ext);
   const eol = (k) => { const e = text.indexOf('\n', k); return e < 0 ? text.length : e; };
@@ -96,25 +134,26 @@ function stripped(text, ext) {
     return true;
   });
   const none = new Set();   // 後面已經沒有結尾的記號，不再找
-  let out = '', k = 0;
+  const masked = (x) => x[0] + x.slice(1, -1).replace(/[^\n]/g, IN) + x[x.length - 1];
+  let out = '', mask = '', k = 0;
   if (g.block && g.block.some(([a]) => a[0] === '\n')) text = '\n' + text;   // 記號在行首的（=begin）：第一行也要認得
   const lead = text[0] === '\n' && g.block && g.block.some(([a]) => a[0] === '\n');
   while (k < text.length) {
     const ch = text[k], prev = text[k - 1] || '', op = opens.find(([a, b]) => !none.has(b) && text.startsWith(a, k));
     if (op && !(op[0] === '/*' && !/^[\s;,(){}\]>=]?$/.test(prev)) && !(op[0] === '(*' && text[k + 2] === ')')) {
       const from = k + op[0].length, e = op[3] ? close(op[1], from) : text.indexOf(op[1], from);
-      if (e >= 0) { const body = text.slice(k, e + op[1].length); out += op[2] ? body : ' ' + body.replace(/[^\n]+/g, ''); k = e + op[1].length; if (op[1][0] === '\n') k = eol(k); continue; }
+      if (e >= 0) { const body = text.slice(k, e + op[1].length); const kept = op[2] ? body : ' ' + body.replace(/[^\n]+/g, ''); out += kept; mask += op[2] && !/\n|\$\{/.test(body) ? masked(kept) : kept; k = e + op[1].length; if (op[1][0] === '\n') k = eol(k); continue; }
       none.add(op[1]);
     }
     if (isLine(k)) { k = eol(k); continue; }
     if ((g.quote || '').includes(ch)) {
       const raw = ch === '"' && /^\.(?:cs|vb|fs)$/i.test(ext) && (prev === '@' || /^\.vb$/i.test(ext));   // 逐字字串的反斜線不是跳脫
       let e = k + 1; while (e < text.length && text[e] !== ch && text[e] !== '\n') e += text[e] === '\\' && !raw ? 2 : 1;
-      if (text[e] === ch) { out += text.slice(k, e + 1); k = e + 1; continue; }
+      if (text[e] === ch) { const str = text.slice(k, e + 1); out += str; mask += (prev === '=' && /^\.(?:vue|svelte)$/i.test(ext)) || str.includes('<?') ? str : masked(str); k = e + 1; continue; }
     }
-    out += ch; k++;
+    out += ch; mask += ch; k++;
   }
-  const lines = out.split('\n');
+  const ms = mask.split('\n'), lines = out.split('\n').map((s, i) => ({ s, m: ms[i] }));
   return lead ? lines.slice(1) : lines;
 }
 const decode = (b) => (b.length > 1 && b[0] === 0xff && b[1] === 0xfe ? b.toString('utf16le') : b.length > 1 && b[0] === 0xfe && b[1] === 0xff ? Buffer.from(b).swap16().toString('utf16le') : b.toString('utf8'));
@@ -184,10 +223,10 @@ for (const f of files) {
     if (!/anthropi[cx]|claude_agent_sdk|claude-/i.test(l)) return;
     // 筆記本一格一行是 JSON 字串："import anthropic\n",
     const cells = nb ? (l.match(/"(?:[^"\\]|\\.)*"/g) || []).map((x) => { try { return JSON.parse(x); } catch { return ''; } }).flatMap((x) => stripped(x, ext)) : [bare[i]];
-    const k = USES.find(([, re]) => cells.some((s) => re.test(s)));
+    const k = USES.find((u) => cells.some((c) => c && hit(u, c.s, c.m, ext.slice(1).toLowerCase())));
     if (!k) return;
     if (TEST.test(at) || TEST_CLASS.test(at)) { testsTotal++; return; }
-    callsTotal++; if (calls.length < MAX_HITS) calls.push({ at: oneLine(f) + ':' + (i + 1), kind: k[0] });
+    callsTotal++; if (calls.length < MAX_HITS) calls.push({ at: oneLine(f) + ':' + (i + 1), kind: k.kind });
   });
 }
 if (skipped) notes.push(`沒看的檔 ${skipped} 個，不能當成沒有呼叫：${skippedFiles.join('、')}${skipped > skippedFiles.length ? '…' : ''}`);

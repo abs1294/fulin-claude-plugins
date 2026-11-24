@@ -2,6 +2,18 @@
 
 All notable changes to this plugin will be documented in this file.
 
+## [0.22.2] - 2026-11-24
+### Changed
+- /harness:review 的 token 花費改讀 cc-statusline 1.10.0 的每則用量紀錄（`~/.claude/usage-data/records/`），不再自己從對話紀錄蒐集用量、不再自己計價。總額、排名照舊讀明細檔，診斷時用紀錄的檔與行對到對話紀錄那一列，金額跟 cc-statusline 完全一致；對話紀錄只拿來看內容（工具結果大小、重複讀檔、使用者回合、壓縮標記）。
+- 拿掉「比例模式」（不分模型的輸入等價單位）。沒裝 cc-statusline、版本太舊、還沒掃完、或裡面沒有這個專案時，直接說「沒有金額，請安裝或更新 cc-statusline 到 1.10.0」和原因，不再給比例排序；輸出的 `source` 是 `none`、`noData` 寫原因，`unit: "units"` 與 `weights` 不再出現。
+- 分叉（resume／fork）出來的對話，帶過來的舊內容算原本那個對話的；開場固定底改看「對話紀錄第一則回應是不是算在這個對話」，跟開場差不多大的分叉也認得出來。
+- 明細檔太久沒更新、比用量紀錄舊、有模型沒有單價或用暫估單價、對話紀錄被改寫過對不到，都會在 `notes` 說明。沒有 message.id 的回應也算進去（原本略過）；最後一列還沒寫完的不算。
+
+### Fixed
+- 看專案有沒有呼叫 Claude API（`api-use.js`）每一種寫法只在它自己的語言裡找，不再誤列：PowerShell、Python、C# 裡的路徑 `\Anthropic\Claude`（原本當成 PHP）、macOS 的 `com.anthropic.claudefordesktop`（原本當成 Java）、錯誤訊息這類字串裡的 `import anthropic`、`import_module("anthropic-x")` 這種名字像的套件、一般字串裡用反引號寫的說明文字。
+- 同一支也補認：框架（@ai-sdk/anthropic、@langchain/anthropic）的 `await import(…)`、`require (…)`、`from'…'`、反引號；C# 泛型 `new Anthropic.X<T>()`；VB `New Anthropic.X()`；包裝過的 `_require('@anthropic-ai/sdk')`。列出的種類照語言寫。
+- 補寫 0.22.1 沒寫全的：`api-use.js` 認得的語言是 JS／TS、Python、C#、F#、VB、Java／Kotlin／Scala、Go、Ruby、PHP，以及 Rust／Dart／Swift／Elixir／R 的社群 SDK；壓縮後重新注入時，tab 換成空白，最後幾則指示裡的換行換成「／」，其餘控制字元換成「?」。
+
 ## [0.22.1] - 2026-11-24
 ### Added
 - /harness:review：專案自己的程式真的有呼叫 Claude API，才在決策單提醒可以跑 `/claude-api cost-optimize`；健檢不代跑（它會問人、花錢的步驟要先核可）。新腳本 `skills/review/scripts/api-use.js`（純 node、只讀原始碼、不叫模型、不連網，輸出只有檔名、行號、種類）：認 SDK 引用（JS／TS、Python、C#、Java／Kotlin、Go、Ruby、PHP 與常見框架）、直接打 api.anthropic.com、Bedrock／Vertex 的 Claude 模型；註解、文件、壓縮檔、第三方目錄、`.claude/`、只在相依檔宣告、只在測試裡用到、起 `claude -p` 的都不算。測試套件 `api-use`。

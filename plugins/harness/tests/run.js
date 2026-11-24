@@ -803,7 +803,7 @@ if (want('compact-reinject-files')) {
   check('compact-reinject-files', r.status === 0, `compact-reinject-files.js exit ${r.status}${r.status ? '\n' + String(r.stderr || '').slice(-1500) : ''}`);
 }
 
-// ── token-scan：健檢的 token 花費腳本（去重、倍率、重建、長壽、subagent 占比、不外洩專案外檔名）合成逐字紀錄回歸 ──
+// ── token-scan：健檢的 token 花費腳本（對用量紀錄、沒有金額、重建、長壽、subagent 占比、不外洩專案外檔名）合成逐字紀錄回歸 ──
 if (want('token-scan')) {
   const ts = path.join(__dirname, 'lib', 'token-scan.js');
   const r = node([ts], { timeout: 60000 });
