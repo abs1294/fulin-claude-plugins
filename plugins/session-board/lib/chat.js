@@ -116,7 +116,6 @@ class Channels {
     const data = [...this.map.values()].map((c) => ({
       sessionId: c.sessionId, cwd: c.cwd, title: c.title, createdAt: c.createdAt,
       lastResultAt: c.lastResultAt, lastSeenAt: c.lastSeenAt, changedAt: c.changedAt,
-      cost: c.cost, tok: c.tok,
       // set by a schedule: start without asking for approvals; start as a copy of another session (see _start)
       skipPermissions: c.skipPermissions || undefined, forkOf: c.forkOf || undefined, resumeAt: c.resumeAt || undefined,
       // what you ran with "!" and have not sent yet (noteShell)
@@ -138,9 +137,8 @@ class Channels {
   }
 
   _wrap(c) {
-    const fin = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
     return Object.assign({ title: '', createdAt: Date.now(), lastResultAt: 0, lastSeenAt: 0, changedAt: Date.now() }, c,
-      { cost: fin(c.cost), tok: fin(c.tok), procCost: 0, procTok: 0, proc: null, state: 'off', pending: new Map(), tasks: new Map(), listeners: new Set(), lastActivity: Date.now(), stderr: '', buf: '' });
+      { proc: null, state: 'off', pending: new Map(), tasks: new Map(), listeners: new Set(), lastActivity: Date.now(), stderr: '', buf: '' });
   }
 
   _saveWindows() { try { fs.mkdirSync(path.dirname(this.windowsFile), { recursive: true }); fs.writeFileSync(this.windowsFile, JSON.stringify(this.modelWindows, null, 2)); } catch (e) {} }
@@ -442,8 +440,6 @@ class Channels {
     c.proc = p;
     c.buf = '';
     c.stderr = '';
-    c.procCost = 0;   // what this process has reported so far; see the result handler
-    c.procTok = 0;
     p.stdout.on('data', (d) => {
       c.buf += d;
       let k;
@@ -549,22 +545,13 @@ class Channels {
       this._emit(c, this._permissionEvent(e));
       this._emit(c, { type: 'state', status: this.status(c) });
     } else if (e.type === 'result') {
-      // Cost and tokens. Each result carries totals for THIS process since it
-      // started, so the channel adds up the increase and keeps its own running
-      // figure across restarts of the process. cc-statusline does not cover
-      // these conversations (it only runs in a terminal), so this is the only source.
-      const n = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
-      const cost = n(e.total_cost_usd);
-      let tok = 0;
+      // Cost and tokens are not taken from here: what a resumed process reports holds everything before it (cc-statusline counts them, lib/stats.js).
+      // How large each model's context is, is: what "context N%" is a percentage of.
       const mu = e.modelUsage && typeof e.modelUsage === 'object' ? e.modelUsage : {};
       for (const [model, m] of Object.entries(mu)) {
-        if (!m || typeof m !== 'object') continue;
-        tok += n(m.inputTokens) + n(m.outputTokens) + n(m.cacheReadInputTokens) + n(m.cacheCreationInputTokens);
-        // How large this model's context is: what "context N%" is a percentage of.
-        if (n(m.contextWindow) && this.modelWindows[model] !== m.contextWindow) { this.modelWindows[model] = m.contextWindow; this._saveWindows(); }
+        const w = m && typeof m === 'object' ? m.contextWindow : 0;
+        if (typeof w === 'number' && Number.isFinite(w) && w > 0 && this.modelWindows[model] !== w) { this.modelWindows[model] = w; this._saveWindows(); }
       }
-      if (cost >= c.procCost) { c.cost += cost - c.procCost; c.procCost = cost; }
-      if (tok >= c.procTok) { c.tok += tok - c.procTok; c.procTok = tok; }
       c.lastResultAt = Date.now();
       this._emit(c, { type: 'result', isError: !!e.is_error, text: e.is_error ? String(e.result || '') : '' });
       // the message a turn began with was taken in, the turn is over; one sent while it worked may still be waiting

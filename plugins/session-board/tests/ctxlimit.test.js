@@ -30,7 +30,8 @@ test('what is set for a folder and a model: the environment first, then the near
 });
 
 test('the share of the context is of the window it really has', () => {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-')), items = [{ u: { in: 10, cr: 269990, cw: 0, model: 'claude-opus-5-5' } }], of = (x) => sessionStats('s', d, items, x).context, W = { windows: { 'claude-opus-5-5': 1000000 } };
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-')), of = (x) => sessionStats('s', d, x).context, W = { windows: { 'claude-opus-5-5': 1000000 } };
+  fs.writeFileSync(path.join(d, 'claude-toksum2-s.json'), JSON.stringify({ v: 1, at: 1, total: {}, context: { tokens: 270000, model: 'claude-opus-5-5', effort: 'high', at: 1 } }));
   assert.deepStrictEqual([of(W).window, of(W).pct, of(W).limited], [1000000, 27, undefined]);
   let c;
   // from the settings files

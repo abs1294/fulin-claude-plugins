@@ -73,7 +73,7 @@ test('build and receipt: live sessions, stuck detection, today count, cost', () 
   fs.writeFileSync(fa, [user('甲的問題', 0, 'ua'), asst([{ type: 'tool_use', name: 'Bash', input: { description: '跑測試' } }], 5, 'a1', 'm1', U(1, 2, 3, 4))].join('\n') + '\n');
   fs.writeFileSync(fb, [user('乙的問題', 100, 'ub'), asst([{ type: 'text', text: '乙的**回答**' }], 130, 'b1', 'm2', U(5, 6, 7, 8))].join('\n') + '\n');
   fs.utimesSync(fa, new Date(now - 11 * 60000), new Date(now - 11 * 60000));   // A: busy, silent for 11 minutes
-  fs.writeFileSync(path.join(o.stateDir, `claude-toksum2-${S.sidKey(A)}.json`), JSON.stringify({ files: { x: { cost: 1.25, tok: 10 }, y: { cost: 0.5, tok: 5 } } }));
+  fs.writeFileSync(path.join(o.stateDir, `claude-toksum2-${S.sidKey(A)}.json`), JSON.stringify({ v: 1, at: now, total: { cost: 1.75, tok: 15 }, context: { tokens: 8, model: 'm1', at: now } }));
   const sessions = [
     { sessionId: A, cwd, title: '甲', folder: 'proj', owner: 'board', status: 'busy', group: 'running', since: now - 3000000 },
     { sessionId: B, cwd, title: '乙', folder: 'proj', owner: 'terminal', status: 'idle', group: 'yours', since: now - 1000 },
@@ -89,7 +89,7 @@ test('build and receipt: live sessions, stuck detection, today count, cost', () 
   assert.deepStrictEqual(w.turns.map((t) => [t.sessionId, t.id, t.tools, t.replied, t.durationMs]), [[B, 'ub', 0, true, 30000]]);
   // One usage row per session, dearest first; a session with no figures says null, not zero.
   assert.deepStrictEqual(w.usage.map((u) => [u.sessionId, u.cost, u.tok, u.compacts, u.messages, u.context]),
-    [[A, 1.75, 15, 3, 42, 4 + 1 + 3], [B, null, null, 0, null, 5 + 7 + 8]]);   // cc-statusline is there (its folder exists) and recorded no compaction: zero, not unknown
+    [[A, 1.75, 15, 3, 42, 8], [B, null, null, 0, null, null]]);   // cc-statusline is there (its folder exists) and recorded no compaction: zero, not unknown
 });
 
 test('sessionStats splits main and subagent cost and reads the tracker files', () => {
@@ -107,29 +107,40 @@ test('sessionStats splits main and subagent cost and reads the tracker files', (
   w(`claude-skills-${k}.json`, { 'git-commit': { count: 6, last: 9 }, 'code-review': { count: 8, last: 1 } });
   w(`claude-mcp-${k}.json`, { 'playwright__browser_tabs': { count: 32, errors: 2, last: 5 } });
   w(`claude-files-${k}.json`, ['a.py', 'b.cs']);
-  const items = [{ role: 'assistant', u: { in: 5, out: 9, cr: 100, cw: 20, model: 'm1' } }, { role: 'tool' }];
-  const st = require('../lib/stats').sessionStats(sid, d, items);
-  assert.deepStrictEqual(st.usage, { cost: 13, tok: 1300, mainCost: 10, mainTok: 1000, agentCost: 3, agentTok: 300, agentRuns: 2, estimated: true });
+  const st = require('../lib/stats').sessionStats(sid, d);
+  assert.strictEqual(st.usage, null, 'written before cc-statusline 1.10.0: what is in it is its own, not read');
   assert.deepStrictEqual(st.compacts, { count: 65, last: 1794463735989 });
   assert.strictEqual(st.messages, 614);
-  assert.deepStrictEqual(st.context, { tokens: 125, model: 'm1', effort: '', window: 0, pct: null, assumed: false });   // what went IN for the newest reply; no known window, so no percentage is invented
+  assert.strictEqual(st.context, null, 'a figure written before cc-statusline 1.10.0 has no context in it: nothing is made up');
+  const ctx = (tokens, model) => fs.writeFileSync(path.join(d, `claude-toksum2-${k}.json`), JSON.stringify({ v: 1, at: 5, total: { cost: 13, tok: 1300, mainCost: 10, mainTok: 1000, agentCost: 3, agentTok: 300, agentRuns: 2 }, context: { tokens, model, effort: 'max', at: 5 } }));
+  ctx(125, 'm1');
+  assert.deepStrictEqual(require('../lib/stats').sessionStats(sid, d).context, { tokens: 125, model: 'm1', effort: 'max', window: 0, pct: null, assumed: false });   // what went IN for the newest reply; no known window, so no percentage is invented
   const S2 = require('../lib/stats');
-  assert.deepStrictEqual(S2.sessionStats(sid, d, items, { windows: { m1: 1000 } }).context, { tokens: 125, model: 'm1', effort: '', window: 1000, pct: 13, assumed: false });
-  const bigItems = [{ role: 'assistant', u: { in: 10, out: 0, cr: 300000, cw: 0, model: 'unknown-model' } }];
-  assert.deepStrictEqual(S2.sessionStats(sid, d, bigItems).context, { tokens: 300010, model: 'unknown-model', effort: '', window: 1000000, pct: 30, assumed: true });   // over 200K can only be the 1M window
-  // A conversation the board runs has no cc-statusline figures: the board's own running totals are used.
+  assert.deepStrictEqual(S2.sessionStats(sid, d, { windows: { m1: 1000 } }).context, { tokens: 125, model: 'm1', effort: 'max', window: 1000, pct: 13, assumed: false });
+  ctx(300010, 'unknown-model');
+  assert.deepStrictEqual(S2.sessionStats(sid, d).context, { tokens: 300010, model: 'unknown-model', effort: 'max', window: 1000000, pct: 30, assumed: true });   // over 200K can only be the 1M window
+  // Where cc-statusline keeps them: the conversation's own file or the detail of all, whichever is newer. Nothing is counted here.
   const other = 'eeeeeeee-1111-2222-3333-444455556666';
-  assert.deepStrictEqual(S2.sessionStats(other, d, [], { boardUsage: { cost: 0.9, tok: 135 } }).usage, { cost: 0.9, tok: 135, mainCost: 0.9, mainTok: 135, agentCost: 0, agentTok: 0, agentRuns: 0, estimated: false, byBoard: true });
-  assert.strictEqual(S2.sessionStats(other, d, [], { boardUsage: { cost: 0, tok: 0 } }).usage, null);
-  assert.strictEqual(S2.sessionStats(sid, d, items, { boardUsage: { cost: 99, tok: 99 } }).usage.cost, 13);   // cc-statusline's figure wins when it exists
-  assert.deepStrictEqual(S2.sessionStats(other, d, []).compacts, { count: 0, last: 0 });
+  assert.strictEqual(S2.sessionStats(other, d, { boardUsage: { cost: 99, tok: 99 } }).usage, null);
+  const own = path.join(d, `claude-toksum2-${S.sidKey(other)}.json`), det = path.join(d, 'detail.json');
+  const total = { cost: 5, tok: 50, mainCost: 4, mainTok: 40, agentCost: 1, agentTok: 10, agentRuns: 1, unpricedTok: 0, approxTok: 0 };
+  fs.writeFileSync(own, JSON.stringify({ v: 1, at: 2000, total, files: { zzz: { cost: 99 } } }));
+  const row = (at, o) => fs.writeFileSync(det, JSON.stringify({ v: 1, at, prices: { a: { exact: true }, b: { exact: false } }, sessions: [Object.assign({ id: other.toUpperCase(), cost: 9, subCost: 2, models: { a: 9 }, tok: { in: 1, out: 2, cw: 3, cr: 4 } }, o)] }));
+  row(1000); assert.deepStrictEqual(S2.usage(other, d, det), { cost: 5, tok: 50, mainCost: 4, mainTok: 40, agentCost: 1, agentTok: 10, agentRuns: 1, estimated: false, at: 2000 });
+  row(3000, { last: new Date(1500).toISOString() }); assert.strictEqual(S2.usage(other, d, det).cost, 5, 'newer, but nothing was said since: its own, which has more in it');
+  row(3000, { models: { a: 1, b: 1 }, last: new Date(2500).toISOString() }); assert.deepStrictEqual(S2.usage(other, d, det), { cost: 9, tok: 10, mainCost: 7, agentCost: 2, agentRuns: 1, mainTok: null, agentTok: null, estimated: true, at: 3000 });
+  fs.unlinkSync(own); assert.deepStrictEqual([S2.usage(other, d, det).cost, S2.usage(other, d, det).agentRuns], [9, null]);
+  assert.strictEqual(S2.usage('nobody', d, det), null);
+  fs.writeFileSync(det, JSON.stringify({ v: 1, at: 9, prices: {}, sessions: [{ id: other, cost: 100 }, { id: other, cost: 0.5 }] })); assert.strictEqual(S2.usage(other, d, det).cost, 100, 'in two project folders: the larger');
+  fs.writeFileSync(det, '{broken'); assert.strictEqual(S2.usage(other, d, det).cost, 100, 'cannot be read this moment: what it was');
+  fs.writeFileSync(path.join(d, 'other.json'), '{broken'); assert.strictEqual(S2.usage(other, d, path.join(d, 'other.json')), null);
+  assert.deepStrictEqual(S2.sessionStats(other, d).compacts, { count: 0, last: 0 });
   assert.deepStrictEqual(st.agents, { running: ['code-reviewer'], runningAt: [1794924700213], kinds: ['qa-engineer', 'code-reviewer'] });
-  assert.strictEqual(st.usage.agentRuns, 2);   // how many were ever started comes from here, not from the pruned list
   assert.deepStrictEqual(st.skills.map((s) => s.name + s.count), ['code-review8', 'git-commit6']);
   assert.deepStrictEqual(st.mcp, [{ name: 'playwright__browser_tabs', count: 32, last: 5, errors: 2 }]);
   assert.deepStrictEqual(st.edited, ['a.py', 'b.cs']);
   // Nothing on disk: absent, never a made-up zero.
-  const none = require('../lib/stats').sessionStats('00000000-0000-0000-0000-000000000000', path.join(d, 'no-statusline-here'), []);
+  const none = require('../lib/stats').sessionStats('00000000-0000-0000-0000-000000000000', path.join(d, 'no-statusline-here'));
   assert.deepStrictEqual([none.usage, none.compacts, none.messages, none.context, none.agents.kinds.length, none.skills.length], [null, null, null, null, 0, 0]);
 });
 

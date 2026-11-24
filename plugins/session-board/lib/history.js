@@ -229,25 +229,17 @@ function itemsOf(e) {
       if (pairs.length) out.push({ id: id + ':a', role: 'answered', answers: pairs, ts });
     }
   } else if (e.type === 'assistant') {
-    // Token usage of the API message this entry belongs to. One API message is
-    // written as several entries (one per content block), each repeating the
-    // same usage, so `mid` is carried along for whoever adds these up.
-    const mu = e.message.usage;
-    const n = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
-    const u = mu && typeof mu === 'object' && typeof e.message.id === 'string'
-      ? { mid: e.message.id, model: typeof e.message.model === 'string' ? e.message.model : '', effort: typeof e.effort === 'string' ? e.effort.slice(0, 12) : '', in: n(mu.input_tokens), out: n(mu.output_tokens), cr: n(mu.cache_read_input_tokens), cw: n(mu.cache_creation_input_tokens) }
-      : undefined;
     blocks.forEach((b, i) => {
       if (!b) return;
-      if (b.type === 'text' && typeof b.text === 'string' && b.text.trim()) out.push({ id: id + ':' + i, role: 'assistant', text: b.text, ts, u });
+      if (b.type === 'text' && typeof b.text === 'string' && b.text.trim()) out.push({ id: id + ':' + i, role: 'assistant', text: b.text, ts });
       // A question form is not a tool call to fold away: it is Claude waiting on you.
-      else if (b.type === 'tool_use' && b.name === 'AskUserQuestion' && questionsOf(b.input).length) out.push({ id: id + ':' + i, role: 'ask', questions: questionsOf(b.input), ts, u });
+      else if (b.type === 'tool_use' && b.name === 'AskUserQuestion' && questionsOf(b.input).length) out.push({ id: id + ':' + i, role: 'ask', questions: questionsOf(b.input), ts });
       // Files handed to you (SendUserFile): Claude Code delivers them to its own apps - the desktop and phone ones that
       // can follow a session - and answers "N files delivered to user". On the board nothing arrived anywhere: the
       // files are where Claude wrote them, usually its scratch folder. So they are shown as what they are: files, with
       // their place, to open from here.
-      else if (b.type === 'tool_use' && b.name === 'SendUserFile' && handedFiles(b.input).length) out.push({ id: id + ':' + i, role: 'files', files: handedFiles(b.input), caption: typeof b.input.caption === 'string' ? b.input.caption.slice(0, 600) : '', ts, u });
-      else if (b.type === 'tool_use') out.push({ id: id + ':' + i, role: 'tool', tool: String(b.name || ''), text: toolSummary(b.input), ts, u });
+      else if (b.type === 'tool_use' && b.name === 'SendUserFile' && handedFiles(b.input).length) out.push({ id: id + ':' + i, role: 'files', files: handedFiles(b.input), caption: typeof b.input.caption === 'string' ? b.input.caption.slice(0, 600) : '', ts });
+      else if (b.type === 'tool_use') out.push({ id: id + ':' + i, role: 'tool', tool: String(b.name || ''), text: toolSummary(b.input), ts });
     });
   }
   return out;

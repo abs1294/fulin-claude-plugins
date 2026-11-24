@@ -1970,7 +1970,7 @@ function hiddenFolders(pane, list) {
   };
   const load = async () => { try { const r = await api('/api/folders?entries=1'); if (r.ok && Array.isArray(r.data.entries)) { info = r.data.entries; total = r.data.total; draw(); } } catch (e) {} };
   const save = async (next) => { if (!await savePref({ hideProgramFolders: next })) return false; cur = next; draw(); load(); poll(); return true; };
-  const put = async (v) => { msg.textContent = ''; if (await save([...cur, v])) { input.value = ''; say('已加入：' + v); } input.focus(); };
+  const put = async (v) => { msg.textContent = ''; if (cur.some((x) => same(x, v))) return; go.disabled = true; const ok = await save([...cur, v]); go.disabled = false; if (ok) { input.value = ''; say('已加入：' + v); } input.focus(); };
   const take = async () => {
     const v = input.value.trim().replace(/^["']+|["']+$/g, ''); msg.textContent = ''; pickClose();
     if (!v) return input.focus();
@@ -2716,7 +2716,7 @@ async function fillInbox() {
   let r; try { r = await api('/api/inbox?' + params); } catch (e) { r = { ok: false }; }
   if (!$('inboxBox') || view !== 'inbox' || inboxOpen) return;
   const gone = () => { if ($('inboxSave')) $('inboxSave').remove(); };   // (its form is not there)
-  if (!r.ok || !r.data.status) { gone(); box.textContent = ''; box.append(el('p', 'lead', '讀不到收件資料，看板程序沒有回應。')); return; }
+  if (!r.ok || !r.data.status) { gone(); inboxShape = ''; box.textContent = ''; box.append(el('p', 'lead', '讀不到收件資料，看板程序沒有回應。')); return; }
   inboxData = r.data;
   learnSources(r.data.status);
   if (!r.data.status.enabled) {
@@ -2730,7 +2730,7 @@ async function fillInbox() {
   // on every refresh would take away the box you are typing in, and would put
   // the carousel back where it stood while you are moving it.
   const shape = JSON.stringify([r.data.status.sources, r.data.status.settings, r.data.status.last && r.data.status.last.at, r.data.status.counts, r.data.routes, inboxTab, inboxSource, inboxPage]);
-  if (box.firstChild && (typing || shape === inboxShape)) return drawThreadRows();
+  if (box.querySelector('.ptabs') && (typing || shape === inboxShape)) return drawThreadRows();   // (not the wait, nor what was said when it could not be read)
   inboxShape = shape;
   box.textContent = ''; if ($('inboxSave')) $('inboxSave').remove();
   const st = r.data.status;
@@ -8756,13 +8756,9 @@ async function loadStats(sid) {
     if (title) s.title = title; chips.append(s);
   };
   if (d.usage) {
-    if (d.usage.byBoard) {
-      chip('花費', money(d.usage.cost), '這個對話在看板裡累計的金額（含它派出的子代理），是 Claude Code 每輪回報的數字加總');
-      chip('用量', big(d.usage.tok) + ' tokens', '這個對話在看板裡累計的用量，含快取讀寫');
-    } else {
-      chip('花費', money(d.usage.cost, d.usage.estimated), '主對話 ' + money(d.usage.mainCost) + '，子代理 ' + money(d.usage.agentCost) + '（' + d.usage.agentRuns + ' 次）。照官方牌價換算的等值金額，由狀態列外掛計算');
-      chip('用量', big(d.usage.tok) + ' tokens', '主對話 ' + big(d.usage.mainTok) + '，子代理 ' + big(d.usage.agentTok) + '。含快取讀寫');
-    }
+    const u = d.usage, upd = u.at ? '。更新時間：' + new Date(u.at).toLocaleString('zh-TW') : '';
+    chip('花費', money(u.cost, u.estimated), '這個對話從開始到現在：主對話 ' + money(u.mainCost) + '，子代理 ' + money(u.agentCost) + (u.agentRuns ? '（' + u.agentRuns + ' 次）' : '') + '。照官方牌價換算的等值金額，由 cc-statusline 計算' + upd);
+    chip('用量', big(u.tok) + ' tokens', (u.mainTok != null ? '主對話 ' + big(u.mainTok) + '，子代理 ' + big(u.agentTok) + '。' : '') + '含快取讀寫' + upd);
   }
   // model and effort: of the newest reply. A board conversation's can be changed here; a terminal session's only in its window.
   {
@@ -9087,12 +9083,12 @@ function drawMonth() {
   const span = R ? mo + '/' + R.a + (R.b > R.a ? '–' + mo + '/' + R.b : '') : '', W = R ? '這段' : '本月';
 
   const head = el('div', 'mhead');
-  const nav = (label, to, off, title) => { const b = el('button', 'btn', label); b.type = 'button'; b.disabled = off; b.title = title; b.addEventListener('click', () => { warMonth = to; drawMonth(); if (!usageByMonth.get(to) || !usageByMonth.get(to).ok) loadUsage(false); }); return b; };
+  const nav = (label, to, off, title) => { const b = el('button', 'btn', label); b.type = 'button'; b.disabled = off; b.title = title; b.addEventListener('click', () => { warMonth = to; drawMonth(); loadUsage(false); }); return b; };
   head.append(nav('‹', shiftMonth(ym, -1), false, '上個月'), el('b', 'mname', y + ' 年 ' + mo + ' 月'), nav('›', shiftMonth(ym, 1), cur, cur ? '這已經是本月' : '下個月'));
   if (!cur) head.append(nav('回到本月', thisMonth(), false, ''));
   const side = el('span', 'mnote');
   if (d.loading) { if (d.ok) { side.textContent = '重新計算中…'; ld(side); } }
-  else if (d.ok) side.textContent = '計算於 ' + when(d.computedAt) + '，掃了 ' + sep(d.files) + ' 個檔、' + (d.bytes / 1e9).toFixed(2) + ' GB，花 ' + (d.tookMs / 1000).toFixed(1) + ' 秒';
+  else if (d.ok) side.textContent = '計算於 ' + when(d.computedAt) + (d.dataAt ? '，資料更新到 ' + when(d.dataAt) : '');
   head.append(side);
   const again = el('button', 'btn', '重新計算'); again.type = 'button'; again.disabled = !!d.loading; again.addEventListener('click', () => loadUsage(true));
   head.append(again);
@@ -9102,7 +9098,7 @@ function drawMonth() {
 
   if (!d.ok) { box.append(d.loading ? ldBox('計算中…第一次算一個月大約要幾秒到二十秒') : el('div', 'quiet', '算不出來：' + (d.error || '未知的原因'))); return; }
   if (d.stale) box.append(el('div', 'bad', '這次重新計算失敗（' + (d.error || '') + '），下面是上一次算出的數字。'));
-  if (!d.priced) box.append(el('div', 'bad', '找不到 cc-statusline 的單價表，所以只有 token 數、沒有金額。單價表是 cc-statusline 這個 plugin 帶的：安裝它（claude plugin install cc-statusline@fulin-plugins），再按「重新計算」就有金額。'));
+  if (!d.priced) box.append(el('div', 'bad', 'cc-statusline 還沒有這些模型的單價，所以只有 token 數、沒有金額。它會自己去查，晚一點再看。'));
 
   // The headline figures.
   const kp = el('div', 'pulse'); kp.style.borderBottom = '0'; kp.style.padding = '8px 8px 4px';
@@ -9183,9 +9179,9 @@ function drawMonth() {
         who(r) + '：' + sep(r.runs) + (r.role === '' ? ' 個對話' : ' 次派工' + (r.team ? '（其中 ' + sep(r.team) + ' 次是團隊成員）' : '')) + '，' + sep(r.n) + ' 次呼叫模型。花在：' + r.projects.map((p) => p.name + ' $' + sep(p.cost, 2)).join('、'))));
     rt.classList.add('roles');
     box.append(rt);
-    if (d.rolesCover && !R) box.append(el('div', 'bad', '這張表只涵蓋 $' + sep(d.rolesCover, 2) + '，本月總額是 $' + sep(f.total.cost, 2) + '：這個月有一部分對話紀錄已經被 Claude Code 清掉，那一部分分不出是誰做的。'));
+    if (d.rolesCover && !R) box.append(el('div', 'bad', '這張表只涵蓋 $' + sep(d.rolesCover, 2) + '，本月總額是 $' + sep(f.total.cost, 2) + '：這個月有一部分對話在 cc-statusline 開始記用量之前就被 Claude Code 清掉了，那一部分分不出是誰做的。'));
     box.append(el('div', 'mexplain', '主對話是你直接對話的 session 自己用掉的；其他每一列是從對話派出去的子代理或團隊成員，依它的角色加總。次數＝' + W + '有用量的對話數或派工次數，每次平均＝費用 ÷ 次數。各列加起來等於' + W + '總額。滑鼠停在一列上看它花在哪些專案。'));
-  } else if (Array.isArray(f.roles) && d.rolesCover === 0) box.append(el('div', 'mexplain', '這個月的對話紀錄已經被 Claude Code 清掉了，算不出各角色各花多少。上面的總額是當時記下的。'));
+  } else if (Array.isArray(f.roles) && d.rolesCover === 0) box.append(el('div', 'mexplain', '這個月的對話在 cc-statusline 開始記用量之前就被 Claude Code 清掉了，算不出各角色各花多少。上面的總額是當時記下的。'));
   else if (!Array.isArray(f.roles) && d.files) box.append(el('div', 'mexplain', '這個月是舊版算的，沒有分角色。按「重新計算」就有（已經被 Claude Code 清掉紀錄的部分算不回來）。'));
   // One table of sessions: what each cost this month, joined with what is known
   // about the ones that are still open (compactions, context in use, messages).
@@ -9217,7 +9213,7 @@ function drawMonth() {
     st.querySelector('h4').append(more);
   }
   if (f.unpricedTok || f.approxTok) box.append(el('div', 'quiet', (f.approxTok ? bigNum(f.approxTok) + ' tokens 用的是相近模型的暫估單價。' : '') + (f.unpricedTok ? bigNum(f.unpricedTok) + ' tokens 查不到單價，沒算進費用。' : '')));
-  if (!cur) box.append(el('div', 'quiet', '過去月份算過一次就存起來。Claude Code 會定期清掉舊的對話紀錄，之後才按「重新計算」數字可能變小。'));
+  if (!cur) box.append(el('div', 'quiet', '過去的月份存在看板裡，隔一天以上再打開時重算。Claude Code 清掉舊的對話紀錄不影響。'));
 }
 
 async function pollWar() {

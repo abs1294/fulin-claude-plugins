@@ -965,7 +965,7 @@ function createServer(token, port, deps = {}) {
     setInterval(() => monthly.ensurePrevious(), 6 * 3600000).unref();
   }
   const monthly = deps.monthly || new Monthly();
-  const statsExtra = (sid, cwd) => ({ windows: channels.modelWindows, boardUsage: channels.get(sid), limit: (model) => limitFor(cwd, model) });
+  const statsExtra = (cwd) => ({ windows: channels.modelWindows, limit: (model) => limitFor(cwd, model) });
   const quota = () => readQuota();   // gathered by cc-statusline, only read here
 
   // ── schedules: what the runner needs from the board ──
@@ -1674,7 +1674,7 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/warroom') {
           const now = Date.now();
           if (now - war.at > 2500) {
-            const data = W.build(sessions(), { windows: channels.modelWindows, boardUsage: (sid) => channels.get(sid), limit: limitFor }, now);
+            const data = W.build(sessions(), { windows: channels.modelWindows, limit: limitFor }, now);
             data.quota = quota();
             war = { at: now, data };
           }
@@ -1725,8 +1725,7 @@ function createServer(token, port, deps = {}) {
           const s = find(String(q.get('sid') || ''));
           if (!s) return send(res, 404, { error: 'session not found' });
           const file = S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir);
-          const items = file ? cachedHistory(file, { max: W.TURN_ITEMS }).items : [];
-          const st = sessionStats(s.sessionId, S.DEFAULTS.stateDir, items, statsExtra(s.sessionId, s.cwd));
+          const st = sessionStats(s.sessionId, S.DEFAULTS.stateDir, statsExtra(s.cwd));
           // a terminal session: what each running subagent is doing, from its transcript (lib/agents.js)
           if (s.owner === 'terminal' && file && st.agents) { try { st.agents.detail = Agents.running(file); } catch (e) {} }
           return send(res, 200, Object.assign(st, { quota: quota() }));

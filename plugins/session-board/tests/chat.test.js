@@ -302,16 +302,10 @@ test('background work: the turn ending is not "idle", the process is kept, and C
   assert.strictEqual(g.status(gc), 'idle');
   g.shutdown();
 
-  // Cost adds up across results (each reports this process's total), and across a restart of the process.
-  assert.ok(Math.abs(c.cost - 0.9) < 1e-9);
-  assert.strictEqual(c.tok, 135);
+  // What a result says it cost is not added up: a resumed process says everything before it again.
+  assert.strictEqual(c.cost, undefined);
   assert.strictEqual(ch.modelWindows['m-x'], 1000000);
-  ch.stop(c.sessionId);
-  ch.send(c.sessionId, '再來');
-  log[log.length - 1].p.out({ type: 'result', is_error: false, total_cost_usd: 0.25 });   // a new process starts counting from zero
-  assert.ok(Math.abs(c.cost - 1.15) < 1e-9);
   const again = new Channels(path.join(d, 'c.json'), { spawn: fakeSpawn(log), transcriptOf: () => null });
-  assert.ok(Math.abs(again.get(c.sessionId).cost - 1.15) < 1e-9);   // remembered
   assert.strictEqual(again.modelWindows['m-x'], 1000000);
   ch.shutdown(); again.shutdown();
 });

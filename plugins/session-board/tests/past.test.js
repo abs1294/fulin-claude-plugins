@@ -102,35 +102,6 @@ test('keep: a session you ended yourself is known at once, also when the board w
   assert.strictEqual(new K.Keeper(path.join(d, 'empty.json')).defaultCommand('C:\\x'), 'claude');
 });
 
-test('usage-scan: a second scan reads only what was added, and gives what a full scan gives', () => {
-  const home = tmp();
-  const proj = path.join(home, '.claude', 'projects', 'C--w-proj');
-  fs.mkdirSync(proj, { recursive: true });
-  const at = (d, h) => new Date(2026, 10, d, h || 12).toISOString();
-  const turn = (id, ts, sid) => JSON.stringify({ type: 'assistant', sessionId: sid || 'S1', cwd: 'C:\\w\\proj', timestamp: ts, message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 100, output_tokens: 10 } } });
-  const f1 = path.join(proj, 'S1.jsonl'), f2 = path.join(proj, 'S2.jsonl');
-  fs.writeFileSync(f1, turn('m1', at(1)) + '\n' + turn('m2', at(2)));           // the last line has no line break yet
-  fs.writeFileSync(f2, turn('m9', at(3), 'S2') + '\n');
-  const run = (cache) => JSON.parse(execFileSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'usage-scan.js'), '2026-11'],
-    { env: Object.assign({}, process.env, { USERPROFILE: home, HOME: home, SESSION_BOARD_SCAN_CACHE: cache }), encoding: 'utf8' }));
-  const core = (j) => JSON.stringify([j.total, j.days, j.sessions, j.records, j.duplicates]);
-
-  const a = run('1');
-  assert.deepStrictEqual([a.cached, a.reused, a.records, a.total.tok], [true, 0, 3, 330]);
-  const b = run('1');
-  assert.deepStrictEqual([b.reused, b.readBytes, b.records], [2, 0, 3]);        // nothing changed: no file opened
-  assert.strictEqual(core(b), core(a));
-  // The unfinished line is completed, the same message is written once more, and a new one follows.
-  fs.appendFileSync(f1, '\n' + turn('m2', at(2)) + '\n' + turn('m3', at(4)) + '\n');
-  const c = run('1');
-  assert.deepStrictEqual([c.reused, c.records, c.total.tok], [1, 4, 440]);
-  assert.ok(c.readBytes < fs.statSync(f1).size, 'only the added part of the file was read');
-  assert.strictEqual(core(c), core(run('0')));                                  // same as reading everything
-  fs.unlinkSync(f2);                                                            // a transcript is cleaned up
-  assert.strictEqual(core(run('1')), core(run('0')));
-  require('../lib/db').close(path.join(home, '.claude', 'session-board', 'board.db'));
-});
-
 test('interrupted: a transcript that stops in the middle of a turn, and one that does not', () => {
   const d = tmp();
   const write = (name, lines) => { const f = path.join(d, name); fs.writeFileSync(f, lines.map((l) => JSON.stringify(l)).join('\n') + '\n'); return f; };

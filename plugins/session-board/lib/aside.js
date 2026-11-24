@@ -47,7 +47,9 @@ function run(args, cwd, question, o) {
       if (!j || typeof j !== 'object') return end({ ok: false, error: (err.trim() || out.trim() || 'Claude Code 沒有回答').slice(-300) });
       const text = typeof j.result === 'string' ? j.result : '';
       if (j.is_error || !text) return end({ ok: false, error: (text || err.trim() || 'Claude Code 回報了錯誤').slice(0, 400) });
-      end({ ok: true, answer: text, cost: Number(j.total_cost_usd) || 0 });
+      // A copy of a conversation reports everything the conversation cost before, too (measured 2026-11-24 on 2.1.325: a fork of
+      // one at 0.0039 reported 0.0078): what this one question cost cannot be told from it, so nothing is said.
+      end({ ok: true, answer: text, cost: args.includes('--resume') ? 0 : Number(j.total_cost_usd) || 0 });
     });
     p.stdin.on('error', () => {});
     try { p.stdin.write(question); p.stdin.end(); } catch (e) {}

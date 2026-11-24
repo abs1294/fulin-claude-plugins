@@ -63,8 +63,8 @@
 - 範圍是一個日曆月（1 號到月底，本機時間），可以往前翻月份。
 - 算的是這台電腦上**所有** session：開著的、已經關掉的、主對話、子代理，全部。
 - 顯示：API 等值費用（照官方牌價換算，不是訂閱實際被收的錢）、總 tokens 與四種 token 的拆分（輸入、輸出、寫入快取、讀取快取）、每天平均、照目前速度到月底的推估、每天一根的長條圖、各模型、各專案（session 啟動的資料夾）、各 session。
-- 怎麼算：掃 `~/.claude/projects` 底下該月有動過的對話紀錄，每一次模型呼叫依它自己的時間歸到某一天；同一次呼叫在檔案裡會出現好幾次（每個內容區塊各寫一次、子代理的會抄進主對話、分岔出去的 session 會整份複製），依訊息編號只算一次，不然金額會多一倍。單價用 cc-statusline 的單價表（沒裝就只有 token 數）。
-- 本月的數字超過 1 分鐘會重算；也可以按「重新計算」。重算只讀上次之後新增的部分：對話紀錄只會往後加，所以每個檔讀到哪裡、裡面有哪些用量都記在資料庫，沒變的檔不開，變長的只讀後面（實測 701 個檔 2.2 GB：全部重讀 4.6 秒，只讀新增 0.08 秒，結果逐欄相同）。過去的月份算一次就存進看板的資料庫（每個月一筆，之後查詢是毫秒級、不再掃描），上個月不用等你去翻、看板會自己算好存起來，因為 Claude Code 會定期清掉舊的對話紀錄，存起來那個月的數字才不會消失。
+- 怎麼算：把 **cc-statusline**（1.10.0 以上）的每則用量紀錄加起來，看板不自己讀對話紀錄算用量、不自己計價。每一次模型呼叫依它自己的時間歸到某一天；同一次呼叫在對話紀錄裡會出現好幾次（每個內容區塊各寫一次、子代理的會抄進主對話、分岔出去的 session 會整份複製），cc-statusline 只算一次。沒裝或太舊時這一頁會說要安裝或更新。
+- 本月的數字超過 1 分鐘會重算；也可以按「重新計算」。過去的月份存在看板的資料庫（每個月一筆），隔一天以上再打開時重算；月底最後幾筆還沒收進來的，收進來之後就會補上。0.21.0 之前存下的月份可能含 cc-statusline 收不到的（對話紀錄已經被清掉），不會被變小的蓋掉。
 
 - 長條上點兩根就是起訖（或直接拖曳），下面的各模型、各專案、各角色、各 session 和匯出 CSV 就只算那幾天；滑鼠移到一根上有「摘要」，照 daily-report 的寫法寫那一天做了什麼，存起來以後可以再看。
 
@@ -79,8 +79,7 @@
 打開任何一個對話，標題下面有一列：花費、用量、壓縮次數、目前 context、訊息數，有子代理在跑時多一項。滑鼠停在上面有細目（例如花費分成主對話與子代理）。按「更多」看子代理總數、常用 skill、MCP 呼叫次數、最近改過的檔案。
 
 數字的來源與限制：
-- **終端機 session** 的花費、tokens、壓縮次數、訊息數、子代理、skill、MCP、改過的檔案，都是 **cc-statusline** 的 tracker hooks 寫下來的，看板只是讀。花費是「整個 session 從開始到現在的累計（含子代理）」，照官方牌價換算；前面有 `~` 表示其中有暫估單價。
-- **看板裡的對話**沒有狀態列（狀態列只在終端機裡跑），它的花費與 tokens 是看板把 Claude Code 每輪回報的數字加總起來的，存在 `channels.json`。
+- **花費、tokens**、壓縮次數、訊息數、子代理、skill、MCP、改過的檔案，都是 **cc-statusline** 算好寫下來的，看板只是讀，在終端機或看板裡跑都一樣。花費是「整個對話從開始到現在的累計（含子代理）」，照官方牌價換算；前面有 `~` 表示其中有暫估單價。context 用量也是它算的（1.10.0 起）。cc-statusline 1.10.0 起每次回覆完就更新；更早的版本只在終端機裡更新，這時看板改用它的全機明細（1.9.x 最多慢 6 小時），滑鼠停在上面看得到更新時間。不用 Claude Code 自己回報的金額：對話接回來之後它會把之前的再算進去。
 - **context 佔比** = 最近一次回覆時送給模型的內容量（輸入加快取）÷ 該模型的上限。上限是看板從自己跑過的對話得知的（每輪結果會附），記在 `models.json`。沒跑過的模型：用量超過 20 萬就只可能是 100 萬的上限（會標「推定」）；否則只顯示 tokens、不顯示百分比。資料夾設了 `autoCompactWindow` 的，上限以它為準（讀設定檔：環境變數、`settings.local.json`、專案、使用者，含各模型自己的設定）。狀態列顯示的百分比是 Claude Code 直接給的，兩者可能差一兩個百分點。
 - **壓縮次數**來自 cc-statusline；沒被壓縮過顯示 0 次。
 - **5 小時與 7 天額度**是整個帳號共用的。由 cc-statusline（1.9.0 以上）收集：每次問答結束在背景向 Claude Code 查一次（5 分鐘內不重複、不花 token），存在 `~/.claude/cc-statusline/state/account-limits.json`，看板只讀這一個檔。沒有問答時數字會是舊的，畫面會註明是多久前的。
@@ -152,7 +151,7 @@ session 做完一輪、或需要你核准時，跳一則 Windows 通知；點通
 | 作業系統 | 只支援 Windows（要有 Windows Terminal 與 PowerShell）。其他系統啟動時會直接說明並結束 |
 | Node | 22.5 以上（用內建的 SQLite） |
 | session 清單、對話、常駐還原、沒開著的對話 | 可以用，不需要其他東西 |
-| 戰情室的金額、壓縮次數、額度 | 需要另外裝 cc-statusline；沒裝只有 token 數 |
+| 花費、用量、context、每月用量、壓縮次數、額度 | 需要另外裝 cc-statusline（1.10.0 以上）；沒裝就沒有這些數字 |
 | 自己結束 session 立即不常駐 | 裝成 plugin 後由 `hooks/hooks.json` 自動生效 |
 | 收件：Teams | 要在抓取設定打開「抓 Teams」才會讀。只讀「個人帳戶」的 Teams 桌面版本機紀錄。哪個帳號是自己會自動認出來（出現在最多對話裡的那個；不夠明確時不猜），也可以在抓取設定手填 |
 | 收件：Gmail | 要自己到 Google Cloud Console 建「電腦版應用程式」OAuth 用戶端、啟用 Gmail API，把下載的 JSON 存成 `~/.claude/session-board/gmail-credentials.json`，再按「連接 Gmail」 |
@@ -315,7 +314,7 @@ node lib/decide.js --question 路徑/我的題目.json --model haiku < 一段文
 | `lib/chat.js` | 看板裡的對話：每個對話一個常駐的 `claude -p` 串流程序 |
 | `lib/warroom.js` | 各 session 的即時數字（壓縮、context、訊息），給戰情室的表用 |
 | `lib/stats.js` | 單一 session 的數字（讀 cc-statusline 的狀態檔） |
-| `lib/monthly.js`、`scripts/usage-scan.js` | 每月用量與 API 等值費用（掃描在獨立程序裡跑） |
+| `lib/monthly.js`、`scripts/usage-scan.js` | 每月用量與 API 等值費用（從 cc-statusline 的用量紀錄匯總，在獨立程序裡跑） |
 | `lib/folders.js` | 你打的資料夾（完整路徑或只有名字）是哪一個 |
 | `lib/quota.js` | 5 小時與 7 天額度（只讀 cc-statusline 1.9.0 以上收集的那一個檔） |
 | `lib/past.js` | 沒開著的對話：清單與搜尋 |
@@ -330,7 +329,7 @@ node lib/decide.js --question 路徑/我的題目.json --model haiku < 一段文
 | `lib/digest.js` | 每天上班統整：收集證據、交給 Claude 判斷、排成 LINE 訊息（排程種類 `digest`） |
 | `lib/watchdog.js` | 停住的 session：判斷是卡住、額度用完還是被伺服器錯誤中斷，通知，並依設定請它接著做 |
 | `lib/inbox/` | 收件：`store.js`（入庫、路由、分派）、`sources/`（每個來源一個檔：`gmail.js`、`slack.js`、`teams.js`，由 `sources/index.js` 列出）、`teams-localdb.js`（讀 Teams 本機快取）、`text.js`（HTML 轉文字、Snappy 解壓）、`index.js`（設定、排程、連接 Gmail） |
-| `lib/db.js` | SQLite 資料庫（設定、每月用量、掃描進度） |
+| `lib/db.js` | SQLite 資料庫（設定、每月用量、標題） |
 | `hooks/hooks.json`、`scripts/session-end-hook.js` | SessionEnd hook：記下 session 是怎麼結束的 |
 | `lib/keep.js`、`lib/autostart.js`、`scripts/proc-cmdline.ps1` | 常駐與關機後還原、開機自動啟動、讀取 session 的啟動指令 |
 | `lib/files.js` | 對話裡提到的檔案：是否存在、種類、Office 轉 PDF 的快取 |
