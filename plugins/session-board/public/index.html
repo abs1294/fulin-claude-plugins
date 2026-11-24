@@ -1461,6 +1461,10 @@
     .sq .sl .sx { display: none; }   /* "額度": the bar says it */
     .sq .mbar { height: 6px; }
     .sq .sr { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* the version, at the end of the limits' last line: floating, it stood on them (2026-11-24) */
+    .side-quota .sr:has(.sq-ver) { display: flex; flex-wrap: wrap; column-gap: 8px; } .sq-ver { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; }
+    .ver-fab { display: none; }
+    body.upd-on .side .list { padding-bottom: 60px; }   /* 「有新版本」 stands over the end of the list: its last row can be brought clear of it */
     .side-foot { display: none; }
     /* the office's filters: one row that slides */
     .room-head { flex-wrap: wrap; align-items: center; } .room-head b { flex: 1 1 calc(100% - 60px); } .room-head > span:not(.grip) { order: 9; flex: 1 1 0; margin: 0; text-align: right; }   /* the name on its own row: the buttons, 44 each here, ran past the edge */
@@ -9348,6 +9352,9 @@ let boardVersion = '';   // the board's own, as it last said
         bottom = Math.round(vh - top + 8);
       }
     }
+    // the list on a phone: above the limits at its end, not on them
+    if (mode === 'corner') { const q = $('sideQuota'), qr = q && q.offsetParent !== null ? q.getBoundingClientRect() : null; if (qr && qr.right > vw - 22 && qr.bottom > vh - bottom - e.offsetHeight) bottom = Math.round(vh - qr.top + 10); }
+    document.body.classList.toggle('upd-on', !b.hidden);
     if (e === ver) ver.style.visibility = mode === 'above' ? 'hidden' : '';
     const s = (e === ver ? 'v' : '') + mode + right + ',' + bottom;
     if (s === shape) return; shape = s;
@@ -9444,8 +9451,16 @@ function drawSideQuota() {
   // how old it is, and what is missing for it to be kept up to date (cc-statusline gathers it, the board only reads)
   if (box.firstChild && q.seenAt && Date.now() - q.seenAt > 10 * 60000) box.append(el('div', 'sr', ago(Date.now() - q.seenAt) + '前的數字'));
   if (q.from === '') { const d = el('div', 'sr', '沒有額度資料：需要 cc-statusline'); d.title = '額度由 cc-statusline 這個 plugin 收集（1.9.0 以上），看板只讀。裝好或更新之後，下一次問答結束就會出現。'; box.append(d); }
+  // on a phone: the version there (CSS shows the floating one only where there is room for it)
+  if (boardVersion && phoneMq.matches) {
+    let last = [...box.querySelectorAll('.sq .sr')].pop();
+    if (!last) { last = el('div', 'sr'); box.append(last); }   // no limits to show: a line of its own
+    const t = el('span', 'sq-t', last.textContent), v = el('span', 'sq-ver', 'v' + boardVersion); v.title = '看板的版本'; last.textContent = ''; last.append(t, v);
+  }
   box.hidden = !box.firstChild;
 }
+const phoneMq = matchMedia('(max-width: 720px)');   // the phone's layout (the rules for .sq-ver and .ver-fab are in the same)
+phoneMq.addEventListener('change', () => drawSideQuota());
 async function loadSideQuota() {
   try { const r = await api('/api/quota'); if (r.ok) { sideQuotaData = r.data; drawSideQuota(); } } catch (e) {}
 }
@@ -9483,7 +9498,7 @@ async function poll() {
     sessions = r.data.sessions.filter((s) => !s.notStarted);
     for (const s of sessions) if (s.programHidden) { s.hidden = true; s.hiddenWhy = 'program'; }
     unstarted = r.data.sessions.filter((s) => s.notStarted);
-    if (r.data.version) boardVersion = r.data.version;
+    if (r.data.version && r.data.version !== boardVersion) { boardVersion = r.data.version; drawSideQuota(); }
     if (active) setTimeout(() => stashRow(active), 0);   // (put aside, or taken back, on another device)
     if (r.data.page) { if (pageTag === null) pageTag = r.data.page; else if (r.data.page !== pageTag && newPageAvailable()) return; }   // (not reloaded by itself: the rest of the page goes on as before)
     down = false; $('downBar').hidden = true;

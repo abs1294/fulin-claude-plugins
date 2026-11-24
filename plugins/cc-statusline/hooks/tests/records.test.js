@@ -118,8 +118,16 @@ try {
     go("const fs=require('fs'),o=fs.openSync;fs.openSync=function(f,...a){if(String(f).includes('" + O2 + "'))throw Object.assign(new Error('busy'),{code:'EBUSY'});return o.call(fs,f,...a);};");
     check(of('q1') === '' && of('q2') === '', 'an original that cannot be read just then: not settled', [of('q1'), of('q2')]);
     go(); check(of('q1') === '55' && of('q2') === '66', 'settled when it can', [of('q1'), of('q2')]);
+    // a folder that cannot be read: told, and what was found goes in; a copy of something in there waits
+    { const X = '44444444-1111-4111-8111-111111111111', Y = '33333333-1111-4111-8111-111111111111', dx = path.join(H3, '.claude', 'projects', 'C--x'); fs.mkdirSync(dx, { recursive: true }); fs.writeFileSync(path.join(dx, X + '.jsonl'), turn('y0', 'claude-haiku-4-5', '2026-11-08T00:00:00Z', hb, { sessionId: X })); go();
+      fs.appendFileSync(path.join(dx, X + '.jsonl'), turn('y1', 'claude-haiku-4-5', '2026-11-08T00:00:01Z', hb, { sessionId: X })); fs.writeFileSync(path.join(d3, Y + '.jsonl'), k('y1', Y, X) + k('y2', Y, Y));
+      go("const fs=require('fs'),o=fs.readdirSync;fs.readdirSync=function(f,...a){if(/C--x$/.test(String(f)))throw Object.assign(new Error('x'),{code:'EACCES'});return o.call(fs,f,...a);};");
+      const m4 = () => JSON.parse(fs.readFileSync(path.join(R3, 'meta.json'), 'utf8')); check(m4().unread === 1 && of('y1') === '' && of('y2') === '33' && m4().at > 0, 'a folder that cannot be read', [m4().unread, of('y1'), of('y2')]);
+      go(); const inX = fs.readFileSync(path.join(R3, '2026-11', 'C--x.jsonl'), 'utf8'); check(m4().unread === 0 && /"y1"/.test(inX) && of('y1') === '', 'settled when it can', [m4().unread, inX]); }
+    // both meta.json and the list of messages gone, nothing new: made again
+    { const n = rows().length; fs.unlinkSync(path.join(R3, 'meta.json')); fs.unlinkSync(path.join(R3, '.own', 'ids.txt')); go(); const m5 = JSON.parse(fs.readFileSync(path.join(R3, 'meta.json'), 'utf8')); check(m5.records >= n && rows().length === n && m5.modelIds['claude-haiku-4-5'], 'both gone: made again, nothing twice', [m5.records, n]); }
     // meta.json gone: made again
-    fs.unlinkSync(path.join(R3, 'meta.json')); go(); { const m3 = JSON.parse(fs.readFileSync(path.join(R3, 'meta.json'), 'utf8')); check(m3.records === rows().length && m3.modelIds['claude-haiku-4-5'] === 'haiku-4-5' && m3.prices['haiku-4-5'] && m3.at > 0, 'meta.json made again', m3); }
+    fs.unlinkSync(path.join(R3, 'meta.json')); go(); { const m3 = JSON.parse(fs.readFileSync(path.join(R3, 'meta.json'), 'utf8')); check(m3.records >= rows().length && m3.modelIds['claude-haiku-4-5'] === 'haiku-4-5' && m3.prices['haiku-4-5'] && m3.at > 0, 'meta.json made again', m3); }
     fs.rmSync(H3, { recursive: true, force: true });
   }
   // two at once: nothing lost, nothing twice

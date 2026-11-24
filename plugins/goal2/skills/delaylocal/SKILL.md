@@ -175,6 +175,6 @@ goal 是**預設模式**。通用骨架（為什麼要 propose、可測量條件
 
 ## 注意
 
-- 額度檔 `account-limits.json` 的 `resets_at` 是絕對時間；`quota_limits_age_minutes` 超過 60 會附警告，仍可用；要看的額度沒在計時而資料滿一天，會擋（`limits-stale`）。
+- 額度檔 `account-limits.json` 的 `resets_at` 是絕對時間；`quota_limits_age_minutes` 超過 60 會附警告，仍可用；要看的額度沒在計時（或重置時間已過）而資料滿一天，會擋（`limits-stale`）。
 - 只用 CronCreate 排程，不可用 SQL 偽造。
 - LINE 憑證放本機 `notify-line.config.json` 或環境變數，**不進 git**（已被 .gitignore 排除）。

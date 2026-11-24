@@ -46,12 +46,27 @@ try {
     const was = read(), L = JSON.stringify(path.join(ROOT, 'scripts', 'lib-session-usage.js')), PL = JSON.stringify(path.join(ROOT, 'scripts', 'lib-price.js'));
     spawnSync(process.execPath, ['-e', 'const fs=require("fs"),o=fs.openSync;fs.openSync=function(f,...a){if(/abcdabcd-1111[^\\\\/]*\\.jsonl$/.test(String(f)))throw Object.assign(new Error("x"),{code:"EBUSY"});return o.call(fs,f,...a);};const p=require(' + PL + '),t=p.loadTable();require(' + L + ').update({transcript:' + JSON.stringify(tp) + ',file:' + JSON.stringify(state) + ',resolvePrice:p.makeResolver(t.table),priceSig:t.sig,write:fs.writeFileSync});'], { env });
     j = read(); check(j.total.cost === was.total.cost, 'a transcript that cannot be opened just then', [j.total, was.total]);
+    // not even seen, with something new in it: what was counted stays, with its time; nothing is lost once it can be
+    fs.appendFileSync(tp, turn('later', 'claude-haiku-4-5', 1e6));
+    const t1 = read().at; spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},30)']);
+    spawnSync(process.execPath, ['-e', 'const fs=require("fs"),o=fs.statSync,d=fs.readdirSync;fs.statSync=function(f,...a){if(/abcdabcd-1111[^\\\\/]*\\.jsonl$/.test(String(f)))throw Object.assign(new Error("x"),{code:"EACCES"});return o.call(fs,f,...a);};fs.readdirSync=function(f,...a){if(/workflows$/.test(String(f)))throw Object.assign(new Error("x"),{code:"EACCES"});return d.call(fs,f,...a);};const p=require(' + PL + '),t=p.loadTable();require(' + L + ').update({transcript:' + JSON.stringify(tp) + ',file:' + JSON.stringify(state) + ',resolvePrice:p.makeResolver(t.table),priceSig:t.sig,write:fs.writeFileSync});'], { env });
+    j = read(); check(j.total.cost === was.total.cost && j.total.agentRuns === was.total.agentRuns && j.at === t1, 'what cannot be seen just then stays counted, with its time', [j.total, j.at - t1]);
+    hook('message-tracker.js', { hook_event_name: 'Stop' }); j = wait((x) => x.total.cost === was.total.cost + 1); check(j.total.cost === was.total.cost + 1, 'and is carried on from there', j.total);
+    // a subagent's transcript cleared away: what it came to stays
+    fs.unlinkSync(path.join(sub, 'agent-y.jsonl')); fs.appendFileSync(tp, turn('later2', 'claude-haiku-4-5', 1e6)); hook('message-tracker.js', { hook_event_name: 'Stop' }); j = wait((x) => x.total.cost === was.total.cost + 2); check(j.total.cost === was.total.cost + 2 && j.total.agentRuns === was.total.agentRuns && j.at > t1, 'a subagent cleared away stays counted', j.total);
+    // the whole folder of subagents cleared away: the same, and the time goes on
+    { const t2 = read().at, c2 = read().total.cost; fs.renameSync(path.join(dir, sid), path.join(dir, 'away')); fs.appendFileSync(tp, turn('later3', 'claude-haiku-4-5', 1e6)); hook('message-tracker.js', { hook_event_name: 'Stop' }); j = wait((x) => x.total.cost === c2 + 1); check(j.total.cost === c2 + 1 && j.total.agentRuns === was.total.agentRuns && j.at > t2, 'the whole folder cleared away', [j.total, j.at - t2]); fs.renameSync(path.join(dir, 'away'), path.join(dir, sid)); }
+    // the project folder moved, and (Windows, macOS) spelled otherwise: one conversation, not two
+    { const c3 = read().total, d2 = path.join(H, '.claude', 'projects', 'p2'); fs.renameSync(dir, d2); const tp2 = path.join(d2, sid + '.jsonl'); fs.appendFileSync(tp2, turn('moved', 'claude-haiku-4-5', 1e6)); hook('message-tracker.js', { hook_event_name: 'Stop', transcript_path: process.platform === 'linux' ? tp2 : tp2.replace('projects', 'PROJECTS') }); j = wait((x) => x.total.cost === c3.cost + 1); check(j.total.cost === c3.cost + 1 && j.total.agentRuns === c3.agentRuns && j.total.agentCost === c3.agentCost, 'moved and spelled otherwise', [j.total, c3]); fs.renameSync(d2, dir); }
+    fs.writeFileSync(path.join(sub, 'agent-y.jsonl'), turn('t', 'claude-haiku-4-5', 2e6));
+    // everything has to be counted from the start and something cannot be read: what there is stays
+    { const f = read(); f.sig = 'other'; fs.writeFileSync(state, JSON.stringify(f)); spawnSync(process.execPath, ['-e', 'const fs=require("fs"),d=fs.readdirSync;fs.readdirSync=function(f,...a){if(/workflows$/.test(String(f)))throw Object.assign(new Error("x"),{code:"EACCES"});return d.call(fs,f,...a);};const p=require(' + PL + '),t=p.loadTable();require(' + L + ').update({transcript:' + JSON.stringify(tp) + ',file:' + JSON.stringify(state) + ',resolvePrice:p.makeResolver(t.table),priceSig:t.sig,write:fs.writeFileSync});'], { env }); const g = read(); check(g.sig === 'other' && g.total.cost === f.total.cost && g.at === f.at, 'not a part of it', [g.sig, g.total]); }
   }
   // a file written before 1.10.0 is read again from the start (it left some out)
   const old = read(); delete old.v; delete old.at; delete old.total; delete old.how; fs.writeFileSync(state, JSON.stringify(old));
   fs.appendFileSync(tp, turn('c', 'claude-haiku-4-5', 1e6));
   hook('message-tracker.js', { hook_event_name: 'Stop' });
-  j = wait((x) => x.v === 1); check(j && j.v === 1 && j.total.cost === 11, 'a file of an earlier version is read again', j && j.total);
+  j = wait((x) => x.v === 1); check(j && j.v === 1 && j.total.cost === 15, 'a file of an earlier version is read again', j && j.total);
   // no transcript: nothing, and no file made up
   const other = hook('message-tracker.js', { hook_event_name: 'Stop', session_id: 'ffffffff', transcript_path: path.join(dir, 'none.jsonl') });
   spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},800)']);

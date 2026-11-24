@@ -69,13 +69,13 @@
 ## 公開介面
 
 位置：`S`＝`~/.claude/cc-statusline/state`，`U`＝`~/.claude/usage-data`；`<sid>`＝session id 去掉非英數字後的前 24 字。
-規則：欄位只加不改；非改不可時 `v` 加一，並先通知所有使用方。
+規則：欄位只加不改，`v` 加一只代表多了欄位、舊欄位的意思不變；非改不可時另開一個檔名，並先通知所有使用方。
 
 | 介面 | 檔案 | 欄位 | 多久更新 | 產生者 |
 | --- | --- | --- | --- | --- |
 | 帳號額度 | `S/account-limits.json` | `v:1`、`at`、`tried`、`none`、`five_hour`、`seven_day`；視窗是 `{used_percentage, resets_at(秒或 null)}` 或 null。null＝帳號沒有這個額度；`resets_at` 是 null＝有、目前沒在計時；`none:true`＝這個帳號沒有這種額度（API key） | 每次回覆完，最多 5 分鐘一次 | `hooks/account-limits.js`（1.9.0 起） |
 | 單一對話用量 | `S/claude-toksum2-<sid>.json` | `v:1`、`at`、`total`：`cost`、`tok`、`mainCost`、`mainTok`、`agentCost`、`agentTok`、`agentRuns`、`unpricedTok`、`approxTok`（後兩個大於 0＝有一部分沒有單價或是暫估單價）；`context`：`{tokens, model, effort, at}`，最近一則回覆送進模型的量，還沒回覆過是 null | 回覆完、送出訊息、子代理結束、狀態列刷新 | `scripts/lib-session-usage.js`（1.10.0 起） |
-| 每則用量紀錄 | `U/records/meta.json`、`U/records/<yyyy-mm>/<專案>.jsonl`（專案＝對話紀錄的資料夾名，超過 180 字的縮短，跟 `meta.projects` 同名） | 一行一則，已去重、已計價，只增不減：`id`、`ts`、`sid`、`agent`、`role`、`team`、`file`、`line`、`model`、`key`、`in`、`out`、`cw5`、`cw1`、`rd`、`think`、`cost`、`flag`、`entry`；0 與空字串省略；月份照 `ts` 的 UTC。`meta.json`：`v:1`、`at`、`prices`、`modelIds`、`projects`、`months`、`records`。逐欄說明在 `scripts/lib-records.js` 檔頭。Claude Code 清掉對話紀錄之後仍留著 | 該對話回覆完、送出訊息、子代理結束；全部對話最多 10 分鐘一次（`meta.at`＝上次全部看過的時間） | `scripts/lib-records.js`（1.10.0 起） |
+| 每則用量紀錄 | `U/records/meta.json`、`U/records/<yyyy-mm>/<專案>.jsonl`（專案＝對話紀錄的資料夾名，超過 180 字的縮短，跟 `meta.projects` 同名） | 一行一則，已去重、已計價，只增不減：`id`、`ts`、`sid`、`agent`、`role`、`team`、`file`、`line`、`model`、`key`、`in`、`out`、`cw5`、`cw1`、`rd`、`think`、`cost`、`flag`、`entry`；0 與空字串省略；月份照 `ts` 的 UTC。`meta.json`：`v:1`、`at`、`prices`、`modelIds`、`projects`、`months`、`records`、`unread`（上次全部看過時有幾份讀不到，不是 0 就代表可能少算）。逐欄說明在 `scripts/lib-records.js` 檔頭。Claude Code 清掉對話紀錄之後仍留著 | 該對話回覆完、送出訊息、子代理結束；全部對話最多 10 分鐘一次（`meta.at`＝上次全部看過的時間） | `scripts/lib-records.js`（1.10.0 起） |
 | 全機用量明細 | `U/cc-statusline-usage-detail.json` | `v:1`、`at`、`sig`、`tz`、`prices`、`modelIds`、`byDay`、`byModel`、`byProject`、`sessions`、`sessionsTotal`、`sessionsRest` | 最多 15 分鐘一次（1.9.x 是 6 小時） | `scripts/all-usage-refresh.js`：從每則用量紀錄匯總（1.9.0 起） |
 | 壓縮次數 | `S/claude-compacts-<sid>.json` | `count`、`last`；沒有檔＝0 次 | 壓縮時 | `hooks/compact-monitor.js` |
 | 訊息數 | `S/claude-msgcount-<sid>` | 純文字的整數 | 送出訊息時 | `hooks/summary-updater.js` |

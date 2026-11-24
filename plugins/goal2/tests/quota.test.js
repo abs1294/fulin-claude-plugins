@@ -67,6 +67,9 @@ try {
   r = R({ limits: { at: (NOW - 3 * 3600) * 1000, five_hour: win(NOW + 100) } });
   check(r.ok && r.limits_age_minutes === 180 && /180 分鐘前/.test(r.warning), 'stale-warning', JSON.stringify(r));
 
+  r = R({ limits: { at: (NOW - 3 * 3600) * 1000, five_hour: { used_percentage: 0, resets_at: null }, seven_day: win(NOW + 86400) } });
+  check(r.ok && r.idle && /180 分鐘前查的，現在的情況可能不同/.test(r.warning), 'stale-warning-idle', JSON.stringify(r));
+
   // ── 裁定 2：沒裝／太舊 → 擋下並提示安裝，且不退回讀快照檔 ──
   const snap = { abc: { five_hour: { resets_at: NOW + 7200 } } };       // 舊檔裡有一個看起來可用的 5 小時重置時間
   r = R({ snapshots: snap });                             // 沒裝、沒額度檔、只有舊快照

@@ -2,6 +2,11 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.10.1] - 2026-11-24
+### Fixed
+- 對話的花費：對話紀錄或子代理的紀錄一時讀不到、或被清掉時，已經算過的不再消失（原本恢復後也補不回來）；讀不到的時候不蓋上新的時間。路徑的大小寫、斜線寫法不同，或專案資料夾搬動，不會算成兩份。單價改變要整份重算時，已經被清掉的不在內。
+- 用量紀錄：`meta.json` 多 `unread`（有幾份讀不到）；複製的對話在原本那個讀不到時不定案；meta 與 ids 同時不在也會修復。
+
 ## [1.10.0] - 2026-11-24
 ### Added
 - 每個對話的花費與用量不再只靠狀態列更新：回覆完、送出訊息、子代理結束時（Stop、UserPromptSubmit、SubagentStop hook）在背景從對話紀錄接著算，看板（session-board）裡的對話、`claude -p` 也算得到，人不用等。這是其他 plugin 讀「這個對話用了多少」的唯一介面：`~/.claude/cc-statusline/state/claude-toksum2-<sid>.json` 的 `v`（介面版本）、`at`（更新時間，毫秒）、`total`（cost、tok、mainCost、mainTok、agentCost、agentTok、agentRuns、unpricedTok、approxTok）；欄位只加不改，其餘欄位是自己用的。

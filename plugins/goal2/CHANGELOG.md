@@ -2,6 +2,10 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.7.1] - 2026-11-24
+### Fixed
+- 說明寫清楚：要看的額度沒在計時，或重置時間已經過了，而資料滿一天，都會擋（`limits-stale`）；補一項「沒在計時、資料舊」的測試。
+
 ## [0.7.0] - 2026-11-24
 ### Changed
 - delaylocal 的額度重置時間改讀 cc-statusline（>= 1.9.0）在背景向 Claude Code 查到的帳號額度（`~/.claude/cc-statusline/state/account-limits.json`），不再讀 `~/.claude/rate-limit-snapshots.json`。那個檔是各終端機 session 最後一次被告知的數字，會每 30 秒用新時間重寫舊數字（2026-11-24 實例：顯示 3%、官網 34%），沒有終端機的對話根本不寫。邏輯抽到 `lib/quota.js`。

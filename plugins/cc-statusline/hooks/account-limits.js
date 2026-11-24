@@ -3,7 +3,7 @@
 // after a conversation answered, and kept in state/account-limits.json: for the
 // status line, and THE place every other plugin reads the limits from
 // (session-board, goal2 -- nobody else gathers them). Fields are added to it,
-// never changed; v goes up if one ever has to be.
+// never changed; v goes up when one is added.
 //
 // Why: rate-limit-snapshots.json holds what each terminal session was LAST TOLD.
 // A session rewrites that figure every 30s with the time of the writing, so an

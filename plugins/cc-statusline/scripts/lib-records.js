@@ -11,6 +11,7 @@
 //       modelIds  { model id as written by Claude Code: key }
 //       projects  { project folder name: { path } } the real folder, when it could be told
 //       months    ["2026-11", ...] the folders there are
+//       unread    how many transcripts and folders could not be read the last time every one was looked at
 //   <yyyy-mm>/<project>.jsonl  one record a line; the month is that of ts in UTC, the
 //                              project is the folder name under ~/.claude/projects
 //       id      message id
@@ -71,13 +72,13 @@ const monthOf = (ts) => new Date(ts).toISOString().slice(0, 7);
 
 // Every transcript there is: [{p, rel: [project, ...], size, mtime, birth}]
 function transcripts() {
-  const out = [];
+  const out = []; out.partial = 0;
   (function walk(d, rel) {
-    let es; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
+    let es; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { if (e.code !== 'ENOENT') out.partial++; return; }
     for (const e of es) {
       const p = path.join(d, e.name);
       if (e.isDirectory()) walk(p, rel.concat(e.name));
-      else if (e.name.endsWith('.jsonl')) { const t = one(p, rel.concat(e.name)); if (t) out.push(t); }
+      else if (e.name.endsWith('.jsonl')) { const t = one(p, rel.concat(e.name)); if (t) out.push(t); else if (fs.existsSync(p)) out.partial++; }
     }
   })(ROOT, []);
   return out;
@@ -252,10 +253,10 @@ function collect(o = {}) {
     const now = Date.now();
     const everything = !o.transcript || !(Number.isFinite(own.full) && own.full <= now && now - own.full < FULL_EVERY_MS);
     const modelIds = meta.modelIds && typeof meta.modelIds === 'object' ? meta.modelIds : {}, projects = meta.projects && typeof meta.projects === 'object' ? meta.projects : {};
-    let count = Number.isFinite(meta.records) ? meta.records : 0, at = Number.isFinite(meta.at) ? meta.at : 0, ids = null;
+    let count = Number.isFinite(meta.records) ? meta.records : 0, at = Number.isFinite(meta.at) ? meta.at : 0, unreadN = Number.isFinite(meta.unread) ? meta.unread : 0, ids = null;
 
     const mend = () => { const r = repair(modelIds, mine); ids = r.ids; count = r.count; };
-    if (fs.existsSync(DIRTY) || (!kept && fs.existsSync(IDS))) mend();
+    if (fs.existsSync(DIRTY) || (!kept && (fs.existsSync(IDS) || recordFiles().length))) mend();
     const known = () => {
       if (!ids) { if (!fs.existsSync(IDS)) mend(); else ids = new Set(fs.readFileSync(IDS, 'utf8').split('\n').filter(Boolean)); }
       return ids;
@@ -272,7 +273,7 @@ function collect(o = {}) {
     const writeMeta = () => {
       const prices = {};
       for (const [model, key] of Object.entries(modelIds)) { const r = resolve(model); if (r.pr) prices[key] = Object.assign({}, r.pr, { exact: r.exact }); }
-      writeWhole(META, JSON.stringify({ v: 1, at, prices, modelIds, projects, months: [...new Set(recordFiles().map((f) => f.month))], records: count }));
+      writeWhole(META, JSON.stringify({ v: 1, at, prices, modelIds, projects, months: [...new Set(recordFiles().map((f) => f.month))], records: count, unread: unreadN }));
     };
 
     let held = new Map(), heldIds = [], n = 0, added = 0;
@@ -295,9 +296,10 @@ function collect(o = {}) {
 
     const list = everything ? transcripts() : ofSession(o.transcript);
     list.sort((a, b) => (a.rel.length > 2 ? 0 : 1) - (b.rel.length > 2 ? 0 : 1) || a.birth - b.birth || (a.p < b.p ? -1 : 1));
+    const known0 = new Set(Object.keys(state).filter((k) => k.split('/').length === 2).map((k) => k.slice(k.indexOf('/') + 1, -6)));   // seen before, also when its folder cannot be read now
     const there = new Set(list.filter((t) => t.rel.length === 2).map((t) => t.rel[1].slice(0, -6)));
-    const conversations = everything ? there : new Set([...there, ...Object.keys(state).filter((k) => k.split('/').length === 2).map((k) => k.slice(k.indexOf('/') + 1, -6))]);
-    const isThere = (sid, t) => conversations.has(sid) || fs.existsSync(path.join(path.dirname(t.p), sid + '.jsonl'));
+    const conversations = there;
+    const isThere = (sid, t) => conversations.has(sid) || known0.has(sid) || fs.existsSync(path.join(path.dirname(t.p), sid + '.jsonl'));
 
     const put = (w, r, h) => {
       const res = resolve(r.model || '');
@@ -345,7 +347,7 @@ function collect(o = {}) {
         seen.add(h);
         put(w, r, h);
       });
-      if (!ok) { unread.add(w.sid); left.length = leftBefore; continue; }   // could not be read now: tried again next time
+      if (!ok) { unread.add(w.agent ? k : w.sid); left.length = leftBefore; continue; }   // could not be read now: tried again next time
       st.size = t.size; st.mtime = t.mtime; if (!st.as) delete st.as;
       if (left.length > leftBefore) st.again = 1; else if (again || !st.again) delete st.again;
       state[k] = st;
@@ -355,7 +357,7 @@ function collect(o = {}) {
       const open = new Set();
       for (const x of left) {
         if (known().has(x.h)) continue;
-        if (unread.has(x.of)) { open.add(x.st); continue; }   // the original could not be read this time: not settled
+        if (unread.has(x.of) || (list.partial && !there.has(x.of))) { open.add(x.st); continue; }   // the original could not be read this time: not settled
         known().add(x.h); put(x.w, x.r, x.h);
       }
       for (const x of left) if (!open.has(x.st)) delete x.st.again;
@@ -363,8 +365,8 @@ function collect(o = {}) {
     if (everything) {
       pathsOf(list, projects);
       const names = new Set(list.map((t) => t.rel.join('/')));
-      for (const k of Object.keys(state)) if (!names.has(k)) delete state[k];   // cleared away by Claude Code; its records stay
-      own.full = now; at = now;
+      if (!list.partial) for (const k of Object.keys(state)) if (!names.has(k)) delete state[k];   // cleared away by Claude Code; its records stay
+      own.full = now; at = now; unreadN = list.partial + unread.size;
     }
     flush();
     return { added, everything, missing: [...missing], stale: [...stale] };
