@@ -171,3 +171,9 @@ test('endedReader: the notes of ended sessions kept in memory, only what was add
     assert.deepStrictEqual(got(read()), got(readEnded(d)), 'the same as reading them all');
   } finally { read.close(); }
 });
+
+test('the page\'s own program can be read at all (2026-11-24: a comment took the rest of its line, and everything still passed)', () => {
+  const s = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'index.html'), 'utf8'), parts = [...s.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  assert.ok(parts.length && parts.some((x) => x.length > 100000));
+  for (const x of parts) new (require('vm').Script)(x);
+});

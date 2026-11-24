@@ -121,6 +121,31 @@ function imageAt(file, uuid, index, cap = 256 * 1024 * 1024) {
   return hit;
 }
 
+// The number of the mark "［圖N］" a picture's block stands after; 0: after none (dragged in, or from the + menu).
+const tagOf = (blocks, i) => { const b = blocks[i - 1], m = b && b.type === 'text' ? /［圖(\d{1,2})］\s*$/.exec(String(b.text || '')) : null; return m ? Number(m[1]) : 0; };
+// The pictures of a message, to be sent again (an edited message keeps them): the blocks asked for, in order, each with the
+// number of the mark "［圖N］" it stands after, if it stands after one. -> [{mime, data, tag?}], or null (not all are there).
+function picturesOf(file, uuid, indexes, cap = 256 * 1024 * 1024) {
+  if (!file || !/^[0-9a-f-]{8,64}$/i.test(String(uuid))) return null;
+  const needle = Buffer.from('"uuid":"' + uuid + '"'); let list = null;
+  eachLineBackward(file, cap, (line) => {
+    if (line.indexOf(needle) < 0) return true;
+    let e; try { e = JSON.parse(line.toString('utf8')); } catch (x) { return true; }
+    if (e.uuid !== uuid) return true;
+    list = e.message && Array.isArray(e.message.content) ? e.message.content : e.attachment && Array.isArray(e.attachment.prompt) ? e.attachment.prompt : [];
+    return false;
+  });
+  if (!list) return null;
+  const out = [];
+  for (const i of indexes) {
+    const src = list[i] && list[i].type === 'image' && list[i].source;
+    if (!src || src.type !== 'base64' || typeof src.data !== 'string' || !/^image\/(png|jpeg|gif|webp)$/.test(String(src.media_type))) return null;
+    const tag = tagOf(list, i);
+    out.push(Object.assign({ mime: src.media_type, data: src.data }, tag ? { tag } : {}));
+  }
+  return out;
+}
+
 // The paths of a SendUserFile call: [string], at most 40.
 function handedFiles(input) {
   const l = input && Array.isArray(input.files) ? input.files : [];
@@ -157,9 +182,9 @@ function queuedSaid(e) {
 function itemsOf(e) {
   const q = queuedSaid(e);
   if (q) {
-    const imgAt = q.blocks.map((b, i) => (b && b.type === 'image' ? i : -1)).filter((i) => i >= 0);
+    const imgAt = q.blocks.map((b, i) => (b && b.type === 'image' ? i : -1)).filter((i) => i >= 0), imgTag = imgAt.map((i) => tagOf(q.blocks, i));
     const it = { id: typeof e.uuid === 'string' ? e.uuid : '', role: 'user', text: q.text, mid: true, ts: typeof e.timestamp === 'string' ? Date.parse(e.timestamp) || 0 : 0 };
-    return [imgAt.length ? Object.assign(it, { images: imgAt.length, imgAt }) : it];
+    return [imgAt.length ? Object.assign(it, { images: imgAt.length, imgAt, imgTag }) : it];
   }
   if (!e || e.isSidechain || e.isMeta || !e.message) return [];
   const ts = typeof e.timestamp === 'string' ? Date.parse(e.timestamp) || 0 : 0;
@@ -192,7 +217,7 @@ function itemsOf(e) {
     // The pictures themselves are fetched one at a time when the message is drawn (imageAt below): imgAt says which
     // blocks of the entry they are.
     const imgAt = blocks.map((b, i) => (b && b.type === 'image' ? i : -1)).filter((i) => i >= 0);
-    if (text || imgAt.length) out.push(imgAt.length ? { id, role: 'user', text, images: imgAt.length, imgAt, ts } : { id, role: 'user', text, ts });
+    if (text || imgAt.length) out.push(imgAt.length ? { id, role: 'user', text, images: imgAt.length, imgAt, imgTag: imgAt.map((i) => tagOf(blocks, i)), ts } : { id, role: 'user', text, ts });
     // The answers to a question form. They come back as a tool result whose
     // sentence varies ("Your questions have been answered: ..." in one place,
     // "The user answered: ..." in another, both seen 2026-11-12), so the
@@ -265,4 +290,4 @@ function cachedHistory(file, o) {
   return res;
 }
 
-module.exports = { handedFiles, queuedSaid, QUEUED_MARK_TEXT: '"type":"queued_command"', eachLineBackward, itemsOf, toolSummary, toolDetail, toolDetailAt, imageAt, questionsOf, readHistory, cachedHistory };
+module.exports = { handedFiles, queuedSaid, QUEUED_MARK_TEXT: '"type":"queued_command"', eachLineBackward, itemsOf, toolSummary, toolDetail, toolDetailAt, imageAt, picturesOf, questionsOf, readHistory, cachedHistory };

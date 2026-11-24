@@ -93,7 +93,6 @@ class Channels {
     this.rolesSeen = {};
     try { const j = JSON.parse(fs.readFileSync(this.rolesFile, 'utf8')); if (j && typeof j === 'object' && !Array.isArray(j)) this.rolesSeen = j; } catch (e) {}
     this.homeDir = opts.homeDir || os.homedir();
-    this.quotaSnap = null;   // the account limits as last reported to a conversation run here
     this.settleMs = opts.settleMs === undefined ? 400 : opts.settleMs;   // see _settleSoon
     this.wakeGraceMs = opts.wakeGraceMs === undefined ? 6000 : opts.wakeGraceMs;   // see status()
     // Slash commands per folder, asked from Claude Code itself (see commandsFor).
@@ -549,10 +548,6 @@ class Channels {
       c.changedAt = Date.now();
       this._emit(c, this._permissionEvent(e));
       this._emit(c, { type: 'state', status: this.status(c) });
-    } else if (e.type === 'rate_limit_event') {
-      // The account's usage limits as this conversation was just told them (see lib/quota.js).
-      const snap = require('./quota').fromEvent(e.rate_limit_info);
-      if (snap) this.quotaSnap = snap;
     } else if (e.type === 'result') {
       // Cost and tokens. Each result carries totals for THIS process since it
       // started, so the channel adds up the increase and keeps its own running

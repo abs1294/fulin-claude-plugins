@@ -65,7 +65,7 @@ function said(e) {
   if (e.type !== 'user' || e.isCompactSummary || !e.message) return false;
   const c = e.message.content;
   if (typeof c === 'string') return !!c.trim();
-  return Array.isArray(c) && c.some((b) => b && b.type === 'text') && !c.some((b) => b && b.type === 'tool_result');
+  return Array.isArray(c) && c.some((b) => b && (b.type === 'text' || b.type === 'image')) && !c.some((b) => b && b.type === 'tool_result');
 }
 
 module.exports = { resumePoint, UUID };

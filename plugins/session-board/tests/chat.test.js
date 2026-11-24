@@ -316,25 +316,29 @@ test('background work: the turn ending is not "idle", the process is kept, and C
   ch.shutdown(); again.shutdown();
 });
 
-test('quota: the window most sessions agree on, its highest figure; a board conversation counts as one more observer', () => {
-  const Q = require('../lib/quota');
-  const d = tmp();
-  const f = path.join(d, 'rl.json');
-  const now = 1_800_000_000_000, sec = now / 1000;
-  const w = (pct, inSec) => ({ used_percentage: pct, resets_at: sec + inSec });
-  fs.writeFileSync(f, JSON.stringify({
-    a: { t: sec - 20, five_hour: null, seven_day: w(31, 500000) },
-    b: { t: sec - 10, five_hour: null, seven_day: w(29, 500000) },
-    c: { t: sec - 200, five_hour: w(80, -5), seven_day: w(90, 700000) },          // 5h already reset; a lone session on a different 7d window
-    d: { t: sec - 30, five_hour: w(12, 3600), seven_day: w(22, 500000) },
-    junk: { t: sec, seven_day: { used_percentage: 99, resets_at: sec + 30 * 86400 } },   // too far ahead to be real
-  }));
-  assert.deepStrictEqual(Q.readQuota([], f, now), { fiveHour: { pct: 12, resetsAt: (sec + 3600) * 1000 }, sevenDay: { pct: 31, resetsAt: (sec + 500000) * 1000 }, seenAt: now });
-  const ev = Q.fromEvent({ rateLimitType: 'seven_day', utilization: 0.34, resetsAt: sec + 500000, unifiedWindows: { seven_day: { utilization: 0.34, resetsAt: sec + 500000 } } }, now);
-  assert.deepStrictEqual(ev, { t: sec, five_hour: null, seven_day: { used_percentage: 34, resets_at: sec + 500000 } });
-  assert.strictEqual(Q.readQuota([ev], f, now).sevenDay.pct, 34);
-  assert.deepStrictEqual(Q.readQuota([], path.join(d, 'none.json'), now), { fiveHour: null, sevenDay: null, seenAt: 0 });
-  assert.strictEqual(Q.fromEvent({ status: 'allowed' }, now), null);
+test('quota: read from the one file cc-statusline keeps', () => {
+  const Q = require('../lib/quota'), d = tmp(), a = path.join(d, 'account.json'), now = 1_800_000_000_000, sec = now / 1000, w = (pct, inSec) => ({ used_percentage: pct, resets_at: sec + inSec });
+  const read = (o, at = now) => { fs.writeFileSync(a, typeof o === 'string' ? o : JSON.stringify(o)); return Q.readQuota(a, at); };
+  assert.deepStrictEqual(read({ v: 1, at: now - 60000, five_hour: w(1.4, 3600), seven_day: w(34, 345600) }), { fiveHour: { pct: 1, resetsAt: (sec + 3600) * 1000 }, sevenDay: { pct: 34, resetsAt: (sec + 345600) * 1000 }, seenAt: now - 60000, from: 'asked' });
+  // no such limit; the limit with no window running; one that is over
+  const q = (five) => { const x = read({ v: 1, at: now, five_hour: five, seven_day: w(34, 345600) }); return [x.fiveHour, x.sevenDay.pct]; };
+  assert.deepStrictEqual([q(null), q({ used_percentage: 0, resets_at: null }), q(w(50, -5)), q(w(50, 30 * 86400)), q('x')], Array(5).fill([null, 34]));
+  assert.strictEqual(read({ v: 1, at: now - 5 * 86400000, five_hour: null, seven_day: w(34, 3600) }).seenAt, now - 5 * 86400000, 'old: said how old, not thrown away');
+  // nothing there, half written, an account without limits, asked and never answered, a time that is not yet
+  const none = { fiveHour: null, sevenDay: null, seenAt: 0, from: '' };
+  assert.deepStrictEqual([Q.readQuota(path.join(d, 'x.json'), now), read('{"at":'), read('[]'), read({ v: 1, tried: now }), read({ v: 1, at: now + 3600000, seven_day: w(5, 345600) })], [none, none, none, none, none]);
+  assert.strictEqual(read({ v: 1, none: true, tried: now }).from, 'none'); assert.strictEqual(read({ at: now, seven_day: w(5, 345600) }).from, '', 'no v: from before it was kept up to date');
+  // which one "after the limit resets" is
+  const wait = (o) => { fs.writeFileSync(a, JSON.stringify(Object.assign({ v: 1, at: now }, o))); const x = Q.waitFor(a, now); return x.error || [x.window, x.at, x.pct]; }, S7 = w(75, 172800);
+  assert.deepStrictEqual([wait({ five_hour: w(97, 3600), seven_day: S7 }), wait({ five_hour: null, seven_day: S7 })], [['5h', (sec + 3600) * 1000, 97], ['7d', (sec + 172800) * 1000, 75]]);
+  assert.match(wait({ five_hour: { used_percentage: 0, resets_at: null }, seven_day: S7 }), /沒有 5 小時額度在計時/); assert.match(wait({ five_hour: w(97, -5), seven_day: S7 }), /沒有 5 小時額度在計時/); assert.match(wait({ five_hour: { used_percentage: 100, resets_at: null }, seven_day: S7 }), /用完了，但查不到/);
+  // the 7-day one used up: that one, whatever the 5-hour one does
+  { const F7 = w(100, 172800); fs.writeFileSync(a, JSON.stringify({ v: 1, at: now, five_hour: w(3, 3600), seven_day: F7 })); assert.deepStrictEqual(Q.waitFor(a, now), { window: '7d', at: (sec + 172800) * 1000, pct: 100, full: true }); assert.deepStrictEqual([wait({ five_hour: { used_percentage: 0, resets_at: null }, seven_day: F7 }), wait({ five_hour: w(3, 3600), seven_day: w(100, -5) })], [['7d', (sec + 172800) * 1000, 100], ['5h', (sec + 3600) * 1000, 3]]); assert.match(wait({ five_hour: w(3, 3600), seven_day: { used_percentage: 100, resets_at: null } }), /7 天額度用完了，但查不到/); }
+  assert.match(wait({ five_hour: null, seven_day: { used_percentage: 0, resets_at: null } }), /沒有 7 天額度在計時/); assert.match(wait({ five_hour: null, seven_day: w(100, -5) }), /沒有 7 天額度在計時/); assert.match(wait({ at: now - 2 * 86400000, five_hour: null, seven_day: w(75, -5) }), /太舊/); assert.match(wait({ at: now - 10 * 86400000, five_hour: w(75, -5), seven_day: w(75, -5) }), /太舊/); assert.match(wait({ five_hour: 'x', seven_day: S7 }), /格式不認得/); assert.match(wait({ five_hour: null, seven_day: null }), /沒有可以等的/); assert.match(wait({ at: undefined, none: true }), /沒有額度限制/); assert.match(Q.waitFor(path.join(d, 'x.json'), now).error, /需要 cc-statusline/);
+});
+
+test('the board gathers no limits itself: nothing is started to ask, what a conversation reports is not kept', () => {
+  for (const f of ['server.js', 'lib/chat.js', 'lib/quota.js']) assert.ok(!/get_usage|quotaSnap|rate_limit_event|SNAPSHOT_FILE|'rate-limit-snapshots\.json'/.test(fs.readFileSync(path.join(__dirname, '..', f), 'utf8')), f);
 });
 
 test('commandsFor asks Claude Code about the folder itself, once, and keeps the answer', async () => {

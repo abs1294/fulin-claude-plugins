@@ -219,7 +219,7 @@ function files(projectsDir, since) {
 function describe(f) {
   const e = ends(f.file, f);
   const t = S.cachedTitles(f.file);
-  return { sessionId: f.sessionId, cwd: e.cwd, folder: e.cwd ? baseName(e.cwd) : '', title: t.custom || t.ai || e.first || '', named: !!(t.custom || t.ai), entry: e.entry || '', blocks: e.blocks === true, src: e.src || '', first: e.first, last: e.last, at: f.mtimeMs, size: f.size };
+  return { sessionId: f.sessionId, cwd: e.cwd, folder: e.cwd ? baseName(e.cwd) : '', title: t.custom || t.ai || e.first || '', named: !!(t.custom || t.ai), entry: e.entry || '', src: e.src || '', first: e.first, last: e.last, at: f.mtimeMs, size: f.size };
 }
 
 // o: {projectsDir, exclude: Set of session ids (open now, hidden), q, limit, now, days}

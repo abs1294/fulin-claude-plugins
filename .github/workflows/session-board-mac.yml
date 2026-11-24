@@ -22,6 +22,33 @@ jobs:
           node --test tests/*.test.js > /tmp/ut.log 2>&1 || true
           awk '/^not ok /{p=1;n=0} p{print; n++; if(n>40) p=0} /^  [.][.][.]$/{p=0}' /tmp/ut.log | grep -v "duration_ms" | head -200 || true
           grep -E "^# (tests|pass|fail)" /tmp/ut.log
+      - name: the other plugins' tests
+        continue-on-error: true
+        run: |
+          rc=0
+          for f in plugins/cc-statusline/hooks/tests/*.test.js plugins/goal2/tests/*.test.js; do
+            echo "== $f"; node "$f" > /tmp/o.log 2>&1 || rc=1
+            grep -E "FAIL|passed, |Error" /tmp/o.log | cut -c1-600 | head -30
+          done
+          for f in token-scan api-use compact-reinject-files; do
+            t=plugins/harness/tests/lib/$f.js; [ -f "$t" ] || continue
+            echo "== $t"; node "$t" > /tmp/o.log 2>&1 || rc=1
+            grep -E "^FAIL|合計" /tmp/o.log | cut -c1-600 | head -30
+          done
+          if [ -f plugins/harness/tests/run.js ]; then echo "== harness"; node plugins/harness/tests/run.js --skip-probe > /tmp/o.log 2>&1 || rc=1; grep -E "^FAIL|^合計" /tmp/o.log | cut -c1-400 | tail -30; fi
+          echo "rc=$rc"; exit $rc
+      - name: the limits asked for real, by an npm install of Claude Code that nobody is signed in to
+        continue-on-error: true
+        run: |
+          npm i -g @anthropic-ai/claude-code > /tmp/npm.log 2>&1 || tail -5 /tmp/npm.log
+          which claude; claude --version
+          export HOME=$(mktemp -d); mkdir -p "$HOME/.claude"
+          time node plugins/cc-statusline/hooks/account-limits.js --ask
+          cat "$HOME/.claude/cc-statusline/state/account-limits.json" || echo "no file"; echo
+          ls -la "$HOME/.claude/sessions" 2>/dev/null || echo "no sessions folder"
+          echo '{"session_id":"s","hook_event_name":"Stop"}' | env -u X node plugins/cc-statusline/hooks/message-tracker.js; echo "hook exit $?"
+          sleep 8; ps axo pid,command | grep -E "account-limits|get_usage|claude -p" | grep -v grep || echo "nothing left running"
+          echo '{"session_id":"s","cwd":"/tmp","model":{"id":"claude-opus-5-5","display_name":"Opus"},"cost":{}}' | COLUMNS=120 node plugins/cc-statusline/statusline.js | head -12
       - name: a stand-in claude on PATH (writes down where and how it was started, then waits)
         run: |
           mkdir -p "$HOME/fakebin"

@@ -39,7 +39,7 @@ const F = require('./lib/files');
 const { sessionStats } = require('./lib/stats');
 const { limitFor } = require('./lib/ctxlimit');
 const config = require('./lib/config');
-const { readQuota } = require('./lib/quota');
+const { readQuota, waitFor } = require('./lib/quota');
 const { Monthly, ymOf } = require('./lib/monthly');
 const K = require('./lib/keep');
 const autostart = require('./lib/autostart');
@@ -560,31 +560,39 @@ function createServer(token, port, deps = {}) {
   const noteOpened = (sid, by, name, at = Date.now()) => { const v = openedBy(); if (!sid || v[sid]) return; v[sid] = { by, name: String(name || '').slice(0, 80), at }; config.setValue('openedBy', Object.fromEntries(Object.entries(v).slice(-2000))); };
   // Started by a program, not by you (byProgram): not one of the board's own conversations (remembered since 0.4.0), nor one
   // you named here - or in a folder named in hideProgramFolders.
-  const inFolders = (cwd, list) => { const f = path.normalize(String(cwd || '')).toLowerCase(); return !!cwd && list.some((x) => { const d = path.normalize(x).toLowerCase(); return f === d || f.startsWith(d + path.sep); }); };
-  // The board itself runs `claude -p` (entrypoint sdk-cli, measured). Anything started through the Agent SDK
-  // (sdk-ts, sdk-py: claude-mem sets CLAUDE_CODE_ENTRYPOINT="sdk-ts" in its worker) is a program's whatever form its
-  // messages take - the SDK sends content blocks too, so the first-message test would let it through.
-  const SDK_ONLY = /^sdk-(ts|py)$/;
+  const Folders = require('./lib/folders');   // a folder: its whole path, or only its name
   // Told by what Claude Code itself records, not by which program it was (measured 2026-11-23, six ways of starting one, also
   // from a hook or a Bash tool with the terminal's CLAUDE_CODE_ENTRYPOINT in its environment): how it was started is never
   // 'cli' ('cli' anywhere: you opened it in a terminal, also one a program began). Where that was not recorded: first words
   // that came from 'sdk', not typed, or one that is open without a window.
-  // Content blocks speak for a conversation only where the board did not remember its own yet: last said something in
-  // before BLOCKS_UNTIL (0.4.0 was 2026-11-18) and not open now. Any program's blocks were let through by that until then.
-  // What runs in claude-mem's folder is its own, whatever is recorded.
-  const BLOCKS_UNTIL = Date.UTC(2026, 10, 21), MEM = /[\\/]\.claude-mem[\\/]/i;
-  // x: {sid, entry, src, blocks, at (when it was last written to; now for one that is open), cwd, bare: no window of its own and nothing recorded}
+  // (One of the board's own from before it remembered them - 0.4.0, 2026-11-18 - is taken for a program's too: name it, and it
+  // is yours. No program is told by its folder: a folder you want left out is named in hideProgramFolders.)
+  // x: {sid, entry, src, bare: no window of its own and nothing recorded}
   const byProgram = (x, known) => {
     if (known.has(x.sid) || x.entry === 'board') return false;
-    if (MEM.test(String(x.cwd || '') + '/')) return true;
     if (Object.prototype.hasOwnProperty.call(customTitles(), x.sid)) return false;
-    if (x.entry ? x.entry === 'cli' : x.src !== 'sdk' && !x.bare) return false;
-    return SDK_ONLY.test(x.entry || '') || !x.blocks || !(x.at < BLOCKS_UNTIL);
+    return x.entry ? x.entry !== 'cli' : x.src === 'sdk' || !!x.bare;
   };
-  const pastProgram = (d, known) => byProgram({ sid: d.sessionId, entry: d.entry, src: d.src, blocks: d.blocks, at: d.at, cwd: d.cwd }, known);
+  const pastProgram = (d, known) => byProgram({ sid: d.sessionId, entry: d.entry, src: d.src }, known);
   // hideProgramFolders is its own rule ("一律不列出"): it hides whatever is in those folders, whether or not
   // hideProgramSessions is on.
-  const inHiddenFolder = (cwd) => inFolders(cwd, pref('hideProgramFolders'));
+  const inHiddenFolder = (cwd) => Folders.withinAny(cwd, pref('hideProgramFolders'));
+  // The folders conversations ran in, and how many in each (the open ones among them: open). Kept for half a minute.
+  let ranIn = { at: 0, counts: new Map(), open: new Map(), job: null };
+  const foldersRan = () => {
+    if (ranIn.job) return ranIn.job;
+    if (Date.now() - ranIn.at < 30000) return Promise.resolve(ranIn);
+    ranIn.job = (async () => {
+      const counts = new Map(), open = new Map(), add = (m, c) => { if (c) m.set(c, (m.get(c) || 0) + 1); }, now = sessions();
+      for (const s of now) { add(counts, s.cwd); if (!s.programHidden || s.folderHidden) add(open, s.cwd); }
+      for (const x of (await Past.listAsync({ projectsDir: S.DEFAULTS.projectsDir, days: 0, limit: 100000, exclude: new Set(now.map((s) => s.sessionId)) })).items) add(counts, x.cwd);
+      ranIn = { at: Date.now(), counts, open, job: null }; return ranIn;
+    })().catch((e) => { ranIn.job = null; throw e; });
+    return ranIn.job;
+  };
+  const folderSums = (entry, f) => { let n = 0, open = 0; for (const [c, k] of f.counts) if (Folders.within(c, entry)) n += k; for (const [c, k] of f.open) if (Folders.within(c, entry)) open += k; return { n, open }; };
+  // What was typed for a folder to work in: its path, or the name of one that was used. -> {ok, path} | {ok: false, error, choices}
+  const folderFrom = async (text) => Folders.resolve(text, Folders.isName(text) ? (await foldersRan()).counts : new Map(), isDir);
   // Where a conversation's first words came from ('typed', 'queued', 'sdk', '' not recorded): it never changes once they
   // are written, so it is read once per transcript - not on every poll, while the conversation keeps growing.
   // Kept by transcript file, not by session id alone: a session that comes to be written to another file (moved to
@@ -860,7 +868,7 @@ function createServer(token, port, deps = {}) {
         if (sec.has(s.sessionId)) { s.secretary = true; s.programHidden = true; }
         if (inHiddenFolder(s.cwd)) { s.folderHidden = true; s.programHidden = true; }
         if (s.owner === 'board') continue;
-        if (byProgram({ sid: s.sessionId, entry: s.entrypoint, src: s.entrypoint ? '' : firstSource(s.sessionId, s.cwd), blocks: false, at: now, cwd: s.cwd, bare: s.headless && !s.parked && !s.entrypoint }, known)) { s.byProgram = true; if (hideProg) s.programHidden = true; }
+        if (byProgram({ sid: s.sessionId, entry: s.entrypoint, src: s.entrypoint ? '' : firstSource(s.sessionId, s.cwd), bare: s.headless && !s.parked && !s.entrypoint }, known)) { s.byProgram = true; if (hideProg) s.programHidden = true; }
       }
       if (keeper) for (const s of list) if (keepable(s)) s.kept = keeper.isKept(s.sessionId);
       for (const s of list) if (s.cwd) s.next = nextFor(s.cwd);
@@ -958,7 +966,7 @@ function createServer(token, port, deps = {}) {
   }
   const monthly = deps.monthly || new Monthly();
   const statsExtra = (sid, cwd) => ({ windows: channels.modelWindows, boardUsage: channels.get(sid), limit: (model) => limitFor(cwd, model) });
-  const quota = () => readQuota([channels.quotaSnap]);
+  const quota = () => readQuota();   // gathered by cc-statusline, only read here
 
   // ── schedules: what the runner needs from the board ──
   // The mode a session runs in, from the end of its transcript ("bypassPermissions", "auto", …).
@@ -1460,7 +1468,7 @@ function createServer(token, port, deps = {}) {
         // opened before the file changed sees a different value and reloads
         // itself; otherwise it keeps running old code until someone presses F5
         // (which is how "the links still are not clickable" happened, 2026-11-13).
-        if (p === '/api/sessions') return send(res, 200, { now: Date.now(), version: VERSION, page: pageTag(), features: { platform: process.platform, loadMine: loadDraw.mine(), textSize: textSize(), textSizeTouch: textSize('textSizeTouch'), prefs: prefs(), fork: config.value('showFork', false) === true, goal2: isOn('goal2') && !!goal2.root(), integrations: Object.fromEntries(Object.entries(integrationsNow()).map(([k, x]) => [k, x.on])) }, sessions: sessions(), inbox: inbox && inbox.enabled() ? inbox.inbox.counts() : null /* null: the inbox is off, the page does not show it */, noticeOpen: notices.openCount() + schedules.noticeCount(), schedNotices: schedules.noticeCount() });
+        if (p === '/api/sessions') return send(res, 200, { now: Date.now(), version: VERSION, page: pageTag(), features: { platform: process.platform, editPics: true, loadMine: loadDraw.mine(), textSize: textSize(), textSizeTouch: textSize('textSizeTouch'), prefs: prefs(), fork: config.value('showFork', false) === true, goal2: isOn('goal2') && !!goal2.root(), integrations: Object.fromEntries(Object.entries(integrationsNow()).map(([k, x]) => [k, x.on])) }, sessions: sessions(), inbox: inbox && inbox.enabled() ? inbox.inbox.counts() : null /* null: the inbox is off, the page does not show it */, noticeOpen: notices.openCount() + schedules.noticeCount(), schedNotices: schedules.noticeCount() });
         if (p === '/api/inbox') {
           if (!inbox) return send(res, 200, { threads: [], status: null });
           return send(res, 200, { threads: inbox.inbox.threads({ status: q.get('status') || '', triage: q.get('triage') || '', open: q.get('open') === '1', source: q.get('source') || '', q: String(q.get('q') || '').slice(0, 100), limit: 200 }), status: inbox.status(), routes: inbox.inbox.routes() });
@@ -1504,6 +1512,13 @@ function createServer(token, port, deps = {}) {
           notify: config.value('notify', true) !== false, notifyClick: Notify.isRegistered(), notifyOwnChain: Notify.ownChainPresent(), showFork: config.value('showFork', false) === true, autoHideDays: autoHideDays(), prefs: prefs(), integrations: integrationsNow(),
           httpsUrl: config.value('remoteTailscale', false) === true ? await httpsUrl() : '',
           remote: Object.assign({ on: config.value('remoteTailscale', false) === true }, server.remoteState(), q.get('devices') === '1' ? { tailscale: await (deps.remoteInfo || Remote.info)() } : {}) });
+        // The folders conversations ran in, for a field one is typed in: found, with q in their name (n: how many conversations).
+        // typed: what q itself would cover; entries: what each entry of hideProgramFolders covers.
+        if (p === '/api/folders') {
+          const f = await foldersRan(), text = String(q.get('q') || '').trim().slice(0, 400);
+          let total = 0; for (const n of f.counts.values()) total += n;
+          return send(res, 200, { total, found: Folders.search(text, f.counts), typed: text ? folderSums(text, f) : null, entries: q.get('entries') === '1' ? pref('hideProgramFolders').map((v) => Object.assign({ v, name: Folders.isName(v) }, folderSums(v, f))) : undefined });
+        }
         // Conversations of the last 30 days that are not open now, newest first; q searches title, folder and what you said first and last.
         if (p === '/api/past') {
           // a search finds what you took off the lists too (2026-11-23: 「怎麼可能沒有」), and says so
@@ -1716,7 +1731,7 @@ function createServer(token, port, deps = {}) {
           if (s.owner === 'terminal' && file && st.agents) { try { st.agents.detail = Agents.running(file); } catch (e) {} }
           return send(res, 200, Object.assign(st, { quota: quota() }));
         }
-        if (p === '/api/quota') return send(res, 200, quota());
+        if (p === '/api/quota') return send(res, 200, Object.assign(quota(), { wait: waitFor() }));
         // Tokens and API-equivalent cost for a calendar month, all sessions on this machine.
         // a day's summary: which days of a month have one (?month=), or one of them (?date=)
         if (p === '/api/loaddraw') return send(res, 200, loadDraw.state());
@@ -2101,8 +2116,8 @@ function createServer(token, port, deps = {}) {
       if (p === '/api/plugins/self-heal') { if (typeof body.on !== 'boolean') return send(res, 400, { ok: false, error: '要給 on: true 或 false' }); return send(res, 200, Plugins.setSelfHeal(body.on)); }
       // A goal handed to goal2 now (lib/goal2.js start), from the 外掛 page.
       if (p === '/api/goals/start') {
-        const cwd = typeof body.cwd === 'string' ? body.cwd.trim() : '', task = typeof body.task === 'string' ? body.task.trim() : '', cond = typeof body.condition === 'string' ? body.condition.trim() : '';
-        if (!isDir(cwd)) return send(res, 400, { ok: false, error: '這個資料夾不存在：' + cwd.slice(0, 200) });
+        const at = await folderFrom(body.cwd), cwd = at.path || '', task = typeof body.task === 'string' ? body.task.trim() : '', cond = typeof body.condition === 'string' ? body.condition.trim() : '';
+        if (!cwd) return send(res, 400, { ok: false, error: at.error || '請選一個資料夾', choices: at.choices });
         if (!task) return send(res, 400, { ok: false, error: '請寫下要它做什麼' });
         if (!cond) return send(res, 400, { ok: false, error: '請寫下完成條件：做到什麼程度、怎麼檢查算完成' });
         const r = await goal2.start(task.slice(0, 20000), cond.slice(0, 3500), path.resolve(cwd));
@@ -2276,7 +2291,10 @@ function createServer(token, port, deps = {}) {
         const c = channels.get(sid);
         if (!c) return send(res, 400, { ok: false, error: '只有看板裡的對話可以編輯重送' });
         const text = typeof body.text === 'string' ? body.text : '';
-        if (!text.trim()) return send(res, 400, { ok: false, error: '改好的訊息是空的' });
+        // pics: which of its pictures go along (the block each is in, as /api/messages says: imgAt)
+        const keep = Array.isArray(body.pics) ? [...new Set(body.pics)].filter((i) => Number.isInteger(i) && i >= 0) : [];
+        if (keep.length > 8) return send(res, 400, { ok: false, error: '一則最多 8 張圖，這則留了 ' + keep.length + ' 張，請拿掉幾張' });
+        if (!text.trim() && !keep.length) return send(res, 400, { ok: false, error: '改好的訊息是空的' });
         // a member of a collaboration under way: the others write to it by its name and the ledger lists its id - a new
         // conversation in its place would drop out of it
         if (collabList().some((x) => x.state !== 'ended' && x.members.some((m) => m.sessionId === sid))) return send(res, 409, { ok: false, error: '這個對話正在合作中，換成新對話會讓其他成員找不到它。要改的話，先在合作頁結束這個合作' });
@@ -2284,6 +2302,8 @@ function createServer(token, port, deps = {}) {
         if (!file) return send(res, 400, { ok: false, error: '這個對話還沒有紀錄' });
         const rp = Rewind.resumePoint(file, body.at);
         if (!rp.ok) return send(res, 400, rp);
+        const pics = keep.length ? require('./lib/history').picturesOf(file, body.at, keep) : [];
+        if (!pics) return send(res, 400, { ok: false, error: '這則訊息的圖在紀錄裡讀不到，沒有重來' });
         // its process ended before the new one reads its transcript (it could still be writing to it). One at a time for
         // a conversation (pressed twice, the second would carry the same one on again), and it must still be there after
         // the wait (closed meanwhile: nothing to carry on)
@@ -2306,7 +2326,7 @@ function createServer(token, port, deps = {}) {
         const named = customTitles()[sid];
         if (named) config.setValue('customTitles', Object.assign({}, customTitles(), { [n.sessionId]: named }));
         if (channels._save) channels._save();
-        const r = channels.send(n.sessionId, text);
+        const r = channels.send(n.sessionId, text, pics.length ? pics : undefined);
         if (r && r.ok === false) {
           n.unsent = []; channels.remove(n.sessionId);   // (the old one still has them, pictures and all)
           if (named) { const t = Object.assign({}, customTitles()); delete t[n.sessionId]; config.setValue('customTitles', t); }
@@ -2382,14 +2402,12 @@ function createServer(token, port, deps = {}) {
         const id = typeof body.id === 'string' ? body.id : '';
         if (p === '/api/inbox/poll') { const r = await inbox.poll(SOURCES_OK.includes(body.source) ? body.source : undefined); return send(res, 200, Object.assign({ ok: true }, r)); }
         if (p === '/api/inbox/assign') {
-          const folder = typeof body.folder === 'string' ? body.folder.trim().replace(/^["']+|["']+$/g, '') : '';
-          if (folder && !isDir(folder)) return send(res, 400, { ok: false, error: '這個資料夾不存在：' + folder.slice(0, 200) });
-          return send(res, 200, { ok: inbox.inbox.assign(id, folder ? path.resolve(folder) : '') });
+          const at = await folderFrom(body.folder), folder = at.path; if (!at.ok) return send(res, 400, at);
+          return send(res, 200, { ok: inbox.inbox.assign(id, folder ? path.resolve(folder) : ''), folder: folder ? path.resolve(folder) : '' });
         }
         if (p === '/api/inbox/done') return send(res, 200, { ok: inbox.inbox.setDone(id, body.done !== false) });
         if (p === '/api/inbox/route') {
-          const rf = typeof body.root_folder === 'string' ? body.root_folder.trim().replace(/^["']+|["']+$/g, '') : '';
-          if (rf && !isDir(rf)) return send(res, 400, { ok: false, error: '這個資料夾不存在：' + rf.slice(0, 200) });
+          const at = await folderFrom(body.root_folder), rf = at.path; if (!at.ok) return send(res, 400, at);
           const r = inbox.inbox.saveRoute(Object.assign({}, body, { root_folder: rf ? path.resolve(rf) : '' }));
           return send(res, r.ok ? 200 : 400, r);
         }
@@ -2445,14 +2463,14 @@ function createServer(token, port, deps = {}) {
         const now = ownDigest(); return send(res, 200, { ok: true, on: !!(now && now.enabled), schedule: now });
       }
       if (p === '/api/schedule/save') {
-        // "After the 5-hour quota resets": the reset time as it stands now, a minute after, as a one-off. (What goal2's
+        // "After the limit resets": the reset time as it stands now, a minute after, as a one-off. (What goal2's
         // delaylocal does - but kept by the board, so Claude Code does not have to stay open until then.)
         if (body.kind === 'reset') {
-          const fh = quota().fiveHour;
-          if (!fh || !fh.resetsAt || fh.resetsAt <= Date.now()) return send(res, 400, { ok: false, error: '現在沒有 5 小時額度在計時（沒用到、或已經重置了），不用等，直接選一個時間就好' });
-          const t = new Date(fh.resetsAt + 60000), pad = (n) => String(n).padStart(2, '0');
+          const w = waitFor(); if (w.error) return send(res, 400, { ok: false, error: w.error });
+          const t = new Date(w.at + 60000), pad = (n) => String(n).padStart(2, '0');
           body = Object.assign({}, body, { kind: 'once', date: t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate()), at: pad(t.getHours()) + ':' + pad(t.getMinutes()) });
         }
+        if (body && body.target !== 'session' && body.cwd) { const at = await folderFrom(body.cwd); if (!at.ok) return send(res, 400, at); body.cwd = at.path; }
         const c = Sched.clean(body, isDir);
         if (!c.ok) return send(res, 400, { ok: false, error: c.error });
         if (c.value.target === 'digest') { const d = ownDigest(); if (!d || Number(body.id) !== d.id) return send(res, 400, { ok: false, error: '每天上班統整在收件頁打開，這裡只改它的時間' }); }
@@ -2607,14 +2625,15 @@ function createServer(token, port, deps = {}) {
       // The roles a conversation in a folder can be started as, and choosing one for a conversation not yet begun.
       if (p === '/api/roles') {
         const c = sid ? channels.get(sid) : null;
-        const cwd = c ? c.cwd : typeof body.cwd === 'string' ? body.cwd : '';
+        const at = c ? { ok: true, path: c.cwd } : await folderFrom(body.cwd), cwd = at.path || '';
+        if (!at.ok) return send(res, 200, { ok: true, roles: [], error: at.error });
         if (!isDir(cwd)) return send(res, 200, { ok: true, roles: [] });
         return send(res, 200, { ok: true, roles: channels.roles(path.resolve(cwd)), agent: c && c.agent ? c.agent : '' });
       }
       if (p === '/api/role') { const r = channels.setAgent(sid, typeof body.agent === 'string' ? body.agent : ''); if (r.ok) fresh(); return send(res, r.ok ? 200 : 400, r); }
       if (p === '/api/new') {
-        if (!isDir(body.cwd)) return send(res, 400, { ok: false, error: '這個資料夾不存在：' + String(body.cwd || '').slice(0, 200) });
-        const c = channels.create(path.resolve(body.cwd));
+        const at = await folderFrom(body.cwd); if (!at.ok || !at.path) return send(res, 400, { ok: false, error: at.error || '請選一個資料夾', choices: at.choices });
+        const c = channels.create(path.resolve(at.path));
         if (body.by === 'line') { setSecretary(c.sessionId, true); noteOpened(c.sessionId, 'line'); }
         fresh();
         return send(res, 200, { ok: true, sessionId: c.sessionId });

@@ -113,7 +113,7 @@ function buildPrompt(db, threads, me, now = Date.now()) {
   }
   const who = (me || []).map((x) => String(x).replace(/[\r\n"<>]/g, ' ').trim().slice(0, 80)).filter(Boolean).slice(0, 12);
   const wd = '日一二三四五六'[new Date(now).getDay()];
-  return { text: ['現在時間：' + new Date(now).toLocaleString('zh-TW', { hour12: false }) + '（星期' + wd + '）', '請分類下面 ' + blocks.length + ' 串對話。每串裡「新進來」的部分是重點：判斷它之後，他是否還欠一個動作或回答。',
+  return { text: ['現在時間：' + new Date(now).toLocaleString('zh-TW', { hour12: false }).replace(/\s+/g, ' ') + '（星期' + wd + '）', '請分類下面 ' + blocks.length + ' 串對話。每串裡「新進來」的部分是重點：判斷它之後，他是否還欠一個動作或回答。',
     who.length ? '他本人的信箱與名字：' + who.join('、') + '。這些寄出或署名的內容是他自己寫的（引文裡的也是），不是要他處理的事。' : '（沒有提供他本人的信箱與名字：只有標成「我」的算他寫的。）',
     '', ...blocks, '只輸出 JSON 陣列。'].join('\n'), count: blocks.length };
 }

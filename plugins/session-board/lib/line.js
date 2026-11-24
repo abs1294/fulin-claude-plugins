@@ -298,7 +298,7 @@ class Secretary {
   }
   byNum(snap, n) { const k = Number(String(n).replace(/^#/, '')); return snap.list.find((x) => x.n === k) || (snap.found || []).find((x) => x.n === k) || null; }
   describe(snap) {
-    const L = ['現在時間：' + new Date(snap.now).toLocaleString('zh-TW', { hour12: false }), '', '看板上的對話（新到舊）：'];
+    const L = ['現在時間：' + new Date(snap.now).toLocaleString('zh-TW', { hour12: false }).replace(/\s+/g, ' '), '', '看板上的對話（新到舊）：'];
     snap.list.forEach((s) => L.push('#' + s.n + ' 「' + cut(s.title || s.name || '(沒有標題)', 60) + '」 資料夾：' + (s.cwd || '') + ' 狀態：' + (STATUS[s.status] || s.status || '') + ' owner：' + (s.owner || '') + ' 最後活動：' + ago(s.activeAt, snap.now)
       + (s.lastUser ? '\n   他最後說：' + cut(s.lastUser, 120) : '') + (s.lastAssistant ? '\n   Claude 最後說：' + cut(s.lastAssistant, 240) : '')));
     if ((snap.places || []).length) L.push('', '可以開對話的資料夾：', ...snap.places.map((f) => '・' + f.cwd + (f.root ? '（工作區根目錄）' : f.titles.length ? ' 做過：' + f.titles.join('、') : '')));
@@ -317,7 +317,7 @@ class Secretary {
   // the change as it will be done, in this program's words (what you say yes to)
   plan(a, snap) {
     const s = a && a.n ? this.byNum(snap, a.n) : null;
-    const name = (x) => '「' + cut(x.title || x.name || x.sessionId, 40) + '」（' + path.basename(x.cwd || '') + '）';
+    const name = (x) => '「' + cut(x.title || x.name || x.sessionId, 40) + '」（' + (String(x.cwd || '').split(/[\\/]/).filter(Boolean).pop() || '') + '）';
     if (!a || typeof a !== 'object') return null;
     // the pictures you sent, handed on with the message (asked for by "images": true); the ones at this moment, by file
     let images = null;

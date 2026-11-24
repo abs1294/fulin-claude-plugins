@@ -752,7 +752,7 @@ test('settings kept in the board: the left column, the office, sessions a progra
     fs.writeFileSync(path.join(dir, sid + '.jsonl'), line({ type: 'user', sessionId: sid, cwd, entrypoint: entry, timestamp: new Date().toISOString(), message: { role: 'user', content: '問一題 ' + sid.slice(-2) } }) + '\n');
   };
   write(PROG, OTHER, 'sdk-cli'); write(MINE, OTHER, 'cli'); write(BOARDS, OTHER, 'sdk-cli');
-  // an older board conversation (before the board remembered its own): its first message is content blocks, as the board sends them
+  // an older board conversation (before the board remembered its own): not told from a program's, until it is named
   const OLDB = uuid(74); { const dir = path.join(CLAUDE, 'projects', S.encodeCwd(OTHER)); const f = path.join(dir, OLDB + '.jsonl'); fs.writeFileSync(f, line({ type: 'user', sessionId: OLDB, cwd: OTHER, entrypoint: 'sdk-cli', timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'text', text: '看板開的舊對話' }] } }) + '\n'); const when = new Date(2026, 10, 17); fs.utimesSync(f, when, when); }
   config.setValue('boardStarted', [BOARDS]);
   const past = async (qs) => JSON.stringify((await get('/api/past' + (qs || ''))).json);
@@ -761,7 +761,8 @@ test('settings kept in the board: the left column, the office, sessions a progra
   assert.ok((await past()).includes(PROG), 'off: everything is listed');
   assert.strictEqual((await post('/api/config', { hideProgramSessions: true })).status, 200);
   const p = (await get('/api/past?days=all')).json, ps = JSON.stringify(p.items);
-  assert.deepStrictEqual([ps.includes(PROG), ps.includes(MINE), ps.includes(BOARDS), ps.includes(OLDB), p.programHidden >= 1], [false, true, true, true, true], 'only the one a program started is left out');
+  assert.deepStrictEqual([ps.includes(PROG), ps.includes(MINE), ps.includes(BOARDS), ps.includes(OLDB), p.programHidden >= 1], [false, true, true, false, true], 'only the ones a program started are left out');
+  config.setValue('customTitles', Object.assign({}, config.value('customTitles', {}), { [OLDB]: '我的' })); assert.ok((await past('?days=all')).includes(OLDB), 'named: yours'); { const v = Object.assign({}, config.value('customTitles', {})); delete v[OLDB]; config.setValue('customTitles', v); }
   assert.ok((await past('?programs=1')).includes(PROG), 'shown when asked for');
   // a folder named: everything in it is left out
   assert.strictEqual((await post('/api/config', { hideProgramFolders: [OTHER] })).status, 200);
@@ -1214,6 +1215,24 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
   assert.deepStrictEqual(rwArgs.slice(rwArgs.indexOf('--resume'), rwArgs.indexOf('--resume') + 6), ['--resume', RW, '--resume-session-at', uuid(82), '--fork-session', '--session-id']);
   const rwSent = procs[procs.length - 1].p.stdin.written.find((w) => w && w.type === 'user');
   assert.ok(rwSent && JSON.stringify(rwSent).includes('改過的第二句'), 'the new words sent');
+  // one with pictures: the ones kept go along, at their marks; not all there: nothing is stopped or closed
+  {
+    const dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK)), ts = new Date().toISOString(), RP = (await post('/api/new', { cwd: WORK })).json.sessionId, img = (data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/png', data } });
+    fs.writeFileSync(path.join(dir, RP + '.jsonl'), [
+      line({ type: 'user', uuid: uuid(81), parentUuid: null, sessionId: RP, cwd: WORK, timestamp: ts, message: { role: 'user', content: '第一句' } }),
+      line({ type: 'assistant', uuid: uuid(82), parentUuid: uuid(81), sessionId: RP, cwd: WORK, timestamp: ts, message: { role: 'assistant', content: [{ type: 'text', text: '好' }] } }),
+      line({ type: 'user', uuid: uuid(83), parentUuid: uuid(82), sessionId: RP, cwd: WORK, timestamp: ts, message: { role: 'user', content: [img('AAAA'), { type: 'text', text: '看［圖1］' }, img('BBBB'), { type: 'text', text: ' 跟［圖2］' }, img('CCCC'), { type: 'text', text: ' 這個' }] } }),
+    ].join('\n') + '\n');
+    assert.strictEqual((await get('/api/sessions')).json.features.editPics, true);
+    assert.deepStrictEqual([(await post('/api/rewind', { sessionId: RP, at: uuid(83), text: 'x', pics: [1] })).status, !!channels.get(RP)], [400, true], 'a block that is no picture');
+    assert.strictEqual((await post('/api/rewind', { sessionId: RP, at: uuid(83), text: ' ', pics: [] })).status, 400);
+    { const many = await post('/api/rewind', { sessionId: RP, at: uuid(83), text: 'x', pics: [0, 1, 2, 3, 4, 5, 6, 7, 8] }); assert.deepStrictEqual([many.status, /最多 8 張/.test(many.json.error), !!channels.get(RP)], [400, true, true], 'more than can go along: said, none dropped silently'); }
+    const rp = await post('/api/rewind', { sessionId: RP, at: uuid(83), text: '改看［圖2］', pics: [0, 4] }); assert.strictEqual(rp.status, 200, rp.text);
+    const sent = procs[procs.length - 1].p.stdin.written.filter((w) => w && w.type === 'user').pop().message.content;
+    assert.deepStrictEqual(sent.map((b) => (b.type === 'image' ? b.source.data : b.text)), ['AAAA', '改看［圖2］', 'CCCC']);
+    { const it = require('../lib/history').readHistory(path.join(dir, RP + '.jsonl'), {}).items.find((x) => x.id === uuid(83)); assert.deepStrictEqual([it.imgAt, it.imgTag], [[0, 2, 4], [0, 1, 2]], 'which mark each picture has: the first was dragged in, it has none'); }
+    await post('/api/stop', { sessionId: rp.json.sessionId }); await post('/api/close', { sessionId: rp.json.sessionId });
+  }
   // the first message edited: a conversation that starts afresh (nothing to carry on from)
   {
     const dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK));
@@ -1552,8 +1571,8 @@ test('a conversation some program started is left out, whichever program it was 
   const put = (n, cwd, entry, o = {}) => { const f = path.join(dir(cwd), uuid(n) + '.jsonl'); fs.writeFileSync(f, line(Object.assign({ type: 'user', sessionId: uuid(n), cwd, entrypoint: entry, timestamp: new Date().toISOString(), message: { role: 'user', content: o.blocks ? [{ type: 'text', text: '第一句 ' + n }] : '第一句 ' + n } }, o.src ? { promptSource: o.src } : {})) + '\n'); const when = o.old || new Date(Date.UTC(2026, 11, 1)); fs.utimesSync(f, when, when); };
   const was = (await get('/api/config')).json.prefs.hideProgramSessions; await post('/api/config', { hideProgramSessions: true });
   const OLD = new Date(2026, 10, 17), CASES = [
-    [181, path.join(HOME, '.claude-mem', 'observer-sessions', '-958'), 'cli', {}, false, "claude-mem's folder"],
-    [182, WORK, 'sdk-cli', { blocks: true, old: OLD }, true, "an old one of the board's, from before it remembered them"],
+    [181, path.join(HOME, '.claude-mem', 'observer-sessions', '-958'), 'sdk-cli', { blocks: true, old: OLD }, false, 'a program that is written down as the board is, however old'],
+    [182, path.join(HOME, '.claude-mem', 'x'), 'cli', {}, true, 'no folder is a program\'s by its name'],
     [183, WORK, 'sdk-cli', { blocks: true }, false, 'content blocks, since'],
     [184, WORK, 'sdk-cli', { src: 'sdk' }, false, 'claude -p'],
     [185, WORK, 'sdk-ts', { blocks: true, old: OLD }, false, 'the Agent SDK, however old'],
@@ -1564,7 +1583,48 @@ test('a conversation some program started is left out, whichever program it was 
   for (const [n, cwd, entry, o] of CASES) put(n, cwd, entry, o);
   const ids = JSON.stringify((await get('/api/past?days=all')).json.items), all = JSON.stringify((await get('/api/past?days=all&programs=1')).json.items);
   for (const [n, , , , listed, why] of CASES) { assert.strictEqual(ids.includes(uuid(n)), listed, why); assert.ok(all.includes(uuid(n)), why + ': there when asked for'); }
-  await post('/api/config', { hideProgramSessions: was });
+  // the setting says which folders are left out; ~ is your home
+  for (const [f, listed] of [['.claude-mem', false], ['.CLAUDE-MEM/', false], ['claude-mem', true], ['x', false], ['~/.claude-mem', false], [path.join(HOME, '.claude-mem') + path.sep, false], ['~/.claude', true], ['~', false]]) {
+    await post('/api/config', { hideProgramFolders: [f] }); assert.strictEqual(JSON.stringify((await get('/api/past?days=all')).json.items).includes(uuid(182)), listed, f);
+  }
+  await post('/api/config', { hideProgramSessions: was, hideProgramFolders: [] });
+});
+
+test('a folder by its name: hidden, found, and the one meant where one is worked in', async () => {
+  const F = require('../lib/folders'), P = path, root = path.parse(WORK).root, j = (...a) => P.join(root, ...a);
+  // a name is any folder of that name and what is in it, not a part of one; a path is that folder only
+  for (const [cwd, entry, yes] of [[j('u', '.claude-mem', 'obs', '-9'), '.claude-mem', true], [j('u', '.claude-mem'), '.Claude-Mem', true], [j('u', '.claude-memory'), '.claude-mem', false], [j('a', 'b'), j('a', 'b'), true], [j('a', 'b', 'c'), j('a', 'b') + P.sep, true], [j('a', 'bc'), j('a', 'b'), false], [j('a'), root, true], [P.join(os.homedir(), 'x'), '~', true], [P.join(os.homedir(), 'x', 'y'), '~/x', true], [j('a'), '', false], ['', 'a', false], [j('a'), '"a"', true]]) assert.strictEqual(F.within(cwd, entry), yes, cwd + ' in ' + entry);
+  assert.deepStrictEqual(['a', '.claude-mem', 'a/', '"a b"', '~', '/a', 'C:', '', '..'].map(F.isName), [true, true, true, true, false, false, false, false, false]); if (P.sep === '\\') assert.strictEqual(F.isName('a\\b'), false);
+  const counts = new Map([[j('p', 'one', 'site'), 3], [j('p', 'two', 'site'), 1], [j('p', 'alone'), 2], [j('u', '.claude-mem', 'obs', 'x'), 40], [j('u', '.claude-mem', 'obs', 'y'), 2], [j('p', 'sitemap'), 9]]);
+  assert.deepStrictEqual(F.search('.claude-mem', counts).map((x) => [x.path, x.n]), [[j('u', '.claude-mem'), 42]], 'the folder they are in, with all inside it');
+  assert.deepStrictEqual(F.search('site', counts).map((x) => x.name), ['site', 'site', 'sitemap'], 'the same name first'); assert.ok(!F.search('', counts).some((x) => x.path === root));
+  const isDir = (p) => !p.includes('gone'), r = (t) => F.resolve(t, counts, isDir);
+  assert.deepStrictEqual([r('alone'), r('ALONE'), r(j('p', 'alone')), r('')].map((x) => x.path), [j('p', 'alone'), j('p', 'alone'), j('p', 'alone'), '']);
+  assert.deepStrictEqual([r('site').ok, r('site').choices], [false, [j('p', 'one', 'site'), j('p', 'two', 'site')]]); assert.match(r('site').error, /有 2 個叫「site」/); assert.match(r('nothing').error, /沒有用過叫「nothing」/);
+  assert.deepStrictEqual([r('p').path, r(j('gone')).ok, r('a/b').ok], [j('p'), false, false]); assert.strictEqual(F.resolve('alone', counts, () => false).ok, false, 'no longer there');
+  // on the board: asked while typing, and used where a folder is worked in
+  const d = path.join(HOME, 'by-name', 'only-here'); fs.mkdirSync(d, { recursive: true }); const pd = path.join(CLAUDE, 'projects', S.encodeCwd(d)); fs.mkdirSync(pd, { recursive: true });
+  fs.writeFileSync(path.join(pd, uuid(195) + '.jsonl'), line({ type: 'user', sessionId: uuid(195), cwd: d, entrypoint: 'cli', timestamp: new Date().toISOString(), message: { role: 'user', content: '一' } }) + '\n');
+  const real = Date.now; let found; try { Date.now = () => real() + 120000; await get('/api/folders'); found = (await get('/api/folders?q=only-here&entries=1')).json; } finally { Date.now = real; }
+  assert.deepStrictEqual([found.found[0].path, found.found[0].n, found.typed.n, found.entries], [d, 1, 1, []]);
+  const n = await post('/api/new', { cwd: 'only-here' }); assert.strictEqual(n.status, 200, n.text); assert.strictEqual(channels.get(n.json.sessionId).cwd, d); await post('/api/close', { sessionId: n.json.sessionId });
+  assert.deepStrictEqual([(await post('/api/new', { cwd: 'no-such-name' })).status, (await post('/api/new', { cwd: '' })).status, (await post('/api/new', {})).status, (await post('/api/new', { cwd: { a: 1 } })).status], [400, 400, 400, 400]);
+  const sc = await post('/api/schedule/save', { target: 'folder', kind: 'daily', at: '09:00', cwd: 'only-here', prompt: 'x' }); assert.strictEqual(sc.status, 200, sc.text); assert.strictEqual((await get('/api/schedules')).json.schedules.find((x) => x.id === sc.json.id).cwd, d); await post('/api/schedule/delete', { id: sc.json.id });
+  assert.match((await post('/api/schedule/save', { target: 'folder', kind: 'daily', at: '09:00', cwd: 'no-such-name', prompt: 'x' })).json.error, /沒有用過叫「no-such-name」/);
+  assert.strictEqual((await post('/api/goals/start', { cwd: 'only-here', task: 'x', condition: 'y' })).json.error, '這台電腦沒有裝 goal2', 'the folder is taken'); assert.match((await post('/api/goals/start', { cwd: 'no-such-name', task: 'x', condition: 'y' })).json.error, /沒有用過叫/);
+  // a name's accents kept apart (a Mac may), what Finder and Explorer call the folders of your home, quotes in a name
+  const nfd = 'Café'.normalize('NFD'); assert.ok(F.within(j('u', nfd, 'x'), 'café') && F.within(j('u', 'Café'), j('u', nfd)) && F.search('café', new Map([[j('u', nfd), 2]])).length === 1);
+  const H = os.homedir(); assert.deepStrictEqual([F.within(P.join(H, 'Desktop', 'a'), '桌面'), F.within(P.join(H, 'Documents'), '文件'), F.within(j('x', 'Documents'), '文件'), F.within(j('x', '文件', 'y'), '文件')], [true, true, false, true]);
+  assert.strictEqual(F.resolve('桌面', new Map([[P.join(H, 'Desktop'), 1]]), () => true).path, P.join(H, 'Desktop'));
+  assert.strictEqual(F.resolve('桌面', new Map([[j('a', 'Desktop'), 1]]), () => true).ok, false, 'a Desktop somewhere else is not it'); assert.strictEqual(F.resolve('桌面', new Map([[j('a', 'Desktop'), 1], [P.join(H, 'Desktop'), 1]]), () => true).path, P.join(H, 'Desktop'));
+  assert.deepStrictEqual([F.resolve(j('u', "dogs'"), new Map(), (p) => p === j('u', "dogs'")).path, F.resolve('"' + j('u', 'a b') + '"', new Map(), (p) => p === j('u', 'a b')).path], [j('u', "dogs'"), j('u', 'a b')]);
+  if (P.sep === '/') assert.deepStrictEqual([F.isName('a\\b'), F.within('/u/a\\b/c', 'b'), F.within('/u/a\\b/c', 'a\\b')], [true, false, true], 'a backslash is a letter there');
+  // the roles of a folder by its name; a name that is the name of something in every object
+  fs.mkdirSync(path.join(d, '.claude', 'agents'), { recursive: true }); fs.writeFileSync(path.join(d, '.claude', 'agents', 'helper.md'), '---\nname: helper\ndescription: x\n---\nx');
+  assert.ok((await post('/api/roles', { cwd: 'only-here' })).json.roles.some((x) => x.name === 'helper')); assert.match((await post('/api/roles', { cwd: 'no-such-name' })).json.error, /沒有用過叫/);
+  for (const x of ['constructor', '__proto__', 'toString']) { assert.strictEqual(F.within(j('a', 'b'), x), false); assert.strictEqual((await get('/api/folders?q=' + x)).status, 200); }
+  // the root of a disk: a whole path as any other
+  for (const x of process.platform === 'win32' ? ['C:\\', 'c:/', 'C:', '"C:\\"'] : ['/']) assert.deepStrictEqual(F.resolve(x, new Map(), (p) => p.toLowerCase() === root.toLowerCase() || p === '/').ok, true, x);
 });
 
 test('a recommend entry from an address: what is wrong with it is said', async () => {
@@ -1639,11 +1699,12 @@ test('每天上班統整: a switch where LINE is connected, one schedule, its ti
 
 test('schedules', async () => {
   assert.strictEqual((await post('/api/schedule/save', { name: 'x' })).status, 400);
-  // after the quota resets: refused when no 5-hour window is running (this made-up home has no quota figures)
-  const rs = await post('/api/schedule/save', { name: 'x', kind: 'reset', cwd: WORK, prompt: 'hi' }); assert.deepStrictEqual([rs.status, /沒有 5 小時額度在計時/.test(rs.json.error)], [400, true]);
-  // with a 5-hour window running: saved as a one-off a minute after its reset (the figures Claude Code leaves, as they are written)
+  // after the limit resets: refused when nothing is known (this made-up home has no figures)
+  const rs = await post('/api/schedule/save', { name: 'x', kind: 'reset', cwd: WORK, prompt: 'hi' }); assert.deepStrictEqual([rs.status, /沒有額度資料.*cc-statusline/.test(rs.json.error)], [400, true]);
+  // with a 5-hour window running: saved as a one-off a minute after its reset (the figures cc-statusline keeps, as they are written)
   const reset = Math.floor(Date.now() / 1000) + 2 * 3600 + 17 * 60;
-  fs.writeFileSync(path.join(CLAUDE, 'rate-limit-snapshots.json'), JSON.stringify({ s1: { t: Math.floor(Date.now() / 1000), five_hour: { used_percentage: 97, resets_at: reset }, seven_day: null } }));
+  const limits = path.join(CLAUDE, 'cc-statusline', 'state', 'account-limits.json'); fs.mkdirSync(path.dirname(limits), { recursive: true });
+  fs.writeFileSync(limits, JSON.stringify({ v: 1, at: Date.now(), five_hour: { used_percentage: 97, resets_at: reset }, seven_day: null }));
   const ok = await post('/api/schedule/save', { name: '額度回來再跑', kind: 'reset', cwd: WORK, prompt: 'hi' });
   assert.strictEqual(ok.status, 200, ok.text);
   const want = new Date(reset * 1000 + 60000), pad = (n) => String(n).padStart(2, '0');
@@ -1651,7 +1712,14 @@ test('schedules', async () => {
   assert.deepStrictEqual([saved.kind, saved.date, saved.at], ['once', want.getFullYear() + '-' + pad(want.getMonth() + 1) + '-' + pad(want.getDate()), pad(want.getHours()) + ':' + pad(want.getMinutes())]);
   assert.ok(Math.abs(saved.next - (reset * 1000 + 60000)) < 60000, 'next run is a minute after the reset: ' + new Date(saved.next).toISOString());
   await post('/api/schedule/delete', { id: ok.json.id });
-  fs.unlinkSync(path.join(CLAUDE, 'rate-limit-snapshots.json'));
+  assert.deepStrictEqual((await get('/api/quota')).json.wait, { window: '5h', at: reset * 1000, pct: 97 });
+  // no 5-hour limit on the account: the 7-day one; the 5-hour one not running: nothing to wait for
+  const week = Math.floor(Date.now() / 1000) + 2 * 86400 + 600; fs.writeFileSync(limits, JSON.stringify({ v: 1, at: Date.now(), five_hour: null, seven_day: { used_percentage: 75, resets_at: week } }));
+  const wk = await post('/api/schedule/save', { name: '7 天額度回來再跑', kind: 'reset', cwd: WORK, prompt: 'hi' }); assert.strictEqual(wk.status, 200, wk.text);
+  assert.ok(Math.abs((await get('/api/schedules')).json.schedules.find((x) => x.id === wk.json.id).next - (week * 1000 + 60000)) < 60000); await post('/api/schedule/delete', { id: wk.json.id });
+  fs.writeFileSync(limits, JSON.stringify({ v: 1, at: Date.now(), five_hour: { used_percentage: 0, resets_at: null }, seven_day: { used_percentage: 75, resets_at: week } }));
+  assert.match((await post('/api/schedule/save', { name: 'x', kind: 'reset', cwd: WORK, prompt: 'hi' })).json.error, /沒有 5 小時額度在計時/);
+  fs.unlinkSync(limits);
   // a goal schedule where goal2 is not installed (this test's board has none)
   const gs = await post('/api/schedule/save', { name: 'g', kind: 'daily', at: '09:00', target: 'goal', cwd: WORK, prompt: 'hi', goal: 'done' }); assert.deepStrictEqual([gs.status, gs.json.error], [400, '這台電腦沒有裝 goal2，不能交辦 goal']);
   assert.strictEqual((await post('/api/schedule/save', { name: 'x', kind: 'daily', at: '09:00', cwd: path.join(HOME, 'no-such'), prompt: 'hi' })).status, 400);
@@ -1690,6 +1758,8 @@ test('inbox', async () => {
 
   assert.strictEqual((await post('/api/inbox/assign', { id: 'gmail:t2', folder: path.join(HOME, 'no-such') })).status, 400);
   assert.strictEqual((await post('/api/inbox/open', { id: 'gmail:t2' })).status, 400, 'not before it has a folder');
+  // by its name alone: the one conversations ran in
+  { const nm = path.basename(WORK), one = await post('/api/inbox/assign', { id: 'gmail:t2', folder: nm }); if (one.status === 200) assert.strictEqual(one.json.folder, WORK); else assert.ok(one.json.choices.includes(WORK), one.text); assert.match((await post('/api/inbox/assign', { id: 'gmail:t2', folder: 'no-such-name' })).json.error, /沒有用過叫/); assert.match((await post('/api/inbox/route', { source: 'gmail', source_ref: 'x', root_folder: 'no-such-name' })).json.error, /沒有用過叫/); }
   assert.strictEqual((await post('/api/inbox/assign', { id: 'gmail:t2', folder: WORK })).json.ok, true);
   assert.strictEqual((await post('/api/inbox/text', { id: 'nope' })).status, 404);
   const tx = await post('/api/inbox/text', { id: 'gmail:t1' }); assert.strictEqual(tx.status, 200, tx.text); assert.match(tx.json.text, /客戶說登不進去/);

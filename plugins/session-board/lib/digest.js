@@ -76,7 +76,7 @@ async function lookInGmail(items, since, gmail) {
 }
 
 function promptOf(d, now) {
-  const when = new Date(now), L = ['現在時間：' + when.toLocaleString('zh-TW', { hour12: false }) + '（星期' + '日一二三四五六'[when.getDay()] + '）', '', '【items】還沒標完成的事：'];
+  const when = new Date(now), L = ['現在時間：' + when.toLocaleString('zh-TW', { hour12: false }).replace(/\s+/g, ' ') + '（星期' + '日一二三四五六'[when.getDay()] + '）', '', '【items】還沒標完成的事：'];
   for (const x of d.items) {
     L.push(JSON.stringify({ i: x.i, 來源: x.source, 標題: x.title, 要做什麼: x.summary, 主旨: x.subject, 對方: x.from, 對方最後來訊: new Date(x.lastIn).toLocaleString('zh-TW', { hour12: false }), 資料夾: x.folder || undefined,
       他在這串之後寄過信: x.replied ? new Date(x.replied).toLocaleString('zh-TW', { hour12: false }) : x.looked ? '沒有' : '查不到', 有未寄出的草稿: x.draft || undefined }));

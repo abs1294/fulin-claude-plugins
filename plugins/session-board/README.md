@@ -83,7 +83,7 @@
 - **看板裡的對話**沒有狀態列（狀態列只在終端機裡跑），它的花費與 tokens 是看板把 Claude Code 每輪回報的數字加總起來的，存在 `channels.json`。
 - **context 佔比** = 最近一次回覆時送給模型的內容量（輸入加快取）÷ 該模型的上限。上限是看板從自己跑過的對話得知的（每輪結果會附），記在 `models.json`。沒跑過的模型：用量超過 20 萬就只可能是 100 萬的上限（會標「推定」）；否則只顯示 tokens、不顯示百分比。資料夾設了 `autoCompactWindow` 的，上限以它為準（讀設定檔：環境變數、`settings.local.json`、專案、使用者，含各模型自己的設定）。狀態列顯示的百分比是 Claude Code 直接給的，兩者可能差一兩個百分點。
 - **壓縮次數**來自 cc-statusline；沒被壓縮過顯示 0 次。
-- **5 小時與 7 天額度**是整個帳號共用的。來源是 cc-statusline 彙整各 session 看到的數字（`~/.claude/rate-limit-snapshots.json`），取法跟狀態列一樣（多數 session 認定的那個時段、其中最高的數字），所以兩邊數字一致；看板裡的對話回報的額度也算一筆。沒有任何 session 在動的時候，數字會是舊的，畫面會註明是多久前看到的。
+- **5 小時與 7 天額度**是整個帳號共用的。由 cc-statusline（1.9.0 以上）收集：每次問答結束在背景向 Claude Code 查一次（5 分鐘內不重複、不花 token），存在 `~/.claude/cc-statusline/state/account-limits.json`，看板只讀這一個檔。沒有問答時數字會是舊的，畫面會註明是多久前的。
 
 ## 開新對話
 
@@ -294,7 +294,7 @@ node lib/decide.js --question 路徑/我的題目.json --model haiku < 一段文
 | `officeOrder` | 辦公室房間拖曳後的順序（資料夾完整路徑的清單） | `[]`（照誰在等你、最近說話排） |
 | `officeCollapseOthers` | 有標星的房間時，其他房間收成一列 | `false` |
 | `hideProgramSessions` | 不列出其他程式開的 session（見下） | `true` |
-| `hideProgramFolders` | 這些資料夾裡的 session 一律不列出（完整路徑的清單） | `[]` |
+| `hideProgramFolders` | 這些資料夾裡的 session 一律不列出：資料夾的名字（任何叫這個名字的資料夾）或完整路徑（家目錄可寫 `~`） | `[]` |
 | `decideModel` | 小模型判斷用哪個模型（`haiku`、`sonnet`、`opus`） | `haiku` |
 | `collabNamePattern` | 合作成員的名字（`{id}` 合作編號、`{short}` 成員短名） | 空＝用 `collab/config.json` 的 `合作{id}-{short}` |
 | `collabBypass` | 看板對話加入合作時改成 bypass（表單上的預設勾選） | `true` |
@@ -316,7 +316,8 @@ node lib/decide.js --question 路徑/我的題目.json --model haiku < 一段文
 | `lib/warroom.js` | 各 session 的即時數字（壓縮、context、訊息），給戰情室的表用 |
 | `lib/stats.js` | 單一 session 的數字（讀 cc-statusline 的狀態檔） |
 | `lib/monthly.js`、`scripts/usage-scan.js` | 每月用量與 API 等值費用（掃描在獨立程序裡跑） |
-| `lib/quota.js` | 5 小時與 7 天額度 |
+| `lib/folders.js` | 你打的資料夾（完整路徑或只有名字）是哪一個 |
+| `lib/quota.js` | 5 小時與 7 天額度（只讀 cc-statusline 1.9.0 以上收集的那一個檔） |
 | `lib/past.js` | 沒開著的對話：清單與搜尋 |
 | `lib/notify.js`、`scripts/notify-hook.js`、`scripts/toast.ps1`、`scripts/focus-click.js` | 通知與點擊跳轉 |
 | `lib/ctxlimit.js` | context 的上限：讀設定檔裡的 `autoCompactWindow` |

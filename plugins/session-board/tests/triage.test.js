@@ -145,7 +145,7 @@ test('the prompt says what time it is now, and a meeting you are sent is yours u
   const p = T.buildPrompt(db, [{ thread_id: 'x', source: 'gmail', subject: '會議', upto: 0 }], ['me@x'], now).text;
   // in this computer's own time zone (the user's), whichever that is: in UTC+8 it reads 2026/11/17 17:10:00（星期二）
   const d = new Date(now);
-  assert.strictEqual(p.split('\n')[0], '現在時間：' + d.toLocaleString('zh-TW', { hour12: false }) + '（星期' + '日一二三四五六'[d.getDay()] + '）');
+  assert.strictEqual(p.split('\n')[0], '現在時間：' + d.toLocaleString('zh-TW', { hour12: false }).replace(/\s+/g, ' ') + '（星期' + '日一二三四五六'[d.getDay()] + '）');
   assert.match(p.split('\n')[0], /^現在時間：\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}:\d{2}（星期[日一二三四五六]）$/);
   assert.match(T.SYSTEM, /會議時間還沒到，歸 todo/);
   assert.match(T.SYSTEM, /不可以自己猜今天是幾號/);
