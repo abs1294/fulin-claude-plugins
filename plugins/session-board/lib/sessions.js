@@ -98,7 +98,7 @@ function lastTitles(file, o = {}) {
             if (le < 0) le = got;
             try {
               const v = JSON.parse(view.toString('utf8', ls + 1, le))[PROPS[k]];
-              if (typeof v === 'string' && v) { res[k] = v; break; }
+              if (typeof v === 'string' && v && !(o.ignore && o.ignore.has(v))) { res[k] = v; break; }
             } catch (e) {}
           }
           if (i === 0) break;
@@ -118,12 +118,20 @@ function lastTitles(file, o = {}) {
 // Caches keyed by file, invalidated by size+mtime, so a 3-second poll costs a
 // stat per session instead of a read.
 const titleCache = new Map();
+// Names the board gave sessions to be reached by (--name; lib/collab.js): Claude Code also writes them down as the
+// session's title, and they say nothing of what the conversation is about - the title before is used.
+let codes = new Set();
+function setCodes(list) {
+  const next = new Set(list || []);
+  if (next.size === codes.size && [...next].every((x) => codes.has(x))) return;
+  codes = next; titleCache.clear();
+}
 function cachedTitles(file) {
   let st;
   try { st = fs.statSync(file); } catch (e) { return { custom: null, ai: null, scanned: 0 }; }
   const c = titleCache.get(file);
   if (c && c.size === st.size && c.mtimeMs === st.mtimeMs) return c.res;
-  const res = lastTitles(file);
+  const res = lastTitles(file, { ignore: codes });
   titleCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, res });
   return res;
 }
@@ -276,6 +284,8 @@ function buildSessions(opts = {}, now = Date.now()) {
     const tt = tfile ? cachedTitles(tfile) : { custom: null, ai: null };
     // Everything the terminal window's title could currently be, most trusted first.
     const candidates = [...new Set([summary, tt.custom, tt.ai].filter(Boolean))];
+    const title0 = candidates[0];
+    if (!ch && typeof r.name === 'string' && codes.has(r.name)) candidates.push(r.name);   // a window of a session with a fixed name shows that name
     // A non-interactive registry entry with no transcript and no title has no
     // conversation to show and no window to jump to. Seen 2026-11-12: moving a
     // session to the background left a second kind=bg entry whose name was just
@@ -292,7 +302,7 @@ function buildSessions(opts = {}, now = Date.now()) {
     // o.customTitles: names given on the board ({sessionId: name}). They come first: the status line's summary is
     // rewritten as the conversation goes on, and would otherwise replace a name you gave a few messages later.
     const given = o.customTitles && typeof o.customTitles[r.sessionId] === 'string' ? o.customTitles[r.sessionId] : '';
-    const title = given || candidates[0] || moved || name || (ch && ch.title) || (ch ? '新對話' : `session ${r.sessionId.slice(0, 8)}`);
+    const title = given || title0 || moved || name || (ch && ch.title) || (ch ? '新對話' : `session ${r.sessionId.slice(0, 8)}`);
     const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
     const since = num(r.statusUpdatedAt) || num(r.updatedAt) || num(r.startedAt) || now;
     const status = typeof r.status === 'string' ? r.status : 'unknown';
@@ -346,6 +356,6 @@ function buildSessions(opts = {}, now = Date.now()) {
 }
 
 module.exports = {
-  DEFAULTS, STALE_MS, sidKey, encodeCwd, pidAlive, readRegistry, lastTitles, cachedTitles,
+  DEFAULTS, STALE_MS, sidKey, encodeCwd, pidAlive, readRegistry, lastTitles, cachedTitles, setCodes,
   findTranscript, readSummary, lastMessages, gitBranch, groupOf, groupUnknown, WRITING_MS, compareSessions, buildSessions,
 };

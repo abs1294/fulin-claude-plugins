@@ -23,6 +23,7 @@ const os = require('os');
 const { spawn } = require('child_process');
 
 const IDLE_MS = 15 * 60 * 1000;
+const WAKE_MS = 5 * 60 * 1000;   // see wake()
 const COMMANDS_TTL_MS = 10 * 60 * 1000;   // plugins get installed and removed; ask again after this
 const UNSTARTED_MS = 2 * 60 * 1000;   // how long a conversation nothing was sent in is kept once no page has it open
 const CLAUDE_BIN = process.env.SESSION_BOARD_CLAUDE || 'claude';
@@ -101,6 +102,10 @@ class Channels {
     for (const c of this._load()) { for (const x of Object.values(c.held || {})) if (x) x.at = Date.now(); this.map.set(c.sessionId, this._wrap(c)); }   // (what pages hold counts from now: they say so again, or go)
     // a board that ended while a conversation worked: what was sent and had not been taken in is told as such
     for (const c of this.map.values()) if (Array.isArray(c.said) && c.said.length) this._settle(c, new Set(c.said.map((x) => x.id)));
+    // Set by the board: the fixed name of a conversation that has one (codeOf), and whether its process is to be kept
+    // running (keepAlive) - lib/collab.js: what the other members of a collaboration reach it by.
+    this.codeOf = opts.codeOf || (() => '');
+    this.keepAlive = opts.keepAlive || (() => false);
     this.timer = setInterval(() => this._reap(), 60000);
     if (this.timer.unref) this.timer.unref();
   }
@@ -430,6 +435,12 @@ class Channels {
     // ... and from a given entry of it (resumeAt: a message edited and sent again, see lib/rewind.js), not its end
     if (!has && c.forkOf) args.push('--resume', c.forkOf, ...(c.resumeAt && /^[0-9a-f-]{36}$/i.test(c.resumeAt) ? ['--resume-session-at', c.resumeAt] : []), '--fork-session', '--session-id', c.sessionId);
     else args.push(has ? '--resume' : '--session-id', c.sessionId);
+    // Its fixed name, every time: without it Claude Code names a resumed session after its latest title (which the status
+    // line rewrites) or its folder, and whoever was given the old name no longer reaches it. Measured 2026-11-24 on
+    // 2.1.331: with --name it stays, also across a resume and with another title written into the transcript meanwhile.
+    let code = ''; try { code = String(this.codeOf(c.sessionId) || ''); } catch (e) {}
+    if (code && !code.startsWith('-')) args.push('--name', code);
+    c.startedAs = code;
     if (c.skipPermissions) args.push('--dangerously-skip-permissions');
     // Given every time, also when carrying a conversation on (measured 2026-11-15: both a new and a resumed one answer as the role).
     if (c.agent && ROLE_NAME.test(c.agent)) args.push('--agent', c.agent);
@@ -700,6 +711,7 @@ class Channels {
   stop(sid) {
     const c = this.map.get(sid);
     if (!c || !c.proc) return false;
+    c.wakeFails = 0;   // ended by hand, not by itself
     const p = c.proc;
     c.proc = null;
     c.pending.clear();
@@ -882,11 +894,29 @@ class Channels {
     // Not started and no page has it open: forgotten. (Two minutes' grace, for a page that is reloading.)
     for (const c of [...this.map.values()]) if (!c.listeners.size && now - (c.createdAt || 0) > UNSTARTED_MS && this.isEmpty(c)) this.remove(c.sessionId);
     for (const c of this.map.values()) {
+      // A member of a collaboration is reached by the others only while its process runs: not ended, and started again
+      // (nothing is sent to it, so no turn and no cost) when it is gone - after a restart of the board, or a crash.
+      let keep = false; try { keep = !!this.keepAlive(c.sessionId); } catch (e) {}
+      if (keep) { if (!c.proc) this.wake(c.sessionId, now); continue; }
       // Never while background work is running: ending the process would end that work with it.
       if (c.proc && c.state !== 'busy' && !c.pending.size && !c.tasks.size && now - c.lastActivity > IDLE_MS) {
         try { c.proc.stdin.end(); } catch (e) {}
       }
     }
+  }
+
+  // Starts the process without sending anything. At most once every few minutes, and less and less often when nothing was
+  // done in it since the last time (one that keeps ending).
+  wake(sid, now = Date.now()) {
+    const c = this.map.get(sid);
+    if (!c || c.proc || this.isEmpty(c)) return false;
+    if (c.lastResultAt > (c.wokenAt || 0)) c.wakeFails = 0;   // worked since: not one that keeps ending
+    if (now - (c.wokenAt || 0) < WAKE_MS * 2 ** (c.wakeFails || 0)) return false;
+    c.wakeFails = c.wokenAt && !(c.lastResultAt > c.wokenAt) ? Math.min((c.wakeFails || 0) + 1, 7) : 0;
+    c.wokenAt = now;
+    try { this._start(c); } catch (e) { return false; }
+    c.lastActivity = now;
+    return true;
   }
 
   shutdown() {

@@ -191,7 +191,7 @@ async function runOnce(dbFile, o = {}) {
   if (!waiting.length) return { ok: true, asked: 0, done: 0, left: 0, cost: 0, byCategory: {} };
   const built = buildPrompt(db, waiting, o.me);
   const threads = waiting.slice(0, built.count);   // the ones that fitted in this call
-  const r = await (o.run || ((p) => callClaude(p, o)))(built.text);
+  const r = await (o.run || ((p) => callClaude(p, o)))(built.text, o);
   if (!r.ok) return { ok: false, error: r.error, asked: threads.length };
   const ans = readAnswer(r.text, threads.length);
   if (!ans) return { ok: false, error: '判讀結果不是預期的格式', asked: threads.length };

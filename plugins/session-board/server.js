@@ -62,6 +62,7 @@ const Changes = require('./lib/changes');
 const Aside = require('./lib/aside');
 const { Goal2 } = require('./lib/goal2');
 const { Decider } = require('./lib/decide');
+const Codes = require('./lib/codes');
 const Agents = require('./lib/agents');
 const Harness = require('./lib/harness');
 const Remote = require('./lib/remote');
@@ -386,9 +387,12 @@ async function pickFolder() {
 // the board's own "inside a Claude session" variables; lib/keep.js says why.
 // cmd /k, not /c: the window stays when claude exits, like a window the user
 // opened by hand.
-function terminalArgs(sid, cwd, hasTranscript, command, dir = path.join(DATA_DIR, 'launch'), prompt = '') {
-  if (MAC) return { mac: Mac.writeLauncher(dir, cwd, sid, command || 'claude', hasTranscript, prompt) };   // a .command file Terminal opens
-  return ['-w', 'new', '-d', cwd, 'cmd', '/k', K.writeLauncher(dir, sid, command || 'claude', hasTranscript, prompt)];
+function terminalArgs(sid, cwd, hasTranscript, command, dir = path.join(DATA_DIR, 'launch'), prompt = '', naming = null) {
+  command = command || 'claude';
+  // its fixed name goes with it (lib/codes.js), and no other session's
+  if (naming) command = K.withName(command, Collab.safeName(naming.code), naming.known);
+  if (MAC) return { mac: Mac.writeLauncher(dir, cwd, sid, command, hasTranscript, prompt) };   // a .command file Terminal opens
+  return ['-w', 'new', '-d', cwd, 'cmd', '/k', K.writeLauncher(dir, sid, command, hasTranscript, prompt)];
 }
 // What a session that was cut off is told when it is opened again.
 const CONTINUE_PROMPT = '（看板自動送出）這個 session 上次是在工作進行到一半時被中斷的（電腦關機、重開機或程序被結束）。請先確認剛才做到哪裡，再接著把被中斷的工作做完。';
@@ -491,6 +495,7 @@ function createServer(token, port, deps = {}) {
   const keepable = (s) => s.owner === 'terminal' && !s.headless && !!s.cwd;
   // Messages fetched from Gmail, Slack and Teams (lib/inbox). Only the real server has it: it reads the user's own accounts.
   const inbox = deps.inbox || null;
+  if (inbox) inbox.triageModel = () => pref('decideModel');
   const schedules = deps.schedules || new Sched.Schedules();
   let runner = null;   // made further down, once what it needs exists
   if (inbox) { setTimeout(() => inbox.tick(), 20000).unref(); setInterval(() => inbox.tick(), 60000).unref(); }
@@ -869,6 +874,7 @@ function createServer(token, port, deps = {}) {
       // reports the pid as existing, and the child's registry file stays behind.
       const pidAlive = (pid) => !channels.deadPids.has(pid) && S.pidAlive(pid);
       noteBoardStarted(views.map((v) => v.sessionId));
+      S.setCodes(allCodes());
       const list = S.buildSessions({ channels: views, pidAlive, titles: config.value('movedTitles', {}), customTitles: customTitles() }, now);
       const known = boardStarted(), hideProg = pref('hideProgramSessions'), sec = bySecretary(), opened = openedBy();
       for (const s of list) {
@@ -907,7 +913,7 @@ function createServer(token, port, deps = {}) {
         if (/^\s*</.test(s.lastUser || '')) s.lastUser = '';
       }
       cache = { at: now, list };
-      try { trackCollabNames(list); } catch (e) {}   // a collaboration member whose name changed: ledger and the others told (after the list is kept: telling a member asks for it)
+      try { trackCollabNames(list); } catch (e) {}   // a collaboration member whose registered name changed: written in the ledger (after the list is kept: telling a member asks for it)
     }
     return cache.list;
   };
@@ -947,7 +953,7 @@ function createServer(token, port, deps = {}) {
       if (!S.findTranscript(sid, k.cwd, S.DEFAULTS.projectsDir)) { fail('找不到它的對話紀錄（可能已被 Claude Code 清掉）'); continue; }
       const pick = !!cont && Past.interrupted(S.findTranscript(sid, k.cwd, S.DEFAULTS.projectsDir));
       if (to === 'board') { const c = channels.create(k.cwd, sid); c.title = k.title; keeper.forget([sid]); if (pick) channels.send(sid, CONTINUE_PROMPT); }
-      else { openTerminal(terminalArgs(sid, k.cwd, true, k.command, undefined, pick ? CONTINUE_PROMPT : '')); keeper.markRestoring(sid); await sleep(700); }   // one at a time: windows opened together land on top of each other
+      else { openTerminal(terminalArgs(sid, k.cwd, true, k.command, undefined, pick ? CONTINUE_PROMPT : '', naming(sid))); keeper.markRestoring(sid); await sleep(700); }   // one at a time: windows opened together land on top of each other
       done.push(sid);
       if (pick) continued.push(sid);
     }
@@ -1064,13 +1070,36 @@ function createServer(token, port, deps = {}) {
   //   members: [{sessionId, cwd, owner, role, short, does, name (the one given), seenName (the one it has now), names}]}]
   const collabList = () => { const v = config.value('collabs', []); return Array.isArray(v) ? v.filter((c) => c && Number.isInteger(c.id) && Array.isArray(c.members)) : []; };
   const saveCollabs = (list) => config.setValue('collabs', list);
+  // Fixed names (lib/codes.js): given when a session first joins a collaboration and the same from then on.
+  let codesSeen = { at: 0, v: {}, known: new Set() };   // asked for at every refresh and every process start: read at most once a second
+  const codes = () => { if (!codesSeen.at) { try { Codes.freeze(config.value, config.setValue); } catch (e) {} } if (Date.now() - codesSeen.at > 1000) codesSeen = { at: Date.now(), v: Codes.book(config.value).codes, known: Codes.known(config.value) }; return codesSeen.v; };
+  // a copy of one that has a name gets its own: the transcript it takes over names it like the first, and they would share it
+  const codeOf = (sid) => {
+    if (Object.prototype.hasOwnProperty.call(codes(), sid)) return codes()[sid];
+    const c = channels.get(sid); return c && c.forkOf && codes()[c.forkOf] ? giveCode(sid, path.basename(c.cwd || '').slice(0, 20), namePattern()) : '';
+  };
+  const allCodes = () => { codes(); return codesSeen.known; };
+  const naming = (sid) => ({ code: codeOf(sid), known: allCodes() });
+  const namePattern = () => pref('collabNamePattern') || Collab.settings().namePattern;
+  const giveCode = (sid, short, pattern) => { const n = Codes.give(config.value, config.setValue, sid, short, pattern); codesSeen.at = 0; return n; };
+  // Kept running: the board's members of a collaboration under way, while any of them had a turn within keepHours - not
+  // one that runs somewhere else now (opened by hand in a terminal): the same session in two places spoils its record.
+  const kept = (sid) => {
+    const ms = Collab.settings().keepHours * 3600000; if (!ms) return false;
+    const own = channels.get(sid); if (!own) return false;
+    if (!own.proc && S.readRegistry(S.DEFAULTS.sessionsDir).some((r) => r.sessionId === sid && !channels.deadPids.has(r.pid) && S.pidAlive(r.pid))) return false;
+    return collabList().some((c) => c.state === 'active' && c.members.some((m) => m.sessionId === sid) && c.members.some((m) => { const ch = channels.get(m.sessionId); return ch && Date.now() - (ch.lastResultAt || 0) < ms; }));
+  };
+  channels.codeOf = codeOf; channels.keepAlive = kept;
+  // A member's process that runs under another name is told its own; one not running is started with it (chat.js _start).
+  const nameIt = (m) => { const c = channels.get(m.sessionId); if (!c || !c.proc || c.startedAs === m.name) return 'start'; const r = channels.send(m.sessionId, '/rename ' + m.name); if (r.ok) c.startedAs = m.name; return r.ok ? 'sent' : 'failed: ' + r.error; };
   // A member's permission mode: a board conversation by what it runs (or will run) with, a terminal session by its transcript.
   const memberMode = (m, s) => {
-    if (m.owner === 'board') { const c = channels.get(m.sessionId); return c ? (c.skipPermissions ? 'bypassPermissions' : c.mode || defaultMode()) : ''; }
+    const ch = channels.get(m.sessionId); if (ch) return ch.skipPermissions ? 'bypassPermissions' : ch.mode || defaultMode();
     return s ? modeOf(s) : '';
   };
   const collabView = (c, list) => {
-    const members = c.members.map((m) => { const s = list.find((x) => x.sessionId === m.sessionId); return Object.assign({}, m, { live: !!s, status: s ? s.status : 'gone', actualName: s ? String(s.addr || s.name || '') : '', mode: memberMode(m, s), title: s ? s.title : '' }); });
+    const members = c.members.map((m) => { const s = list.find((x) => x.sessionId === m.sessionId); return Object.assign({}, m, { owner: s ? (s.owner === 'board' ? 'board' : 'terminal') : m.owner, live: !!s, status: s ? s.status : 'gone', actualName: s ? String(s.addr || s.name || '') : '', mode: memberMode(m, s), title: s ? s.title : '' }); });
     const modes = [...new Set(members.map((m) => m.mode).filter(Boolean))];
     // a live member whose mode cannot be read yet (a terminal session that has not written it): not taken as agreeing
     const modesUnknown = members.filter((m) => m.live && !m.mode).map((m) => m.role);
@@ -1079,23 +1108,28 @@ function createServer(token, port, deps = {}) {
   // A message to a member: a board conversation is written to; a terminal session is reached through Claude Code's own
   // session-to-session messaging (peer), with a mark to find it by in its transcript.
   const tellMember = async (m, text) => {
-    if (m.owner === 'board') { const r = channels.send(m.sessionId, text); return r.ok ? { state: 'sent' } : { state: 'failed', note: String(r.error || '') }; }
+    if (channels.get(m.sessionId)) { const r = channels.send(m.sessionId, text); return r.ok ? { state: 'sent' } : { state: 'failed', note: String(r.error || '') }; }
     const s = sessions().find((x) => x.sessionId === m.sessionId);
     if (!s || !s.pid) return { state: 'failed', note: '那個終端機 session 現在沒有開著' };
     const mark = '〔合作 ' + Date.now().toString(36) + '〕';
     try { return await peer(s, text + '\n' + mark, mark); } catch (e) { return { state: 'failed', note: String((e && e.message) || e).slice(0, 120) }; }
   };
-  // Every refresh: a member whose name (what the others SendMessage to) changed - the ledger's members section is
-  // rewritten, and, unless it only took the name it was given, the others are told the new one.
+  // Every refresh: a member whose registered name changed - the ledger's members section is rewritten. Nobody is told: a
+  // message wakes the others, whose own processes start again under another name, and so on (2026-11-24: two members
+  // woke each other at every change of a title). They are reached by the name they were given, which does not change.
   const trackCollabNames = (list) => {
-    const all = collabList(); const told = []; let changed = false;
+    const all = collabList(); const moved = new Set(), later = []; let changed = false;
     for (const c of all) {
       if (c.state !== 'active') continue;
       for (const m of c.members) {
         const s = list.find((x) => x.sessionId === m.sessionId); const now = s ? String(s.addr || s.name || '') : '';
-        if (!now || now === m.seenName) continue;
-        const was = m.seenName || ''; m.seenName = now; m.names = [...new Set([...(Array.isArray(m.names) ? m.names : []), now])].slice(-20); changed = true;
-        told.push({ c, m, was, tell: !!was && now !== m.name });
+        const also = []; let diff = false;
+        const code = codeOf(m.sessionId); if (code && code !== m.name) { also.push(m.name); m.name = code; diff = true; }   // one it was given in another collaboration before 0.22.0
+        const owner = s ? (s.owner === 'board' ? 'board' : 'terminal') : m.owner; if (owner !== m.owner) { m.owner = owner; diff = true; }   // moved between the board and a terminal
+        if (now && now !== m.seenName) { m.seenName = now; also.push(now); diff = true; }
+        if (!diff) continue;
+        m.names = [...new Set([...(Array.isArray(m.names) ? m.names : []), ...also])].filter(Boolean).slice(-20); changed = true;
+        moved.add(c);
       }
     }
     // A board conversation that was busy when it joined: its name and brief were held back (written in the middle of a
@@ -1103,22 +1137,23 @@ function createServer(token, port, deps = {}) {
     for (const c of all) {
       if (c.state !== 'active') continue;
       for (const m of c.members) {
-        if (!m.pending || m.owner !== 'board') continue;
-        const ch = channels.get(m.sessionId); if (!ch) { delete m.pending; changed = true; continue; }
+        if (!m.pending) continue;
+        const ch = channels.get(m.sessionId);
+        if (!ch) { if (m.owner === 'terminal' && list.some((x) => x.sessionId === m.sessionId && x.owner !== 'board')) { delete m.pending; changed = true; later.push([m, Collab.briefText(c, m)]); } continue; }   // moved to a terminal meanwhile: told there, once it is open
         if (channels.status(ch) !== 'idle') continue;
         delete m.pending; changed = true;
-        channels.send(m.sessionId, '/rename ' + m.name);
-        tellMember(m, Collab.briefText(c, m)).catch(() => {});
+        later.push([m, Collab.briefText(c, m), true]);
       }
     }
     if (!changed) return;
     saveCollabs(all);
+    // after it is written down: telling a member asks for the list, which comes back here
+    for (const [m, text, name] of later) { if (name) nameIt(m); tellMember(m, text).catch(() => {}); }
     const st = Collab.settings();
-    for (const { c, m, was, tell } of told) {
+    for (const c of moved) {
       // read right before the write and only the members section replaced: a member writing the ledger at the same
       // moment keeps what it wrote anywhere else (lib/collab.js writeSection re-reads under the same rule)
       try { Collab.writeSection(c.ledger, st.sections.members, Collab.membersBlock(c)); } catch (e) {}
-      if (tell) { const text = Collab.renamedText(c, m, was); for (const o of c.members) if (o.sessionId !== m.sessionId) tellMember(o, text).catch(() => {}); }
     }
   };
   // A new collaboration. body: {goal, folder?, bypass?, members: [{sessionId, role, short?, does?}]} -> {status, ...}
@@ -1143,13 +1178,13 @@ function createServer(token, port, deps = {}) {
     const folder = body.folder ? String(body.folder) : members[0].cwd;
     const samePath = (a, b) => process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b);
     if (!members.some((m) => samePath(m.cwd, folder)) || !isDir(folder)) return { status: 400, ok: false, error: '帳本要放在其中一個成員的資料夾' };
-    const all = collabList(); const st = Collab.settings(); const pattern = pref('collabNamePattern') || st.namePattern;
+    const all = collabList(); const st = Collab.settings(); const pattern = namePattern();
     let cid = all.reduce((k, c) => Math.max(k, c.id), 0) + 1;
     for (let i = 0; i < 1000 && fs.existsSync(path.join(folder, st.ledgerDir || '.claude/collab', cid + '.md')); i++) cid++;   // ledgers left from an earlier database are kept, not reused
-    for (const m of members) { let n = Collab.fixedName(pattern, cid, m.short || m.role); while (members.some((o) => o !== m && o.name === n)) n += '2'; m.name = n; m.names = []; }
     const ledger = path.join(folder, st.ledgerDir || '.claude/collab', cid + '.md');
     if (fs.existsSync(ledger)) return { status: 409, ok: false, error: '帳本檔已經存在，不覆蓋：' + ledger };
     const c = { id: cid, goal, createdAt: Date.now(), folder, ledger, members, state: 'active', bypass: body.bypass !== false };
+    for (const m of members) { m.name = giveCode(m.sessionId, m.short || m.role, pattern); m.names = []; }
     try { fs.mkdirSync(path.dirname(ledger), { recursive: true }); fs.writeFileSync(ledger, Collab.ledgerText(c), { flag: 'wx' }); } catch (e) { return { status: 500, ok: false, error: '帳本寫不進去：' + String(e.message || e).slice(0, 160) }; }
     all.push(c); saveCollabs(all);
     // each member: the permission mode they all need (board conversations), the name it is given, the brief
@@ -1162,7 +1197,7 @@ function createServer(token, port, deps = {}) {
         // busy: its process is restarted after this turn (the new mode) - what is written now could go with it, so the
         // name and the brief are sent once it is idle (trackCollabNames)
         if (later) { m.pending = true; r.rename = 'after-turn'; r.brief = 'after-turn'; results.push(r); continue; }
-        const rn = channels.send(m.sessionId, '/rename ' + m.name); r.rename = rn.ok ? 'sent' : 'failed: ' + rn.error;
+        r.rename = nameIt(m);
       } else r.rename = 'by-you';   // a terminal session: only its user can type /rename (a slash command in a message is not run)
       const t = await tellMember(m, Collab.briefText(c, m)); r.brief = t.state; if (t.note) r.note = t.note;
       results.push(r);
@@ -1916,7 +1951,7 @@ function createServer(token, port, deps = {}) {
       // the registries' keys, written where skill-fetch reads them; the answer says which are set, never what they are
       if (p === '/api/skillwish/keys') { const r = Wish.saveKeys(body && body.keys, typeof body.cwd === 'string' ? body.cwd : ''); return send(res, r.ok ? 200 : 400, r); }
       // an entry (or several) filled in from an address only; nothing is written
-      if (p === '/api/recommends/draft') { const r = await RecFill.draft(String(body.url || '').slice(0, 400), { fetch: deps.recFetch, ask: deps.recAsk || LineLib._claudeAsk({ model: 'haiku' }) }); return send(res, r.ok ? 200 : 400, r); }
+      if (p === '/api/recommends/draft') { const r = await RecFill.draft(String(body.url || '').slice(0, 400), { fetch: deps.recFetch, ask: deps.recAsk || LineLib._claudeAsk({ model: pref('decideModel') }) }); return send(res, r.ok ? 200 : 400, r); }
       if (p === '/api/recommends') { const r = await (deps.saveRecommend || PluginFit.saveRecommend)(body || {}); return send(res, r.ok ? 200 : 400, r); }
       // 外掛整合分析 (lib/pluginfit.js): started here, run in the background (minutes), read with GET /api/pluginfit.
       if (p === '/api/pluginfit/analyze') {
@@ -2520,7 +2555,8 @@ function createServer(token, port, deps = {}) {
       }
       if (p === '/api/schedule/notice') { if (!runner) return send(res, 404, { ok: false, error: '排程沒有在執行' }); const r = await runner.act(body.id, String(body.action || '')); fresh(); return send(res, 200, r); }
       // A name for a session, kept by the board above every other title; empty = back to the automatic one. A board
-      // conversation is also told /rename, so Claude Code (and the terminal's resume list) has the name too.
+      // conversation is also told /rename, so Claude Code (and the terminal's resume list) has the name too - but not one
+      // with a fixed name: the others in its collaboration reach it by that.
       if (p === '/api/rename') {
         const sid = String(body.sessionId || '');
         if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(sid)) return send(res, 400, { ok: false, error: '缺 session id' });
@@ -2531,7 +2567,7 @@ function createServer(token, port, deps = {}) {
         const keys = Object.keys(t); for (const k of keys.slice(0, Math.max(0, keys.length - 2000))) delete t[k];
         config.setValue('customTitles', t); fresh();
         let synced = false;
-        if (channels.get(sid) && name) { const r = channels.send(sid, '/rename ' + name); synced = !(r && r.ok === false); }
+        if (channels.get(sid) && name && !codeOf(sid)) { const r = channels.send(sid, '/rename ' + name); synced = !(r && r.ok === false); }
         return send(res, 200, { ok: true, name, synced });
       }
       if (p === '/api/hide') {
@@ -2562,7 +2598,7 @@ function createServer(token, port, deps = {}) {
         if (body.to === 'board') { const c = channels.create(d.cwd, sid); c.title = d.title; if (keeper) keeper.forget([sid]); }
         else {
           const known = keeper && keeper.get(sid);
-          openTerminal(terminalArgs(sid, d.cwd, true, known ? known.command : keeper ? keeper.defaultCommand(d.cwd) : 'claude'));
+          openTerminal(terminalArgs(sid, d.cwd, true, known ? known.command : keeper ? keeper.defaultCommand(d.cwd) : 'claude', undefined, '', naming(sid)));
           if (keeper) keeper.markRestoring(sid);
         }
         fresh();
@@ -2682,7 +2718,7 @@ function createServer(token, port, deps = {}) {
         if (kept.length) return send(res, 409, { ok: false, error: '這個對話有' + kept.join('、') + '，移到終端機就拿不回來。先送出或拿掉，再移過去' });
         const cwd = c.cwd;
         const known = keeper && keeper.get(sid);
-        const args = terminalArgs(sid, cwd, !!S.findTranscript(sid, cwd, S.DEFAULTS.projectsDir), known ? known.command : 'claude');
+        const args = terminalArgs(sid, cwd, !!S.findTranscript(sid, cwd, S.DEFAULTS.projectsDir), known ? known.command : 'claude', undefined, '', naming(sid));
         // its name goes with it (lib/sessions.js o.titles); the last 200 are remembered
         if (c.title) { const t = Object.assign({}, config.value('movedTitles', {})); delete t[sid]; t[sid] = String(c.title).slice(0, 120); const keys = Object.keys(t); for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete t[k]; config.setValue('movedTitles', t); }
         channels.remove(sid);

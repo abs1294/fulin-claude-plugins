@@ -487,6 +487,34 @@ test('a conversation nothing was said in can be taken off again; one with anythi
   ch.shutdown();
 });
 
+test('a conversation with a fixed name is started under it every time; a kept one is not ended when quiet, and is started again without a message', () => {
+  const d = tmp();
+  const log = [];
+  let keep = true;
+  const ch = new Channels(path.join(d, 'channels.json'), { spawn: fakeSpawn(log), transcriptOf: () => null, codeOf: (sid) => (sid === a.sessionId ? 'S1-A' : ''), keepAlive: (sid) => keep && sid === a.sessionId });
+  const a = ch.create(d), b = ch.create(d);
+  ch.send(a.sessionId, '你好'); ch.send(b.sessionId, '你好');
+  const nameOf = (x) => (x.args.includes('--name') ? x.args[x.args.indexOf('--name') + 1] : '');
+  assert.deepStrictEqual(log.map(nameOf), ['S1-A', '']);
+  for (const x of log) x.p.out({ type: 'result', is_error: false, total_cost_usd: 0.1 });
+  const old = Date.now() - 3600000; a.lastActivity = b.lastActivity = old;
+  const ended = []; for (const x of log) x.p.stdin.end = () => ended.push(x);
+  ch._reap();
+  assert.deepStrictEqual(ended.map(nameOf), [''], 'only the one that is not kept');
+  ch.stop(a.sessionId);
+  ch._reap();
+  assert.deepStrictEqual([log.length, nameOf(log[2]), log[2].p.stdin.written.length, ch.status(a)], [3, 'S1-A', 0, 'idle'], 'started again under its name, nothing sent, no turn');
+  ch.stop(a.sessionId); ch._reap();
+  assert.strictEqual(log.length, 3, 'not again within a few minutes');
+  a.lastResultAt = 1;   // (the clock below is moved by hand)
+  a.wokenAt -= 6 * 60000; ch._reap(); a.proc = null;   // ended by itself
+  a.wokenAt -= 6 * 60000; ch._reap();
+  assert.strictEqual(log.length, 4, 'woken in vain twice: the wait grows');
+  a.wokenAt -= 60 * 60000; keep = false; ch._reap();
+  assert.strictEqual(log.length, 4, 'nor once it is not kept');
+  ch.shutdown();
+});
+
 test('a conversation that has not started is forgotten once no page has it open; one that started, or is being looked at, stays', () => {
   const d = tmp();
   const log = [];

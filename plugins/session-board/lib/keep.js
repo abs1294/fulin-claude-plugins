@@ -59,6 +59,22 @@ function launchCommand(cmd) {
   return out.join(' ');
 }
 
+// The same command under this session's fixed name ('' = it has none). A fixed name already in it is taken out - it may be
+// another session's (a folder's usual command is taken from one that was open there); a name you gave yourself stays,
+// and the fixed one, coming last, is what counts (measured 2026-11-24: of two --name, the last). known: the fixed names.
+const bareWord = (x) => String(x || '').replace(/^["']|["']$/g, '');
+function withName(cmd, name, known = new Set()) {
+  const t = tokens(cmd), out = [];
+  for (let i = 0; i < t.length; i++) {
+    if ((t[i] === '-n' || t[i] === '--name') && known.has(bareWord(t[i + 1]))) { i++; continue; }
+    if (/^--name=/.test(t[i]) && known.has(bareWord(t[i].slice(7)))) continue;
+    out.push(t[i]);
+  }
+  // (nothing to take out: the command is left exactly as it is)
+  const base = !/claude(\.exe|\.cmd)?"?$/i.test(t[0] || '') ? 'claude' : out.length === t.length ? String(cmd).trim() : out.join(' ');   // not claude itself: what the launchers fall back to
+  return base + (name ? ' --name ' + name : '');
+}
+
 class Keeper {
   constructor(file, opts = {}) {
     this.file = file;
@@ -245,4 +261,4 @@ function writeLauncher(dir, sid, command, resume, prompt) {
   return file;
 }
 
-module.exports = { USER_ENDED, Keeper, launchCommand, tokens, cleanEnv, batchLine, launcherText, writeLauncher, GRACE_MS };
+module.exports = { USER_ENDED, Keeper, launchCommand, withName, tokens, cleanEnv, batchLine, launcherText, writeLauncher, GRACE_MS };

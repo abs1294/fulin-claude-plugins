@@ -1275,6 +1275,10 @@
   .collab-new { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 8px; }
   .collab-new .lab { font-size: 13px; color: var(--dim); margin: 14px 0 6px; }
   .collab-pick { display: flex; flex-direction: column; gap: 6px; }
+  .collab-pick[hidden] { display: none; }
+  .cp-row:not(.on) { grid-template-columns: 24px minmax(0, 1fr); } .cp-row:not(.on) > :nth-child(n+3) { display: none; }   /* role and part: once chosen */
+  .set-uses { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 4px; line-height: 1.6; }
+  .cp-find { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0 8px; } .cp-find input { flex: 1 1 220px; min-width: 0; font-family: inherit; } .cp-at { font-size: 13px; color: var(--dim); white-space: nowrap; }
   .cp-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) 140px 200px; gap: 8px; align-items: center; }
   .cp-row input[type=checkbox] { width: 18px; height: 18px; margin: 3px; accent-color: var(--accent); }   /* 18 + 3 a side: a 24 px place to press (the browser's 13 px was all there was) */
   .cp-who { min-width: 0; display: flex; flex-direction: column; } .cp-who .t, .cp-who .m { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .cp-who .m { font-size: 12px; color: var(--dim); }
@@ -1292,8 +1296,8 @@
   .collab-msg { border-left: 3px solid var(--line); padding: 4px 10px; margin: 6px 0; } .collab-msg.in { border-left-color: var(--dot-run, #16a34a); }
   .collab-msg .cmh { font-size: 12px; color: var(--dim); } .collab-msg .cmt { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
   .collab-ledger { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); border-radius: var(--r-m); padding: 12px; font-size: 13px; max-height: calc(60vh / var(--zv, var(--z, 1))); overflow: auto; }
-  @media (max-width: 700px) and (pointer: coarse) { html body .cp-row { grid-template-columns: 44px minmax(0, 1fr); } }
-  @media (max-width: 700px) { .cp-row { grid-template-columns: 24px minmax(0, 1fr); } .cp-row input:not([type]) { grid-column: 2; } .cm-row { grid-template-columns: 14px minmax(0, 1fr); } }
+  @media (max-width: 700px) and (pointer: coarse) { html body .cp-row, html body .cp-row:not(.on) { grid-template-columns: 44px minmax(0, 1fr); } }
+  @media (max-width: 700px) { .cp-row { grid-template-columns: 24px minmax(0, 1fr); } .cp-row > :nth-child(n+3) { grid-column: 2; } .cm-row { grid-template-columns: 14px minmax(0, 1fr); } }
   .of-sticky { position: sticky; top: -1px; z-index: 5; background: var(--bg); padding: 13px 0 6px; margin: -12px 0 4px; }
   .of-sticky.stuck { box-shadow: 0 6px 8px -8px rgba(0, 0, 0, .35); }
   .of-sticky .pathrow { margin-top: 0; }
@@ -3329,12 +3333,16 @@ async function drawSettings() {
   }
   {
     const h2 = el('h2', '', '小模型判斷'); h2.style.marginTop = '40px'; pane.append(h2);
-    pane.append(el('p', 'lead', '「下一步」要不要出現「交給 goal2 做完」，是把最後一則回覆交給小模型回答一題（題目在看板資料夾的 questions/unfinished.json；要改題目，放一份同名檔到 ~/.claude/session-board/questions/）。這裡選用哪個模型。'));
+    pane.append(el('p', 'lead', '看板有幾個地方會請一個快又便宜的模型做小判斷，這裡選用哪個模型：'));
+    const uses = el('ul', 'set-uses');
+    for (const [t, d] of [['下一步', '這一輪有沒有說要做、還沒做完的事，有才出現「交給 goal2 做完」'], ['收件', '新進來的訊息是不是要你處理、要做什麼'], ['推薦的外部 plugin', '貼上網址時，從那一頁讀出名稱和說明先填好']]) { const li = el('li'); li.append(el('b', '', t), '：' + d); uses.append(li); }
+    pane.append(uses);
     const row = el('div', 'pathrow'), sel = el('select'); sel.setAttribute('aria-label', '判斷用的模型');
     for (const m of ['haiku', 'sonnet', 'opus']) { const o = el('option', '', m); o.value = m; sel.append(o); }
     sel.value = (r.data.prefs || {}).decideModel || 'haiku';
     sel.addEventListener('change', async () => { if (await savePref({ decideModel: sel.value })) say('已儲存：判斷用 ' + sel.value); });
     row.append(sel); pane.append(row);
+    pane.append(el('div', 'hint', '不照這個設定的：排程的一句話、語音整理、每天上班統整、戰情室的每日摘要、LINE 秘書固定用 sonnet；載入動畫由 sonnet 看、opus 畫；轉送訊息給終端機 session 固定用 haiku；解釋與旁問用 Claude Code 的預設模型。「下一步」的題目可以改：放一份 unfinished.json 到 ~/.claude/session-board/questions/。'));
   }
   {
     const h2 = el('h2', '', '從另一台電腦操作'); h2.style.marginTop = '40px'; pane.append(h2);
@@ -4640,21 +4648,49 @@ async function drawCollab(preselect) {
   form.append(el('h2', '', '開一個合作'));
   const goal = el('textarea'); goal.rows = 3; goal.style.width = '100%'; goal.placeholder = '共同目標，例如：ALPHA 與 BETA 對齊增量同步的規格，並完成雙方聯合測試'; goal.setAttribute('aria-label', '共同目標');
   form.append(el('div', 'lab', '共同目標'), goal);
-  form.append(el('div', 'lab', '成員（勾 2 個以上；角色是其他成員怎麼稱呼它，負責什麼寫它那一半）'));
+  const memLab = el('div', 'lab'); form.append(memLab);
   const cands = sessions.filter((s) => !s.headless && !s.notStarted && !s.programHidden);
+  // Chosen ones stay on top with what is written for them; the rest is searched and paged (2026-11-24: 一次列出全部要滾很久)
   const rows = [];
-  const tbl = el('div', 'collab-pick');
+  const chosen = el('div', 'collab-pick'), tbl = el('div', 'collab-pick');
   for (const s of cands) {
     const row = el('div', 'cp-row');
     const ck = el('input'); ck.type = 'checkbox'; ck.checked = s.sessionId === preselect; ck.setAttribute('aria-label', '加入：' + (s.title || s.sessionId));
     const role = el('input'); role.placeholder = '角色，例如 ALPHA'; role.value = folderName(s.cwd); role.setAttribute('aria-label', '角色');
     const does = growText('', '負責什麼', true); does.setAttribute('aria-label', '負責什麼');
     const lab = el('div', 'cp-who'); lab.append(el('span', 't', s.title || s.sessionId.slice(0, 8)), el('span', 'm', folderName(s.cwd) + ' · ' + (s.owner === 'board' ? '看板對話' : '終端機') + (s.name ? ' · ' + s.name : '')));
-    row.append(ck, lab, role, does); tbl.append(row);
-    rows.push({ s, ck, role, does });
+    row.append(ck, lab, role, does);
+    rows.push({ s, ck, role, does, row, hay: [s.title, folderName(s.cwd), s.cwd, s.name, s.sessionId].join('\n').toLowerCase() });
   }
-  if (!cands.length) tbl.append(el('p', 'hint', '現在沒有可以加入的 session（背景執行的、還沒開始的不列）。'));
-  form.append(tbl);
+  const PER = 8; let at = 0;
+  const find = el('input'); find.type = 'search'; find.placeholder = '搜尋 session：標題、資料夾'; find.setAttribute('aria-label', '搜尋可以加入的 session');
+  const prev = el('button', 'btn', '上一頁'), next = el('button', 'btn', '下一頁'), where = el('span', 'cp-at'); prev.type = next.type = 'button'; where.setAttribute('role', 'status');
+  const bar = el('div', 'cp-find'); bar.append(find, where, prev, next);
+  const drawPick = () => {
+    const words = find.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const on = rows.filter((x) => x.ck.checked), rest = rows.filter((x) => !x.ck.checked), hit = rest.filter((x) => words.every((w) => x.hay.includes(w)));
+    const pages = Math.max(1, Math.ceil(hit.length / PER)); at = Math.max(0, Math.min(at, pages - 1));
+    memLab.textContent = '成員：已選 ' + on.length + ' 個' + (on.length < 2 ? '（要 2 個以上）' : '') + (on.length ? '。角色是其他成員怎麼稱呼它，負責什麼寫它那一半' : '');
+    for (const x of rows) x.row.classList.toggle('on', x.ck.checked);
+    chosen.replaceChildren(...on.map((x) => x.row)); chosen.hidden = !on.length;
+    tbl.replaceChildren(...hit.slice(at * PER, at * PER + PER).map((x) => x.row));
+    if (!cands.length) tbl.append(el('p', 'hint', '現在沒有可以加入的 session（背景執行的、還沒開始的不列）。'));
+    else if (!hit.length) tbl.append(el('p', 'hint', words.length ? '沒有符合「' + find.value.trim() + '」的 session。換個字，或清掉搜尋看全部 ' + rest.length + ' 個。' : '全部都選了。'));
+    where.textContent = hit.length ? '共 ' + hit.length + ' 個' + (pages > 1 ? '，第 ' + (at + 1) + '／' + pages + ' 頁' : '') : '';
+    prev.hidden = next.hidden = pages < 2; prev.disabled = !at; next.disabled = at >= pages - 1;
+  };
+  find.addEventListener('input', () => { at = 0; drawPick(); });
+  const turn = (d) => { const b = d < 0 ? prev : next; at += d; drawPick(); if (b.disabled) (d < 0 ? next : prev).focus(); };
+  prev.addEventListener('click', () => turn(-1)); next.addEventListener('click', () => turn(1));
+  // ticked: it moves up to the chosen ones (ticked off: back among the rest) - the keyboard goes on where it was, in whichever
+  // of the two it was (the search box, which opens a phone's keyboard, only when there is no row at all)
+  for (const x of rows) x.ck.addEventListener('change', () => {
+    const box = x.row.parentNode, i = [...box.children].indexOf(x.row); drawPick();
+    const n = [box, tbl, chosen].map((b) => b.children[Math.min(i, b.children.length - 1)]).find((r) => r && r.querySelector('input[type=checkbox]'));
+    (n ? n.querySelector('input[type=checkbox]') : find).focus({ preventScroll: true });
+  });
+  drawPick();
+  form.append(chosen, bar, tbl);
   const folder = el('select'); folder.setAttribute('aria-label', '帳本放在哪個資料夾');
   const fillFolders = () => {
     const was = folder.value; folder.textContent = '';
@@ -4676,7 +4712,7 @@ async function drawCollab(preselect) {
     const members = rows.filter((x) => x.ck.checked).map((x) => ({ sessionId: x.s.sessionId, role: x.role.value.trim(), does: x.does.value.trim() }));
     const here = (x) => { x.scrollIntoView({ block: 'center' }); x.focus({ preventScroll: true }); };
     if (!goal.value.trim()) { here(goal); return say('要寫共同目標', true); }
-    if (members.length < 2) { const x = rows.find((y) => !y.ck.checked); if (x) here(x.ck); return say('要勾 2 個以上的 session', true); }
+    if (members.length < 2) { here(find); return say('要勾 2 個以上的 session', true); }
     go.disabled = true; msg.textContent = '建立中：寫帳本、替看板對話改名、送合作說明給每一位…'; msg.scrollIntoView({ block: 'nearest' });
     let x; try { x = await api('/api/collab/create', { goal: goal.value.trim(), folder: folder.value, bypass: by.checked, members }); } catch (e) { x = { ok: false, data: { error: '看板程序沒有回應' } }; }
     go.disabled = false;
@@ -4714,7 +4750,7 @@ async function drawCollabOne(id, results) {
   const ledgerLine = el('div', 'hint'); ledgerLine.append('帳本：', el('code', '', c.ledger), c.state === 'active' ? '' : '　（已結束）'); pane.append(ledgerLine);
   if (results && results.length) {
     const box = el('div', 'banner'); box.append(el('div', '', '剛才做了什麼：'));
-    for (const x of results) box.append(el('div', '', x.role + '：' + [x.bypass ? '權限 ' + (x.bypass === 'now' ? '已改成 bypass' : x.bypass === 'after-turn' ? '這輪做完後改成 bypass' : x.bypass) : '', x.rename === 'sent' ? '已送 /rename ' + x.name : x.rename === 'by-you' ? '要你在它的視窗打 /rename（見下方）' : x.rename === 'after-turn' ? '它正在忙：這輪做完後送 /rename ' + x.name : '改名：' + x.rename, '合作說明 ' + (x.brief === 'sent' ? '已送出' : x.brief === 'after-turn' ? '這輪做完後送' : '沒送到' + (x.note ? '（' + x.note + '）' : ''))].filter(Boolean).join('；')));
+    for (const x of results) box.append(el('div', '', x.role + '：' + [x.bypass ? '權限 ' + (x.bypass === 'now' ? '已改成 bypass' : x.bypass === 'after-turn' ? '這輪做完後改成 bypass' : x.bypass) : '', x.rename === 'sent' ? '已送 /rename ' + x.name : x.rename === 'start' ? '代號 ' + x.name : x.rename === 'by-you' ? '要你在它的視窗打 /rename（見下方）' : x.rename === 'after-turn' ? '它正在忙：這輪做完後送 /rename ' + x.name : '改名：' + x.rename, '合作說明 ' + (x.brief === 'sent' ? '已送出' : x.brief === 'after-turn' ? '這輪做完後送' : '沒送到' + (x.note ? '（' + x.note + '）' : ''))].filter(Boolean).join('；')));
     pane.append(box);
   }
   if (!c.modesAgree && c.modesUnknown && c.modesUnknown.length && c.modes.length <= 1) pane.append(el('div', 'banner warn', '⚠ 看不出 ' + c.modesUnknown.join('、') + ' 用的權限模式（終端機 session 要做過一件事才會記下來）。模式和其他成員不同的話，訊息會被扣住送不到；請確認它和其他成員用同一種模式。'));
@@ -4726,7 +4762,7 @@ async function drawCollabOne(id, results) {
     const row = el('div', 'cm-row');
     const st = !m.live ? '沒開著' : m.status === 'busy' ? '忙' : m.status === 'waiting' ? '等你' : '閒';
     row.append(el('span', 'dot' + (m.status === 'busy' ? ' running' : m.status === 'waiting' ? ' yours' : '')),
-      el('span', 'cm-role', m.role), el('span', 'cm-name', (m.actualName || '（還沒有名字）') + (m.actualName && m.actualName !== m.name ? '　預定：' + m.name : '')),
+      el('span', 'cm-role', m.role), el('span', 'cm-name', m.name + (m.actualName && m.actualName !== m.name ? '　現在登記成：' + m.actualName : '')),
       el('span', 'cm-st', st + ' · ' + (m.owner === 'board' ? '看板對話' : '終端機') + ' · ' + (MODE_WORD[m.mode] || m.mode || '模式不明')));
     const open = el('button', 'btn', '打開'); open.type = 'button'; open.addEventListener('click', () => openChat(m.sessionId)); row.append(open);
     mt.append(row);
@@ -4734,7 +4770,7 @@ async function drawCollabOne(id, results) {
   pane.append(mt);
   const cmds = (c.renameCommands || []).filter((x) => !x.done);
   if (cmds.length) {
-    const box = el('div', 'banner'); box.append(el('div', '', '終端機 session 的名字看板改不了（訊息裡的斜線指令不會執行），請到它的視窗貼上這一行：'));
+    const box = el('div', 'banner'); box.append(el('div', '', '終端機 session 的代號看板改不了（訊息裡的斜線指令不會執行），請到它的視窗貼上這一行：'));
     for (const x of cmds) { const line = el('div', 'cmd-line'); const code = el('code', '', x.command); const cp = el('button', 'btn', '複製'); cp.type = 'button'; cp.addEventListener('click', async () => { try { await navigator.clipboard.writeText(x.command); say('已複製，貼到「' + x.role + '」的終端機視窗'); } catch (e) { say('複製不了，請手動輸入：' + x.command, true); } }); line.append(x.role + '：', code, cp); box.append(line); }
     pane.append(box);
   }

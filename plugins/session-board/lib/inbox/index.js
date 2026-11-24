@@ -63,6 +63,7 @@ class InboxService {
     this.running = null;
     this.last = null;        // {at, total, results}
     this.pending = null;     // a Gmail sign-in in progress
+    this.triageModel = o.triageModel || null;   // () -> which model judges (the board's setting decideModel); none = haiku
     this.triageRun = o.triageRun || null;   // tests replace the model call
   }
 
@@ -238,7 +239,7 @@ class InboxService {
       this.last = { at: Date.now(), total: results.reduce((a, r) => a + (r.ingested || 0), 0), results };
       // Judging follows fetching: whatever has come in and has not been judged yet is judged now.
       if (this.settings().triage) {
-        try { this.last.triage = await Triage.runAll(this.dbFile, { run: this.triageRun, me: this.identities() }); }
+        try { this.last.triage = await Triage.runAll(this.dbFile, { run: this.triageRun, me: this.identities(), model: this.triageModel ? this.triageModel() : undefined }); }
         catch (e) { this.last.triage = { ok: false, error: String(e.message || e).slice(0, 200) }; }
       }
       return this.last;

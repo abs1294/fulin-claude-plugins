@@ -1,5 +1,5 @@
 {
-  "namePattern": "合作{id}-{short}",
+  "namePattern": "S{id}-{short}",
   "ledgerDir": ".claude/collab",
   "sections": {
     "goal": "目標",
@@ -12,6 +12,7 @@
     "rules": "合作規則"
   },
   "doneMarks": ["✓", "✅", "已跟上", "已確認", "ok", "OK", "v", "V"],
+  "keepHours": 24,
   "timelineTailBytes": 4194304,
   "timelineMax": 200
 }

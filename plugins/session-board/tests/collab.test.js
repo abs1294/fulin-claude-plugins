@@ -21,19 +21,46 @@ const collab = () => ({ id: 3, goal: '對齊規格', createdAt: Date.UTC(2026, 1
 
 test('names: the pattern filled, one line, kept short', () => {
   assert.strictEqual(C.fixedName('合作{id}-{short}', 3, 'ALPHA'), '合作3-ALPHA');
-  assert.strictEqual(C.fixedName('合作{id}-{short}', 3, 'a\nb'), '合作3-a b');
+  assert.strictEqual(C.fixedName('S{id}-{short}', 3, 'a\n b;"c" $d'), 'S3-a-b-c-d', 'it goes on command lines');
+  assert.strictEqual(C.fixedName('', 3, 'A'), 'S3-A');
+  assert.ok(!C.fixedName('--x{id}', 3, '').startsWith('-'), 'never read as an option');
   assert.strictEqual(C.fixedName('合作{id}-{short}', 3, 'x'.repeat(100)).length, 60);
+});
+
+test('fixed names: given once, unique whatever the pattern, those of before 0.22.0 taken from the collaborations', () => {
+  const Codes = require('../lib/codes');
+  const kv = {}; const value = (k, d) => (k in kv ? kv[k] : d), put = (k, v) => { kv[k] = JSON.parse(JSON.stringify(v)); };
+  const id = (n) => '00000000-0000-4000-8000-00000000000' + n;
+  assert.strictEqual(Codes.give(value, put, id(1), 'A', 'S{id}-{short}'), 'S1-A');
+  assert.strictEqual(Codes.give(value, put, id(1), 'B', 'X{id}'), 'S1-A', 'the same from then on');
+  const odd = [id(2), id(3), id(4), id(5)].map((s, i) => Codes.give(value, put, s, 'x'.repeat(i < 2 ? 70 : 2), ['{short}-{id}', '{short}-{id}', '同名', '***'][i]));
+  assert.ok(odd.every(Boolean) && new Set(odd).size === 4, 'none empty, none twice: ' + odd.join(' '));
+  assert.strictEqual(Codes.give(value, put, id(6), 'z', '同名'), 'S6-z', 'taken already: the number first');
+  const m = (s, name) => ({ sessionId: s, name });
+  const old = { collabs: [{ id: 3, state: 'ended', members: [m(id(1), '合作3-A')] }, { id: 2, state: 'active', members: [m(id(1), '合作2-A'), m(id(2), '合作2 ; B')] }, { id: 1, state: 'ended', members: [m(id(1), '合作1-A'), m(id(3), '合作1-C')] }] };
+  const ov = (k, d) => (k in old ? old[k] : d);
+  assert.deepStrictEqual(Codes.book(ov).codes, { [id(1)]: '合作2-A', [id(3)]: '合作1-C', [id(2)]: '合作2-B' }, 'the one under way first; made safe');
+  assert.ok(['合作3-A', '合作1-A', '合作2 ; B', '合作2-B'].every((x) => Codes.known(ov).has(x)), 'every name ever given is known as one');
+  const oput = (k, v) => { old[k] = JSON.parse(JSON.stringify(v)); };
+  assert.strictEqual(Codes.freeze(ov, oput), true);
+  old.collabs[1].state = 'ended'; old.collabs[1].members.forEach((x) => { x.name = 'renamed'; });
+  assert.strictEqual(Codes.book(ov).codes[id(1)], '合作2-A', 'the collaboration it came from ends: the same name');
+  assert.ok(Codes.known(ov).has('合作2 ; B'), 'the old ones are still no titles');
+  assert.strictEqual(Codes.freeze(ov, oput), false, 'once');
+  Codes.give(ov, oput, id(7), 'N', 'S{id}-{short}'); assert.ok(Codes.known(ov).has('合作3-A') && Codes.book(ov).codes[id(7)] === 'S1-N');
+  assert.deepStrictEqual(Codes.book((k, d) => d), { n: 0, codes: {}, old: [] });
 });
 
 test('the ledger: every section from the template, members with the name they have now, one column per member', () => {
   const t = C.ledgerText(collab(), NO_USER);
   for (const s of ['## 目標', '## 成員與分工', '## 介面清單', '## 承諾清單', '## 待你裁定', '## 使用者裁定', '## 驗證紀錄', '## 合作規則']) assert.ok(t.includes(s), s);
   assert.ok(t.includes('| 介面 | 提供方 | 版本／最後改動 | ALPHA | BETA |'));
-  assert.ok(t.includes('`project-b-c2`（預定 `合作3-BETA`）'), 'the name it has, and the one it was given');
+  assert.ok(t.includes('代號 `合作3-BETA`（現在登記的名字是 `project-b-c2`'), 'the fixed name, and the one it is registered under while that is another');
+  assert.ok(/代號 `合作3-ALPHA`；資料夾/.test(t), 'only the fixed one when it is registered under it: ' + C.section(t, '成員與分工'));
   assert.ok(t.includes('每個介面'), 'the rules');
   assert.ok(!/\{\{/.test(t), 'nothing left unfilled');
   const b = C.briefText(collab(), collab().members[0], NO_USER);
-  assert.ok(b.startsWith('（看板自動送出）【合作 #3】') && b.includes('合作3-ALPHA') && b.includes('project-b-c2') && b.includes('C:\\w\\.claude\\collab\\3.md'));
+  assert.ok(b.startsWith('（看板自動送出）【合作 #3】') && b.includes('合作3-ALPHA') && b.includes('合作3-BETA') && b.includes('project-b-c2') && b.includes('C:\\w\\.claude\\collab\\3.md'));
 });
 
 test('the ledger read back: promises not ticked, questions not decided, interfaces a member has not caught up with', () => {

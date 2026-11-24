@@ -68,6 +68,24 @@ test('lastTitles stops at the cap instead of reading a huge file to the start', 
   assert.ok(r.scanned <= 4096 + 1024, 'scanned=' + r.scanned);
 });
 
+test('a fixed name the board gave (--name) is written down as a title too: the title before it is used, and a terminal window is found by it', () => {
+  const d = tmp();
+  const o = { sessionsDir: path.join(d, 's'), projectsDir: path.join(d, 'p'), stateDir: path.join(d, 'st'), legacyStateDir: path.join(d, 'l'), pidAlive: () => true };
+  for (const k of ['sessionsDir', 'projectsDir', 'stateDir', 'legacyStateDir']) fs.mkdirSync(o[k], { recursive: true });
+  const cwd = '/Users/x/work', pdir = path.join(o.projectsDir, S.encodeCwd(cwd)); fs.mkdirSync(pdir, { recursive: true });
+  const f = path.join(pdir, SID + '.jsonl');
+  fs.writeFileSync(f, [title('ai-title', 'aiTitle', 'AI 標題'), title('custom-title', 'customTitle', '談什麼'), title('custom-title', 'customTitle', 'S7-work')].join('\n') + '\n');
+  fs.writeFileSync(path.join(o.sessionsDir, '1.json'), JSON.stringify({ pid: 1, sessionId: SID, cwd, kind: 'interactive', entrypoint: 'cli', status: 'idle', name: 'S7-work' }));
+  try {
+    assert.strictEqual(S.buildSessions(o, Date.now())[0].title, 'S7-work', 'not known as a fixed name');
+    S.setCodes(['S7-work']);
+    const s = S.buildSessions(o, Date.now())[0];
+    assert.deepStrictEqual([s.title, s.titleCandidates, s.addr], ['談什麼', ['談什麼', 'AI 標題', 'S7-work'], 'S7-work']);
+    fs.writeFileSync(f, title('ai-title', 'aiTitle', '只有 AI 標題') + '\n' + title('custom-title', 'customTitle', 'S7-work') + '\n');
+    assert.strictEqual(S.buildSessions(o, Date.now())[0].title, '只有 AI 標題');
+  } finally { S.setCodes([]); }
+});
+
 test('lastTitles on a missing file returns nulls', () => {
   assert.deepStrictEqual(S.lastTitles(path.join(tmp(), 'nope.jsonl')), { custom: null, ai: null, scanned: 0 });
 });

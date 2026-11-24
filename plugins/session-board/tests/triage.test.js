@@ -58,7 +58,8 @@ test('a call holds as many threads as fit; the rest are judged by the next call'
   assert.ok(built.text.length <= 60000 + 20000);
   const asked = [];
   const run = async (prompt) => { const n = (prompt.match(/<thread i=/g) || []).length; asked.push(n); return { ok: true, text: JSON.stringify(Array.from({ length: n }, (_, i) => ({ i: i + 1, valid: false, confidence: 90, category: 'noise', title: 't', summary: 's' }))) }; };
-  const all = await T.runAll(file, { run });
+  const models = []; const all = await T.runAll(file, { run: (p, o) => { models.push(o.model); return run(p); }, model: 'sonnet' });
+  assert.ok(models.length && models.every((m) => m === 'sonnet'), 'every call with the model given');
   assert.deepStrictEqual([all.done, all.left, asked.reduce((a, b) => a + b, 0)], [14, 0, 14]);     // every one judged, none twice
   assert.ok(asked.length >= 2);
 });

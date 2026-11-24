@@ -30,7 +30,7 @@ const finish = () => {
     let title = '';
     try {
       title = S.readSummary(sid, S.DEFAULTS) || '';
-      if (!title) { const f = S.findTranscript(sid, String(input.cwd || (regEntry && regEntry.cwd) || ''), S.DEFAULTS.projectsDir); const t = f ? S.lastTitles(f) : {}; title = t.custom || t.ai || ''; }
+      if (!title) { const f = S.findTranscript(sid, String(input.cwd || (regEntry && regEntry.cwd) || ''), S.DEFAULTS.projectsDir); const t = f ? S.lastTitles(f, { ignore: require('../lib/codes').known(config.value) }) : {}; title = t.custom || t.ai || ''; }
       if (!title && regEntry && typeof regEntry.name === 'string') title = regEntry.name;
     } catch (e) {}
     out = N.decide(input, { enabled: config.value('notify', true) !== false, ownChain: N.ownChainPresent(), entrypoint: regEntry && typeof regEntry.entrypoint === 'string' ? regEntry.entrypoint : '', onBoard, title: String(title).slice(0, 60) });

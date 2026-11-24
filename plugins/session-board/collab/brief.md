@@ -3,14 +3,14 @@
 目標：{{goal}}
 
 你的角色：{{role}}
-你在合作裡的名字：{{name}}（其他成員用這個名字找你）
+你的代號：{{name}}（固定不變，其他成員用這個代號找你）
 
 其他成員：
 {{others}}
 
 共用帳本（所有成員共用的唯一一份，直接改這個檔）：{{ledger}}
 
-怎麼聯絡其他成員：用 SendMessage，to 填對方的名字。找不到人時，先跑 ListAgents，再看帳本「{{s.members}}」那一節記的最新名字。對方的訊息會以 <cross-session-message from-name="…"> 送進來，回覆時 to 照抄 from-name。
+怎麼聯絡其他成員：用 SendMessage，to 填對方的代號，代號不會變。回報找不到時：看板對話等一分鐘再送一次（看板會把它叫起來）；還是找不到，看帳本「{{s.members}}」那一節寫的「現在登記的名字」，用那個送。對方的訊息會以 <cross-session-message from="…"> 送進來，回覆時 to 照抄 from，或填對方的代號。
 
 合作規則：
 {{rules}}

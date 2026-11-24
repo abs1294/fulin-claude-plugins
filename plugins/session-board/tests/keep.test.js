@@ -88,6 +88,21 @@ test('observe asks for the command line only of sessions it has none for', () =>
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('withName: the fixed name in place of the one it was started with, everything else as it was', () => {
+  assert.strictEqual(K.withName('claude --model opus', 'S1-x'), 'claude --model opus --name S1-x');
+  const known = new Set(['S1-x', 'S2-y', 'old name']);
+  assert.strictEqual(K.withName('claude -n "old name" --model opus', 'S1-x', known), 'claude --model opus --name S1-x');
+  assert.strictEqual(K.withName('claude --name=S2-y --x', 'S1-x', known), 'claude --x --name S1-x');
+  assert.strictEqual(K.withName('claude --name S2-y --x', '', known), 'claude --x', 'another session\'s: not carried over to one without a name');
+  assert.strictEqual(K.withName('claude --name mine', '', known), 'claude --name mine', 'your own: as typed');
+  assert.strictEqual(K.withName('claude --append-system-prompt 用 -n 選項 做', 'S1-x', known), 'claude --append-system-prompt 用 -n 選項 做 --name S1-x', 'a Mac\'s ps gives no quotes');
+  assert.strictEqual(K.withName('node cli.js', 'S1-x', known), 'claude --name S1-x', 'not claude: what the launchers fall back to, with the name');
+  assert.strictEqual(K.withName('claude --append-system-prompt "a -n b"', 'S1-x'), 'claude --append-system-prompt "a -n b" --name S1-x');
+  assert.strictEqual(K.withName(K.withName('claude', 'S1-x', known), 'S1-x', known), 'claude --name S1-x', 'kept and restored again: once');
+  assert.strictEqual(K.withName('', 'S1-x'), 'claude --name S1-x');
+  assert.ok(K.launcherText('claude --name 合作1-x', '11111111-2222-3333-4444-555555555555', true).includes('claude --name 合作1-x --resume'));
+});
+
 test('launchCommand drops what chose the conversation and keeps everything else as typed', () => {
   assert.strictEqual(K.launchCommand('claude -c --x'), 'claude --x');
   assert.strictEqual(K.launchCommand('claude --resume'), 'claude');

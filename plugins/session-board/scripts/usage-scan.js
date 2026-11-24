@@ -113,6 +113,7 @@ function one(proj, r) {
 // What each session was about: its title, from its conversation (cleared away: none). Kept in the board's database while the file does not change.
 {
   const { lastTitles } = require(path.join(__dirname, '..', 'lib', 'sessions.js'));
+  let ignore = new Set(); try { ignore = require(path.join(__dirname, '..', 'lib', 'codes.js')).known(require(path.join(__dirname, '..', 'lib', 'config.js')).value); } catch (e) {}   // fixed names are not titles
   let db = null, get = null;
   if (process.env.SESSION_BOARD_SCAN_CACHE !== '0') {
     try {
@@ -122,7 +123,7 @@ function one(proj, r) {
       get = db.prepare('SELECT size, mtime, title, own FROM usage_titles WHERE path = ?');
     } catch (e) { db = null; get = null; }
   }
-  const put = [], keptOf = (p) => { try { return get ? get.get(p) : null; } catch (e) { return null; } };
+  const put = [], keptOf = (p) => { try { const k = get ? get.get(p) : null; return k && ignore.has(k.title) ? null : k; } catch (e) { return null; } };   // kept under a fixed name: read again
   // The record files of a folder with a very long name are named after its first 170 characters and a hash.
   const long = new Map(), folderOf = (proj) => {
     if (proj.length !== 179) return proj;
@@ -135,7 +136,7 @@ function one(proj, r) {
     const k = keptOf(p);
     if (k && k.size === st.size && k.mtime === st.mtimeMs) { titles.set(sid, k.title); continue; }
     // Seen before: only what was added (and a little before it). own: 1 a name you gave it, which no made-up one replaces.
-    const added = k && st.size >= k.size ? st.size - k.size + 4 * 1024 * 1024 : Infinity, x = lastTitles(p, { cap: added, chunk: Math.min(2 * 1024 * 1024, added) });
+    const added = k && st.size >= k.size ? st.size - k.size + 4 * 1024 * 1024 : Infinity, x = lastTitles(p, { ignore, cap: added, chunk: Math.min(2 * 1024 * 1024, added) });
     const t = x.custom || (k && k.own ? k.title : '') || x.ai || (k ? k.title : ''), own = x.custom || (k && k.own && t === k.title) ? 1 : 0;
     titles.set(sid, t);
     if (x.scanned >= Math.min(st.size, added) || (x.custom && x.ai)) put.push([p, st.size, st.mtimeMs, t, own]);   // could not be read through: again next time

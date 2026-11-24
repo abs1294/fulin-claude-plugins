@@ -7,7 +7,7 @@
 //
 // This file is the board-free part: templates, the ledger (writing it and reading it back), names, and the message
 // timeline read from the members' transcripts. Every wording, heading and limit is in the files of ../collab
-// (config.json, ledger.md, brief.md, rules.md, renamed.md, decision.md); a file of the same name in
+// (config.json, ledger.md, brief.md, rules.md, decision.md); a file of the same name in
 // ~/.claude/session-board/collab overrides it.
 const fs = require('fs');
 const os = require('os');
@@ -29,6 +29,7 @@ function settings(o = {}) {
   const s = Object.assign({}, own, user, { sections: Object.assign({}, own.sections, user.sections) });
   s.doneMarks = Array.isArray(s.doneMarks) ? s.doneMarks.map(String) : ['✓'];
   s.timelineTailBytes = Number.isInteger(s.timelineTailBytes) && s.timelineTailBytes > 0 ? s.timelineTailBytes : 4 * 1024 * 1024;
+  s.keepHours = typeof s.keepHours === 'number' && s.keepHours >= 0 ? s.keepHours : 24;   // how long after a member's last turn the members' processes are kept running; 0 = not kept
   s.timelineMax = Number.isInteger(s.timelineMax) && s.timelineMax > 0 ? s.timelineMax : 200;
   return s;
 }
@@ -41,15 +42,22 @@ function fill(tpl, vars, s) {
   });
 }
 
-// The name a member is given in the collaboration (what the others SendMessage to). One line, kept short.
+// A session's fixed name: given once, the same in every collaboration, whatever its title becomes (what the others
+// SendMessage to). {id} is a number of its own. It goes on command lines (--name): no blanks, quotes or shell characters.
+// Only what needs no quoting anywhere, and never read as an option.
+function safeName(v) {
+  return String(v || '').replace(/[\s"'`$&|<>^%!;:(){}\[\]*?~#\\\/,=@]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+}
 function fixedName(pattern, id, short) {
-  const clean = (v) => String(v || '').replace(/[\r\n\t]+/g, ' ').trim();
-  return clean(String(pattern || '合作{id}-{short}').split('{id}').join(String(id)).split('{short}').join(clean(short) || 'x')).slice(0, 60);
+  const text = String(pattern || 'S{id}-{short}').split('{id}').join(String(id)).split('{short}').join(safeName(short) || 'x');
+  return safeName(safeName(text).slice(0, 60));   // the whole of it, the pattern's own characters too: never starts with '-'
 }
 // A short name for a role when none is given: its folder's name.
 function shortOf(m) { return String(m.short || '').trim() || path.basename(String(m.cwd || '')).slice(0, 20) || 'x'; }
 
-const membersBlock = (c) => c.members.map((m) => '- **' + m.role + '**：名字 `' + (m.seenName || m.name) + '`' + (m.seenName && m.seenName !== m.name ? '（預定 `' + m.name + '`）' : '') + '；資料夾 `' + m.cwd + '`；' + (m.owner === 'board' ? '看板對話' : '終端機 session') + '；session `' + m.sessionId + '`' + (m.does ? '\n  負責：' + m.does : '')).join('\n');
+// The name it goes by first; what Claude Code has it under right now only while that is another one (a terminal session
+// named by its window).
+const membersBlock = (c) => c.members.map((m) => '- **' + m.role + '**：代號 `' + m.name + '`' + (m.seenName && m.seenName !== m.name ? '（現在登記的名字是 `' + m.seenName + '`，代號找不到時用這個）' : '') + '；資料夾 `' + m.cwd + '`；' + (m.owner === 'board' ? '看板對話' : '終端機 session') + '；session `' + m.sessionId + '`' + (m.does ? '\n  負責：' + m.does : '')).join('\n');
 
 function ledgerText(c, o = {}) {
   const s = settings(o);
@@ -62,10 +70,9 @@ function ledgerText(c, o = {}) {
 
 function briefText(c, m, o = {}) {
   const s = settings(o);
-  const others = c.members.filter((x) => x.sessionId !== m.sessionId).map((x) => '- ' + x.role + '：名字 ' + (x.seenName || x.name) + '，資料夾 ' + x.cwd + (x.does ? '，負責 ' + x.does : '')).join('\n');
+  const others = c.members.filter((x) => x.sessionId !== m.sessionId).map((x) => '- ' + x.role + '：代號 ' + x.name + (x.seenName && x.seenName !== x.name ? '（現在登記的名字是 ' + x.seenName + '，代號找不到時用這個）' : '') + '，資料夾 ' + x.cwd + (x.does ? '，負責 ' + x.does : '')).join('\n');
   return fill(readFile('brief.md', o), { id: c.id, goal: c.goal, role: m.role + (m.does ? '（負責 ' + m.does + '）' : ''), name: m.name, others, ledger: c.ledger, rules: readFile('rules.md', o).trim() }, s).trim();
 }
-function renamedText(c, m, was, o = {}) { return fill(readFile('renamed.md', o), { id: c.id, role: m.role, name: m.seenName, was }, settings(o)).trim(); }
 function decisionText(c, question, answer, o = {}) { return fill(readFile('decision.md', o), { id: c.id, question, answer }, settings(o)).trim(); }
 
 // The part of the ledger under "## <heading>", up to the next "## ". -> {start, end} of that part (after the heading line), or null
@@ -210,4 +217,4 @@ function timeline(members, o = {}) {
   return all.slice(-s.timelineMax).map((x) => Object.assign({}, x, { text: x.text.slice(0, 1200) }));
 }
 
-module.exports = { readFile, settings, fill, fixedName, shortOf, oneLine, writeSection, ledgerText, briefText, renamedText, decisionText, section, replaceSection, readLedger, answerDecision, timeline, membersBlock, USER_DIR, OWN_DIR };
+module.exports = { readFile, settings, fill, safeName, fixedName, shortOf, oneLine, writeSection, ledgerText, briefText, decisionText, section, replaceSection, readLedger, answerDecision, timeline, membersBlock, USER_DIR, OWN_DIR };

@@ -220,7 +220,9 @@ session 做完一輪、或需要你核准時，跳一則 Windows 通知；點通
 
 ## 小模型判斷（decide）
 
-「下一步」要不要出現「交給 goal2 做完」，是把那一輪最後一則回覆交給小模型回答一題（只回機率與那幾件事，不寫字）。題目是資料：`questions/unfinished.json`（題目、判準、正反例、輸出形式、門檻）。要改題目，放一份同名檔到 `~/.claude/session-board/questions/`。判斷器 `lib/decide.js` 不依賴看板的其他程式，也可以單獨用：
+設定頁「小模型判斷」選的模型（`decideModel`）用在三處：「下一步」要不要出現「交給 goal2 做完」、收件的判讀、推薦的外部 plugin 從網址讀出名稱和說明。
+
+「下一步」是把那一輪最後一則回覆交給小模型回答一題（只回機率與那幾件事，不寫字）。題目是資料：`questions/unfinished.json`（題目、判準、正反例、輸出形式、門檻）。要改題目，放一份同名檔到 `~/.claude/session-board/questions/`。判斷器 `lib/decide.js` 不依賴看板的其他程式，也可以單獨用：
 
 ```
 node lib/decide.js --question unfinished < 一段文字
@@ -234,14 +236,15 @@ node lib/decide.js --question 路徑/我的題目.json --model haiku < 一段文
 左欄「合作」，或對話上方「＋ 合作」。勾 2 個以上的 session（看板對話或終端機 session），寫共同目標、每位的角色和負責什麼。看板會：
 
 - **建一份共用帳本** `<成員的資料夾>/.claude/collab/<編號>.md`：目標、成員與分工、介面清單（每位成員一欄，跟上了打 ✓）、承諾清單（`- [ ] [角色] …`）、待你裁定、使用者裁定（原話）、驗證紀錄、合作規則。所有成員共用這一份。
-- **給每位一個固定名字**（預設 `合作<編號>-<短名>`），其他成員用它 SendMessage。看板對話由看板送 `/rename`，程序重開名字也不變（實測）。終端機 session 看板改不了名字（跨 session 訊息裡的斜線指令不會執行），合作頁會給一行 `/rename …` 讓你貼到它的視窗。
+- **給每位一個固定代號**（預設 `S<流水號>-<短名>`），其他成員用它 SendMessage。代號跟著 session：標題、摘要怎麼變、程序重開、加入別的合作，代號都一樣。看板對話每次啟動都帶 `--name <代號>`（2.1.331 實測：中途改標題、接續都不會變）；看板開回終端機的也會帶。終端機 session 自己開的看板改不了（跨 session 訊息裡的斜線指令不會執行），合作頁會給一行 `/rename …` 讓你貼到它的視窗。
 - **讓權限模式一致**：成員的模式不同時，收到訊息的一方會把它扣住等它的使用者核可；看板對話沒有人能核可，訊息就永遠送不到（實測：auto 被扣住、bypass 立刻收到）。所以看板對話加入時預設改成 bypass（`collabBypass`，可在表單取消）；終端機 session 的模式看板改不了，不一致時合作頁會警告。
 - **送一份合作說明**給每位：目標、它的角色、其他成員的名字和資料夾、帳本在哪、怎麼聯絡、合作規則（每個介面都要跟對方確認、改了介面要更新帳本並通知對方、答應的事寫進承諾清單、不能替使用者決定、宣稱完成前要聯合驗證逐欄比對、附檔案:行號）。
-- **追蹤名字**：成員的名字變了（例如終端機 session 重開），看板改寫帳本的成員節，並通知其他成員新名字。
+- **名字變了不打擾**：成員登記的名字跟代號不同時（例如終端機 session 重開），看板只在帳本的成員節註明現在的名字，不送訊息給其他成員。
+- **讓成員找得到**：合作進行中、24 小時內有成員動過時（`collab/config.json` 的 `keepHours`，0＝不留），看板不會因為閒置 15 分鐘結束成員的程序；看板重開或程序不見了，一分鐘內叫回來（只開程序、不送訊息，不花 token）。
 
 合作頁列出：成員（忙／閒、現在的名字、權限模式）、帳本裡還沒勾的承諾、某位成員還沒跟上的介面（紅字）、要你裁定的題目（在這裡回答，看板把原話寫進帳本並送給每一位）、成員之間的訊息（從它們的對話紀錄讀 SendMessage 送出的和收到的，送出的標「對方收到」）、帳本全文。「結束合作」只是標成已結束，不動任何 session、不刪帳本。
 
-規則文字、帳本與說明的範本、帳本的節名都在 plugin 的 `collab/`（`config.json`、`ledger.md`、`brief.md`、`rules.md`、`renamed.md`、`decision.md`）；要改，放一份同名檔到 `~/.claude/session-board/collab/`（`config.json` 只要寫你要改的欄位）。
+規則文字、帳本與說明的範本、帳本的節名都在 plugin 的 `collab/`（`config.json`、`ledger.md`、`brief.md`、`rules.md`、`decision.md`）；要改，放一份同名檔到 `~/.claude/session-board/collab/`（`config.json` 只要寫你要改的欄位）。
 
 ## CLAUDE.md 面板
 
@@ -294,8 +297,8 @@ node lib/decide.js --question 路徑/我的題目.json --model haiku < 一段文
 | `officeCollapseOthers` | 有標星的房間時，其他房間收成一列 | `false` |
 | `hideProgramSessions` | 不列出其他程式開的 session（見下） | `true` |
 | `hideProgramFolders` | 這些資料夾裡的 session 一律不列出：資料夾的名字（任何叫這個名字的資料夾）或完整路徑（家目錄可寫 `~`） | `[]` |
-| `decideModel` | 小模型判斷用哪個模型（`haiku`、`sonnet`、`opus`） | `haiku` |
-| `collabNamePattern` | 合作成員的名字（`{id}` 合作編號、`{short}` 成員短名） | 空＝用 `collab/config.json` 的 `合作{id}-{short}` |
+| `decideModel` | 小模型判斷（下一步、收件判讀、推薦的外部 plugin）用哪個模型（`haiku`、`sonnet`、`opus`） | `haiku` |
+| `collabNamePattern` | 合作成員的代號（`{id}` 流水號、`{short}` 成員短名；空白與引號等符號會換成 `-`） | 空＝用 `collab/config.json` 的 `S{id}-{short}` |
 | `collabBypass` | 看板對話加入合作時改成 bypass（表單上的預設勾選） | `true` |
 
 這幾項都在設定頁有開關或欄位（星號、拖曳、左欄的 « » 也是改這幾項），存在看板的資料庫。
