@@ -144,6 +144,30 @@ post('create_draft', { subject: 'RE: 失敗案', htmlBody: '<div>x</div>' }, { i
 post('delete_draft', { draftId: 'rC' }, { error: 'not found' }, { isError: true });
 check('delete_draft 失敗不銷帳', stateHas('stale:rC'), true);
 
+process.stdout.write('=== 2026-11-24 實案：草稿已被使用者寄出，get_draft 回找不到 → 銷帳解死結 ===\n');
+post('create_draft', { replyToMessageId: 'orig9', subject: 'RE: 已寄出案', htmlBody: '<div>x</div>' }, { id: 'rS', messageId: 'mS', threadId: 'orig9' });
+check('rS 建立後同信 create → deny（死結前提）', preWith('create_draft', { replyToMessageId: 'orig9', subject: 'RE: 已寄出案' }), 'deny');
+{
+  const tr = { isError: true, content: [{ type: 'text', text: 'The requested draft could not be found.' }] };
+  run(POST, { tool_name: 'mcp__claude_ai_Gmail__get_draft', tool_input: { draftId: 'rS', messageFormat: 'FULL_CONTENT' }, tool_use_id: 'uS', tool_response: tr });
+}
+check('get_draft 回找不到 → stale:rS 已銷', stateHas('stale:rS'), false);
+check('get_draft 回找不到 → staleref 已銷', stateHas('staleref:rS|subj=已寄出案'), false);
+check('銷帳後同信 create_draft → allow', preWith('create_draft', { replyToMessageId: 'orig9', subject: 'RE: 已寄出案' }), 'allow');
+post('create_draft', { subject: 'RE: 配額案', htmlBody: '<div>x</div>' }, { id: 'rQ', messageId: 'mQ', threadId: 'tQ' });
+post('get_draft', { draftId: 'rQ', messageFormat: 'FULL_CONTENT' }, { error: 'quota exceeded' }, { isError: true });
+check('get_draft 因配額失敗（不是找不到）不銷帳', stateHas('stale:rQ'), true);
+{
+  const t = { isError: true, content: [{ type: 'text', text: 'Request failed with status 404: quota exceeded, resource not found for project' }] };
+  run(POST, { tool_name: 'mcp__claude_ai_Gmail__get_draft', tool_input: { draftId: 'rQ' }, tool_use_id: 'uQ2', tool_response: t });
+}
+check('錯誤訊息含 404／not found 但不是草稿不存在 → 不銷帳', stateHas('stale:rQ'), true);
+{
+  const t = { isError: true, content: [{ type: 'text', text: '找不到這份草稿' }] };
+  run(POST, { tool_name: 'mcp__claude_ai_Gmail__get_draft', tool_input: { draftId: 'rQ' }, tool_use_id: 'uQ3', tool_response: t });
+}
+check('中文「找不到這份草稿」→ 銷帳', stateHas('stale:rQ'), false);
+
 console.log('=== 狀態檔壞掉 → 放行（fail-open） ===');
 fs.writeFileSync(path.join(home, '.claude', 'deliver-report', 'draft-link-gate', 'warned.json'), '\uFEFF{broken', 'utf8');
 check('狀態檔不是 JSON → update_draft r1 放行', pre('r1'), 'allow');

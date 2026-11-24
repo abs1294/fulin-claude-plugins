@@ -2,6 +2,10 @@
 
 本檔記錄 deliver-report 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [2.7.5] - 2026-11-24
+### Fixed
+- 草稿被使用者在 Gmail 介面寄出（或刪掉）後，防覆蓋閘死結：該草稿的 `stale:<id>`／`staleref:` 記號還在，get_draft 回「The requested draft could not be found.」卻被 gmail-draft-posttool-gate 的 isToolError 直接放行、沒銷帳，於是同信 create_draft 永遠被擋、讀回又讀不到（2026-11-24 實案，回信草稿 r1700707986834566493）。現在 get_draft 失敗且訊息是找不到（could not be found／not found／404／找不到）就銷該草稿的 stale 與 staleref；配額等其他失敗不銷。stale-draft.test.js 新增 5 例（39 例全綠，其餘測試檔 exit 0）。
+
 ## [2.7.4] - 2026-11-23
 ### Fixed
 - 日報萃取（extract_sessions.py）漏掉人說的話、又混進不是人說的。漏的：看板（session-board）裡的對話——看板用 claude -p 跑，逐字紀錄是 `sdk-cli`／`promptSource=sdk`，跟程式開的一樣，整場被丟掉（2026-11-21、22、23 萃取 0 場，實際 7、5、6 場；11-20 是 1 場，實際 6 場）；改成從看板自己的紀錄（`~/.claude/session-board/board.db`，唯讀）認哪些是它替人開的，小秘書自己開的不算，沒裝看板行為不變，裝了卻讀不到會在 stderr 說 WARN；執行中補打的話（`queued_command` 附件）從沒讀過；按建議送出的（`suggestion_accepted`）被濾掉；同一場先在終端機、後在看板接手的整場被丟。混進的：Stop hook 回饋與 skill 全文（`isMeta`）、續接摘要（`isCompactSummary`）、別的 session 傳來的舊格式訊息、看板自動送出的接續句、排程與自動健檢送進對話的那一句。新增 hooks/tests/extract-sessions.test.py。

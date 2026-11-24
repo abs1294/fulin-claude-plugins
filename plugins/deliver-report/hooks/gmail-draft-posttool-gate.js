@@ -172,6 +172,23 @@ function main(raw) {
     return allow();
   }
 
+  // (I) 讀回回「找不到草稿」＝草稿已不存在（使用者在 Gmail 介面寄出或刪掉）→ 銷 stale／staleref。
+  //     2026-11-24 實案：草稿被使用者寄出後，stale:<id> 還在，get_draft 回
+  //     "The requested draft could not be found." 被下面的 isToolError 直接放行、沒銷帳，
+  //     之後同信 create_draft 永遠被擋、讀回又讀不到＝死結。只認 get_draft 且訊息明確是找不到。
+  if (isRead && isToolError(input.tool_response)) {
+    let msg = '';
+    try { msg = typeof input.tool_response === 'string' ? input.tool_response : JSON.stringify(input.tool_response); } catch (_) { msg = ''; }
+    // 只認「草稿不存在」的明確句型；不收裸 404／裸 not found（配額、權限錯誤的訊息可能含這些字）
+    const gone = /draft\b[^.]{0,40}\b(could not|couldn't|cannot|can't) be found|draft\b[^.]{0,40}\bnot found|no such draft|找不到[^。]{0,10}草稿|草稿[^。]{0,10}找不到/i.test(msg);
+    const goneId = C.safeStr(toolInput.draftId);
+    if (gone && goneId) {
+      const st0 = C.readState();
+      if (C.clearStale(st0, goneId)) C.writeState(st0);
+    }
+    return allow();
+  }
+
   // 工具失敗（quota exceeded、權限不足…）→ 草稿沒建成，沒有「寄出去收不回來」的風險。
   // 仍對 tool_input 跑檢查只會叫使用者去修一封不存在的草稿（2026-09-18 審查實測：
   // {"isError":true,"content":"quota exceeded"} 會報 <p>）。重試成功時會重新觸發
