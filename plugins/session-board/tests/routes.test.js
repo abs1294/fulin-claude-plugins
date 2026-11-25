@@ -1094,6 +1094,8 @@ test('settings: read, and changed without touching the real computer', async () 
   assert.strictEqual((await post('/api/config', { pickerStartDir: 12345 })).status, 400, 'a setting of the wrong kind is refused');
 
   { const r = await get('/api/machine'); assert.strictEqual(r.status, 200); assert.deepStrictEqual([r.json.ram.map((g) => g.name), r.json.cpu.map((g) => g.name)], [['x', 'Chrome'], ['Chrome', 'x']]); assert.strictEqual(r.json.now.alert.ram, 85);
+    { const m = await post('/api/machine/mute', { k: 'ram', on: true }); assert.deepStrictEqual([m.status, m.json.now.muted], [200, ['ram']]); assert.strictEqual((await post('/api/machine/mute', { k: 'ram', on: false })).json.now.muted.length, 0); assert.strictEqual((await post('/api/machine/mute', { k: 'x', on: true })).status, 400); }
+    await post('/api/machine/mute', { k: 'ram', on: true }); await post('/api/config', { machineAlert: false }); await post('/api/config', { machineAlert: true }); assert.deepStrictEqual((await get('/api/sessions')).json.machine.muted, [], 'off and on at once takes it back');
     assert.strictEqual((await post('/api/config', { machineRam: 40 })).status, 400); assert.strictEqual((await post('/api/config', { machineRam: 90, machineAlert: false })).status, 200); assert.deepStrictEqual((await get('/api/sessions')).json.machine.alert, { on: false, ram: 90, cpu: 85 }); await post('/api/config', { machineRam: 85, machineAlert: true }); }
   assert.strictEqual((await get('/api/watchdog')).status, 200);
   assert.strictEqual((await post('/api/watchdog', { stuck: false, stuckMinutes: 7 })).json.settings.stuckMinutes, 7);

@@ -6,13 +6,17 @@
 //                memory is not what is left over (the system keeps files in it), so there it is what vm_stat counts, every 15 s.
 //   telling      over the point for a while (memory a minute, processor two): a notice in the bell and a notification, with
 //                who uses most of it. Who it is is only asked then (about two seconds, once), or when you press for it.
+//   nearly full  memory at 95 or more for a quarter of a minute: told again, as urgent, also when it was told before (asked
+//                2026-11-25: 快爆了要跟我說 - once told at 85, it went on to 98 in silence). At most every ten minutes.
+//   not again    「這次不再提示」(asked 2026-11-25): nothing more is said of it - nearly full neither - until it has eased; kept
+//                over a restart of the board. Taken back on the settings page, or by turning the telling off and on.
 //   over         back under the point by five for a minute: the notice is closed. Not told again within half an hour of the
 //                last time, and not while the same one has not eased.
 //
 // Nothing is written but the notices (lib/notices.js) and when each was last told (the setting machineState).
 const os = require('os');
 
-const EVERY = 5000, HOLD = { ram: 60000, cpu: 120000 }, EASE = 60000, EASE_BY = 5, AGAIN = 30 * 60000, RAM_EVERY_MAC = 15000;
+const EVERY = 5000, HOLD = { ram: 60000, cpu: 120000 }, EASE = 60000, EASE_BY = 5, AGAIN = 30 * 60000, RAM_EVERY_MAC = 15000, FULL = 95, FULL_HOLD = 15000, FULL_AGAIN = 10 * 60000, SLEPT = 5 * 60000;
 const DEFAULTS = { on: true, ram: 85, cpu: 85 };
 const okPct = (v) => Number.isInteger(v) && v >= 50 && v <= 99;
 
@@ -72,6 +76,8 @@ function vmUsed(text) {
 }
 
 const gb = (b) => (b / 1073741824 >= 10 ? Math.round(b / 1073741824) : Math.round(b / 107374182.4) / 10) + ' GB';
+const FULL_WORD = '記憶體快滿了';
+const isFull = (n) => n.kind === 'machine' && n.title.startsWith(FULL_WORD);
 const WORD = { ram: '記憶體', cpu: 'CPU ' };
 
 // ops: settings() -> {on, ram, cpu}; os (a stand-in), vm() -> vm_stat's text (a Mac; a promise), procs() -> procs (a promise),
@@ -81,11 +87,12 @@ class Machine {
     this.ops = ops; this.os = ops.os || os; this.was = null; this.ram = null; this.cpu = null; this.ramAt = 0; this.vmBusy = false; this.top = null; this.asking = null;
     const st = (ops.recall && ops.recall()) || {};
     // a notice still open from before the board was restarted: it is closed when it eases, as if it had been told now
-    this.st = Object.fromEntries(['ram', 'cpu'].map((k) => [k, { since: 0, under: 0, told: Number(st[k]) || 0, on: !!(ops.notices && ops.notices.isOpen && ops.notices.isOpen('machine:' + k)), busy: false }]));
+    this.st = Object.fromEntries(['ram', 'cpu'].map((k) => [k, { mute: !!(st.mute && st.mute[k]), again: false, since: 0, under: 0, fullSince: 0, fullUnder: 0, full: k === 'ram' && !!(ops.notices && ops.notices.list && ops.notices.list().some(isFull)), fullTold: k === 'ram' ? Number(st.full) || 0 : 0, told: Number(st[k]) || 0, on: !!(ops.notices && ops.notices.isOpen && ops.notices.isOpen('machine:' + k)), busy: false }]));
   }
   settings() { const v = (this.ops.settings && this.ops.settings()) || {}; return { on: v.on !== false, ram: okPct(v.ram) ? v.ram : DEFAULTS.ram, cpu: okPct(v.cpu) ? v.cpu : DEFAULTS.cpu }; }
   // what the page shows: the last look
-  now() { const t = this.os.totalmem(), s = this.settings(); return { ram: this.ram == null ? null : Math.round(this.ram), cpu: this.cpu == null ? null : Math.round(this.cpu), total: t, left: this.ram == null ? null : Math.round(t * (1 - this.ram / 100)), cores: this.cores(), alert: s, over: ['ram', 'cpu'].filter((k) => this.st[k].on) }; }
+  now() { const t = this.os.totalmem(), s = this.settings(); return { ram: this.ram == null ? null : Math.round(this.ram), cpu: this.cpu == null ? null : Math.round(this.cpu), total: t, left: this.ram == null ? null : Math.round(t * (1 - this.ram / 100)), cores: this.cores(), alert: s, over: ['ram', 'cpu'].filter((k) => this.st[k].on), muted: ['ram', 'cpu'].filter((k) => this.st[k].mute),
+    told: this.ops.notices.list ? this.ops.notices.list().filter((n) => n.kind === 'machine').map((n) => ({ id: n.id, k: n.key.split(':')[1], title: n.title, text: n.text, full: isFull(n) })) : [] }; }
   cores() { return this.n || (this.n = Math.max(1, this.os.cpus().length)); }
 
   look(now = Date.now()) {
@@ -98,19 +105,34 @@ class Machine {
 
   tick(now = Date.now()) {
     // the computer slept (or the board was held up): what was counted before is not what was seen
-    if (this.last && (now - this.last > 6 * EVERY || now < this.last)) for (const k of ['ram', 'cpu']) this.st[k].since = this.st[k].under = 0;
+    if (this.last && (now - this.last > 6 * EVERY || now < this.last)) for (const k of ['ram', 'cpu']) Object.assign(this.st[k], { since: 0, under: 0, fullSince: 0, fullUnder: 0, again: this.st[k].again || (this.st[k].full && now - this.last > SLEPT) });   // (still full when it wakes: said again)
     this.last = now;
     this.look(now);
     const s = this.settings(), jobs = [];
     for (const k of ['ram', 'cpu']) {
       const x = this.st[k], v = this[k];
-      if (!s.on) { if (x.on) { this.ops.notices.close('machine:' + k, 'machine off'); x.on = false; } x.since = x.under = 0; continue; }
+      if (!s.on) { if (x.on) { this.ops.notices.close('machine:' + k, 'machine off'); x.on = false; } Object.assign(x, { since: 0, under: 0, fullSince: 0, fullUnder: 0, full: false, again: false, told: 0, fullTold: 0 }); if (x.mute) this.mute(k, false); continue; }   // turned on again, it is told anew
       if (v == null) continue;
+      if (x.mute) {   // said to be quiet about it, until it has eased
+        if (v >= s[k] - EASE_BY) x.under = 0; else if (!x.under) x.under = now; else if (now - x.under >= EASE) this.mute(k, false);
+        continue;
+      }
       if (v >= s[k]) { x.under = 0; if (!x.since) x.since = now; } else x.since = 0;
+      if (k === 'ram') {
+        const at = Math.max(FULL, s.ram);   // (a point of 95 or more: past it is nearly full)
+        if (v < at) x.fullSince = 0; else if (!x.fullSince) x.fullSince = now;
+        // no longer nearly full, for a minute: that notice is over (still over your point, it is told as that, in its turn)
+        if (!x.full || v >= at - 3) x.fullUnder = 0;
+        else if (!x.fullUnder) x.fullUnder = now;
+        else if (now - x.fullUnder >= EASE) { if (x.on) this.ops.notices.close('machine:ram', 'eased'); x.on = x.full = x.again = false; x.fullUnder = x.under = 0; }
+        if ((!x.full || x.again) && x.fullSince && now - x.fullSince >= FULL_HOLD && !x.busy && now - x.fullTold >= FULL_AGAIN) {
+          x.busy = true; jobs.push(this.alert(k, v, s[k], now, true).catch(() => {}).then(() => { x.busy = false; })); continue;
+        }
+      }
       if (x.on) {
         if (v >= s[k] - EASE_BY) x.under = 0;
         else if (!x.under) x.under = now;
-        else if (now - x.under >= EASE) { this.ops.notices.close('machine:' + k, 'eased'); x.on = false; x.under = 0; }
+        else if (now - x.under >= EASE) { this.ops.notices.close('machine:' + k, 'eased'); x.on = x.full = false; x.under = 0; }
       } else if (x.since && now - x.since >= HOLD[k] && !x.busy && now - x.told >= AGAIN) {
         x.busy = true;
         jobs.push(this.alert(k, v, s[k], now).catch(() => {}).then(() => { x.busy = false; }));
@@ -118,16 +140,27 @@ class Machine {
     }
     return Promise.all(jobs);
   }
-  async alert(k, v, at, now) {
+  keep() { if (this.ops.remember) this.ops.remember({ ram: this.st.ram.told, cpu: this.st.cpu.told, full: this.st.ram.fullTold, mute: { ram: this.st.ram.mute, cpu: this.st.cpu.mute } }); }
+  // Quiet about one of them until it has eased (on), or not any more.
+  mute(k, on) {
+    const x = this.st[k]; if (!x) return false;
+    if (!on && !x.mute) return true;   // (it has eased meanwhile: nothing to take back)
+    if (on) this.ops.notices.close('machine:' + k, 'muted');
+    Object.assign(x, { mute: !!on, since: 0, under: 0, fullSince: 0, fullUnder: 0, on: false, full: false, again: false });
+    if (!on) x.told = x.fullTold = 0;   // from here on as if nothing had been said
+    this.keep(); return true;
+  }
+  async alert(k, v, at, now, full) {
     let who = []; try { who = (await this.ask()).slice().sort((a, b) => (k === 'ram' ? b.mem - a.mem : b.cpu - a.cpu)).slice(0, 3); } catch (e) {}
-    const x = this.st[k]; if (!this.settings().on || !x.since) return;   // turned off meanwhile, or no longer over
+    const x = this.st[k]; if (!this.settings().on || x.mute || !(full ? x.fullSince : x.since)) return;   // turned off meanwhile, or no longer over
     const size = (g) => (k === 'ram' ? gb(g.mem) : Math.round(g.cpu) + '%');
-    const title = WORD[k] + '用了 ' + Math.round(v) + '%';
-    const text = '超過你設的 ' + at + '% 已經 ' + HOLD[k] / 60000 + ' 分鐘' + (k === 'ram' ? '，剩 ' + gb(this.os.totalmem() * (1 - v / 100)) : '') + '。' + (who.length ? '用最多的：' + who.map((g) => g.name + ' ' + size(g)).join('、') : '查不到是誰用最多');
-    // the conversation that uses most of it: pressing the notice opens it
-    this.ops.notices.open({ key: 'machine:' + k, kind: 'machine', sessionId: who.length && who[0].sessionId ? who[0].sessionId : '', title, text });
-    x.on = true; x.told = now; x.under = 0;
-    if (this.ops.remember) this.ops.remember({ ram: this.st.ram.told, cpu: this.st.cpu.told });
+    const left = gb(this.os.totalmem() * (1 - v / 100));
+    const title = full ? FULL_WORD + '：' + Math.round(v) + '%' : WORD[k] + '用了 ' + Math.round(v) + '%';
+    const text = (full ? '只剩 ' + left + '，再用下去程式會變很慢或被關掉。' : '超過你設的 ' + at + '% 已經 ' + HOLD[k] / 60000 + ' 分鐘' + (k === 'ram' ? '，剩 ' + left : '') + '。') + (who.length ? '用最多的：' + who.map((g) => g.name + ' ' + size(g)).join('、') : '查不到是誰用最多');
+    if (full) this.ops.notices.close('machine:' + k, 'worse');
+    this.ops.notices.open({ key: 'machine:' + k, kind: 'machine', title, text });
+    x.on = true; x.told = now; x.under = 0; if (full) { x.full = true; x.again = false; x.fullTold = now; x.fullUnder = 0; }
+    this.keep();
     if (this.ops.tell) this.ops.tell(title, text);
   }
   // Who uses what, put together. Asked once at a time, and kept ten seconds (pressed again, it is the same answer).

@@ -1405,7 +1405,7 @@ function createServer(token, port, deps = {}) {
   // How hard this computer works (lib/machine.js)
   const machine = new MachineLib.Machine({ settings: () => ({ on: pref('machineAlert'), ram: pref('machineRam'), cpu: pref('machineCpu') }), vm: MAC ? () => Mac.vmStat() : null,
     procs: () => osProcs(), sessions: () => { fresh(); return sessions(); }, own: process.pid, tell: deps.tell || tell,
-    notices: { open: (n) => notices.open(n), close: (k, by) => notices.close(k, by), isOpen: (k) => notices.openList().some((n) => n.key === k) },
+    notices: { open: (n) => notices.open(n), close: (k, by) => notices.close(k, by), isOpen: (k) => notices.openList().some((n) => n.key === k), list: () => notices.openList() },
     recall: () => config.value('machineState', null), remember: (st) => config.setValue('machineState', st) });
   // (a throw: the database held for a moment - looked at again in five seconds)
   if (!deps.noSchedules && !deps.noTimers) { machine.look(); const t = setInterval(() => { try { machine.tick(); } catch (e) {} }, MachineLib.EVERY); if (t.unref) t.unref(); }
@@ -2387,6 +2387,8 @@ function createServer(token, port, deps = {}) {
 
       if (p === '/api/seen') { channels.seen(sid); notices.seen(sid); fresh(); return send(res, 200, { ok: true }); }
       if (p === '/api/pick-folder') return send(res, 200, { path: await pickFolder() });
+      // 「這次不再提示」 and back (lib/machine.js)
+      if (p === '/api/machine/mute') { if (!['ram', 'cpu'].includes(body.k) || typeof body.on !== 'boolean') return send(res, 400, { ok: false, error: '要指定記憶體或 CPU' }); return send(res, 200, { ok: machine.mute(body.k, body.on), now: machine.now() }); }
       if (p === '/api/notices/dismiss') return send(res, 200, { ok: notices.closeId(body.id, 'dismissed') });
       if (p === '/api/notices/clear-closed') return send(res, 200, { ok: true, removed: notices.clearClosed() });
       // You opened this session on the page: "finished, have a look" is over.
@@ -2506,7 +2508,7 @@ function createServer(token, port, deps = {}) {
         }
         // (the values below were checked at the top of this handler)
         for (const k of ['textSize', 'textSizeTouch']) if (r.ok && body[k] !== undefined) config.setValue(k, Number(body[k]));
-        if (r.ok && given.length) { for (const k of given) config.setValue(k, body[k]); fresh(); }
+        if (r.ok && given.length) { for (const k of given) config.setValue(k, body[k]); fresh(); if (given.includes('machineAlert')) { try { machine.tick(); } catch (e) {} } }   // (off and on again within five seconds counts as both)
         // another country's calendar: gone by from now on, and fetched now (not waited for)
         if (r.ok && given.includes('workdayCountry')) { Workdays.setCountry(body.workdayCountry); if (!deps.calFetch) Workdays.refresh().catch(() => {}); }
         if (r.ok && body.autoHideDays !== undefined) { config.setValue('autoHideDays', Number(body.autoHideDays)); fresh(); }
