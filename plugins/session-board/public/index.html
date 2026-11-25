@@ -668,7 +668,7 @@
   .rtable td, .rtable th { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
   .rtable th { color: var(--dim); font-weight: 600; font-size: var(--fs-sm); }
   .form { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 8px 10px; align-items: center; margin-top: 10px; }
-  .form input, .form select { border: 1px solid var(--rule, var(--line)); border-radius: var(--r-m); padding: 5px 10px; background: var(--bg); color: inherit; font: inherit; font-size: var(--fs-md); min-width: 0; }
+  .form input:not([type=checkbox]), .form select { border: 1px solid var(--rule, var(--line)); border-radius: var(--r-m); padding: 5px 10px; background: var(--bg); color: inherit; font: inherit; font-size: var(--fs-md); min-width: 0; }
   .form label { color: var(--dim); font-size: var(--fs-md); }
   /* "more", "load", "show": a link that says it is one - the accent colour and an arrow, not grey text that only
      looked like a note (asked 2026-11-20: "I do not feel at all that it can be pressed") */
@@ -1820,7 +1820,8 @@
   /* 辦公室's search and filters, held under the bar once scrolled: white like the bar, the one edge under them */
   :root[data-skin] .pt-on .of-sticky { top: 55px; }
   :root[data-skin] .main:has(.pt-on .of-sticky.stuck) > .head.pt-a { box-shadow: none; }
-  /* collaborations, look A: a list on the left, the chosen one (or 新的合作) on the right */
+  /* collaborations, look A: a list on the left (＋ 新增合作 over it), the chosen one or the form on the right; wide, the list is always there, so no ← back to it */
+  @media (min-width: 721px) { :root[data-skin] .cb-scroll.wide > .pt-head .pt-back, :root[data-skin] .main:has(> .scroll.cb-scroll.wide) > .head .back { display: none; } }
   :root[data-skin] .cb-scroll.wide { display: grid; grid-template-columns: 260px minmax(0, 820px); justify-content: center; column-gap: 32px; align-items: start; }
   :root[data-skin] .cb-scroll.wide > .pane { margin: 0; width: auto; min-width: 0; }
   :root[data-skin] .cb-side { display: flex; flex-direction: column; gap: 2px; padding: 24px 0; }
@@ -1845,8 +1846,7 @@
   :root[data-skin] .cb-one .collab-goal { margin: 0 0 6px; font-size: var(--fs-xl); font-weight: 650; line-height: 1.4; color: var(--ink); }
   @media (max-width: 600px) { :root[data-skin] .cb-scroll .pane.cb-one { margin: 16px; padding: 18px 16px 22px !important; } }
   :root[data-skin] .cb-scroll:not(.wide) .cb-item.on::before { display: none; }
-  :root[data-skin] .cb-item.new { flex-direction: row; align-items: center; gap: 8px; font-weight: 600; color: var(--btn-ink); background: var(--btn); }
-  :root[data-skin] .cb-item.new .p { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--tint); font-size: var(--fs-lg); }
+  :root[data-skin] .cb-side > .cb-add { align-self: flex-start; margin: 0 0 8px; }
   :root[data-skin] .cb-h { margin: 18px 14px 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--faint); }
   :root[data-skin] .cb-none { margin: 8px 14px; font-size: var(--fs-sm); color: var(--dim); }
   /* collab form as steps (look A): each member a card coloured by its folder, like a department */
@@ -1954,11 +1954,20 @@
   .more-btn.more-face:hover, .more-btn.more-face[aria-expanded="true"] { background: var(--btn-h); color: var(--btn-ink); }
   /* look A, the office: the kinds as one tab bar (the picked one white), its search across the whole row */
   :root[data-skin] #ofChips { display: flex; flex-wrap: nowrap; gap: 4px; padding: 0; background: none; border-radius: var(--r-m); width: fit-content; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
-  :root[data-skin] #ofChips .of-chip { background: none; border: 0; box-shadow: none; color: var(--dim); font-weight: 600; font-size: var(--fs-md); padding: 6px 14px; border-radius: var(--r-m); white-space: nowrap; }
+  :root[data-skin] #ofChips .of-chip { background: none; border: 0; box-shadow: none; color: var(--dim); font-weight: 600; font-size: var(--fs-md); padding: 8px 12px; border-radius: var(--r-m); white-space: nowrap; }
   :root[data-skin] #ofChips .of-chip:hover { color: var(--ink); background: none; }
   :root[data-skin] #ofChips .of-chip.on { background: var(--tint); color: var(--ink); }
   :root[data-skin] #ofChips .of-chip.on b { color: var(--accent); }
   :root[data-skin] #ofChips .of-chip b { color: var(--faint); font-weight: 600; margin-left: 4px; }
+  /* every switch looks like the office's (2026-11-25: 切換元件統一成辦公室那種, 收件上排一起改): no frame, grey words,
+     the chosen one on the light tint in ink; its count faint, accent once chosen */
+  :root[data-skin] :is(.ptabs, .seg) { border: 0; background: none; border-radius: 0; gap: 4px; overflow: visible; }
+  :root[data-skin] .ptabs { margin: 0 0 16px; }
+  :root[data-skin] :is(.ptabs > button, .tabs > .btn[data-k], .war .mtab, .seg > button) { border: 0; background: none; color: var(--dim); font-weight: 600; font-size: var(--fs-md); padding: 8px 12px; margin: 0; border-radius: var(--r-m); white-space: nowrap; }
+  :root[data-skin] :is(.ptabs > button, .tabs > .btn[data-k], .war .mtab, .seg > button):hover { color: var(--ink); background: none; }
+  :root[data-skin] :is(.ptabs > button.on, .tabs > .btn[data-k].on, .war .mtab[aria-selected="true"], .seg > button.on) { background: var(--tint); color: var(--ink); }
+  :root[data-skin] .ptabs small { color: var(--faint); font-weight: 600; margin-left: 4px; }
+  :root[data-skin] .ptabs > button.on small { color: var(--accent); }
   :root[data-skin] .of-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
   :root[data-skin] .of-filters #ofChips, :root[data-skin] .of-filters #ofSub { margin: 0; }
   :root[data-skin] .of-sticky .pathrow { flex-wrap: wrap; gap: 8px; } :root[data-skin] .of-sticky .pathrow input[type=search] { flex: 1 1 320px; min-width: 0; }
@@ -1979,6 +1988,9 @@
   :root[data-skin] .help-fold:not(.open) { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
   .help-more { border: 0; background: var(--btn); padding: 2px 8px; margin: 4px 0 8px; border-radius: var(--r-m); font-size: var(--fs-xs); font-weight: 600; color: var(--btn-ink); cursor: pointer; display: block; }
   .help-more:hover { background: var(--btn-h); }
+  :root[data-skin] .help-fold.cut:not(.open) { padding-right: 4.5em; }
+  .help-more.at-end { margin: 0 0 0 auto; position: relative; }   /* on the cut line, at its right end */
+  .help-more[hidden] { display: none; }
   @media (pointer: coarse) { .help-more { min-height: 32px; padding: 4px 12px; } }
   /* the buttons on a row or a card: plain text in the main colour (the page's one main button keeps its fill) */
   :root[data-skin] :is(.past .acts, .desk .acts, .lg, .sc-acts, .gl, .sysjob) .btn:not(.primary):not(.danger):not(.more-item) { background: var(--btn); color: var(--btn-ink); font-weight: 600; }
@@ -2006,7 +2018,8 @@
   @media (max-width: 720px) { :root[data-skin] .scroll.pt-on { --gut: 16px; } }
   :root[data-skin] .scroll.pt-on > :is(.pane:not(.cb-one), .war, .col) { max-width: none !important; margin-left: 0 !important; margin-right: 0 !important; padding-left: 0 !important; padding-right: 0 !important; }
   @media (min-width: 721px) { :root[data-skin] .scroll:is(.pt-on, :has(> .home-pane))::after { content: ""; display: block; height: 48px; } }
-  :root[data-skin] .scroll.pt-on > .pane.pt-narrow { max-width: 780px !important; }
+  /* a narrow page (one thread, a form) sits in the middle of a wide window, not against its left edge (asked 2026-11-25: 太空) */
+  :root[data-skin] .scroll.pt-on:not(.wide) > .pane.pt-narrow { max-width: 780px !important; margin-left: auto !important; margin-right: auto !important; }
   /* 排程: the list and a small card of what has run, side by side; under 900 wide the card goes below the list */
   :root[data-skin] .pane.sc-two { container-type: inline-size; }
   :root[data-skin] .sc-cols { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 32px; align-items: start; }
@@ -3038,12 +3051,22 @@ function moreMenu(items, label, face) {
 // first, the rest on request behind a control that says what it opens). Errors and anything with a control in it stay whole.
 const FOLD_SEL = '.lead, .hint, .tip, .mexplain';
 function foldOne(p) {
-  if (p.dataset.fold || p.hidden || p.closest('.side, .msg, .thr, .bpop, .more-menu, label, button, .card, .collab-goal') || p.querySelector('input, select, textarea, button, a') || (p.textContent || '').trim().length < 48 || /^(讀不到|沒有|無法|看板程序|失敗|⚠)/.test(p.textContent.trim()) || /^pre/.test(getComputedStyle(p).whiteSpace)) return;
+  if (p.dataset.fold || p.hidden || p.closest('.side, .msg, .thr, .bpop, .more-menu, label, button, .card, .collab-goal') || p.querySelector('input, select, textarea, button, a') || /^(讀不到|沒有|無法|看板程序|失敗|⚠)/.test(p.textContent.trim()) || /^pre/.test(getComputedStyle(p).whiteSpace)) return;
   p.dataset.fold = '1'; p.classList.add('help-fold');
-  const b = el('button', 'help-more', '說明'); b.type = 'button'; b.setAttribute('aria-expanded', 'false');
-  b.addEventListener('click', (e) => { e.stopPropagation(); const open = p.classList.toggle('open'); b.setAttribute('aria-expanded', String(open)); b.textContent = open ? '收起' : '說明'; });
+  const b = el('button', 'help-more', '更多'); b.type = 'button'; b.setAttribute('aria-expanded', 'false'); b.hidden = true;
+  // only when the line is really cut off (asked 2026-11-25: a 說明 that opens nothing): measured, again when the width changes;
+  // closed, 更多 sits at the end of that one line; open, 收起 goes under the text
+  const fit = () => {
+    if (!p.isConnected) return;
+    const open = p.classList.contains('open');
+    const cut = open || p.scrollHeight > p.clientHeight + 1;
+    p.classList.toggle('cut', cut && !open); b.hidden = !cut; b.classList.toggle('at-end', cut && !open);
+    if (cut && !open) { const cs = getComputedStyle(p); b.style.marginTop = -(p.clientHeight + (parseFloat(cs.marginBottom) || 0)) + 'px'; } else b.style.marginTop = '';
+  };
+  b.addEventListener('click', (e) => { e.stopPropagation(); const open = p.classList.toggle('open'); b.setAttribute('aria-expanded', String(open)); b.textContent = open ? '收起' : '更多'; fit(); });
   p.after(b);
-  const look = new MutationObserver(() => { if (p.isConnected && !p.hidden && (p.textContent || '').trim().length >= 48) return; look.disconnect(); b.remove(); delete p.dataset.fold; p.classList.remove('help-fold', 'open'); });
+  const ro = new ResizeObserver(fit); ro.observe(p); requestAnimationFrame(fit);
+  const look = new MutationObserver(() => { if (p.isConnected && !p.hidden) { fit(); return; } look.disconnect(); ro.disconnect(); b.remove(); delete p.dataset.fold; p.classList.remove('help-fold', 'open', 'cut'); });
   look.observe(p, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
 }
 function foldHelp(root) { if (!layoutAll() || !root.querySelectorAll) return; if (root.matches(FOLD_SEL)) foldOne(root); for (const p of root.querySelectorAll(FOLD_SEL)) foldOne(p); }
@@ -3366,6 +3389,7 @@ async function drawDigest(slot) {
 function drawInbox() {
   view = 'inbox'; active = null; inboxOpen = null; closeStream(); setPlace('inbox');
   const { head, pane } = inboxShell('收件', 'Gmail、Slack、Teams 收到的訊息，分派到資料夾', drawHome);
+  pane.style.maxWidth = '1180px'; pane.classList.remove('pt-narrow');   // a list: as wide as the office, not a form's width
   pageTitleA(head, pane);
   const fetchBtn = el('button', 'btn primary', '現在抓取'); fetchBtn.type = 'button'; fetchBtn.id = 'inboxFetch';
   fetchBtn.addEventListener('click', async () => {
@@ -5384,7 +5408,7 @@ function schedWhen(s) {
 }
 // ── collaborations: two or more sessions on one goal (server: lib/collab.js) ──
 // The list, with a form to start one; preselect: a session to tick (the 「＋ 合作」 of a conversation).
-async function drawCollab(preselect) {
+async function drawCollab(preselect, fresh) {   // fresh: the form asked for (＋ 新增合作)
   view = 'collab'; active = null; closeStream(); setPlace('collab');
   const { head, pane } = inboxShell('合作', '幾個 session 一起完成一個目標：它們用 Claude Code 的 SendMessage 直接互傳，共用一份帳本，你的裁定由看板原話轉給每一個', drawHome);
   pageTitleA(head, pane.parentElement);
@@ -5396,6 +5420,12 @@ async function drawCollab(preselect) {
   const list = r.data.collabs || [];
   const act = list.filter((c) => c.state === 'active');
   $('collabSub').textContent = act.length ? act.length + ' 個進行中' : '幾個 session 一起完成一個目標';
+  // look A, wide: the page opens on the latest collaboration (one still going first); the form only when asked for,
+  // like 排程 (2026-11-25: 新增合作或排程為啥頁面行為不一樣)
+  if (layoutAll() && !preselect && !fresh && list.length && pane.parentElement.clientWidth >= 1000) {
+    const latest = (xs) => xs.reduce((a, c) => (Number(c.id) > Number(a.id) ? c : a));
+    return drawCollabOne((act.length ? latest(act) : latest(list)).id);
+  }
   // starting one
   const form = el('div', 'collab-new');
   form.append(el('h2', '', '開一個合作'));
@@ -5504,7 +5534,7 @@ async function drawCollab(preselect) {
     else if (preselect && d && Object.keys(d.members).length) say('沿用上次填到一半的合作，並加入這個對話');
     collabSteps({ form, goal, rows, folder, byRow, go, msg, draft: d, step: d && !preselect ? d.step : 0 });
     collabSide(pane, list, 'new');
-    if (preselect) pane.parentElement.classList.add('cb-open');
+    if (preselect || fresh || !list.length) pane.parentElement.classList.add('cb-open');   // none yet: the form at once, narrow too
   }
   if (preselect) goal.focus();
 }
@@ -5665,7 +5695,8 @@ var COLLAB_MAX = 8;       // how many one collaboration takes (server.js createC
 var collabDraft = null;   // look A: what was written in 新的合作, kept while looking at a collaboration (cleared once one starts)
 function cwHue(t) { let h = 0; for (const c of String(t)) h = (h * 31 + c.codePointAt(0)) % 360; return h; }
 // Look A: the collaborations as a list on the left and what is chosen on the right (2026-11-25: 左右分割像 side menu).
-// Its first item is 新的合作 (the form). Narrow: the list alone first; choosing one shows it, and ← comes back to the list.
+// Over the list, ＋ 新增合作 (the same button as 排程's) opens the form on the right. Narrow: the list alone first;
+// choosing one shows it, and ← comes back to the list.
 function collabSide(pane, list, current) {
   const scroll = pane.parentElement; scroll.classList.add('cb-scroll');
   const nav = el('nav', 'cb-side'); nav.setAttribute('aria-label', '合作');
@@ -5674,10 +5705,13 @@ function collabSide(pane, list, current) {
     if (on) { b.classList.add('on'); b.setAttribute('aria-current', 'page'); }
     fill(b); b.addEventListener('click', open); return b;
   };
-  nav.append(item('new', current === 'new', (b) => b.append(el('span', 'p', '＋'), el('span', '', collabDraft && (collabDraft.goal.trim() || Object.keys(collabDraft.members).length) ? '新的合作（有填到一半的）' : '新的合作')), () => {
-    if (current !== 'new') return drawCollab();
+  const add = el('button', 'btn primary cb-add', '＋ 新增合作'); add.type = 'button';
+  if (collabDraft && (collabDraft.goal.trim() || Object.keys(collabDraft.members).length)) add.title = '有填到一半的，按了接著填';
+  add.addEventListener('click', () => {
+    if (current !== 'new') return drawCollab(undefined, true);
     scroll.classList.add('cb-open'); const t = pane.querySelector('.cw-panel:not([hidden]) :is(textarea, input, select, button)'); if (t) t.focus();
-  }));
+  });
+  nav.append(add);
   // one line each (2026-11-25: 好幾個合作會很長、一個資訊太多): the rest is on the right once it is chosen; 已結束 folds away
   let endedOpen = false; try { endedOpen = localStorage.getItem('sb.cbEnded') === '1'; } catch (e) {}
   for (const [on, label] of [[true, '進行中'], [false, '已結束']]) {
@@ -5797,7 +5831,7 @@ async function drawCollabOne(id, results) {
 
 async function drawSched() {
   view = 'sched'; active = null; closeStream(); setPlace('sched');
-  const { head, pane } = inboxShell('排程', '到點自動在某個資料夾、或接續某個 session 做一件事', drawHome);
+  const { head, pane } = inboxShell('排程', '到點自動開新對話或接續 session 做事，看板沒開而錯過的會列在最上面，等你決定要不要補跑', drawHome);
   pageTitleA(head, pane);
   const wait = ldBox(); pane.append(wait);
   let r; try { r = await api('/api/schedules'); } catch (e) { r = { ok: false, data: {} }; }
@@ -5827,8 +5861,6 @@ async function drawSched() {
   }
   const top = el('div', 'tb-row'); top.style.margin = (r.data.notices.length ? '14px' : '0') + ' 0 14px';
   const add = el('button', 'btn primary', '＋ 新增排程'); add.type = 'button'; add.addEventListener('click', () => { schedEdit = {}; drawSched(); });
-  top.append(el('span', 'tip', '到點時看板沒在跑而錯過的，不會自己補跑：看板起來後會列在這一頁最上面，由你按補跑或略過。'));
-  top.lastChild.style.color = 'var(--faint)'; top.lastChild.style.fontSize = 'var(--fs-sm)';
   pane.append(top);
   if (schedEdit) { const f = schedForm(schedEdit); pane.append(f); head.append(...f._acts); }   // (the form's 取消 and 儲存 while it is open)
   else if (layoutAll()) {
