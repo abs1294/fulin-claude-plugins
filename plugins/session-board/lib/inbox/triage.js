@@ -40,7 +40,7 @@ const CATS = ['todo', 'question', 'fyi', 'noise'];
 // What is new in a thread (since it was last judged) is read whole; what was judged before is only context.
 const BATCH = 12, MAX_PASSES = 5;
 const NEW_MSGS = 12, NEW_CHARS = 6000;        // new messages sent in full, up to this many and this long each
-const OLD_MSGS = 4, OLD_CHARS = 300;          // earlier ones, for context
+const OLD_MSGS = 10, OLD_CHARS = 300;         // earlier ones, for context
 const PROMPT_MAX = 60000;                     // one call's size; threads that do not fit wait for the next call
 const VALID = ['todo', 'question'];
 
@@ -54,7 +54,9 @@ const SYSTEM = [
   '- noise：閒聊、寒暄、玩笑、系統通知、廣告、已經講完沒有後續的事。',
   '',
   '判斷重點：',
-  '- 看的是「對方最新的訊息」之後，他是否還欠一個動作或回答。標成「我」的是他自己說的；他已經回覆、處理完的不算 todo／question。',
+  '- 看整串到最後為止，他是否還欠一個動作或回答。標成「我」的是他自己說的。question 他回答了就結束；todo 要做完才結束，光是回覆不算做完。',
+  '- 他只回「好」「OK」「收到」，或答應「下午給您」「我處理」「晚點弄」，是答應了還沒做：仍然欠那個動作，歸 todo，summary 寫他答應了什麼、什麼時候。要看到他真的給了、做完了（「給您了」「已寄」「搞定了」、附上檔案或連結），或對方說不用了、已經自己處理，才算結束。',
+  '- 有「上次判讀」的：那件事沒有看到做完，就還欠著；後來的訊息講的是別的事、或只是貼圖、寒暄，不會讓它消失。幾件事都還欠著就一起寫進 summary。',
   '- 群組裡沒有指名他、也不是他負責的事，歸 fyi 或 noise。',
   '- 拿不準是不是該他處理：歸 fyi，讓他自己判斷，不要硬塞成 todo。',
   '- 會議、邀約、截止日：寄到他信箱的會議通知或邀請（他是收件人之一，不論有沒有點名他），會議時間還沒到，歸 todo，title 寫「出席 日期 時間 什麼會」，summary 寫時間、地點或會議連結、要準備什麼。他轉寄、回一句話都不算處理完：要出席的會到了時間才結束。時間已經過了的會議才是 fyi 或 noise。廣告、電子報、研討會或活動的行銷宣傳、系統自動寄的報名提醒不算邀請，照原本規則歸 noise。',
@@ -83,7 +85,7 @@ function migrate(db) {
 // Threads with something from the other side that has not been looked at yet, most recent first.
 function pending(db, limit = BATCH) {
   migrate(db);
-  return db.prepare("SELECT thread_id, source, sender, subject, last_in_at, coalesce(triage_upto, 0) AS upto FROM inbox_thread WHERE status <> 'done' AND last_in_at IS NOT NULL AND last_in_at > coalesce(triage_upto, 0) ORDER BY last_in_at DESC LIMIT ?").all(limit);
+  return db.prepare("SELECT thread_id, source, sender, subject, last_in_at, coalesce(triage_upto, 0) AS upto, triage, triage_title, triage_summary, triaged_at FROM inbox_thread WHERE status <> 'done' AND last_in_at IS NOT NULL AND last_in_at > coalesce(triage_upto, 0) ORDER BY last_in_at DESC LIMIT ?").all(limit);
 }
 function pendingCount(db) { migrate(db); return db.prepare("SELECT count(*) AS n FROM inbox_thread WHERE status <> 'done' AND last_in_at IS NOT NULL AND last_in_at > coalesce(triage_upto, 0)").get().n; }
 
@@ -103,6 +105,8 @@ function buildPrompt(db, threads, me, now = Date.now()) {
     const line = (m, max) => '[' + new Date(m.ts).toLocaleString('zh-TW', { hour12: false }) + '] ' + (m.direction === 'out' ? '我' : JSON.stringify(String(m.sender || '對方').slice(0, 40))) + '：'
       + JSON.stringify(m.body.length > max ? m.body.slice(0, max) + '…（後略 ' + (m.body.length - max) + ' 字）' : m.body);
     const b = ['<thread i="' + (blocks.length + 1) + '" source="' + (SRC[t.source] || t.source) + '">', '標題：' + JSON.stringify(String(t.subject || '').slice(0, 120))];
+    // what was judged yours before and is not known to be done: a new message about something else does not end it
+    if (upto && VALID.includes(t.triage)) b.push('上次判讀（' + new Date(t.triaged_at || upto).toLocaleString('zh-TW', { hour12: false }) + '）：' + t.triage + '，' + JSON.stringify(String(t.triage_title || '') + '：' + String(t.triage_summary || '')));
     if (old.length) { b.push('先前的對話（已經判讀過，只供了解前後文）：'); for (const m of old) b.push(line(m, OLD_CHARS)); }
     b.push(old.length ? '這次新進來、要你判讀的訊息（全文）：' : '訊息（全文）：');
     for (const m of fresh.length ? fresh : all.slice(-NEW_MSGS)) b.push(line(m, NEW_CHARS));

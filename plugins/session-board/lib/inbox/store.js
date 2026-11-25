@@ -53,6 +53,7 @@ function open(file) {
 
 class Inbox {
   constructor(file) { this.file = file; }
+  get bodyMax() { return BODY_MAX; }
   get db() { return open(this.file); }
 
   // ── routes ──
@@ -96,7 +97,7 @@ class Inbox {
     const route = o.quiet ? null : this.matchRoute(o.source, o.refs || (o.sourceRef ? [o.sourceRef] : []));
     const prev = db.prepare('SELECT status, root_folder FROM inbox_thread WHERE thread_id = ?').get(o.threadId);
     let reactivated = false, routed = false;
-    db.exec('BEGIN');
+    db.exec('SAVEPOINT inbox_in');   // (a transaction of its own, or within the one that keeps many)
     try {
       if (!prev) db.prepare('INSERT INTO inbox_thread (thread_id, source, sender, subject, status, source_ref, created_at, last_activity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(o.threadId, o.source, String(o.from || ''), String(o.subject || ''), 'new', o.sourceRef || null, now, ts);
@@ -120,8 +121,8 @@ class Inbox {
           reactivated = db.prepare("UPDATE inbox_thread SET status = CASE WHEN root_folder IS NULL THEN 'new' ELSE 'routed' END WHERE thread_id = ?").run(o.threadId).changes > 0;
         }
       }
-      db.exec('COMMIT');
-    } catch (e) { try { db.exec('ROLLBACK'); } catch (x) {} throw e; }
+      db.exec('RELEASE inbox_in');
+    } catch (e) { try { db.exec('ROLLBACK TO inbox_in'); db.exec('RELEASE inbox_in'); } catch (x) {} throw e; }
     return { ingested: true, reactivated, routed, threadId: o.threadId };
   }
 

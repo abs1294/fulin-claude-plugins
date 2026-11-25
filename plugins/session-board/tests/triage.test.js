@@ -39,13 +39,13 @@ test('what is new in a thread is sent whole; what was judged before is only a fe
   assert.ok(p.includes(JSON.stringify(long)), 'the new message is there whole, quoted as content');
   assert.ok(!p.includes('先前的對話'));
   assert.match(T.SYSTEM, /不可信資料/);
-  // Judged up to message 15: 16..19 are new and whole; before them only four lines, cut short.
+  // Judged up to message 15: 16..19 are new and whole; before them only ten lines, cut short.
   inbox.db.prepare('UPDATE inbox_thread SET triage = ?, triage_conf = 80, triage_upto = ? WHERE thread_id = ?').run('fyi', 1015, 'teams:a');
   inbox.ingest({ source: 'teams', threadId: 'teams:a', sourceMsgId: 'teams:a:20', from: '王', bodyText: '那明天交？', ts: 2000 });
   p = T.promptFor(inbox.db, T.pending(inbox.db));
   const [ctx, fresh] = p.split('這次新進來、要你判讀的訊息（全文）：');
   assert.ok(ctx.includes('先前的對話（已經判讀過，只供了解前後文）'));
-  assert.ok(ctx.includes('第 12 則') && !ctx.includes('第 11 則') && ctx.includes('第 15 則'));   // four lines of context
+  assert.ok(ctx.includes('第 6 則') && !ctx.includes('第 5 則') && ctx.includes('第 15 則'));   // ten lines of context
   assert.ok(ctx.includes('…（後略 606 字）') && !ctx.includes('y'.repeat(400)));                  // an old long one is cut
   assert.ok(fresh.includes('第 16 則') && fresh.includes(JSON.stringify(long)) && fresh.includes('那明天交？') && !fresh.includes('第 15 則'));
 });

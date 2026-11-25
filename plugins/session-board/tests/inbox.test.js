@@ -601,3 +601,111 @@ test('InboxService: the sources say whether they are connected with the inbox of
   const st = svc.status();
   assert.deepStrictEqual([st.gmail.configured, st.slack.text], [true, '已刪除連接']);
 });
+
+// The Teams cache, as it is laid out: each message is a record of its own (searchKey … recipientId), and other records come right
+// after it in the same block - the next chain's own time, a conversation with its last message.
+const v8 = (...xs) => Buffer.concat(xs.map((x) => {
+  if (typeof x === 'number') { const b = Buffer.alloc(9); b[0] = 0x4e; b.writeDoubleLE(x, 1); return b; }
+  if (typeof x === 'boolean') return Buffer.from([x ? 0x54 : 0x46]);
+  const wide = /[^\x00-\xff]/.test(x), body = Buffer.from(x, wide ? 'utf16le' : 'latin1'), len = []; let n = body.length; do { len.push((n & 0x7f) | (n > 127 ? 0x80 : 0)); n >>>= 7; } while (n);
+  return Buffer.concat([Buffer.from([wide ? 0x63 : 0x22]), Buffer.from(len), body]);
+}));
+const TKEY = '19:uni01_abc@unq.gbl.spaces', ME = '8:live:me', OTHER = '8:orgid:other';
+const tmsg = (o) => v8('clientMessageId', o.client || '123456789', 'sequenceId', 'version', String(o.ver || 1), 'searchKey', (o.key || '19:uni01_abc@thread.v2') + '_x1', 'type', 'Message', 'clientArrivalTime', o.ts - 5, 'originalArrivalTime', o.ts, 'imDisplayName', o.name, 'fromDisplayNameInToken', o.name, 'creator', o.by, 'content', o.text, 'contentHash', 'source', 'properties', 'isSentByCurrentUser', o.by === ME, 'skypeeditedid', 'recipientId');
+const tchain = (ts) => v8('conversationId', '19:uni01_abc@thread.v2', 'replyChainId', '1', 'latestDeliveryTime', ts, 'originalArrivalTime', ts, 'parentMessageVersion', ts, 'messageMap', 'k', 'id', '1');
+const tconv = (o) => v8('id', '19:z@thread.v2', 'creator', o.by, 'threadType', 'chat', 'version', '9', 'lastMessage', 'content', o.text, 'originalArrivalTime', o.ts, 'fromDisplayNameInToken', o.name, 'recipientId');
+
+test('Teams cache: a message keeps its own time, words and sender, whatever record follows it', () => {
+  const block = Buffer.concat([tchain(9000), tmsg({ ts: 1000, by: OTHER, name: '王小明', text: '<p>請問</p>', client: '111111111' }), tchain(2000), tmsg({ ts: 2000, by: OTHER, name: '王小明', text: '<p>這兩份可以分成兩個檔嗎</p>', client: '222222222' }),
+    tconv({ by: ME, name: '我', text: '別串的話', ts: 7000 }), tchain(3000), tmsg({ ts: 3000, by: ME, name: '我', text: '<p>下午給你</p>', client: '333333333' }), tconv({ by: OTHER, name: 'Z', text: '又一句', ts: 8000 })]);
+  assert.deepStrictEqual(TeamsDb.parseMessagesFromBlock(block).map((m) => [m.ts, m.creator, m.fromName, m.contentHtml, m.mine, m.clientId]), [
+    [1000, OTHER, '王小明', '<p>請問</p>', false, '111111111'], [2000, OTHER, '王小明', '<p>這兩份可以分成兩個檔嗎</p>', false, '222222222'], [3000, ME, '我', '<p>下午給你</p>', true, '333333333']]);
+});
+
+test('Teams cache: a message over the end of a log block is whole; one sent by you is kept once; what an older reader kept is read again', () => {
+  const d = tmp(), dir = path.join(d, 'ldb'); fs.mkdirSync(dir); fs.writeFileSync(path.join(dir, '000001.ldb'), Buffer.alloc(10));
+  const now = Date.now() - 3600000;
+  const all = Buffer.concat([Buffer.alloc(32700, 1), tmsg({ ts: now, by: OTHER, name: '王小明', text: '<p>這兩份可以分成兩個檔嗎</p>', client: '222222222' }),
+    tmsg({ ts: now + 1000, by: ME, name: '我', text: '<p>下午給你</p>', client: '333333333' }), tmsg({ ts: now + 2500, by: ME, name: '我', text: '<p>下午給你</p>', client: '333333333' })]);
+  // the log: pieces of at most 32768 - 7 bytes, each behind its header
+  const pieces = []; let room = 32768; for (let p = 0; p < all.length;) { const n = Math.min(all.length - p, room - 7), h = Buffer.alloc(7); h.writeUInt16LE(n, 4); h[6] = p === 0 ? 2 : p + n < all.length ? 3 : 4; pieces.push(h, all.subarray(p, p + n)); p += n; room = room - 7 - n || 32768; if (room < 8) { pieces.push(Buffer.alloc(room)); room = 32768; } }
+  const log = Buffer.concat(pieces); assert.ok(TeamsDb.readLogPieces(log).equals(all)); fs.writeFileSync(path.join(dir, '000002.log'), log);
+  const read = TeamsDb.readTeamsMessages({ dir }).messages;
+  assert.deepStrictEqual(read.map((m) => [m.ts, m.mine, m.contentText]), [[now, false, '這兩份可以分成兩個檔嗎'], [now + 2500, true, '下午給你']]);
+  // the same, into an inbox that an older reader filled: wrong times, wrong sides, the same words twice
+  const inbox = new Inbox(path.join(d, 'b.db')), src = require('../lib/inbox/sources/teams'), id = 'teams:' + read[0].threadKey;
+  const old = (n, dirn, text, ts) => inbox.ingest({ source: 'teams', threadId: id, sourceMsgId: id + ':' + n, from: '王小明', subject: 'Teams', bodyText: text, direction: dirn, quiet: dirn === 'out', ts });
+  old('a', 'out', '這兩份可以分成兩個檔嗎', now + 50); old('b', 'in', '下午給你', now + 60); old('c', 'in', '很久以前的', now - 86400000 * 5); old('d', 'in', '別串的', now + 99999);
+  require('../lib/inbox/triage').migrate(inbox.db); inbox.db.prepare("UPDATE inbox_thread SET triage = 'fyi', triage_upto = ?, status = 'routed', root_folder = 'C:/w' WHERE thread_id = ?").run(now + 99999, id);
+  const r = src.poll(inbox, { teamsDir: dir }); assert.strictEqual(r.ingested, 2, JSON.stringify(r));
+  const rows = inbox.db.prepare('SELECT direction, body, ts FROM inbox_message WHERE thread_id = ? ORDER BY ts').all(id).map((x) => [x.direction, x.body, x.ts]);
+  assert.deepStrictEqual(rows, [['in', '很久以前的', now - 86400000 * 5], ['in', '這兩份可以分成兩個檔嗎', now], ['out', '下午給你', now + 2500]], 'as they are; what Teams no longer has stays');
+  assert.strictEqual(inbox.db.prepare('SELECT count(*) AS n FROM inbox_message_teams_old').get().n, 3, 'put aside, not thrown away');
+  const t = inbox.db.prepare('SELECT status, root_folder, last_in_at, triage_upto FROM inbox_thread WHERE thread_id = ?').get(id);
+  assert.deepStrictEqual([t.status, t.root_folder, t.last_in_at, t.triage_upto], ['routed', 'C:/w', now, null], 'where it was assigned stays; judged again');
+  assert.strictEqual(src.poll(inbox, { teamsDir: dir }).ingested, 0, 'once');
+});
+
+test('Teams read again: nothing is lost when it cannot be read or kept, and once is enough', () => {
+  const src = require('../lib/inbox/sources/teams'), T = require('../lib/inbox/triage');
+  const now = Date.now() - 3600000, wal = (buf) => { const h = Buffer.alloc(7); h.writeUInt16LE(buf.length, 4); h[6] = 1; return Buffer.concat([h, buf]); };
+  const cache = (d, msgs) => { const dir = path.join(d, 'ldb'); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, '000001.ldb'), Buffer.alloc(10)); fs.writeFileSync(path.join(dir, '000002.log'), wal(Buffer.concat(msgs))); return dir; };
+  const msgs = [tmsg({ ts: now - 6 * 86400000, by: OTHER, name: '王小明', text: '六天前的', client: '111111111' }), tmsg({ ts: now, by: OTHER, name: '王小明', text: '今天的', client: '222222222' })];
+  const bodies = (ib) => ib.db.prepare('SELECT body FROM inbox_message ORDER BY ts').all().map((x) => x.body);
+  // nothing kept before: it is this reader's from the start
+  { const d = tmp(), ib = new Inbox(path.join(d, 'b.db')), dir = cache(d, msgs);
+    assert.strictEqual(src.poll(ib, { teamsDir: dir }).ingested, 2); assert.strictEqual(ib.state('teams:reader', 1), 2);
+    T.migrate(ib.db); ib.db.exec('UPDATE inbox_thread SET triage_upto = last_in_at');
+    assert.strictEqual(src.poll(ib, { teamsDir: dir }).ingested, 0); assert.strictEqual(T.pendingCount(ib.db), 0, 'what was judged stays judged'); }
+  const older = (d) => { const ib = new Inbox(path.join(d, 'b.db')), dir = cache(d, msgs), id = 'teams:' + TeamsDb.readTeamsMessages({ dir }).messages[0].threadKey;
+    ib.ingest({ source: 'teams', threadId: id, sourceMsgId: 'o1', from: 'x', subject: 'x', bodyText: '六天前的', ts: now - 6 * 86400000 }); ib.ingest({ source: 'teams', threadId: id, sourceMsgId: 'o2', from: 'x', subject: 'x', bodyText: '讀錯的', ts: now }); return { ib, dir, id }; };
+  // a file that Teams holds: as it is, and read again the next time
+  { const { ib, dir } = older(tmp()), copy = fs.copyFileSync;
+    fs.copyFileSync = (a, b) => { if (String(a).endsWith('.log')) throw new Error('EBUSY'); return copy(a, b); };
+    try { src.poll(ib, { teamsDir: dir }); } finally { fs.copyFileSync = copy; }
+    assert.deepStrictEqual(bodies(ib), ['六天前的', '讀錯的']); assert.strictEqual(ib.state('teams:reader', 1), 1);
+    src.poll(ib, { teamsDir: dir }); assert.deepStrictEqual(bodies(ib), ['六天前的', '今天的']); assert.strictEqual(ib.state('teams:reader', 1), 2); }
+  // it cannot be kept: as it was, said so, and tried again
+  { const { ib, dir } = older(tmp()), put = ib.ingest; ib.ingest = () => { throw new Error('disk'); };
+    const r = src.poll(ib, { teamsDir: dir }); assert.ok(/下次重試/.test(r.error), JSON.stringify(r)); ib.ingest = put;
+    assert.deepStrictEqual(bodies(ib), ['六天前的', '讀錯的']); assert.strictEqual(ib.state('teams:reader', 1), 1);
+    src.poll(ib, { teamsDir: dir }); assert.deepStrictEqual(bodies(ib), ['六天前的', '今天的']); }
+  // the database takes the whole of it back by itself (a full disk): said so, nothing lost, tried again
+  { const { ib, dir } = older(tmp()); ib.db.exec("CREATE TRIGGER full BEFORE INSERT ON inbox_message WHEN NEW.source_msg_id LIKE 'teams:%' BEGIN SELECT RAISE(ROLLBACK, 'disk full'); END");
+    const r = src.poll(ib, { teamsDir: dir }); assert.ok(/原本的都還在/.test(r.error), JSON.stringify(r)); assert.deepStrictEqual(bodies(ib), ['六天前的', '讀錯的']);
+    ib.db.exec('DROP TRIGGER full'); src.poll(ib, { teamsDir: dir }); assert.deepStrictEqual(bodies(ib), ['六天前的', '今天的']); }
+  // closed before: it stays closed; only your own words left: no judgement is left over
+  { const { ib, dir, id } = older(tmp()); ib.db.exec("UPDATE inbox_thread SET status = 'done'"); src.poll(ib, { teamsDir: dir }); assert.strictEqual(ib.db.prepare('SELECT status FROM inbox_thread WHERE thread_id = ?').get(id).status, 'done'); }
+  { const d = tmp(), ib = new Inbox(path.join(d, 'b.db')), dir = cache(d, [tmsg({ ts: now, by: ME, name: '我', text: '我說的', client: '333333333' })]), id = 'teams:' + TeamsDb.readTeamsMessages({ dir }).messages[0].threadKey;
+    ib.ingest({ source: 'teams', threadId: id, sourceMsgId: 'o1', from: 'x', subject: 'x', bodyText: '我說的', ts: now }); T.migrate(ib.db); ib.db.exec("UPDATE inbox_thread SET triage = 'todo', triage_upto = last_in_at");
+    src.poll(ib, { teamsDir: dir }); const r = ib.db.prepare('SELECT triage, last_in_at FROM inbox_thread').get(); assert.deepStrictEqual([r.triage, r.last_in_at], [null, null]); }
+});
+
+test('Teams cache: an edited message has its new words, an old copy of it does not bring the old ones back; names of fields as words', () => {
+  const src = require('../lib/inbox/sources/teams'), d = tmp(), dir = path.join(d, 'ldb'); fs.mkdirSync(dir); fs.writeFileSync(path.join(dir, '000001.ldb'), Buffer.alloc(10));
+  const now = Date.now() - 3600000, ib = new Inbox(path.join(d, 'b.db')); let n = 2;
+  const say = (text, ver) => { const b = tmsg({ ts: now, by: OTHER, name: '王小明', text, client: '222222222', ver }), h = Buffer.alloc(7); h.writeUInt16LE(b.length, 4); h[6] = 1; fs.writeFileSync(path.join(dir, '00000' + n++ + '.log'), Buffer.concat([h, b])); src.poll(ib, { teamsDir: dir }); return ib.db.prepare('SELECT body FROM inbox_message').all().map((x) => x.body); };
+  assert.deepStrictEqual(say('改之前', now), ['改之前']);
+  assert.deepStrictEqual(say('改之後', now + 60000), ['改之後']);
+  assert.deepStrictEqual(say('改之前', now), ['改之後']);
+  assert.deepStrictEqual(say('又改', now + 90000), ['又改']);
+  assert.deepStrictEqual(say('又改', now + 95000), ['又改']); assert.deepStrictEqual(say('早一點的', now + 92000), ['又改']);   // (a later version with the same words counts)
+  // judged again when the other side changed its words - also when it is older than the days looked back to
+  const T = require('../lib/inbox/triage'); T.migrate(ib.db); ib.ingest({ source: 'teams', threadId: ib.db.prepare('SELECT thread_id AS t FROM inbox_thread').get().t, sourceMsgId: 'later', from: 'x', subject: 'x', bodyText: '之後的', ts: now + 5 * 86400000 });
+  ib.db.exec("UPDATE inbox_thread SET triage = 'todo', triage_upto = last_in_at"); assert.strictEqual(T.pendingCount(ib.db), 0);
+  assert.deepStrictEqual(say('再改', now + 99000), ['再改', '之後的']); assert.strictEqual(T.pendingCount(ib.db), 1);
+  ib.db.exec('UPDATE inbox_thread SET triage_upto = last_in_at'); say('再改', now + 99500); assert.strictEqual(T.pendingCount(ib.db), 0, 'the same words: not again');
+  const two = Buffer.concat([tconv({ by: OTHER, name: 'Z', text: '又一句', ts: 8000 }), tmsg({ ts: 1000, by: ME, name: '我', text: 'lastMessage', client: '444444444' })]);
+  assert.deepStrictEqual(TeamsDb.parseMessagesFromBlock(two).map((m) => [m.contentHtml, m.mine, m.ts]), [['lastMessage', true, 1000]]);
+});
+
+test('judging: what was judged yours before is told along; a promise is not a thing done', () => {
+  const T = require('../lib/inbox/triage'), d = tmp(), inbox = new Inbox(path.join(d, 'b.db')); T.migrate(inbox.db);
+  for (let i = 1; i <= 14; i++) inbox.ingest({ source: 'teams', threadId: 'teams:k', sourceMsgId: 'k' + i, from: 'Y', subject: 'Teams · Y', bodyText: '訊息' + i, direction: i === 3 ? 'out' : 'in', quiet: i === 3, ts: i * 1000 });
+  inbox.db.prepare("UPDATE inbox_thread SET triage = 'todo', triage_title = '分檔', triage_summary = '下午給對方', triaged_at = 13500, triage_upto = 13000 WHERE thread_id = 'teams:k'").run();
+  const text = T.buildPrompt(inbox.db, T.pending(inbox.db)).text;
+  assert.ok(/上次判讀（[^）]*）：todo，"分檔：下午給對方"/.test(text) && text.includes('訊息4') && !text.includes('"訊息3"') && text.includes('訊息14'), text);
+  inbox.db.prepare("UPDATE inbox_thread SET triage = 'noise' WHERE thread_id = 'teams:k'").run();
+  assert.ok(!/上次判讀（/.test(T.buildPrompt(inbox.db, T.pending(inbox.db)).text), 'only what was judged yours');
+  assert.ok(/答應了還沒做/.test(T.SYSTEM) && /不會讓它消失/.test(T.SYSTEM));
+});

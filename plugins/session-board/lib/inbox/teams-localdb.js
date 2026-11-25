@@ -80,7 +80,14 @@ function tokenizeV8(block) {
   let i = 0;
   while (i < block.length) {
     const b = block[i];
-    if (b === 0x22 || b === 0x63) { const s = tryReadV8String(block, i); if (s) { toks.push({ type: 'str', v: s.str }); i = s.end; continue; } }
+    if (b === 0x22 || b === 0x63) {
+      const s = tryReadV8String(block, i);
+      if (s) {
+        toks.push({ type: 'str', v: s.str }); i = s.end;
+        if (s.str === 'isSentByCurrentUser' && (block[i] === 0x54 || block[i] === 0x46)) { toks.push({ type: 'bool', v: block[i] === 0x54 }); i++; }   // 'T' / 'F'
+        continue;
+      }
+    }
     else if (b === 0x4e && i + 9 <= block.length) { toks.push({ type: 'num', v: block.readDoubleLE(i + 1) }); i += 9; continue; }
     i++;
   }
@@ -109,34 +116,65 @@ function stableMsgId(ts, text) {
   return (ts || 0) + ':' + crypto.createHash('sha1').update(body).digest('hex').slice(0, 12);
 }
 
+// Where a message ends. What follows it in the same block (the next chain's own originalArrivalTime; a conversation's record,
+// whose lastMessage has a content and a creator as well) was taken for this message's: its time became the next one's, its
+// words and who said them another's, and the same message was kept several times over (found 2026-11-25; about half of them).
+const MSG_END = new Set(['recipientId', 'messageMap', 'lastMessage', 'replyChainId', 'latestDeliveryTime', 'parentMessageVersion']);
+
 function parseMessagesFromBlock(block) {
   const toks = tokenizeV8(block);
   const out = [];
-  let cur = null;
+  let cur = null, clientId = '', ver = 0;
   const flush = () => {
     // Only what a person sent: the cache also holds system events that carry the same content.
     if (cur && cur.searchKey && cur.content && /thread\.v2|@thread/.test(cur.searchKey) && /^8:(live|orgid):/.test(cur.creator || '')) {
-      out.push({ threadKey: normalizeThreadKey(cur.searchKey), creator: cur.creator || null, fromName: cur.fromName && cur.fromName !== '_' ? cur.fromName : null, contentHtml: cur.content, ts: cur.ts || null });
+      out.push({ threadKey: normalizeThreadKey(cur.searchKey), creator: cur.creator || null, fromName: cur.fromName && cur.fromName !== '_' ? cur.fromName : null, contentHtml: cur.content, ts: cur.ts || null, mine: cur.mine, clientId: cur.clientId, ver: cur.ver || 0 });
     }
     cur = null;
   };
   for (let i = 0; i < toks.length - 1; i++) {
     const t = toks[i];
+    if (t.type === 'str' && MSG_END.has(t.v)) { flush(); clientId = ''; ver = 0; continue; }
+    if (t.type === 'str' && t.v === 'isSentByCurrentUser' && cur && cur.mine === undefined && toks[i + 1].type === 'bool') { cur.mine = toks[i + 1].v; continue; }
+    if (t.type === 'str' && t.v === 'clientMessageId') { clientId = toks[i + 1].type === 'str' && /^\d{6,}$/.test(toks[i + 1].v) ? toks[i + 1].v : ''; continue; }   // stands before the searchKey of its message
+    // its version too (raised when it is edited): between the two
+    if (t.type === 'str' && t.v === 'version' && clientId && toks[i + 1].type === 'str' && /^\d{10,}$/.test(toks[i + 1].v)) { ver = Number(toks[i + 1].v); continue; }
     if (t.type !== 'str' || !MSG_KEYS.has(t.v)) continue;
     const key = t.v, next = toks[i + 1];
-    if (key === 'searchKey') { flush(); cur = {}; }
-    if (!cur) cur = {};
-    if (key === 'originalArrivalTime') { if (next.type === 'num') cur.ts = next.v; }
+    if (key === 'searchKey') { flush(); cur = { clientId, ver }; clientId = ''; ver = 0; }
+    if (!cur) continue;   // outside a message
+    // (the first of each is the message's own)
+    if (key === 'originalArrivalTime') { if (next.type === 'num' && cur.ts === undefined) cur.ts = next.v; }
     else if (next.type === 'str' && !MSG_KEYS.has(next.v)) {
       if (key === 'searchKey') cur.searchKey = next.v;
-      else if (key === 'content') cur.content = next.v;
-      else if (key === 'creator') cur.creator = next.v;
-      else if (key === 'fromDisplayNameInToken') cur.fromName = next.v;
+      else if (key === 'content') {
+        // the words may be the name of a field that ends a message: they are words when a field's name follows them
+        const after = toks[i + 2], words = !MSG_END.has(next.v) || (after && after.type === 'str' && MSG_KEYS.has(after.v));
+        if (words) { if (cur.content === undefined) cur.content = next.v; i++; }
+      }
+      else if (key === 'creator') { if (cur.creator === undefined) cur.creator = next.v; }
+      else if (key === 'fromDisplayNameInToken') { if (!cur.named) { cur.fromName = next.v; cur.named = true; } }
       else if (key === 'imDisplayName' && !cur.fromName) cur.fromName = next.v;
     }
   }
   flush();
   return out;
+}
+
+// The write-ahead log is written in blocks of 32 KB, each piece behind a header of 7 bytes (checksum, length, kind): a
+// message that runs over the end of a block has a header in the middle of it, and was lost (found 2026-11-25).
+function readLogPieces(buf) {
+  const out = [], SIZE = 32768;
+  for (let at = 0; at < buf.length; at += SIZE) {
+    const end = Math.min(at + SIZE, buf.length); let p = at;
+    while (p + 7 <= end) {
+      const len = buf.readUInt16LE(p + 4), kind = buf[p + 6];
+      if (!kind && !len) break;                                  // the rest of the block is empty
+      if (kind > 4 || p + 7 + len > end) { out.push(buf.subarray(p, end)); p = end; break; }   // not as expected: as it is
+      out.push(buf.subarray(p + 7, p + 7 + len)); p += 7 + len;
+    }
+  }
+  return Buffer.concat(out);
 }
 
 function scanFiles(dir = defaultLevelDbDir()) {
@@ -145,23 +183,23 @@ function scanFiles(dir = defaultLevelDbDir()) {
 }
 
 function parseFile(buf, fname) {
-  if (!fname.endsWith('.ldb')) return parseMessagesFromBlock(buf);   // the write-ahead log is not a table: scan it whole
+  if (!fname.endsWith('.ldb')) return parseMessagesFromBlock(readLogPieces(buf));   // the write-ahead log is not a table: its pieces put together, and scanned whole
   const out = [];
   for (const block of readSSTableBlocks(buf)) out.push(...parseMessagesFromBlock(block));
   return out;
 }
 
 // {dir?, sinceMs?, knownFiles?: {fname: {size, mtime}}, tmpRoot?}
-// -> {messages (oldest first), files: fingerprints of the files read without trouble}.
+// -> {messages (oldest first), files: fingerprints of the files read without trouble, failed: how many could not be read}.
 // Only files that are new or changed since knownFiles are read.
 function readTeamsMessages({ dir = defaultLevelDbDir(), sinceMs = 0, knownFiles = null, tmpRoot = os.tmpdir() } = {}) {
-  if (!available(dir)) return { messages: [], files: [] };
+  if (!available(dir)) return { messages: [], files: [], failed: 0 };
   const all = scanFiles(dir);
   const todo = knownFiles ? all.filter((f) => { const k = knownFiles[f.fname]; return !k || k.size !== f.size || k.mtime !== f.mtime; }) : all;
-  if (!todo.length) return { messages: [], files: all };
+  if (!todo.length) return { messages: [], files: all, failed: 0 };
   const tmp = fs.mkdtempSync(path.join(tmpRoot, 'sb-teams-'));
   try {
-    const seen = new Set(), msgs = [], failed = new Set();
+    const seen = new Set(), byClient = new Map(), msgs = [], failed = new Set();
     for (const f of todo) {
       const dst = path.join(tmp, f.fname);
       let buf;
@@ -171,7 +209,17 @@ function readTeamsMessages({ dir = defaultLevelDbDir(), sinceMs = 0, knownFiles 
         if (m.ts && m.ts <= sinceMs) continue;
         m.contentText = htmlToText(m.contentHtml);
         delete m.contentHtml;
-        m.msgId = stableMsgId(m.ts, m.contentText);
+        // the number the sender's Teams gave it stays the same while it is sent (first with a time of this computer, then the
+        // server's): one message, kept once, with the later time
+        m.msgId = m.clientId ? 'c' + crypto.createHash('sha1').update(String(m.creator) + '|' + m.clientId).digest('hex').slice(0, 16) : stableMsgId(m.ts, m.contentText);
+        if (m.clientId) {
+          const k = m.threadKey + '|' + m.msgId, was = byClient.get(k);
+          if (was) {
+            if (m.ver > was.ver || (m.ver === was.ver && (m.ts || 0) >= (was.ts || 0))) Object.assign(was, { ts: Math.max(m.ts || 0, was.ts || 0) || null, ver: m.ver, contentText: m.contentText || was.contentText, mine: m.mine === undefined ? was.mine : m.mine });
+            continue;
+          }
+          byClient.set(k, m);
+        }
         const key = m.threadKey + '|' + (m.msgId || m.ts + '|' + m.contentText.slice(0, 40));
         if (seen.has(key)) continue;
         seen.add(key);
@@ -180,8 +228,8 @@ function readTeamsMessages({ dir = defaultLevelDbDir(), sinceMs = 0, knownFiles 
       try { fs.unlinkSync(dst); } catch (e) {}
     }
     msgs.sort((a, b) => (a.ts || 0) - (b.ts || 0));
-    return { messages: msgs, files: all.filter((f) => !failed.has(f.fname)) };
+    return { messages: msgs, files: all.filter((f) => !failed.has(f.fname)), failed: failed.size };
   } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {} }
 }
 
-module.exports = { readTeamsMessages, available, defaultLevelDbDir, stableMsgId, normalizeThreadKey, parseMessagesFromBlock };
+module.exports = { readTeamsMessages, available, defaultLevelDbDir, stableMsgId, normalizeThreadKey, parseMessagesFromBlock, readLogPieces };

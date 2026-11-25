@@ -78,7 +78,7 @@
     {
       "name": "session-board",
       "source": "./plugins/session-board",
-      "description": "本機 Claude Code session 看板：一個只聽本機的網頁，左邊是所有 session 的清單，右邊是對話，可以直接在頁面上開新對話、打字、核准動作；終端機裡的 session 可以看對話、切視窗或搬進看板。單一 Node 程序、零相依（資料存在 Node 內建的 SQLite）。僅支援 Windows。"
+      "description": "本機 Claude Code session 看板：一個只聽本機的網頁，左邊是所有 session 的清單，右邊是對話，可以直接在頁面上開新對話、打字、核准動作；終端機裡的 session 可以看對話、切視窗或搬進看板。單一 Node 程序、零相依（資料存在 Node 內建的 SQLite）。支援 Windows（Windows Terminal）與 macOS（Terminal）。"
     }
   ]
 }
