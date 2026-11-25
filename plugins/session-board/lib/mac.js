@@ -98,6 +98,9 @@ async function pickFolder(prompt, start, o) {
 async function openFile(abs, o) { const r = await run('open', [abs], o); return r.ok ? { ok: true } : { ok: false, error: r.err.slice(0, 200) }; }
 async function reveal(abs, o) { const r = await run('open', fs.existsSync(abs) && fs.statSync(abs).isDirectory() ? [abs] : ['-R', abs], o); return r.ok ? { state: 'shown' } : { state: 'failed', error: r.err.slice(0, 200) }; }
 
+// what uses this Mac's memory and processor (lib/machine.js)
+async function vmStat(o) { return (await run('vm_stat', [], Object.assign({ timeout: 8000 }, o))).out; }
+async function procTable(o) { return (await run('ps', ['-axo', 'pid=,ppid=,rss=,%cpu=,etime=,comm='], o)).out; }
 async function commandLines(pids, o) {
   const r = await run('ps', ['-o', 'pid=,command=', '-p', pids.join(',')], o);
   const out = {};
@@ -155,4 +158,4 @@ function setAgent(k, on, startJs, o = {}) {
 }
 const agentOn = (k) => fs.existsSync(agentFile(k));
 
-module.exports = { launcherText, writeLauncher, openTerminal, ttyOf, focus, find, closeWindow, notify, pickFolder, openFile, reveal, commandLines, soffice, convertOffice, plist, setAgent, agentOn, agentFile, LABEL };
+module.exports = { launcherText, writeLauncher, openTerminal, ttyOf, focus, find, closeWindow, notify, pickFolder, openFile, reveal, commandLines, vmStat, procTable, soffice, convertOffice, plist, setAgent, agentOn, agentFile, LABEL };

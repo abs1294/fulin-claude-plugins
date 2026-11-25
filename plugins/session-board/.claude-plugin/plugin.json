@@ -1,6 +1,6 @@
 {
   "name": "session-board",
-  "version": "0.24.2",
+  "version": "0.25.0",
   "description": "本機 Claude Code session 看板：一個只聽本機的網頁，列出這台電腦所有 session，可以在頁面上對話、核准動作、把終端機 session 搬進來或開回去；戰情室算每月 token 用量與 API 等值費用；關機後把 session 開回來；收件頁把 Gmail、Slack、Teams 的訊息抓進來並分派到專案資料夾。單一 Node 程序、不需安裝套件（Node 22.5 以上，內建 SQLite）。支援 Windows 與 macOS。",
   "author": {
     "name": "fulin"

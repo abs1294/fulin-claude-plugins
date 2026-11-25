@@ -53,6 +53,7 @@ const out = {
   pickFolder: async () => { did.push('pickFolder'); return WORK; },
   openTerminal: (args) => { did.push('openTerminal ' + args.join(' ')); },
   powershell: async (script) => { did.push('powershell ' + script); return { line: '{"state":"front"}' }; },
+  procTable: async () => { did.push('procTable'); return [{ pid: 7, ppid: 1, name: 'chrome.exe', mem: 5, cpu: 2, at: 1 }, { pid: 8, ppid: 1, name: 'x.exe', mem: 9, cpu: 1, at: 1 }]; },
   convertOffice: async (src, dst) => { did.push('convertOffice'); fs.writeFileSync(dst, '%PDF-1.4 test'); return { ok: true }; },
   autostart: { isOn: () => out._auto, set: (on) => { did.push('autostart ' + on); out._auto = on; return { ok: true }; }, refresh: () => {}, startupDir: () => HOME, NAME: 'session-board.vbs' },
   Keepalive: { isOn: () => !!out._keep, set: (on) => { did.push('keepalive ' + on); out._keep = on; return { ok: true }; }, refresh: () => {}, EVERY_MIN: 5 },
@@ -698,7 +699,7 @@ test('a source of the inbox: its connection taken away and made again from the p
 test('系統排程: what the board does by itself on a timer, each with how often and whether it is on', async () => {
   asked.add('GET /api/system-jobs');
   const r = await get('/api/system-jobs'); assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(r.json.jobs.map((x) => x.key), ['inbox', 'check', 'update', 'cbm', 'harness', 'watchdog', 'budget', 'monthly', 'workdays', 'keepalive']);
+  assert.deepStrictEqual(r.json.jobs.map((x) => x.key), ['inbox', 'check', 'update', 'cbm', 'harness', 'watchdog', 'machine', 'budget', 'monthly', 'workdays', 'keepalive']);
   for (const x of r.json.jobs) assert.ok(x.name && x.what && x.every && typeof x.on === 'boolean', x.key);
 });
 
@@ -1092,6 +1093,8 @@ test('settings: read, and changed without touching the real computer', async () 
   await post('/api/config', { notify: true, autoStart: false, keepAlive: false });
   assert.strictEqual((await post('/api/config', { pickerStartDir: 12345 })).status, 400, 'a setting of the wrong kind is refused');
 
+  { const r = await get('/api/machine'); assert.strictEqual(r.status, 200); assert.deepStrictEqual([r.json.ram.map((g) => g.name), r.json.cpu.map((g) => g.name)], [['x', 'Chrome'], ['Chrome', 'x']]); assert.strictEqual(r.json.now.alert.ram, 85);
+    assert.strictEqual((await post('/api/config', { machineRam: 40 })).status, 400); assert.strictEqual((await post('/api/config', { machineRam: 90, machineAlert: false })).status, 200); assert.deepStrictEqual((await get('/api/sessions')).json.machine.alert, { on: false, ram: 90, cpu: 85 }); await post('/api/config', { machineRam: 85, machineAlert: true }); }
   assert.strictEqual((await get('/api/watchdog')).status, 200);
   assert.strictEqual((await post('/api/watchdog', { stuck: false, stuckMinutes: 7 })).json.settings.stuckMinutes, 7);
   assert.strictEqual((await get('/api/watchdog')).json.settings.stuck, false);

@@ -32,6 +32,9 @@
 //   limit     stopped by the usage limit                   it starts again (resumed) · ended
 //   error     stopped by an error on the API's side        it starts again (resumed) · ended
 //   budget    this month's cost crosses a point            the month turns (month over) · the budget is changed
+//   machine   this computer's memory or processor stays     it has eased (eased) · it is turned off (machine off)
+//             over the point set (lib/machine.js)           - what its session does or that it ends does not close it:
+//                                                           that is only which conversation uses most of it
 //   any kind                                               you say you do not need it (dismissed)
 const DB = require('./db');
 
@@ -69,7 +72,7 @@ class Notices {
   closeSession(sessionId, by, kinds, now = Date.now()) {
     if (!sessionId) return 0;
     const k = Array.isArray(kinds) && kinds.length ? ' AND kind IN (' + kinds.map(() => '?').join(',') + ')' : '';
-    return this.db.prepare("UPDATE notice SET state = 'closed', closed_at = ?, closed_by = ? WHERE session_id = ? AND state = 'open'" + k).run(now, String(by || ''), String(sessionId), ...(k ? kinds : [])).changes;
+    return this.db.prepare("UPDATE notice SET state = 'closed', closed_at = ?, closed_by = ? WHERE session_id = ? AND state = 'open' AND kind <> 'machine'" + k).run(now, String(by || ''), String(sessionId), ...(k ? kinds : [])).changes;
   }
   closeKind(kind, by, exceptKeyPrefix, now = Date.now()) {
     return this.db.prepare("UPDATE notice SET state = 'closed', closed_at = ?, closed_by = ? WHERE kind = ? AND state = 'open'" + (exceptKeyPrefix ? ' AND key NOT LIKE ?' : '')).run(now, String(by || ''), String(kind), ...(exceptKeyPrefix ? [exceptKeyPrefix + '%'] : [])).changes;
@@ -107,7 +110,7 @@ class Notices {
     const by = new Map((sessions || []).map((s) => [s.sessionId, s.status]));
     let n = 0;
     for (const x of this.openList()) {
-      if (!x.sessionId) continue;
+      if (!x.sessionId || x.kind === 'machine') continue;
       const st = by.get(x.sessionId);
       let why = '';
       if (st === undefined) why = 'ended';

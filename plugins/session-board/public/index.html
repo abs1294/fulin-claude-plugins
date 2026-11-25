@@ -208,11 +208,11 @@
   .bell-pop .bn:hover { background: var(--hover); }
   .bell-pop .bn-main { flex: 1 1 auto; min-width: 0; display: flex; gap: 8px; align-items: flex-start; text-align: left; border: 0; background: none; padding: 10px 4px 10px 14px; font: inherit; color: inherit; }
   .bell-pop .bn-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 7px; background: var(--faint); }
-  .bell-pop .bn-dot.done { background: var(--green); } .bell-pop .bn-dot.waiting, .bell-pop .bn-dot.limit, .bell-pop .bn-dot.budget, .bell-pop .bn-dot.schedule { background: var(--amber); } .bell-pop .bn-dot.stuck, .bell-pop .bn-dot.error { background: var(--red); }
+  .bell-pop .bn-dot.done { background: var(--green); } .bell-pop .bn-dot.waiting, .bell-pop .bn-dot.limit, .bell-pop .bn-dot.budget, .bell-pop .bn-dot.machine, .bell-pop .bn-dot.schedule { background: var(--amber); } .bell-pop .bn-dot.stuck, .bell-pop .bn-dot.error { background: var(--red); }
   .bell-pop .bn-body { min-width: 0; display: grid; gap: 1px; }
   .bell-pop .bn-t { font-weight: 600; font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bell-pop .bn-m { font-size: var(--fs-sm); color: var(--dim); }
-  .bell-pop .bn-k.done { color: var(--green); } .bell-pop .bn-k.waiting, .bell-pop .bn-k.limit, .bell-pop .bn-k.budget, .bell-pop .bn-k.schedule { color: var(--amber); } .bell-pop .bn-k.stuck, .bell-pop .bn-k.error { color: var(--red); }
+  .bell-pop .bn-k.done { color: var(--green); } .bell-pop .bn-k.waiting, .bell-pop .bn-k.limit, .bell-pop .bn-k.budget, .bell-pop .bn-k.machine, .bell-pop .bn-k.schedule { color: var(--amber); } .bell-pop .bn-k.stuck, .bell-pop .bn-k.error { color: var(--red); }
   .bell-pop .bn-x { font-size: var(--fs-sm); color: var(--dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; margin-top: 2px; }
   .bell-pop .bn-off { flex: none; border: 0; background: none; color: var(--faint); width: 30px; height: 30px; margin: 6px 6px 0 0; border-radius: var(--r-m); font-size: var(--fs-md); }
   .bell-pop .bn-off:hover { background: var(--line); color: var(--ink); }
@@ -1183,6 +1183,19 @@
   /* ── war room ── */
   .war { max-width: 1040px; margin: 0 auto; padding: 4px 20px 48px; }
   .war h3 { font-size: var(--fs-sm); color: var(--dim); font-weight: 600; margin: 24px 0 6px; }
+  .mc-row { display: grid; grid-template-columns: 56px minmax(80px, 1fr) 48px 224px; gap: 4px 12px; align-items: center; padding: 4px 0; font-size: var(--fs-md); }
+  .mc-row .mbar { position: relative; } .mc-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); } .mc-mark[hidden] { display: none; }
+  .mc-n { text-align: right; font-variant-numeric: tabular-nums; } .mc-s { color: var(--dim); font-size: var(--fs-sm); }
+  .set-scroll h2[id] { scroll-margin-top: calc(var(--hbar, 0px) + 72px); } .set-scroll.wide h2[id] { scroll-margin-top: calc(var(--hbar, 0px) + 16px); }   /* below the bar (and 「跳到」), which stand over the page */
+  .mc-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .mc-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 32px; margin-top: 16px; } .mc-top[hidden] { display: none; }
+  .mc-h { font-size: var(--fs-sm); font-weight: 600; color: var(--dim); padding-bottom: 4px; }
+  .mc-p { display: flex; gap: 12px; align-items: baseline; width: calc(100% + 16px); min-height: 32px; padding: 4px 8px; margin: 0 -8px; border: 0; border-radius: var(--r-m); background: none; color: inherit; font: inherit; font-size: var(--fs-md); text-align: left; }
+  .mc-p.go { cursor: pointer; background: var(--fill, var(--hover)); margin-bottom: 4px; } .mc-p.go:hover { background: var(--btn); }
+  .mc-p .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .mc-p .v { font-variant-numeric: tabular-nums; color: var(--dim); flex: none; }
+  :root[data-skin] .mc { background: var(--bg); box-shadow: var(--sh-card); border-radius: var(--r-l); padding: 16px 20px; margin-bottom: 8px; }
+  @media (max-width: 720px) { .mc-row { grid-template-columns: 56px minmax(0, 1fr) 48px; } .mc-s { grid-column: 2 / -1; } }
+  @media (pointer: coarse) { .mc-p.go { min-height: 44px; align-items: center; } }
   .war .quiet { color: var(--dim); font-size: var(--fs-md); padding: 8px 0; }
   .war .liverow, .war button.turn { padding-left: 8px; padding-right: 8px; }
   .urow { display: grid; grid-template-columns: minmax(0, 1fr) 76px 76px 60px 60px 76px; gap: 12px; align-items: center; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--rule, var(--line)); background: none; padding: 7px 8px; font-size: var(--fs-md); }
@@ -3843,7 +3856,7 @@ async function drawSettings() {
     const fill = () => {
       const hs = [...pane.querySelectorAll(':scope > h2')]; if (hs.length === nav.childElementCount) return;
       nav.textContent = ''; jump.textContent = '';
-      hs.forEach((h, i) => { if (!h.id) h.id = 'set-' + i; h.style.scrollMarginTop = '16px'; const b = el('button', '', h.textContent); b.type = 'button'; b.dataset.id = h.id; b.addEventListener('click', () => go(h)); nav.append(b); });
+      hs.forEach((h, i) => { if (!h.id) h.id = 'set-' + i; const b = el('button', '', h.textContent); b.type = 'button'; b.dataset.id = h.id; b.addEventListener('click', () => go(h)); nav.append(b); });
       jump.append(moreMenu(hs.map((h) => { const b = el('button', '', h.textContent); b.type = 'button'; b.addEventListener('click', () => go(h)); return b; }), '跳到設定的某一區', '跳到：' + (hs[0] ? hs[0].textContent : '') + ' ▾'));
       if (spy) spy.disconnect();
       // the section in view: the last heading that has passed the top quarter of the scroll area
@@ -3988,6 +4001,21 @@ async function drawSettings() {
     sw('隱藏其他程式開的 session', '不是你在終端機或看板開的，而是其他程式自己用 Claude Code 開的（例如 claude-mem、goal2 的引擎、harness 的審查、測試），不列在左欄、辦公室與舊對話裡。看板與看板排程開的對話照常顯示。被藏起來的，清單最下面仍可以點開來看。', !!P.hideProgramSessions,
       (v) => ({ hideProgramSessions: v }), (v) => v ? '已開啟：其他程式開的 session 不列出' : '已關閉：全部列出');
     hiddenFolders(pane, P.hideProgramFolders || []);
+  }
+  if (r.data.prefs && 'machineAlert' in r.data.prefs) {
+    const P = r.data.prefs, h2 = el('h2', '', '電腦負載示警'); h2.style.marginTop = '40px'; h2.id = 'setMachine'; pane.append(h2);
+    sw('記憶體或 CPU 太高時通知我', '看板每 5 秒看一次整台電腦的記憶體和 CPU（每次不到千分之一秒）。記憶體連續 1 分鐘、CPU 連續 2 分鐘超過門檻，就在鈴鐺和桌面通知你，並查出誰用最多；降下來就自己收掉，半小時內不重複。現在的數字在戰情室最上面。', !!P.machineAlert,
+      (v) => ({ machineAlert: v }), (v) => v ? '已開啟：太高時會通知' : '已關閉：不通知');
+    const row = el('div', 'pathrow'), btn = el('button', 'btn primary', '儲存'), box = {}; btn.type = 'button';
+    for (const [k, t] of [['machineRam', '記憶體'], ['machineCpu', 'CPU']]) { const i = el('input'); i.type = 'number'; i.min = '50'; i.max = '99'; i.step = '1'; i.value = String(P[k]); i.style.maxWidth = '90px'; i.setAttribute('aria-label', t + '超過多少 % 通知'); box[k] = i; row.append(el('span', '', t), i, el('span', '', '%')); }
+    row.style.alignItems = 'center'; row.style.flexWrap = 'wrap'; row.append(btn); pane.append(row);
+    btn.addEventListener('click', async () => {
+      const v = { machineRam: Number(box.machineRam.value), machineCpu: Number(box.machineCpu.value) };
+      if (Object.values(v).some((n) => !Number.isInteger(n) || n < 50 || n > 99)) return say('門檻要是 50 到 99 的整數', true);
+      btn.disabled = true; let x; try { x = await api('/api/config', v); } catch (e) { x = { ok: false, data: { error: '看板程序沒有回應' } }; } btn.disabled = false;
+      if (!x.ok) return say(x.data.error || '存不進去', true);
+      say('已儲存：記憶體超過 ' + v.machineRam + '%、CPU 超過 ' + v.machineCpu + '% 會通知'); await poll();
+    });
   }
   {
     const h2 = el('h2', '', '版面'); h2.style.marginTop = '40px'; pane.append(h2);
@@ -5262,8 +5290,8 @@ const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
    on or ended, the month turned), and then it is closed by the board itself - see lib/notices.js. This is not a
    record of Windows notifications: those say something just happened and are gone. */
 let noticeOpen = 0;
-const NOTICE_KIND = { waiting: '等你回應', done: '做完了', stuck: '可能卡住', limit: '額度用完', error: '被錯誤中斷', schedule: '排程', budget: '預算' };
-const CLOSED_BY = { answered: '你回應了', stopped: '那一輪停止了', seen: '你看過了', continued: '它接著做了', resumed: '它恢復執行了', moved: '它又動了', ended: 'session 結束了', dismissed: '你按了不用了', 'month over': '月份過了', 'budget changed': '預算改了', superseded: '已超過預算，改記那一則' };
+const NOTICE_KIND = { waiting: '等你回應', done: '做完了', stuck: '可能卡住', limit: '額度用完', error: '被錯誤中斷', schedule: '排程', budget: '預算', machine: '電腦' };
+const CLOSED_BY = { answered: '你回應了', stopped: '那一輪停止了', seen: '你看過了', continued: '它接著做了', resumed: '它恢復執行了', moved: '它又動了', ended: 'session 結束了', dismissed: '你按了不用了', 'month over': '月份過了', 'budget changed': '預算改了', eased: '已經降下來', 'machine off': '示警關掉了', superseded: '已超過預算，改記那一則' };
 // Notices: what still needs you now. Not a page - a bell at the top of the left column with the number, and under it,
 // when pressed, the list. (#notices, and whatever still calls this, opens it.)
 function bellPlace() {
@@ -5295,7 +5323,7 @@ async function fillNotices() {
     const live = x.sessionId && sessions.some((s) => s.sessionId === x.sessionId);
     if (live) return openChat(x.sessionId);
     if (x.kind === 'schedule') return drawSched();
-    if (x.kind === 'budget') return drawWar();
+    if (x.kind === 'budget' || x.kind === 'machine') return drawWar();
     if (x.sessionId) say('這個 session 現在沒有開著，可以到「辦公室」找它', true);
   };
   const now = Date.now();
@@ -5313,7 +5341,7 @@ async function fillNotices() {
     body.append(meta);
     if (detail(x)) body.append(el('span', 'bn-x', detail(x)));
     main.append(el('span', 'bn-dot ' + x.kind), body);
-    main.title = (x.kind === 'schedule' ? '到排程頁處理' : x.kind === 'budget' ? '到戰情室' : '打開這個 session') + '\n' + new Date(x.openedAt).toLocaleString('zh-TW', { hour12: false });
+    main.title = (x.kind === 'schedule' ? '到排程頁處理' : x.kind === 'budget' || (x.kind === 'machine' && !sessions.some((s) => x.sessionId && s.sessionId === x.sessionId)) ? '到戰情室' : x.kind === 'machine' ? '打開用最多的那個對話' : '打開這個 session') + '\n' + new Date(x.openedAt).toLocaleString('zh-TW', { hour12: false });
     main.addEventListener('click', () => go(x));
     w.append(main);
     if (!closed && x.kind !== 'schedule') { const d = el('button', 'bn-off', '✕'); d.type = 'button'; d.title = '知道了，收起這一則（不影響那個 session）'; d.setAttribute('aria-label', '收起這一則：' + subject(x)); d.addEventListener('click', async (e) => { e.stopPropagation(); w.remove(); await api('/api/notices/dismiss', { id: x.id }); fillNotices(); poll(); }); w.append(d); }
@@ -10047,20 +10075,73 @@ function drawWar() {
   const head = el('div', 'head');
   const back = el('button', 'btn back', '←'); back.type = 'button'; back.setAttribute('aria-label', '回到清單'); back.addEventListener('click', () => goBack(drawHome));
   const who = el('div', 'who');
-  who.append(el('div', 't', '戰情室'), el('div', 's', '每個月用了多少 token、照 API 牌價值多少錢'));
+  who.append(el('div', 't', '戰情室'), el('div', 's', '這台電腦現在的負載，每個月用了多少 token、照 API 牌價值多少錢'));
   head.append(back, who);
   const scroll = el('div', 'scroll');
   const box = el('div', 'war');
   const sec = (title, id) => { const d = el('div'); d.id = id; box.append(el('h3', '', title), d); };
+  if (machineNow) { sec('這台電腦現在', 'machine'); }
   sec('每月用量與 API 等值費用（這台電腦所有 session，含已關閉的與子代理）', 'month');
   scroll.append(box);
   main.append(head, scroll);
   pageTitleA(head, box);
   listShape = '';
   drawList();
+  drawMachine(true);
   drawMonth();
   loadUsage(false);
   pollWar();
+}
+
+/* ── this computer: its memory and processor as a whole (lib/machine.js), as the board last looked - and, pressed for, who
+   uses most of it ── */
+let machineNow = null, machineTop = null, machineBusy = false;
+const GB = (b) => (b / 1073741824 >= 10 ? Math.round(b / 1073741824) : (b / 1073741824).toFixed(1)) + ' GB';
+function drawMachine(fresh) {
+  const box = $('machine'); if (view !== 'war' || !box || !machineNow) return;
+  const m = machineNow;
+  if (fresh || !box.firstChild) {
+    machineTop = fresh ? null : machineTop; box.textContent = '';
+    const card = el('div', 'mc'), list = el('div', 'mc-top'); list.hidden = true;
+    for (const k of ['ram', 'cpu']) {
+      const r = el('div', 'mc-row'); r.dataset.k = k;
+      const bar = el('div', 'mbar'), fill = el('div', 'mfill'), mark = el('i', 'mc-mark'); bar.append(fill, mark); bar.setAttribute('aria-hidden', 'true');
+      r.append(el('span', 'mc-l', k === 'ram' ? '記憶體' : 'CPU'), bar, el('b', 'mc-n'), el('span', 'mc-s')); card.append(r);
+    }
+    const acts = el('div', 'mc-acts'), b = el('button', 'btn', '看誰用最多'), st = el('button', 'btn', '示警設定'); b.type = st.type = 'button';
+    b.addEventListener('click', async () => {
+      if (machineBusy) return;
+      if (!list.hidden) { list.hidden = true; b.textContent = '看誰用最多'; b.setAttribute('aria-expanded', 'false'); return; }
+      machineBusy = true; b.disabled = true; b.textContent = '查詢中…'; ld(b);
+      let x; try { x = await api('/api/machine'); } catch (e) { x = { ok: false, data: {} }; }
+      machineBusy = false; b.disabled = false; b.textContent = '看誰用最多';
+      if (!box.contains(list)) return;
+      if (!x.ok) return say(x.status === 404 ? '這個看板還是舊的程式，重啟看板後才能用' : (x.data && x.data.error) || '查不到', true);
+      machineTop = x.data; fillTop(list); list.hidden = false; b.textContent = '收起'; b.setAttribute('aria-expanded', 'true');
+    });
+    b.setAttribute('aria-expanded', 'false');
+    st.addEventListener('click', async () => { await drawSettings(); const h = $('setMachine'); if (h) h.scrollIntoView({ block: 'start' }); });
+    acts.append(b, st); card.append(acts, list); box.append(card);
+  }
+  for (const r of box.querySelectorAll('.mc-row')) {
+    const k = r.dataset.k, v = m[k], at = m.alert[k], over = m.alert.on && v != null && v >= at;
+    r.querySelector('.mfill').style.width = (v || 0) + '%'; r.querySelector('.mfill').className = 'mfill' + (over ? ' hot' : v != null && v >= at - 10 ? ' warm' : '');
+    r.querySelector('.mc-mark').style.left = at + '%'; r.querySelector('.mc-mark').hidden = !m.alert.on;
+    r.querySelector('.mc-n').textContent = v == null ? '－' : v + '%';
+    r.querySelector('.mc-s').textContent = (k === 'ram' ? (m.left == null ? '讀取中' : '剩 ' + GB(m.left) + '，共 ' + GB(m.total)) : m.cores + ' 個執行緒') + (m.alert.on ? ' · ' + (over ? '超過 ' : '示警 ') + at + '%' : ' · 示警關著');
+  }
+}
+function fillTop(list) {
+  list.textContent = '';
+  for (const [k, t, size] of [['ram', '記憶體', (g) => GB(g.mem)], ['cpu', 'CPU', (g) => g.cpu.toFixed(g.cpu < 10 ? 1 : 0) + '%']]) {
+    const c = el('div', 'mc-col'); c.append(el('div', 'mc-h', t));
+    for (const g of machineTop[k]) {
+      const live = g.sessionId && sessions.some((s) => s.sessionId === g.sessionId), r = el(live ? 'button' : 'div', 'mc-p' + (live ? ' go' : ''));
+      if (live) { r.type = 'button'; r.title = '打開這個對話'; r.addEventListener('click', () => openChat(g.sessionId)); }
+      r.append(el('span', 'n', g.name + (g.n > 1 ? '（' + g.n + ' 個程序）' : '')), el('span', 'v', size(g))); c.append(r);
+    }
+    list.append(c);
+  }
 }
 
 /* ── a day's summary (lib/daily.js): from the month's bars, kept ── */
@@ -10705,6 +10786,7 @@ async function poll() {
       const bn = $('bellN'); bn.hidden = !noticeOpen; bn.textContent = noticeOpen > 99 ? '99+' : String(noticeOpen);
       $('bellBtn').classList.toggle('has', !!noticeOpen); $('bellBtn').title = noticeOpen ? '通知：' + noticeOpen + ' 件還沒處理' : '通知：沒有要處理的';
       if (!$('bellPop').hidden && was !== noticeOpen) fillNotices(); }
+    { const was = machineNow; machineNow = r.data.machine || null; if (view === 'war' && machineNow) { if (!was && !$('machine')) drawWar(); else drawMachine(); } }
     schedNotices = r.data.schedNotices || 0;
     $('schedDot').className = 'dot' + (schedNotices ? ' yours' : ''); $('schedSub').textContent = schedNotices ? schedNotices + ' 則通知等你處理' : '到點自動做一件事';
     features = r.data.features || {};

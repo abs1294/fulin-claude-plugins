@@ -55,6 +55,7 @@ const Budget = require('./lib/budget');
 const Keepalive = require('./lib/keepalive');
 const { RESTARTING } = Keepalive;   // (the module's own path: the Keepalive of createServer's deps may be a stand-in)
 const { Notices } = require('./lib/notices');
+const MachineLib = require('./lib/machine');
 const { stripSignatures } = require('./lib/inbox/text');
 const Notify = require('./lib/notify');
 const Shell = require('./lib/shell');
@@ -416,6 +417,14 @@ async function commandLines(pids) {
   try { return JSON.parse(Buffer.from(r.line, 'base64').toString('utf8')); } catch (e) { return {}; }
 }
 
+// every process of this computer, with what it uses (lib/machine.js)
+async function procTable() {
+  const cores = Math.max(1, os.cpus().length);
+  if (MAC) return MachineLib.fromPs(await Mac.procTable(), cores);
+  if (process.platform !== 'win32') return [];
+  return MachineLib.fromWindows((await powershell('top-procs.ps1', [], 30000)).line, cores);
+}
+
 async function convertOffice(src, dst) {
   if (MAC) return Mac.convertOffice(src, dst);
   const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
@@ -429,7 +438,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Everything the server does outside its own process. A test hands in its own (deps.out) so that no window is opened,
 // no program started, nothing written to the registry and no process ended while the routes are exercised.
-const REAL_OUT = { openUrl, focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify,
+const REAL_OUT = { openUrl, focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, procTable, spawn, autostart, Keepalive, Notify,
   kill: (pid) => process.kill(pid), exit: (code) => process.exit(code), gitRun: execFile, btw: (sid, cwd, question) => Aside.ask(sid, cwd, question, { env: K.cleanEnv(process.env) }), explain: (cwd, prompt, o) => Aside.explain(cwd, prompt, Object.assign({ env: K.cleanEnv(process.env) }, o)), wishRun: (args, cwd, prompt, o) => Aside.runWith(args, cwd, prompt, Object.assign({ env: K.cleanEnv(process.env) }, o)), pluginInstall: (folder, items) => PluginFit.apply(folder, items), shell: (command, cwd) => Shell.run(command, cwd) };
 
 // The next steps a conversation can be given from the board: a plugin's own command, sent into it. Offered only when
@@ -453,7 +462,7 @@ const nextSteps = (inst, folder) => NEXT.filter((n) => installedFor(inst, n.plug
 
 function createServer(token, port, deps = {}) {
   // eslint-disable-next-line no-shadow
-  const { openUrl: openWeb, focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside, explain: explainAside, wishRun, pluginInstall } = Object.assign({}, REAL_OUT, deps.out);
+  const { openUrl: openWeb, focusWindow, closeWindow, pickFolder, openTerminal, powershell, convertOffice, procTable: osProcs, spawn, autostart, Keepalive, Notify, kill: osKill, exit: osExit, shell: runShell, gitRun, btw: askAside, explain: explainAside, wishRun, pluginInstall } = Object.assign({}, REAL_OUT, deps.out);
   const allowedHosts = new Set([`${HOST}:${port}`, `localhost:${port}`]);
   // Who may talk to the board at all: this computer, and - when reaching it through Tailscale is switched on - only the
   // devices of your own Tailscale account (lib/remote.js). Checked before anything else, the key after it.
@@ -540,6 +549,10 @@ function createServer(token, port, deps = {}) {
     // who hears what is said: the browser's own recognizer (free, Google's servers in Chrome) or OpenAI's transcription
     // (gpt-transcribe, with your words as keywords; your own API key and cost - set on the settings page)
     voiceEngine: { def: 'browser', ok: (v) => v === 'browser' || v === 'openai', why: '只能是 browser 或 openai' },
+    // told when this computer's memory or processor stays over these percents (lib/machine.js)
+    machineAlert: { def: MachineLib.DEFAULTS.on, ok: isBool, why: '只能是開或關' },
+    machineRam: { def: MachineLib.DEFAULTS.ram, ok: MachineLib.okPct, why: '要是 50 到 99 的整數（%）' },
+    machineCpu: { def: MachineLib.DEFAULTS.cpu, ok: MachineLib.okPct, why: '要是 50 到 99 的整數（%）' },
     decideModel: { def: 'haiku', ok: (v) => typeof v === 'string' && /^(haiku|sonnet|opus|fable|claude-[a-z0-9.-]{1,40})$/.test(v), why: '模型只能是 haiku、sonnet、opus、fable 或 claude- 開頭的名稱' },
   };
   const pref = (k) => { const v = config.value(k, PREFS[k].def); return PREFS[k].ok(v) ? v : PREFS[k].def; };
@@ -1389,6 +1402,13 @@ function createServer(token, port, deps = {}) {
   const dog = deps.noSchedules ? null : new Watchdog({ open: (n) => notices.open(n), resolve: (kind, sid, by) => notices.close(kind + ':' + sid, by), sessions, channels, peer, peerCheck: deps.peerCheck || peerSeen, tell: deps.tell || tell, settings: watchSettings, quota,
     transcript: (s) => { try { return S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir) || ''; } catch (e) { return ''; } },
     recall: () => config.value('watchdogState', null), remember: (st) => config.setValue('watchdogState', st) });
+  // How hard this computer works (lib/machine.js)
+  const machine = new MachineLib.Machine({ settings: () => ({ on: pref('machineAlert'), ram: pref('machineRam'), cpu: pref('machineCpu') }), vm: MAC ? () => Mac.vmStat() : null,
+    procs: () => osProcs(), sessions: () => { fresh(); return sessions(); }, own: process.pid, tell: deps.tell || tell,
+    notices: { open: (n) => notices.open(n), close: (k, by) => notices.close(k, by), isOpen: (k) => notices.openList().some((n) => n.key === k) },
+    recall: () => config.value('machineState', null), remember: (st) => config.setValue('machineState', st) });
+  // (a throw: the database held for a moment - looked at again in five seconds)
+  if (!deps.noSchedules && !deps.noTimers) { machine.look(); const t = setInterval(() => { try { machine.tick(); } catch (e) {} }, MachineLib.EVERY); if (t.unref) t.unref(); }
   // The monthly budget (lib/budget.js): looked at every ten minutes against this month's figure; said once per point per month.
   const budgetCheck = async () => {
     try {
@@ -1562,7 +1582,7 @@ function createServer(token, port, deps = {}) {
         // opened before the file changed sees a different value and reloads
         // itself; otherwise it keeps running old code until someone presses F5
         // (which is how "the links still are not clickable" happened, 2026-11-13).
-        if (p === '/api/sessions') return send(res, 200, { now: Date.now(), version: VERSION, page: pageTag(), features: { platform: process.platform, editPics: true, loadMine: loadDraw.mine(), textSize: textSize(), textSizeTouch: textSize('textSizeTouch'), prefs: prefs(), fork: config.value('showFork', false) === true, goal2: isOn('goal2') && !!goal2.root(), integrations: Object.fromEntries(Object.entries(integrationsNow()).map(([k, x]) => [k, x.on])) }, sessions: sessions(), inbox: inbox && inbox.enabled() ? inbox.inbox.counts() : null /* null: the inbox is off, the page does not show it */, noticeOpen: notices.openCount() + schedules.noticeCount(), schedNotices: schedules.noticeCount() });
+        if (p === '/api/sessions') return send(res, 200, { now: Date.now(), version: VERSION, page: pageTag(), features: { platform: process.platform, editPics: true, loadMine: loadDraw.mine(), textSize: textSize(), textSizeTouch: textSize('textSizeTouch'), prefs: prefs(), fork: config.value('showFork', false) === true, goal2: isOn('goal2') && !!goal2.root(), integrations: Object.fromEntries(Object.entries(integrationsNow()).map(([k, x]) => [k, x.on])) }, sessions: sessions(), inbox: inbox && inbox.enabled() ? inbox.inbox.counts() : null /* null: the inbox is off, the page does not show it */, noticeOpen: notices.openCount() + schedules.noticeCount(), schedNotices: schedules.noticeCount(), machine: machine.now() });
         if (p === '/api/inbox') {
           if (!inbox) return send(res, 200, { threads: [], status: null });
           return send(res, 200, { threads: inbox.inbox.threads({ status: q.get('status') || '', triage: q.get('triage') || '', open: q.get('open') === '1', source: q.get('source') || '', q: String(q.get('q') || '').slice(0, 100), limit: 200 }), status: inbox.status(), routes: inbox.inbox.routes() });
@@ -1679,7 +1699,13 @@ function createServer(token, port, deps = {}) {
         // Looked at: first made true to the sessions as they are (an event may have been lost), then listed.
         if (p === '/api/notices') { const fixed = reconcile(); return send(res, 200, { open: notices.openList(), closed: notices.closedList(60), schedule: schedules.notices(), reconciled: fixed }); }
         if (p === '/api/budget') return send(res, 200, { settings: Budget.clean(config.value('budget', {})), state: config.value('budgetState', null) });
-        if (p === '/api/watchdog') return send(res, 200, { on: !!dog, settings: watchSettings(), log: dog ? dog.log() : [] });
+        // who uses most of this computer's memory and processor, asked when you press for it
+      if (p === '/api/machine') {
+        let list; try { list = await machine.ask(); } catch (e) { return send(res, 500, { ok: false, error: '查不到每個程式用了多少' }); }
+        const top = (k) => list.slice().sort((a, b) => b[k] - a[k]).slice(0, 8);
+        return send(res, 200, { ok: true, now: machine.now(), ram: top('mem'), cpu: top('cpu') });
+      }
+      if (p === '/api/watchdog') return send(res, 200, { on: !!dog, settings: watchSettings(), log: dog ? dog.log() : [] });
         // the mic's own words (lib/vocab.js): this person's, on this computer
         // (a project's: ?sid= the conversation, or ?cwd= a folder; neither - the engine only, no words)
         if (p === '/api/vocab') { const vo = vocabOf({ sid: q.get('sid') || '', cwd: q.get('cwd') || '' }); return send(res, 200, Object.assign(Vocab.list(vo.sources, vo.file), { cwd: vo.cwd, folder: vo.cwd ? path.basename(vo.cwd) : '', legacy: vo.file ? Vocab.legacyCount(vo.file) : 0, engine: config.value('voiceEngine', 'browser'), openaiKey: !!openaiKey() })); }
@@ -1698,6 +1724,7 @@ function createServer(token, port, deps = {}) {
             { key: 'cbm', name: '程式碼索引重建', what: '裝了 cbm-guard 的專案，索引落後最新 commit 就重建', every: '每個專案每 6 小時看一次', on: !!(auto && cfg.cbm && isOn('cbm')), last: lastOf(...Object.values(st.cbmAt || {})), where: 'settings' },
             { key: 'harness', name: 'harness 健檢', what: '該健檢的專案開一個對話跑 /harness:review', every: '每天 10:00 之後最多一個專案', on: !!(auto && cfg.harness), last: dayAt(st.harnessDay), where: 'settings' },
             { key: 'watchdog', name: '停住的對話', what: '對話卡住、撞到用量上限或伺服器錯誤時通知你，必要時叫它繼續', every: '每 30 秒', on: !!dog, last: null, where: 'settings' },
+            { key: 'machine', name: '電腦負載', what: '看整台電腦的記憶體和 CPU，連續超過門檻就通知', every: '每 ' + MachineLib.EVERY / 1000 + ' 秒', on: !deps.noSchedules && pref('machineAlert'), last: null, where: 'settings' },
             { key: 'budget', name: '額度預算', what: '這個月用量接近或超過你設的預算時通知', every: '每 10 分鐘', on: !deps.noSchedules, last: null, where: 'settings' },
             { key: 'monthly', name: '月用量存檔', what: '把上個月的用量算好存起來，用量頁不用每次重算', every: '每 6 小時看一次', on: true, last: null, where: '' },
             { key: 'workdays', name: '假日行事曆', what: '有「工作天」排程時，抓今年與明年的國定假日', every: '每天一次', on: schedules.list().some((s) => s.enabled && s.kind === 'custom' && s.rule && (s.rule.workday || /LW|FW/.test(s.rule.cron))), last: null, where: '' },
