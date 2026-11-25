@@ -1428,10 +1428,6 @@
   /* the board not answering: a band over the top of every page, on a phone too */
   #downBar { position: fixed; left: 0; right: 0; top: 0; z-index: 80; padding: 8px 14px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); background: var(--red); color: #fff; font-size: var(--fs-md); text-align: center; overflow-wrap: anywhere; }
   #said.bad { background: var(--red); color: #fff; }
-  /* a new version, where the line at the bottom of the left column is not shown: a band over the top */
-  #newBar { display: none; position: fixed; left: 0; right: 0; top: 0; z-index: 79; border: 0; padding: 8px 14px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); background: var(--accent, #2f5d8a); color: #fff; font: inherit; font-size: var(--fs-md); cursor: pointer; }
-  @media (max-width: 720px) { #newBar { display: block; } }
-  .app.folded ~ #newBar { display: block; }
   @media (prefers-reduced-motion: reduce) { #said { transition: none; } }
 
   @media (max-width: 720px) {
@@ -2036,7 +2032,6 @@
   :root[data-skin] :is(.set-scroll, .cb-scroll):not(.wide).pt-on > :is(.pane, .cb-side) { max-width: 780px !important; }
   :root[data-skin] .cb-scroll:not(.wide).pt-on > .cb-side { margin: 0; padding-left: 0; padding-right: 0; }
   :root[data-skin] .set-scroll:not(.wide).pt-on > .set-jump { margin-left: calc(-1 * var(--gut)); margin-right: calc(-1 * var(--gut)); padding-left: var(--gut); padding-right: var(--gut); }
-  
 
   /* ── look A, the plugins page (the sample of the one system, 2026-11-24): white cards with a faint shadow and no grey;
      rows apart by space, not lines; the one coloured box is what needs you; three type sizes (17 / 14 / 12.5) ── */
@@ -10502,15 +10497,18 @@ function unsavedWork() {
 // conversation running it is busy, and ending the board would end it). Not restarted while a conversation is working:
 // those are named, and the button is pressed again once they are done.
 let boardVersion = '';   // the board's own, as it last said
-(function updateFab() {
-  let words = '有新版本，點我更新';
+const updateFab = { draw() {} };
+(function () {
+  let words = '有新版本，點我更新', need = false, tip = '', items = 0;
   const b = el('button', 'upd-fab'); b.type = 'button'; b.title = '有新版本：按一下把 plugin 更新到最新，看板有新版就重開'; b.setAttribute('aria-label', '有新版本，點我更新');
   b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg><span>有新版本，點我更新</span>';
   let busy = false;
   b.addEventListener('click', async () => {
-    if (busy) return; busy = true; b.classList.add('busy'); b.setAttribute('aria-busy', 'true');
+    if (busy) return;
+    if (pageNewer) return down ? say('看板程序沒有回應，等它開回來再重新整理', true) : reloadKeepingDrafts(true);
+    busy = true; b.classList.add('busy'); b.setAttribute('aria-busy', 'true');
     const lbl = b.querySelector('span:not(.ld)'); if (lbl) lbl.textContent = '更新中…'; ldAdd(b);   // in place of its own icon
-    const done = () => { busy = false; b.classList.remove('busy'); b.removeAttribute('aria-busy'); for (const x of b.querySelectorAll('.ld')) x.remove(); if (lbl) lbl.textContent = words; };
+    const done = () => { busy = false; b.classList.remove('busy'); b.removeAttribute('aria-busy'); for (const x of b.querySelectorAll('.ld')) x.remove(); updateFab.draw(); };
     try {
       say('更新中：把 plugin 更新到最新（可能要一兩分鐘）…');
       const u = await api('/api/plugins/update', {});
@@ -10523,14 +10521,14 @@ let boardVersion = '';   // the board's own, as it last said
         return done();
       }
       if (!r.ok) { say('plugin：' + sum + '。看板沒有重開：' + (r.data.error || r.status), true); return done(); }
-      if (!r.data.restarted) { say('plugin：' + sum + '。看板已是最新版 ' + r.data.version); b.hidden = true; return done(); }   // shown again only if the next check finds more
+      if (!r.data.restarted) { say('plugin：' + sum + '。看板已是最新版 ' + r.data.version); need = false; return done(); }   // shown again only if the next check finds more
       say('plugin：' + sum + '。看板從 ' + r.data.from + ' 換成 ' + r.data.to + '，重開中…');
       // the new one answering with the new version: the page reloads (the boxes' words kept as drafts)
       let oldSeen = 0;
       for (let i = 0; i < 60; i++) {
         await new Promise((ok) => setTimeout(ok, 1000));
         let p; try { p = await (await fetch('/api/ping', { headers: { 'x-board-token': TOKEN } })).json(); } catch (e) { p = null; }
-        if (p && p.app === 'session-board' && p.version === r.data.to) { reloadKeepingDrafts(true); return; }
+        if (p && p.app === 'session-board' && p.version === r.data.to) { pageNewer = true; done(); reloadKeepingDrafts(true); return; }   // (kept back by what is not sent yet: the button says so, and pressed again it reloads)
         // the old one still answering a while later: it called the restart off (a conversation began working just then)
         if (p && p.app === 'session-board' && p.version === r.data.from && ++oldSeen >= 5) { say('看板沒有重開：剛好有對話開始做事，所以取消了，舊版 ' + r.data.from + ' 照常在跑。等它做完再按一次', true); done(); return; }
       }
@@ -10586,20 +10584,27 @@ let boardVersion = '';   // the board's own, as it last said
   // Shown only when there is something to update (asked 2026-11-20): the board checks once a day by itself (lib/auto.js
   // "check"); the page asks for that result when it opens and every 5 minutes. Said on it: what there is.
   b.hidden = true;
+  updateFab.draw = () => {
+    if (busy) return;
+    const say1 = pageNewer ? '看板有新版，點我重新整理' : words, lb = b.querySelector('span:not(.ld)'), show = pageNewer || need;
+    if (lb.textContent !== say1) { lb.textContent = say1; shape = ''; }
+    b.title = pageNewer ? '你有卡片還沒回覆、有填到一半的欄位，或有只留在這一頁的東西（還沒送出的附件、暫存、收件引用），所以沒有自動重新整理' : tip;
+    b.setAttribute('aria-label', pageNewer ? say1 : say1 + '（有 ' + items + ' 項可以更新）');
+    if (b.hidden === show) { b.hidden = !show; shape = ''; }
+    place();
+  };
   const want = async () => {
     if (busy) return;
     let r; try { r = await api('/api/auto'); } catch (e) { return; }
     const c = r && r.ok && r.data.check;
-    const need = !!(c && c.need);
+    need = !!(c && c.need);
     if (need) {
       const parts = (c.behind || []).map((x) => x.name + ' ' + (x.from || '?') + ' → ' + (x.to || '?'));
       if (c.board && c.board.newest && c.board.newest !== c.board.running) parts.push('看板 ' + c.board.running + ' → ' + c.board.newest + '（要重開）');
-      b.title = '有更新：' + parts.join('、') + '。按一下：更新 plugin' + (c.board && c.board.newest !== c.board.running ? '，並重開看板' : '');
+      items = parts.length; tip = '有更新：' + parts.join('、') + '。按一下：更新 plugin' + (c.board && c.board.newest !== c.board.running ? '，並重開看板' : '');
       words = '有新版本' + (c.board && c.board.newest && c.board.newest !== c.board.running ? ' v' + c.board.newest : '') + '，點我更新';
-      const lb = b.querySelector('span:not(.ld)'); if (lb && lb.textContent !== words) { lb.textContent = words; shape = ''; }
-      b.setAttribute('aria-label', words + '（有 ' + parts.length + ' 項可以更新）');
     }
-    if (b.hidden === need) { b.hidden = !need; shape = ''; } place();
+    updateFab.draw();
   };
   want(); setInterval(want, 300000);
 })();
@@ -10618,21 +10623,13 @@ async function reloadKeepingDrafts(pressed) {
   if (pressed) { pageUnsavedOnce = 'told'; return say('輸入框裡的字還沒存到看板（存檔沒有回來或被拒）。再按一次就直接重新整理，沒存到的字' + (held ? '和 ' + held + ' 個只留在這一頁的附件（或暫存、收件引用）' : '') + '會不見', true); }
   pageUnsavedOnce = true; newPageAvailable();
 }
+var pageNewer = false;         // the board's page has changed, and this one waits for a press to be reloaded
 let pageUnsavedOnce = false;   // the save before reloading did not come back: from now on ask, do not reload by itself
+// One place says there is something new: the button at the right (asked 2026-11-25: it stood at the left as well). A page to
+// reload comes first - that is one press, and what there is to update is said there once it is the new page.
 function newPageAvailable() {
   if (!pageUnsavedOnce && !unsavedWork()) { reloadKeepingDrafts(); return true; }
-  const foot = $('sideFoot');
-  if (foot.dataset.newer && $('sideFootText').querySelector('button')) return;   // (the board gone meanwhile wrote over it: there again)
-  foot.dataset.newer = '1';
-  foot.className = 'side-foot';
-  const text = $('sideFootText'); text.textContent = '';   // the text part only: the phone button beside it stays
-  const tip = '你有卡片還沒回覆、有填到一半的欄位，或有只留在這一頁的東西（還沒送出的附件、暫存、收件引用），所以沒有自動重新整理';
-  const b = el('button', 'btn primary', '看板有新版，按這裡重新整理'); b.type = 'button'; b.title = tip;
-  b.addEventListener('click', () => reloadKeepingDrafts(true));
-  text.append(b);
-  // On a phone (and with the left column folded) that line is not shown: the same button over the top of the page
-  // (0.10.0 hid the line on a phone, and a page left open stayed on the old version - seen 2026-11-19).
-  if (!$('newBar')) { const bar = el('button', '', '看板有新版，按這裡重新整理'); bar.id = 'newBar'; bar.type = 'button'; bar.title = tip; bar.addEventListener('click', () => reloadKeepingDrafts(true)); document.body.append(bar); }
+  if (!pageNewer) { pageNewer = true; updateFab.draw(); }
 }
 const setPlace = (hash) => { let at = location.hash.replace(/^#/, ""); try { at = decodeURIComponent(at); } catch (e) {} if (at !== String(hash || "")) closeBell();   // another page (not a redraw of the same one): the notices box does not stay over it
  const url = location.pathname + location.search + (hash ? '#' + hash : '');
@@ -10725,7 +10722,7 @@ async function poll() {
     if (r.data.page) { if (pageTag === null) pageTag = r.data.page; else if (r.data.page !== pageTag && newPageAvailable()) return; }   // (not reloaded by itself: the rest of the page goes on as before)
     down = false; $('downBar').hidden = true;
     $('sideFoot').className = 'side-foot';
-    if (!$('sideFoot').dataset.newer) $('sideFootText').textContent = sessions.length + ' 個 session · 更新於 ' + new Date().toLocaleTimeString('zh-TW', { hour12: false });
+    $('sideFootText').textContent = sessions.length + ' 個 session · 更新於 ' + new Date().toLocaleTimeString('zh-TW', { hour12: false });
     drawList();
     if (beats % 5 === 0 || !sideQuotaData) loadSideQuota(); else drawSideQuota();   // asked every 15 seconds; the countdown is redrawn every poll
     if (beats % 5 === 0) await loadKeep();
