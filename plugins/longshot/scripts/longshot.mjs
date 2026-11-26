@@ -103,8 +103,16 @@ const PREPARE = `(() => {
   const unlock = e => { e.style.setProperty('overflow', 'visible', 'important'); e.style.setProperty('height', 'auto', 'important'); e.style.setProperty('max-height', 'none', 'important'); };
   for (const sc of scrollers) for (let e = sc; e && e !== document.documentElement; e = e.parentElement) unlock(e);
   unlock(document.body); unlock(document.documentElement);
-  return { icons, scrollers: scrollers.length, title: document.title, height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) };
+  const probe = document.getElementById('probe');
+  return { icons, scrollers: scrollers.length, probe: probe ? probe.offsetWidth : undefined, title: document.title, height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) };
 })()`;
+
+// 拿掉標籤上的 crossorigin 與 integrity 屬性（逐位元組處理，不動原本的文字編碼）
+function stripCors(buf) {
+  const html = buf.toString('latin1').replace(/<(link|script|img)\b[^>]*>/gi,
+    tag => tag.replace(/\s(?:integrity|crossorigin)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, ''));
+  return Buffer.from(html, 'latin1');
+}
 
 // ---------- 截圖 ----------
 export async function capture({ input, out, width = 1440, scale = 2, title: titleHint }) {
@@ -116,11 +124,21 @@ export async function capture({ input, out, width = 1440, scale = 2, title: titl
     const { targetId } = await b.send('Target.createTarget', { url: 'about:blank' });
     const { sessionId: s } = await b.send('Target.attachToTarget', { targetId, flatten: true });
     let loaded = false;
+    const patchHtml = !isUrl && /\.html?$/i.test(input);
     b.on(m => {
       if (m.sessionId !== s) return;
       if (m.method === 'Page.loadEventFired') loaded = true;
       if (m.method === 'Fetch.requestPaused') {
         const u = m.params.request.url;
+        // 另存的網頁常帶 crossorigin／integrity：本機檔案過不了跨來源檢查，Chrome 另存時改寫過 CSS 也對不上校驗值，
+        // 樣式表會整個被擋掉（GitHub 就是這樣）→ 主網頁送進瀏覽器前先拿掉這兩個屬性
+        if (patchHtml && m.params.resourceType === 'Document' && u === target) {
+          const raw = readFileSync(realpathSync(input));
+          const charset = (/<meta[^>]+charset=["']?([\w-]+)/i.exec(raw.subarray(0, 4096).toString('latin1')) || [, 'utf-8'])[1];
+          b.send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200,
+            responseHeaders: [{ name: 'Content-Type', value: `text/html; charset=${charset}` }], body: stripCors(raw).toString('base64') }, s).catch(() => {});
+          return;
+        }
         // 本機網頁檔：只准讀本機檔案，任何對外連線一律擋掉
         (/^(file|data|blob):/i.test(u)
           ? b.send('Fetch.continueRequest', { requestId: m.params.requestId }, s)
