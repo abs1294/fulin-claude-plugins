@@ -614,13 +614,16 @@ class Channels {
 
   // echo: the id the page that sent it gave it, so that page does not show it twice (it drew it already)
   // pre: what stands in front of it for Claude and is not shown (one sent again, with what you had run with "!")
-  send(sid, text, images, echo, pre) {
+  // o.yours: you sent it (the box of the page, a resend you pressed, a 重來) - only then is the box's draft cleared and
+  // what you ran with "!" put in front. What the board sends by itself (a schedule, 額度回來了, goal2 done, a room's
+  // message) leaves both alone: they were cleared under you while you were typing (asked 2026-11-26).
+  send(sid, text, images, echo, pre, o = {}) {
     const c = this.map.get(sid);
     if (!c) return { ok: false, error: 'no such channel' };
     const said = String(text || '');   // what is shown: not the notes of commands run, put in front below
     if (pre) text = pre + said;
     c.fromHere = c.fromHereNext === true; c.fromHereNext = false;   // asked for at this computer: this message, not the one a schedule sends after it
-    if (Array.isArray(c.shellNotes) && c.shellNotes.length) { text = require('./shell').noteText(c.shellNotes) + '\n' + String(text || ''); c.shellNotes = []; this._shellChanged(c); }
+    if (o.yours && Array.isArray(c.shellNotes) && c.shellNotes.length) { text = require('./shell').noteText(c.shellNotes) + '\n' + String(text || ''); c.shellNotes = []; this._shellChanged(c); }
     const imgs = Array.isArray(images) && images.length ? images : null;
     // A message can be sent at any time, and it is handed to Claude Code at once - also while Claude is working, and
     // while an approval or a question is open. Claude Code takes it in as soon as the action in hand is done, in the
@@ -631,7 +634,7 @@ class Channels {
     // belief that Claude Code would only merge them into the next turn. It does not.)
     // -> {ok, queued: false, mid}   mid: it went in while a turn was running
     const mid = !!c.proc && (c.state === 'busy' || c.pending.size > 0);
-    const r = this._deliver(c, text, imgs);
+    const r = this._deliver(c, text, imgs, !!o.yours);
     if (r.ok) this._track(c, said, String(text || ''), imgs, mid);
     // Every page showing this conversation is told what was said, whoever said it: a message sent by the board itself (a
     // room's 處理, an approval, a schedule, a message from another session) was not shown until the transcript was read
@@ -640,7 +643,7 @@ class Channels {
     return r.ok ? Object.assign(r, { mid }) : r;
   }
 
-  _deliver(c, text, images) {
+  _deliver(c, text, images, yours) {
     if (!c.proc) {
       try { this._start(c); } catch (e) { return { ok: false, error: String(e.message || e) }; }
     }
@@ -648,7 +651,7 @@ class Channels {
     if (!c.title) c.title = text.replace(/^(?:\s*<bash-(?:input|stdout|stderr)>[\s\S]*?<\/bash-(?:input|stdout|stderr)>)+/, '').replace(/\s+/g, ' ').trim().slice(0, 60) || '（圖片）';
     c.lastActivity = Date.now();   // (not seen by that: most of what is sent here is the board's own - seen() is said where you send it, server.js)
     c.proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: contentOf(text, images) } }) + '\n');
-    c.draft = '';   // sent: what was in the box is a message now
+    if (yours) c.draft = '';   // sent: what was in the box is a message now (the board's own messages leave your box alone)
     this._setState(c, 'busy');
     this._save();
     return { ok: true, queued: false };
@@ -826,7 +829,7 @@ class Channels {
     if (what === 'resend' && !words.trim() && !pics) return { ok: false, error: '訊息是空的' };
     c.unsent = list.filter((y) => y !== x);
     if (what === 'resend') {
-      const r = this.send(sid, words, pics || undefined, '', x.pre);
+      const r = this.send(sid, words, pics || undefined, '', x.pre, { yours: true });
       if (!r.ok) { c.unsent = list; return r; }
       this.seen(sid);   // your own press
     }

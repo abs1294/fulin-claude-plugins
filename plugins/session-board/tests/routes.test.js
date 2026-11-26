@@ -882,6 +882,39 @@ test('files Claude hands over are listed as files, with where they are', () => {
   assert.deepStrictEqual(H.handedFiles(null), []); assert.strictEqual(H.handedFiles({ files: new Array(60).fill('x') }).length, 40);
 });
 
+test('home-screen app: a manifest with a ticket (never the key) in its start address, the ticket handed in once for the key', async () => {
+  const page = await get('/'); assert.match(String(page.headers['content-security-policy']), /manifest-src 'self'/);
+  assert.match(page.text, /apple-mobile-web-app-capable/); assert.match(page.text, /apple-touch-icon" href="\/icons\/app-180\.png"/);
+  const t = await post('/api/app/ticket'); assert.strictEqual(t.status, 200); assert.match(t.json.ticket, /^[a-f0-9]{48}$/);
+  const none = { 'x-board-token': '' };
+  const m = await ask('/app.webmanifest?ticket=' + t.json.ticket, { headers: none });
+  assert.deepStrictEqual([m.status, /manifest\+json/.test(m.headers['content-type']), m.json.display, m.json.start_url], [200, true, 'standalone', '/?app=' + t.json.ticket]);
+  assert.ok(!m.text.includes(TOKEN), 'the key is not in the manifest');
+  assert.strictEqual((await ask('/app.webmanifest?ticket=../x', { headers: none })).json.start_url, '/', 'only a ticket of the right shape goes in');
+  for (const n of [180, 192, 512]) { const i = await ask('/icons/app-' + n + '.png', { headers: none }); assert.deepStrictEqual([i.status, i.headers['content-type'], i.bytes.slice(1, 4).toString()], [200, 'image/png', 'PNG'], String(n)); }
+  assert.strictEqual((await ask('/icons/app-64.png', { headers: none })).status, 404);
+  const r1 = await ask('/app/redeem', { body: { ticket: t.json.ticket }, headers: none });
+  assert.deepStrictEqual([r1.status, r1.json.token], [200, TOKEN], 'handed in from one of your devices: the key');
+  assert.strictEqual((await ask('/app/redeem', { body: { ticket: t.json.ticket }, headers: none })).status, 403, 'once');
+  assert.strictEqual((await ask('/app/redeem', { body: { ticket: 'f'.repeat(48) }, headers: none })).status, 403, 'one never made');
+  assert.strictEqual((await ask('/api/app/ticket', { body: {}, headers: none })).status, 401, 'a ticket only with the key');
+});
+
+test('the default model and effort of new conversations: read, and set in Claude Code\'s settings - only those two', async () => {
+  asked.add('GET /api/model/default'); asked.add('POST /api/model/default');
+  const f = path.join(os.homedir(), '.claude', 'settings.json'); fs.mkdirSync(path.dirname(f), { recursive: true });
+  assert.ok(f.startsWith(HOME + path.sep), 'the made-up home only (set at the top of this file): never your own settings.json');
+  const had = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null;
+  try {
+    fs.writeFileSync(f, JSON.stringify({ model: 'sonnet', theme: 'dark' }));
+    const g = await get('/api/model/default'); assert.deepStrictEqual([g.status, g.json.model, g.json.effort], [200, 'sonnet', '']);
+    const s = await post('/api/model/default', { model: 'opus', effort: 'high' });
+    assert.deepStrictEqual([s.status, s.json.model, s.json.effort], [200, 'opus', 'high']);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(f, 'utf8')), { model: 'opus', theme: 'dark', modelSettings: { opus: { effortLevel: 'high' } } });
+    for (const bad of [{ model: 'gpt-5' }, { effort: 'huge' }]) assert.strictEqual((await post('/api/model/default', bad)).status, 400, JSON.stringify(bad));
+  } finally { if (had === null) { try { fs.unlinkSync(f); } catch (e) {} } else fs.writeFileSync(f, had); }
+});
+
 test('a goal2 run that ended with nobody waiting is told to the conversation that started it - once, and given back when it cannot be', async () => {
   const sent = [], claims = [], releases = [];
   const R = (id, sid, cwd) => ({ runDir: path.join(HOME, 'g2runs', id), runId: id, status: 'done', parentSessionId: sid, parentCwd: cwd, message: '【goal2 跑完了】run ' + id });

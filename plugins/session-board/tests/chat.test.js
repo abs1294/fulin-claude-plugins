@@ -771,6 +771,19 @@ test('an Artifact published is told once, with where it was asked from; a new ve
   assert.deepStrictEqual(opened, ['https://claude.ai/artifact/SsKu3gK2jnLV']);
 });
 
+test('a message the board sends by itself leaves your draft and what you ran with "!" for your own next message; yours clears the draft', () => {
+  const d = tmp(), log = [];
+  const ch = new Channels(path.join(d, 'channels.json'), { spawn: fakeSpawn(log), transcriptOf: () => null });
+  const c = ch.create(d); ch.send(c.sessionId, '你好', undefined, '', undefined, { yours: true }); log[0].p.out({ type: 'result', is_error: false });
+  c.draft = '打到一半'; c.shellNotes = [{ id: 1 }];
+  assert.strictEqual(ch.send(c.sessionId, '【goal2 跑完了】run x').ok, true);   // the board's own (額度回來了, a schedule, goal2 done)
+  assert.deepStrictEqual([c.draft, c.shellNotes.length], ['打到一半', 1], 'what you were typing and what you ran stay for your message');
+  log[0].p.out({ type: 'result', is_error: false });
+  c.shellNotes = [];
+  assert.strictEqual(ch.send(c.sessionId, '我的', undefined, '', undefined, { yours: true }).ok, true);
+  assert.strictEqual(c.draft, '', 'yours: what was in the box is a message now');
+});
+
 test('a command of the board\'s own (quietly) leaves your draft, what you ran and what is unread; /clear is followed; a kept process is renewed only after the old one is gone', () => {
   const d = tmp(), log = [];
   const ch = new Channels(path.join(d, 'channels.json'), { spawn: fakeSpawn(log), transcriptOf: () => null, keepAlive: () => true, mustBypass: (s) => s === 'x' });

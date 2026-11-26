@@ -73,6 +73,8 @@ const Plugins = require('./lib/plugins');
 const PluginFit = require('./lib/pluginfit');
 const CM = require('./lib/claudemd');
 const SkillWish = require('./lib/skillwish');
+const ModelDefault = require('./lib/modeldefault');   // new conversations' model and effort, in Claude Code's settings
+const AppTicket = require('./lib/appticket');   // the board as an app on a phone's home screen
 const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
 const Digest = require('./lib/digest');
@@ -309,7 +311,7 @@ function send(res, code, body, type = 'application/json; charset=utf-8') {
 function sendPage(res, html) {
   const nonce = crypto.randomBytes(18).toString('base64');
   const body = String(html).replace('<script>', '<script nonce="' + nonce + '">');
-  const csp = ["default-src 'none'", "script-src 'nonce-" + nonce + "'", "style-src 'unsafe-inline'", "img-src 'self' data: blob:", "connect-src 'self' https: data:", "frame-src blob: 'self'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'"].join('; ');
+  const csp = ["default-src 'none'", "script-src 'nonce-" + nonce + "'", "style-src 'unsafe-inline'", "img-src 'self' data: blob:", "connect-src 'self' https: data:", "frame-src blob: 'self'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'", "manifest-src 'self'"].join('; ');
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': csp, 'X-Frame-Options': 'DENY' });
   res.end(body);
 }
@@ -1502,6 +1504,7 @@ function createServer(token, port, deps = {}) {
   if (!deps.noTimers) { const t = setTimeout(() => { saidIndex.refresh(); }, 90000); if (t.unref) t.unref(); const h = setInterval(() => { saidIndex.refresh(); }, 15 * 60000); if (h.unref) h.unref(); }
   if (!deps.noTimers) setTimeout(() => { Past.listAsync({ projectsDir: S.DEFAULTS.projectsDir, days: 0, limit: 5000 }).catch(() => {}); }, 60000).unref();
 
+  const appTickets = deps.appTickets || new AppTicket.AppTickets(path.join(path.dirname(config.CONFIG_FILE), 'app-tickets.json'));
   const server = http.createServer(async (req, res) => {
     try {
       // Tailscale Funnel (open to the internet, for LINE) never reaches the board itself: only its own listener (lib/line.js)
@@ -1524,6 +1527,15 @@ function createServer(token, port, deps = {}) {
       // the pictures shown while something is being read (public/load): nothing of yours, the page's <img> carries no key
       const lp = /^\/load\/([a-z]{2,10})\/([a-z0-9-]{2,40})\.(webp|svg)$/.exec(p);
       if (req.method === 'GET' && lp) { const drawn = lp[1] === 'mine' || lp[1] === 'draft'; let b = null; try { b = drawn ? (lp[3] === 'svg' ? loadDraw.picture(lp[1], lp[2]) : null) : fs.readFileSync(path.join(__dirname, 'public', 'load', lp[1], lp[2] + '.' + lp[3])); } catch (e) {} if (!b) return send(res, 404, { error: 'not found' }); res.writeHead(200, { 'Content-Type': lp[3] === 'svg' ? 'image/svg+xml' : 'image/webp', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox", 'Content-Length': b.length, 'Cache-Control': 'max-age=604800', 'X-Content-Type-Options': 'nosniff' }); return res.end(b); }
+      // The board as an app on the home screen (lib/appticket.js): what it is called and opens (no key in it - a ticket
+      // at most, the one the page put in its address), its pictures, and a ticket handed in for the key, once.
+      if (req.method === 'GET' && p === '/app.webmanifest') { const b = Buffer.from(JSON.stringify(AppTicket.manifest(q.get('ticket')))); res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Length': b.length }); return res.end(b); }
+      const ip = /^\/icons\/app-(180|192|512)\.png$/.exec(p);
+      if (req.method === 'GET' && ip) { let b = null; try { b = fs.readFileSync(path.join(__dirname, 'public', 'icons', 'app-' + ip[1] + '.png')); } catch (e) {} if (!b) return send(res, 404, { error: 'not found' }); res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': b.length, 'Cache-Control': 'max-age=604800', 'X-Content-Type-Options': 'nosniff' }); return res.end(b); }
+      if (req.method === 'POST' && p === '/app/redeem') {
+        let body = {}; try { body = (await readBody(req, 4096)) || {}; } catch (e) {}
+        return appTickets.use(body && body.ticket) ? send(res, 200, { ok: true, token }) : send(res, 403, { ok: false, error: '這張登入碼已經用過或過期了' });
+      }
       if (req.method === 'GET' && p === '/api/ping') return send(res, 200, { app: 'session-board', version: VERSION, pid: process.pid });
       if (!p.startsWith('/api/')) return send(res, 404, { error: 'not found' });
 
@@ -1807,6 +1819,7 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/pluginfit') { const w = String(q.get('cwd') || ''); return send(res, 200, Object.assign({ state: 'none' }, fits.get(fitKey(w)) || {}, { installing: fitBusy.has(fitKey(w)), asking: fitAsking.has(fitKey(w)), wishing: fitWishing.has(fitKey(w)), wish: Wish.status(w), canRun: !!Plugins.rootOf('plugin-manager', instNow()) })); }
         if ((p === '/api/goals' || p === '/api/goals/status') && !isOn('goal2')) return send(res, p === '/api/goals' ? 200 : 404, p === '/api/goals' ? { installed: false, runs: [] } : { ok: false, error: '這台電腦沒有裝 goal2' });
         if (p === '/api/goals') { const l = await goal2.list(); return send(res, 200, { installed: l.installed, version: l.version || '', error: l.error || '', runs: l.runs || [] }); }
+        if (p === '/api/model/default') { const r = ModelDefault.get({ seen: String(q.get('seen') || '') }); return send(res, r.ok ? 200 : 409, r); }
         if (p === '/api/goals/status') { const r = await goal2.status(String(q.get('id') || '')); return send(res, r.ok ? 200 : 404, r); }
         // collaborations: the list, and one in full (members now, the ledger, what is open in it, the messages between them)
         if (p === '/api/collabs') { const list = sessions(); return send(res, 200, { collabs: collabList().map((c) => collabView(c, list)).reverse(), bypassDefault: pref('collabBypass') }); }
@@ -2012,7 +2025,7 @@ function createServer(token, port, deps = {}) {
         if (!text.trim() && !images.length) return send(res, 400, { ok: false, error: 'empty message' });
         if (body.by !== 'line') setSecretary(sid, false);   // you wrote in it: yours
         { const c = channels.get(sid); if (c) c.fromHereNext = isLocal(req) && body.by !== 'line'; }   // (where its Artifacts are opened)
-        const r = channels.send(sid, text, images, typeof body.echo === 'string' ? body.echo : '');
+        const r = channels.send(sid, text, images, typeof body.echo === 'string' ? body.echo : '', undefined, { yours: true });
         if (r.ok) channels.seen(sid);   // you wrote in it, so you have read it - unlike what the board sends by itself (額度回來了, a schedule: 2026-11-25)
         fresh();
         return send(res, r.ok ? 200 : 409, r);
@@ -2378,6 +2391,17 @@ function createServer(token, port, deps = {}) {
         fresh();
         return send(res, r.ok ? 200 : r.error === 'no such channel' ? 404 : 409, r.error === '它還在執行' ? { ok: false, error: '它這一輪還在跑，等它做完或先停止再換' } : r);
       }
+      // The default model and effort of new conversations - Claude Code's own (~/.claude/settings.json), so a terminal's
+      // `claude` gets it too (asked 2026-11-26: "我改這邊同步也要改預設，不然就要問我" -> asked each time, kept there).
+      // The effort goes under modelSettings.<model>: Claude Code 2.1.332 uses the top-level effortLevel only for some older
+      // models (measured: with "effortLevel": "high" there, Opus 5.5 and Sonnet 5.5 ran on medium; under modelSettings, high).
+      if (p === '/api/app/ticket') return send(res, 200, { ok: true, ticket: appTickets.make() });   // for the home-screen app's start address
+      if (p === '/api/model/default') {
+        if (body.model !== undefined && !/^(fable|opus|sonnet|haiku)$/.test(String(body.model))) return send(res, 400, { ok: false, error: '模型只能是 fable、opus、sonnet、haiku' });
+        if (body.effort !== undefined && !/^(low|medium|high|xhigh|max)$/.test(String(body.effort))) return send(res, 400, { ok: false, error: 'effort 只能是 low、medium、high、xhigh、max' });
+        const r = ModelDefault.set({ model: body.model, effort: body.effort, seen: typeof body.seen === 'string' ? body.seen : '' });
+        return send(res, r.ok ? 200 : 409, r);
+      }
       if (p === '/api/auto') {
         const cur = Object.assign({}, config.value('auto', {}));
         for (const k of ['cbm', 'update', 'harness']) if (typeof body[k] === 'boolean') cur[k] = body[k];
@@ -2486,7 +2510,7 @@ function createServer(token, port, deps = {}) {
         if (Array.isArray(c.unsent) && c.unsent.length) n.unsent = c.unsent.slice();   // what Claude never took in goes along
         if (channels._save) channels._save();
         n.nameOf = sid;   // started under its name; everything else goes along once it has been sent
-        let r; try { r = channels.send(n.sessionId, text, pics.length ? pics : undefined); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 160) }; }
+        let r; try { r = channels.send(n.sessionId, text, pics.length ? pics : undefined, '', undefined, { yours: true }); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 160) }; }
         if (r && r.ok === false) {
           n.unsent = []; channels.remove(n.sessionId);   // (the old one still has them, pictures and all)
           fresh();

@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Session 看板</title>
+<!-- added to a phone's home screen it opens as an app of its own, not a tab (the manifest link is put in by the script: it carries a ticket - lib/appticket.js) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="看板">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="/icons/app-180.png">
 <link rel="icon" id="tabIcon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'24%2040%20208%20176'%20preserveAspectRatio%3D'none'%20fill%3D'%23EA580C'%3E%3Cpath%20d%3D'M216%2C40H40A16%2C16%2C0%2C0%2C0%2C24%2C56V200a16%2C16%2C0%2C0%2C0%2C16%2C16H216a16%2C16%2C0%2C0%2C0%2C16-16V56A16%2C16%2C0%2C0%2C0%2C216%2C40Zm-8%2C96H188.64L159%2C188a8%2C8%2C0%2C0%2C1-6.95%2C4h-.46a8%2C8%2C0%2C0%2C1-6.89-4.84L103%2C89.92%2C79%2C132a8%2C8%2C0%2C0%2C1-7%2C4H48a8%2C8%2C0%2C0%2C1%2C0-16H67.36L97.05%2C68a8%2C8%2C0%2C0%2C1%2C14.3.82L153%2C166.08l24-42.05a8%2C8%2C0%2C0%2C1%2C6.95-4h24a8%2C8%2C0%2C0%2C1%2C0%2C16Z'%2F%3E%3C%2Fsvg%3E">
 <style>
   /* The hidden attribute always hides: a class that sets display (grid, flex) otherwise wins over it, and an entry meant to be gone stays on the page (the inbox's, with the inbox off: seen 2026-11-15). */
@@ -830,7 +836,7 @@
   button.modelbtn { border: 1px solid transparent; background: var(--btn); border-radius: var(--r-m); padding: 1px 8px; cursor: pointer; font: inherit; color: inherit; }
   button.modelbtn:hover { border-color: var(--accent); }
   .modelpop { position: fixed; z-index: 70; width: min(380px, calc((100vw - 24px) / var(--zv, var(--z, 1)))); background: var(--bg); border: 1px solid var(--rule, var(--line)); border-radius: var(--r-m); box-shadow: var(--sh-pop); padding: 12px 14px; display: grid; gap: 8px; }
-  .modelpop .mp-t { font-weight: 600; font-size: var(--fs-md); margin-bottom: 4px; } .modelpop .mp-tip { color: var(--dim); font-size: var(--fs-xs); margin-top: 4px; } .modelpop .seg { flex-wrap: wrap; } .modelpop .mp-a { display: flex; gap: 8px; }
+  .modelpop .mp-t { font-weight: 600; font-size: var(--fs-md); margin-bottom: 4px; } .modelpop .mp-tip { color: var(--dim); font-size: var(--fs-xs); margin-top: 4px; } .modelpop .seg { flex-wrap: wrap; } .modelpop .mp-a { display: flex; gap: 8px; flex-wrap: wrap; } .modelpop .mp-ask { border-top: 1px solid var(--rule, var(--line)); padding-top: 8px; display: grid; gap: 6px; }
   /* the 外掛 page */
   .pl-todo { border: 1px solid var(--rule, var(--line)); border-radius: var(--r-l); background: var(--side); padding: 6px 0; margin-bottom: 18px; }
   .pl-todo-h { padding: 6px 16px; font-weight: 600; }
@@ -2306,15 +2312,37 @@ function fitViewport() {
 fitViewport();
 addEventListener('resize', fitViewport);
 if (window.visualViewport) { visualViewport.addEventListener('resize', fitViewport); visualViewport.addEventListener('scroll', () => { if (onTouch() && scrollY) fitViewport(); }); }
+let appRefused = '', appRedeeming = false;   // the home-screen app's ticket: being handed in / not taken (used, or too old) - said on the no-key page
 const TOKEN = (() => {
   const q = new URLSearchParams(location.search), t = q.get('t') || '';
   let kept = ''; try { kept = localStorage.getItem('sb.token') || ''; } catch (e) {}
+  // Opened from the home screen the first time: no key in its own storage (an iPhone's home-screen app shares none
+  // with Safari), a ticket in its address - handed in, once, for the key; then the page starts again with it.
+  const app = q.get('app') || '';
+  if (!t && !kept && /^[a-f0-9]{48}$/.test(app)) {
+    appRedeeming = true;
+    fetch('/app/redeem', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ticket: app }) })
+      .then((r) => r.json()).then((j) => { if (j && j.ok && j.token) { try { localStorage.setItem('sb.token', j.token); } catch (e) {} location.replace(location.pathname + location.hash); return; } appRedeeming = false; appRefused = (j && j.error) || '登入碼換不到金鑰'; noKey(); }).catch(() => { appRedeeming = false; appRefused = '連不到看板，沒辦法用登入碼換金鑰'; noKey(); });
+    return '';
+  }
   if (!t) return kept;
   try { localStorage.setItem('sb.token', t); } catch (e) {}
   q.delete('t');
   try { history.replaceState(history.state, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); } catch (e) {}
   return t;
 })();
+// The home-screen app's start address gets a fresh ticket, never the key (lib/appticket.js): the manifest says it, and
+// on a phone the address the page is at too (an iPhone keeps that one when it reads no manifest). Not once it runs as
+// the app itself.
+if (TOKEN) {
+  const asApp = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  // only on a phone (a touch screen): what is added to a home screen; a computer's every opening would only use up tickets
+  if (!asApp && matchMedia('(pointer: coarse)').matches) fetch('/api/app/ticket', { method: 'POST', headers: { 'x-board-token': TOKEN, 'content-type': 'application/json' }, body: '{}' }).then((r) => r.json()).then((j) => {
+    if (!j || !j.ticket) return;
+    const l = document.createElement('link'); l.rel = 'manifest'; l.href = '/app.webmanifest?ticket=' + j.ticket; document.head.append(l);
+    const q = new URLSearchParams(location.search); q.set('app', j.ticket); try { history.replaceState(history.state, '', location.pathname + '?' + q + location.hash); } catch (e) {}
+  }).catch(() => {});
+}
 const $ = (id) => document.getElementById(id);
 // Opened on this computer, or from another one (through Tailscale): some things happen on this computer's screen only.
 const REMOTE = !/^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
@@ -7310,12 +7338,52 @@ function modelPop(anchor, s, preset) {
   const pick = { model: (s.model || alias(now.model)).toLowerCase(), effort: s.effort || now.effort || '' };
   const was = { model: pick.model, effort: pick.effort };   // what it runs on now: closing with this unchanged sends nothing
   if (preset && preset.model) pick.model = String(preset.model).toLowerCase();
-  const group = (title, key, items, tip) => { const g = el('div', 'mp-g'); g.append(el('div', 'mp-t', title)); const seg = el('div', 'seg'); for (const [v, label] of items) { const b = el('button', pick[key] === v ? 'on' : '', label); b.type = 'button'; b.addEventListener('click', () => { pick[key] = v; for (const x of seg.children) x.classList.toggle('on', x === b); }); seg.append(b); } g.append(seg); if (tip) g.append(el('div', 'mp-tip', tip)); pop.append(g); };
+  const group = (title, key, items, tip) => { const g = el('div', 'mp-g'); g.append(el('div', 'mp-t', title)); const seg = el('div', 'seg'); for (const [v, label] of items) { const b = el('button', pick[key] === v ? 'on' : '', label); b.type = 'button'; b.addEventListener('click', () => { pick[key] = v; for (const x of seg.children) x.classList.toggle('on', x === b); showAsk(); }); seg.append(b); } g.append(seg); if (tip) g.append(el('div', 'mp-tip', tip)); pop.append(g); };
   group('模型', 'model', [['fable', 'Fable'], ['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']], s.modelSeen ? '現在實際在用：' + s.modelSeen : '');
   group('Effort（想多深）', 'effort', [['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['xhigh', 'xhigh'], ['max', 'max']], '越高想得越久、花得越多。亮起來的是它現在用的。');
   // No 套用 / 取消 (asked 2026-11-19: "decide yourself - when it closes, make the change"): what is picked is set when
   // the window closes (a click elsewhere, Esc, the 模型 button again); nothing changed, nothing sent.
-  pop.append(el('div', 'mp-tip', '選好點旁邊就會套用，從下一則訊息起生效'));
+  // The default of new conversations (Claude Code's own settings, so a terminal's claude starts on it too): shown, and
+  // whenever what is picked here differs from it - on opening too, not only after a change (asked 2026-11-26) - a way
+  // to make it the default: changed here, "只改這個對話 / 也設成預設" (asked each time; closed without answering: only
+  // this one); not changed, "設成預設" alone.
+  const defLine = el('div', 'mp-tip', '新對話的預設：讀取中…');
+  const ask = el('div', 'mp-ask'); ask.hidden = true;
+  const askT = el('div', 'mp-t', ''), acts = el('div', 'mp-a'), only = el('button', 'btn', '只改這個對話'), both = el('button', 'btn primary', '也設成預設'); only.type = both.type = 'button';
+  acts.append(only, both);
+  ask.append(askT, el('div', 'mp-tip', '預設寫在 Claude Code 的設定，終端機新開的對話也會用它；已經開著的對話不受影響。'), acts);
+  pop.append(defLine, ask, el('div', 'mp-tip', '選好點旁邊就會套用，從下一則訊息起生效'));
+  let def = null, alsoDefault = false;
+  // differs from the default: a model picked that is not the default's, or an effort that is not the default's for it
+  // (the default's effort not set = the model's own, which cannot be seen: counted as different)
+  const offDefault = () => !!def && ((!!pick.model && alias(def.model) !== pick.model) || (!!pick.effort && def.effort !== pick.effort));
+  function showAsk() {
+    const changed = pick.model !== was.model || pick.effort !== was.effort;
+    ask.hidden = !offDefault();
+    only.hidden = !changed;
+    both.textContent = changed ? '也設成預設' : '設成預設';
+    askT.textContent = changed ? '要不要也改成新對話的預設？' : '這個對話用的跟新對話的預設不一樣，要設成預設嗎？';
+  }
+  const setDefault = async () => {
+    const what = [pick.model ? modelName(pick.model) : '', pick.effort ? 'effort ' + pick.effort : ''].filter(Boolean).join('、');
+    // the model only when it is another one than the default's: its effort alone leaves what is written there (opus[1m] …)
+    const model = pick.model && (!def || alias(def.model) !== pick.model) ? pick.model : undefined;
+    let y; try { y = await api('/api/model/default', { model, effort: pick.effort || undefined, seen: s.modelSeen || '' }); } catch (e) { y = { ok: false, data: { error: '看板沒有回應' } }; }
+    return { ok: y.ok, what, error: (y.data && y.data.error) || '看板沒有回應' };
+  };
+  only.addEventListener('click', () => { close(); });
+  both.addEventListener('click', async () => {
+    if (pick.model !== was.model || pick.effort !== was.effort) { alsoDefault = true; close(); return; }
+    // nothing changed for this conversation: only the default
+    both.disabled = true; const r = await setDefault(); close();
+    say(r.ok ? '新對話的預設改成 ' + r.what : '預設沒改成：' + r.error, !r.ok);
+  });
+  api('/api/model/default?seen=' + encodeURIComponent(s.modelSeen || '')).then((x) => {
+    def = x.ok ? x.data : null;
+    defLine.textContent = def ? '新對話的預設：' + (def.model ? modelName(def.model) : '沒設定（Claude Code 自己的）') + ' · effort ' + (def.effort || '模型自己的預設') : '新對話的預設：讀不到（' + ((x.data && x.data.error) || '看板沒有回應') + '）';
+    showAsk();
+  });
+  showAsk();
   document.body.append(pop);
   const r = anchor.getBoundingClientRect(), k = VP.rectPerCss, W = VP.widthCss, w = Math.min(380, W - 24);
   pop.style.top = (r.bottom / k + 6) + 'px'; pop.style.left = Math.max(12, Math.min(r.left / k, W - w - 12)) + 'px';
@@ -7331,7 +7399,11 @@ function modelPop(anchor, s, preset) {
       let x; try { x = await api('/api/model', { sessionId: s.sessionId, model: pick.model || undefined, effort: pick.effort || undefined }); } catch (e) { x = { ok: false, data: { error: '看板沒有回應' } }; }
       if (!x.ok) return say('模型沒換成：' + ((x.data && x.data.error) || '看板沒有回應'), true);
       await poll(); drawHead(); loadStats(s.sessionId);
-      say('已設定，從下一則訊息起用 ' + [pick.model ? modelName(pick.model) : '', pick.effort ? 'effort ' + pick.effort : ''].filter(Boolean).join('、'));
+      const what = [pick.model ? modelName(pick.model) : '', pick.effort ? 'effort ' + pick.effort : ''].filter(Boolean).join('、');
+      if (!alsoDefault) return say('已設定，這個對話從下一則訊息起用 ' + what + '（新對話的預設沒改）');
+      const y = await setDefault();
+      if (!y.ok) return say('這個對話已改用 ' + what + '，但預設沒改成：' + y.error, true);
+      say('已設定：這個對話與新對話的預設都改成 ' + what);
     })().catch(() => {});
     return modelReq;
   };
@@ -10924,10 +10996,14 @@ function noKey() {
   const main = $('main'); if (!main) return new Promise(() => {});
   main.textContent = '';
   const box = el('div', 'pane'); box.style.padding = '48px 28px'; box.style.maxWidth = '640px';
+  if (appRedeeming) { box.append(el('p', 'lead', '正在用登入碼登入…')); main.append(box); const l = $('list'); if (l) { l.textContent = ''; l.append(box.cloneNode(true)); } return new Promise(() => {}); }
   box.append(el('h2', '', '這個瀏覽器沒有看板的金鑰'));
+  if (appRefused) box.append(el('p', 'lead', '從手機主畫面打開的看板：' + appRefused + '。在手機瀏覽器用帶金鑰的網址打開看板，刪掉主畫面上舊的看板圖示，再從瀏覽器重新「加入主畫面」。'));
   box.append(el('p', 'lead', '看板只回應帶著金鑰的請求。金鑰第一次是放在網址裡帶進來的，之後記在瀏覽器裡；這個瀏覽器沒有記到（第一次用這個瀏覽器開，或它的網站資料被清掉了）。'));
   box.append(el('p', 'lead', '怎麼進來：用帶金鑰的網址開一次就好。在 Claude Code 裡請 Claude「開啟 session 看板」，或在終端機執行這個外掛的 scripts/start.js，它會印出那個網址；點任何一則看板的 Windows 通知也可以。'));
   main.append(box);
+  // a phone shows the list, not this pane: said there too (it only said 讀取對話清單中… for ever)
+  const list = $('list'); if (list) { list.textContent = ''; list.append(box.cloneNode(true)); }
   return new Promise(() => {});
 }
 // The page an address names (#war, #settings, a conversation's id ...): on opening, and on the browser's back / forward.

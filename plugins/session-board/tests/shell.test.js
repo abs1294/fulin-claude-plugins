@@ -76,13 +76,13 @@ test('Channels: what you ran goes in front of your next message, once; dropped n
   const b = ch.noteShell(c.sessionId, { command: 'git status', stdout: 'clean\n', stderr: '' });
   assert.strictEqual(ch.dropShell(c.sessionId, a), true);
   assert.strictEqual(ch.dropShell(c.sessionId, a), false);
-  ch.send(c.sessionId, '請看一下狀態');
+  ch.send(c.sessionId, '請看一下狀態', undefined, '', undefined, { yours: true });   // you sent it (the board's own messages leave the notes for yours: chat.test)
   const textOf = (m) => (typeof m.message.content === 'string' ? m.message.content : m.message.content.map((x) => x.text || '').join(''));
   const first = textOf(made[0].stdin.written.find((x) => x.type === 'user'));
   assert.ok(first.startsWith('<bash-input>git status</bash-input>') && first.endsWith('請看一下狀態'), first);
   assert.ok(!first.includes('hunter2'));
   assert.strictEqual(c.title, '請看一下狀態');
-  ch.send(c.sessionId, '第二句');
+  ch.send(c.sessionId, '第二句', undefined, '', undefined, { yours: true });
   const users = made[0].stdin.written.filter((x) => x.type === 'user');
   assert.strictEqual(textOf(users[users.length - 1]), '第二句', 'not repeated');
   assert.ok(b > a);
@@ -118,7 +118,7 @@ test('Channels: what you ran and have not sent is told to the page and survives 
   assert.ok(again.noteShell(c.sessionId, { command: 'pwd', stdout: '', stderr: '', code: 0 }) > a + 1, 'numbering goes on, so a card is never taken for another');
   assert.strictEqual(again.dropShell(c.sessionId, a), true);
   assert.deepStrictEqual(shells(res2).slice(-1), [['ls', 'pwd']]);
-  again.send(c.sessionId, '看一下');
+  again.send(c.sessionId, '看一下', undefined, '', undefined, { yours: true });
   assert.deepStrictEqual(shells(res2).slice(-1), [[]], 'handed over with the message: nothing is held any more');
   assert.strictEqual(new Channels(file, { spawn, transcriptOf: () => null }).get(c.sessionId).shellNotes, undefined);
   if (ch.shutdown) ch.shutdown(); if (again.shutdown) again.shutdown();
