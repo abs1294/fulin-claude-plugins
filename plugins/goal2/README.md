@@ -17,7 +17,7 @@
 | 引擎何時起 | 先把項目清單落檔（任務不自足會被拒）、grill 到沒有默默假設的決策（`goal.grill`），propose 印給你看完就直接起；想先確認可在設定檔開 timer | 5h quota 重置後 + 緩衝（預設 15 分）的 cron 到點時；確認逾時預設 10 分鐘 |
 | 中途終止／看進度 | 說「停」→ `goal.js --stop`（核對 pid 身分後殺整棵子程序樹；多個 run 時先問停哪個）；`--status` 看帳本；`--list` 看全機所有 run | `delaylocal.js --stop`／`--status` 同上（不需 session id） |
 | 達成怎麼判 | 讀子程序 transcript 的檢查器紀錄（`goal_verdict`：met／impossible／unverified／deferred／no_transcript）；`status: done` 只在 `met` 時。`deferred`＝引擎在背景任務還在跑時結束回合，/goal 檢查被延後而 -p 不會再叫醒它（背景 Bash 甚至直接被殺）——現在 `hooks/bg-guard.js`（Stop hook）會把這種結束擋回去等到背景任務完成，實測 block 一次後 `met` | 同左 |
-| 煞車 | `engine.maxBudgetUsd`（預設 300 USD → `status: budget`）、`engine.maxMinutes`（預設 480）；能停它的只有這兩個與 `--stop`；**主 Claude Code 退出引擎就跟著死**（實測：headless 主程式退出當下 runner＋引擎一起消失，meta 停在 running）——「無人值守」指人不用守，Claude Code 程式要開著 | 同左 |
+| 煞車 | `engine.maxBudgetUsd`（預設 300 USD → `status: budget`）、`engine.maxMinutes`（預設 480）；能停它的只有這兩個與 `--stop`；**0.8.0 起關掉 Claude Code 不會停掉引擎**（`--start` 起的是獨立程序，實測對話結束、整棵 Claude 程序樹被殺後仍在跑），要停一律 `--stop` | 同左 |
 | 並行 | 不擋；準備時列出同棵樹（含祖先／子孫目錄）活著的 run（`active_runs_in_tree`）提醒你。路徑不重疊仍會共用 DB／port／測試結果，任務書要寫範圍切分；`--stop` 殺不到 `&`／nohup 起的背景服務 | 同左 |
 | 引擎在哪跑 | 子程序 `claude -p "/goal …"`（headless session），log 在 `~/.claude/goal2/runs/<id>/` | 同左，由 cron 到點後的本 session 啟動 |
 | 設定 | `~/.claude/goal2/config.json` 的 `engine`、`goal` 區段 | 同檔的 `engine`、`delaylocal` 區段（`bufferSeconds` 也可用 CLI 裸數字臨時覆蓋） |
@@ -42,7 +42,7 @@
 | 2 grill | Claude↔你 | 把任務當設計樹：一輪把當下能問的全部分岔問完，每題 ❓ 編號＋➡️ 建議答案；你答完重算 frontier 再問一輪；**問到沒有任何決策是默默假設的**。你說「直接跑／照建議」→ 立刻停，未答照建議。`goal.grill: false` 也跳過 | 一到數輪問答 |
 | 3 propose | Claude | 寫**極端**完成條件：「`## 項目清單` 內未完成數 **= 0**（附算法）；例外清單內項目不計」＋例外條款（限真 blocker＋證據＋原因）＋禁止動作。印給你看 | 條件全文 |
 | 4 準備 | Claude | 任務書寫 `goal-input-<ts>-<rnd>.txt`、條件寫 `goal-cond-…txt`，跑 `goal.js --prompt-file … --goal-file … --cwd <專案根>`。工具檢查：`/goal` prompt ≤3900、cwd 存在、**任務自足**（含對話指涉又無清單 → 拒絕，Claude 回去補清單）、`cwd_inspection`（子程序會載到哪些 CLAUDE.md／記憶／project-scope plugin；傳成子目錄會警告）、同棵樹活著的 run（只提醒） | 若被拒，你看到 Claude 自己補清單重跑 |
-| 5 啟動 | Claude | `confirmTimeoutMinutes` = 0（預設）→ 直接 Bash 背景跑 `run_command`；等 10–15 秒 `--status` 看到 `goal_set:true` 才說「已啟動」（拒收會在幾秒內死掉，先講「在跑」會讓你白等） | 「已啟動」＋條件＋run_dir＋停法 |
+| 5 啟動 | Claude | `confirmTimeoutMinutes` = 0（預設）→ Bash 跑 `run_command`（`--start`，把引擎起成獨立程序、幾秒返回）→ 立刻背景跑 `wait_command`（`--wait`，最多 100 分鐘一輪，還在跑就再等）；等 10–15 秒 `--status` 看到 `goal_set:true` 才說「已啟動」（拒收會在幾秒內死掉，先講「在跑」會讓你白等） | 「已啟動」＋條件＋run_dir＋停法 |
 | 6 引擎 | 子程序 | `claude -p "/goal <條件>；…"`，`--append-system-prompt-file anchor.md`（工作目錄、條件、項目清單、任務全文、工作清單、帳本規則，每回合重送、壓縮碰不到）、`--max-budget-usd`（預設 300）、runner 時限（預設 480 分）、`bypassPermissions`、擋停上限 0。工作清單：①拆里程碑進 `progress.md` ②執行 ③收尾寫簡短回報。每次它想停，`/goal` 檢查器對條件驗收，未達成推回去；壓縮後 hook 注回條件＋清單＋帳本 | 什麼都不用做 |
 | 7 中途 | 你 | 「做到哪」→ `--status`：`summary_zh` 一句人話＋帳本已完成／剩餘。「停」→ 只有一個 run 直接 `--stop`（核對 pid 身分再殺樹）；多個活著的就問你停哪個 | 進度或已停 |
 | 8 收尾 | runner | 讀子程序 transcript 最後一筆 `goal_status` → `goal_verdict`：`met`→`done`；只有 sentinel→`unverified`（**不算達成**）；`failed:true`→`impossible`；另有 `timeout`／`budget`／`stopped`／`failed`／`unknown`。寫 `result.json`、meta | — |
@@ -50,7 +50,7 @@
 
 **可以停下來的點**：步 2 任何一輪你說「直接跑」；步 4 工具拒收（超長、cwd 不存在、不自足）；步 5 起跑後拒收；步 7 隨時 `--stop`；步 8 煞車（`engine.maxBudgetUsd`／`engine.maxMinutes`）。
 
-**delaylocal 的差異**：步 0 多算帳號額度重置時間（資料來自 cc-statusline >= 1.9.0；沒有 5 小時視窗的帳號改等 7 天額度；沒裝或太舊就擋下並提示安裝）；步 2–3 同（fast-path「直接排別問」與 `--plain` 跳過 1–3）；步 3 條件尾巴多「已執行 notify-line.js」；步 4 的 `delaylocal.js` 除了建 run 目錄還算 cron，然後 `CronCreate` 兩個 job：10 分鐘確認 timer、quota 重置＋900 秒的任務 cron；步 5 改成 cron 到點 fire 進本 session → session 守衛 → 背景跑 `--run`；步 8 引擎收尾多寫報告檔＋發 LINE；步 9 同。prepared 的 run 以 `scheduledFor` 起算，等 cron 期間不會被 prune。
+**delaylocal 的差異**：步 0 多算帳號額度重置時間（資料來自 cc-statusline >= 1.9.0；沒有 5 小時視窗的帳號改等 7 天額度；沒裝或太舊就擋下並提示安裝）；步 2–3 同（fast-path「直接排別問」與 `--plain` 跳過 1–3）；步 3 條件尾巴多「已執行 notify-line.js」；步 4 的 `delaylocal.js` 除了建 run 目錄還算 cron，然後 `CronCreate` 兩個 job：10 分鐘確認 timer、quota 重置＋900 秒的任務 cron；步 5 改成 cron 到點 fire 進本 session → session 守衛 → `--start` 起引擎、背景 `--wait` 等結果；步 8 引擎收尾多寫報告檔＋發 LINE；步 9 同。prepared 的 run 以 `scheduledFor` 起算，等 cron 期間不會被 prune。
 
 **全程的他律**：`hooks/runs-guard.js`（PreToolUse）——任何裝了 goal2 的 session 對 `~/.claude/goal2/runs/` 的整批／萬用字元／迴圈式刪除、`--prune --keep-hours <2` 直接攔。`hooks/bg-guard.js`（Stop，只掛在引擎子程序）——引擎還有背景 Bash 在跑就不准結束回合，否則 /goal 檢查會被延後且 headless 不會再叫醒它。
 
@@ -59,11 +59,11 @@
 確定性邏輯全在工具裡，skill 只負責「呼叫工具 → 拿結果 → CronCreate」，不靠 AI 即興：
 
 - **為什麼走子程序**：Claude 自己輸入不了斜線指令，而且 **Claude Code 2.1.196 起，cron 排程 fire 的 prompt 不再解析 slash command**——開頭 `/goal` 只是純文字（官方 scheduled-tasks 文件、GitHub #75837）。跨 session 訊息、skill 內包 `/goal` 也不行。唯一可由 Claude 啟動引擎的入口是 `claude -p "/goal …"`（官方 goal 文件），`lib/engine.js` 用它另起一個 headless session 跑到達成，並避開 git-bash 把 `/goal` 轉成路徑、巢狀 session 環境變數兩個坑。2.1.268 實測：Goal set → 第一回合故意做一半 → 引擎自動推第二回合 → 達成。
-- **`goal.js`**：準備（建 run 目錄、落 `/goal` prompt、算確認 timer cron）與執行（`--run`：起子程序、收 stream、產 summary）兩段式。確認 timer 的 prompt 是給未來 Claude 的文字指令「去執行 run_command」。
-- **`delaylocal.js`**：讀 cc-statusline 查到的帳號額度算重置時間（5 小時視窗優先，沒有就等 7 天；沒裝或太舊的 cc-statusline 擋下並提示安裝）。排程時就把引擎 prompt（`/goal <條件>；已發 LINE` + 任務 + 寫報告 + `notify-line.js`）落到 run 目錄；cron 的 prompt 只做「session 守衛 → 叫 Claude 背景執行 `delaylocal.js --run`」。「已嘗試發 LINE」寫進完成條件，引擎才不會在通知前提早結束。
+- **`goal.js`**：準備（建 run 目錄、落 `/goal` prompt、算確認 timer cron）與執行兩段式。執行分三個指令：`--start` 把 runner 起成獨立程序（不受背景 Bash 2 小時上限、對話關掉也照跑）後立刻返回；`--wait` 由對話背景執行、等到結束（最多 100 分鐘一輪）；`--run` 是 runner 本體（起子程序、收 stream、寫 result.json）。對話已不在等時，結果由看板（`--pending`／`--claim`）或 `hooks/pending-report.js` 送回起它的對話，三方搶 `reported.json` 只回報一次。確認 timer 的 prompt 是給未來 Claude 的文字指令「去執行 run_command、再等 wait_command」。
+- **`delaylocal.js`**：讀 cc-statusline 查到的帳號額度算重置時間（5 小時視窗優先，沒有就等 7 天；沒裝或太舊的 cc-statusline 擋下並提示安裝）。排程時就把引擎 prompt（`/goal <條件>；已發 LINE` + 任務 + 寫報告 + `notify-line.js`）落到 run 目錄；cron 的 prompt 只做「session 守衛 → 叫 Claude 執行 `delaylocal.js --start`、再背景執行 `--wait`」。「已嘗試發 LINE」寫進完成條件，引擎才不會在通知前提早結束。
 - **連續擋停上限**：`/goal` 本質是 Stop hook，Claude Code 預設連續 8 次擋停就放棄；設定檔 `engine.stopHookBlockCap` 預設 0 = 不設上限，做到達成為止。
 - **達成不是猜的**：`claude -p` 的事件流裡沒有檢查器判定，只有子程序自己的 transcript 有（每次 Stop 檢查一筆 `goal_status`）。engine.js 收尾時讀它：`met` 才算 `done`；正常結束但沒有任何判定記 `unverified`（不可當達成）；檢查器判不可能記 `impossible`。0.3.x 用「exit 0」推定達成，曾把 130 回合、報告檔根本不存在的 run 記成達成。
-- **煞車**：`engine.maxBudgetUsd`（傳給子程序 `--max-budget-usd`）與 `engine.maxMinutes`（runner 超時殺整棵樹、`status: timeout`）。無人值守下條件寫錯或永遠達不到時，沒有它們引擎會跑到 quota 用光。預算是回合邊界才對帳（實測 0.05 上限實花 0.28 才停），不是硬上限。主 Claude Code 退出時 runner 與引擎一起死（實測）。
+- **煞車**：`engine.maxBudgetUsd`（傳給子程序 `--max-budget-usd`）與 `engine.maxMinutes`（runner 超時殺整棵樹、`status: timeout`）。無人值守下條件寫錯或永遠達不到時，沒有它們引擎會跑到 quota 用光。預算是回合邊界才對帳（實測 0.05 上限實花 0.28 才停），不是硬上限。0.8.0 起引擎是獨立程序：關掉 Claude Code 或 TaskStop 背景的等待都不會停掉它，要停一律 `--stop`（0.7.x 以前主 Claude Code 退出時 runner 與引擎會一起死）。
 - **長任務不忘目標**：上下文滿了會自動壓縮，壓縮後 Claude 常忘記最初目標或做到哪。goal2 三層錨定：`anchor.md`（條件＋任務＋帳本規則）放進子程序的系統提示，每回合重送、壓縮碰不到；`progress.md` 進度帳本邊做邊更新；壓縮一結束由只掛在該子程序的 SessionStart(compact) hook 把兩者注回。引擎自己的完成條件也存在對話之外，做不到就停不下來。run 目錄裡的 `progress.md` 隨時能看它做到哪。
 - **4000 字元上限（整段 prompt 都算）**：`claude -p` 路徑下 `/goal` 後面整段文字都算進條件長度，超過就 0 回合退場。所以 goal2 只把「條件＋一句指向錨定區」放進 prompt（≤3900，工具硬檢查），任務全文、工作清單、報告格式都走 anchor.md 的系統提示；條件本身太長就換指針句、全文放 anchor 並要引擎第一則回覆先貼出。
 
@@ -137,4 +137,4 @@
 
 goal 啟動後回報完成條件與 run_dir，說「停」就終止（`goal.js --stop <run_dir>`），問「做到哪」就看進度（`--status`）。`~/.claude/goal2/runs/` 全機共用、跨 session：**不要整批刪**，清理用 `goal.js --prune`（只清已結束且程序不在、running 但 pid 已死或被重用、prepared 從未啟動、壞目錄四類，且都超過保留時數，預設 24 小時；活著的一律不碰）。plugin 附 PreToolUse hook `runs-guard`：Bash／PowerShell 對 runs 目錄的整批、萬用字元、迴圈式刪除與 `--prune --keep-hours <2` 會被直接攔下，只放行指名完整 run id 的單筆刪除。delaylocal 排程後回報 Cron Job ID、觸發時間、完成條件；取消用 `CronDelete <id>`，引擎起來後同樣可 `--stop`。
 
-> ⚠️ cron 只活在本 Claude Code process（`durable` 在目前版本無效），且 REPL idle 時才會 fire——「無人值守」指的是你人不用守著，但 Claude Code 程式要開著。引擎子程序起來後本對話可以繼續做別的事；殺掉 runner（TaskStop）或關掉整個 Claude Code，引擎都會跟著死（實測），meta 會停在 running、要用 `--stop` 收狀態。
+> ⚠️ cron 只活在本 Claude Code process（`durable` 在目前版本無效），且 REPL idle 時才會 fire——「無人值守」指的是你人不用守著，但 Claude Code 程式要開著。引擎子程序起來後本對話可以繼續做別的事。0.8.0 起引擎是獨立程序：TaskStop 背景的等待或關掉整個 Claude Code 都不會停掉它（要停用 `--stop`），結束時結果由看板或 hook 送回起它的對話。注意 cron 本身仍只活在本程序：到點前關掉 Claude Code，排程就不會 fire。

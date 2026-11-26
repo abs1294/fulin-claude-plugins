@@ -130,7 +130,8 @@ test('Channels: a turn, an approval, and what is saved', () => {
 
   // Second message: same process, no second spawn.
   hasTranscript = true;
-  ch.send(c.sessionId, '第二則');
+  c.lastResultAt = Date.now() + 1; ch.send(c.sessionId, '第二則');
+  assert.strictEqual(ch.unread(c), true, 'sent by whoever: what was not read is not read by that (you wrote it: server.js says seen)');
   assert.strictEqual(log.length, 1);
   p.out({ type: 'result', is_error: false });
 

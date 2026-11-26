@@ -7,7 +7,11 @@
 //
 // 用法（兩段式）：
 //   node goal.js --prompt-file <path> --goal "<可測量完成條件>"   # 準備：建 run 目錄、落 prompt、輸出 run_command 與確認 timer cron
-//   node goal.js --run <run_dir>                                 # 執行：起引擎、阻塞到完成、輸出 summary JSON（skill 用 Bash 背景執行）
+//   node goal.js --start <run_dir>                               # 執行：把 runner 起成獨立程序（不受背景 Bash 2 小時上限、對話關掉也照跑），立刻返回
+//   node goal.js --wait <run_dir> [--minutes 100]                # 等：skill 用 Bash 背景執行；結束就回結果，逾時回「還在跑」再接著等
+//   node goal.js --run <run_dir>                                 # 內部：runner 本體，起引擎、阻塞到完成、寫 result.json（由 --start 起）
+//   node goal.js --pending [--session <id>]                      # 看板用：沒人等、該送回原對話的 run
+//   node goal.js --claim|--release <run_dir> --by <誰>           # 看板用：搶／放回報權（只回報一次）
 //   node goal.js --show-config
 //   echo "<任務原文>" | node goal.js --goal "<條件>"                # 準備階段也可從 stdin 讀任務
 //
@@ -31,11 +35,12 @@ function fail(msg) {
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
 let buildGoalHead, dateToCron, ceilToMinute, loadConfig, prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, selfSufficiency, inspectCwd, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT;
+let startDetached, waitRun, claimReport, releaseReport, pendingReports, reportMessage, parentSession;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
-  ({ prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, selfSufficiency, inspectCwd, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT } = require(path.join(LIB, 'engine.js')));
+  ({ prepareRun, runEngine, stopRun, runStatus, listRuns, pruneRuns, detectWtf, selfSufficiency, inspectCwd, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, startDetached, waitRun, claimReport, releaseReport, pendingReports, reportMessage, parentSession } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
@@ -68,6 +73,8 @@ let showConfig = false;
 let cwdArg = null;
 let listMode = false;
 let pruneMode = false, pruneDry = false, pruneHours = 24;
+let startDir = null, waitDir = null, waitMinutes = 100, pendingMode = false, sessionFilter = null, claimDir = null, releaseDir = null, byWho = null;
+const dirArg = (flag, v) => { if (!v || v.startsWith('--')) fail(`${flag} 後面要接 run 目錄路徑`); return v; };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--prompt-file') promptFile = args[++i];
@@ -78,7 +85,15 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--prune') pruneMode = true;
   else if (a === '--dry-run') pruneDry = true;
   else if (a === '--keep-hours') { const v = args[++i]; if (!/^\d+$/.test(String(v))) fail(`--keep-hours 需為整數（收到：${v}）`); pruneHours = parseInt(v, 10); }
-  else if (a === '--run') runDir = args[++i];
+  else if (a === '--run') runDir = args[++i];            // 內部用：runner 本體（由 --start 起成獨立程序；直接在背景 Bash 跑會受 2 小時上限、對話關掉就一起死）
+  else if (a === '--start') startDir = dirArg(a, args[++i]);
+  else if (a === '--wait') waitDir = dirArg(a, args[++i]);
+  else if (a === '--minutes') { const v = args[++i]; if (!/^\d+$/.test(String(v)) || +v < 1 || +v > 110) fail(`--minutes 需為 1–110 的整數（背景 Bash 最長 120 分鐘，要留餘裕；收到：${v}）`); waitMinutes = parseInt(v, 10); }
+  else if (a === '--pending') pendingMode = true;
+  else if (a === '--session') sessionFilter = args[++i];
+  else if (a === '--claim') claimDir = dirArg(a, args[++i]);
+  else if (a === '--release') releaseDir = dirArg(a, args[++i]);
+  else if (a === '--by') byWho = args[++i];
   else if (a === '--stop') { stopDir = args[++i]; if (!stopDir || stopDir.startsWith('--')) fail('--stop 後面要接 run 目錄路徑'); }
   else if (a === '--force') forceStop = true;   // 與 --stop 併用：程序狀態不明時只把狀態收成 stopped、不殺程序
   else if (a === '--status') statusDir = args[++i];
@@ -105,6 +120,21 @@ if (pruneMode) {
   process.exit(r.ok ? 0 : 1);
 }
 
+// --- 1a2. 回報（看板用）：該補報的 run、搶／放回報權 ---
+if (pendingMode) {
+  let runs; try { runs = pendingReports({ sessionId: sessionFilter }); } catch (e) { fail(`列出待回報失敗：${e.message}`); }
+  console.log(JSON.stringify({ ok: true, mode: 'pending', ...VERSION_FIELDS, runs: runs.map((r) => ({ ...r, message: reportMessage(r) })) }, null, 2));
+  process.exit(0);
+}
+if (claimDir || releaseDir) {
+  const d = claimDir || releaseDir;
+  if (!fs.existsSync(path.join(d, 'meta.json'))) fail(`目錄不存在或缺 meta.json：${d}`);
+  if (!byWho) fail('--claim／--release 要帶 --by <誰>（例如 board）');
+  const r = claimDir ? claimReport(d, byWho) : releaseReport(d, byWho);
+  console.log(JSON.stringify({ mode: claimDir ? 'claim' : 'release', run_dir: d, ...VERSION_FIELDS, ...r }, null, 2));
+  process.exit(r.ok ? 0 : 1);
+}
+
 // --- 1b. 終止 / 狀態 ---
 if (stopDir) {
   if (!fs.existsSync(path.join(stopDir, 'meta.json'))) fail(`--stop 目錄不存在或缺 meta.json：${stopDir}`);
@@ -119,7 +149,27 @@ if (statusDir) {
   process.exit(0);
 }
 
-// --- 2. 執行模式：--run <run_dir> ---
+// --- 1c. 獨立啟動 / 等待 ---
+if (startDir) {
+  if (!fs.existsSync(path.join(startDir, 'prompt.txt'))) fail(`--start 目錄不存在或缺 prompt.txt：${startDir}`);
+  startDetached(startDir, path.resolve(__filename)).then((r) => {
+    const self = path.resolve(__filename);
+    console.log(JSON.stringify({ mode: 'started', ...VERSION_FIELDS, ...r, wait_command: `node "${self}" --wait "${startDir}"`, stop_command: `node "${self}" --stop "${startDir}"`, status_command: `node "${self}" --status "${startDir}"` }, null, 2));
+    process.exit(r.ok ? 0 : 1);
+  }).catch((e) => fail(`啟動失敗：${e.message}`));
+} else if (waitDir) {
+  if (!fs.existsSync(path.join(waitDir, 'meta.json'))) fail(`--wait 目錄不存在或缺 meta.json：${waitDir}`);
+  waitRun(waitDir, { minutes: waitMinutes }).then((r) => {
+    const self = path.resolve(__filename);
+    const out = { ...r, ...VERSION_FIELDS };
+    if (r.mode === 'waiting') out.next = `還在跑：先跟使用者說一句進度（summary_zh），然後立刻再背景執行同一個 wait_command 接著等`;
+    if (r.mode === 'ran') out.wtf = detectWtf();
+    out.wait_command = `node "${self}" --wait "${waitDir}"`;
+    console.log(JSON.stringify(out, null, 2));
+    process.exit(r.ok === false && r.mode !== 'ran' ? 1 : 0);
+  }).catch((e) => fail(`等待失敗：${e.message}`));
+} else
+// --- 2. 執行模式（內部）：--run <run_dir> ---
 if (runDir) {
   if (!fs.existsSync(path.join(runDir, 'prompt.txt'))) fail(`--run 目錄不存在或缺 prompt.txt：${runDir}`);
   let p; try { p = runEngine(runDir, engineCfg); } catch (e) { fail(`引擎啟動前檢查失敗：${e.message}`); }
@@ -164,20 +214,20 @@ if (runDir) {
   const cwdSource = cwdArg ? 'cli' : (process.env.CLAUDE_PROJECT_DIR ? 'env:CLAUDE_PROJECT_DIR' : 'process.cwd');
   const anchor = buildAnchor({ condition: goalCondition, conditionOverflow: overflow, task: userPrompt, workList, runDir: '<RUN_DIR>', cwd });
   let prepared;
-  try { prepared = prepareRun({ skill: 'goal', prompt: finalPrompt, cwd, anchor, meta: { condition: goalCondition, overflow, cwdSource, pluginVersion: pluginVersion() } }); } catch (e) { fail(e.message); }
+  try { prepared = prepareRun({ skill: 'goal', prompt: finalPrompt, cwd, anchor, meta: { condition: goalCondition, overflow, cwdSource, pluginVersion: pluginVersion(), ...parentSession() } }); } catch (e) { fail(e.message); }
   const { runDir: rd, runId, promptPath, activeRunsInTree } = prepared;
   // 中繼檔到這裡才刪：所有驗證都過、任務全文已落進 run 目錄的 anchor.md。之前任何一步 fail 都保留原檔，重跑不必重寫 10–20KB 任務書。
   if (promptFile) { try { fs.unlinkSync(promptFile); } catch (_) {} }
   if (goalFile) { try { fs.unlinkSync(goalFile); } catch (_) {} }
 
   // 確認逾時 timer 的 cron：現在 + confirmTimeoutMinutes，向上取整到整分（cron 是分鐘粒度，避免只剩幾秒）。
-  // confirmTimeoutMinutes = 0（預設）→ 不排 timer，skill 直接背景執行 run_command；隨時可 --stop。
+  // confirmTimeoutMinutes = 0（預設）→ 不排 timer，skill 直接執行 run_command（--start）再背景執行 wait_command；隨時可 --stop。
   const now = Math.floor(Date.now() / 1000);
   const direct = goalCfg.confirmTimeoutMinutes === 0;
   const confirmTarget = direct ? null : ceilToMinute(now + goalCfg.confirmTimeoutMinutes * 60);
   const confirmD = direct ? null : new Date(confirmTarget * 1000);
   const self = path.resolve(__filename);
-  const runCommand = `node "${self}" --run "${rd}"`;
+  const runCommand = `node "${self}" --start "${rd}"`;   // 0.8.0 起：獨立啟動、立刻返回；之後一定要接 wait_command
 
   console.log(JSON.stringify({
     ok: true,
@@ -187,6 +237,7 @@ if (runDir) {
     run_id: runId,
     prompt_path: promptPath,
     run_command: runCommand,
+    wait_command: `node "${self}" --wait "${rd}"`,
     stop_command: `node "${self}" --stop "${rd}"`,
     status_command: `node "${self}" --status "${rd}"`,
     start_mode: direct ? 'direct' : 'confirm-timer',

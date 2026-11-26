@@ -1381,6 +1381,43 @@ function createServer(token, port, deps = {}) {
   // those opened before the board kept this (0.20.0): the schedules' own record of their runs says which
   try { const v = openedBy(), add = schedules.runs(2000).filter((r) => (r.how === 'new' || r.how === 'fork') && r.sessionId && !v[r.sessionId]); if (add.length) config.setValue('openedBy', Object.assign({}, ...add.map((r) => ({ [r.sessionId]: { by: 'schedule', name: String(r.name || '').slice(0, 80), at: r.startedAt } })), v)); } catch (e) {}
   if (runner && !deps.noTimers) { const t = setInterval(() => { runner.tick(); }, 20000); if (t.unref) t.unref(); setTimeout(() => { runner.tick(); }, 4000).unref(); }
+  // A goal2 run that ended while the conversation that started it was no longer waiting for it (closed, or its wait
+  // ended - asked 2026-11-26: "看板關掉 session，goal2 做完要通知誰" -> back to that conversation, not LINE). goal2 0.8.0
+  // lists such runs (--pending: none while that conversation's own wait is alive, nor in the first minute); the board
+  // takes the telling of each (--claim: only one of the wait, the board and goal2's hook in that conversation tells it)
+  // and hands the message to the conversation the way a schedule hands it its sentence - started again on the board
+  // when it is not open, sent when it is open here, passed on with Claude Code's messaging when it is open in a
+  // terminal. Not delivered: the telling is given back, and goal2's hook tells it the next time you write there.
+  // What the board sends by itself is not counted as read (chat.js _deliver), so the conversation shows it as new.
+  const deliverTo = async (sid, cwd, text, mark) => {
+    const live = sessions().find((x) => x.sessionId === sid);
+    if (!live || live.owner === 'board') {
+      const where = (live && live.cwd) || cwd;
+      if (!channels.get(sid) && !isDir(where)) return { ok: false, error: '那個對話的資料夾已經不存在：' + where };
+      const c = channels.get(sid) || channels.create(where, sid);
+      const r = channels.send(c.sessionId, text);
+      return r && r.ok === false ? { ok: false, error: r.error || '送不進對話' } : { ok: true, how: live ? 'board' : 'resume' };
+    }
+    const m = '#' + mark;
+    const p = await peer(live, text + '\n' + m, m);
+    return p.state === 'sent' ? { ok: true, how: 'peer' } : { ok: false, error: p.note || '送不過去' };
+  };
+  let goalTelling = null, goalToldAt = null;   // goalToldAt: the last round that told one (the board's own jobs list)
+  // Not delivered: tried again after 30 minutes, three times at most, then left to goal2's hook - a terminal
+  // conversation the message cannot reach would otherwise start a small Claude to pass it on every minute for 7 days.
+  const goalMissed = new Map();   // runId -> {n, at}
+  const tellGoalRuns = () => goalTelling || (goalTelling = (async () => {
+    const done = [];
+    for (const r of await goal2.pending()) {
+      const miss = goalMissed.get(r.runId); if (miss && (miss.n >= 3 || Date.now() - miss.at < 30 * 60000)) continue;
+      const c = await goal2.claim(r.runDir); if (!c.ok) continue;
+      let d; try { d = await deliverTo(r.parentSessionId, r.parentCwd, r.message, 'goal2-' + r.runId); } catch (e) { d = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
+      if (!d.ok) { await goal2.release(r.runDir); goalMissed.set(r.runId, { n: ((miss && miss.n) || 0) + 1, at: Date.now() }); } else { goalToldAt = Date.now(); goalMissed.delete(r.runId); }
+      done.push({ runId: r.runId, sessionId: r.parentSessionId, ok: d.ok, how: d.how, error: d.error });
+    }
+    return done;
+  })().catch(() => []).finally(() => { goalTelling = null; }));
+  if (!deps.noSchedules && !deps.noTimers) { const t = setInterval(() => { tellGoalRuns(); }, 60000); if (t.unref) t.unref(); setTimeout(() => { tellGoalRuns(); }, 30000).unref(); }
   // The working-day calendar of the country chosen (lib/workdays.js), for the schedules that go by working days: looked
   // for once a day, fetched only when
   // one of them needs a year not on this computer yet (or this year's or next year's is a day old)
@@ -1726,6 +1763,7 @@ function createServer(token, port, deps = {}) {
             { key: 'watchdog', name: '停住的對話', what: '對話卡住、撞到用量上限或伺服器錯誤時通知你，必要時叫它繼續', every: '每 30 秒', on: !!dog, last: null, where: 'settings' },
             { key: 'machine', name: '電腦負載', what: '看整台電腦的記憶體和 CPU，連續超過門檻就通知', every: '每 ' + MachineLib.EVERY / 1000 + ' 秒', on: !deps.noSchedules && pref('machineAlert'), last: null, where: 'settings' },
             { key: 'budget', name: '額度預算', what: '這個月用量接近或超過你設的預算時通知', every: '每 10 分鐘', on: !deps.noSchedules, last: null, where: 'settings' },
+            { key: 'goal2tell', name: 'goal2 做完回報', what: '交給 goal2 的事做完、起它的那個對話已經沒在等時，把結果送回那個對話（需要 goal2 0.8.0 以上）', every: '每 60 秒', on: !deps.noSchedules && !deps.noTimers, last: goalToldAt, where: '' },
             { key: 'monthly', name: '月用量存檔', what: '把上個月的用量算好存起來，用量頁不用每次重算', every: '每 6 小時看一次', on: true, last: null, where: '' },
             { key: 'workdays', name: '假日行事曆', what: '有「工作天」排程時，抓今年與明年的國定假日', every: '每天一次', on: schedules.list().some((s) => s.enabled && s.kind === 'custom' && s.rule && (s.rule.workday || /LW|FW/.test(s.rule.cron))), last: null, where: '' },
             { key: 'keepalive', name: '看板守護', what: '看板沒在跑時自動把它開回來（Windows 工作排程 SessionBoardKeepAlive）', every: '每 ' + Keepalive.EVERY_MIN + ' 分鐘', on: !!Keepalive.isOn(), last: null, where: 'settings' },
@@ -1975,6 +2013,7 @@ function createServer(token, port, deps = {}) {
         if (body.by !== 'line') setSecretary(sid, false);   // you wrote in it: yours
         { const c = channels.get(sid); if (c) c.fromHereNext = isLocal(req) && body.by !== 'line'; }   // (where its Artifacts are opened)
         const r = channels.send(sid, text, images, typeof body.echo === 'string' ? body.echo : '');
+        if (r.ok) channels.seen(sid);   // you wrote in it, so you have read it - unlike what the board sends by itself (額度回來了, a schedule: 2026-11-25)
         fresh();
         return send(res, r.ok ? 200 : 409, r);
       }
@@ -2862,6 +2901,7 @@ function createServer(token, port, deps = {}) {
     }
   });
   server.channels = channels;
+  server.tellGoalRuns = tellGoalRuns;   // one round of telling ended goal2 runs to their conversations (tests: their timers are off)
   server.autoTick = (now) => auto.tick(now);   // one round of lib/auto.js now (tests: their timers are off)
   // Also listen on this computer's Tailscale address (and only there), or stop doing so. -> {ok, listening, ip, name, error}
   server.setRemote = async (on) => {

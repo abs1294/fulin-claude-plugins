@@ -77,6 +77,11 @@ test('stuck: told once per standstill, never acted on; a session that moves agai
   assert.deepStrictEqual([r.told.length, r.told[0].startsWith('可能卡住：建置｜顯示執行中，但已經 11 分鐘'), r.sent.length, r.peers.length], [1, true, 0, 0]);
   s.activeAt = 1000 + 31 * MIN; await r.dog.tick(1000 + 45 * MIN);
   assert.strictEqual(r.told.length, 2);
+  // idle for hours, and sent a message just now: it has only begun; stuck only once it has stood still since then
+  const b = { sessionId: 'b', title: '剛送出', status: 'busy', owner: 'board', activeAt: 1000, since: 1000 + 97 * MIN }, rb = rig([b], {});
+  await rb.dog.tick(1000 + 97 * MIN + 1000); assert.strictEqual(rb.told.length, 0, 'a second after'); await rb.dog.tick(1000 + 105 * MIN); assert.strictEqual(rb.told.length, 0);
+  await rb.dog.tick(1000 + 108 * MIN); assert.strictEqual(rb.told.length, 1, 'eleven minutes after it began');
+  b.activeAt = 1000 + 109 * MIN; await rb.dog.tick(1000 + 110 * MIN); b.status = 'idle'; await rb.dog.tick(1000 + 111 * MIN); b.status = 'busy'; b.since = 1000 + 300 * MIN; await rb.dog.tick(1000 + 301 * MIN); assert.strictEqual(rb.told.length, 1, 'again idle for hours: not at once');
   const off = rig([{ sessionId: 'a', status: 'busy', activeAt: 1 }], {}, { stuck: false });
   await off.dog.tick(99 * MIN); assert.strictEqual(off.told.length, 0);
 });

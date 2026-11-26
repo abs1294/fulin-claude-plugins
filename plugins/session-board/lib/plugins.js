@@ -135,7 +135,7 @@ function setSelfHeal(on) {
 
 // The integrations the board has, and the plugin each belongs to. `git` needs no plugin (it is plain git).
 const INTEGRATIONS = [
-  { key: 'goal2', plugin: 'goal2', name: 'goal2', what: '排程頁的 goal 執行紀錄、排程交給 goal2、外掛頁的交辦' },
+  { key: 'goal2', plugin: 'goal2', name: 'goal2', what: '排程頁的 goal 執行紀錄、排程交給 goal2、外掛頁的交辦、做完時把結果送回起它的對話' },
   { key: 'harness', plugin: 'harness', name: 'harness', what: '辦公室房間的 harness 狀態、待核可項目、健檢' },
   { key: 'versions', plugin: 'plugin-manager', name: '版本檢查（plugin-manager）', what: '哪些 plugin 有新版、一鍵全部更新、改了還沒發布的' },
   { key: 'git', plugin: '', name: 'git', what: '看板知道的資料夾裡，沒 push、沒 commit 的（外掛頁與辦公室房間）' },

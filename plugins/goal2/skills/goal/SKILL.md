@@ -22,7 +22,7 @@ description: 當使用者要「先定一條可測量完成條件、再讓 Claude
 
 ## 架構（薄 skill + 確定性工具）
 
-- `goal.js`：**準備**（建 run 目錄、落 `/goal` prompt、anchor、帳本模板）→ **執行**（`--run <run_dir>`：起子程序、收 stream、產 summary）→ 隨時 **`--status <run_dir>`**（看進度，不阻塞）／**`--stop <run_dir>`**（先核對 pid 身分——啟動時間＋程式名——對得上才 `taskkill /T`；pid 已被別的程序重用就只把狀態收成 stopped、不殺任何東西）／**`--list`**（全機所有 run，含 `alive_state`：alive／dead／stale／unknown）／**`--prune [--dry-run] [--keep-hours N]`**（唯一允許的清理，四類且都要超過 N 小時（預設 24）：已結束且程序不在、`running` 但 pid 已死或被重用、`prepared` 從未啟動、沒有 meta 的壞目錄；活著或探測不明的一律不碰；單一目錄刪不掉會記進 `failed[]` 繼續）。
+- `goal.js`：**準備**（建 run 目錄、落 `/goal` prompt、anchor、帳本模板，記下是哪個對話起的）→ **啟動**（`--start <run_dir>`：把 runner 起成獨立程序後立刻返回；runner 起子程序、收 stream、寫 result.json）→ **等待**（`--wait <run_dir>`：背景等到結束，最多 100 分鐘一輪）→ 隨時 **`--status <run_dir>`**（看進度，不阻塞）／**`--stop <run_dir>`**（先核對 pid 身分——啟動時間＋程式名——對得上才 `taskkill /T`；pid 已被別的程序重用就只把狀態收成 stopped、不殺任何東西）／**`--list`**（全機所有 run，含 `alive_state`：alive／dead／stale／unknown）／**`--prune [--dry-run] [--keep-hours N]`**（唯一允許的清理，四類且都要超過 N 小時（預設 24）：已結束且程序不在、`running` 但 pid 已死或被重用、`prepared` 從未啟動、沒有 meta 的壞目錄；活著或探測不明的一律不碰；單一目錄刪不掉會記進 `failed[]` 繼續）。
 - `../../lib/`：`goal-head.js`（4000 字元門檻）、`cron-time.js`、`config.js`（設定檔）、`engine.js`（子程序引擎、wtf 偵測）。**本 skill 須整個 plugin 一起安裝**，只複製 `skills/goal/` 會找不到 lib（工具會明確報錯）。
 - run 目錄：`~/.claude/goal2/runs/<時間戳-goal-隨機>/`，內含 `prompt.txt`（只有 `/goal 條件` 加一句指向錨定區，≤3900 字）、`anchor.md`（完成條件全文＋任務全文＋工作清單＋帳本規則，會放進子程序的系統提示）、`progress.md`（進度帳本，子程序邊做邊更新）、`meta.json`、`stream.jsonl`（子程序完整事件流）、`result.json`（summary）、`status.json`（每次 `--status` 順手寫一份；終端機是 cp950 中文糊掉時改用 Read 讀它）、`compact-log.txt`（壓縮後錨定 hook 有 fire 才出現）。要追查引擎做了什麼就看 stream.jsonl；要看它做到哪就看 progress.md；**要確認到底達成沒**，看 `result.json` 的 `goal_verdict`（來源是子程序自己的 transcript，路徑在 `child_transcript`）。
 
@@ -109,23 +109,28 @@ node "<skill_dir>/goal.js" --prompt-file <暫存檔> --goal-file <條件檔> --c
 ```
 **`--cwd` 必帶，而且要是「CLAUDE.md／自動記憶所在的專案根」，不是任務碰到的子目錄**：子程序的 CLAUDE.md、自動記憶（`~/.claude/projects/<cwd 編碼>/memory/`）、project-scope plugin 都依 cwd 決定——傳 `tests/e2e` 會載到一份空記憶、少掉專案層 plugin（2026-09-12 run d15a 實例）。不帶會退回 Bash 工具當下的 cwd（會漂移）。輸出的 `cwd_inspection` 列出子程序會載到的 CLAUDE.md、記憶目錄（幾條）、project-scope plugin；`warnings` 非空（記憶或 plugin「祖先有、cwd 沒有」）→ 改傳祖先目錄重跑。回報時把 `cwd`、`cwd_inspection.memory`、`warnings` 講出來。
 
-輸出 JSON：`{ ok, mode:"prepared", plugin_version, plugin_root, items_count, has_items_section, has_context_section, warnings, cwd_inspection, grill, start_mode, run_dir, run_command, stop_command, status_command, cwd, cwd_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, goal_overflow, goal_prompt_length, anchor_path, progress_path, final_prompt, … }`。`ok:false` → 把 error 告訴使用者，停止。
+輸出 JSON：`{ ok, mode:"prepared", plugin_version, plugin_root, items_count, has_items_section, has_context_section, warnings, cwd_inspection, grill, start_mode, run_dir, run_command, wait_command, stop_command, status_command, cwd, cwd_source, confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, goal_overflow, goal_prompt_length, anchor_path, progress_path, final_prompt, … }`。`ok:false` → 把 error 告訴使用者，停止。
 
 **同一棵工作樹已有活著的 run 時不會擋**（使用者常在同一專案並行多個調整），但 JSON 會多 `active_runs_in_tree`（run id、pid、cwd）。回報「已啟動」時把它一併講出來（例：「注意：同一棵樹還有 2 個 run 在跑：…」），讓使用者知道有並行；不要自作主張停別人的 run。**並行時路徑不重疊不代表沒干擾**：共用的 DB、測試 DB／結果檔、dev server port、`git` 工作樹狀態都會互相污染。有並行時，任務書裡要寫明本 run 的範圍切分（只動哪些目錄／表／port）與「別的 run 可能同時在動什麼」，讓引擎遇到不是自己改的差異時不要去修它。
 
 ### 4. 啟動（看 `start_mode`）
 
-**`direct`（預設，`goal.confirmTimeoutMinutes` = 0）**：不排 timer、不等確認。立刻用 Bash、`run_in_background: true` 執行 `<JSON.run_command>`（它會阻塞到引擎結束並印 summary JSON；背景執行不受 Bash 工具 timeout 限制，實測跑 6918 秒仍正常收尾）。**先別急著說「已啟動」**：等 10–15 秒跑一次 `<JSON.status_command>`，看到 `goal_set: true` 才回報「已啟動」（步驟 5）；若 `goal_error` 非 null 或 `status` 已是 `failed`／`spawn_failed`，直接回報失敗原因。引擎被拒收是 0 回合幾秒內就結束的事，先講「正在跑」再收到死亡通知會讓使用者白等。使用者看到條件不對，隨時說「停」就跑 `<JSON.stop_command>`。
+**`direct`（預設，`goal.confirmTimeoutMinutes` = 0）**：不排 timer、不等確認。依序做三件事：
+1. 用 Bash **前景**執行 `<JSON.run_command>`（就是 `--start`）：它把 runner 起成獨立程序、等 run 標成 running 就返回（幾秒），印 `{ mode:"started", status, runner_pid, wait_command, … }`。`ok:false` → 把 `error`／`runner_log_tail` 告訴使用者，停止。
+2. **立刻**用 Bash、`run_in_background: true`、`timeout: 7200000` 執行 `<JSON.wait_command>`（見 4c）。**這一步不可省**：沒有它，引擎跑完不會有人通知這個對話。
+3. 等 10–15 秒跑一次 `<JSON.status_command>`，看到 `goal_set: true` 才回報「已啟動」（步驟 5）；若 `goal_error` 非 null 或 `status` 已是 `failed`／`spawn_failed`，直接回報失敗原因。引擎被拒收是 0 回合幾秒內就結束的事，先講「正在跑」再收到死亡通知會讓使用者白等。使用者看到條件不對，隨時說「停」就跑 `<JSON.stop_command>`。
+
+**不要再用背景 Bash 直接跑 `--run`**（0.7.x 以前的做法）：引擎會變成那個背景指令的子程序——Claude Code 的背景指令最長 2 小時（`timeout` 上限 7200000 毫秒），到時連引擎一起被殺；對話被關掉也一起死（2026-11-26 一個跑了 2 小時的 run 就是這樣斷的）。`--start` 起的 runner 不在對話的程序樹上：實測（2026-11-26）`claude -p` 正常結束、以及 `taskkill /T /F` 強制殺掉整棵 Claude 程序樹之後，runner 與引擎都還在跑。
 
 **`confirm-timer`（設定檔設 ≥1 分鐘；無人值守模式不走這條，一律照 `direct` 啟動）**：排逾時 timer（prompt 是**文字指令**給未來的你，不是 `/goal`）：
 ```
 CronCreate({ cron: <JSON.confirm_timer_cron>, recurring: false, durable: false,
-  prompt: "[goal2 逾時自動採納] 使用者自 propose 後未回覆，視為採納完成條件。請立刻用 Bash（run_in_background: true）執行：<JSON.run_command>，結束後依 goal SKILL 步驟 5 回報。" })
+  prompt: "[goal2 逾時自動採納] 使用者自 propose 後未回覆，視為採納完成條件。請立刻用 Bash 前景執行：<JSON.run_command>，接著用 Bash（run_in_background: true、timeout: 7200000）執行：<JSON.wait_command>，之後依 goal SKILL 步驟 4c 與 5 等待、回報。" })
 ```
-**記下 timer 的 job id**，回報「已準備」並說明「`confirm_timeout_minutes` 分鐘內未回覆將於 `confirm_timer_target_local` 自動啟動」。收斂：同意 → `CronDelete` 後背景執行 `run_command`；要改條件 → `CronDelete` → 重寫暫存檔 → 重跑步驟 3；取消 → `CronDelete`；逾時 → timer fire 照指令執行。
+**記下 timer 的 job id**，回報「已準備」並說明「`confirm_timeout_minutes` 分鐘內未回覆將於 `confirm_timer_target_local` 自動啟動」。收斂：同意 → `CronDelete` 後照 `direct` 的 1–3 步執行（`run_command` 再接 `wait_command`）；要改條件 → `CronDelete` → 重寫暫存檔 → 重跑步驟 3；取消 → `CronDelete`；逾時 → timer fire 照指令執行。
 
 ### 4b. 進行中：終止與看進度
-- 使用者說「停」「終止」「取消」→ **先看有幾個活著的 run**：本對話只起過一個就直接跑 `<JSON.stop_command>`；本對話起過多個、或 `--list` 顯示同棵樹有多個 `alive_state: alive` 的 run，就列出各 run 的 `condition` 摘要與 run id 問「停哪一個」（這是消歧問題，不是步驟 5 禁止的結尾 offer）。`--stop` 會先核對 pid 身分再 `taskkill /T`／kill 群組、meta 標 `stopped`，帳本與 stream.jsonl 保留；JSON 有 `killed`、`alive_state`。`alive_state: stale`（pid 被別的程序重用）→ 只收狀態、沒殺東西，如實講；`unknown` → 工具拒絕動手：先再跑一次 `--status`（每次都會重探身分，PowerShell 慢半拍時第二次通常就明朗），仍不明就請使用者手動確認引擎已不在（工作管理員找 claude.exe），確認後跑 `--stop <run_dir> --force`（只把狀態收成 stopped、不殺任何程序；pid 仍是活著的 claude 時會拒絕）。**同一個 run 目錄 `--run` 只准一次**：重跑會被拒（`reentry_refused`），要重做就重新準備。背景中的 `run_command` 會自己收尾並印出 `stopped: true` 的 summary。**殺不到的東西**：引擎內用 `&`／`nohup` 起、已脫離父子鏈的 dev server、watch 程序不在這棵樹上，`--stop` 後提醒使用者檢查 port。
+- 使用者說「停」「終止」「取消」→ **先看有幾個活著的 run**：本對話只起過一個就直接跑 `<JSON.stop_command>`；本對話起過多個、或 `--list` 顯示同棵樹有多個 `alive_state: alive` 的 run，就列出各 run 的 `condition` 摘要與 run id 問「停哪一個」（這是消歧問題，不是步驟 5 禁止的結尾 offer）。`--stop` 會先核對 pid 身分再 `taskkill /T`／kill 群組、meta 標 `stopped`，帳本與 stream.jsonl 保留；JSON 有 `killed`、`alive_state`。`alive_state: stale`（pid 被別的程序重用）→ 只收狀態、沒殺東西，如實講；`unknown` → 工具拒絕動手：先再跑一次 `--status`（每次都會重探身分，PowerShell 慢半拍時第二次通常就明朗），仍不明就請使用者手動確認引擎已不在（工作管理員找 claude.exe），確認後跑 `--stop <run_dir> --force`（只把狀態收成 stopped、不殺任何程序；pid 仍是活著的 claude 時會拒絕）。**同一個 run 目錄只准啟動一次**：再 `--start` 會被拒，要重做就重新準備。背景中的 `wait_command` 會在幾秒內收到 `status: stopped` 的結果。**殺不到的東西**：引擎內用 `&`／`nohup` 起、已脫離父子鏈的 dev server、watch 程序不在這棵樹上，`--stop` 後提醒使用者檢查 port。
 - 使用者問「做到哪」「進度」「還在跑嗎」→ 跑 `<JSON.status_command>`（不阻塞）。**回報要講人話，不准把 JSON 欄位丟給使用者**：第一句直接用 `summary_zh`（工具已組好：狀態＋回合數＋擋停次數＋壓縮次數＋最後一個動作＋最後一句），接著貼 `progress_md` 的「已完成」與「剩餘」兩節原文。欄位對照（要解釋時用）：
 
   | 欄位 | 白話 |
@@ -139,12 +144,30 @@ CronCreate({ cron: <JSON.confirm_timer_cron>, recurring: false, durable: false,
   | `last_tool` / `last_text` | 引擎最後一個工具動作／最後一句話（它此刻在做什麼） |
   | `last_event_at` | 最後一個事件的時間，久沒動就可疑 |
 
+### 4c. 等待（啟動後一定要做）
+
+`wait_command`（`--wait <run_dir>`，預設最多等 100 分鐘一輪）用 Bash `run_in_background: true`、`timeout: 7200000` 執行。它結束時你會收到通知，讀它印的 JSON 看 `mode`：
+
+| `mode` | 意思 | 你要做的 |
+|---|---|---|
+| `waiting` | 100 分鐘到了、引擎還在跑（`still_running: true`） | 用一句話告訴使用者進度（照抄 `summary_zh`），**然後立刻再背景執行同一個 `wait_command`**。不要停下來問、不要等使用者開口 |
+| `ran` 且 `report: "yours"` | 引擎結束，回報權是你的 | 照步驟 5「引擎結束後」回報 |
+| `ran` 且 `report: "already"` | 引擎結束，但已有別人接手回報（`already_reported_by`，例如看板已把結果送進這個對話） | 不要重複完整回報；最多一句「結果已在上面回報過」 |
+| `lost` | runner 與引擎都不在、狀態卻還是 running（關機或程序被殺） | 把 `error` 告訴使用者，跑 `stop_command` 收狀態 |
+
+為什麼一輪 100 分鐘：Claude Code 的背景指令最長 2 小時，逾時會被殺；留 20 分鐘餘裕。`--minutes` 可改（1–110）。
+
+**對話不在時誰回報**：等待程序每輪寫心跳（run 目錄的 `waiting.json`）。引擎結束時若沒有新鮮心跳（對話被關掉、等待被殺），結果會送回**起它的那個對話**（準備時記在 meta 的 `parentSessionId`）：
+- 看板有開：看板發現後把「goal2 跑完了，請回報」送進那個對話（關掉的會重新打開），對話自己讀結果回報。
+- 看板沒開：本 plugin 的 `hooks/pending-report.js`（UserPromptSubmit、SessionStart resume）在使用者下次於那個對話打字或重新打開它時，把同一段話塞給你——收到 `【goal2 跑完了】` 開頭的提示就先照步驟 5 回報，再處理使用者這次說的話。
+- 只回報一次：等待、看板、hook 搶同一個 `reported.json`，搶到的才回報。
+
 ### 5. 回報使用者
 
-**已啟動（direct）**：完成條件全文、run_dir、終止方式（說「停」即可，對應 `stop_command`）。
+**已啟動（direct）**：完成條件全文、run_dir、終止方式（說「停」即可，對應 `stop_command`）；並說「結束時這個對話會自動回報；對話被關掉也會在下次打開時補上」。
 **已準備（confirm-timer）**：完成條件全文、timer job id 與自動啟動時間、run_dir、取消方式（`CronDelete <id>`）。
 
-**引擎結束後**（背景指令結束會收到通知，讀它印的 JSON）：必含
+**引擎結束後**（`wait_command` 印的 JSON、或 `【goal2 跑完了】` 提示裡指的 result.json）：必含
 - 達成與否：看 **`status` 與 `goal_verdict`**，不要只看 `goal_achieved`（它現在等於 `status === "done"`，而 done 的唯一來源是子程序 transcript 最後一筆 `goal_status.met === true`）。`unverified` 要明講「引擎正常結束但檢查器沒留下達成判定，不可當作達成，請看 result_text 與帳本核對」（2026-09-12 run 55a0 就是這樣：130 回合、12.62 USD、報告檔根本不存在，舊版卻回報達成）；`impossible` 講「檢查器判條件不可能達成」；`timeout` 講「超過時限被終止」；`budget` 講「花費達 N USD 引擎自停、未達成，實花 M USD；要續做重新準備（可調高 `engine.maxBudgetUsd`）」（2026-09-13 實測：引擎在**回合結束後**才對帳，`maxBudgetUsd` 0.05 實花 0.28 才停，result 為 `subtype: error_max_budget_usd`、`is_error: true`、`terminal_reason: budget_exhausted`、`errors: ["Reached maximum budget ($0.05)"]`——所以預算是「超過後下一個回合邊界停」，不是硬上限）；`unknown` 講「stream 被刪，看 `child_transcript`」。`goal_set` 為 false 代表引擎根本沒設目標，這是異常，要講。
 - 回合數 `num_turns`、被推回去續行的次數 `continuations`、上下文壓縮次數 `compactions` 與壓縮後錨定注回次數 `anchor_injections`（壓縮發生但注回 0 次是異常，要講）、耗時、`total_cost_usd`
 - `result_text`：引擎最後一則回覆（做了什麼／怎麼驗證／未完成項），**原文保留不摘要**
@@ -167,7 +190,7 @@ CronCreate({ cron: <JSON.confirm_timer_cron>, recurring: false, durable: false,
 - **`stopHookBlockCap` 預設 0**：官方引擎預設連續 8 次擋停就放棄；無人值守要的是做到達成，所以關掉上限（CLI 程式碼 `cap ?? 8`，`cap > 0` 才生效，0 就是不設限）。真正的煞車是 `engine.maxBudgetUsd`／`engine.maxMinutes`。
 - **背景任務會讓驗收落空（0.5.4 起處理）**：Claude Code 在 Stop 時若還有背景 shell／agent，會把 /goal 檢查延後（goal 的 Stop hook 暫時移出 registry、log `[goal] evaluation deferred — background work still running`），互動 session 稍後 check-in，**non-interactive（-p）不會**；-p 收尾預設只等背景任務 600 秒就終止（stderr `Background tasks still running after 600s; terminating`）。三個真實 run（55a0／89c2／0296）都是引擎把測試丟背景、結束回合「等通知」而落空。而且 -p 對背景 Bash 根本不等（只等背景 agent），回合一結束就退出並殺掉它們。goal2 現在：`hooks/bg-guard.js` 以 Stop hook 掛在子程序上，還有背景 Bash 在跑就 block 把引擎推回去等（最多 30 次；run 目錄有 `bg-guard-log.txt`），沒有才放行讓 /goal 檢查真的跑（實測 run 93b0：block 一次後等到通知、`met`）；子程序帶 `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`（背景 agent 用）；anchor 明寫「有背景任務在跑不准結束回合、測試一律前景跑」；收尾偵測最後一次 Stop 的 hook 清單沒有 goal 檢查器 → `goal_verdict: deferred`。
 - **達成判定的來源（0.4.0 起）**：`claude -p` 的 stream-json 裡**沒有**檢查器的判定；它只寫在子程序自己的 transcript（`~/.claude/projects/<cwd 編碼>/<child_session_id>.jsonl`）的 `attachment.type === "goal_status"`：Goal set 當下一筆 `sentinel:true`，之後每次 Stop 檢查一筆 `met:true/false`，判「不可能」時 `failed:true`。engine.js 結束時去讀最後一筆決定 `goal_verdict`／`status`。舊版用「exit 0 且 subtype success」推定達成，會把「檢查器根本沒跑就 end_turn」的 run 記成 done（實例 55a0）。實測（2026-09-12）：條件寫「Z 槽下某檔存在」→ 檢查器擋 2 次、引擎跑去 `subst` 造出 Z 槽達成（所以 bypassPermissions 下它會為了達成改系統狀態，條件要寫清楚不准動什麼）；條件註明「不可能達成」→ 檢查器 `failed:true` 放行、0 次擋停。
-- **主 Claude Code 退出，引擎跟著死（2026-09-13 實測，代理實驗）**：用 headless `claude -p` 當主程式，讓它以 Bash `run_in_background` 起 runner 後立刻結束——主程式退出當下 runner（node）與引擎（claude.exe）一起消失，引擎只跑到 Goal set 後的第一個動作，目標檔沒建出來，meta 停在 `running`（要用 `--stop` 收狀態）。所以「無人值守」的前提是 **Claude Code 程式要一直開著**；互動視窗按 X 應同理（未另測）。能主動停它的只有 `--stop`、`maxMinutes`、`maxBudgetUsd`。
+- **引擎不再跟著對話死（0.8.0 起）**：0.7.x 以前 runner 是背景 Bash 的子程序，2026-09-13 實測主程式（headless `claude -p`）一退出 runner 與引擎就一起消失；2026-11-26 一個 run 跑滿背景指令的 2 小時上限被砍。0.8.0 的 `--start` 用 detached 起 runner（Windows：DETACHED_PROCESS＋新程序群組、不進「父程序結束就殺」的 job；macOS／Linux：setsid），啟動者立刻結束，runner 的父程序就不在了。2026-11-26 Windows 實測兩種情況 runner 與引擎都存活：`claude -p` 正常結束、`taskkill /T /F` 強制殺掉整棵 Claude 程序樹（同一個 Bash 裡的 `sleep` 一起死了）。**代價**：關掉 Claude Code 不會停掉引擎，要停一律 `--stop`；能自動停它的只有 `maxMinutes`、`maxBudgetUsd`。macOS 未實跑（HYPOTHESIS：setsid 後不在 Claude Code 的程序群組裡，行為應相同）。
 - **成本**：每次 run 是一個獨立 session，任務再小也有固定開銷（實測極簡任務約 0.8 USD）；要省就設 `engine.model`。
 - **壓縮空轉熔斷（實測）**：`engine.autocompact` 設 100000 且每回合灌 25KB 工具輸出時，Claude Code 在第 3 次壓縮後以 `rapid_refill_breaker` 終止（「Autocompact is thrashing」）。這是引擎的保護，不是漂移；錨定在那三次壓縮都正常注回、沒有重做。對策：不要把 autocompact 調太小、任務裡讀大檔要分小塊、必要時提高 autocompact。
 - **4000 字元上限算的是整段 prompt，不只第一行**（2026-09-12 實測：第一行 156 字、整段 6368 字 → `Goal condition is limited to 4000 characters (got 6361)`，0 回合 0 成本就退；使用者實際踩到 got 12511）。所以 `/goal` prompt 只放條件＋一句指向錨定區，任務全文、工作清單、帳本規則全走 anchor.md 的系統提示；`lib/goal-head.js` 與 `engine.js` 對整段 prompt 做 ≤3900 硬檢查，超過直接報錯不上車。條件本身超長 → 第一行換指針句、全文放 anchor「完成條件全文」，並要求引擎第一則回覆先把它貼進對話（檢查器在對話裡看得到）。summary 若出現 `goal_error` 就是引擎拒收，`ok:false`、`goal_set:false`。
@@ -184,7 +207,7 @@ CronCreate({ cron: <JSON.confirm_timer_cron>, recurring: false, durable: false,
 ## 注意
 - 只用 CronCreate 排逾時 timer，不可用 SQL 偽造；`CronList` 可查。
 - cron 到點時你正在打字或 Claude 正在跑：排程器只在 REPL idle 時 fire，會等下一個空檔，不會漏掉（依 CronCreate 工具說明）。
-- 背景執行的 `run_command` 結束才會通知；引擎跑很久是正常的。要中途停一律用 `--stop`（會殺整棵樹、把狀態收好）。**不要只 TaskStop 那個背景指令**：實測殺掉 runner 時引擎子程序會一起死（Windows 同 job），但 meta 停在 `running`、沒有 result.json，之後只能靠 `--stop` 收狀態、結果只剩 `child_transcript`。
+- 背景的 `wait_command` 最多 100 分鐘就會回來一次（`mode: waiting`），引擎跑很久是正常的，照 4c 再等。要中途停一律用 `--stop`（會殺整棵樹、把狀態收好）。**TaskStop 那個背景等待不會停掉引擎**（0.8.0 起引擎是獨立程序），只是沒人等了——結束時會改由看板或 hook 送回這個對話。
 - **`~/.claude/goal2/runs/` 是全機共用、跨 session 的。禁止用 rm／rmSync 整批清它**——別的 session 可能正有 run 在跑，刪了它的 run 目錄會讓那個引擎的帳本、stream、summary 全部消失（2026-09-12 實際發生）。要清一律 `goal.js --prune`（只清已結束且程序不在的），想先看會刪什麼加 `--dry-run`。**plugin 附 `hooks/runs-guard.js`（PreToolUse）會直接攔**：對 runs 目錄的整批／萬用字元／迴圈式刪除、`--prune --keep-hours <2` 都過不了，只有指名完整 run id 的單筆刪除放行。
 - 幫使用者查「現在有哪些在跑」用 `--list`（看 `alive_state`，`stale` 代表 pid 已被別的程序重用、引擎早就不在）。
 - `status: running` 但 `alive_state: dead/stale` 的 run 是 runner 被殺、關機留下的殘骸，不會自己變 done：用 `--stop` 收掉狀態（不會殺到別人），結果看 `child_transcript`。

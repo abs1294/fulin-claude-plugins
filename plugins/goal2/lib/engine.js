@@ -723,7 +723,7 @@ function listRuns() {
     // running／timeout／stopped 都要探活：timeout 殺不死、stopped 被 --force 誤收，引擎可能還在跑（探身分要起 PowerShell，其餘狀態不做）
     const probe = meta.status === 'running' || (['timeout', 'stopped'].includes(meta.status) && meta.pidStart);   // 舊版 meta 沒身分：stopped/timeout 不探活（pid 重用會把無關程序當引擎）
     const state = probe && meta.pid ? aliveState(meta) : 'dead';
-    out.push({ runDir: rd, runId: meta.runId || n, skill: meta.skill, status: meta.status, cwd: meta.cwd || null, pid: meta.pid || null, alive: state === 'alive', alive_state: state, createdAt: meta.createdAt || null, scheduledFor: meta.scheduledFor || null, startedAt: meta.startedAt || null, endedAt: meta.endedAt || meta.stoppedAt || null, pluginVersion: meta.pluginVersion || null, condition: typeof meta.condition === 'string' ? meta.condition.slice(0, 120) : null, dirMtime });
+    out.push({ runDir: rd, runId: meta.runId || n, skill: meta.skill, status: meta.status, cwd: meta.cwd || null, pid: meta.pid || null, alive: state === 'alive', alive_state: state, createdAt: meta.createdAt || null, scheduledFor: meta.scheduledFor || null, startedAt: meta.startedAt || null, endedAt: meta.endedAt || meta.stoppedAt || null, pluginVersion: meta.pluginVersion || null, condition: typeof meta.condition === 'string' ? meta.condition.slice(0, 120) : null, parentSessionId: meta.parentSessionId || null, dirMtime });
   }
   return out;
 }
@@ -794,11 +794,160 @@ function runStatus(runDir) {
     num_turns: s.num_turns, assistant_messages: la.assistant_messages, total_cost_usd: s.total_cost_usd,
     last_event_at: la.last_event_at, last_tool: la.last_tool, last_text: la.last_text,
     progress_md: progress,
+    parent_session_id: meta.parentSessionId || null, reported_by: (reportInfo(runDir) || {}).by || null,
     status_path: path.join(runDir, 'status.json')
   };
   st.summary_zh = describeStatus(st);
   try { fs.writeFileSync(st.status_path, JSON.stringify(st, null, 2) + '\n'); } catch (_) {}
   return st;
+}
+
+// ── 獨立啟動與回報 ──────────────────────────────────────────────────────────────
+// 為什麼：舊做法是主 session 用背景 Bash 跑 --run，引擎就成了那個 Bash 的子程序——背景 Bash 最長 2 小時（逾時連引擎一起殺），
+// 主 session 被關掉也一起死（2026-11-26 一個 run 跑到 2 小時被砍）。現在 --start 把 runner 起成獨立程序（detached、啟動者立刻結束），
+// 主 session 只用 --wait 等結果；等待被殺了引擎照跑。
+// 回報只做一次，三方搶同一個標記檔 reported.json（O_EXCL 建檔，搶到的才回報）：
+//   1. 還在等的對話（--wait）                    — 引擎一結束就接走
+//   2. 看板（goal.js --pending / --claim）          — 對話已不在等：看板把結果送回起它的那個對話
+//   3. 原對話的 hook（hooks/pending-report.js）    — 看板也沒開：你下次在那個對話打字時補上
+// 等待中的對話每輪寫 waiting.json（心跳）；心跳 WAIT_FRESH_MS 內的 run 只留給它，別人不搶（兩輪等待之間的空檔也算在內）。
+const REPORT_FILE = 'reported.json';
+const WAIT_FILE = 'waiting.json';
+const WAIT_FRESH_MS = 5 * 60 * 1000;
+const REPORT_GRACE_MS = 60 * 1000;          // 結束後先留一分鐘：等 result.json 落檔、讓剛好在兩輪之間的等待接回去
+const REPORT_MAX_AGE_MS = 7 * 86400 * 1000; // 超過 7 天還沒人接的不再補報（多半是那個對話早就不用了）
+
+function readJson(p) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; } }
+function reportInfo(runDir) { return readJson(path.join(runDir, REPORT_FILE)); }
+
+/** 搶回報權：建檔成功（O_EXCL）才算搶到；已有人搶走回 { ok:false, already } */
+function claimReport(runDir, by) {
+  const p = path.join(runDir, REPORT_FILE);
+  let fd;
+  try { fd = fs.openSync(p, 'wx'); }
+  catch (e) { return e.code === 'EEXIST' ? { ok: false, already: reportInfo(runDir) || { by: 'unknown' } } : { ok: false, error: `${e.code || ''} ${e.message}`.trim() }; }
+  try { fs.writeSync(fd, JSON.stringify({ by: String(by || 'unknown'), at: new Date().toISOString(), pid: process.pid }) + '\n'); } finally { fs.closeSync(fd); }
+  return { ok: true, by: String(by || 'unknown') };
+}
+/** 放回回報權：只放自己搶到的（by 相同）——送不出去時讓下一方（hook）還能補報 */
+function releaseReport(runDir, by) {
+  const cur = reportInfo(runDir);
+  if (!cur || cur.by !== String(by)) return { ok: false, error: cur ? `回報權在 ${cur.by} 手上，不是 ${by}` : '沒有人搶過' };
+  try { fs.unlinkSync(path.join(runDir, REPORT_FILE)); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; }
+}
+/** 這個 run 現在該不該由「等待以外」的人補報：已結束、沒人搶、沒有新鮮的等待心跳、結束超過 REPORT_GRACE_MS、未滿 7 天 */
+function reportDue(runDir, meta, now = Date.now()) {
+  if (!meta || !FINISHED_STATUSES.includes(meta.status)) return false;
+  if (fs.existsSync(path.join(runDir, REPORT_FILE))) return false;
+  const ended = Date.parse(meta.endedAt || meta.stoppedAt || 0);
+  if (!Number.isFinite(ended) || now - ended < REPORT_GRACE_MS || now - ended > REPORT_MAX_AGE_MS) return false;
+  const w = readJson(path.join(runDir, WAIT_FILE));
+  if (w && now - Date.parse(w.at || 0) < WAIT_FRESH_MS) return false;
+  return true;
+}
+/** 所有該補報的 run（可只看某個對話起的）。只讀 meta、不探程序，夠快給每次打字的 hook 用 */
+function pendingReports({ sessionId = null, now = Date.now() } = {}) {
+  let names = []; try { names = fs.readdirSync(RUNS_DIR); } catch (_) { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!/^\d{14}-[a-z]+-[0-9a-z]{4}$/.test(n)) continue;
+    const rd = path.join(RUNS_DIR, n);
+    const meta = readJson(path.join(rd, 'meta.json'));
+    if (!meta || !meta.parentSessionId) continue;          // 0.8.0 以前準備的、或不是從對話起的（看板排程）：沒有可送回的對話
+    if (sessionId && meta.parentSessionId !== sessionId) continue;
+    if (!reportDue(rd, meta, now)) continue;
+    out.push({ runDir: rd, runId: meta.runId || n, skill: meta.skill, status: meta.status, endedAt: meta.endedAt || meta.stoppedAt || null, parentSessionId: meta.parentSessionId, parentCwd: meta.parentCwd || meta.cwd || null, condition: typeof meta.condition === 'string' ? meta.condition.slice(0, 200) : null });
+  }
+  return out;
+}
+
+const STATUS_WORD = { done: '達成', unverified: '結束了，但檢查器沒有留下達成判定（不能當作已達成）', impossible: '檢查器判定條件不可能達成', failed: '失敗', stopped: '被停止', timeout: '超過時限被終止', budget: '花費到上限停止', unknown: '結果無從判定', spawn_failed: '沒有啟動成功' };
+/** 補報時送進原對話的那段話（看板與 hook 共用同一段，主 session 照 SKILL 的回報節處理） */
+function reportMessage(p) {
+  const tool = path.join(PLUGIN_ROOT, 'skills', 'goal', 'goal.js');
+  return `【goal2 跑完了】這個對話先前啟動的 goal2（${p.skill || 'goal'}，run ${p.runId}）在沒有人等的時候結束了：${STATUS_WORD[p.status] || p.status}。` +
+    (p.condition ? `完成條件：「${p.condition}」。` : '') +
+    `\n請先回報它：讀 ${path.join(p.runDir, 'result.json')}（或跑 node "${tool}" --status "${p.runDir}"），照 goal2 goal skill「回報」那節的格式向使用者說明結果；回報權已由這則訊息接下，不必再 --wait。`;
+}
+
+/** 起 runner 成獨立程序（不是呼叫者的子程序樹的一部分：啟動者結束後它的父程序就不在了），等它把 meta 標成 running 才回 */
+async function startDetached(runDir, script, { waitMs = 20000 } = {}) {
+  const meta = readMeta(runDir);
+  if (meta.status !== 'prepared') return { ok: false, error: `這個 run 已啟動過（status=${meta.status}），不能再啟動；要看進度用 --status、要等結果用 --wait`, run_dir: runDir, status: meta.status };
+  const logPath = path.join(runDir, 'runner.log');
+  const logFd = fs.openSync(logPath, 'a');
+  let child;
+  try {
+    // detached：Windows 是 DETACHED_PROCESS＋新程序群組、不進 libuv 的「父程序結束就殺」job；macOS／Linux 是 setsid。windowsHide：不跳視窗
+    child = spawn(process.execPath, [script, '--run', runDir], { detached: true, stdio: ['ignore', logFd, logFd], windowsHide: true, cwd: RUNS_DIR, env: { ...process.env, GOAL2_DETACHED: '1' } });
+  } catch (e) { fs.closeSync(logFd); return { ok: false, error: `起不了 runner：${e.message}`, run_dir: runDir }; }
+  fs.closeSync(logFd);
+  let exited = null;
+  child.on('exit', (code) => { exited = code; });
+  child.on('error', (e) => { exited = `error: ${e.message}`; });
+  child.unref();
+  const deadline = Date.now() + waitMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250));
+    let m; try { m = readMeta(runDir); } catch (_) { continue; }
+    if (m.status !== 'prepared') return { ok: !['spawn_failed', 'failed'].includes(m.status), run_dir: runDir, runner_pid: child.pid, status: m.status, engine_pid: m.pid || null, runner_log: logPath };
+    if (exited !== null) break;
+  }
+  let log = ''; try { log = fs.readFileSync(logPath, 'utf8').slice(-800); } catch (_) {}
+  return { ok: false, run_dir: runDir, runner_pid: child.pid, error: exited !== null ? `runner 沒把 run 標成 running 就結束了（${exited}）` : `${Math.round(waitMs / 1000)} 秒內 runner 沒把 run 標成 running`, runner_log: logPath, runner_log_tail: log };
+}
+
+/**
+ * 等一個 run 結束（主 session 用背景 Bash 跑）。最多等 minutes 分鐘：
+ *   結束 → 搶回報權，回 result.json 的內容（mode: 'ran'；report: 'yours' 才要回報，'already' 表示別人已送進來）
+ *   還在跑 → 回 mode: 'waiting'，主 session 回一句「還在跑」後立刻再等（背景 Bash 最長 2 小時，所以預設 100 分鐘一輪）
+ *   runner 與引擎都不在、狀態卻還是 running → mode: 'lost'
+ */
+async function waitRun(runDir, { minutes = 100, pollMs = 5000 } = {}) {
+  const deadline = Date.now() + minutes * 60000;
+  const hb = path.join(runDir, WAIT_FILE);
+  const beat = () => { try { fs.writeFileSync(hb, JSON.stringify({ pid: process.pid, at: new Date().toISOString(), sessionId: process.env.CLAUDE_CODE_SESSION_ID || null }) + '\n'); } catch (_) {} };
+  let lastProbe = Date.now();
+  for (;;) {
+    let meta; try { meta = readMeta(runDir); } catch (e) { return { ok: false, mode: 'wait', error: e.message, run_dir: runDir }; }
+    beat();
+    if (FINISHED_STATUSES.includes(meta.status)) {
+      // runner 先寫終態 meta、緊接著寫 result.json；--stop 收殘骸的路徑則永遠不會有 result.json：最多等 30 秒
+      const resPath = path.join(runDir, 'result.json');
+      for (let i = 0; i < 60 && !fs.existsSync(resPath); i++) await new Promise((r) => setTimeout(r, 500));
+      const res = readJson(resPath) || { ...runStatus(runDir), result_missing: true };
+      const c = claimReport(runDir, `wait:${process.env.CLAUDE_CODE_SESSION_ID || process.pid}`);
+      return { ...res, mode: 'ran', run_dir: runDir, report: c.ok ? 'yours' : 'already', already_reported_by: c.ok ? undefined : (c.already && c.already.by) || c.error, report_note: c.ok ? '由你回報' : `已由 ${(c.already && c.already.by) || '別人'} 接手回報（例如看板已把結果送進對話），不要重複回報` };
+    }
+    // 每分鐘探一次活：引擎不在、runner 也不在，狀態卻停在 running → 不會有人收尾了
+    if (meta.status === 'running' && Date.now() - lastProbe > 60000) {
+      lastProbe = Date.now();
+      const engine = meta.pid ? aliveState(meta) : 'dead';
+      let runner = false; if (meta.runnerPid) { try { process.kill(meta.runnerPid, 0); runner = true; } catch (e) { runner = e.code === 'EPERM'; } }
+      if (engine === 'dead' && !runner && meta.pid) return { ok: false, mode: 'lost', run_dir: runDir, run_id: meta.runId, status: meta.status, error: '引擎與 runner 都已不在，但狀態還是 running（電腦重開或程序被殺）。用 --stop 收掉狀態；結果看子程序 transcript' };
+    }
+    if (Date.now() >= deadline) {
+      const st = runStatus(runDir);
+      return { ok: true, mode: 'waiting', still_running: true, run_dir: runDir, run_id: meta.runId, status: meta.status, summary_zh: st.summary_zh, started_at: meta.startedAt || null, waited_minutes: minutes };
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+}
+
+/** 準備 run 時記下「是哪個對話起的」：session id 與那個對話的工作目錄（看板要用它把對話重新開起來） */
+function parentSession() {
+  const sid = process.env.CLAUDE_CODE_SESSION_ID || null;
+  if (!sid) return { parentSessionId: null, parentCwd: null };
+  let cwd = null;
+  try {
+    const dir = path.join(os.homedir(), '.claude', 'sessions');
+    for (const n of fs.readdirSync(dir)) {
+      if (!n.endsWith('.json')) continue;
+      const r = readJson(path.join(dir, n));
+      if (r && r.sessionId === sid && r.cwd) { cwd = r.cwd; break; }
+    }
+  } catch (_) {}
+  return { parentSessionId: sid, parentCwd: cwd || process.env.CLAUDE_PROJECT_DIR || null };
 }
 
 /** 偵測 wtf plugin（重講紀律）：找 plugin cache 裡最新版的 skills/wtf，回 SKILL.md 路徑與 terminalWidth */
@@ -837,4 +986,5 @@ function detectWtf() {
   return best || { installed: false };
 }
 
-module.exports = { prepareRun, runEngine, stopRun, runStatus, listRuns, findActiveRunsIn, pruneRuns, summarizeStream, locateClaude, detectWtf, extractItems, extractContext, extractSection, selfSufficiency, inspectCwd, readMeta, writeMeta, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, aliveState, procIdentity, findChildTranscript, goalVerdictFromTranscript, buildEngineArgs, describeStatus, FINISHED_STATUSES };
+module.exports = { prepareRun, runEngine, stopRun, runStatus, listRuns, findActiveRunsIn, pruneRuns, summarizeStream, locateClaude, detectWtf, extractItems, extractContext, extractSection, selfSufficiency, inspectCwd, readMeta, writeMeta, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, aliveState, procIdentity, findChildTranscript, goalVerdictFromTranscript, buildEngineArgs, describeStatus, FINISHED_STATUSES,
+  claimReport, releaseReport, reportInfo, reportDue, pendingReports, reportMessage, startDetached, waitRun, parentSession, REPORT_FILE, WAIT_FILE, WAIT_FRESH_MS, REPORT_GRACE_MS };

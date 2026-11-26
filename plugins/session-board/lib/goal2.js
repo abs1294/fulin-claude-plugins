@@ -9,6 +9,10 @@
 //     node <goal2>/skills/goal/goal.js --list            every run, with whether its process is alive
 //     node <goal2>/skills/goal/goal.js --status <dir>    one run in detail: the verdict, the ledger, the last words
 //     node <goal2>/skills/goal/goal.js --stop <dir>      ask a running one to stop
+//     node <goal2>/skills/goal/goal.js --pending         (goal2 0.8.0) runs that ended with nobody waiting for them:
+//                                                         each says which conversation started it and what to tell it
+//     node <goal2>/skills/goal/goal.js --claim|--release <dir> --by board   who tells it - only one of the conversation's
+//                                                         own wait, the board, and goal2's hook in that conversation does
 // Measured 2026-11-16 with a plain node process as the parent: --list 0.24 s for 63 runs; a run started that way ran
 // to "done" (the engine does not need Claude Code to stay open).
 const fs = require('fs');
@@ -33,9 +37,12 @@ function findGoal2(o = {}) {
   return null;
 }
 
-function tool(root, args, run, timeout = 20000) {
+// env: the board's own, without the variables that say "inside session X" (K.cleanEnv) - goal2 0.8.0 notes the
+// session a run is prepared in as the one to tell when it ends, and the board is not a session (a board started
+// from a terminal session's command would otherwise pass that session's id on: a schedule's run "told" to it).
+function tool(root, args, run, timeout = 20000, env) {
   return new Promise((resolve) => {
-    (run || execFile)(process.execPath, [path.join(root, TOOL)].concat(args), { windowsHide: true, timeout, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8' },
+    (run || execFile)(process.execPath, [path.join(root, TOOL)].concat(args), Object.assign({ windowsHide: true, timeout, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8' }, env ? { env } : {}),
       (err, stdout, stderr) => { let j = null; try { j = JSON.parse(String(stdout || '')); } catch (e) {} resolve(j || { ok: false, error: String(stderr || (err && err.message) || 'goal2 沒有回應').trim().slice(-300) }); });
   });
 }
@@ -51,7 +58,7 @@ class Goal2 {
     const root = this.root();
     if (!root) return { installed: false, runs: [] };
     if (this.cache && Date.now() - this.cache.at < 4000) return this.cache.data;
-    const j = await tool(root, ['--list'], this.o.run);
+    const j = await tool(root, ['--list'], this.o.run, 20000, this.o.env);
     if (!j.ok) return { installed: true, error: j.error || 'goal2 讀不到執行紀錄', runs: [] };
     const runs = (j.runs || []).map((x) => ({ runId: x.runId, skill: x.skill, status: x.alive && (x.status === 'running' || x.status === 'prepared') ? 'running' : x.status, alive: !!x.alive, cwd: x.cwd || '', condition: x.condition || '', createdAt: x.createdAt || null, startedAt: x.startedAt || null, endedAt: x.endedAt || null, scheduledFor: x.scheduledFor || null }))
       .sort((a, b) => String(b.runId).localeCompare(String(a.runId)));
@@ -63,7 +70,7 @@ class Goal2 {
   async dir(runId) { const l = await this.list(); return (l.dirOf && l.dirOf[String(runId)]) || null; }
   async status(runId) {
     const d = await this.dir(runId); if (!d) return { ok: false, error: '找不到這一筆 goal' };
-    const j = await tool(this.root(), ['--status', d], this.o.run);
+    const j = await tool(this.root(), ['--status', d], this.o.run, 20000, this.o.env);
     if (!j.ok) return { ok: false, error: j.error || '讀不到' };
     const pick = ['run_id', 'skill', 'status', 'alive', 'started_at', 'ended_at', 'goal_set', 'goal_verdict', 'goal_error', 'continuations', 'compactions', 'num_turns', 'total_cost_usd', 'last_event_at', 'last_tool', 'last_text', 'progress_md', 'summary_zh'];
     const out = { ok: true }; for (const k of pick) if (j[k] !== undefined) out[k] = j[k];
@@ -77,7 +84,7 @@ class Goal2 {
     const root = this.root(); if (!root) return { ok: false, error: '這台電腦沒有裝 goal2' };
     const pf = path.join(os.tmpdir(), 'sb-goal-' + process.pid + '-' + Date.now() + '.txt');
     fs.writeFileSync(pf, String(task) + '\n');
-    const p = await tool(root, ['--prompt-file', pf, '--goal', String(condition), '--cwd', cwd], this.o.run, 60000);
+    const p = await tool(root, ['--prompt-file', pf, '--goal', String(condition), '--cwd', cwd], this.o.run, 60000, this.o.env);
     try { fs.unlinkSync(pf); } catch (e) {}
     if (!p.ok || !p.run_dir) return { ok: false, error: 'goal2 沒有接下這件事：' + String(p.error || '沒有回應').slice(0, 300) };
     try {
@@ -93,10 +100,21 @@ class Goal2 {
     const l = await this.list(); const r = (l.runs || []).find((x) => x.runId === String(runId));
     if (!r) return { ok: false, error: '找不到這一筆 goal' };
     if (!r.alive) return { ok: false, error: '它已經沒有在跑了' };
-    const j = await tool(this.root(), ['--stop', l.dirOf[r.runId]], this.o.run, 30000);
+    const j = await tool(this.root(), ['--stop', l.dirOf[r.runId]], this.o.run, 30000, this.o.env);
     this.cache = null;
     return j.ok ? { ok: true } : { ok: false, error: j.error || '沒有停下來' };
   }
 }
+
+// Runs that ended while the conversation that started them was no longer waiting (closed, or its wait ended):
+// [{runDir, runId, status, parentSessionId, parentCwd, message}]. An older goal2 has no --pending: none.
+Goal2.prototype.pending = async function () {
+  const root = this.root(); if (!root) return [];
+  const j = await tool(root, ['--pending'], this.o.run, 20000, this.o.env);
+  return j && j.ok && Array.isArray(j.runs) ? j.runs.filter((r) => r && r.runDir && r.parentSessionId && r.message) : [];
+};
+// Taking (and, when it could not be delivered, giving back) the telling of one run. -> {ok}
+Goal2.prototype.claim = async function (dir) { const j = await tool(this.root(), ['--claim', dir, '--by', 'board'], this.o.run, 20000, this.o.env); return { ok: !!(j && j.ok), already: j && j.already, error: j && j.error }; };
+Goal2.prototype.release = async function (dir) { const j = await tool(this.root(), ['--release', dir, '--by', 'board'], this.o.run, 20000, this.o.env); return { ok: !!(j && j.ok), error: j && j.error }; };
 
 module.exports = { Goal2, findGoal2, STATUS, TOOL };

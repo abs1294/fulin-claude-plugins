@@ -6,7 +6,9 @@
 //   echo "<使用者要排的 prompt 原文>" | node delaylocal.js [bufferSeconds]
 //   node delaylocal.js [bufferSeconds] --prompt-file <path>
 //   node delaylocal.js [bufferSeconds] --prompt-file <path> --goal "<可測量完成條件>"
-//   node delaylocal.js --run <run_dir>          # cron 到點後由 Claude 呼叫：起 claude -p "/goal …" 子程序跑到完成
+//   node delaylocal.js --start <run_dir>        # cron 到點後由 Claude 呼叫：把 runner 起成獨立程序（不受背景 Bash 2 小時上限、對話關掉也照跑），立刻返回
+//   node delaylocal.js --wait <run_dir>         # 接著背景執行：等到引擎結束（最多 100 分鐘一輪，逾時回「還在跑」再等）
+//   node delaylocal.js --run <run_dir>          # 內部：runner 本體，起 claude -p "/goal …" 子程序跑到完成（由 --start 起）
 //   node delaylocal.js --show-config
 //
 // 設定檔（選用）：~/.claude/goal2/config.json 的 delaylocal 區段，結構與驗證見 ../../lib/config.js。
@@ -16,7 +18,7 @@
 // 兩種模式：
 //   - 預設（--goal 必填）：排程時就把「/goal <完成條件>（含已發 LINE）+ 任務 + 報告 + notify」組成引擎 prompt
 //     落到 ~/.claude/goal2/runs/<id>/prompt.txt；cron 的 final_prompt 只做兩件事：session 守衛、
-//     叫 Claude 用 Bash 背景執行 `delaylocal.js --run <run_dir>`（起 claude -p 子程序跑官方 goal 引擎）。
+//     叫 Claude 用 Bash 執行 `delaylocal.js --start <run_dir>`（獨立起 claude -p 子程序跑官方 goal 引擎），再背景執行 --wait 等結果。
 //     ⚠️ 2.1.196 起 cron fire 的 prompt 不再解析 slash command，開頭 /goal 只是純文字（GitHub #75837），
 //        所以不能再把 /goal 放 cron prompt 第一行；唯一可用入口是 claude -p（見 ../../lib/engine.js）。
 //   - --plain：final_prompt 內建「session 守衛 + 無人值守文字紀律 + 任務 + 發 LINE」，不需完成條件、不起子程序。
@@ -40,12 +42,13 @@ function fail(msg) {
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
 let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd, resolveQuota;
+let startDetached, waitRun, parentSession;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute, crossMonthWarning } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
   ({ resolveQuota } = require(path.join(LIB, 'quota.js')));
-  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd } = require(path.join(LIB, 'engine.js')));
+  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd, startDetached, waitRun, parentSession } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
@@ -97,10 +100,13 @@ let goalCondition = null; // 完成條件（預設 goal 模式必填；由 Claud
 let goalFile = null;      // --goal-file <path>：條件含引號／$／反引號時用檔案傳，避免 shell 改寫
 let plainMode = false;    // --plain 才退回舊的文字紀律模式
 let showConfig = false;
-let runDir = null;        // --run <run_dir>：cron 到點後起引擎
+let runDir = null;        // --run <run_dir>：內部用，runner 本體（由 --start 起成獨立程序）
 let stopDir = null;       // --stop <run_dir>：終止進行中的引擎子程序
 let forceStop = false;    // --stop … --force：程序狀態不明時只收狀態、不殺
 let statusDir = null;     // --status <run_dir>：看進度（不阻塞）
+let startDir = null;      // --start <run_dir>：獨立起 runner（cron 到點後）
+let waitDir = null;       // --wait <run_dir>：背景等結果
+let waitMinutes = 100;    // --minutes N：等待一輪的上限（背景 Bash 最長 120 分鐘）
 let cwdArg = null;        // --cwd <dir>：子程序工作目錄（一律明確帶；Bash 工具的 cwd 會漂移）
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--prompt-file') promptFile = args[++i];
@@ -110,6 +116,9 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--plain') plainMode = true;
   else if (args[i] === '--show-config') showConfig = true;
   else if (args[i] === '--run') runDir = args[++i];
+  else if (args[i] === '--start') { startDir = args[++i]; if (!startDir || startDir.startsWith('--')) fail('--start 後面要接 run 目錄路徑'); }
+  else if (args[i] === '--wait') { waitDir = args[++i]; if (!waitDir || waitDir.startsWith('--')) fail('--wait 後面要接 run 目錄路徑'); }
+  else if (args[i] === '--minutes') { const v = args[++i]; if (!/^\d+$/.test(String(v)) || +v < 1 || +v > 110) fail(`--minutes 需為 1–110 的整數（收到：${v}）`); waitMinutes = parseInt(v, 10); }
   else if (args[i] === '--stop') { stopDir = args[++i]; if (!stopDir || stopDir.startsWith('--')) fail('--stop 後面要接 run 目錄路徑'); }
   else if (args[i] === '--force') forceStop = true;
   else if (args[i] === '--status') statusDir = args[++i];
@@ -127,8 +136,28 @@ if (statusDir) {
   let r; try { r = runStatus(statusDir); } catch (e) { fail(`讀狀態失敗：${e.message}`); }
   console.log(JSON.stringify({ mode: 'status', ...r }, null, 2)); process.exit(0);
 }
+if (startDir) {
+  if (!fs.existsSync(path.join(startDir, 'prompt.txt'))) fail(`--start 目錄不存在或缺 prompt.txt：${startDir}`);
+  const self = path.resolve(__filename);
+  startDetached(startDir, self).then((r) => {
+    console.log(JSON.stringify({ mode: 'started', ...r, wait_command: `node "${self}" --wait "${startDir}"`, stop_command: `node "${self}" --stop "${startDir}"`, status_command: `node "${self}" --status "${startDir}"` }, null, 2));
+    process.exit(r.ok ? 0 : 1);
+  }).catch((e) => fail(`啟動失敗：${e.message}`));
+  return;
+}
+if (waitDir) {
+  if (!fs.existsSync(path.join(waitDir, 'meta.json'))) fail(`--wait 目錄不存在或缺 meta.json：${waitDir}`);
+  const self = path.resolve(__filename);
+  waitRun(waitDir, { minutes: waitMinutes }).then((r) => {
+    const out = { ...r, wait_command: `node "${self}" --wait "${waitDir}"` };
+    if (r.mode === 'waiting') out.next = '還在跑：先跟使用者說一句進度（summary_zh），然後立刻再背景執行同一個 wait_command 接著等';
+    console.log(JSON.stringify(out, null, 2));
+    process.exit(r.ok === false && r.mode !== 'ran' ? 1 : 0);
+  }).catch((e) => fail(`等待失敗：${e.message}`));
+  return;
+}
 if (runDir) {
-  // 執行模式：起 claude -p 子程序跑官方 goal 引擎，阻塞到完成，印 summary（skill 用 Bash 背景執行）
+  // 內部執行模式（runner 本體，由 --start 起成獨立程序）：起 claude -p 子程序跑官方 goal 引擎，阻塞到完成，寫 result.json
   if (!fs.existsSync(path.join(runDir, 'prompt.txt'))) fail(`--run 目錄不存在或缺 prompt.txt：${runDir}`);
   let p; try { p = runEngine(runDir, cfg.config.engine); } catch (e) { fail(`引擎啟動前檢查失敗：${e.message}`); }
   p.then((summary) => {
@@ -232,6 +261,7 @@ let enginePrompt = null;   // goal 模式：交給子程序引擎的 prompt（�
 let runDirOut = null;
 let runCommandOut = null;
 let stopCommandOut = null;
+let waitCommandOut = null;
 let activeRunsOut = [];
 let cwdInspectionOut = null;
 if (!plainMode) {
@@ -269,14 +299,15 @@ if (!plainMode) {
 ${REPORT_FORMAT}`
   });
   let prepared;
-  try { prepared = prepareRun({ skill: 'delaylocal', prompt: enginePrompt, cwd: engineCwd, anchor, meta: { sessionId: envId, condition: goalCondition, overflow: goalOverflow, cwdSource: cwdArg ? 'cli' : (process.env.CLAUDE_PROJECT_DIR ? 'env:CLAUDE_PROJECT_DIR' : 'process.cwd'), pluginVersion: pluginVersion(), scheduledFor: d.toISOString() } }); } catch (e) { fail(e.message); }
+  try { prepared = prepareRun({ skill: 'delaylocal', prompt: enginePrompt, cwd: engineCwd, anchor, meta: { sessionId: envId, ...parentSession(), parentSessionId: envId, condition: goalCondition, overflow: goalOverflow, cwdSource: cwdArg ? 'cli' : (process.env.CLAUDE_PROJECT_DIR ? 'env:CLAUDE_PROJECT_DIR' : 'process.cwd'), pluginVersion: pluginVersion(), scheduledFor: d.toISOString() } }); } catch (e) { fail(e.message); }
   enginePrompt = fs.readFileSync(prepared.promptPath, 'utf8');
   // 準備成功、任務全文已落進 run 目錄 → 中繼檔才可刪
   if (promptFile) { try { fs.unlinkSync(promptFile); } catch (_) {} }
   if (goalFile) { try { fs.unlinkSync(goalFile); } catch (_) {} }
   runDirOut = prepared.runDir;
   activeRunsOut = prepared.activeRunsInTree || [];
-  runCommandOut = `node "${path.resolve(__filename)}" --run "${prepared.runDir}"`;
+  runCommandOut = `node "${path.resolve(__filename)}" --start "${prepared.runDir}"`;
+  waitCommandOut = `node "${path.resolve(__filename)}" --wait "${prepared.runDir}"`;
   stopCommandOut = `node "${path.resolve(__filename)}" --stop "${prepared.runDir}"`;
 
   // cron 到點時送進 REPL 的 prompt：不能放 /goal（2.1.196 起不解析），只做守衛 + 起引擎
@@ -287,10 +318,13 @@ ${REPORT_FORMAT}`
 1. [Session 守衛] 確認環境變數 CLAUDE_CODE_SESSION_ID 是否等於 ${envId}。
    - 不等於 → 這是別的 session 誤觸發本排程：什麼都不做、不要執行下一步，回一句「非目標 session，略過」即可結束。
    - 等於 → 繼續。
-2. [啟動 goal 引擎] 用 Bash 工具、run_in_background: true 執行下面這條指令（原樣執行，不要改參數）：
+2. [啟動 goal 引擎] 用 Bash 工具「前景」執行下面這條指令（原樣執行，不要改參數）：
    ${runCommandOut}
-   它會另起一個 headless Claude Code session，用官方 /goal 引擎把任務做到完成條件達成，並在收尾時寫報告、嘗試發 LINE。指令會阻塞到引擎結束，最後印一份 JSON summary。
-3. [等待與回報] 背景指令結束後（你會收到通知），讀它印出的 JSON：**status 與 goal_verdict**（done＝檢查器確認達成；unverified＝正常結束但沒有達成判定，不可當作達成，要明講；impossible＝檢查器判條件不可能；failed＝拒收或異常；timeout＝超過時限；budget＝花費達上限；unknown＝stream 遺失）、continuations、compactions、num_turns、total_cost_usd、result_text（引擎最後一則回覆＝報告全文，原文保留）。用固定格式回報：狀態與是否達成、回合數與花費、報告內容、run_dir 路徑（含 stream.jsonl 可追查、progress.md 是進度帳本、child_transcript 是檢查器紀錄）。不要追加任何提問或 offer。
+   它把引擎起成獨立程序（另一個 headless Claude Code session，用官方 /goal 引擎把任務做到完成條件達成，收尾時寫報告、嘗試發 LINE）後幾秒內就返回，印 mode:"started"。ok:false → 回報 error 與 runner_log_tail，結束。
+3. [等待] 立刻用 Bash 工具、run_in_background: true、timeout: 7200000 執行：
+   ${waitCommandOut}
+   這步不可省：沒有它，引擎結束時沒有人通知這個對話。它最多等 100 分鐘：印 mode:"waiting" 表示還在跑 → 用一句話說進度（summary_zh），然後立刻再背景執行同一條指令接著等；mode:"ran" 才是結束（report:"already" 表示別人已回報過，不要重複）；mode:"lost" → 回報 error。
+4. [回報] mode:"ran" 時讀它印出的 JSON：**status 與 goal_verdict**（done＝檢查器確認達成；unverified＝正常結束但沒有達成判定，不可當作達成，要明講；impossible＝檢查器判條件不可能；failed＝拒收或異常；timeout＝超過時限；budget＝花費達上限；unknown＝stream 遺失）、continuations、compactions、num_turns、total_cost_usd、result_text（引擎最後一則回覆＝報告全文，原文保留）。用固定格式回報：狀態與是否達成、回合數與花費、報告內容、run_dir 路徑（含 stream.jsonl 可追查、progress.md 是進度帳本、child_transcript 是檢查器紀錄）。不要追加任何提問或 offer。
    （要中途終止：${stopCommandOut}；要看進度：把 --stop 換成 --status。）`;
 } else {
   // === 文字紀律模式（--plain，選用 fallback）===
@@ -356,6 +390,7 @@ console.log(JSON.stringify({
   mode: plainMode ? 'plain' : 'goal',
   run_dir: runDirOut,
   run_command: runCommandOut,
+  wait_command: waitCommandOut,
   stop_command: stopCommandOut,
   engine_cwd: runDirOut ? require(path.join(runDirOut, 'meta.json')).cwd : null,
   active_runs_in_tree: activeRunsOut,

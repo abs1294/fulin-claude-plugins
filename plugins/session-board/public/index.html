@@ -1667,7 +1667,7 @@
      normal one: white, a light line all round, the main colour while typing in it. ── */
   :root[data-skin] { --fill: color-mix(in srgb, var(--ink) 8%, var(--bg)); --hover: transparent; --tint: color-mix(in srgb, var(--accent) 10%, var(--bg)); --active: var(--tint); --bubble: color-mix(in srgb, var(--accent) 7%, var(--bg));
     }
-  :root[data-skin] :is(button, summary, a, .past, .desk, .nrow, .choice, .prop, .popitem, .collab-item, .fp, .chg-row, .opens, .tmsg.pick):not(.primary):not(.danger):not(.on):not([aria-pressed="true"]):not([aria-selected="true"]):not(:disabled):hover { color: var(--accent); }
+  :root[data-skin] :is(button, summary, a, .past, .desk, .nrow, .choice, .prop, .popitem, .collab-item, .fp, .chg-row, .opens, .tmsg.pick):not(.primary):not(.upd-fab):not(.danger):not(.on):not([aria-pressed="true"]):not([aria-selected="true"]):not(:disabled):hover { color: var(--accent); }
   :root[data-skin] :is(input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color], [type=hidden]), select, textarea):not(.composer textarea):not(.rename-in) { background-color: var(--bg); border: 1px solid var(--field-line); border-radius: var(--r-m); }
   :root[data-skin] :is(input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color], [type=hidden]), select, textarea):not(.composer textarea):not(.rename-in):hover { border-color: var(--field-hover); }
   :root[data-skin] :is(input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color], [type=hidden]), select, textarea):not(.composer textarea):not(.rename-in):focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
@@ -2907,7 +2907,7 @@ function drawList() {
     const s = sessions.find((x) => x.sessionId === b.dataset.sid);
     const stuck = !!s && deskState(s, now) === 'stuck';
     b.classList.toggle('stuck', stuck);
-    const stuckWhy = stuck ? '顯示執行中，但已經 ' + Math.round((now - s.activeAt) / 60000) + ' 分鐘沒有任何動靜。可能卡住了，也可能只是在跑很久的指令' : '';
+    const stuckWhy = stuck ? '顯示執行中，但已經 ' + Math.round((now - Math.max(s.activeAt, s.since || 0)) / 60000) + ' 分鐘沒有任何動靜。可能卡住了，也可能只是在跑很久的指令' : '';
     // folder first (in its own element, so that it stands out from the state after it)
     m.textContent = ''; { const [w, c] = rowTag(s); if (w) m.append(el('span', 'by ' + c, w)); }
     if (m.dataset.folder) m.append(el('b', 'fold', m.dataset.folder), ' · ');
@@ -3061,7 +3061,7 @@ function foldOne(p) {
     const open = p.classList.contains('open');
     const cut = open || p.scrollHeight > p.clientHeight + 1;
     p.classList.toggle('cut', cut && !open); b.hidden = !cut; b.classList.toggle('at-end', cut && !open);
-    if (cut && !open) { const cs = getComputedStyle(p); b.style.marginTop = -(p.clientHeight + (parseFloat(cs.marginBottom) || 0)) + 'px'; } else b.style.marginTop = '';
+    if (cut && !open) { const cs = getComputedStyle(p); const mb = parseFloat(cs.marginBottom) || 0; b.style.marginTop = -(p.clientHeight + mb) + 'px'; b.style.marginBottom = Math.max(0, p.clientHeight + mb - b.offsetHeight) + 'px'; } else b.style.marginTop = b.style.marginBottom = '';   // (the room under the line stays as it was)
   };
   b.addEventListener('click', (e) => { e.stopPropagation(); const open = p.classList.toggle('open'); b.setAttribute('aria-expanded', String(open)); b.textContent = open ? '收起' : '更多'; fit(); });
   p.after(b);
@@ -4183,7 +4183,7 @@ async function drawSettings() {
 const STUCK_MS = 10 * 60 * 1000;
 function deskState(s, now = Date.now()) {
   if (s.status === 'waiting') return 'wait';
-  if (s.status === 'busy' || s.status === 'background') return s.status === 'busy' && s.activeAt && now - s.activeAt > STUCK_MS ? 'stuck' : 'run';
+  if (s.status === 'busy' || s.status === 'background') return s.status === 'busy' && s.activeAt && now - Math.max(s.activeAt, s.since || 0) > STUCK_MS ? 'stuck' : 'run';
   return s.group === 'yours' ? 'done' : 'idle';
 }
 const DESK = { wait: '等你回應', stuck: '可能卡住', run: '執行中', done: '做完了', idle: '閒置' };   // the same words as the list on the left and the top of a conversation
@@ -4371,7 +4371,7 @@ function fillOffice() {
       const d = el('button', 'desk ' + st); d.type = 'button'; d.dataset.sid = o.sessionId;
       const face = el('span', 'face', initials(o.title)); face.append(el('i')); face.setAttribute('aria-hidden', 'true');
       const mid = el('span');
-      const since = st === 'stuck' ? o.activeAt : o.since;
+      const since = st === 'stuck' ? Math.max(o.activeAt, o.since || 0) : o.since;
       const line = el('span', 'ds'); line.dataset.since = String(since || now); line.dataset.text = (q ? offMark(o) : '') + (q && saidIn[o.sessionId] ? hitText(saidIn[o.sessionId]) + ' · ' : '') + (o.owner === 'board' ? '看板 · ' : '終端機 · ') + (st === 'stuck' ? '沒有動靜已 ' : ''); line.textContent = line.dataset.text + ago(now - Number(line.dataset.since));
       const t = el('span', 'dt', o.title || '(沒有標題)'); t.style.display = 'block'; line.style.display = 'block';
       mid.append(t, line); mid.style.minWidth = '0';

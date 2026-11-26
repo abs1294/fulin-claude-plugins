@@ -164,18 +164,21 @@ class Watchdog {
       const openNotice = (n) => { if (this.ops.open) { try { this.ops.open(n); } catch (e) {} } };
       for (const s of open) {
         about = s.sessionId;
+        // Since when nothing has happened: since it last wrote, or since it began to work if that is later - one that lay idle for
+        // an hour and was just sent a message has not stood still for an hour (said so a second after, six times: 2026-11-26)
+        const from = s.activeAt ? Math.max(s.activeAt, s.since || 0) : 0;
         // A standstill that is over (it wrote again, or it is no longer working): its notice is cleared.
-        if (st.stuck[s.sessionId] && (s.status !== 'busy' || (s.activeAt && s.activeAt !== st.stuck[s.sessionId] && now - s.activeAt < cfg.stuckMinutes * 60000))) {
+        if (st.stuck[s.sessionId] && (s.status !== 'busy' || (from && from !== st.stuck[s.sessionId] && now - from < cfg.stuckMinutes * 60000))) {
           delete st.stuck[s.sessionId];
           if (this.ops.resolve) { try { this.ops.resolve('stuck', s.sessionId, 'moved'); } catch (e) {} }
         }
         // ── stuck ──
-        if (s.status === 'busy' && s.activeAt && now - s.activeAt >= cfg.stuckMinutes * 60000) {
-          if (cfg.stuck && st.stuck[s.sessionId] !== s.activeAt) {
-            st.stuck[s.sessionId] = s.activeAt;
-            const mins = Math.round((now - s.activeAt) / 60000);
+        if (s.status === 'busy' && from && now - from >= cfg.stuckMinutes * 60000) {
+          if (cfg.stuck && st.stuck[s.sessionId] !== from) {
+            st.stuck[s.sessionId] = from;
+            const mins = Math.round((now - from) / 60000);
             note(s, 'stuck', '顯示執行中，但已經 ' + mins + ' 分鐘沒有任何動靜');
-            openNotice({ kind: 'stuck', sessionId: s.sessionId, title: '可能卡住：' + nameOf(s), text: '顯示執行中，但從 ' + clock(s.activeAt) + ' 起沒有任何動靜。可能卡住了，也可能只是在跑很久的指令。' });
+            openNotice({ kind: 'stuck', sessionId: s.sessionId, title: '可能卡住：' + nameOf(s), text: '顯示執行中，但從 ' + clock(from) + ' 起沒有任何動靜。可能卡住了，也可能只是在跑很久的指令。' });
             tell('可能卡住：' + nameOf(s), '顯示執行中，但已經 ' + mins + ' 分鐘沒有任何動靜。可能卡住了，也可能只是在跑很久的指令。');
           }
           continue;

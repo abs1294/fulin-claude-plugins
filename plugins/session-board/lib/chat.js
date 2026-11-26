@@ -646,8 +646,7 @@ class Channels {
     }
     // (what you ran yourself with "!" stands in front of the message - see send() - and is not what the conversation is about)
     if (!c.title) c.title = text.replace(/^(?:\s*<bash-(?:input|stdout|stderr)>[\s\S]*?<\/bash-(?:input|stdout|stderr)>)+/, '').replace(/\s+/g, ' ').trim().slice(0, 60) || '（圖片）';
-    c.lastActivity = Date.now();
-    c.lastSeenAt = Date.now();
+    c.lastActivity = Date.now();   // (not seen by that: most of what is sent here is the board's own - seen() is said where you send it, server.js)
     c.proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: contentOf(text, images) } }) + '\n');
     c.draft = '';   // sent: what was in the box is a message now
     this._setState(c, 'busy');
@@ -829,6 +828,7 @@ class Channels {
     if (what === 'resend') {
       const r = this.send(sid, words, pics || undefined, '', x.pre);
       if (!r.ok) { c.unsent = list; return r; }
+      this.seen(sid);   // your own press
     }
     this._dropPics(x);
     this._emit(c, { type: 'unsent', list: this._unsentList(c) });

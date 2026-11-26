@@ -699,7 +699,7 @@ test('a source of the inbox: its connection taken away and made again from the p
 test('系統排程: what the board does by itself on a timer, each with how often and whether it is on', async () => {
   asked.add('GET /api/system-jobs');
   const r = await get('/api/system-jobs'); assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(r.json.jobs.map((x) => x.key), ['inbox', 'check', 'update', 'cbm', 'harness', 'watchdog', 'machine', 'budget', 'monthly', 'workdays', 'keepalive']);
+  assert.deepStrictEqual(r.json.jobs.map((x) => x.key), ['inbox', 'check', 'update', 'cbm', 'harness', 'watchdog', 'machine', 'budget', 'goal2tell', 'monthly', 'workdays', 'keepalive']);
   for (const x of r.json.jobs) assert.ok(x.name && x.what && x.every && typeof x.on === 'boolean', x.key);
 });
 
@@ -880,6 +880,31 @@ test('files Claude hands over are listed as files, with where they are', () => {
   assert.deepStrictEqual(fl.map((x) => [x.files, x.caption]), [[['C:\\tmp\\a.patch', 'C:\\tmp\\b.zip'], '依序套']]);
   assert.deepStrictEqual(items.filter((x) => x.role === 'tool').map((x) => x.tool), ['Bash', 'SendUserFile'], 'one with no file in it stays an ordinary action line');
   assert.deepStrictEqual(H.handedFiles(null), []); assert.strictEqual(H.handedFiles({ files: new Array(60).fill('x') }).length, 40);
+});
+
+test('a goal2 run that ended with nobody waiting is told to the conversation that started it - once, and given back when it cannot be', async () => {
+  const sent = [], claims = [], releases = [];
+  const R = (id, sid, cwd) => ({ runDir: path.join(HOME, 'g2runs', id), runId: id, status: 'done', parentSessionId: sid, parentCwd: cwd, message: '【goal2 跑完了】run ' + id });
+  let pending = [R('20261126090000-goal-aaaa', 'a1a1a1a1-0000-4000-8000-000000000a01', WORK), R('20261126090000-goal-bbbb', 'b2b2b2b2-0000-4000-8000-000000000b02', path.join(HOME, 'no-such-folder')), R('20261126090000-goal-cccc', 'c3c3c3c3-0000-4000-8000-000000000c03', WORK)];
+  const g = { list: async () => ({ installed: true, runs: [] }), pending: async () => pending, claim: async (d) => { claims.push(d); return { ok: !/cccc/.test(d) }; }, release: async (d) => { releases.push(d); return { ok: true }; } };
+  const p3 = await freePort(); const s3 = createServer(TOKEN, p3, { channels, noTimers: true, noSchedules: true, out, goal2: g });
+  const realSend = channels.send;
+  channels.send = function (sid, text) { sent.push([sid, text]); return realSend.call(channels, sid, text); };
+  try {
+    const r = await s3.tellGoalRuns();
+    assert.deepStrictEqual(r.map((x) => [x.runId, x.ok, x.how || '']), [['20261126090000-goal-aaaa', true, 'resume'], ['20261126090000-goal-bbbb', false, '']], 'cccc was taken by someone else: not told by the board');
+    assert.deepStrictEqual(sent.map((x) => x[0]), ['a1a1a1a1-0000-4000-8000-000000000a01'], 'only to the conversation that started it');
+    assert.ok(/goal2 跑完了/.test(sent[0][1]));
+    const c = channels.get('a1a1a1a1-0000-4000-8000-000000000a01');
+    assert.ok(c && c.cwd === WORK, 'a conversation not open is started again on the board, in its own folder');
+    assert.deepStrictEqual(releases, [path.join(HOME, 'g2runs', '20261126090000-goal-bbbb')], 'not delivered (its folder is gone): given back for goal2\'s hook');
+    c.lastResultAt = Date.now() + 1; assert.strictEqual(channels.unread(c), true, 'what the board sends by itself is not you reading it');
+    const before = claims.length; pending = pending.filter((x) => !/aaaa/.test(x.runId));   // aaaa was told: goal2 no longer lists it
+    assert.deepStrictEqual(await s3.tellGoalRuns(), [], 'one not delivered is not tried again within 30 minutes');
+    assert.ok(claims.slice(before).every((d) => !/bbbb/.test(d)), 'not even claimed again');
+    pending = []; sent.length = 0;
+    assert.deepStrictEqual(await s3.tellGoalRuns(), [], 'nothing pending: nothing sent'); assert.strictEqual(sent.length, 0);
+  } finally { channels.send = realSend; s3.close(); if (s3.closeAllConnections) s3.closeAllConnections(); }
 });
 
 test('goal2 runs: listed, one in detail, a running one stopped - only runs goal2 itself listed', async () => {
@@ -1151,6 +1176,8 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
   assert.ok(!texts.includes('echo secret') && !texts.includes('boom'), 'what was dropped is not');
   assert.ok(first.message.content.some((b) => b.type === 'image'));
   assert.strictEqual((await post('/api/shell/drop', { sessionId: B })).json.ok, false, 'nothing kept after it went');
+  { const c = channels.get(B); c.lastSeenAt = 1000; c.lastResultAt = 2000; channels.send(B, '（看板自動送出）額度回來了'); assert.strictEqual(channels.unread(c), true, 'what the board sends by itself is not you reading');
+    assert.strictEqual((await post('/api/send', { sessionId: B, text: '我送的' })).status, 200); assert.strictEqual(channels.unread(c), false, 'you wrote in it'); }
 
   const stream = await ask('/api/stream?sid=' + B + '&t=' + TOKEN, { headers: { 'x-board-token': '' }, firstChunk: true });
   assert.strictEqual(stream.status, 200); assert.match(stream.headers['content-type'], /event-stream/); assert.match(stream.text, /"type":"state"/);

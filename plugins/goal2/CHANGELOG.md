@@ -2,6 +2,14 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.8.0] - 2026-11-26
+### Changed
+- **引擎改成獨立程序，不再跟著對話死**：新指令 `--start <run_dir>` 把 runner 起成獨立程序（Windows：detached＋新程序群組；macOS／Linux：setsid），啟動者幾秒內就返回。舊做法是對話用背景 Bash 跑 `--run`，引擎是那個背景指令的子程序：Claude Code 的背景指令最長 2 小時，到時連引擎一起被殺；對話被關掉也一起死（2026-11-26 一個 run 跑滿 2 小時被砍）。實測（Windows，2026-11-26）：由 `claude -p` 啟動後它正常結束、以及 `taskkill /T /F` 強制殺掉整棵 Claude 程序樹（同一個 Bash 裡的 sleep 一起死了）兩種情況，runner 與引擎都還在跑。macOS 未實跑。
+- **新指令 `--wait <run_dir> [--minutes 100]`**：對話背景執行它等結果。引擎一結束就回 `mode:"ran"`（內容同 result.json）；100 分鐘到了還在跑回 `mode:"waiting"`，對話講一句進度後接著再等（背景指令 2 小時上限，留 20 分鐘餘裕）；runner 與引擎都不在卻停在 running 回 `mode:"lost"`。準備的輸出 `run_command` 改成 `--start`、多 `wait_command`；`--run` 變成內部用。delaylocal 同步改（cron 的 prompt 先 `--start` 再背景 `--wait`）。
+- **對話不在時送回原對話**：準備時記下是哪個對話起的（meta `parentSessionId`／`parentCwd`）。等待程序每輪寫心跳 `waiting.json`；引擎結束時沒有新鮮心跳（對話被關掉、等待被殺），由看板（新指令 `--pending`、`--claim`／`--release <run_dir> --by <誰>`）把結果送回那個對話，看板沒開就由新的 `hooks/pending-report.js`（UserPromptSubmit、SessionStart resume）在使用者下次於那個對話打字或重新打開時補上。等待、看板、hook 搶同一個 `reported.json`，只回報一次。不發 LINE（使用者 2026-11-26 裁定）。
+- SKILL：改掉「背景執行不受 Bash 工具 timeout 限制，實測跑 6918 秒仍正常收尾」（那次沒碰到上限，現在的上限是 2 小時）與「Claude Code 要一直開著」；寫死「啟動後一定要接著背景跑 `wait_command`」、`waiting` 時立刻再等。代價：關掉 Claude Code 不會停掉引擎，要停一律 `--stop`；TaskStop 等待不會停引擎。
+- 新增 `tests/report.test.js`（假引擎 `tests/fixtures/fake-claude.js`、隔離家目錄；37 項）。
+
 ## [0.7.1] - 2026-11-24
 ### Fixed
 - 說明寫清楚：要看的額度沒在計時，或重置時間已經過了，而資料滿一天，都會擋（`limits-stale`）；補一項「沒在計時、資料舊」的測試。

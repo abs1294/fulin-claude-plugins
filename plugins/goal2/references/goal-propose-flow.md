@@ -57,13 +57,13 @@
 
 | | `goal` skill（現在就做） | `delaylocal` skill（quota 重置後做） |
 |---|---|---|
-| 準備 | `goal.js --prompt-file … --goal … --cwd <專案根>` → run_dir + `run_command` + `confirm_timer_cron` | `delaylocal.js --show-config` 拿 `confirm_timer_cron`；確認後 `delaylocal.js … --goal … --cwd <專案根>` → run_dir + `run_command` + 任務 cron |
+| 準備 | `goal.js --prompt-file … --goal … --cwd <專案根>` → run_dir + `run_command`（--start）+ `wait_command` + `confirm_timer_cron` | `delaylocal.js --show-config` 拿 `confirm_timer_cron`；確認後 `delaylocal.js … --goal … --cwd <專案根>` → run_dir + `run_command` + 任務 cron |
 | 並行 | 不擋；`active_runs_in_tree` 列出同棵樹活著的 run，回報時提醒。路徑不重疊仍會共用 DB／port／測試結果，任務書要寫範圍切分；`--stop` 殺不到 `&`／nohup 起的背景服務 | 同左 |
-| timer 的 prompt | （預設不排）開啟時：文字指令「[goal2 逾時自動採納] …請用 Bash 背景執行 `<run_command>`」 | 文字指令：「[delaylocal 逾時自動採納] …請以 --goal-file 跑 delaylocal.js 後 CronCreate」 |
-| 使用者同意後 | `CronDelete` timer → Bash 背景執行 `run_command` | `CronDelete` timer → `delaylocal.js --goal` → `CronCreate(任務 cron)` |
-| 引擎何時起 | propose 完立刻（或開 timer 時：同意／逾時） | 任務 cron 到點 → fire 進來的 prompt 叫 Claude 背景執行 `run_command` |
+| timer 的 prompt | （預設不排）開啟時：文字指令「[goal2 逾時自動採納] …請用 Bash 執行 `<run_command>`，再背景執行 `<wait_command>`」 | 文字指令：「[delaylocal 逾時自動採納] …請以 --goal-file 跑 delaylocal.js 後 CronCreate」 |
+| 使用者同意後 | `CronDelete` timer → Bash 執行 `run_command`（--start）→ 背景執行 `wait_command` | `CronDelete` timer → `delaylocal.js --goal` → `CronCreate(任務 cron)` |
+| 引擎何時起 | propose 完立刻（或開 timer 時：同意／逾時） | 任務 cron 到點 → fire 進來的 prompt 叫 Claude 執行 `run_command`（--start）、再背景執行 `wait_command` |
 | 終止／進度 | `goal.js --stop <run_dir>`／`--status <run_dir>`；多個活著的 run 時先問停哪一個 | `delaylocal.js --stop <run_dir>`／`--status <run_dir>`（不需 session id） |
-| 煞車 | `engine.maxBudgetUsd`（預設 300，觸發 → `status: budget`）、`engine.maxMinutes`（預設 480，≤10080）；殺 runner 或主 Claude Code 退出，引擎都跟著死（實測）；預算在回合邊界才對帳 | 同左 |
+| 煞車 | `engine.maxBudgetUsd`（預設 300，觸發 → `status: budget`）、`engine.maxMinutes`（預設 480，≤10080）；0.8.0 起引擎是獨立程序：TaskStop 等待或關掉 Claude Code 都不會停掉它，要停一律 `--stop`；預算在回合邊界才對帳 | 同左 |
 | 任務 cron | 無 | quota 重置後 + `delaylocal.bufferSeconds`（預設 900）；session-only，另有 session 守衛 |
 | 收尾 | 主 session 讀 summary 回報（有 wtf 就套 wtf 格式）；不發 LINE | 子程序寫報告檔 + `notify-line.js` 發 LINE（選用）；主 session 再讀 summary 回報 |
 
