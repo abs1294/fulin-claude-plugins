@@ -1,0 +1,9 @@
+{
+  "name": "longshot",
+  "version": "0.1.0",
+  "description": "網頁長截圖：把 Chrome 目前開著的頁面（含要登入的後台，如 Google Play Console、App Store Connect）自動另存、離線截成一整張長圖存到桌面，截完刪掉另存檔。內層捲動區自動撐開、沒載入的圖示字型自動隱藏。也可截已另存的網頁檔或公開網址。零相依，用電腦上的 Chrome／Edge；支援 macOS 與 Windows。",
+  "author": {
+    "name": "fulin"
+  },
+  "keywords": ["screenshot", "長截圖", "整頁截圖", "full-page", "chrome", "cdp", "play-console", "app-store-connect"]
+}
