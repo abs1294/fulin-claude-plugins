@@ -81,6 +81,7 @@ monorepo 路徑自動偵測（從腳本位置回推），不必手填。它建�
 | **travel-advisor** | 旅遊行程顧問與現場導遊：四道強制閘門（選項盤點→硬約束過濾→查證完備→範圍宣告）把 136 則實際踩過的坑編碼成規則；旅伴參數（孕婦／長輩）與地區從設定檔讀不寫死；附現場定位腳本（Google Maps 即時位置分享→座標，不開瀏覽器）與 Gate-V 判準驗證器。**不常用，需要時才裝到專案**；設定檔與行程狀態檔含個資，已 .gitignore | Python 3（腳本）；Node.js＋Playwright（verify-gatev.js，走系統 Chrome） |
 | **cbm-guard** | codebase-memory-mcp（程式碼知識圖譜）查詢的機械閘：**它的數字很容易看起來很成功**——精確、可複製、有來源，唯獨是錯的。在查詢當下攔截五類會誤導的用法（EXISTS 綁定變數位置錯→結果恆為全部或零**且不報錯**、計數沒跑對照組、節點數被當成實體數、孤兒查詢高估數倍、Route 節點在 attribute routing 框架下建不出來），並把「框架反射入口被誤判成死碼」泛化成設定（MediatR／EF Core／Spring／Angular 皆同型）。另含**索引新鮮度檢查**——cbm 的查詢結果不帶新鮮度標記，對過期索引查會拿到已刪除的檔案且看起來完全正常。**零設定即可用**，專案事實（實測數字／替代工具／已標註的孤兒檔）走 `cbm-guard.config.json` | Node.js（hook）＋ Python 3（新鮮度檢查）；需 codebase-memory-mcp |
 | **session-board** | 本機 session 看板：一個只聽本機的網頁，左邊是這台電腦所有 Claude Code session 的清單（依資料夾分組，標示輪到你／執行中），右邊是對話。可以直接在頁面上開新對話（選資料夾）、打字、核准或拒絕 Claude 要做的動作，重啟後接續原本的對話；終端機視窗裡的 session 可以看對話、切到它的視窗，或搬進看板。說「開 session 看板」或 `/session-board` 啟動。單一 Node 程序、零相依（資料存在 Node 內建的 SQLite）、免建置，詳 `plugins/session-board/README.md` | Node.js；支援 Windows＋Windows Terminal、macOS＋Terminal；摘要標題來自 cc-statusline（沒裝則用 Claude Code 自己取的標題） |
+| **longshot** | 網頁長截圖：跟 Claude 說「長截圖」，把 Chrome 目前開著的頁面（含要登入的後台，如 Google Play Console、App Store Connect）自動另存、離線截成一整張長圖存到桌面，截完刪掉另存檔。內層捲動區自動撐開、沒載入的圖示字型自動隱藏；開啟網頁檔時不執行頁面程式、不對外連線。也可截已另存的網頁檔或公開網址。零相依，詳 `plugins/longshot/README.md` | Node.js 22＋Chrome（或 Edge）；macOS 首次要開「輔助使用」權限；支援 macOS／Windows |
 
 ---
 
@@ -106,7 +107,8 @@ plugins/
 ├─ harness/                          開發流程制度安裝器與健檢（/harness:init 五層生成＋階段閘＋init-verify＋冷啟探針；學習迴路；/harness:review；hook 範本、agent 與知識容器骨架、條件式入口提醒）
 ├─ cbm-guard/                        codebase-memory-mcp 查詢機械閘（七類判準＋索引新鮮度；專案相依走 config，零設定亦可用）
 ├─ travel-advisor/                   旅遊行程顧問與現場導遊（四道閘門＋旅伴設定檔＋現場定位腳本；需要時才裝）
-└─ session-board/                    本機 session 看板（單一 Node 程序的本機網頁；左清單右對話，可直接對話、切終端機視窗；僅 Windows）
+├─ session-board/                    本機 session 看板（單一 Node 程序的本機網頁；左清單右對話，可直接對話、切終端機視窗；僅 Windows）
+└─ longshot/                         網頁長截圖（Chrome 分頁自動另存→離線截整頁→刪檔；零相依，macOS／Windows）
 ```
 
 ## 開發模式（C 折衷）
