@@ -4249,7 +4249,11 @@ function drawOffice(goTo) {
   if (keep.restorable.length) { const box = el('div', 'of-restore'); drawKeep(box, 'restore'); pane.append(box); }
   const row = el('div', 'pathrow');
   const input = el('input'); input.type = 'search'; input.value = officeQ; input.placeholder = '搜尋對話：標題、資料夾、對話裡說過的任何一句（開著的、沒開著的、隱藏的一起找）'; input.setAttribute('aria-label', '搜尋對話'); input.style.fontFamily = 'inherit';
-  input.addEventListener('input', () => { officeQ = input.value.trim(); officeShape = ''; fillOffice(); clearTimeout(officeTimer); officeTimer = setTimeout(loadOfficePast, 300); });
+  input.id = 'ofSearch';
+  input.addEventListener('input', () => { officeQ = input.value.trim(); officeShape = ''; fillOffice(true); clearTimeout(officeTimer); officeTimer = setTimeout(loadOfficePast, 300); });
+  // while you are in the search box the rooms are not drawn again by themselves (asked 2026-11-27: they kept jumping under
+  // what you were reading); what came meanwhile is drawn when you leave it (left by a press: after its click, below)
+  input.addEventListener('blur', () => { if (!officePressing) officeCatchUp(); });
   // the recommend list is one for all the folders (plugin-manager's recommends.json): its way in is on the office's own
   // bar, not inside a room (asked 2026-11-21: "it is global, not a folder's own")
   const rec = el('button', 'btn', '推薦清單'); rec.type = 'button'; rec.style.flex = 'none'; rec.title = '所有資料夾共用的推薦清單（別人做的 plugin）：各房間的「外掛分析」從這裡和你的 plugin 庫挑。在這裡新增、修改、刪除';
@@ -4273,36 +4277,52 @@ function drawOffice(goTo) {
   const sp = (() => { let p = pane; while (p && p !== document.body) { const o = getComputedStyle(p).overflowY; if (o === 'auto' || o === 'scroll') return p; p = p.parentElement; } return null; })();
   if (sp && !sp.dataset.ofStick) { sp.dataset.ofStick = '1'; sp.addEventListener('scroll', () => { const h = document.querySelector('.of-sticky'); if (h) h.classList.toggle('stuck', sp.scrollTop > 0 && h.getBoundingClientRect().top <= sp.getBoundingClientRect().top + (parseFloat(getComputedStyle(h).top) || 0) * VP.rectPerCss + 1); }, { passive: true }); }   // once per scroll area
   pane.append(head, ...(sub.parentElement ? [] : [sub]), note, grid, foot);
-  officeShape = ''; fillOffice();
+  officeShape = ''; fillOffice(true);   // (the whole page new: its rooms drawn whatever is held)
   loadOfficePast();
 }
 // The conversations that are not open (the last 30 days; the search is done by the board, over what you said too).
 let officeQ = '', officeTimer = 0, officePast = null, officePastSeq = 0, officeWhen = '', officeTemp = false, officePrograms = false, officeDrag = '';
-const officeAll = new Set();   // rooms whose not-open conversations are all shown
 let officeEarlier = false;     // the conversations older than the latest 30 days asked for
 async function loadOfficePast() {
   const seq = ++officePastSeq, asked = officeQ;
   let r; try { r = await api('/api/past?q=' + encodeURIComponent(officeQ) + (officePrograms ? '&programs=1' : '') + (officeEarlier ? '&days=all' : '')); } catch (e) { r = { ok: false }; }
   if (seq !== officePastSeq) return;   // a newer search has been sent meanwhile
   officePast = r.ok ? Object.assign({ stamp: Date.now(), asked }, r.data) : { failed: true, items: [], stamp: Date.now(), asked };
+  const atPress = officePressing;   // (come back while something is being pressed: drawn once that click is done)
   if (r.ok && !officeQ) pastCount = r.data.total ? '沒開著的 ' + r.data.total + ' 個' : '';
-  officeShape = ''; fillOffice();
+  officeShape = ''; fillOffice(!atPress);
 }
 // The rooms are drawn again whenever a conversation in them changes - every few seconds while some are working - and
 // a list scrolled down inside a room went back to its top each time (asked 2026-11-27: "這一直亂跳"). Where each list
-// was scrolled (by its room and its place among the lists of the same kind) and the page's own scroll are put back.
+// was scrolled (by its room and its place among the lists of the same kind) is put back. (The page's own scroll is not
+// touched: the rooms are taken out and put back before the page is laid out again, so it stays where it was.)
 function officeScrollSave(grid) {
-  const m = new Map(), sc = $('main') && $('main').querySelector('.scroll');
-  m.set('', sc ? sc.scrollTop : 0);
+  const m = new Map();
   for (const r of grid.querySelectorAll('section.room[data-key]')) { const n = {}; for (const e of r.querySelectorAll('*')) { if (e.scrollHeight <= e.clientHeight) continue; const k = e.className || e.tagName; n[k] = (n[k] || 0) + 1; if (e.scrollTop > 0) m.set(r.dataset.key + '|' + k + '|' + n[k], e.scrollTop); } }
   return m;
 }
 function officeScrollRestore(grid, m) {
-  if (!m || m.size < 2 && !m.get('')) return;
+  if (!m.size) return;
   for (const r of grid.querySelectorAll('section.room[data-key]')) { const n = {}; for (const e of r.querySelectorAll('*')) { if (e.scrollHeight <= e.clientHeight) continue; const k = e.className || e.tagName; n[k] = (n[k] || 0) + 1; const v = m.get(r.dataset.key + '|' + k + '|' + n[k]); if (v) e.scrollTop = v; } }
-  const sc = $('main') && $('main').querySelector('.scroll'); if (sc && m.get('')) sc.scrollTop = m.get('');
 }
-function fillOffice() {
+let officeLater = false;   // something changed while the rooms were held (below): drawn when that ends
+// Nor from a press until its click is done: drawn in between, the filter or button being pressed was replaced under it
+// and the click was lost (review 2026-11-27). A finger's mousedown, the search box losing focus and the click all come
+// after its pointerup, so the press ends with the click - or half a second after it is let go, when no click comes
+let officePressing = false, officePressEnd = 0;
+const officeTyping = () => !!document.activeElement && document.activeElement.id === 'ofSearch';
+function officeCatchUp() { if (officeLater && !officePressing && !officeTyping()) { officeLater = false; fillOffice(); } }
+const officePressDone = (ms) => { clearTimeout(officePressEnd); officePressEnd = setTimeout(() => { officePressing = false; officeCatchUp(); }, ms); };
+document.addEventListener('pointerdown', () => { clearTimeout(officePressEnd); officePressing = true; }, true);
+document.addEventListener('pointerup', () => officePressDone(500), true);
+// a key that presses a button: Space clicks when let go, Enter at once (not while typing in a box)
+document.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat && !(e.target.closest && e.target.closest('input, textarea, select, [contenteditable]'))) { clearTimeout(officePressEnd); officePressing = true; } }, true);
+document.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') officePressDone(500); }, true);
+document.addEventListener('click', () => { if (officePressing) officePressDone(0); }, true);   // (after the click's own handlers)
+// (no click to wait for: a press taken over by a drag or a scroll, a menu opened, let go outside the window)
+for (const t of ['pointercancel', 'dragend', 'contextmenu']) document.addEventListener(t, () => officePressDone(0), true);
+window.addEventListener('blur', () => officePressDone(0));
+function fillOffice(yours) {
   const chips = $('ofChips'), grid = $('ofGrid'), sub = $('ofSub'), note = $('ofNote'), foot = $('ofFoot');
   if (view !== 'office' || !chips || !grid) return;
   const now = Date.now();
@@ -4323,9 +4343,11 @@ function fillOffice() {
   const base = pastItems.filter((x) => officeTemp || officeQ || !isTempDir(x.cwd));   // run in a temporary folder (tests, throw-away runs): set aside unless asked for; a search looks at them too
   const inWhen = (WHEN.find((w) => w[0] === officeWhen) || WHEN[0])[2];
   const allOld = base.filter((x) => inWhen(x.at));
-  const shape = JSON.stringify([allOpen.map((x) => [x.s.sessionId, x.st, x.s.title, x.s.lastUser, x.s.cwd]), officeFilter, officeQ, officeWhen, officeTemp, [...officeAll], officePast ? officePast.stamp : 0, pending, keep.restorable.length, keep.closed.length]);
+  const shape = JSON.stringify([allOpen.map((x) => [x.s.sessionId, x.st, x.s.title, x.s.lastUser, x.s.cwd]), officeFilter, officeQ, officeWhen, officeTemp, officePast ? officePast.stamp : 0, pending, keep.restorable.length, keep.closed.length]);
   const pshape = shape + '|' + JSON.stringify([prefs().officeFavorites, prefs().officeOrder, prefs().officeCollapseOthers]);
-  if (pshape === officeShape) { for (const m of grid.querySelectorAll('.ds[data-since]')) m.textContent = m.dataset.text + ago(now - Number(m.dataset.since)); return; }
+  const held = !yours && (officePressing || !!officeDrag || officeTyping());   // (a room being dragged: nor while it is moved)
+  if (pshape === officeShape || held) { if (held && pshape !== officeShape) officeLater = true; for (const m of grid.querySelectorAll('.ds[data-since]')) m.textContent = m.dataset.text + ago(now - Number(m.dataset.since)); return; }
+  officeLater = false;
   officeShape = pshape;
   const c = { wait: 0, stuck: 0, run: 0, done: 0, idle: 0 }; for (const x of allOpen) c[x.st]++;
   chips.textContent = '';
