@@ -140,3 +140,31 @@ test('a path written right next to Chinese words takes only itself away, not the
   // web addresses of any kind, and git's user@host: form
   for (const t of ['git@github.com:acme/tool', 'git@github.com:tool', 'user@myserver:repo.git', 'user@server:repo!tools,x', 'ssh://git@github.com/acme/tool', 'HTTPS://github.com/acme/tool', 'file:///C:/x/y.md']) assert.deepStrictEqual(V.newNames('', t + ' 給 Biome'), ['Biome'], t);
 });
+
+test('learning asks first: a preview keeps nothing; only what you said yes to is kept (asked 2026-11-27)', () => {
+  const f = tmpFile();
+  const got = V.learn('你幫我哥特 commit 一下', '你幫我 git commit 一下', f, { dry: true });
+  assert.deepStrictEqual(got, [{ heard: '哥特', meant: 'git' }]);
+  assert.deepStrictEqual([V.load(f).fixes, V.load(f).words], [[], []], 'a preview: nothing kept');
+  assert.deepStrictEqual(V.remember(got, f), [{ heard: '哥特', meant: 'git' }]);
+  assert.deepStrictEqual(V.load(f).fixes.map((x) => [x.heard, x.meant, x.n]), [['哥特', 'git', 1]]);
+  assert.ok(V.load(f).words.some((w) => w.term === 'git' && w.learned), 'a word with letters is listened for too');
+  V.remember(got, f); assert.strictEqual(V.load(f).fixes[0].n, 2, 'said yes again: counted');
+  V.remember([{ heard: '', meant: 'DAPFE' }, { heard: 'x', meant: 'x' }, { heard: 'a' }, null], f);
+  assert.ok(V.load(f).words.some((w) => w.term === 'DAPFE'), 'a word to listen for');
+  assert.strictEqual(V.load(f).fixes.length, 1, 'nothing kept for a pair that changes nothing or has no meaning');
+});
+test('a full list is not offered a word it would not keep, and 記住 says what was kept (review 2026-11-27)', () => {
+  const f = tmpFile();
+  V.save({ words: Array.from({ length: V.MAX_WORDS }, (_, i) => ({ term: 'w' + i, at: 1, learned: false })), fixes: [], hidden: [] }, f);
+  const given = '我想要哥特那個分支先合併然後再推上去給大家看', sent = '請把 git 分支合併後推上去，讓大家都能看到這次的改動';
+  assert.deepStrictEqual(V.learn(given, sent, f, { dry: true }), [], 'no room: no word offered');
+  assert.deepStrictEqual(V.remember([{ heard: '', meant: 'vitest' }], f), [], 'no room: nothing said to be kept');
+  assert.strictEqual(V.load(f).words.length, V.MAX_WORDS);
+  assert.deepStrictEqual(V.remember([{ heard: '', meant: 'w3' }], f), [{ heard: '', meant: 'w3' }], 'one already there: kept');
+  // a correction still goes in (the newest is kept), its word only when there is room
+  assert.deepStrictEqual(V.remember([{ heard: '哥特', meant: 'git' }], f), [{ heard: '哥特', meant: 'git' }]);
+  assert.deepStrictEqual(V.load(f).fixes.map((x) => x.meant), ['git']);
+  const g = tmpFile();
+  assert.deepStrictEqual(V.learn(given, sent, g, { dry: true }), [{ heard: '', meant: 'git' }], 'room: offered');
+});

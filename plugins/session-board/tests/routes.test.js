@@ -882,6 +882,15 @@ test('files Claude hands over are listed as files, with where they are', () => {
   assert.deepStrictEqual(H.handedFiles(null), []); assert.strictEqual(H.handedFiles({ files: new Array(60).fill('x') }).length, 40);
 });
 
+test('壓縮紀錄: each compaction\'s summary, for a session the board knows only', async () => {
+  const r = await get('/api/compactions?sid=00000000-0000-4000-8000-00000000dead');
+  assert.strictEqual(r.status, 404, 'a session the board does not list');
+  // one it lists, with no transcript of its own here: said so, not thrown
+  const known = (await get('/api/sessions')).json;
+  const s = (known.sessions || known || []).find ? (known.sessions || known).find((x) => x && x.sessionId) : null;
+  if (s) { const x = await get('/api/compactions?sid=' + enc(s.sessionId)); assert.ok([200, 404].includes(x.status)); assert.ok(Array.isArray(x.json.items)); }
+});
+
 test('home-screen app: a manifest with a ticket (never the key) in its start address, the ticket handed in once for the key', async () => {
   const page = await get('/'); assert.match(String(page.headers['content-security-policy']), /manifest-src 'self'/);
   assert.match(page.text, /apple-mobile-web-app-capable/); assert.match(page.text, /apple-touch-icon" href="\/icons\/app-180\.png"/);

@@ -157,17 +157,21 @@ function newNames(given, sent) {
   return [...new Set((text.match(NAME) || []).filter((x) => x.length >= 2 && x.length <= 30 && !had.has(x.toLowerCase())))].slice(0, 5);
 }
 // -> what was learned: [{heard, meant}] for a correction, [{heard: '', meant}] for a word to listen for
-function learn(given, sent, file) {
+// o.dry: only what would be learned, nothing kept - the page asks first (asked 2026-11-27: "a small thing to confirm; not
+// said yes, not taken" - 範例 -> 填寫格式 was learned from a sentence rewritten, not misheard); remember() keeps what you chose
+function learn(given, sent, file, o = {}) {
   const got = edits(given, sent);
   if (!got.length) {
     // only a sentence said again: words typed on after what the mic gave ("…，順便跑 npm test") are not names misheard
     if (!rewritten(given, sent)) return [];
     const names = newNames(given, sent); if (!names.length) return [];
+    if (o.dry) { const v0 = load(file); return names.filter((t) => !v0.words.some((w) => w.term.toLowerCase() === t.toLowerCase())).slice(0, Math.max(0, MAX_WORDS - v0.words.length)).map((t) => ({ heard: '', meant: clean(t) })); }   // (only as many as there is room for: a full list is not offered a word it would not keep)
     const v = load(file), now = Date.now(), added = [];
     for (const t of names) if (!v.words.some((w) => w.term.toLowerCase() === t.toLowerCase()) && v.words.length < MAX_WORDS) { v.words.push({ term: clean(t), at: now, learned: true }); added.push({ heard: '', meant: clean(t) }); }
     if (added.length) save(v, file);
     return added;
   }
+  if (o.dry) return got.map((x) => ({ heard: clean(x.heard), meant: clean(x.meant) }));
   const v = load(file), now = Date.now();
   for (const x of got) {
     const f = v.fixes.find((y) => y.heard === clean(x.heard) && y.meant === clean(x.meant));
@@ -208,4 +212,21 @@ function importLegacy(file, from = LEGACY()) {
 // -> how many entries a copy would add now (0: nothing to offer - the button goes)
 function legacyCount(file, from = LEGACY()) { if (!fs.existsSync(from)) return 0; const p = plan(load(file), load(from)); return p.words.length + p.fixes.length + p.hidden.length; }
 
-module.exports = { FILE, fileFor, DIR, LEGACY, importLegacy, legacyCount, load, save, list, terms, fixes, add, remove, unlearn, edits, learn, newNames, rewritten, autoTerms, clean, MAX_WORDS };
+// What you said yes to (the page's 記住): [{heard, meant}] a correction, [{heard: '', meant}] a word -> what was kept
+function remember(items, file) {
+  const list = (Array.isArray(items) ? items : []).slice(0, 20).map((x) => ({ heard: clean(x && x.heard), meant: clean(x && x.meant) })).filter((x) => x.meant && x.heard !== x.meant);
+  if (!list.length) return [];
+  const v = load(file), now = Date.now(), kept = [];
+  for (const x of list) {
+    // a word: kept when new and there is room (a full list keeps none - said so, not 記住了); one already there counts as kept
+    if (!x.heard) { if (v.words.some((w) => w.term.toLowerCase() === x.meant.toLowerCase())) kept.push(x); else if (v.words.length < MAX_WORDS) { v.words.push({ term: x.meant, at: now, learned: true }); kept.push(x); } continue; }
+    kept.push(x);
+    const f = v.fixes.find((y) => y.heard === x.heard && y.meant === x.meant);
+    if (f) { f.n++; f.at = now; } else v.fixes.push({ heard: x.heard, meant: x.meant, n: 1, at: now });
+    if (/[A-Za-z]/.test(x.meant) && !v.words.some((w) => w.term.toLowerCase() === x.meant.toLowerCase()) && v.words.length < MAX_WORDS) v.words.push({ term: x.meant, at: now, learned: true });
+  }
+  v.fixes = v.fixes.sort((a, b) => b.at - a.at).slice(0, MAX_FIXES);
+  if (kept.length) save(v, file); return kept;
+}
+
+module.exports = { remember, FILE, fileFor, DIR, LEGACY, importLegacy, legacyCount, load, save, list, terms, fixes, add, remove, unlearn, edits, learn, newNames, rewritten, autoTerms, clean, MAX_WORDS };

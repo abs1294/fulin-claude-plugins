@@ -75,6 +75,7 @@ const CM = require('./lib/claudemd');
 const SkillWish = require('./lib/skillwish');
 const ModelDefault = require('./lib/modeldefault');   // new conversations' model and effort, in Claude Code's settings
 const AppTicket = require('./lib/appticket');   // the board as an app on a phone's home screen
+const Compactions = require('./lib/compactions');   // what each compaction left: Claude Code's summary, harness's handoff letter
 const Rooms = require('./lib/rooms');
 const Collab = require('./lib/collab');
 const Digest = require('./lib/digest');
@@ -1893,6 +1894,13 @@ function createServer(token, port, deps = {}) {
           return sendFile(fs.createReadStream(r.file), res);
         }
         // Figures for one conversation, shown above it: cost, tokens, compactions, context in use, ...
+        // 「壓縮 N 次」: each compaction's summary (everyone has it) and, where harness writes them, its handoff letter
+        if (p === '/api/compactions') {
+          const s = find(String(q.get('sid') || ''));
+          if (!s) return send(res, 404, { ok: false, error: 'session not found' });
+          const r = await Compactions.list(S.findTranscript(s.sessionId, s.cwd, S.DEFAULTS.projectsDir), s.sessionId);
+          return send(res, r.ok ? 200 : 404, r);
+        }
         if (p === '/api/stats') {
           const s = find(String(q.get('sid') || ''));
           if (!s) return send(res, 404, { error: 'session not found' });
@@ -2330,9 +2338,11 @@ function createServer(token, port, deps = {}) {
         if (typeof body.add === 'string') return send(res, 200, Vocab.add(body.add, vo.file));
         if (typeof body.remove === 'string') return send(res, 200, Vocab.remove(body.remove, vo.file));
         if (body.unlearn && typeof body.unlearn === 'object') return send(res, 200, Vocab.unlearn(String(body.unlearn.heard || ''), String(body.unlearn.meant || ''), vo.file));
-        if (body.learn && typeof body.learn === 'object') return send(res, 200, { ok: true, learned: Vocab.learn(String(body.learn.given || '').slice(0, 4000), String(body.learn.sent || '').slice(0, 4000), vo.file) });
+        // preview: what would be learned, nothing kept - the page asks you first; remember: what you said yes to
+        if (body.learn && typeof body.learn === 'object') return send(res, 200, { ok: true, learned: Vocab.learn(String(body.learn.given || '').slice(0, 4000), String(body.learn.sent || '').slice(0, 4000), vo.file, { dry: body.preview === true }) });
+        if (Array.isArray(body.remember)) { const kept = Vocab.remember(body.remember, vo.file); return send(res, 200, kept.length || !body.remember.length ? { ok: true, learned: kept } : { ok: true, learned: [], error: Vocab.load(vo.file).words.length >= Vocab.MAX_WORDS ? '詞庫已滿（最多 ' + Vocab.MAX_WORDS + ' 個詞），這次沒有記' : '沒有可以記的更正' }); }
         if (body.importLegacy === true) { const r = Vocab.importLegacy(vo.file); return send(res, r.ok ? 200 : 400, r); }
-        return send(res, 400, { ok: false, error: '要給 add、remove、unlearn、learn 或 importLegacy' });
+        return send(res, 400, { ok: false, error: '要給 add、remove、unlearn、learn、remember 或 importLegacy' });
       }
       // your OpenAI API key: set (or taken away with an empty one); never answered back
       if (p === '/api/voice/key') {

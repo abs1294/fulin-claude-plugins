@@ -833,6 +833,7 @@
   .autonote .an-f { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; } .autonote .an-f .btn { padding: 3px 10px; font-size: var(--fs-sm); }
   .autonote details summary { cursor: pointer; color: var(--dim); font-size: var(--fs-sm); } .autonote .an-raw { white-space: pre-wrap; font-size: var(--fs-sm); color: var(--dim); margin-top: 4px; }
   /* the model / effort button in a conversation's heading, and its window */
+  .cmp .cmp-note { color: var(--dim); font-size: var(--fs-sm); margin: 0 0 12px; padding: 0 12px; line-height: 1.6; } .cmp .cmp-item { border: 1px solid var(--rule, var(--line)); border-radius: var(--r-m); margin: 0 0 12px; padding: 8px 12px; } .cmp .cmp-item > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; } .cmp .cmp-kind { margin-left: auto; font-size: var(--fs-xs); color: var(--dim); border: 1px solid var(--rule, var(--line)); border-radius: 999px; padding: 0 8px; } .cmp .cmp-kind.has { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); } .cmp .seg { margin: 8px 0; } .cmp .cmp-text { max-width: none; }
   button.modelbtn { border: 1px solid transparent; background: var(--btn); border-radius: var(--r-m); padding: 1px 8px; cursor: pointer; font: inherit; color: inherit; }
   button.modelbtn:hover { border-color: var(--accent); }
   .modelpop { position: fixed; z-index: 70; width: min(380px, calc((100vw - 24px) / var(--zv, var(--z, 1)))); background: var(--bg); border: 1px solid var(--rule, var(--line)); border-radius: var(--r-m); box-shadow: var(--sh-pop); padding: 12px 14px; display: grid; gap: 8px; }
@@ -1016,6 +1017,27 @@
   @media (hover: none) { .composer .micwrap .mic-pop { display: none !important; } }
   .composer textarea.voice-lock { color: inherit; opacity: .75; cursor: not-allowed; }
   .voice-st { font-size: var(--fs-sm); color: var(--dim); padding: 0 4px 4px; }
+  .voice-marks { display: grid; gap: 8px; padding: 0 4px 8px; justify-items: start; }
+  .voice-marks .vm-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-sm); padding: 4px 8px 4px 12px; border-radius: var(--r-m); background: var(--bg); border: 1px solid var(--line); box-shadow: var(--sh-card); max-width: min(640px, 100%); }
+  .voice-marks .vm-row.doubt { background: var(--amber-soft); border-color: var(--amber); }
+  .voice-marks .vm-txt { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+  .voice-marks .vm-lbl { font-size: var(--fs-xs); color: var(--dim); font-weight: 600; }
+  .voice-marks .vm-note { color: var(--dim); }
+  .voice-marks .vm-pair { display: inline-flex; align-items: center; gap: 4px; }
+  .voice-marks .vm-arrow { color: var(--dim); }
+  .voice-marks .vm-chip { display: inline-block; padding: 0 8px; border-radius: var(--r-s); font-size: var(--fs-sm); line-height: 1.7; }
+  .voice-marks .vm-chip.heard { background: var(--hover); color: var(--dim); text-decoration: line-through; }
+  .voice-marks .vm-row.doubt .vm-chip.heard { text-decoration: none; color: var(--ink); background: var(--bg); }
+  .voice-marks .vm-chip.meant { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  /* (quiet buttons: the board's own button colour, as 還原 - a lighter one was lost against the card: 2026-11-27) */
+  .voice-marks .vm-card { position: relative; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 16px 16px; border-radius: var(--r-l); background: var(--bg); border: 1px solid var(--line); box-shadow: var(--sh-pop); max-width: min(520px, 100%); overflow: hidden; }
+  .voice-marks .vm-body { display: grid; gap: 4px; flex: 1 1 220px; min-width: 0; }
+  .voice-marks .vm-title { font-weight: 600; font-size: var(--fs-md); }
+  .voice-marks .vm-list { display: flex; gap: 8px; flex-wrap: wrap; }
+  .voice-marks .vm-cap { font-size: var(--fs-xs); color: var(--dim); }
+  .voice-marks .vm-acts { display: flex; gap: 8px; }
+  .voice-marks .vm-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--line); }
+  .voice-marks .vm-bar i { display: block; height: 100%; width: 100%; background: var(--accent); }
   .composer .stopbtn:hover { background: var(--hover); }
   /* what + opens: above the box, one row per way to add something */
   .addmenu { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 4; min-width: 260px; max-width: 100%; background: var(--bg); border: 1px solid var(--rule, var(--line)); border-radius: var(--r-l); box-shadow: var(--sh-pop); padding: 6px; }
@@ -4266,6 +4288,20 @@ async function loadOfficePast() {
   if (r.ok && !officeQ) pastCount = r.data.total ? '沒開著的 ' + r.data.total + ' 個' : '';
   officeShape = ''; fillOffice();
 }
+// The rooms are drawn again whenever a conversation in them changes - every few seconds while some are working - and
+// a list scrolled down inside a room went back to its top each time (asked 2026-11-27: "這一直亂跳"). Where each list
+// was scrolled (by its room and its place among the lists of the same kind) and the page's own scroll are put back.
+function officeScrollSave(grid) {
+  const m = new Map(), sc = $('main') && $('main').querySelector('.scroll');
+  m.set('', sc ? sc.scrollTop : 0);
+  for (const r of grid.querySelectorAll('section.room[data-key]')) { const n = {}; for (const e of r.querySelectorAll('*')) { if (e.scrollHeight <= e.clientHeight) continue; const k = e.className || e.tagName; n[k] = (n[k] || 0) + 1; if (e.scrollTop > 0) m.set(r.dataset.key + '|' + k + '|' + n[k], e.scrollTop); } }
+  return m;
+}
+function officeScrollRestore(grid, m) {
+  if (!m || m.size < 2 && !m.get('')) return;
+  for (const r of grid.querySelectorAll('section.room[data-key]')) { const n = {}; for (const e of r.querySelectorAll('*')) { if (e.scrollHeight <= e.clientHeight) continue; const k = e.className || e.tagName; n[k] = (n[k] || 0) + 1; const v = m.get(r.dataset.key + '|' + k + '|' + n[k]); if (v) e.scrollTop = v; } }
+  const sc = $('main') && $('main').querySelector('.scroll'); if (sc && m.get('')) sc.scrollTop = m.get('');
+}
 function fillOffice() {
   const chips = $('ofChips'), grid = $('ofGrid'), sub = $('ofSub'), note = $('ofNote'), foot = $('ofFoot');
   if (view !== 'office' || !chips || !grid) return;
@@ -4329,6 +4365,7 @@ function fillOffice() {
   const latest = (r) => Math.max(0, ...r.open.map((x) => x.s.saidAt || x.s.since || 0), ...r.old.map((x) => x.at || 0));
   const initials = faceInitials;
   const wasOpen = new Set(keep.restorable.map((k) => k.sessionId)), youClosed = new Set(keep.closed.map((k) => k.sessionId));
+  const keptScroll = officeScrollSave(grid);   // the rooms' lists and the page keep where they were scrolled to
   grid.textContent = '';
   // Starred rooms first, then the order you dragged them into; rooms never placed follow by the usual rule
   // (who needs you, then the latest). The settings officeFavorites / officeOrder / officeCollapseOthers.
@@ -4356,7 +4393,7 @@ function fillOffice() {
     r.open.sort((a, b) => rank[a.st] - rank[b.st]);
     r.old.sort((a, b) => b.at - a.at);
     const w = worst(r), cwd = r.cwd;
-    const box = el('section', 'room' + (w === 0 ? ' wait' : w === 1 ? ' stuck' : '') + (r.open.length ? '' : ' quiet'));
+    const box = el('section', 'room' + (w === 0 ? ' wait' : w === 1 ? ' stuck' : '') + (r.open.length ? '' : ' quiet')); box.dataset.key = cwd || r.folder;
     const head = el('div', 'room-head');
     const name = el('b', '', r.folder); name.title = cwd;
     if (cwd) {
@@ -4496,6 +4533,7 @@ function fillOffice() {
      }
      box.append(desks); grid.append(box);
   }
+  officeScrollRestore(grid, keptScroll);
    if ((features.integrations || {}).harness !== false) loadHarness([...rooms.keys()].filter(Boolean));
    loadRoomFacts([...rooms.keys()].filter(Boolean));
   if (!rooms.size) grid.append(pending ? ldBox('搜尋中…') : !officeQ && officeFilter === 'closed' && !officePast ? ldBox() : el('p', 'lead', officeQ ? '沒有符合「' + officeQ + '」的對話。' : officeFilter === 'closed' ? '這段時間沒有沒開著的對話。' : officeFilter ? '沒有「' + DESK[officeFilter] + '」的 session。' : '現在沒有開著的 session，最近 30 天也沒有別的對話。'));
@@ -4532,7 +4570,7 @@ async function loadRoomFacts(cwds) {
   if (!r.ok) { for (const c of need) roomFacts.set(c, { at: Date.now(), facts: null }); return; }
   let changed = false;
   for (const c of need) { const v = r.data.facts[c] || null; if (JSON.stringify(roomFactsOf(c)) !== JSON.stringify(v)) changed = true; roomFacts.set(c, { at: Date.now(), facts: v }); }
-  if (changed && view === 'office') drawOffice();
+  if (changed && view === 'office') { officeShape = ''; fillOffice(); }   // the rooms filled again, not the whole page drawn again (it jumped: 2026-11-27)
 }
 
 // ── the harness plugin's state per folder (read by the board from the files harness keeps; nothing is run) ──
@@ -4787,6 +4825,51 @@ async function drawRecommends(card, btn) {
   c.append(addBox);
   c.append(el('div', 'pl-note', '存在 ' + d.file + '，由 plugin-manager 的 register-external.js 寫入。改完要執行 /plugin-manager-publish 才會推上 GitHub。'));
 }
+// ── 壓縮 (asked 2026-11-26: "can the 壓縮 count bring out the handoff letter - think of those who have none") ──
+// Each compaction, newest first: harness's handoff letter where the project has harness's compact hooks, with Claude
+// Code's own summary beside it; everywhere else Claude Code's summary alone (every conversation has it), said so.
+async function openCompactions(sid) {
+  closePeek();
+  $('peek').hidden = false;
+  const s = sessions.find((x) => x.sessionId === sid) || {};
+  $('peekName').textContent = '壓縮紀錄：' + (s.title || s.name || sid.slice(0, 8));
+  $('peekPath').textContent = ''; $('peekPath').title = '';
+  $('peekOpen').hidden = true; $('peekReveal').hidden = true; $('peekCopy').hidden = true;
+  const body = $('peekBody'); body.textContent = '';
+  const box = el('div', 'cmp'); body.append(box);
+  box.append(el('p', 'cmp-note', '讀取中…'));
+  let r; try { r = await api('/api/compactions?sid=' + encodeURIComponent(sid)); } catch (e) { r = { ok: false, data: {} }; }
+  if ($('peek').hidden || !body.contains(box)) return;
+  box.textContent = '';
+  if (!r.ok) { box.append(el('p', 'cmp-note', '讀不到壓縮紀錄：' + ((r.data && r.data.error) || '看板沒有回應'))); return; }
+  const d = r.data, items = d.items || [];
+  if (!items.length) { box.append(el('p', 'cmp-note', '對話紀錄裡沒有找到壓縮留下的摘要（可能是舊的紀錄已經被 Claude Code 清掉）。')); return; }
+  box.append(el('p', 'cmp-note', d.hasHarness
+    ? '有交接信的先顯示交接信（harness 在每次壓縮前寫的，給接手的人看），也可以切到 Claude Code 自己的摘要。'
+    : '這個專案沒有交接信（裝了 harness 的專案，每次壓縮前會另外寫一份）。下面是 Claude Code 每次壓縮時寫給自己的摘要。'));
+  if (d.total > items.length) box.append(el('p', 'cmp-note', '共壓縮 ' + d.total + ' 次，這裡列最近 ' + items.length + ' 次。'));
+  const show = (wrap, text) => { wrap.textContent = ''; const m = el('div', 'msg assistant cmp-text'); m.innerHTML = md(text); linkFiles(m, sid); wrap.append(m); };
+  items.forEach((it, k) => {
+    const det = el('details', 'cmp-item'); if (k === 0) det.open = true;
+    const n = (d.total || items.length) - k;
+    const sm = el('summary', ''); sm.append(el('b', '', '第 ' + n + ' 次'), ' · ' + (it.at ? new Date(it.at).toLocaleString('zh-TW', { hour12: false }) : '時間不明'), el('span', 'cmp-kind' + (it.handoff ? ' has' : ''), it.handoff ? '交接信' : 'Claude Code 摘要'));
+    det.append(sm);
+    const wrap = el('div', 'cmp-body');
+    if (it.handoff) {
+      const seg = el('div', 'seg'); seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', '看哪一份');
+      const a = el('button', 'on', '交接信'), b = el('button', '', 'Claude Code 的摘要'); a.type = b.type = 'button';
+      a.addEventListener('click', () => { a.classList.add('on'); b.classList.remove('on'); show(wrap, it.handoff); });
+      b.addEventListener('click', () => { b.classList.add('on'); a.classList.remove('on'); show(wrap, it.summary); });
+      seg.append(a, b); det.append(seg);
+    }
+    det.append(wrap);
+    // drawn when first opened: forty summaries of ten thousand characters each are not put on the page at once
+    let drawn = false; const draw = () => { if (drawn || !det.open) return; drawn = true; show(wrap, it.handoff || it.summary); };
+    det.addEventListener('toggle', draw); draw();
+    box.append(det);
+  });
+}
+
 // ── 外掛分析 (server.js /api/pluginfit, lib/pluginfit.js): which plugins suit a folder; the chosen ones installed ──
 const fitSeen = new Set();       // folders (lower case) with an analysis done: their button is marked
 const wishKeysSeen = new Set();  // the 找外掛 keys box closed or saved once: not opened by itself again on this page
@@ -7453,6 +7536,95 @@ function voicePut(text, done) {
   if (!done) return;
   draftNow.set(voice.sid, text); const x = sessions.find((y) => y.sessionId === voice.sid); if (x && x.owner === 'board') saveDraft(voice.sid, text);
 }
+// What the tidying changed and what it doubts (asked 2026-11-27: not a word that makes no sense let in, not a word changed
+// unseen - "不" was once made "補"). lib/tidy.js writes ⟦heard→changed⟧ for a change it made and ⟦heard｜guess⟧ (guess ?
+// when it has none) for a word that makes no sense in the sentence; here: the box gets the changed word, or the heard one
+// for a doubt, and the list above the box says each - a change can be undone, a doubt replaced, picked out or let be.
+// After sending, what you changed in the mic's words is offered to be remembered, and kept only if you say so.
+const VOICE_ASK_MS = 60000;   // how long the 記住 card waits on screen before it goes, not kept
+let voiceAskTimer = 0;
+const voiceNotes = new Map();   // sessionId -> {marks: [{kind: 'change' | 'doubt', from, to, done}], learn: [{heard, meant}] | null, cwd}
+const MARK_RE = /⟦([^⟦⟧｜→]*?)(→|｜)([^⟦⟧]*?)⟧/g;
+// -> {text, marks}; partial: a mark still being written at the end (while it streams) shows as the heard word
+function voiceUnmark(t, partial) {
+  const marks = [];
+  let out = String(t || '').replace(MARK_RE, (m, a, k, b) => {
+    a = a.trim(); b = b.trim();
+    if (k === '→') { if (a && b && a.toLowerCase() !== b.toLowerCase()) marks.push({ kind: 'change', from: a, to: b }); return b || a; }   // (a change of case alone, dap→DAP: not listed)
+    if (a) marks.push({ kind: 'doubt', from: a, to: /^[?？]*$/.test(b) ? '' : b }); return a;
+  });
+  if (partial) { const i = out.lastIndexOf('⟦'); if (i >= 0 && out.indexOf('⟧', i) < 0) out = out.slice(0, i) + out.slice(i + 1).split(/→|｜/)[0]; }
+  return { text: out.replace(/[⟦⟧]/g, ''), marks };
+}
+function drawVoiceNotes() {
+  const s = cur(), foot = $('foot'), box = foot && foot.querySelector('.voice-marks'); if (!s || !box) return;
+  const n = voiceNotes.get(s.sessionId), marks = n ? n.marks.filter((m) => !m.done) : [], learn = n && n.learn && n.learn.length ? n.learn : null;
+  box.textContent = ''; box.hidden = !marks.length && !learn; if (box.hidden) return;
+  const ta = foot.querySelector('.composer textarea');
+  // a word in the box swapped (the first place it is), kept as the draft as typing is; the mic's words remembered as given
+  // with it, so an undo is not later offered as a correction to learn
+  const swap = (from, to) => {
+    if (!ta) return false; const i = ta.value.indexOf(from); if (i < 0) { say('輸入框裡已經找不到「' + from + '」', true); return false; }
+    ta.value = ta.value.slice(0, i) + to + ta.value.slice(i + from.length); ta.dispatchEvent(new Event('input', { bubbles: true }));
+    if (voice.given && voice.given.sid === s.sessionId) voice.given.text = String(voice.given.text).replace(from, () => to);
+    return true;
+  };
+  const btn = (label, cls, fn) => { const b = el('button', 'btn small' + (cls ? ' ' + cls : ''), label); b.type = 'button'; b.addEventListener('click', fn); return b; };
+  const done = (m) => { m.done = true; drawVoiceNotes(); };
+  const pair = (a, b) => { const w = el('span', 'vm-pair'); w.append(el('span', 'vm-chip heard', a), el('span', 'vm-arrow', '→'), el('span', 'vm-chip meant', b)); return w; };
+  for (const m of marks) {
+    const row = el('div', 'vm-row' + (m.kind === 'doubt' ? ' doubt' : ''));
+    if (m.kind === 'change') {
+      const t = el('span', 'vm-txt'); t.append(el('span', 'vm-lbl', '已改'), pair(m.from, m.to));
+      row.append(t, btn('還原', '', () => { if (swap(m.to, m.from)) done(m); }), btn('沒問題', 'quiet', () => done(m)));
+    } else {
+      const t = el('span', 'vm-txt'); t.append(el('span', 'vm-lbl', '可能聽錯'), el('span', 'vm-chip heard', m.from), el('span', 'vm-note', m.to ? '說不通，猜是「' + m.to + '」' : '在這句裡說不通'));
+      row.append(t);
+      if (m.to) row.append(btn('換成「' + m.to + '」', 'primary', () => { if (swap(m.from, m.to)) done(m); }));
+      row.append(btn('選取自己改', 'quiet', () => { if (!ta) return; const i = ta.value.indexOf(m.from); if (i < 0) return say('輸入框裡已經找不到「' + m.from + '」', true); ta.focus(); ta.setSelectionRange(i, i + m.from.length); done(m); }), btn('沒錯', 'quiet', () => done(m)));
+    }
+    box.append(row);
+  }
+  if (learn) {
+    // A card that goes by itself (asked 2026-11-27: "on screen a minute with no answer: cancelled, not kept"): the minute
+    // counts only while it is on screen - not while another conversation is open or the page is in the background - and
+    // stops while the pointer is on it or a button of it has the keyboard (an answer being given)
+    const card = el('div', 'vm-card'); card.setAttribute('role', 'group'); card.setAttribute('aria-label', '要不要記住這個更正');
+    const body = el('div', 'vm-body'); body.append(el('div', 'vm-title', learn.length > 1 ? '記住這幾個更正？' : '記住這個更正？'));
+    const list = el('div', 'vm-list');
+    for (const x of learn) list.append(x.heard ? pair(x.heard, x.meant) : (() => { const w = el('span', 'vm-pair'); w.append(el('span', 'vm-note', '多聽'), el('span', 'vm-chip meant', x.meant)); return w; })());
+    body.append(list);
+    const left = Math.ceil((n.learnLeft == null ? VOICE_ASK_MS : n.learnLeft) / 1000);
+    const cap = el('div', 'vm-cap', '以後語音聽到會自動照改 · ' + left + ' 秒後自動略過'); body.append(cap);
+    const acts = el('div', 'vm-acts');
+    acts.append(btn('記住', 'primary', async (e) => {
+      const b = e.currentTarget; if (b.disabled) return; b.disabled = true;   // one answer: a second click while it is sent does not count the correction twice
+      clearInterval(voiceAskTimer); cap.textContent = '記下中…';   // (answered: the minute stops - it does not run out while this is sent)
+      const r = await api('/api/vocab', { sid: s.sessionId, cwd: (n && n.cwd) || s.cwd || '', remember: learn });
+      // not kept (the network to the board gone, the board stopped or refused): the card stays, to press again or 略過
+      if (!r.ok) { b.disabled = false; cap.textContent = '沒有記成，可以再按一次記住，或略過'; return say('沒有記成：' + ((r.data && r.data.error) || '看板沒有回應'), true); }
+      n.learn = null; drawVoiceNotes();
+      if (r.ok && r.data.learned && r.data.learned.length) { say('記住了（這個專案的詞庫；輸入框左邊的 ＋ → 語音對照表 可以看、可以刪）'); voiceTermsLoad(s.sessionId); } else say('沒有記成：' + ((r.data && r.data.error) || '看板沒有回應'), true);
+    }), btn('略過', 'quiet', () => { n.learn = null; drawVoiceNotes(); }));
+    const bar = el('div', 'vm-bar'); const fill = el('i'); bar.append(fill);
+    card.append(body, acts, bar); box.append(card);
+    // the pointer and the keyboard hold it each on its own: the pointer leaving does not undo a button that has the keyboard
+    let hover = false; const held = () => hover || card.contains(document.activeElement);
+    card.addEventListener('pointerenter', () => { hover = true; }); card.addEventListener('pointerleave', () => { hover = false; });
+    const show = () => { const ms = n.learnLeft == null ? VOICE_ASK_MS : n.learnLeft; fill.style.width = Math.max(0, ms / VOICE_ASK_MS * 100) + '%'; cap.textContent = '以後語音聽到會自動照改 · ' + (held() ? '暫停中' : Math.ceil(ms / 1000) + ' 秒後自動略過'); };
+    show();
+    clearInterval(voiceAskTimer);
+    let last = Date.now();
+    voiceAskTimer = setInterval(() => {
+      const now = Date.now(), dt = now - last; last = now;
+      if (!card.isConnected || n.learn !== learn) { clearInterval(voiceAskTimer); return; }
+      if (held() || document.visibilityState !== 'visible') return show();
+      n.learnLeft = (n.learnLeft == null ? VOICE_ASK_MS : n.learnLeft) - dt;
+      if (n.learnLeft <= 0) { clearInterval(voiceAskTimer); n.learn = null; drawVoiceNotes(); say('沒有回覆，這次的更正不記'); return; }
+      show();
+    }, 250);
+  }
+}
 // the box, its buttons and the line above it, as the mic's state says
 function voiceLockNow() {
   const s = cur(), foot = $('foot'); if (!s || !foot) return;
@@ -7482,6 +7654,7 @@ function voiceStart(s, again) {
   if (!phrasesOff() && voiceTermsSid === s.sessionId && voiceTerms.length && 'phrases' in rec && typeof window.SpeechRecognitionPhrase === 'function') {
     try { rec.phrases = voiceTerms.slice(0, 100).map((t) => new window.SpeechRecognitionPhrase(t, 2)); } catch (e) {}
   }
+  voiceNotes.delete(s.sessionId); drawVoiceNotes();
   Object.assign(voice, { sid: s.sessionId, state: 'listening', rec, mode: 'browser', base: again ? voice.base : ta ? ta.value : '', heard: '', alts: [], failed: '', retry: false });
   rec.onresult = (e) => {
     if (voice.rec !== rec) return;
@@ -7650,7 +7823,7 @@ async function voiceFinish() {
         buf += dec.decode(value, { stream: true }); let i;
         while ((i = buf.indexOf('\n')) >= 0) {
           const line = buf.slice(0, i); buf = buf.slice(i + 1); let j; try { j = JSON.parse(line); } catch (e) { continue; }
-          if (typeof j.d === 'string') voicePut(voiceJoin(base, j.d), false);
+          if (typeof j.d === 'string') voicePut(voiceJoin(base, voiceUnmark(j.d, true).text), false);
           else if (j.done) text = String(j.text || '');
           else if (j.error) why = j.error;
         }
@@ -7660,7 +7833,8 @@ async function voiceFinish() {
   clearTimeout(timer);
   // not tidied: the words as heard stay, so nothing said is lost
   if (!text) { text = heard; say('沒有排版，保留聽到的原話：' + (why || '沒有結果'), true); }
-  voicePut(voiceJoin(base, text), true);
+  else { const um = voiceUnmark(text); text = um.text; voiceNotes.set(voice.sid, { marks: um.marks, learn: null }); }
+  voicePut(voiceJoin(base, text), true); drawVoiceNotes();
   // what the mic gave you: if you change it before sending, those changes are learned (lib/vocab.js)
   voice.given = { sid: voice.sid, text: voiceJoin(base, text) };
   voice.state = ''; voice.unlockFocus = true; voiceLockNow();
@@ -7810,7 +7984,8 @@ function drawFoot() {
     if ((!text.trim() && !imgs.length && !files.length) || sendBtn.disabled) return;
     // the words the mic gave, changed before sending: what was changed is learned ("哥特" -> "git"; lib/vocab.js) - for every
     // way of sending (it once sat in the /btw branch only, and a plain send learned nothing - review 2026-11-20)
-    if (voice.given && voice.given.sid === s.sessionId) { const g = voice.given.text; voice.given = null; if (g && g !== text) api('/api/vocab', { sid: s.sessionId, cwd: s.cwd || '', learn: { given: g, sent: text } }).then((x) => { if (x.ok && x.data.learned && x.data.learned.length) say('記住了（這個專案的詞庫）：' + x.data.learned.map((y) => (y.heard ? y.heard + ' → ' + y.meant : '聽 ' + y.meant)).join('、') + '（輸入框左邊的 ＋ → 語音對照表 可以看、可以刪）'); voiceTermsLoad(s.sessionId); }).catch(() => {}); }
+    if (voice.given && voice.given.sid === s.sessionId) { const g = voice.given.text; voice.given = null; if (g && g !== text) api('/api/vocab', { sid: s.sessionId, cwd: s.cwd || '', learn: { given: g, sent: text }, preview: true }).then((x) => { if (x.ok && x.data.learned && x.data.learned.length) { voiceNotes.set(s.sessionId, { marks: [], learn: x.data.learned, learnLeft: VOICE_ASK_MS, cwd: s.cwd || '' }); drawVoiceNotes(); } }).catch(() => {}); }
+    { const vn = voiceNotes.get(s.sessionId); if (vn && vn.marks.length) { vn.marks = []; drawVoiceNotes(); } }   // sent: what was listed about those words is over
     // sent (or run): what was typed is not a draft any more - nor is a save of it still waiting to go. Called only once it
     // is really going (a "!" or "/btw" with nothing after it is not: the words stay, and leaving keeps them)
     const consume = () => { clearTimeout(draftTimers.get(s.sessionId)); draftTimers.delete(s.sessionId); draftNow.delete(s.sessionId); };
@@ -8160,8 +8335,10 @@ function drawFoot() {
   }
   const vst = el('div', 'voice-st'); vst.hidden = true; vst.setAttribute('role', 'status');
   if (s.owner === 'board') { const sr = el('div', 'stash-row'); sr.hidden = true; sr.setAttribute('role', 'note'); col.append(sr); }
-  col.append(pop, vst, box);
+  const vmk = el('div', 'voice-marks'); vmk.hidden = true; vmk.setAttribute('role', 'region'); vmk.setAttribute('aria-label', '語音整理的提醒');
+  col.append(pop, vst, vmk, box);
   if (s.owner === 'board') stashRow(s.sessionId);
+  drawVoiceNotes();
   fit();
   voiceLockNow();
   if ((hadFocus || !blocked) && !ta.disabled) ta.focus();
@@ -10026,7 +10203,10 @@ async function loadStats(sid) {
     if (c.pct != null) gauge('context', c.pct, big(c.tokens) + ' / ' + big(c.window), '最近一次回覆時送給模型的內容量（輸入加快取），除以' + (c.limited ? '這裡設定的上限 ' + big(c.window) + '（autoCompactWindow，到這裡附近會自動壓縮' + (c.own ? '；模型本身是 ' + big(c.own) : '') + '）' : '這個模型的上限') + (c.assumed ? '。上限是推定的：用量超過 20 萬，只可能是 100 萬的那種' : '') + (c.model ? '。模型 ' + c.model : ''));
     else chip('context', big(c.tokens) + ' tokens', '最近一次回覆時送給模型的內容量。還不知道這個模型的上限是多少，所以算不出百分比' + (c.model ? '。模型 ' + c.model : ''));
   }
-  if (d.compacts) chip('壓縮', sep(d.compacts.count) + ' 次', d.compacts.last ? '上次壓縮：' + when(d.compacts.last) : '這個 session 還沒被壓縮過');
+  // compacted at least once: a button - what each compaction left (its handoff letter where harness writes them, else
+  // Claude Code's own summary: openCompactions)
+  if (d.compacts && d.compacts.count > 0) { const b = el('button', 'modelbtn', ''); b.type = 'button'; b.append('壓縮 ', el('b', '', sep(d.compacts.count) + ' 次 ›')); b.title = '上次壓縮：' + when(d.compacts.last) + '。按一下看每次壓縮留下的交接信或摘要'; b.addEventListener('click', (ev) => { ev.stopPropagation(); openCompactions(sid); }); chips.append(b); }
+  else if (d.compacts) chip('壓縮', '0 次', '這個 session 還沒被壓縮過');
   if (d.messages != null) chip('訊息', sep(d.messages) + ' 則');
   // subagents and background commands: an item each, shown while one is running; details under "更多" (drawTasks fills both)
   for (const id of ['agentChip', 'bashChip']) { const x = el('span', 'task-chip'); x.id = id; chips.append(x); }
