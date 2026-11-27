@@ -183,54 +183,136 @@ function desktopDir() {
 }
 
 // ---------- 自動另存 Chrome 目前分頁 ----------
+// 按 Ctrl/Cmd+S 之後，一定要等到「另存」對話框真的出現在最前面，才輸入檔名、按 Enter：
+// 舊版固定等 2 秒就打字，電腦慢、對話框還沒出來時，全選／貼上／Enter 會打在網頁本身——
+// 要登入的後台（Play Console 等）游標剛好在輸入框時，可能把字填進去並送出表單（2026-11-27 審查）。
+// 對話框 10 秒內沒出現：一個字都不打、停下來報錯。
+const DIALOG_WAIT_MS = 10000;
 function saveCurrentTab(name) {
+  // 檔名會原樣嵌進 AppleScript 與 PowerShell 的字串：只收英數字、底線、連字號（程式自己產生的 longshot-<時間>），其他一律不跑
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(String(name))) throw new Error('另存的檔名只能有英數字、底線、連字號');
   if (IS_MAC) {
     const q = s => execFileSync('osascript', ['-e', s], { encoding: 'utf8' }).trim();
     const title = q('tell application "Google Chrome" to get title of active tab of front window');
     const url = q('tell application "Google Chrome" to get URL of active tab of front window');
-    let old = '';
-    try { old = execFileSync('pbpaste', { encoding: 'utf8' }); } catch {}
-    execFileSync('pbcopy', { input: name });  // 用貼上的方式填檔名，避免中文輸入法吃掉英文字
+    const tries = Math.round(DIALOG_WAIT_MS / 200);
+    // 檔名用貼上的方式填（避免中文輸入法吃掉英文字）。剪貼簿整份存起來、最後原樣放回——在同一段 AppleScript 裡做，
+    // 圖片、檔案也算（舊版用 pbpaste/pbcopy 只認得文字，原本是圖片就被清空：2026-11-27 審查）；中途出錯也放回。
+    // 前景不是 Chrome 就不按 Cmd+S；按之前視窗上已經掛著別的面板（sheet）也不按；另存面板出現才打字
     try {
-      execFileSync('osascript', ['-e', `tell application "Google Chrome" to activate
-delay 0.5
-tell application "System Events"
+      execFileSync('osascript', ['-e', `set saved to missing value
+try
+  set saved to (the clipboard as record)
+end try
+set the clipboard to "${name}"
+try
+  tell application "Google Chrome" to activate
+  delay 0.5
+  tell application "System Events"
+  if name of first application process whose frontmost is true is not "Google Chrome" then error "Chrome 沒有到最前面，沒有按任何鍵" number 9001
+  if exists sheet 1 of front window of process "Google Chrome" then error "Chrome 視窗上已經有一個對話框開著，沒有按任何鍵；請先關掉它再試" number 9003
   keystroke "s" using command down
-  delay 1.5
+  set ok to false
+  repeat ${tries} times
+    delay 0.2
+    try
+      if exists sheet 1 of front window of process "Google Chrome" then
+        set ok to true
+        exit repeat
+      end if
+    end try
+  end repeat
+  if not ok then error "另存視窗 ${DIALOG_WAIT_MS / 1000} 秒內沒有出現，沒有輸入任何字" number 9002
+  delay 0.3
   keystroke "a" using command down
   keystroke "v" using command down
   delay 0.3
   key code 36
-end tell`]);
-    } finally {
-      execFileSync('pbcopy', { input: old });
+  delay 0.3
+  end tell
+on error m number n
+  if saved is not missing value then set the clipboard to saved
+  error m number n
+end try
+if saved is not missing value then set the clipboard to saved`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      const why = (String(e.stderr || '').match(/execution error: (.*?)( \(-?\d+\))?$/m) || [])[1];
+      throw new Error(why || e.message);
     }
     return { title, url };
   }
   if (IS_WIN) {
+    // 視窗：取 z-order 最上面的 Chrome 視窗（你最近用的那個；舊版取第一個 chrome 程序，多個視窗時不一定是眼前那個），
+    // 確認它真的到了最前面才按 Ctrl+S；另存對話框（#32770、屬於 chrome）出現在最前面才打字。
+    // 剪貼簿：整份存起來（圖片、檔案也算），最後放回去。
     const ps = `
+$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
-$p = Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle } | Select-Object -First 1
-if (-not $p) { Write-Error '找不到開著的 Chrome 視窗'; exit 2 }
-$old = Get-Clipboard -Raw -ErrorAction SilentlyContinue
-Set-Clipboard -Value '${name}'
+Add-Type @"
+using System; using System.Text; using System.Runtime.InteropServices;
+public static class LsWin {
+  public delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  public static string Cls(IntPtr h) { var s = new StringBuilder(256); GetClassName(h, s, 256); return s.ToString(); }
+  public static string Title(IntPtr h) { var s = new StringBuilder(1024); GetWindowText(h, s, 1024); return s.ToString(); }
+  public static uint Pid(IntPtr h) { uint p; GetWindowThreadProcessId(h, out p); return p; }
+  public static IntPtr TopChrome(uint[] pids) {
+    IntPtr found = IntPtr.Zero;
+    EnumWindows((h, l) => { if (IsWindowVisible(h) && Cls(h) == "Chrome_WidgetWin_1" && Title(h).Length > 0 && Array.IndexOf(pids, Pid(h)) >= 0) { found = h; return false; } return true; }, IntPtr.Zero);
+    return found;
+  }
+}
+"@
+function Fail($m) { Write-Output ('LONGSHOT_ERR:' + $m); exit 3 }
+$pids = [uint32[]]@(Get-Process chrome -ErrorAction SilentlyContinue | ForEach-Object { [uint32]$_.Id })
+if (-not $pids.Count) { Fail '找不到開著的 Chrome' }
+$h = [LsWin]::TopChrome($pids)
+if ($h -eq [IntPtr]::Zero) { Fail '找不到開著的 Chrome 視窗' }
+$title = [LsWin]::Title($h)
+if ([LsWin]::IsIconic($h)) { $null = [LsWin]::ShowWindow($h, 9) }
 $ws = New-Object -ComObject WScript.Shell
-$null = $ws.AppActivate($p.Id)
-Start-Sleep -Milliseconds 600
-[System.Windows.Forms.SendKeys]::SendWait('^s')
-Start-Sleep -Milliseconds 2000
-[System.Windows.Forms.SendKeys]::SendWait('^a')
-[System.Windows.Forms.SendKeys]::SendWait('^v')
-Start-Sleep -Milliseconds 300
-[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-Start-Sleep -Milliseconds 300
-if ($old) { Set-Clipboard -Value $old }
-Write-Output ($p.MainWindowTitle -replace ' - Google Chrome$', '')
+$null = $ws.AppActivate($title); $null = [LsWin]::SetForegroundWindow($h)
+$front = $false
+for ($i = 0; $i -lt 15; $i++) { Start-Sleep -Milliseconds 200; if ([LsWin]::GetForegroundWindow() -eq $h) { $front = $true; break } }
+if (-not $front) { Fail 'Chrome 沒辦法叫到最前面，沒有按任何鍵。請先點一下 Chrome 視窗再試' }
+$saved = $null; $known = $false
+try { $o = [Windows.Forms.Clipboard]::GetDataObject(); $known = $true; if ($o) { $saved = New-Object Windows.Forms.DataObject; foreach ($f in $o.GetFormats($false)) { try { $saved.SetData($f, $o.GetData($f)) } catch {} } } } catch {}
+try {
+  [Windows.Forms.Clipboard]::SetText('${name}')
+  [System.Windows.Forms.SendKeys]::SendWait('^s')
+  $dlg = $false
+  for ($i = 0; $i -lt ${Math.round(DIALOG_WAIT_MS / 200)}; $i++) {
+    Start-Sleep -Milliseconds 200
+    $f = [LsWin]::GetForegroundWindow()
+    if ([LsWin]::Cls($f) -eq '#32770' -and $pids -contains [LsWin]::Pid($f)) { $dlg = $true; break }
+  }
+  if (-not $dlg) { Fail ('另存視窗 ${DIALOG_WAIT_MS / 1000} 秒內沒有出現，沒有輸入任何字') }
+  Start-Sleep -Milliseconds 300
+  [System.Windows.Forms.SendKeys]::SendWait('^a')
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+  Start-Sleep -Milliseconds 300
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  Start-Sleep -Milliseconds 300
+} finally {
+  # 原本讀不到（被別的程式鎖住）：不知道裡面是什麼，就不清空
+  try { if ($saved -and $saved.GetFormats($false).Count) { [Windows.Forms.Clipboard]::SetDataObject($saved, $true) } elseif ($known) { [Windows.Forms.Clipboard]::Clear() } } catch {}
+}
+Write-Output ($title -replace ' - Google Chrome$', '')
 `;
     const enc = Buffer.from(ps, 'utf16le').toString('base64');
-    const title = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', enc], { encoding: 'utf8' }).trim();
-    return { title, url: '' };
+    let out;
+    try { out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-EncodedCommand', enc], { encoding: 'utf8' }).trim(); }
+    catch (e) { const m = /LONGSHOT_ERR:(.*)/.exec(String(e.stdout || '')); throw new Error(m ? m[1].trim() : '自動另存失敗：' + String(e.stderr || e.message).trim().slice(0, 300)); }
+    return { title: out, url: '' };
   }
   throw new Error('自動另存只支援 macOS 與 Windows；Linux 請先手動另存，再用 longshot <網頁檔>');
 }

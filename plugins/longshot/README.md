@@ -37,6 +37,7 @@ node <plugin 目錄>/scripts/longshot.mjs https://example.com     # 公開網頁
 - Google Chrome（截圖也可用 Edge／Chromium；自動另存只支援 Chrome）
 - macOS：第一次用 `chrome` 模式要開權限：「系統設定 → 隱私權與安全性 → 輔助使用」勾選執行的 App（終端機／iTerm／Claude）
 - Windows：不用另外設定；執行時 Chrome 視窗會被叫到前面，幾秒內不要動鍵盤滑鼠
+- 另存對話框真的出現在最前面才會輸入檔名、按 Enter；10 秒內沒出現就停下來報錯，不會把字打在網頁上
 - Linux：只能截網頁檔與公開網址（沒有自動另存）
 
 ## 已知限制
