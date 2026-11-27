@@ -1268,7 +1268,7 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
   assert.strictEqual((await post('/api/close', { sessionId: fk.json.sessionId })).json.ok, true);
   assert.strictEqual((await post('/api/close', { sessionId: fk.json.sessionId })).json.ok, false);
 
-  // a message edited and sent again: carried on from the reply before it, as a new board conversation; the old one closed
+  // a message edited and sent again: carried on from the reply before it, in the same conversation (as /rewind in a terminal)
   const RW = (await post('/api/new', { cwd: WORK })).json.sessionId;
   {
     const dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK)), ts = new Date().toISOString();
@@ -1284,14 +1284,29 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
   assert.strictEqual((await post('/api/rewind', { sessionId: RW, at: uuid(82), text: 'x' })).status, 400, 'a reply is not yours to edit');
   const procsAt = procs.length;
   const rw = await post('/api/rewind', { sessionId: RW, at: uuid(83), text: '改過的第二句' });
-  assert.strictEqual(rw.status, 200); assert.strictEqual(rw.json.fromStart, false);
-  const rwNew = channels.get(rw.json.sessionId);
-  assert.deepStrictEqual([rwNew.forkOf, rwNew.resumeAt, channels.get(RW)], [RW, uuid(82), null], 'from the reply before it; the old one closed');
+  assert.strictEqual(rw.status, 200); assert.deepStrictEqual([rw.json.fromStart, rw.json.inPlace, rw.json.sessionId], [undefined, true, RW], 'the same conversation');
+  const rwc = channels.get(RW), rwFile = path.join(CLAUDE, 'projects', S.encodeCwd(WORK), RW + '.jsonl');
+  {
+    const lines = fs.readFileSync(rwFile, 'utf8').split('\n'), after = Buffer.byteLength(lines.slice(0, 2).join('\n') + '\n');
+    assert.deepStrictEqual([rwc.rewindAt, rwc.rewinds], [uuid(82), [[after, fs.statSync(rwFile).size]]], 'from the reply before it; what came after it kept as the way gone back from');
+    assert.strictEqual(rwc.resumeAt, undefined, 'not the field a copy starts from');
+  }
   const rwArgs = procs.slice(procsAt).map((x) => x.args).find((a) => a.includes('--resume-session-at'));
   assert.ok(rwArgs, 'started from that entry');
-  assert.deepStrictEqual(rwArgs.slice(rwArgs.indexOf('--resume'), rwArgs.indexOf('--resume') + 6), ['--resume', RW, '--resume-session-at', uuid(82), '--fork-session', '--session-id']);
+  assert.deepStrictEqual(rwArgs.slice(rwArgs.indexOf('--resume'), rwArgs.indexOf('--resume') + 4), ['--resume', RW, '--resume-session-at', uuid(82)]);
+  assert.ok(!rwArgs.includes('--fork-session'), 'not a copy under another id');
   const rwSent = procs[procs.length - 1].p.stdin.written.find((w) => w && w.type === 'user');
   assert.ok(rwSent && JSON.stringify(rwSent).includes('改過的第二句'), 'the new words sent');
+  // what Claude Code writes next is a branch of the same transcript: the page reads the way it is on now
+  fs.appendFileSync(rwFile, [
+    line({ type: 'user', uuid: uuid(84), parentUuid: uuid(82), sessionId: RW, cwd: WORK, timestamp: new Date().toISOString(), message: { role: 'user', content: '改過的第二句' } }),
+    line({ type: 'assistant', uuid: uuid(85), parentUuid: uuid(84), sessionId: RW, cwd: WORK, timestamp: new Date().toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: '收到改過的' }] } }),
+  ].join('\n') + '\n');
+  assert.deepStrictEqual((await get('/api/messages?sid=' + RW)).json.items.map((x) => x.text), ['第一句', '好', '改過的第二句', '收到改過的'], 'not the words gone back from');
+  // its first reply came: started again later, it is resumed from its end, not from that entry again
+  procs[procs.length - 1].p.stdout.emit('data', JSON.stringify({ type: 'assistant', session_id: RW, message: { content: [{ type: 'text', text: '收到改過的' }] } }) + '\n');
+  assert.deepStrictEqual([rwc.rewindAt, rwc.rewindTo], [undefined, undefined]);
+  assert.deepStrictEqual(rwc.rewinds.length, 1, 'the range stays: the page still leaves that part out');
   // one with pictures: the ones kept go along, at their marks; not all there: nothing is stopped or closed
   {
     const dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK)), ts = new Date().toISOString(), RP = (await post('/api/new', { cwd: WORK })).json.sessionId, img = (data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/png', data } });
@@ -1311,10 +1326,6 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
     await post('/api/stop', { sessionId: rp.json.sessionId }); await post('/api/close', { sessionId: rp.json.sessionId });
   }
   // the first message edited: a conversation that starts afresh (nothing to carry on from)
-  {
-    const dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK));
-    fs.copyFileSync(path.join(dir, RW + '.jsonl'), path.join(dir, rw.json.sessionId + '.jsonl'));
-  }
   const rw2 = await post('/api/rewind', { sessionId: rw.json.sessionId, at: uuid(81), text: '重新開始' });
   assert.strictEqual(rw2.status, 200); assert.strictEqual(rw2.json.fromStart, true);
   assert.strictEqual(channels.get(rw2.json.sessionId).forkOf, undefined);
@@ -1339,8 +1350,9 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
     order.push('new started:' + (procs.length > at));
     assert.deepStrictEqual(order, ['old ended', 'new started:true'], 'the old process ended before the answer (and the new one started)');
     const n3 = channels.get(r3.json.sessionId);
-    assert.strictEqual(n3.title, '舊的標題', 'carried on: its title goes with it');
-    assert.strictEqual(cfg.value('customTitles', {})[n3.sessionId], '我取的名字', 'the name you gave it goes with it');
+    assert.strictEqual(n3, c3, 'carried on in place: the same conversation');
+    assert.strictEqual(n3.title, '舊的標題', 'its title stays');
+    assert.strictEqual(cfg.value('customTitles', {})[n3.sessionId], '我取的名字', 'the name you gave it stays');
     const said3 = procs.slice(at).map((x) => JSON.stringify(x.p.stdin.written)).join('\n');
     assert.ok(said3.includes('echo shell-note-1') && said3.includes('改過'), 'the "!" notes not yet sent go in front of the new words');
     // started afresh (the first message edited): not the old title; the name you gave it still goes with it
@@ -1349,14 +1361,15 @@ test('a board conversation: new, role, send, stream, approval, stop, commands, s
     assert.strictEqual(r4.status, 200);
     assert.notStrictEqual(channels.get(r4.json.sessionId).title, '舊的標題', 'started afresh: the title comes from the new words');
     assert.strictEqual(cfg.value('customTitles', {})[r4.json.sessionId], '我取的名字');
-    // the new words cannot be sent: the new conversation and the name written for it are taken away again
+    // the new words cannot be sent: nothing changed - not where it carries on from, not what the page leaves out
     fs.copyFileSync(path.join(dir, RW + '.jsonl'), path.join(dir, r4.json.sessionId + '.jsonl'));
     const realSend = channels.send;
-    channels.send = (sid, text) => (channels.get(sid) && channels.get(sid).forkOf ? { ok: false, error: '送不出去（測試）' } : realSend.call(channels, sid, text));
+    channels.send = (sid, text) => (channels.get(sid) && channels.get(sid).rewindAt ? { ok: false, error: '送不出去（測試）' } : realSend.call(channels, sid, text));
     const before5 = channels.list().length;
     const r5 = await post('/api/rewind', { sessionId: r4.json.sessionId, at: uuid(83), text: 'x' });
     channels.send = realSend;
-    assert.deepStrictEqual([r5.status, /原本的對話已停下/.test(r5.json.error)], [500, true]);
+    assert.deepStrictEqual([r5.status, /對話已停下，沒有重來/.test(r5.json.error)], [500, true]);
+    assert.deepStrictEqual([channels.get(r4.json.sessionId).rewindAt, channels.get(r4.json.sessionId).rewinds], [undefined, undefined], 'put back as it was');
     assert.strictEqual(channels.list().length, before5, 'no new conversation left behind');
     assert.ok(channels.get(r4.json.sessionId), 'the old one is still there');
     const leftNames = Object.keys(cfg.value('customTitles', {})).filter((k) => !channels.get(k) && cfg.value('customTitles', {})[k] === '我取的名字' && k !== R3 && k !== n3.sessionId);
@@ -2120,7 +2133,8 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
   assert.deepStrictEqual([d.goal, d.ledgerMissing, d.members.map((m) => m.role)], ['對齊增量同步規格', false, ['ALPHA', 'BETA']]);
   assert.deepStrictEqual(d.renameCommands.map((x) => x.command), ['/rename ' + codeB], 'the terminal session: the line to paste');
   assert.strictEqual((await get('/api/collab?id=999')).status, 404);
-  // a member of a collaboration edits a message and sends it again: the conversation that goes on has its name and its place
+  // a member of a collaboration edits a message and sends it again: carried on in place, the same member under the same
+  // name; told of the collaboration again only when its notice was in the part gone back from
   {
     const dir = path.join(CLAUDE, 'projects', S.encodeCwd(WORK)), ts = new Date().toISOString();
     const said = (sid, u, p, text) => line({ type: 'user', uuid: uuid(u), parentUuid: p, sessionId: sid, cwd: WORK, timestamp: ts, message: { role: 'user', content: text } });
@@ -2132,17 +2146,17 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
       const to = r.json.sessionId, pr = procs.slice(n0).find((x) => x.args.includes(to));
       assert.strictEqual(pr.args[pr.args.indexOf('--name') + 1], codeA, 'under the same name');
       assert.ok(pr.args.includes('--dangerously-skip-permissions'), 'and without asking, as its collaboration does');
-      assert.deepStrictEqual([channels.get(from), channels.codeOf(to)], [null, codeA]);
-      const left = channels.codeOf(from); assert.ok(left && left !== codeA, 'the one left behind: a name of its own (' + left + ')');
+      if (r.json.inPlace) assert.deepStrictEqual([to, !!channels.get(from), channels.codeOf(to)], [from, true, codeA], 'the same conversation');
+      else { assert.deepStrictEqual([channels.get(from), channels.codeOf(to)], [null, codeA]); const left = channels.codeOf(from); assert.ok(left && left !== codeA, 'the one left behind: a name of its own (' + left + ')'); }
       const now = (await get('/api/collab?id=' + id)).json;
       assert.deepStrictEqual(now.members.map((m) => [m.role, m.sessionId, m.name]), [['ALPHA', to, codeA], ['BETA', TT, codeB]]);
-      const led = fs.readFileSync(ledger, 'utf8'); assert.ok(led.includes(to) && !led.includes(from), 'the ledger has the one that goes on');
-      return { to, words: JSON.stringify(pr.p.stdin.written) };
+      const led = fs.readFileSync(ledger, 'utf8'); assert.ok(led.includes(to) && (to === from || !led.includes(from)), 'the ledger has the one that goes on');
+      return { to, pr, words: JSON.stringify(pr.p.stdin.written) };
     };
     const tt = procs.length;
     const a = await go(B, 85, '改過的第二句'); assert.ok(a.words.includes('改過的第二句') && !a.words.includes('【合作 #'), 'it knows of the collaboration already');
     const b = await go(a.to, 83, '回到說明之前'); assert.ok(b.words.includes('回到說明之前') && b.words.includes('【合作 #' + id + '】') && b.words.includes(codeB), 'from before it was told: told again');
-    { const w = procs.find((x) => x.args.includes(b.to)).p.stdin.written.filter((x) => x.type === 'user').map((x) => JSON.stringify(x.message.content)); assert.deepStrictEqual([w.length, /回到說明之前/.test(w[0]) && !/合作 #/.test(w[0]), /看板自動送出/.test(w[1])], [2, true, true], 'yours by itself, first; the board\'s after it'); }
+    { const w = b.pr.p.stdin.written.filter((x) => x.type === 'user').map((x) => JSON.stringify(x.message.content)); assert.deepStrictEqual([w.length, /回到說明之前/.test(w[0]) && !/合作 #/.test(w[0]), /看板自動送出/.test(w[1])], [2, true, true], 'yours by itself, first; the board\'s after it'); }
     const c = await go(b.to, 81, '從頭'); assert.ok(c.words.includes('【合作 #' + id + '】'), 'started afresh: told again');
     assert.strictEqual(channels.get(c.to).title, '從頭', 'the title from your words, not the board\'s');
     assert.strictEqual(procs.length - tt, 3, 'nobody else was told anything');

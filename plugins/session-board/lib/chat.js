@@ -23,6 +23,7 @@ const os = require('os');
 const { spawn } = require('child_process');
 
 const IDLE_MS = 15 * 60 * 1000;
+const sizeOf = (f) => { try { return fs.statSync(f).size; } catch (e) { return Infinity; } };
 const WAKE_MS = 5 * 60 * 1000;   // see wake()
 const RECYCLE_MS = 6 * 3600 * 1000;   // see _reap()
 const COMMANDS_TTL_MS = 10 * 60 * 1000;   // plugins get installed and removed; ask again after this
@@ -127,7 +128,7 @@ class Channels {
       sessionId: c.sessionId, cwd: c.cwd, title: c.title, createdAt: c.createdAt,
       lastResultAt: c.lastResultAt, lastSeenAt: c.lastSeenAt, changedAt: c.changedAt,
       // set by a schedule: start without asking for approvals; start as a copy of another session (see _start)
-      skipPermissions: c.skipPermissions || undefined, forkOf: c.forkOf || undefined, resumeAt: c.resumeAt || undefined,
+      skipPermissions: c.skipPermissions || undefined, forkOf: c.forkOf || undefined, resumeAt: c.resumeAt || undefined, rewinds: c.rewinds && c.rewinds.length ? c.rewinds : undefined, rewindAt: c.rewindAt || undefined, rewindTo: c.rewindTo || undefined,
       // what you ran with "!" and have not sent yet (noteShell)
       shellNotes: c.shellNotes && c.shellNotes.length ? c.shellNotes : undefined, shellSeq: c.shellSeq || undefined,
       // the agent role this conversation runs as (see roles()); none = an ordinary conversation
@@ -439,7 +440,13 @@ class Channels {
     const has = this.transcriptOf(c.sessionId, c.cwd);
     // ... and from a given entry of it (resumeAt: a message edited and sent again, see lib/rewind.js), not its end
     if (!has && c.forkOf) args.push('--resume', c.forkOf, ...(c.resumeAt && /^[0-9a-f-]{36}$/i.test(c.resumeAt) ? ['--resume-session-at', c.resumeAt] : []), '--fork-session', '--session-id', c.sessionId);
-    else args.push(has ? '--resume' : '--session-id', c.sessionId);
+    // A message edited and sent again (in place, 2026-11-28): the same session from the entry before it - Claude Code
+    // writes what follows as a branch of the same transcript, as /rewind in a terminal does (measured on 2.1.332: same id,
+    // the turn after that entry was not known). Its own fields, not resumeAt: conversations the board copied before
+    // keep a resumeAt of their original's (review 2026-11-28). Only while nothing has been written since it went back
+    // (rewindTo: the transcript's size then): once the edited message is in, it is carried on from its end like any other.
+    else if (has && c.rewindAt && /^[0-9a-f-]{36}$/i.test(c.rewindAt) && sizeOf(has) <= (c.rewindTo || 0)) args.push('--resume', c.sessionId, '--resume-session-at', c.rewindAt);
+    else { if (c.rewindAt) c.rewindAt = c.rewindTo = undefined; args.push(has ? '--resume' : '--session-id', c.sessionId); }
     // Its fixed name, every time: without it Claude Code names a resumed session after its latest title (which the status
     // line rewrites) or its folder, and whoever was given the old name no longer reaches it. Measured 2026-11-24 on
     // 2.1.331: with --name it stays, also across a resume and with another title written into the transcript meanwhile.
@@ -553,6 +560,8 @@ class Channels {
       }
       return;
     }
+    // the first reply after carrying on in place: from now on it is resumed from its end like any other
+    if (e.type === 'assistant' && c.rewindAt) { c.rewindAt = c.rewindTo = undefined; this._save(); }
     if (e.type === 'assistant' && e.message && Array.isArray(e.message.content)) {
       const { toolSummary, toolDetail } = require('./history');
       for (const b of e.message.content) {
@@ -940,7 +949,7 @@ class Channels {
   _moveTo(c, to) {
     const from = c.sessionId; if (this.map.has(to)) return;
     this.map.delete(from); c.sessionId = to; this.map.set(to, c);
-    c.forkOf = c.resumeAt = undefined; c.title = ''; c.lastResultAt = Date.now(); c.lastSeenAt = c.lastResultAt;
+    c.forkOf = c.resumeAt = c.rewinds = c.rewindAt = c.rewindTo = undefined; c.title = ''; c.lastResultAt = Date.now(); c.lastSeenAt = c.lastResultAt;   // (rewinds: ranges of the old transcript, not of the new one)
     // sent before the clear: read there, or gone with it; after: still waiting, and kept track of
     { const all = c.said || []; c.said = all.filter((x) => c.clearAt && x.at >= c.clearAt).map((x) => Object.assign(x, { from: 0 })); for (const x of all) if (!c.said.includes(x)) this._dropPics(x); }
     this._save();

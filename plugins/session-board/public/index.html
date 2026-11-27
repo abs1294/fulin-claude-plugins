@@ -8751,14 +8751,14 @@ function node(it) {
 }
 
 // Edit a message you sent and send it again (a board conversation): it turns into a box in place; sent, the
-// conversation is carried on from just before it as a new one (the old one goes to 沒開著, see /api/rewind). Its pictures go
+// conversation is carried on from just before it, in the same conversation (see /api/rewind). Its pictures go
 // along, out of the transcript, unless taken off (2026-11-24; a board program older than the page cannot: not offered).
 function addEdit(m, it, pics) {
   const s = cur();
   if (!s || s.owner !== 'board' || !it.id) return;
   if ((pics || it.images || it.imgAt) && !(features.editPics && Array.isArray(it.imgAt) && it.imgAt.length)) return;
   const b = el('button', 'edit-msg', '編輯'); b.type = 'button';
-  b.title = '改這則訊息再送一次：正在進行的回覆會停下，對話從這則之前重來（原本的對話收進「沒開著」，不會刪掉）';
+  b.title = '改這則訊息再送一次：正在進行的回覆會停下，對話從這則之前重來（同一個對話，之後的內容不再顯示，紀錄裡還在）';
   b.addEventListener('click', () => editMsg(m, it));
   m.prepend(b);
 }
@@ -8783,7 +8783,7 @@ function editMsg(m, it) {
     });
   };
   drawPics();
-  box.append(strip, ta, el('div', 'hint', '送出後，正在進行的回覆會停下，對話從這則之前接著跑。原本的對話收進「沒開著」，不會刪掉。' + (onTouch() ? '' : 'Enter 送出、Shift+Enter 換行、Esc 取消。')), row);
+  box.append(strip, ta, el('div', 'hint', '送出後，正在進行的回覆會停下，對話從這則之前接著跑。之後的內容不再顯示，紀錄裡還在。' + (onTouch() ? '' : 'Enter 送出、Shift+Enter 換行、Esc 取消。')), row);
   m.textContent = ''; m.append(box); m.classList.add('editing');
   ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
   const close = () => { m.textContent = ''; m.append(...was); m.classList.remove('editing'); };
@@ -8804,8 +8804,9 @@ function editMsg(m, it) {
     let r; try { r = await api('/api/rewind', { sessionId: was, at: it.id, text, pics: keep }); } catch (e) { r = { ok: false, data: { error: '看板程序沒有回應' } }; }
     if (!r.ok || !r.data || r.data.ok === false) { go.disabled = cancel.disabled = ta.disabled = false; go.textContent = '送出，從這則重來'; return say((r.data && r.data.error) || '沒辦法重來', true); }
     await moveHeld(was, r.data.sessionId);
-    await poll(); openChat(r.data.sessionId);
-    say(r.data.fromStart ? '已用改好的訊息重新開始這個對話' : '已從這則之前重來。原本的對話在「沒開著」裡');
+    await poll();
+    if (r.data.sessionId === active) await loadHistory(true); else openChat(r.data.sessionId);   // (in place: the same conversation, read again without the part gone back from)
+    say(r.data.fromStart ? '已用改好的訊息重新開始這個對話' : '已從這則之前重來');
   });
 }
 
@@ -9084,7 +9085,10 @@ function askForm(p) {
     send.disabled = skip.disabled = true;
     const answers = {};
     p.questions.forEach((q, i) => { answers[q.question] = groups[i](); });
-    const r = await api('/api/permission', { sessionId: active, requestId: p.requestId, allow, answers });
+    const sid = active, r = await api('/api/permission', { sessionId: sid, requestId: p.requestId, allow, answers });
+    // answered: marked on the questions now, not when the turn is over (it can go on a long while after it: 2026-11-28,
+    // 「我有回答啊，回答怎麼沒顯示」); read again from the transcript a moment later, where Claude Code writes it at once
+    if (r.ok && allow) { markAnswered({ answers: p.questions.map((q, i) => ({ question: q.question, answer: String(answers[q.question] || '') })).filter((x) => x.answer) }); setTimeout(() => { if (sid === active) loadHistory(false, true); }, 1200); }
     if (!r.ok) { say(r.data.error === 'no such request' ? '這個提問已經不在了' : (r.data.error || '送不出去'), true); skip.disabled = false; check(); }
   };
   send.addEventListener('click', () => done(true));

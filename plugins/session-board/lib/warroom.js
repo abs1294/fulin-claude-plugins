@@ -96,7 +96,7 @@ function build(sessions, opts = {}, now = Date.now()) {
   const turns = [];
   for (const s of sessions) {
     const file = findTranscript(s.sessionId, s.cwd, o.projectsDir);
-    const hist = file ? cachedHistory(file, { max: TURN_ITEMS }) : { items: [], more: false };
+    const hist = file ? cachedHistory(file, { max: TURN_ITEMS, hide: o.hideOf ? o.hideOf(s.sessionId) : undefined }) : { items: [], more: false };
     // "background": the turn is over but work it started is still running. That is still a session at work.
     const busy = s.status === 'busy' || s.status === 'background';
     if (busy) {

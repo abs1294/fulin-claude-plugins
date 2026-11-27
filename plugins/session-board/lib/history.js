@@ -10,8 +10,8 @@ const fs = require('fs');
 
 const CHUNK = 1024 * 1024;
 
-// Calls onLine(buffer) for each complete line, last line first. onLine returns
-// false to stop. Reads at most `cap` bytes.
+// Calls onLine(buffer, offset) for each complete line, last line first (offset: where the line starts in the file).
+// onLine returns false to stop. Reads at most `cap` bytes.
 function eachLineBackward(file, cap, onLine) {
   let fd;
   try {
@@ -34,11 +34,11 @@ function eachLineBackward(file, cap, onLine) {
       let end = data.length;
       for (let i = data.length - 1; i >= 0; i--) {
         if (data[i] !== 10) continue;
-        if (end > i + 1 && onLine(data.subarray(i + 1, end)) === false) return;
+        if (end > i + 1 && onLine(data.subarray(i + 1, end), pos + i + 1) === false) return;
         end = i;
       }
       carry = Buffer.from(data.subarray(0, end));
-      if (pos === 0 && carry.length) onLine(carry);
+      if (pos === 0 && carry.length) onLine(carry, 0);
     }
   } catch (e) {
   } finally {
@@ -246,13 +246,19 @@ function itemsOf(e) {
 }
 
 // Last `max` display items, oldest first. `more` says older ones exist.
+// o.hide: [[from, to], ...] byte ranges left out - a message edited and sent again carries the conversation on in place
+// (Claude Code's --resume-session-at), and what had come after the place it went back to stays in the transcript as a
+// branch nobody is on any more (the board keeps where it was: lib/chat.js rewinds). Not told by parentUuid: an ordinary
+// transcript has entries with two children too (measured 2026-11-28: 5 to 20 in each of five large ones).
 function readHistory(file, o = {}) {
+  const hide = Array.isArray(o.hide) ? o.hide.filter((r) => Array.isArray(r) && r[1] > r[0]) : [];
   const max = o.max || 120;
   const cap = o.cap || 32 * 1024 * 1024;
   const groups = [];   // newest first; each group is one entry's items in order
   let count = 0;
   let more = false;
-  eachLineBackward(file, cap, (line) => {
+  eachLineBackward(file, cap, (line, at) => {
+    if (hide.some((r) => at >= r[0] && at < r[1])) return true;
     if (line.indexOf(USER_MARK) < 0 && line.indexOf(ASSISTANT_MARK) < 0 && line.indexOf(QUEUED_MARK) < 0) return true;
     let e;
     try { e = JSON.parse(line.toString('utf8')); } catch (x) { return true; }
@@ -271,7 +277,7 @@ const cache = new Map();
 function cachedHistory(file, o) {
   let st;
   try { st = fs.statSync(file); } catch (e) { return { items: [], more: false }; }
-  const key = file + '|' + ((o && o.max) || '');
+  const key = file + '|' + ((o && o.max) || '') + '|' + JSON.stringify((o && o.hide) || []);
   const c = cache.get(key);
   if (c && c.size === st.size && c.mtimeMs === st.mtimeMs) return c.res;
   const res = readHistory(file, o);

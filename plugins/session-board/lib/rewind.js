@@ -18,22 +18,26 @@ const fs = require('fs');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// words: which of these the board had told it of before that message (had; none when it starts afresh)
-// -> {ok: true, at: '<uuid of the whole place>' | null, had?: [words]} | {ok: false, error}
-function resumePoint(file, uuid, words = []) {
+// -> {ok: true, at: '<uuid of the whole place>' | null, after?: <byte offset where the line after it starts>} | {ok: false, error}
+// (after: carried on in place, what the transcript holds from there on is the way gone back from - see lib/history.js hide)
+function resumePoint(file, uuid) {
   if (!UUID.test(String(uuid || ''))) return { ok: false, error: '缺少要編輯的那則訊息' };
-  let text;
-  try { text = fs.readFileSync(file, 'utf8'); } catch (e) { return { ok: false, error: '讀不到這個對話的紀錄' }; }
+  let buf;
+  try { buf = fs.readFileSync(file); } catch (e) { return { ok: false, error: '讀不到這個對話的紀錄' }; }
   const by = new Map(), calling = new Set();   // calling: the replies (message ids) that call a tool in any of their entries
   let lastCompact = -1, line = 0, at = -1;
-  for (const raw of text.split('\n')) {
+  const ends = new Map();   // uuid -> byte offset just past its line
+  for (let s = 0; s < buf.length;) {
+    let k = buf.indexOf(10, s); if (k < 0) k = buf.length;
+    const raw = buf.toString('utf8', s, k), next = k + 1; s = next;
     line++;
     if (!raw.trim()) continue;
     let e; try { e = JSON.parse(raw); } catch (x) { continue; }
     if (!e || typeof e.uuid !== 'string') continue;
     const mid = e.type === 'assistant' && e.message && typeof e.message.id === 'string' ? e.message.id : '';
     if (mid && Array.isArray(e.message.content) && e.message.content.some((b) => b && b.type === 'tool_use')) calling.add(mid);
-    by.set(e.uuid, { type: e.type, parent: typeof e.parentUuid === 'string' ? e.parentUuid : null, line, said: said(e), whole: whole(e), board: boardSaid(e), mid });
+    ends.set(e.uuid, Math.min(next, buf.length));
+    by.set(e.uuid, { type: e.type, parent: typeof e.parentUuid === 'string' ? e.parentUuid : null, line, said: said(e), whole: whole(e), mid });
     if ((e.type === 'system' && e.subtype === 'compact_boundary') || (e.type === 'user' && e.isCompactSummary)) lastCompact = line;
     if (e.uuid === uuid) at = line;
   }
@@ -44,16 +48,24 @@ function resumePoint(file, uuid, words = []) {
   for (let p = me.parent, n = 0; p && n < 100000; n++) {
     const e = by.get(p);
     if (!e) break;
-    if (e.whole && !(e.mid && calling.has(e.mid))) return Object.assign({ ok: true, at: p }, words.length ? { had: hadIn(by, p, words) } : {});   // words of a reply that goes on to call a tool: part of a reply, not its end
+    if (e.whole && !(e.mid && calling.has(e.mid))) return { ok: true, at: p, after: ends.get(p) };   // words of a reply that goes on to call a tool: part of a reply, not its end
     p = e.parent;
   }
   return { ok: true, at: null };
 }
-// told by the board itself (a message of its own that begins with it), on the way that leads here - not merely mentioned,
-// and not on a way gone back from
-function hadIn(by, from, words) {
+// Which of these the board itself told it of (a message of its own that begins with it - not merely mentioned, not quoted
+// by Claude) between two places of the transcript: carried on in place, the part gone back from - a collaboration's
+// notice there is no longer known to it and is told again. -> [words]
+function told(file, from, to, words) {
+  if (!words.length || !(to > from)) return [];
+  let text = '';
+  try { const fd = fs.openSync(file, 'r'), len = Math.min(to - from, 64 * 1024 * 1024), b = Buffer.alloc(len); fs.readSync(fd, b, 0, len, from); fs.closeSync(fd); text = b.toString('utf8'); } catch (e) { return []; }
   const had = new Set();
-  for (let p = from, n = 0; p && n < 1000000; n++) { const e = by.get(p); if (!e) break; for (const w of words) if (e.board.includes(w)) had.add(w); p = e.parent; }
+  for (const raw of text.split('\n')) {
+    if (!raw.includes('看板自動送出')) continue;
+    let e; try { e = JSON.parse(raw); } catch (x) { continue; }
+    const b = boardSaid(e); for (const w of words) if (b.includes(w)) had.add(w);
+  }
   return words.filter((w) => had.has(w));
 }
 function boardSaid(e) {
@@ -82,4 +94,4 @@ function said(e) {
   return Array.isArray(c) && c.some((b) => b && (b.type === 'text' || b.type === 'image')) && !c.some((b) => b && b.type === 'tool_result');
 }
 
-module.exports = { resumePoint, UUID };
+module.exports = { resumePoint, told, UUID };

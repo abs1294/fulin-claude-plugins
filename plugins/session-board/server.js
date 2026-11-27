@@ -1652,7 +1652,8 @@ function createServer(token, port, deps = {}) {
           // read backward in pieces only as far as needed.
           const want = Number(q.get('max'));
           const max = Number.isInteger(want) ? Math.max(W.TURN_ITEMS, Math.min(want, HISTORY_MAX)) : W.TURN_ITEMS;
-          const h = file ? cachedHistory(file, { max, cap: max > W.TURN_ITEMS ? 160 * 1024 * 1024 : undefined }) : { items: [], more: false };
+          const ch = channels.get(s.sessionId), hide = ch && Array.isArray(ch.rewinds) && ch.rewinds.length ? ch.rewinds : undefined;   // (the ways gone back from)
+          const h = file ? cachedHistory(file, { max, cap: max > W.TURN_ITEMS ? 160 * 1024 * 1024 : undefined, hide }) : { items: [], more: false };
           return send(res, 200, Object.assign({}, h, { max, limit: HISTORY_MAX }));
         }
         // A background command of a board conversation: what it is and the end of what it has printed so far.
@@ -1847,7 +1848,7 @@ function createServer(token, port, deps = {}) {
         if (p === '/api/warroom') {
           const now = Date.now();
           if (now - war.at > 2500) {
-            const data = W.build(sessions(), { windows: channels.modelWindows, limit: limitFor }, now);
+            const data = W.build(sessions(), { windows: channels.modelWindows, limit: limitFor, hideOf: (sid) => { const ch = channels.get(sid); return ch && Array.isArray(ch.rewinds) && ch.rewinds.length ? ch.rewinds : undefined; } }, now);
             data.quota = quota();
             war = { at: now, data };
           }
@@ -2485,8 +2486,11 @@ function createServer(token, port, deps = {}) {
       // A copy of a conversation, on the board: it starts from what the original holds now and goes its own way; the
       // original is not touched (Claude Code's --fork-session, see lib/chat.js _start).
       // A message of a board conversation edited and sent again: the conversation is carried on from just before that
-      // message, as a new board conversation that is sent the new words; the old one is closed (its transcript stays,
-      // under 沒開著), and its name, model, effort and role go with it. A turn in progress is stopped first.
+      // message in the same conversation - same id, name, cost so far and collaborations - as /rewind in a terminal does
+      // (2026-11-28: it used to go on as a new conversation, and the page showed it empty, its cost from 0 and a
+      // collaboration's notice sent again). What came after that point stays in the transcript as a branch the page
+      // leaves out (c.rewinds, lib/history.js hide). Only the very first message goes on as a new conversation: there is
+      // nothing before it to carry on from. A turn in progress is stopped first.
       if (p === '/api/rewind') {
         const c = channels.get(sid);
         if (!c) return send(res, 400, { ok: false, error: '只有看板裡的對話可以編輯重送' });
@@ -2495,12 +2499,11 @@ function createServer(token, port, deps = {}) {
         const keep = Array.isArray(body.pics) ? [...new Set(body.pics)].filter((i) => Number.isInteger(i) && i >= 0) : [];
         if (keep.length > 8) return send(res, 400, { ok: false, error: '一則最多 8 張圖，這則留了 ' + keep.length + ' 張，請拿掉幾張' });
         if (!text.trim() && !keep.length) return send(res, 400, { ok: false, error: '改好的訊息是空的' });
-        // a member of collaborations under way: the new conversation takes its place (moveMember); gone back to before it was
-        // told of one, it is told again
+        // a member of collaborations under way: told of one again when its notice was in the part gone back from
         const inCollabs = collabList().filter((x) => x.state === 'active' && x.members.some((m) => m.sessionId === sid)), tag = (x) => '【合作 #' + x.id + '】';
         const file = S.findTranscript(sid, c.cwd, S.DEFAULTS.projectsDir);
         if (!file) return send(res, 400, { ok: false, error: '這個對話還沒有紀錄' });
-        const rp = Rewind.resumePoint(file, body.at, inCollabs.map(tag));
+        const rp = Rewind.resumePoint(file, body.at);
         if (!rp.ok) return send(res, 400, rp);
         const pics = keep.length ? require('./lib/history').picturesOf(file, body.at, keep) : [];
         if (!pics) return send(res, 400, { ok: false, error: '這則訊息的圖在紀錄裡讀不到，沒有重來' });
@@ -2516,11 +2519,25 @@ function createServer(token, port, deps = {}) {
           if (channels.settled) await channels.settled(sid);   // what was still waiting in its queue is among what goes along
         } finally { rewinding.delete(sid); }
         if (channels.get(sid) !== c) return send(res, 409, { ok: false, error: '這個對話在停下來的時候被關掉了，沒有重來' });
+        if (rp.at) {
+          let to = 0; try { to = fs.statSync(file).size; } catch (e) {}
+          const cut = [rp.after, to], before = { rewindAt: c.rewindAt, rewindTo: c.rewindTo, rewinds: c.rewinds };
+          c.rewindAt = rp.at; c.rewindTo = to; c.rewinds = (Array.isArray(c.rewinds) ? c.rewinds : []).concat(to > rp.after ? [cut] : []).slice(-100);
+          if (channels._save) channels._save();
+          let r; try { r = channels.send(sid, text, pics.length ? pics : undefined, '', undefined, { yours: true }); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 160) }; }
+          if (r && r.ok === false) { c.rewindAt = before.rewindAt; c.rewindTo = before.rewindTo; c.rewinds = before.rewinds; if (channels._save) channels._save(); fresh(); return send(res, 500, { ok: false, error: (r.error || '送不出去') + '。對話已停下，沒有重來' }); }
+          // a collaboration's notice that was in the part gone back from: told again (one from before a compaction, or
+          // never cut away, is not - it used to be sent at every edit, the notice being out of reach of the walk back)
+          const again = Rewind.told(file, rp.after, to, inCollabs.map(tag));
+          for (const x of inCollabs) if (again.includes(tag(x))) { const m = x.members.find((y) => y.sessionId === sid); if (m && !m.pending) channels.send(sid, Collab.briefText(x, m)); }
+          fresh();
+          return send(res, 200, { ok: true, sessionId: sid, inPlace: true });
+        }
         const n = channels.create(c.cwd, crypto.randomUUID());
-        if (rp.at) { n.forkOf = sid; n.resumeAt = rp.at; }
-        // its settings go with it; its title only when it carries on (started afresh, the title comes from the new words);
-        // what you ran with "!" and had not sent yet goes with the new words (send() puts it in front of them)
-        for (const k of ['model', 'effort', 'agent', 'skipPermissions', 'stash'].concat(rp.at ? ['title'] : [])) if (c[k]) n[k] = c[k];
+        // the first message edited - nothing before it to carry on from: a new conversation. Its settings go with it, not its
+        // title (that comes from the new words); what you ran with "!" and had not sent yet goes with the new words (send()
+        // puts it in front of them)
+        for (const k of ['model', 'effort', 'agent', 'skipPermissions', 'stash']) if (c[k]) n[k] = c[k];
         if (Array.isArray(c.shellNotes) && c.shellNotes.length) { n.shellNotes = c.shellNotes.slice(); n.shellSeq = c.shellSeq; }
         if (Array.isArray(c.unsent) && c.unsent.length) n.unsent = c.unsent.slice();   // what Claude never took in goes along
         if (channels._save) channels._save();
@@ -2533,10 +2550,10 @@ function createServer(token, port, deps = {}) {
         }
         delete n.nameOf; carryOn(sid, n.sessionId);
         c.unsent = []; channels.remove(sid);   // (they went along: their pictures stay)
-        // gone back to before it was told of a collaboration: told again, as a message of the board's own after yours
-        for (const x of inCollabs) if (!(rp.had || []).includes(tag(x))) { const now = collabList().find((y) => y.id === x.id), m = now && now.members.find((y) => y.sessionId === n.sessionId); if (m && !m.pending) channels.send(n.sessionId, Collab.briefText(now, m)); }
+        // started afresh: told of its collaborations again, as a message of the board's own after yours
+        for (const x of inCollabs) { const now = collabList().find((y) => y.id === x.id), m = now && now.members.find((y) => y.sessionId === n.sessionId); if (m && !m.pending) channels.send(n.sessionId, Collab.briefText(now, m)); }
         fresh();
-        return send(res, 200, { ok: true, sessionId: n.sessionId, fromStart: !rp.at });
+        return send(res, 200, { ok: true, sessionId: n.sessionId, fromStart: true });
       }
       if (p === '/api/fork') {
         // A feature that is off unless switched on in the settings (showFork): the page then has no button for it, and the address refuses.
