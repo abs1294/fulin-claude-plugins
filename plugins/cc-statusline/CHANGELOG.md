@@ -2,6 +2,13 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.11.0] - 2026-11-28
+### Added
+- 壓縮次數承接前一段：從別的對話複製出來接續的對話（`claude --resume X --fork-session`，看板的分身、修改後重送、排程接續都是）是從 X 最後一次壓縮之後開始的，原本記在 X 的壓縮次數不會跟過來，看板因此顯示「壓縮 0 次」。現在 `claude-compacts-<sid>.json` 多 `v:1`、`inherited`（複製時 X 已經壓縮過幾次）、`from`（X 的 session id）、`inheritedAt`（帶過來的那次壓縮的時間）；`count` 的意思不變（這段自己的次數），畫面上顯示 `count + inherited`。X 在複製之後又壓縮的不算進來。回覆完、每 10 分鐘全機看一次對話紀錄時補上，已經發生過的對話也會補（實測這台電腦 30 天內 263 份對話紀錄、3.4 GB，第一次 6～10 秒）。
+- 對話紀錄裡自己的壓縮邊界比 hook 記的次數多時（舊版的計數檔放在暫存資料夾被 Windows 清掉、或當時還沒裝），`count` 補到邊界數；只補最近 30 天有動的對話，hook 記的比較多時不改。
+- 立即重查額度的入口：`node hooks/account-limits.js --refresh`（給看板的 ↻ 按鈕用）。不等平常的 5 分鐘，馬上向 Claude Code 查一次並寫進 `account-limits.json`，查完印一行結果（`asked` 表示這次有沒有真的去查）；30 秒內查過就不再查、直接回那次的結果，正在查就等它查完，所以連按幾次都只查一次。
+- docs/data-boundary.md：壓縮次數一列登記新欄位；新增「入口」一節（別的 plugin 可以請 cc-statusline 現在去做的事，目前只有立即重查額度）。新增 hooks/tests/compacts.test.js，account-limits.test.js 加立即重查的測試。
+
 ## [1.10.1] - 2026-11-24
 ### Fixed
 - 對話的花費：對話紀錄或子代理的紀錄一時讀不到、或被清掉時，已經算過的不再消失（原本恢復後也補不回來）；讀不到的時候不蓋上新的時間。路徑的大小寫、斜線寫法不同，或專案資料夾搬動，不會算成兩份。單價改變要整份重算時，已經被清掉的不在內。

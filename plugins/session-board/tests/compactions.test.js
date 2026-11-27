@@ -27,7 +27,8 @@ test('summaries cleaned of Claude Code\'s opening notes; newest first; a letter 
   fs.writeFileSync(path.join(snaps, stamp(t3 + 3600000) + '.handoff.md'), '沒有壓縮跟著它');
   fs.writeFileSync(path.join(snaps, stamp(t2 - 3 * 60000) + '.summary.md'), 'not a letter');
   const r = await C.list(t, SID);
-  assert.deepStrictEqual([r.ok, r.total, r.hasHarness], [true, 3, true]);
+  // how many times is cc-statusline's to say (lib/stats.js), not counted from the transcript here
+  assert.deepStrictEqual([r.ok, 'total' in r, r.hasHarness], [true, false, true]);
   assert.deepStrictEqual(r.items.map((i) => [i.summary, i.handoff]), [['## What this work is for:\n\nC', null], ['1. Primary Request and Intent: B', '## 未完成\n交接信 B'], ['1. Primary Request and Intent: A', null]]);
   assert.strictEqual(r.items[1].at, t2);
 });

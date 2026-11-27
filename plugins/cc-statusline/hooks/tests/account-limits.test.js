@@ -119,6 +119,31 @@ put(h, { at: Date.now() - 60000, five_hour: w(9, -5), seven_day: w(9, -5), tried
 check(/7d-quota .*36%/.test(out) && /5h-quota .*50%/.test(out), 'an answer whose windows are over: as before', out);
 check(['five_hour', 'seven_day', 't'].every((k) => k in snap(h).a) && snap(h).a.five_hour.resets_at === R5, 'the fields there were are as they were', snap(h));
 
+console.log('asked for by hand (--refresh, session-board\'s button)');
+{
+  const g = home(), refresh = (a) => { const r = spawnSync(process.execPath, [ASK, '--refresh'], { env: envOf(g, { FAKE_ANSWER: a }), encoding: 'utf8', timeout: 60000 }); try { return JSON.parse(r.stdout); } catch (e) { return { raw: r.stdout, err: r.stderr }; } };
+  // asked by the Stop hook two minutes ago: the hook would wait three more, the button does not
+  run(g, answer(1, 34)); ago(g, 120000); const before = get(g), t1 = Date.now();
+  let r = refresh(answer(2, 35)); j = get(g);
+  check(r.ok === true && r.asked === true && r.at >= t1 && r.at === j.at && j.seven_day.used_percentage === 35 && j.at > before.at && asked(g).length === 2, 'asks now, not after five minutes', [r, j]);
+  check(j.next - j.tried === 300000, 'and the hook waits its five minutes after it', j);
+  // pressed again and again: one asking
+  r = refresh(answer(3, 36)); const r3 = refresh(answer(4, 37));
+  check(r.asked === false && r3.asked === false && r.ok && r.at === j.at && asked(g).length === 2 && get(g).seven_day.used_percentage === 35, 'again within 30 seconds: the same answer, not asked', [r, r3, asked(g).length]);
+  // three at once: one asking, every one gets its answer
+  ago(g, 31000);
+  const many = spawnSync(process.execPath, ['-e', `const {spawn}=require('child_process');const out=[];let d=0;for(let i=0;i<3;i++){const p=spawn(process.execPath,[${JSON.stringify(ASK)},'--refresh'],{env:process.env});let s='';p.stdout.on('data',c=>s+=c);p.on('exit',()=>{out.push(s.trim());if(++d===3){console.log(JSON.stringify(out));}});}`], { env: envOf(g, { FAKE_ANSWER: answer(5, 38) }), encoding: 'utf8', timeout: 90000 });
+  let rs = []; try { rs = JSON.parse(many.stdout).map((x) => JSON.parse(x)); } catch (e) { rs = [many.stdout, many.stderr]; }
+  check(rs.length === 3 && rs.filter((x) => x.asked).length === 1 && rs.every((x) => x.ok && x.at === get(g).at) && asked(g).length === 3 && get(g).seven_day.used_percentage === 38, 'three at once: one asking, one answer for all', rs);
+  // no answer: said so, what was there stays
+  ago(g, 31000); const kept = get(g);
+  r = refresh(JSON.stringify({ type: 'control_response', response: { subtype: 'error', error: 'x' } }));
+  check(r.ok === false && r.asked === true && /沒有回答/.test(r.error) && get(g).at === kept.at && get(g).seven_day.used_percentage === 38, 'no answer: said so, the figures stay', [r, get(g)]);
+  // pressed again within 30 seconds of that: not asked again, and not passed off as an answer
+  r = refresh(answer(6, 39));
+  check(r.ok === false && r.asked === false && /沒有回答/.test(r.error) && r.at === kept.at && asked(g).length === 4, 'again right after no answer: not asked, said it had none', [r, asked(g).length]);
+}
+
 // what the status line started in the background writes into these homes for a moment yet
 for (let k = 0; k < 8; k++) { sleep(1000); try { fs.rmSync(W, { recursive: true, force: true }); } catch (_) { /* in use */ } }
 console.log(pass + ' passed, ' + fail + ' failed; the Stop hook took ' + took + ' ms');

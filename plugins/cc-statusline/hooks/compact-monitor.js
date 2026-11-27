@@ -13,7 +13,10 @@ process.stdin.on('end', () => {
     const file = stateFile(`claude-compacts-${sid}.json`);
     const stamp = Date.now();
     let target = null;
+    // count: this conversation's own; what it carried over from the conversation it was copied from is
+    // inherited, written by scripts/lib-compacts.js (the board shows count + inherited)
     casMerge(file, (state) => {
+      state.v = 1;
       state.count = (Number(state.count) || 0) + 1;
       state.last = stamp;
       target = state.count;

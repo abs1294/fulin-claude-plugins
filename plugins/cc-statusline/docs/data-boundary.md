@@ -59,7 +59,7 @@
 2. 先看 `v`（介面版本）。沒有 `v`＝那個檔的產生版本太舊；`v` 比自己認得的大也照用（欄位只加不改）。
 3. 讀不到、太舊：說清楚（沒裝、版本太舊、幾分鐘前的資料），**不可以退回去自己讀原始來源**。
 4. 資料有新舊時顯示 `at`，或用它決定要不要提醒。
-5. 不可以寫、改、刪 cc-statusline 的檔，也不可以去觸發它的掃描。
+5. 不可以寫、改、刪 cc-statusline 的檔，也不可以去觸發它的掃描。例外只有下面「入口」列的指令：由 cc-statusline 自己去查、自己寫檔。
 6. 缺欄位就來這份提需求、改 cc-statusline，不要在自己這邊先算一份頂著。
 
 **例外：自己啟動的那一次執行。** plugin 自己跑了一次 `claude -p`，Claude Code 在結果裡回報這一次的花費或 token，可以直接拿來顯示「這一次花了多少」，因為那是自己那次呼叫的回傳值。限制：
@@ -77,7 +77,7 @@
 | 單一對話用量 | `S/claude-toksum2-<sid>.json` | `v:1`、`at`、`total`：`cost`、`tok`、`mainCost`、`mainTok`、`agentCost`、`agentTok`、`agentRuns`、`unpricedTok`、`approxTok`（後兩個大於 0＝有一部分沒有單價或是暫估單價）；`context`：`{tokens, model, effort, at}`，最近一則回覆送進模型的量，還沒回覆過是 null | 回覆完、送出訊息、子代理結束、狀態列刷新 | `scripts/lib-session-usage.js`（1.10.0 起） |
 | 每則用量紀錄 | `U/records/meta.json`、`U/records/<yyyy-mm>/<專案>.jsonl`（專案＝對話紀錄的資料夾名，超過 180 字的縮短，跟 `meta.projects` 同名） | 一行一則，已去重、已計價，只增不減：`id`、`ts`、`sid`、`agent`、`role`、`team`、`file`、`line`、`model`、`key`、`in`、`out`、`cw5`、`cw1`、`rd`、`think`、`cost`、`flag`、`entry`；0 與空字串省略；月份照 `ts` 的 UTC。`meta.json`：`v:1`、`at`、`prices`、`modelIds`、`projects`、`months`、`records`、`unread`（上次全部看過時有幾份讀不到，不是 0 就代表可能少算）。逐欄說明在 `scripts/lib-records.js` 檔頭。Claude Code 清掉對話紀錄之後仍留著 | 該對話回覆完、送出訊息、子代理結束；全部對話最多 10 分鐘一次（`meta.at`＝上次全部看過的時間） | `scripts/lib-records.js`（1.10.0 起） |
 | 全機用量明細 | `U/cc-statusline-usage-detail.json` | `v:1`、`at`、`sig`、`tz`、`prices`、`modelIds`、`byDay`、`byModel`、`byProject`、`sessions`、`sessionsTotal`、`sessionsRest` | 最多 15 分鐘一次（1.9.x 是 6 小時） | `scripts/all-usage-refresh.js`：從每則用量紀錄匯總（1.9.0 起） |
-| 壓縮次數 | `S/claude-compacts-<sid>.json` | `count`、`last`；沒有檔＝0 次 | 壓縮時 | `hooks/compact-monitor.js` |
+| 壓縮次數 | `S/claude-compacts-<sid>.json` | `count`＝這段對話自己壓縮幾次、`last`＝最近一次（毫秒）；沒有檔＝0 次。1.11.0 起加 `v:1`、`inherited`＝從哪段對話複製出來時、那段當時已經壓縮過幾次（`--fork-session` 從那段最後一次壓縮接著開始，0＝不是）、`from`＝那段的 session id（認不出來是空字串或沒有）、`inheritedAt`＝帶過來的那次壓縮的時間。畫面上的「壓縮幾次」＝`count + inherited`。對話紀錄裡自己的壓縮邊界比 hook 記的多（狀態檔被清過、當時沒裝）時，`count` 補到邊界數；只補最近 30 天有動的對話 | 壓縮時；回覆完、每 10 分鐘全機看一次對話紀錄時補上 | `hooks/compact-monitor.js`、`scripts/lib-compacts.js`（由 `scripts/lib-records.js` 執行） |
 | 訊息數 | `S/claude-msgcount-<sid>` | 純文字的整數 | 送出訊息時 | `hooks/summary-updater.js` |
 | 最近訊息 | `S/claude-msgs-<sid>.json` | `[{r:'u' 或 'a', t:文字}]`，最多 30 則（含對話文字） | 送出訊息、回覆完 | `hooks/message-tracker.js` |
 | 摘要 | `S/claude-summary-<sid>.txt` | 一行文字（含對話文字） | Claude 更新時 | `hooks/summary-updater.js` 提示、由 Claude 寫 |
@@ -87,6 +87,12 @@
 | 改過的檔 | `S/claude-files-<sid>.json` | 檔名陣列，最近 8 個 | 改檔時 | `hooks/file-tracker.js` |
 
 不是公開介面（只有 cc-statusline 自己用）：`~/.claude/rate-limit-snapshots.json`、`U/cc-statusline-all-usage.json`、`U/cc-statusline-cumulative.json`、`U/cc-statusline-prices.json`、`U/records/.own/`、`S/claude-crons-*`、`S/claude-agent-models-*`。
+
+## 入口（請 cc-statusline 現在做）
+
+| 入口 | 指令 | 做什麼 | 限制 | 版本 |
+| --- | --- | --- | --- | --- |
+| 立即重查額度 | `node <cc-statusline>/hooks/account-limits.js --refresh` | 不等平常的 5 分鐘，馬上向 Claude Code 查一次額度、寫進 `S/account-limits.json`，查完印一行 `{ok, asked, at, tried, error}`（`asked`＝這次有沒有真的去查） | 30 秒內查過（含別人觸發的）就不再查、直接回那次的結果；正在查就等它查完。不花 token，約 2 秒 | 1.11.0 起；舊版不印任何東西 |
 
 「單一對話用量」與「每則用量紀錄」的同一個對話，合計相同；例外是 2.1.32x 之前複製出來的對話：前者把帶過來的舊內容也算進去，後者算原本那個對話的。
 

@@ -51,7 +51,7 @@ function handoffs(transcript, sid) {
   return out.sort((a, b) => a.at - b.at);
 }
 
-// -> Promise<{ok, items: [{at, summary, handoff}] newest first, hasHarness}>
+// -> Promise<{ok, items: [{at, summary, handoff}] newest first (the newest MAX), hasHarness}>
 function list(transcript, sid) {
   return new Promise((resolve) => {
     if (!transcript || !fs.existsSync(transcript)) return resolve({ ok: false, error: '找不到這個對話的紀錄', items: [] });
@@ -77,7 +77,8 @@ function list(transcript, sid) {
         if (best >= 0) used.add(best);
         return { at: f.at, summary: f.summary, handoff: best >= 0 ? letters[best].text : null };
       });
-      resolve({ ok: true, items: items.reverse().slice(0, MAX), total: items.length, hasHarness: letters.length > 0 });
+      // how many times it was compacted is not counted here (that is cc-statusline's, see lib/stats.js): only what each left
+      resolve({ ok: true, items: items.reverse().slice(0, MAX), hasHarness: letters.length > 0 });
     });
   });
 }

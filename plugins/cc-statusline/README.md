@@ -28,7 +28,7 @@ status line 上的 agents / MCP 呼叫 / skills / 近期編輯 / 動作歷史 / 
 | `compact-monitor.js` | PreCompact | compact 計數 |
 | `cron-tracker.js` | PostToolUse (CronCreate|CronDelete|ScheduleWakeup) | crons（排程狀態，有排程時佔 agents/skills 欄底兩行、無排程不佔位；一次性排程逾時自動視為已觸發剔除，循環排程顯示至刪除） |
 
-這些 hooks 由本 plugin 的 `hooks/hooks.json` **在安裝啟用時自動註冊**（v0.2.0 起），不需手動設定。沒有它們，上述各列會永遠空白（其餘列如 dir/repo/model/cost 不受影響）。quota 沒有 hooks 也會顯示，但只有各 session 上次被告知的數字；有 hooks 時每次問答結束會在背景查一次真正的額度（5 分鐘內不重複、不花 token），結果在 `~/.claude/cc-statusline/state/account-limits.json`。
+這些 hooks 由本 plugin 的 `hooks/hooks.json` **在安裝啟用時自動註冊**（v0.2.0 起），不需手動設定。沒有它們，上述各列會永遠空白（其餘列如 dir/repo/model/cost 不受影響）。quota 沒有 hooks 也會顯示，但只有各 session 上次被告知的數字；有 hooks 時每次問答結束會在背景查一次真正的額度（5 分鐘內不重複、不花 token），結果在 `~/.claude/cc-statusline/state/account-limits.json`。要馬上重查（看板的 ↻）用 `node hooks/account-limits.js --refresh`，30 秒內查過就不再查。
 
 > **狀態檔位置**（v1.7.0 起）：原本放在系統暫存目錄（`%TEMP%` / `/tmp`），Windows 的 Storage Sense／磁碟清理會按檔齡清掉，開了十天的 session 會發現 agents／skills 歷史憑空消失（實際發生於 2026-11-03：所有三天前的狀態檔一次全沒）。現改放 `~/.claude/cc-statusline/state/`，只有本 plugin 會動它；`message-tracker` 每天掃一次、刪 30 天未更新的檔。升級後舊 session 的 temp 檔會在較新時自動複製過來，不用手動搬。
 

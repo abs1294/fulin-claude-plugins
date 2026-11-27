@@ -10,6 +10,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFile } = require('child_process');
 
 const FILE = path.join(os.homedir(), '.claude', 'cc-statusline', 'state', 'account-limits.json');
 
@@ -57,4 +58,40 @@ function waitFor(file = FILE, now = Date.now()) {
   return { error: '額度資料太舊，不知道現在的額度（有問答結束時 cc-statusline 才會再查）。請直接選一個時間' };
 }
 
-module.exports = { readQuota, waitFor, stateOf, FILE };
+// Asked for by hand (the ↻ beside 「N 分鐘前的數字」, asked 2026-11-28): cc-statusline asks Claude Code now - the board does
+// not ask itself (usage is gathered only by cc-statusline: its `hooks/account-limits.js --refresh`, 1.11.0 on). That one
+// does not ask again within 30 seconds of the last asking, and waits for one under way; here, presses while one is under
+// way are that one.
+const TOOL = path.join('hooks', 'account-limits.js');
+const vnum = (v) => String(v || '0').split('.').map((x) => Number(x) || 0).reduce((a, x) => a * 1000 + x, 0);
+// Where a cc-statusline that has it is: beside this plugin (the plugins' own folder) or wherever Claude Code installed it,
+// the newest first. -> its account-limits.js, or null
+function findLimits(o = {}) {
+  const has = o.has || ((f) => { try { return fs.readFileSync(f, 'utf8').includes("'--refresh'"); } catch (e) { return false; } });
+  const cands = [path.join(o.here || path.join(__dirname, '..'), '..', 'cc-statusline')];
+  try {
+    const j = JSON.parse(fs.readFileSync(o.installed || path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json'), 'utf8'));
+    const list = ((j && j.plugins) || {})['cc-statusline@fulin-plugins'] || [];
+    for (const e of list.slice().sort((a, b) => vnum(b.version) - vnum(a.version))) if (e && e.installPath) cands.push(e.installPath);
+  } catch (e) {}
+  for (const c of cands) if (has(path.join(c, TOOL))) return path.normalize(path.join(c, TOOL));
+  return null;
+}
+// (70 seconds: cc-statusline waits up to about 28 for an asking under way, and its own takes up to about 23)
+let busy = null;
+// -> Promise of {ok, asked (whether Claude Code was asked this time), at, tried, error}
+function refreshQuota(o = {}) {
+  if (busy) return busy;
+  const tool = o.tool !== undefined ? o.tool : findLimits(o);
+  if (!tool) return Promise.resolve({ ok: false, asked: false, error: '這台電腦的 cc-statusline 沒有「立即重查」，需要更新到 1.11.0 以上' });
+  busy = new Promise((resolve) => {
+    const failed = (e) => resolve({ ok: false, asked: false, error: 'cc-statusline 沒有啟動：' + String((e && e.message) || e).slice(0, 160) });
+    try { (o.run || execFile)(process.execPath, [tool, '--refresh'], { windowsHide: true, timeout: 70000, encoding: 'utf8', env: o.env || process.env }, (err, stdout) => {
+      let j = null; try { j = JSON.parse(String(stdout || '').trim().split(/\r?\n/).pop()); } catch (e) {}
+      resolve(j && typeof j === 'object' && typeof j.ok === 'boolean' ? j : { ok: false, asked: false, error: 'cc-statusline 沒有回應' + (err && err.killed ? '（超過 70 秒）' : '') });
+    }); } catch (e) { failed(e); }   // could not even be started: an answer all the same, never a thrown one
+  }).finally(() => { busy = null; });
+  return busy;
+}
+
+module.exports = { readQuota, waitFor, stateOf, refreshQuota, findLimits, FILE };

@@ -392,6 +392,7 @@
   .room { border: 1px solid var(--rule, var(--line)); border-radius: var(--r-l); background: var(--side); overflow: hidden; display: flex; flex-direction: column; height: 432px; }
   .room.wait { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber); }
   .room.stuck { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); }
+  .of-filtered { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 4px; color: var(--ink); }
   .room-head { display: flex; align-items: baseline; gap: 6px; padding: 10px 12px 8px 14px; }
   .room-head b { font-size: var(--fs-lg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 4em; }   /* the name keeps room: the counts give way first */
   .room-head span { margin-left: auto; color: var(--dim); font-size: var(--fs-sm); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -709,6 +710,14 @@
   .sq .sl { color: var(--dim); white-space: nowrap; }
   .sq b { font-variant-numeric: tabular-nums; }
   .sq .sr { grid-column: 1 / -1; color: var(--faint); margin-top: -1px; }
+  /* ↻ beside 「N 分鐘前的數字」: small, its own colour (not the card's), turning while it asks */
+  .side-quota .sr:has(.sq-ask), .sq-t:has(.sq-ask) { display: flex; align-items: center; flex-wrap: wrap; column-gap: 4px; }
+  .sq-ask { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; margin-left: 2px; vertical-align: middle; flex: none; }
+  .sq-ask .ico { width: 13px; height: 13px; }
+  .sq-ask.busy .ico { animation: sq-spin .9s linear infinite; }
+  .sq-ask:disabled { cursor: progress; opacity: .75; }
+  @keyframes sq-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .sq-ask.busy .ico { animation: none; } }
   /* a row (the line and the phone address button). A class, not #sideFoot: an id outranked the rules that hide it -
      the folded column and the phone - and it showed in the folded strip a character a line (2026-11-19) */
   .side-foot { padding: 8px 14px; border-top: 1px solid var(--rule, var(--line)); font-size: var(--fs-sm); color: var(--dim); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -4375,6 +4384,13 @@ function fillOffice(yours) {
   note.textContent = officePast && officePast.failed ? '沒開著的對話讀不到，看板程序沒有回應。' : officeQ ? '符合「' + officeQ + '」的：開著的 ' + allOpen.length + ' 個，沒開著的 ' + allOld.length + ' 個（找整個對話：標題、資料夾、你說的、Claude 說的、Claude 下過的指令與動過的檔名）' + (officePast && officePast.indexing ? '。對話內容還在建索引，約一兩分鐘後再找會更完整' : '') : '';
   if (pending) { note.textContent = '搜尋「' + officeQ + '」中…'; ld(note); }
   else if (!officePast) { note.textContent = '讀取沒開著的對話中…'; ld(note); }
+  // a filter on: said where the rooms are, with the way back - the rooms showing only some looked like conversations missing
+  // (asked 2026-11-27: one idle conversation not in its room, 做完了 picked earlier)
+  if (officeFilter) {
+    const f = el('div', 'of-filtered'); f.append(el('span', '', '只看「' + (officeFilter === 'closed' ? '沒開著' : DESK[officeFilter]) + '」的對話，其他的沒有列出'));
+    const all = el('button', 'btn small', '顯示全部'); all.type = 'button'; all.addEventListener('click', () => { officeFilter = ''; fillOffice(); });
+    f.append(all); note.append(f);
+  }
   note.hidden = !note.textContent;
 
   // a room for every folder that has anything to show
@@ -4424,7 +4440,7 @@ function fillOffice(yours) {
       star.addEventListener('click', () => { const cur = P.officeFavorites || []; savePref({ officeFavorites: fav ? cur.filter((x) => low(x) !== low(cwd)) : cur.concat([cwd]) }).then(() => { officeShape = ''; fillOffice(); }); });
       head.append(star);
     }
-    head.append(name, el('span', '', [r.open.length ? r.open.length + ' 個開著' : '', r.old.length ? r.old.length + ' 個沒開著' : ''].filter(Boolean).join(' · ')));
+    head.append(name, el('span', '', [r.open.length ? r.open.length + (officeFilter && DESK[officeFilter] ? ' 個' + DESK[officeFilter] : ' 個開著') : '', r.old.length ? r.old.length + ' 個沒開著' : ''].filter(Boolean).join(' · ')));
     // dragged into place (within its own part: starred among starred, the rest among the rest); not while searching
     if (cwd && !officeQ) {
       box.draggable = true; box.dataset.cwd = cwd; if (!layoutAll()) box.title = '拖曳可以調整房間的順序';   // look A: said only by the grip (over the whole room it covered what was in it)
@@ -4850,7 +4866,9 @@ async function drawRecommends(card, btn) {
 // ── 壓縮 (asked 2026-11-26: "can the 壓縮 count bring out the handoff letter - think of those who have none") ──
 // Each compaction, newest first: harness's handoff letter where the project has harness's compact hooks, with Claude
 // Code's own summary beside it; everywhere else Claude Code's summary alone (every conversation has it), said so.
-async function openCompactions(sid) {
+// cmp: the figures (lib/stats.js, as cc-statusline counted them): how many times in all, and how many before this
+// conversation was copied from another one. The transcript gives only what each compaction left, not how many there were.
+async function openCompactions(sid, cmp) {
   closePeek();
   $('peek').hidden = false;
   const s = sessions.find((x) => x.sessionId === sid) || {};
@@ -4869,12 +4887,13 @@ async function openCompactions(sid) {
   box.append(el('p', 'cmp-note', d.hasHarness
     ? '有交接信的先顯示交接信（harness 在每次壓縮前寫的，給接手的人看），也可以切到 Claude Code 自己的摘要。'
     : '這個專案沒有交接信（裝了 harness 的專案，每次壓縮前會另外寫一份）。下面是 Claude Code 每次壓縮時寫給自己的摘要。'));
-  if (d.total > items.length) box.append(el('p', 'cmp-note', '共壓縮 ' + d.total + ' 次，這裡列最近 ' + items.length + ' 次。'));
+  const total = cmp && cmp.count > 0 ? cmp.count : 0;
+  if (total > items.length) box.append(el('p', 'cmp-note', '共壓縮 ' + total + ' 次，這裡列最近 ' + items.length + ' 次' + (cmp.inherited ? '（這段對話是從前一段接續出來的，更早的在前一段對話裡）' : '') + '。'));
   const show = (wrap, text) => { wrap.textContent = ''; const m = el('div', 'msg assistant cmp-text'); m.innerHTML = md(text); linkFiles(m, sid); wrap.append(m); };
   items.forEach((it, k) => {
     const det = el('details', 'cmp-item'); if (k === 0) det.open = true;
-    const n = (d.total || items.length) - k;
-    const sm = el('summary', ''); sm.append(el('b', '', '第 ' + n + ' 次'), ' · ' + (it.at ? new Date(it.at).toLocaleString('zh-TW', { hour12: false }) : '時間不明'), el('span', 'cmp-kind' + (it.handoff ? ' has' : ''), it.handoff ? '交接信' : 'Claude Code 摘要'));
+    const n = total >= items.length ? total - k : 0;   // fewer than the summaries there (an older cc-statusline, its file cleared): by how recent, not numbered
+    const sm = el('summary', ''); sm.append(el('b', '', n > 0 ? '第 ' + n + ' 次' : k ? '再往前第 ' + k + ' 次' : '最近一次'), ' · ' + (it.at ? new Date(it.at).toLocaleString('zh-TW', { hour12: false }) : '時間不明'), el('span', 'cmp-kind' + (it.handoff ? ' has' : ''), it.handoff ? '交接信' : 'Claude Code 摘要'));
     det.append(sm);
     const wrap = el('div', 'cmp-body');
     if (it.handoff) {
@@ -10227,7 +10246,7 @@ async function loadStats(sid) {
   }
   // compacted at least once: a button - what each compaction left (its handoff letter where harness writes them, else
   // Claude Code's own summary: openCompactions)
-  if (d.compacts && d.compacts.count > 0) { const b = el('button', 'modelbtn', ''); b.type = 'button'; b.append('壓縮 ', el('b', '', sep(d.compacts.count) + ' 次 ›')); b.title = '上次壓縮：' + when(d.compacts.last) + '。按一下看每次壓縮留下的交接信或摘要'; b.addEventListener('click', (ev) => { ev.stopPropagation(); openCompactions(sid); }); chips.append(b); }
+  if (d.compacts && d.compacts.count > 0) { const b = el('button', 'modelbtn', ''); b.type = 'button'; b.append('壓縮 ', el('b', '', sep(d.compacts.count) + ' 次 ›')); b.title = '上次壓縮：' + when(d.compacts.last) + (d.compacts.inherited ? '。其中 ' + sep(d.compacts.inherited) + ' 次是在前一段對話（這段是從那裡接續出來的）' : '') + '。按一下看每次壓縮留下的交接信或摘要'; b.addEventListener('click', (ev) => { ev.stopPropagation(); openCompactions(sid, d.compacts); }); chips.append(b); }
   else if (d.compacts) chip('壓縮', '0 次', '這個 session 還沒被壓縮過');
   if (d.messages != null) chip('訊息', sep(d.messages) + ' 則');
   // subagents and background commands: an item each, shown while one is running; details under "更多" (drawTasks fills both)
@@ -11079,22 +11098,53 @@ function drawSideQuota() {
   if (q.sevenDay) row('7 天', q.sevenDay);
   box.classList.toggle('one', box.querySelectorAll('.sq').length === 1);   // one limit only (the 5-hour one is not always reported): the whole row
   // how old it is, and what is missing for it to be kept up to date (cc-statusline gathers it, the board only reads)
-  // - after the last limit's own line, not a line of its own (asked 2026-11-25); two side by side on a phone have no room for it
-  if (box.firstChild && q.seenAt && Date.now() - q.seenAt > 10 * 60000) {
-    const old = ago(Date.now() - q.seenAt) + '前的數字', lines = [...box.querySelectorAll('.sq .sr')];
-    if (phoneMq.matches && lines.length > 1) box.append(el('div', 'sr', old)); else lines.pop().append(' · ' + old);
+  // - after the last limit's own line, not a line of its own (asked 2026-11-25); two side by side on a phone have no room for it.
+  // Always said, with ↻ beside it (asked 2026-11-28): cc-statusline asks Claude Code again at once, not after its 5 minutes.
+  const age = () => el('span', 'sq-age', Date.now() - q.seenAt < 60000 ? '剛剛查到的數字' : ago(Date.now() - q.seenAt) + '前的數字');
+  if (box.firstChild && q.seenAt) {
+    const lines = [...box.querySelectorAll('.sq .sr')];
+    const at = phoneMq.matches && lines.length > 1 ? box.appendChild(el('div', 'sr')) : lines.pop();
+    if (at.textContent) at.append(' · ');
+    at.append(age(), quotaAskBtn());
+  } else if (q.from === 'asked' && q.seenAt) {
+    // an answer with no window to show (none running, just reset, or one not understood): said so, and it can be asked again
+    const d = el('div', 'sr', '目前沒有可顯示的額度 · '); d.append(age(), quotaAskBtn()); box.append(d);
   }
-  if (q.from === '') { const d = el('div', 'sr', '沒有額度資料：需要 cc-statusline'); d.title = '額度由 cc-statusline 這個 plugin 收集（1.9.0 以上），看板只讀。裝好或更新之後，下一次問答結束就會出現。'; box.append(d); }
+  // nothing gathered yet (just installed, or the file gone): ↻ asks cc-statusline for it now, where it has that (1.11.0 on)
+  if (q.from === '') { const d = el('div', 'sr', '沒有額度資料：需要 cc-statusline'); d.title = '額度由 cc-statusline 這個 plugin 收集（1.9.0 以上），看板只讀。裝好或更新之後，下一次問答結束就會出現；按 ↻ 可以請它現在就查（1.11.0 以上）。'; d.append(quotaAskBtn()); box.append(d); }
   // on a phone: the version there (CSS shows the floating one only where there is room for it)
   if (boardVersion && phoneMq.matches) {
     let last = [...box.querySelectorAll('.sq .sr')].pop();
     if (!last) { last = el('div', 'sr'); box.append(last); }   // no limits to show: a line of its own
-    const t = el('span', 'sq-t', last.textContent), v = el('span', 'sq-ver', 'v' + boardVersion); v.title = '看板的版本'; last.textContent = ''; last.append(t, v);
+    const t = el('span', 'sq-t'), v = el('span', 'sq-ver', 'v' + boardVersion); v.title = '看板的版本'; t.append(...last.childNodes); last.append(t, v);   // (moved, not copied as text: the ↻ in it stays a button)
   }
   box.hidden = !box.firstChild;
 }
 const phoneMq = matchMedia('(max-width: 720px)');   // the phone's layout (the rules for .sq-ver and .ver-fab are in the same)
 phoneMq.addEventListener('change', () => drawSideQuota());
+// ↻ : one asking at a time; presses within 30 seconds of the last asking are answered with that one (cc-statusline's rule)
+let quotaAsking = false;
+function quotaAskBtn() {
+  const b = el('button', 'btn sq-ask' + (quotaAsking ? ' busy' : '')); b.type = 'button'; b.append(icon('↻'));
+  b.setAttribute('aria-label', quotaAsking ? '正在重查額度' : '立即重查額度');
+  b.title = quotaAsking ? '正在向 Claude Code 重查額度…' : '立即重查額度：請 cc-statusline 馬上向 Claude Code 問一次（約 2 秒、不花 token）。30 秒內剛查過就不再查';
+  b.disabled = quotaAsking; if (quotaAsking) b.setAttribute('aria-busy', 'true');
+  b.addEventListener('click', (ev) => { ev.stopPropagation(); askSideQuota(); });
+  return b;
+}
+async function askSideQuota() {
+  if (quotaAsking) return;
+  quotaAsking = true;
+  let r = { ok: false, data: {} };
+  try { drawSideQuota(); r = await api('/api/quota/refresh', {}); }
+  catch (e) { r = { ok: false, data: { error: String((e && e.message) || e).slice(0, 160) } }; }
+  finally { quotaAsking = false; }   // given back whatever happened on the way, and drawn again below
+  const d = r.data || {};
+  if (d.quota) sideQuotaData = d.quota;
+  drawSideQuota();
+  if (!r.ok || d.ok === false) say('額度沒有重查到：' + (d.error || '看板沒有回應'), true);
+  else if (d.asked === false) say('30 秒內剛查過，顯示的就是那次查到的數字');
+}
 async function loadSideQuota() {
   try { const r = await api('/api/quota'); if (r.ok) { sideQuotaData = r.data; drawSideQuota(); } } catch (e) {}
 }

@@ -19,6 +19,10 @@
 //                               this file with --ask when the last asking is
 //                               older than EVERY_MS
 //   node account-limits.js --ask   does the asking (detached, nobody waits for it)
+//   node account-limits.js --refresh   asked for by hand (session-board's button, 1.11.0 on): asks now, not
+//                               waiting out EVERY_MS - unless an asking began less than REFRESH_MIN_MS ago,
+//                               then that one's answer is it; waits for an asking under way. Prints one
+//                               line: {ok, asked (whether this one asked), at, tried, error}
 //
 // File: { v: 1, at, five_hour, seven_day, tried, none }
 //       our own: none_at, when it was last said that there are no limits (gone once there are);
@@ -45,6 +49,7 @@ const KEEP_MS = 24 * 3600000;        // figures this young are not given up for 
 const GIVE_UP_MS = 20000;
 const END_MS = 3000;                 // let it end by itself: killed, it leaves its session files behind
 const GUARD = 'CC_STATUSLINE_ASKING';
+const REFRESH_MIN_MS = 30000;        // asked for by hand: not asked again within this (a button pressed three times is one asking)
 
 const read = () => {
   try { const j = JSON.parse(fs.readFileSync(FILE, 'utf8')); return j && typeof j === 'object' && !Array.isArray(j) && j.v >= 1 ? j : {}; } catch (e) { return {}; }
@@ -149,22 +154,53 @@ function ask() {
   });
 }
 
+// One asking, the lock held: the file brought up to date. -> whether there was an answer
+async function askAndKeep(was) {
+    const tried = Date.now();
+    atomicWrite(FILE, JSON.stringify(Object.assign({}, was, { v: 1, tried, next: tried + every(was) })));   // first: one that fails is not tried again at once
+    const w = windows(await ask());
+    if (!w) return false;
+    const at = Date.now();
+    // "No limits" is also what is said while nobody is signed in: it does not wipe out figures of today.
+    if (w.none && Number.isFinite(was.at) && at - was.at < KEEP_MS) { atomicWrite(FILE, JSON.stringify(Object.assign({}, was, { v: 1, tried, none_at: at, next: tried + NONE_EVERY_MS }))); return true; }
+    atomicWrite(FILE, JSON.stringify(w.none ? { v: 1, none: true, none_at: at, tried, next: tried + NONE_EVERY_MS } : { v: 1, at, five_hour: w.five_hour, seven_day: w.seven_day, tried, next: tried + EVERY_MS }));
+    return true;
+}
+
 async function main() {
   const lock = FILE + '.asking';
   if (!acquireLock(lock, 60000)) return;   // another is asking
   try {
     const was = read();
     if (!due(was)) return;
-    const tried = Date.now();
-    atomicWrite(FILE, JSON.stringify(Object.assign({}, was, { v: 1, tried, next: tried + every(was) })));   // first: one that fails is not tried again at once
-    const w = windows(await ask());
-    if (!w) return;
-    const at = Date.now();
-    // "No limits" is also what is said while nobody is signed in: it does not wipe out figures of today.
-    if (w.none && Number.isFinite(was.at) && at - was.at < KEEP_MS) return atomicWrite(FILE, JSON.stringify(Object.assign({}, was, { v: 1, tried, none_at: at, next: tried + NONE_EVERY_MS })));
-    atomicWrite(FILE, JSON.stringify(w.none ? { v: 1, none: true, none_at: at, tried, next: tried + NONE_EVERY_MS } : { v: 1, at, five_hour: w.five_hour, seven_day: w.seven_day, tried, next: tried + EVERY_MS }));
+    await askAndKeep(was);
   } finally { releaseLock(lock); }
 }
 
-module.exports = { kick, read, current, stateOf, due, windows, FILE, EVERY_MS, NONE_EVERY_MS };
+// Asked for by hand. -> {ok, asked, at, tried, error}
+async function refresh(now = () => Date.now()) {
+  const lock = FILE + '.asking', start = now();
+  // another asking under way (a conversation just answered, or the button pressed a moment ago): its answer is awaited
+  while (!acquireLock(lock, 60000)) {
+    if (now() - start > GIVE_UP_MS + END_MS + 5000) return { ok: false, asked: false, error: '另一次查詢一直沒有結束' };
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  try {
+    const was = read(), t = now();
+    const of = (j, asked, error) => Object.assign({ ok: !error, asked, at: Number.isFinite(j.at) ? j.at : 0, tried: Number.isFinite(j.tried) ? j.tried : 0 }, j.none === true ? { none: true } : {}, error ? { error } : {});
+    if (Number.isFinite(was.tried) && was.tried <= t && t - was.tried < REFRESH_MIN_MS) {   // asked just now: not again
+      // ... and answered then? (an answer is written after its asking: at, or none_at for "no limits", not before tried)
+      const answered = (Number.isFinite(was.at) && was.at >= was.tried) || (Number.isFinite(was.none_at) && was.none_at >= was.tried);
+      return of(was, false, answered ? '' : '剛剛查過但 Claude Code 沒有回答，30 秒後再試');
+    }
+    const got = await askAndKeep(was);
+    return of(read(), true, got ? '' : 'Claude Code 沒有回答（沒有登入、沒有網路，或太久沒回應）');
+  } finally { releaseLock(lock); }
+}
+
+module.exports = { kick, read, current, stateOf, due, windows, refresh, FILE, EVERY_MS, NONE_EVERY_MS, REFRESH_MIN_MS };
 if (require.main === module && process.argv[2] === '--ask') main().catch(() => {}).then(() => process.exit(0));
+if (require.main === module && process.argv[2] === '--refresh') {
+  refresh().catch((e) => ({ ok: false, asked: false, error: String((e && e.message) || e).slice(0, 200) }))
+    .then((r) => { process.stdout.write(JSON.stringify(r) + '\n', () => process.exit(0)); });
+}

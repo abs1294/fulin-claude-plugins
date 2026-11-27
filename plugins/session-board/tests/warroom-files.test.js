@@ -135,6 +135,12 @@ test('sessionStats splits main and subagent cost and reads the tracker files', (
   fs.writeFileSync(det, '{broken'); assert.strictEqual(S2.usage(other, d, det).cost, 100, 'cannot be read this moment: what it was');
   fs.writeFileSync(path.join(d, 'other.json'), '{broken'); assert.strictEqual(S2.usage(other, d, path.join(d, 'other.json')), null);
   assert.deepStrictEqual(S2.sessionStats(other, d).compacts, { count: 0, last: 0 });
+  // a conversation copied from another one after its compactions (cc-statusline 1.11.0: inherited): shown as one figure
+  const copy = '22222222-3333-4444-5555-666666666666', ck = S.sidKey(copy);
+  w(`claude-compacts-${ck}.json`, { v: 1, count: 0, inherited: 3, from: '7fd0b76b-f520-46f9-a065-85e6e4513e9e', inheritedAt: 1795762636844 });
+  assert.deepStrictEqual(S2.sessionStats(copy, d).compacts, { count: 3, last: 1795762636844, own: 0, inherited: 3, from: '7fd0b76b-f520-46f9-a065-85e6e4513e9e' });
+  w(`claude-compacts-${ck}.json`, { v: 1, count: 2, last: 1795800000000, inherited: 3, from: '7fd0b76b-f520-46f9-a065-85e6e4513e9e', inheritedAt: 1795762636844 });
+  assert.deepStrictEqual(S2.sessionStats(copy, d).compacts, { count: 5, last: 1795800000000, own: 2, inherited: 3, from: '7fd0b76b-f520-46f9-a065-85e6e4513e9e' });
   assert.deepStrictEqual(st.agents, { running: ['code-reviewer'], runningAt: [1794924700213], kinds: ['qa-engineer', 'code-reviewer'] });
   assert.deepStrictEqual(st.skills.map((s) => s.name + s.count), ['code-review8', 'git-commit6']);
   assert.deepStrictEqual(st.mcp, [{ name: 'playwright__browser_tabs', count: 32, last: 5, errors: 2 }]);

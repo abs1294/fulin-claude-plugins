@@ -112,6 +112,7 @@ let server, port, channels, keeper, inbox, asked = new Set();
 const ruleAsked = [];
 const ruleAsk = async (text) => { ruleAsked.push(text); return /看不懂/.test(text) ? { ok: false, error: '看不懂這句排程：不是時間' } : { ok: true, rule: { cron: '0 15 LW * *', workday: undefined, explain: '每月最後一個工作天 15:00' } }; };
 const calFetch = async () => ({ ok: false, status: 503 });
+let quotaAsks = 0;   // times the 額度 card's ↻ reached cc-statusline (deps.refreshQuota)
 const freePort = () => new Promise((r) => { const s = require('net').createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 test.before(async () => {
   terminalSession(T1); terminalSession(T2);
@@ -124,7 +125,7 @@ test.before(async () => {
   inbox = new InboxService({ fetch: async () => ({ ok: false, status: 500, json: async () => ({}) , text: async () => '' }), triageRun: async () => ({ ok: true, items: [] }) });
   const monthly = new Monthly({ run: (exe, args, opts, cb) => cb(null, JSON.stringify({ ok: true, month: args[1], computedAt: Date.now(), daysInMonth: 30, total: { cost: 12.5, tok: 1000 }, files: 1, sessions: [], roles: [], days: [], models: [], projects: [] })) });
   port = await freePort();
-  server = createServer(TOKEN, port, { recFetch: async () => ({ ok: false, status: 404 }), recAsk: async () => ({ ok: false }), drawLook: async () => ({ ok: true, text: '橘色', turns: 2, tokens: 5 }), drawAsk: async () => ({ ok: true, tokens: 9, text: [1, 2].map((r) => '<svg viewBox="0 0 96 96"><circle cx="48" cy="48" r="' + r + '" fill="#f90"/></svg>').join('') }), lineConnected: () => lineOn, linePush: async (t) => { pushed.push(t); return pushed.length > 1 ? { ok: false, error: 'LINE 沒有收下（429）' } : { ok: true }; }, digestAsk: async () => ({ ok: true, text: '{"items":[]}' }), channels, keeper, inbox, monthly, ruleAsk, calFetch, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [{ scope: 'user', project: '' }] }, goal2: { name: 'goal2', installs: [] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }), remoteInfo: async () => ({ ok: false, why: 'test' }), noTimers: true, out, tell: (t, x) => did.push('tell ' + t), peer: async () => ({ ok: true }), peerCheck: async () => true });
+  server = createServer(TOKEN, port, { refreshQuota: async () => { quotaAsks++; return { ok: true, asked: quotaAsks === 1, at: 1795803261984, tried: 1795803259666 }; }, recFetch: async () => ({ ok: false, status: 404 }), recAsk: async () => ({ ok: false }), drawLook: async () => ({ ok: true, text: '橘色', turns: 2, tokens: 5 }), drawAsk: async () => ({ ok: true, tokens: 9, text: [1, 2].map((r) => '<svg viewBox="0 0 96 96"><circle cx="48" cy="48" r="' + r + '" fill="#f90"/></svg>').join('') }), lineConnected: () => lineOn, linePush: async (t) => { pushed.push(t); return pushed.length > 1 ? { ok: false, error: 'LINE 沒有收下（429）' } : { ok: true }; }, digestAsk: async () => ({ ok: true, text: '{"items":[]}' }), channels, keeper, inbox, monthly, ruleAsk, calFetch, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [{ scope: 'user', project: '' }] }, goal2: { name: 'goal2', installs: [] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }), remoteInfo: async () => ({ ok: false, why: 'test' }), noTimers: true, out, tell: (t, x) => did.push('tell ' + t), peer: async () => ({ ok: true }), peerCheck: async () => true });
   await new Promise((r) => server.listen(port, '127.0.0.1', r));
 });
 test.after(() => {
@@ -1771,6 +1772,18 @@ test('每天上班統整: a switch where LINE is connected, one schedule, its ti
   const b = await run(); assert.deepStrictEqual([b.status, /429/.test(b.note)], ['failed', true], 'LINE did not take it: failed, not done');
   lineOn = false; assert.match((await run()).note, /LINE 還沒有接通/); assert.strictEqual(pushed.length, 2);
   await post('/api/schedule/delete', { id: s.id });
+});
+
+test('the 額度 card\'s ↻: cc-statusline asks (lib/quota.js refreshQuota), the figures come back with its answer', async () => {
+  const limits = path.join(CLAUDE, 'cc-statusline', 'state', 'account-limits.json'); fs.mkdirSync(path.dirname(limits), { recursive: true });
+  const reset = Math.floor(Date.now() / 1000) + 3600;
+  fs.writeFileSync(limits, JSON.stringify({ v: 1, at: Date.now() - 1000, five_hour: { used_percentage: 39, resets_at: reset }, seven_day: null }));
+  const a = await post('/api/quota/refresh', {});
+  assert.strictEqual(a.status, 200, a.text);
+  assert.deepStrictEqual([a.json.ok, a.json.asked, a.json.at, a.json.quota.fiveHour.pct, a.json.quota.from, quotaAsks], [true, true, 1795803261984, 39, 'asked', 1]);
+  const b = await post('/api/quota/refresh', {});
+  assert.deepStrictEqual([b.json.ok, b.json.asked, quotaAsks], [true, false, 2], 'what cc-statusline answered is handed on (it does not ask again within 30 seconds)');
+  fs.unlinkSync(limits);
 });
 
 test('schedules', async () => {

@@ -39,7 +39,7 @@ const F = require('./lib/files');
 const { sessionStats } = require('./lib/stats');
 const { limitFor } = require('./lib/ctxlimit');
 const config = require('./lib/config');
-const { readQuota, waitFor } = require('./lib/quota');
+const { readQuota, waitFor, refreshQuota } = require('./lib/quota');
 const { Monthly, ymOf } = require('./lib/monthly');
 const K = require('./lib/keep');
 const autostart = require('./lib/autostart');
@@ -1947,6 +1947,11 @@ function createServer(token, port, deps = {}) {
       const onThisScreen = ['/api/focus', '/api/pick-folder', '/api/file/open', '/api/file/reveal', '/api/to-terminal', '/api/end', '/api/takeover'].includes(p)
         || ((p === '/api/past/open' || p === '/api/keep/restore') && body.to !== 'board');
       if (onThisScreen && !isLocal(req)) return send(res, 403, { ok: false, error: '這個動作會發生在看板那台電腦的螢幕上，從別台電腦不能用' });
+      // the 額度 card's ↻: cc-statusline asks Claude Code now (lib/quota.js); the figures as they are afterwards come back with it
+      if (p === '/api/quota/refresh') {
+        const r = await (deps.refreshQuota || refreshQuota)();
+        return send(res, 200, Object.assign({}, r, { quota: Object.assign(quota(), { wait: waitFor() }) }));
+      }
       if (p === '/api/focus') {
         const s = find(sid);
         if (!s) return send(res, 404, { state: 'gone', error: 'session not running' });

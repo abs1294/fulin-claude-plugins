@@ -49,6 +49,9 @@ const CLAUDE = path.join(os.homedir(), '.claude');
 const ROOT = path.join(CLAUDE, 'projects');
 const DIR = path.join(CLAUDE, 'usage-data', 'records');
 const OWN = path.join(DIR, '.own');
+const COMPACTS = path.join(OWN, 'compacts.json');   // how far each conversation was read for its compactions (lib-compacts.js)
+const COMPACTS_V = 2;   // 2: a line is a message or a boundary by its parsed type only (1 told a boundary by the words in it)
+const COMPACT_AGE_MS = 30 * 86400000;   // conversations changed this recently have their compaction count published (the state files go after 30 days untouched)
 const FILES = path.join(OWN, 'files.json'), IDS = path.join(OWN, 'ids.txt'), PRICED = path.join(OWN, 'priced.json'), DIRTY = path.join(OWN, 'dirty'), LOCK = path.join(OWN, 'lock'), META = path.join(DIR, 'meta.json');
 const LOCK_STALE_MS = 10 * 60000, LOCK_TOUCH_MS = 30000;   // a run that is at work says so this often
 const FULL_EVERY_MS = 10 * 60000;   // every transcript is looked at this often; the one a hook names at once
@@ -369,8 +372,84 @@ function collect(o = {}) {
       own.full = now; at = now; unreadN = list.partial + unread.size;
     }
     flush();
+    try { compactions(list, everything, mine, now); } catch (e) { if (/lock was taken/.test(String(e && e.message))) throw e; }   // a failure here costs the usage records nothing
     return { added, everything, missing: [...missing], stale: [...stale] };
   } finally { priceLib.releaseRunLock(LOCK); }
+}
+
+// The compaction counts (lib-compacts.js): each conversation of the list read on for its compaction boundaries, and the
+// public claude-compacts-<sid>.json written where what it says is behind - its own count lower than the boundaries in
+// its transcript, or what it carried over from the conversation it was copied from not in it yet. Under the records' lock.
+function compactions(list, everything, mine, now) {
+  const Compacts = require('./lib-compacts');
+  const { casMerge, stateFile } = require('../hooks/lib-state');
+  // (v: how lines are told apart; a file of another version is read again from the start)
+  const kept = readJson(COMPACTS), cps = kept && kept.v === COMPACTS_V && kept.files && typeof kept.files === 'object' ? kept.files : {};
+  const changed = new Set(), mtimes = new Map();
+  let dirty = false;
+  for (const t of list) {
+    if (t.rel.length !== 2) continue;   // a conversation's own transcript, not a subagent's
+    const k = t.rel.join('/'), sid = t.rel[1].slice(0, -6);
+    mtimes.set(k, t.mtime);
+    if (now - t.mtime > COMPACT_AGE_MS && !cps[k]) continue;   // long untouched: its count is not published any more
+    const st = cps[k];
+    if (st && st.off === t.size) { if (!everything) changed.add(k); continue; }
+    mine();
+    const next = Compacts.scan(t, st, sid);
+    if (!next) continue;   // could not be read now: next time
+    cps[k] = next; changed.add(k); dirty = true;
+  }
+  if (everything && !list.partial) for (const k of Object.keys(cps)) if (!mtimes.has(k)) { delete cps[k]; dirty = true; }   // cleared away by Claude Code
+  // The conversation a copy was made from, read up to now before what it had is worked out - wherever it is (its own
+  // project folder first, then any: a copy may be made in another), and the one that was copied from in turn. Not left
+  // to a run that read every transcript before (there may have been none yet, or the original compacted since).
+  let folders = null;
+  const locate = (sid, project) => {
+    const at = (d) => one(path.join(ROOT, d, sid + '.jsonl'), [d, sid + '.jsonl']);
+    let t = at(project); if (t) return t;
+    if (!folders) { try { folders = fs.readdirSync(ROOT, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch (e) { folders = []; } }
+    for (const d of folders) if (d !== project && (t = at(d))) return t;
+    return null;
+  };
+  const upToDate = (sid, project, depth) => {
+    if (depth > 8 || !/^[0-9a-zA-Z-]{8,80}$/.test(sid)) return;
+    const t = locate(sid, project); if (!t) return;   // gone: what its public file says is all there is
+    const k = t.rel.join('/');
+    if (!cps[k] || cps[k].off !== t.size) { mine(); const next = Compacts.scan(t, cps[k], sid); if (next) { cps[k] = next; dirty = true; } }
+    if (cps[k] && cps[k].head && cps[k].from) upToDate(cps[k].from, t.rel[0], depth + 1);
+  };
+  for (const k of Object.keys(cps)) {
+    const st = cps[k];
+    if (st.head && st.from && (everything || changed.has(k))) upToDate(st.from, k.split('/')[0], 0);
+  }
+  mine();
+  if (dirty || !kept || kept.v !== COMPACTS_V) writeWhole(COMPACTS, JSON.stringify({ v: COMPACTS_V, files: cps }));
+  const hooks = new Map();
+  const hook = (sid) => {
+    if (!hooks.has(sid)) { let j = null; try { j = JSON.parse(fs.readFileSync(stateFile('claude-compacts-' + sid.replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) + '.json'), 'utf8')); } catch (e) {} hooks.set(sid, j && typeof j === 'object' && !Array.isArray(j) ? j : null); }
+    return hooks.get(sid);
+  };
+  for (const k of Object.keys(cps)) {
+    const st = cps[k];
+    if (!st.n && !st.head) continue;
+    if (!everything && !changed.has(k)) continue;
+    if (mtimes.has(k) && now - mtimes.get(k) > COMPACT_AGE_MS) continue;
+    const [project, file] = k.split('/'), sid = file.slice(0, -6);
+    const f = Compacts.figures(cps, project, sid, hook), cur = hook(sid) || {};
+    const last = st.ts.length ? st.ts[st.ts.length - 1] : 0;
+    const behind = f.count > (Number(cur.count) || 0) || f.inherited !== (Number(cur.inherited) || 0) || f.from !== (cur.from || '') || f.inheritedAt !== (Number(cur.inheritedAt) || 0);
+    if (!behind) continue;
+    mine();
+    casMerge(stateFile('claude-compacts-' + sid.replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) + '.json'), (s) => {
+      s.v = 1;
+      s.count = Math.max(Number(s.count) || 0, f.count);
+      if (!Number(s.last) && last) s.last = last;
+      s.inherited = f.inherited;
+      if (f.from) s.from = f.from; else delete s.from;
+      if (f.inheritedAt) s.inheritedAt = f.inheritedAt; else delete s.inheritedAt;
+    }, (a) => a.v === 1 && a.inherited === f.inherited && Number(a.count) >= f.count);
+    hooks.delete(sid);
+  }
 }
 
 module.exports = { collect, recordFiles, eachRecord, DIR, META, safeName, monthOf };

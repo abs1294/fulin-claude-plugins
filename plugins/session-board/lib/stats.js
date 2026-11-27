@@ -63,6 +63,18 @@ function top(obj, n, extra) {
     .sort((a, b) => b.count - a.count || b.last - a.last).slice(0, n);
 }
 
+// How many times it was compacted, as cc-statusline counted them (claude-compacts-<sid>.json): count is its own, inherited
+// what it carried over when it was copied from another conversation (--fork-session starts from that one's last
+// compaction; cc-statusline 1.11.0 on). Shown as one figure - the conversation the person sees began with those.
+// The board counts nothing itself: usage is gathered only by cc-statusline.
+function compactsOf(c) {
+  if (!c || typeof c !== 'object') return null;
+  const own = num(c.count), inherited = num(c.inherited);
+  const out = { count: own + inherited, last: num(c.last) || (inherited ? num(c.inheritedAt) : 0) };
+  if (inherited) Object.assign(out, { own, inherited, from: typeof c.from === 'string' ? c.from.slice(0, 80) : '' });
+  return out;
+}
+
 // extra.windows     {model id: context size}, learned by lib/chat.js
 // extra.limit       (model) -> the window set for it in its folder, or 0 (lib/ctxlimit.js)
 function sessionStats(sid, stateDir, extra = {}) {
@@ -99,7 +111,7 @@ function sessionStats(sid, stateDir, extra = {}) {
 
   return {
     usage: use,
-    compacts: compacts && typeof compacts === 'object' ? { count: num(compacts.count), last: num(compacts.last) } : null,
+    compacts: compactsOf(compacts),
     messages,
     context,
     // cc-statusline prunes this list (it keeps the running ones and a bounded
