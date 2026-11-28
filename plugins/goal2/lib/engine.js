@@ -452,7 +452,8 @@ function runEngine(runDir, engine) {
     return Promise.resolve(writeResult({ ok: false, error: `runEngine: ${e.message}`, run_dir: runDir, status: 'spawn_failed', plugin_version: pluginVersion(), plugin_root: PLUGIN_ROOT }));
   }
   // R3-1：同一 run 目錄只准啟動一次。第二次 --run 會覆寫 pid、重開 stream.jsonl，把第一個引擎變成找不到的孤兒。
-  if (meta.status !== 'prepared') {
+  // (scheduled: only its own waiting process, at the time - lib holdUntil)
+  if (meta.status !== 'prepared' && !(meta.status === 'scheduled' && meta.waiterPid === process.pid)) {
     const st = meta.status === 'running' ? aliveState(meta) : null;
     const hint = meta.status === 'running'
       ? (st === 'alive' ? '它正在跑；要看進度用 --status，要停用 --stop'
@@ -623,6 +624,18 @@ function killTree(pid) {
 function stopRun(runDir, { force = false } = {}) {
   const meta = readMeta(runDir);
   const out = { run_dir: runDir, run_id: meta.runId, previous_status: meta.status, pid: meta.pid || null, plugin_version: pluginVersion(), plugin_root: PLUGIN_ROOT };
+  // 排程中（等待程序睡到時間才起引擎）：結束等待程序，引擎從沒起過
+  if (meta.status === 'scheduled') {
+    // its time came and it is starting the engine this moment: killed now, the engine it just started would go on unseen
+    const ws = waitState(meta), now = new Date().toISOString();
+    // (only while its waiting process is still there: gone after its time came, the run would never leave scheduled otherwise)
+    if (meta.heldUntil && ws === 'alive' && !force) return { ...out, ok: false, error: '排程剛到點、引擎正在啟動，幾秒後用 --status 看，再 --stop 一次' };
+    if (ws === 'alive') { try { process.kill(meta.waiterPid); } catch (e) { return { ...out, ok: false, error: `結束等待程序 ${meta.waiterPid} 失敗：${e.message}` }; } }
+    else if (ws === 'unknown' && !force) return { ...out, ok: false, alive_state: ws, error: `無法確認 pid ${meta.waiterPid} 是不是本 run 的等待程序，為避免殺錯程序不動它；確認後加 --force 只收狀態` };
+    writeMeta(runDir, { ...readMeta(runDir), status: 'stopped', stoppedAt: now, endedAt: now, neverStarted: true, stopNote: ws === 'alive' ? '排程取消：結束等待程序，引擎沒有啟動' : `排程取消：等待程序已不在（${ws}），引擎沒有啟動` });
+    claimReport(runDir, 'stop:排程取消');   // nothing ran: not reported back to the conversation as 「跑完了」 (pending-report hook, the board)
+    return { ...out, ok: true, alive_state: ws, note: '排程已取消，引擎沒有啟動' };
+  }
   // running／timeout 可停；stopped 但程序其實還活著（上次沒殺乾淨、或被 --force 誤收）也允許再殺一次
   if (meta.status !== 'running' && !(['timeout', 'stopped'].includes(meta.status) && meta.pidStart && aliveState(meta) === 'alive')) return { ...out, ok: false, error: `run 不在執行中（status=${meta.status}），沒有東西可終止` };
   if (!meta.pid) return { ...out, ok: false, error: 'meta.json 沒有 pid（可能是舊版準備的 run），請手動找 claude 子程序終止' };
@@ -677,6 +690,39 @@ function lastActivity(streamPath) {
 }
 
 /** 把狀態講成一句人話（給主 session 直接轉述用；欄位本身也保留） */
+/** 排程中的等待程序是否還在（pid＋啟動時間，同引擎的判法） */
+function waitState(meta) {
+  return meta && meta.waiterPid ? aliveState({ pid: meta.waiterPid, pidStart: meta.waiterPidStart || null, pluginVersion: meta.pluginVersion, startedAt: meta.scheduledAt, createdAt: meta.createdAt }) : 'dead';
+}
+
+/**
+ * 排程（delaylocal）：runner 先睡到 scheduledFor 才起引擎——等待也在這個獨立程序裡，不靠對話裡的 cron
+ * （看板對話閒置 15 分鐘會被結束，CronCreate 跟著消失：2026-11-28）。等待期間 status=scheduled，記下等待程序的身分；
+ * 用牆上時鐘比對絕對時間（電腦睡醒後立刻接著判斷，不是睡固定毫秒）。被 --stop 改了狀態就不起。到點時狀態維持 scheduled、
+ * 由同一個程序的 runEngine 接手（它只認自己的等待程序）。重開機、登出：程序不在，排程就沒了（跟 cron 一樣），
+ * --status／--wait 會說。 -> {ok, waited} | {ok:false, cancelled, status}
+ */
+async function holdUntil(runDir, { pollMs = 30000 } = {}) {
+  const meta = readMeta(runDir), at = Date.parse(meta.scheduledFor || '');
+  if (meta.status !== 'prepared' || !Number.isFinite(at) || at <= Date.now()) return { ok: true, waited: false };
+  // (scheduled first, so whoever started it is answered at once; the identity - a PowerShell on Windows, seconds - after)
+  writeMeta(runDir, { ...readMeta(runDir), status: 'scheduled', waiterPid: process.pid, waiterPidStart: null, scheduledAt: new Date().toISOString() });
+  const id = procIdentity(process.pid);
+  if (id) { const m = readMeta(runDir); if (m.status === 'scheduled' && m.waiterPid === process.pid) writeMeta(runDir, { ...m, waiterPidStart: new Date(id.start).toISOString() }); }
+  for (;;) {
+    let m; try { m = readMeta(runDir); } catch (e) { return { ok: false, error: e.message }; }
+    if (m.status !== 'scheduled') return { ok: false, cancelled: true, status: m.status };
+    // the time: it stays scheduled, and runEngine (this same process) takes it on - no moment as prepared that a second
+    // --start could take, and a --stop meanwhile is still the cancelling of a schedule
+    if (Date.now() >= at) {
+      const now = readMeta(runDir);   // (read again just before writing: a --stop meanwhile is not written over)
+      if (now.status !== 'scheduled' || now.waiterPid !== process.pid) return { ok: false, cancelled: true, status: now.status };
+      writeMeta(runDir, { ...now, heldUntil: new Date().toISOString() }); return { ok: true, waited: true };
+    }
+    await new Promise((r) => setTimeout(r, Math.min(pollMs, Math.max(1000, at - Date.now()))));
+  }
+}
+
 function describeStatus(st) {
   const runningDesc = {
     alive: '進行中',
@@ -686,6 +732,9 @@ function describeStatus(st) {
   }[st.alive_state || (st.alive ? 'alive' : 'dead')];
   const state = {
     prepared: '已準備、還沒啟動',
+    scheduled: st.waiter_state === 'alive' ? `已排程，${st.scheduled_for ? new Date(st.scheduled_for).toLocaleString() : '到時'}自動開始（等待程序在跑，對話關掉也照常）`
+      : st.waiter_state === 'unknown' ? '已排程，但無法確認等待程序還在不在'
+      : '已排程，但等待程序已不在（電腦重開、登出或被結束），不會自動開始；要做請重新排程',
     running: runningDesc,
     done: '已完成，檢查器確認完成條件達成（goal_status met:true）',
     unverified: '引擎正常結束，但檢查器沒有留下達成判定——不能當作已達成，請看 result_text 與帳本自行核對',
@@ -722,7 +771,7 @@ function listRuns() {
     // 只有 running 才需要探活（探身分要起 PowerShell，避免對每個歷史 run 都做）
     // running／timeout／stopped 都要探活：timeout 殺不死、stopped 被 --force 誤收，引擎可能還在跑（探身分要起 PowerShell，其餘狀態不做）
     const probe = meta.status === 'running' || (['timeout', 'stopped'].includes(meta.status) && meta.pidStart);   // 舊版 meta 沒身分：stopped/timeout 不探活（pid 重用會把無關程序當引擎）
-    const state = probe && meta.pid ? aliveState(meta) : 'dead';
+    const state = meta.status === 'scheduled' ? waitState(meta) : probe && meta.pid ? aliveState(meta) : 'dead';
     out.push({ runDir: rd, runId: meta.runId || n, skill: meta.skill, status: meta.status, cwd: meta.cwd || null, pid: meta.pid || null, alive: state === 'alive', alive_state: state, createdAt: meta.createdAt || null, scheduledFor: meta.scheduledFor || null, startedAt: meta.startedAt || null, endedAt: meta.endedAt || meta.stoppedAt || null, pluginVersion: meta.pluginVersion || null, condition: typeof meta.condition === 'string' ? meta.condition.slice(0, 120) : null, parentSessionId: meta.parentSessionId || null, dirMtime });
   }
   return out;
@@ -759,12 +808,12 @@ function pruneRuns({ keepHours = 24, dryRun = false } = {}) {
     else if (r.alive_state === 'unknown') reason = '無法確認程序狀態，不碰';
     else if (FINISHED_STATUSES.includes(r.status)) { if (olderThan(r.endedAt || r.dirMtime)) kind = 'finished'; else reason = '結束未滿保留時數'; }
     else if (r.status === 'running') { if (olderThan(r.dirMtime)) kind = 'stale-running'; else reason = 'running 但程序不在；未滿保留時數（可能剛被殺）'; }
-    else if (r.status === 'prepared') {
+    else if (r.status === 'prepared' || r.status === 'scheduled') {   // (scheduled here: its waiting process is gone - never started)
       // delaylocal 排程的 run 在 quota 重置後才會被 --run（可能等 5 小時以上）：以預計 fire 時間（scheduledFor）為起算點，沒有就用 createdAt
       const created = r.createdAt || r.dirMtime;
       const since = r.scheduledFor && Date.parse(r.scheduledFor) > Date.parse(created || 0) ? r.scheduledFor
         : (r.skill === 'delaylocal' && created ? new Date(Date.parse(created) + 6 * 3600e3).toISOString() : created);   // 舊版 delaylocal meta 沒記 fire 時間：quota 週期 5h＋緩衝，保守給 6h
-      if (olderThan(since)) kind = 'never-started'; else reason = r.scheduledFor ? `prepared，預計 ${r.scheduledFor} 由 cron 啟動，未滿保留時數` : 'prepared 未滿保留時數（可能等著被 --run）';
+      if (olderThan(since)) kind = 'never-started'; else reason = r.scheduledFor ? `${r.status}，預計 ${r.scheduledFor} 啟動，未滿保留時數` : 'prepared 未滿保留時數（可能等著被 --run）';
     }
     else reason = `未知狀態 ${r.status}`;
     if (!kind) { kept.push({ runId: r.runId, status: r.status, alive_state: r.alive_state, reason }); continue; }
@@ -785,7 +834,8 @@ function runStatus(runDir) {
   const la = lastActivity(streamPath);
   let progress = ''; try { progress = fs.readFileSync(path.join(runDir, 'progress.md'), 'utf8'); } catch (_) {}
   const probe = meta.status === 'running' || (['timeout', 'stopped'].includes(meta.status) && meta.pidStart);
-  const state = probe && meta.pid ? aliveState(meta) : 'dead';
+  // (scheduled: alive is its waiting process - what reads alive sees one that will still start)
+  const state = meta.status === 'scheduled' ? waitState(meta) : probe && meta.pid ? aliveState(meta) : 'dead';
   const st = {
     ok: true, run_dir: runDir, run_id: meta.runId, skill: meta.skill, status: meta.status, plugin_version: pluginVersion(), plugin_root: PLUGIN_ROOT, run_plugin_version: meta.pluginVersion || null,
     pid: meta.pid || null, alive: state === 'alive', alive_state: state, started_at: meta.startedAt || null, ended_at: meta.endedAt || null,
@@ -794,6 +844,7 @@ function runStatus(runDir) {
     num_turns: s.num_turns, assistant_messages: la.assistant_messages, total_cost_usd: s.total_cost_usd,
     last_event_at: la.last_event_at, last_tool: la.last_tool, last_text: la.last_text,
     progress_md: progress,
+    scheduled_for: meta.scheduledFor || null, waiter_pid: meta.waiterPid || null, waiter_state: meta.status === 'scheduled' ? waitState(meta) : null,
     parent_session_id: meta.parentSessionId || null, reported_by: (reportInfo(runDir) || {}).by || null,
     status_path: path.join(runDir, 'status.json')
   };
@@ -920,6 +971,10 @@ async function waitRun(runDir, { minutes = 100, pollMs = 5000 } = {}) {
       return { ...res, mode: 'ran', run_dir: runDir, report: c.ok ? 'yours' : 'already', already_reported_by: c.ok ? undefined : (c.already && c.already.by) || c.error, report_note: c.ok ? '由你回報' : `已由 ${(c.already && c.already.by) || '別人'} 接手回報（例如看板已把結果送進對話），不要重複回報` };
     }
     // 每分鐘探一次活：引擎不在、runner 也不在，狀態卻停在 running → 不會有人收尾了
+    if (meta.status === 'scheduled' && Date.now() - lastProbe > 60000) {
+      lastProbe = Date.now();
+      if (['dead', 'stale'].includes(waitState(meta))) return { ok: false, mode: 'lost', run_dir: runDir, run_id: meta.runId, status: meta.status, error: '排程的等待程序已不在（電腦重開、登出或被結束），引擎不會自動開始；要做請重新排程' };
+    }
     if (meta.status === 'running' && Date.now() - lastProbe > 60000) {
       lastProbe = Date.now();
       const engine = meta.pid ? aliveState(meta) : 'dead';
@@ -986,5 +1041,5 @@ function detectWtf() {
   return best || { installed: false };
 }
 
-module.exports = { prepareRun, runEngine, stopRun, runStatus, listRuns, findActiveRunsIn, pruneRuns, summarizeStream, locateClaude, detectWtf, extractItems, extractContext, extractSection, selfSufficiency, inspectCwd, readMeta, writeMeta, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, aliveState, procIdentity, findChildTranscript, goalVerdictFromTranscript, buildEngineArgs, describeStatus, FINISHED_STATUSES,
+module.exports = { holdUntil, waitState, prepareRun, runEngine, stopRun, runStatus, listRuns, findActiveRunsIn, pruneRuns, summarizeStream, locateClaude, detectWtf, extractItems, extractContext, extractSection, selfSufficiency, inspectCwd, readMeta, writeMeta, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, aliveState, procIdentity, findChildTranscript, goalVerdictFromTranscript, buildEngineArgs, describeStatus, FINISHED_STATUSES,
   claimReport, releaseReport, reportInfo, reportDue, pendingReports, reportMessage, startDetached, waitRun, parentSession, REPORT_FILE, WAIT_FILE, WAIT_FRESH_MS, REPORT_GRACE_MS };

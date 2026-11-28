@@ -6151,7 +6151,7 @@ async function drawSystemJobs(pane) {
 }
 // ── goal2's runs: what each was asked to reach and how it went (the goal2 plugin; the board only reads them, and can
 // stop one that is still going) ──
-const GOAL_ST = { running: ['執行中', 'wait'], prepared: ['準備好未執行', ''], done: ['達成', 'ok'], unverified: ['做完但沒驗證到', 'wait'], impossible: ['判定做不到', 'bad'], timeout: ['超過時限', 'bad'], budget: ['超過預算', 'bad'], stopped: ['已停止', ''], failed: ['失敗', 'bad'], spawn_failed: ['沒啟動成功', 'bad'], unknown: ['不明', ''] };
+const GOAL_ST = { running: ['執行中', 'wait'], scheduled: ['已排程', 'wait'], prepared: ['準備好未執行', ''], done: ['達成', 'ok'], unverified: ['做完但沒驗證到', 'wait'], impossible: ['判定做不到', 'bad'], timeout: ['超過時限', 'bad'], budget: ['超過預算', 'bad'], stopped: ['已停止', ''], failed: ['失敗', 'bad'], spawn_failed: ['沒啟動成功', 'bad'], unknown: ['不明', ''] };
 let goalAll = false, goal2Here = false;   // whether goal2 is on this computer (told by /api/goals)
 // One line of a card's feed: a status dot, what it was, when; the whole line opens it (no buttons of its own)
 function feedRow(st, name, at, tip, open, why) {
@@ -6180,8 +6180,8 @@ async function drawGoals(pane) {
   if (!r.ok) { if (r.status === 404) return; box.append(el('div', 'sc-h', 'goal 執行'), el('p', 'lead', '讀不到 goal 的執行紀錄。')); return; }
   goal2Here = !!d.installed;
   if (!d.installed) return;   // goal2 is not on this computer: nothing to say
-  const runs = d.runs || [], live = runs.filter((x) => x.alive);
-  const h = el('div', 'sc-h', 'goal 執行（' + runs.length + ' 筆' + (live.length ? '，' + live.length + ' 筆執行中' : '') + '）'); h.title = '用 goal2 的 /goal2:goal 或 /goal2:delaylocal 交辦、跑到完成條件達成為止的工作';
+  const runs = d.runs || [], live = runs.filter((x) => x.alive), going = live.filter((x) => x.status !== 'scheduled'), waiting = live.length - going.length;   // (scheduled: waiting for its time, not running)
+  const h = el('div', 'sc-h', 'goal 執行（' + runs.length + ' 筆' + (going.length ? '，' + going.length + ' 筆執行中' : '') + (waiting ? '，' + waiting + ' 筆已排程' : '') + '）'); h.title = '用 goal2 的 /goal2:goal 或 /goal2:delaylocal 交辦、跑到完成條件達成為止的工作';
   box.append(h);
   const gList = el('div', 'sc-list'); box.append(gList);
   if (d.error) box.append(el('p', 'lead', d.error));
@@ -6201,8 +6201,8 @@ async function drawGoals(pane) {
     row.append(el('span', 'lt', when(x.startedAt || x.createdAt)), el('span', 'ls ' + st[1], st[0]), m);
     const acts = el('span', 'acts');
     const see = el('button', 'btn', '詳情'); see.type = 'button'; see.addEventListener('click', () => openGoal(x)); acts.append(see);
-    if (x.alive) { const stop = el('button', 'btn danger', '停止'); stop.type = 'button'; let armed = 0;
-      stop.addEventListener('click', async () => { if (Date.now() - armed > 4000) { armed = Date.now(); stop.textContent = '再按一次停止'; return say('它會在目前的動作結束後停下。確定的話 4 秒內再按一次', true); }
+    if (x.alive) { const sch = x.status === 'scheduled', stop = el('button', 'btn danger', sch ? '取消排程' : '停止'); stop.type = 'button'; let armed = 0;
+      stop.addEventListener('click', async () => { if (Date.now() - armed > 4000) { armed = Date.now(); stop.textContent = sch ? '再按一次取消' : '再按一次停止'; return say(sch ? '取消這個排程，它不會開始。確定的話 4 秒內再按一次' : '它會在目前的動作結束後停下。確定的話 4 秒內再按一次', true); }
         stop.disabled = true; const s = await api('/api/goals/stop', { id: x.runId }); if (!s.ok) { stop.disabled = false; stop.textContent = '停止'; return say((s.data && s.data.error) || '沒有停下來', true); } say('已要求它停止'); if (view === 'sched') drawSched(); }); acts.append(stop); }
     row.append(acts); gList.append(row);
   }
@@ -6224,7 +6224,8 @@ async function openGoal(x) {
   const d = r.data, st = GOAL_ST[d.status] || [d.status, ''];
   const top = el('div', 'goal-top');
   const line = (k, v) => { if (v === undefined || v === null || v === '') return; const row = el('div', 'gk'); row.append(el('span', '', k), el('b', '', String(v))); top.append(row); };
-  line('狀態', st[0] + (d.alive ? '（還在跑）' : ''));
+  line('狀態', st[0] + (d.alive && d.status !== 'scheduled' ? '（還在跑）' : ''));
+  if (d.status === 'scheduled') line('預計開始', d.waiter_state === 'alive' && d.scheduled_for ? new Date(d.scheduled_for).toLocaleString('zh-TW', { hour12: false }) : '不會自動開始（等待程序已不在：電腦重開、登出或被結束）');
   line('檢查器判定', d.goal_verdict === 'met' ? '完成條件達成' : d.goal_verdict === 'not_met' ? '沒有達成' : d.goal_verdict || (d.goal_set ? '還沒判定' : '沒有設定成功'));
   line('完成條件', d.condition);
   line('回合', d.num_turns); line('接續', d.continuations); line('壓縮', d.compactions);
@@ -6233,8 +6234,8 @@ async function openGoal(x) {
   line('最後一個動作', d.last_tool);
   body.append(top);
   if (d.alive) {
-    const stop = el('button', 'btn danger', '停止這個 goal'); stop.type = 'button'; let armed = 0;
-    stop.addEventListener('click', async () => { if (Date.now() - armed > 4000) { armed = Date.now(); stop.textContent = '再按一次停止'; return say('它會在目前的動作結束後停下。確定的話 4 秒內再按一次', true); }
+    const sch = d.status === 'scheduled', stop = el('button', 'btn danger', sch ? '取消這個排程' : '停止這個 goal'); stop.type = 'button'; let armed = 0;
+    stop.addEventListener('click', async () => { if (Date.now() - armed > 4000) { armed = Date.now(); stop.textContent = sch ? '再按一次取消' : '再按一次停止'; return say(sch ? '取消這個排程，它不會開始。確定的話 4 秒內再按一次' : '它會在目前的動作結束後停下。確定的話 4 秒內再按一次', true); }
       stop.disabled = true; const s = await api('/api/goals/stop', { id: x.runId }); if (!s.ok) { stop.disabled = false; stop.textContent = '停止這個 goal'; return say((s.data && s.data.error) || '沒有停下來', true); } say('已要求它停止'); if (view === 'sched') drawSched(); });
     const sb = el('div'); sb.style.margin = '12px 0'; sb.append(stop); body.append(sb);
   }

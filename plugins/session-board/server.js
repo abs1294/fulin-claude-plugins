@@ -692,7 +692,7 @@ function createServer(token, port, deps = {}) {
       installed: Object.values(inst).map((x) => ({ name: x.name, version: x.newest, description: x.description, projects: x.installs.filter((i) => i.project).length, user: x.installs.some((i) => i.scope === 'user') })),
       pm: on.versions.on ? pluginsCache.pm : null, git: on.git.on ? pluginsCache.git : null, harness: harnessProjects, harnessOn: on.harness.on, daily: on.daily.on ? Plugins.dailyReport(inst) : { installed: false },
       selfHeal: on.selfHeal.on ? { installed: true, on: !fs.existsSync(Plugins.selfHealOff()) } : { installed: false },
-      goal2: { installed: g.installed, runs: (g.runs || []).slice(0, 6), running: (g.runs || []).filter((x) => x.alive).length, total: (g.runs || []).length },
+      goal2: { installed: g.installed, runs: (g.runs || []).slice(0, 6), running: (g.runs || []).filter((x) => x.alive && x.status !== 'scheduled').length, total: (g.runs || []).length },   // (running: not one scheduled, waiting for its time)
     };
   };
   // 外掛整合分析 per folder (lib/pluginfit.js): {state: running|done|failed, at, result?, error?, applied?}. Kept in a

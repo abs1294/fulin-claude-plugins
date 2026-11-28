@@ -57,14 +57,14 @@
 
 | | `goal` skill（現在就做） | `delaylocal` skill（quota 重置後做） |
 |---|---|---|
-| 準備 | `goal.js --prompt-file … --goal … --cwd <專案根>` → run_dir + `run_command`（--start）+ `wait_command` + `confirm_timer_cron` | `delaylocal.js --show-config` 拿 `confirm_timer_cron`；確認後 `delaylocal.js … --goal … --cwd <專案根>` → run_dir + `run_command` + 任務 cron |
+| 準備 | `goal.js --prompt-file … --goal … --cwd <專案根>` → run_dir + `run_command`（--start）+ `wait_command` + `confirm_timer_cron` | `delaylocal.js --show-config` 拿 `confirm_timer_cron`；確認後 `delaylocal.js … --goal … --cwd <專案根>` → run_dir，並當場起獨立的等待程序（status scheduled） |
 | 並行 | 不擋；`active_runs_in_tree` 列出同棵樹活著的 run，回報時提醒。路徑不重疊仍會共用 DB／port／測試結果，任務書要寫範圍切分；`--stop` 殺不到 `&`／nohup 起的背景服務 | 同左 |
-| timer 的 prompt | （預設不排）開啟時：文字指令「[goal2 逾時自動採納] …請用 Bash 執行 `<run_command>`，再背景執行 `<wait_command>`」 | 文字指令：「[delaylocal 逾時自動採納] …請以 --goal-file 跑 delaylocal.js 後 CronCreate」 |
-| 使用者同意後 | `CronDelete` timer → Bash 執行 `run_command`（--start）→ 背景執行 `wait_command` | `CronDelete` timer → `delaylocal.js --goal` → `CronCreate(任務 cron)` |
-| 引擎何時起 | propose 完立刻（或開 timer 時：同意／逾時） | 任務 cron 到點 → fire 進來的 prompt 叫 Claude 執行 `run_command`（--start）、再背景執行 `wait_command` |
-| 終止／進度 | `goal.js --stop <run_dir>`／`--status <run_dir>`；多個活著的 run 時先問停哪一個 | `delaylocal.js --stop <run_dir>`／`--status <run_dir>`（不需 session id） |
+| timer 的 prompt | （預設不排）開啟時：文字指令「[goal2 逾時自動採納] …請用 Bash 執行 `<run_command>`，再背景執行 `<wait_command>`」 | 文字指令：「[delaylocal 逾時自動採納] …請以 --goal-file 跑 delaylocal.js」（它自己起等待程序，不再 CronCreate） |
+| 使用者同意後 | `CronDelete` timer → Bash 執行 `run_command`（--start）→ 背景執行 `wait_command` | `CronDelete` timer → `delaylocal.js --goal`（當場起等待程序） |
+| 引擎何時起 | propose 完立刻（或開 timer 時：同意／逾時） | 等待程序睡到 quota 重置＋緩衝自己起引擎（不靠對話：看板對話閒置被結束也照常）；結果送回起它的對話 |
+| 終止／進度 | `goal.js --stop <run_dir>`／`--status <run_dir>`；多個活著的 run 時先問停哪一個 | `delaylocal.js --stop <run_dir>`（排程中：取消、引擎不起）／`--status <run_dir>`（不需 session id） |
 | 煞車 | `engine.maxBudgetUsd`（預設 300，觸發 → `status: budget`）、`engine.maxMinutes`（預設 480，≤10080）；0.8.0 起引擎是獨立程序：TaskStop 等待或關掉 Claude Code 都不會停掉它，要停一律 `--stop`；預算在回合邊界才對帳 | 同左 |
-| 任務 cron | 無 | quota 重置後 + `delaylocal.bufferSeconds`（預設 900）；session-only，另有 session 守衛 |
+| 任務何時開始 | 無（立刻） | quota 重置後 + `delaylocal.bufferSeconds`（預設 900），由獨立的等待程序負責（不是 cron：對話關掉也照常；電腦重開、登出就沒了）。plain 模式才是 session-only 的 cron＋session 守衛 |
 | 收尾 | 主 session 讀 summary 回報（有 wtf 就套 wtf 格式）；不發 LINE | 子程序寫報告檔 + `notify-line.js` 發 LINE（選用）；主 session 再讀 summary 回報 |
 
 ## 4. /goal 引擎契約（實測整理，2.1.268）
@@ -79,7 +79,7 @@
 - **背景任務會讓驗收落空**：Stop 時若還有背景 shell／agent，Claude Code 把 /goal 檢查延後（hook 暫時移出 registry），互動 session 會 check-in、`-p` 不會；`-p` 預設只等背景任務 600 秒就終止 → 判定從未發生（真實 run 55a0／89c2／0296）。-p 對背景 Bash 甚至不等、直接殺。goal2 以 `hooks/bg-guard.js`（Stop hook）擋住「還有背景 Bash 就結束回合」（實測 block 一次後等到通知、`met`）、子程序帶 `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`（背景 agent 用）、anchor 禁止背景任務中結束回合、收尾偵測為 `goal_verdict: deferred`。
 - **達成判定只認子程序 transcript**：stream-json 裡沒有檢查器判定；transcript（`~/.claude/projects/<cwd 編碼>/<session>.jsonl`）每次 Stop 檢查寫一筆 `attachment {type:"goal_status", met, failed?, reason?}`（Goal set 當下那筆 `sentinel:true` 不算）。engine.js 收尾時讀最後一筆 → `goal_verdict`：`met`→`done`；`failed:true`→`impossible`；只有 sentinel 或沒有→`unverified`（引擎未經檢查就 end_turn，不可當達成）；找不到 transcript→`no_transcript`。2026-09-12 實測三種結局都出現過（達成／判不可能放行／未經檢查結束），舊版全記成達成。
 - **檢查器會為了達成改系統狀態**：bypassPermissions 下，條件「Z 槽下某檔存在」被擋 2 次後引擎用 `subst` 造出 Z 槽達成（實測）。條件與任務書要寫清楚不准動什麼；`maxBudgetUsd`／`maxMinutes` 是最後煞車。
-- **`durable` 無效**：CronCreate 的 `durable` 參數由遠端旗標控制、目前關閉（工具 schema 明寫「Has no effect — all jobs are session-only」；六月與現在皆如此）。排程只活在本 Claude Code process。
+- **`durable` 無效**：CronCreate 的 `durable` 參數由遠端旗標控制、目前關閉（工具 schema 明寫「Has no effect — all jobs are session-only」；六月與現在皆如此）。用 CronCreate 排的（確認 timer、delaylocal plain 模式的任務 cron）只活在本 Claude Code process；delaylocal goal 模式的任務不是 cron，而是獨立的等待程序（0.9.0 起）。
 - **到點時 REPL 忙碌**（Claude 在跑、或使用者剛送出訊息）→ 排程器等下一個 idle 再 fire、不會漏掉（依 CronCreate 工具說明）。
 - **runs 目錄是全機共用的**：`~/.claude/goal2/runs/` 被所有 session、所有專案共用。禁止整批刪除；清理只能 `goal.js --prune`（只刪已結束且程序不在的）。同一棵工作樹（相同／祖先／子孫目錄）已有活著的 run 時不阻擋（使用者的工作型態就是同一專案並行多個調整），但準備輸出的 `active_runs_in_tree` 會列出來，回報時要提醒使用者兩個引擎可能互相改檔。
 - **長任務與上下文壓縮**：引擎的完成條件存在 app state（`activeGoal`＋session 級 Stop hook），壓縮不影響驗收；會流失的是任務細節與進度。goal2 三層錨定：① `anchor.md` 以 `--append-system-prompt-file` 進系統提示（每回合重送）；② `progress.md` 進度帳本（引擎 prompt 規定里程碑更新、壓縮後先讀）；③ `hooks/compact-anchor.js` 以 `--settings` 只掛在該子程序的 SessionStart(compact)，壓縮後把 ①＋② 注回。`engine.autocompact` 可把壓縮視窗調到 100k–1M tokens。summary 的 `compactions`／`anchor_injections` 回報這兩件事發生了幾次。**實測**（2.1.268）：autocompact=100000、每回合 25KB 輸出 → 3 次壓縮、3 次注回、壓縮後從帳本接續零重做，但第 3 次後被 Claude Code 的 `rapid_refill_breaker` 熔斷（壓縮空轉保護）；autocompact 別設太小、大檔分小塊讀。
@@ -88,8 +88,8 @@
 
 | 層 | `goal` skill | `delaylocal` skill |
 |---|---|---|
-| 第 1 層＝引擎何時起 | 使用者同意當下（或 timer 逾時） | 任務 cron 到點（quota 重置後 + 緩衝） |
-| 第 2 層＝propose 確認逾時 | 預設沒有（直接起）；設 ≥1 分才有確認 timer | 確認 timer（預設 10 分，逾時就排任務 cron），與第 1 層是**不同的 job** |
+| 第 1 層＝引擎何時起 | 使用者同意當下（或 timer 逾時） | 等待程序睡到 quota 重置後 + 緩衝（plain 模式：任務 cron 到點） |
+| 第 2 層＝propose 確認逾時 | 預設沒有（直接起）；設 ≥1 分才有確認 timer | 確認 timer（預設 10 分，逾時就跑 delaylocal.js 起等待程序），與第 1 層是**不同的東西**（timer 是 cron，任務不是） |
 
 delaylocal 的 fast-path 與 plain 模式**沒有**第 2 層，也不起子程序。
 

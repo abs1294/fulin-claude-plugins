@@ -48,7 +48,7 @@ function tool(root, args, run, timeout = 20000, env) {
 }
 
 // The words for a run's state, as they are shown.
-const STATUS = { prepared: '準備好未執行', running: '執行中', done: '達成', unverified: '做完但沒驗證到', impossible: '判定做不到', timeout: '超過時限', budget: '超過預算', stopped: '已停止', failed: '失敗', spawn_failed: '沒啟動成功', unknown: '不明' };
+const STATUS = { prepared: '準備好未執行', scheduled: '已排程', running: '執行中', done: '達成', unverified: '做完但沒驗證到', impossible: '判定做不到', timeout: '超過時限', budget: '超過預算', stopped: '已停止', failed: '失敗', spawn_failed: '沒啟動成功', unknown: '不明' };
 
 class Goal2 {
   constructor(o = {}) { this.o = o; this.cache = null; }
@@ -72,7 +72,7 @@ class Goal2 {
     const d = await this.dir(runId); if (!d) return { ok: false, error: '找不到這一筆 goal' };
     const j = await tool(this.root(), ['--status', d], this.o.run, 20000, this.o.env);
     if (!j.ok) return { ok: false, error: j.error || '讀不到' };
-    const pick = ['run_id', 'skill', 'status', 'alive', 'started_at', 'ended_at', 'goal_set', 'goal_verdict', 'goal_error', 'continuations', 'compactions', 'num_turns', 'total_cost_usd', 'last_event_at', 'last_tool', 'last_text', 'progress_md', 'summary_zh'];
+    const pick = ['run_id', 'skill', 'status', 'alive', 'scheduled_for', 'waiter_state', 'started_at', 'ended_at', 'goal_set', 'goal_verdict', 'goal_error', 'continuations', 'compactions', 'num_turns', 'total_cost_usd', 'last_event_at', 'last_tool', 'last_text', 'progress_md', 'summary_zh'];
     const out = { ok: true }; for (const k of pick) if (j[k] !== undefined) out[k] = j[k];
     try { const m = JSON.parse(fs.readFileSync(path.join(d, 'meta.json'), 'utf8')); out.condition = m.condition || ''; out.cwd = m.cwd || ''; } catch (e) {}
     return out;

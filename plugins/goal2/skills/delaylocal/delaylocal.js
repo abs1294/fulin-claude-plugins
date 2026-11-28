@@ -6,7 +6,7 @@
 //   echo "<使用者要排的 prompt 原文>" | node delaylocal.js [bufferSeconds]
 //   node delaylocal.js [bufferSeconds] --prompt-file <path>
 //   node delaylocal.js [bufferSeconds] --prompt-file <path> --goal "<可測量完成條件>"
-//   node delaylocal.js --start <run_dir>        # cron 到點後由 Claude 呼叫：把 runner 起成獨立程序（不受背景 Bash 2 小時上限、對話關掉也照跑），立刻返回
+//   node delaylocal.js --start <run_dir>        # 排程準備完由工具自己呼叫（goal 模式）：把 runner 起成獨立程序（先睡到時間再起引擎；不受背景 Bash 2 小時上限、對話關掉也照跑），立刻返回
 //   node delaylocal.js --wait <run_dir>         # 接著背景執行：等到引擎結束（最多 100 分鐘一輪，逾時回「還在跑」再等）
 //   node delaylocal.js --run <run_dir>          # 內部：runner 本體，起 claude -p "/goal …" 子程序跑到完成（由 --start 起）
 //   node delaylocal.js --show-config
@@ -17,17 +17,18 @@
 //
 // 兩種模式：
 //   - 預設（--goal 必填）：排程時就把「/goal <完成條件>（含已發 LINE）+ 任務 + 報告 + notify」組成引擎 prompt
-//     落到 ~/.claude/goal2/runs/<id>/prompt.txt；cron 的 final_prompt 只做兩件事：session 守衛、
-//     叫 Claude 用 Bash 執行 `delaylocal.js --start <run_dir>`（獨立起 claude -p 子程序跑官方 goal 引擎），再背景執行 --wait 等結果。
+//     落到 ~/.claude/goal2/runs/<id>/prompt.txt，並當場 --start 起獨立的 runner：它先睡到時間（lib/engine.js holdUntil，
+//     status scheduled），到點起 claude -p 子程序跑官方 goal 引擎。0.9.0 起不用 cron（對話的程式被結束、cron 就沒了）。
 //     ⚠️ 2.1.196 起 cron fire 的 prompt 不再解析 slash command，開頭 /goal 只是純文字（GitHub #75837），
 //        所以不能再把 /goal 放 cron prompt 第一行；唯一可用入口是 claude -p（見 ../../lib/engine.js）。
 //   - --plain：final_prompt 內建「session 守衛 + 無人值守文字紀律 + 任務 + 發 LINE」，不需完成條件、不起子程序。
 //
 // 輸出：JSON { ok, sessionId, snapshotKey, quota_window, quota_idle, quota_source, quota_limits_at, quota_limits_age_minutes, quota_warning, resets_at_local, target_local, cron, cron_warning, fire_in_minutes, buffer_seconds, buffer_source,
 //             confirm_timeout_minutes, confirm_timer_cron, confirm_timer_target_local, config_path, config_loaded, mode,
-//             run_dir, run_command, engine, engine_prompt（goal 模式）, final_prompt（cron 用） }
+//             run_dir, run_command, wait_command, stop_command, engine, engine_prompt（goal 模式）, scheduled（goal 模式：起等待程序的結果）,
+//             final_prompt（plain 模式 cron 用；goal 模式 null） }
 // --run 模式輸出：{ mode:"ran", ok, goal_set, goal_achieved, continuations, num_turns, result_text, stream_path, … }
-// skill 拿 cron + final_prompt 去 CronCreate({ recurring:false, durable:false })（durable 在目前版本無效，一律 session-only）。
+// plain 模式：skill 拿 cron + final_prompt 去 CronCreate({ recurring:false, durable:false })（durable 無效，一律 session-only）；goal 模式不 CronCreate。
 'use strict';
 const fs = require('fs');
 const os = require('os');
@@ -42,13 +43,13 @@ function fail(msg) {
 // --- plugin 共用 lib（__dirname 對 symlink 取真身路徑，symlink / plugin cache 兩種安裝都成立）---
 const LIB = path.join(__dirname, '..', '..', 'lib');
 let buildGoalHead, dateToCron, ceilToMinute, crossMonthWarning, loadConfig, prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd, resolveQuota;
-let startDetached, waitRun, parentSession;
+let startDetached, waitRun, parentSession, holdUntil;
 try {
   ({ buildGoalHead } = require(path.join(LIB, 'goal-head.js')));
   ({ dateToCron, ceilToMinute, crossMonthWarning } = require(path.join(LIB, 'cron-time.js')));
   ({ loadConfig } = require(path.join(LIB, 'config.js')));
   ({ resolveQuota } = require(path.join(LIB, 'quota.js')));
-  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd, startDetached, waitRun, parentSession } = require(path.join(LIB, 'engine.js')));
+  ({ prepareRun, runEngine, stopRun, runStatus, buildAnchor, ledgerRules, pluginVersion, PLUGIN_ROOT, selfSufficiency, inspectCwd, startDetached, waitRun, parentSession, holdUntil } = require(path.join(LIB, 'engine.js')));
 } catch (e) {
   fail(`找不到 plugin 共用 lib（${LIB}）：本 skill 須整個 plugin 一起安裝（/plugin install goal2@fulin-plugins）或 symlink 指向 monorepo 內的 skill 目錄，不可只複製 skill 資料夾。` + e.message);
 }
@@ -59,8 +60,8 @@ versionFields = VERSION_FIELDS;
 // --- 暫存檔清理（防止 os.tmpdir() 無限累積、殘留任務報告等敏感內容）---
 // 生命週期分析：
 //   • delaylocal-report-*.txt：本檔在「排程時」決定路徑，但實際「寫入 + 由 notify-line.js 讀取」
-//     發生在 cron fire（額度重置後；沒有 5 小時額度或 7 天額度用完時可能是好幾天後，最多 7 天）。所以「當下這次執行」不可刪任何 report 檔
-//     ——可能是等待中排程的目標檔。安全窗：cron fire 最遲在建立後 7 天加緩衝，故超過 CLEANUP_MAX_AGE_DAYS
+//     發生在到點時（goal 模式：等待程序起的引擎；plain 模式：cron fire。額度重置後；沒有 5 小時額度或 7 天額度用完時可能是好幾天後，
+//     最多 7 天）。所以「當下這次執行」不可刪任何 report 檔——可能是等待中排程的目標檔。安全窗：到點最遲在建立後 7 天加緩衝，故超過 CLEANUP_MAX_AGE_DAYS
 //     的檔一定是已完成 / 已放棄的殘留，刪之安全。
 //   • delaylocal-line-*.txt：notify-line.js 在「內容過長」時寫的完整內容備份，供使用者事後翻閱。
 //     同樣以年齡為準清理（幾天後使用者若沒看即視為過期）。
@@ -104,7 +105,7 @@ let runDir = null;        // --run <run_dir>：內部用，runner 本體（由 -
 let stopDir = null;       // --stop <run_dir>：終止進行中的引擎子程序
 let forceStop = false;    // --stop … --force：程序狀態不明時只收狀態、不殺
 let statusDir = null;     // --status <run_dir>：看進度（不阻塞）
-let startDir = null;      // --start <run_dir>：獨立起 runner（cron 到點後）
+let startDir = null;      // --start <run_dir>：獨立起 runner（排程準備完由工具自己呼叫；runner 會先睡到時間）
 let waitDir = null;       // --wait <run_dir>：背景等結果
 let waitMinutes = 100;    // --minutes N：等待一輪的上限（背景 Bash 最長 120 分鐘）
 let cwdArg = null;        // --cwd <dir>：子程序工作目錄（一律明確帶；Bash 工具的 cwd 會漂移）
@@ -159,8 +160,13 @@ if (waitDir) {
 if (runDir) {
   // 內部執行模式（runner 本體，由 --start 起成獨立程序）：起 claude -p 子程序跑官方 goal 引擎，阻塞到完成，寫 result.json
   if (!fs.existsSync(path.join(runDir, 'prompt.txt'))) fail(`--run 目錄不存在或缺 prompt.txt：${runDir}`);
-  let p; try { p = runEngine(runDir, cfg.config.engine); } catch (e) { fail(`引擎啟動前檢查失敗：${e.message}`); }
-  p.then((summary) => {
+  // 排程的 run：先在這個獨立程序裡睡到時間（holdUntil），再起引擎
+  holdUntil(runDir).then((h) => {
+    if (!h.ok) { console.log(JSON.stringify({ mode: 'not-started', ...h }, null, 2)); process.exit(h.cancelled ? 0 : 1); }
+    let p; try { p = runEngine(runDir, cfg.config.engine); } catch (e) { fail(`引擎啟動前檢查失敗：${e.message}`); }
+    return p;
+  }).then((summary) => {
+    if (!summary) return;
     console.log(JSON.stringify({ mode: 'ran', ...summary }, null, 2));
     process.exit(summary.ok ? 0 : 1);
   }).catch((e) => fail(`引擎執行失敗：${e.message}`));
@@ -282,7 +288,7 @@ if (!plainMode) {
   let head;
   try { head = buildGoalHead({ condition: goalCondition, tail: GOAL_TAIL }); } catch (e) { fail(e.message); }
   const { goalPrompt, overflow: goalOverflow } = head;
-  // 引擎 prompt（交給 claude -p 子程序；子程序沒有 session 守衛的問題，守衛留在 cron prompt）
+  // 引擎 prompt（交給 claude -p 子程序；它就是為這個任務起的，沒有 session 守衛的問題）
   enginePrompt = goalPrompt;
   const workList = `1. [開工] 先把任務拆成里程碑寫進進度帳本的「剩餘」節，再開始做。${goalOverflow ? '（開工前先照上方要求把「完成條件全文」貼進第一則回覆。）' : ''}
 2. [執行任務] 完成「任務全文」（持續做到完成；遇真正 blocker 先把其餘能做的做完再記錄）。全程繁體中文、無人值守：不停下來問使用者、需要決定時自己選風險最小做法。
@@ -310,22 +316,8 @@ ${REPORT_FORMAT}`
   waitCommandOut = `node "${path.resolve(__filename)}" --wait "${prepared.runDir}"`;
   stopCommandOut = `node "${path.resolve(__filename)}" --stop "${prepared.runDir}"`;
 
-  // cron 到點時送進 REPL 的 prompt：不能放 /goal（2.1.196 起不解析），只做守衛 + 起引擎
-  finalPrompt = `[delaylocal 排程任務 — 綁定 session ${envId}]
-
-依序做，全程繁體中文、無人值守（不停下來問使用者）：
-
-1. [Session 守衛] 確認環境變數 CLAUDE_CODE_SESSION_ID 是否等於 ${envId}。
-   - 不等於 → 這是別的 session 誤觸發本排程：什麼都不做、不要執行下一步，回一句「非目標 session，略過」即可結束。
-   - 等於 → 繼續。
-2. [啟動 goal 引擎] 用 Bash 工具「前景」執行下面這條指令（原樣執行，不要改參數）：
-   ${runCommandOut}
-   它把引擎起成獨立程序（另一個 headless Claude Code session，用官方 /goal 引擎把任務做到完成條件達成，收尾時寫報告、嘗試發 LINE）後幾秒內就返回，印 mode:"started"。ok:false → 回報 error 與 runner_log_tail，結束。
-3. [等待] 立刻用 Bash 工具、run_in_background: true、timeout: 7200000 執行：
-   ${waitCommandOut}
-   這步不可省：沒有它，引擎結束時沒有人通知這個對話。它最多等 100 分鐘：印 mode:"waiting" 表示還在跑 → 用一句話說進度（summary_zh），然後立刻再背景執行同一條指令接著等；mode:"ran" 才是結束（report:"already" 表示別人已回報過，不要重複）；mode:"lost" → 回報 error。
-4. [回報] mode:"ran" 時讀它印出的 JSON：**status 與 goal_verdict**（done＝檢查器確認達成；unverified＝正常結束但沒有達成判定，不可當作達成，要明講；impossible＝檢查器判條件不可能；failed＝拒收或異常；timeout＝超過時限；budget＝花費達上限；unknown＝stream 遺失）、continuations、compactions、num_turns、total_cost_usd、result_text（引擎最後一則回覆＝報告全文，原文保留）。用固定格式回報：狀態與是否達成、回合數與花費、報告內容、run_dir 路徑（含 stream.jsonl 可追查、progress.md 是進度帳本、child_transcript 是檢查器紀錄）。不要追加任何提問或 offer。
-   （要中途終止：${stopCommandOut}；要看進度：把 --stop 換成 --status。）`;
+  // 0.9.0 起 goal 模式不排 cron（等待程序由下面的 startDetached 起），沒有 final prompt
+  finalPrompt = null;
 } else {
   // === 文字紀律模式（--plain，選用 fallback）===
   finalPrompt = `[delaylocal 排程任務 — 綁定 session ${envId}]
@@ -364,7 +356,7 @@ ${REPORT_FORMAT}`;
 // plain 模式沒有 run 目錄；final_prompt 已含任務全文，中繼檔此時可刪
 if (plainMode && promptFile) { try { fs.unlinkSync(promptFile); } catch (_) {} }
 
-console.log(JSON.stringify({
+const OUT = {
   ok: true,
   ...VERSION_FIELDS,
   sessionId: envId,
@@ -406,4 +398,13 @@ console.log(JSON.stringify({
   engine: cfg.config.engine,
   engine_prompt: enginePrompt,
   final_prompt: finalPrompt
-}, null, 2));
+};
+if (plainMode) console.log(JSON.stringify(OUT, null, 2));
+else {
+  // goal 模式：現在就起獨立的等待程序（runner 先睡到 target 才起引擎），不用 CronCreate——對話被關掉（看板閒置 15 分鐘）
+  // 排程也還在（2026-11-28）。結果做完時由看板或本 plugin 的 hook 送回這個對話。
+  startDetached(runDirOut, path.resolve(__filename)).then((r) => {
+    console.log(JSON.stringify({ ...OUT, ok: !!r.ok, scheduled: r, cron: null, cron_warning: null, final_prompt: null, error: r.ok ? undefined : `排程的等待程序起不來：${r.error || r.status}` }, null, 2));
+    process.exit(r.ok ? 0 : 1);
+  }).catch((e) => fail(`排程的等待程序起不來：${e.message}`));
+}

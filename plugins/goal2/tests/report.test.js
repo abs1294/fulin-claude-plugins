@@ -120,26 +120,52 @@ const hook = (sid, event = 'UserPromptSubmit') => {
   age(p4.run_dir, 2 * 60000);
   check(!E.pendingReports().some((r) => r.runDir === p4.run_dir), '沒有起它的對話：不列為待補報', '');
 
-  // ── 6b. delaylocal 同樣改成 --start／--wait，cron 的 prompt 寫明接著等 ──
+  // ── 6b. delaylocal：排程當下就起獨立的等待程序（不用 CronCreate：對話被關掉排程也還在），到點才起引擎 ──
   {
     const DELAY = path.join(ROOT, 'skills', 'delaylocal', 'delaylocal.js');
     const lim = path.join(HOME, '.claude', 'cc-statusline', 'state', 'account-limits.json');
     fs.mkdirSync(path.dirname(lim), { recursive: true });
-    fs.writeFileSync(lim, JSON.stringify({ v: 1, at: Date.now(), five_hour: { used_percentage: 10, resets_at: Math.floor(Date.now() / 1000) + 3600 }, seven_day: { used_percentage: 10, resets_at: Math.floor(Date.now() / 1000) + 86400 * 3 } }));
-    const pf = path.join(HOME, 'dl-task.md'); fs.writeFileSync(pf, '## 任務\n建立 b.txt。\n\n## 脈絡與約束\n測試用。\n');
-    const r = spawnSync(process.execPath, [DELAY, '--prompt-file', pf, '--goal', 'work/b.txt 存在', '--cwd', WORK], { encoding: 'utf8', env: { ...process.env, TEMP: HOME, TMP: HOME, TMPDIR: HOME, CLAUDE_CODE_SESSION_ID: 'parent-D' }, windowsHide: true });
-    let j = null; try { j = JSON.parse(r.stdout); } catch (_) {}
-    check(!!j && j.ok && /--start "/.test(j.run_command) && /--wait "/.test(j.wait_command || ''), 'delaylocal：run_command 是 --start、另有 wait_command', (r.stdout + r.stderr).slice(0, 400));
-    check(!!j && j.final_prompt.includes(j.wait_command) && /run_in_background: true、timeout: 7200000/.test(j.final_prompt) && !/--run "/.test(j.final_prompt), 'delaylocal：cron 的 prompt 先 --start 再背景 --wait、不再背景跑 --run', j && j.final_prompt.slice(0, 300));
-    if (j && j.ok) {
-      check(E.readMeta(j.run_dir).parentSessionId === 'parent-D', 'delaylocal：記下起它的對話', '');
-      const s = spawnSync(process.execPath, [DELAY, '--start', j.run_dir], { encoding: 'utf8', env: { ...process.env, FAKE_SLEEP_MS: '500' }, windowsHide: true });
-      let sj = null; try { sj = JSON.parse(s.stdout); } catch (_) {}
-      check(!!sj && sj.mode === 'started' && sj.ok, 'delaylocal --start', s.stdout + s.stderr);
-      const w = spawnSync(process.execPath, [DELAY, '--wait', j.run_dir, '--minutes', '1'], { encoding: 'utf8', env: process.env, windowsHide: true });
-      let wj = null; try { wj = JSON.parse(w.stdout); } catch (_) {}
-      check(!!wj && wj.mode === 'ran' && wj.report === 'yours' && wj.result_text === '做完了（假引擎）', 'delaylocal --wait 拿到結果', (w.stdout + w.stderr).slice(0, 300));
+    const limits = (resetIn) => fs.writeFileSync(lim, JSON.stringify({ v: 1, at: Date.now(), five_hour: { used_percentage: 10, resets_at: Math.floor(Date.now() / 1000) + resetIn }, seven_day: { used_percentage: 10, resets_at: Math.floor(Date.now() / 1000) + 86400 * 3 } }));
+    const pf = () => { const p = path.join(HOME, 'dl-task-' + Math.random().toString(36).slice(2) + '.md'); fs.writeFileSync(p, '## 任務\n建立 b.txt。\n\n## 脈絡與約束\n測試用。\n'); return p; };
+    const env = { ...process.env, TEMP: HOME, TMP: HOME, TMPDIR: HOME, CLAUDE_CODE_SESSION_ID: 'parent-D', FAKE_SLEEP_MS: '500' };
+    const run = (args) => { const r = spawnSync(process.execPath, [DELAY, ...args], { encoding: 'utf8', env, windowsHide: true }); let j = null; try { j = JSON.parse(r.stdout); } catch (_) {} return { j, out: (r.stdout + r.stderr).slice(0, 500) }; };
+    // an hour away: scheduled, the waiting process there, nothing started; --stop cancels it
+    limits(3600);
+    const a = run(['--prompt-file', pf(), '--goal', 'work/b.txt 存在', '--cwd', WORK]);
+    check(!!a.j && a.j.ok && a.j.scheduled && a.j.scheduled.status === 'scheduled' && a.j.cron === null && a.j.final_prompt === null, 'delaylocal：排程當下起等待程序（status scheduled），不再給 cron／final_prompt', a.out);
+    if (a.j && a.j.ok) {
+      const m = E.readMeta(a.j.run_dir);
+      check(m.parentSessionId === 'parent-D' && !!m.waiterPid && !m.pid, 'delaylocal：記下起它的對話與等待程序，引擎還沒起', JSON.stringify(m).slice(0, 300));
+      const st = run(['--status', a.j.run_dir]).j;
+      check(!!st && st.status === 'scheduled' && st.waiter_state === 'alive' && st.alive === true && /已排程/.test(st.summary_zh), 'delaylocal --status：已排程、等待程序在（alive 看等待程序）', st && st.summary_zh);
+      check(E.findActiveRunsIn(WORK).some((x) => x.runDir === a.j.run_dir), '排程中的 run 算在工作樹裡活著的 run', '');
+      const sp = run(['--stop', a.j.run_dir]).j;
+      await sleep(800);
+      let gone = true; try { process.kill(m.waiterPid, 0); gone = false; } catch (_) {}
+      check(!!sp && sp.ok && E.readMeta(a.j.run_dir).status === 'stopped' && gone && !fs.existsSync(path.join(a.j.run_dir, 'stream.jsonl')), 'delaylocal --stop：取消排程、等待程序結束、引擎沒起', JSON.stringify(sp));
+      age(a.j.run_dir, 2 * 60000);
+      check(!E.pendingReports().some((r) => r.runDir === a.j.run_dir), 'delaylocal：取消的排程不會被當成跑完了送回對話', '');
     }
+    // reset already passed: the time it waits for comes, then the engine runs; --wait gets the result
+    limits(-60);
+    const b = run(['0', '--prompt-file', pf(), '--goal', 'work/b.txt 存在', '--cwd', WORK]);
+    check(!!b.j && b.j.ok && b.j.scheduled && b.j.scheduled.ok, 'delaylocal：額度已重置也照樣排（到下一分鐘）', b.out);
+    if (b.j && b.j.ok) {
+      const w = spawnSync(process.execPath, [DELAY, '--wait', b.j.run_dir, '--minutes', '3'], { encoding: 'utf8', env: process.env, windowsHide: true });
+      let wj = null; try { wj = JSON.parse(w.stdout); } catch (_) {}
+      check(!!wj && wj.mode === 'ran' && wj.report === 'yours' && wj.result_text === '做完了（假引擎）', 'delaylocal：到點起引擎，--wait 拿到結果', (w.stdout + w.stderr).slice(0, 300));
+      { const m = E.readMeta(b.j.run_dir); check(Date.parse(m.startedAt) >= Date.parse(m.scheduledFor) - 1000, 'delaylocal：引擎不早於排定時間起', m.startedAt + ' / ' + m.scheduledFor); }
+    }
+    // the waiting process gone (a restart): --wait says so rather than waiting for ever
+    limits(3600);
+    const c = run(['--prompt-file', pf(), '--goal', 'work/b.txt 存在', '--cwd', WORK]);
+    if (c.j && c.j.ok) {
+      const pid = E.readMeta(c.j.run_dir).waiterPid; try { process.kill(pid); } catch (_) {}
+      await sleep(800);
+      const st = run(['--status', c.j.run_dir]).j;
+      check(!!st && st.waiter_state === 'dead' && /不會自動開始/.test(st.summary_zh), 'delaylocal：等待程序不在了，--status 說不會自動開始', st && st.summary_zh);
+      run(['--stop', c.j.run_dir]);
+    } else check(false, 'delaylocal：第三個排程', c.out);
   }
 
   // ── 7. 參數 ──

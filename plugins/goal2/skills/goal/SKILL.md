@@ -10,8 +10,8 @@ description: 當使用者要「先定一條可測量完成條件、再讓 Claude
 | | 本 skill（`goal`） | 同 plugin 的 `delaylocal` |
 |---|---|---|
 | 何時跑 | propose 完直接起（預設）；設定檔開確認 timer 則等你確認或逾時 | 5h quota 重置後 |
-| 引擎在哪跑 | 子程序 `claude -p`（headless session） | 同左，由 cron 到點後的本 session 啟動 |
-| 需要 cron | 預設不需要；只有開了確認 timer 才排一個 | 任務本體與逾時 timer 都要 |
+| 引擎在哪跑 | 子程序 `claude -p`（headless session） | 同左，由排程當下起的獨立等待程序到點啟動（0.9.0 起不靠 cron） |
+| 需要 cron | 預設不需要；只有開了確認 timer 才排一個 | 只有逾時 timer；任務本體由等待程序負責（plain 模式才另排任務 cron） |
 | LINE 收尾 | 無；最終回報在本對話（有 wtf 就套 wtf 格式） | 有（選用） |
 
 ## 為什麼是子程序（讀完再動手，別想走捷徑）
@@ -157,7 +157,7 @@ CronCreate({ cron: <JSON.confirm_timer_cron>, recurring: false, durable: false,
 
 為什麼一輪 100 分鐘：Claude Code 的背景指令最長 2 小時，逾時會被殺；留 20 分鐘餘裕。`--minutes` 可改（1–110）。
 
-**對話不在時誰回報**：等待程序每輪寫心跳（run 目錄的 `waiting.json`）。引擎結束時若沒有新鮮心跳（對話被關掉、等待被殺），結果會送回**起它的那個對話**（準備時記在 meta 的 `parentSessionId`）：
+**對話不在時誰回報**：背景等待（`--wait`）每輪寫心跳（run 目錄的 `waiting.json`）。引擎結束時若沒有新鮮心跳（對話被關掉、等待被殺），結果會送回**起它的那個對話**（準備時記在 meta 的 `parentSessionId`）：
 - 看板有開：看板發現後把「goal2 跑完了，請回報」送進那個對話（關掉的會重新打開），對話自己讀結果回報。
 - 看板沒開：本 plugin 的 `hooks/pending-report.js`（UserPromptSubmit、SessionStart resume）在使用者下次於那個對話打字或重新打開它時，把同一段話塞給你——收到 `【goal2 跑完了】` 開頭的提示就先照步驟 5 回報，再處理使用者這次說的話。
 - 只回報一次：等待、看板、hook 搶同一個 `reported.json`，搶到的才回報。

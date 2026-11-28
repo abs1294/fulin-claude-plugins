@@ -2,6 +2,15 @@
 
 本檔記錄 goal2（原 delaylocal）的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [0.9.0] - 2026-11-28
+### Changed
+- **delaylocal 不再靠對話裡的 cron**：goal 模式排程當下就把 runner 起成獨立的等待程序（status `scheduled`），它睡到額度重置＋緩衝才起引擎，不用 CronCreate。原本的 cron 只活在對話的程式裡，看板對話閒置 15 分鐘就被結束，排程跟著消失、到點不會跑。等待時每 30 秒對一次牆上時鐘，電腦睡醒後立刻接著判斷；做完由看板或 hook 把結果送回起它的對話。
+- `--stop <run_dir>` 也能取消排程中的 run（結束等待程序、引擎不起）；`--status` 說「已排程，幾點自動開始」，等待程序不在了（電腦重開、登出）會說不會自動開始；`--wait` 遇到這種情況回 `mode:"lost"`，不會一直等。
+- 用 --stop 取消的排程不會被當成「跑完了」送回對話（引擎從沒起過）；到點時狀態維持 scheduled，由同一個等待程序接著起引擎，中間沒有空檔讓第二個 --start 搶走。
+- 排程中、等待程序還在的 run 算在工作樹裡「活著的 run」，`--prune` 不會清它。
+- plain 模式照舊用 CronCreate（在對話裡跑，對話的程式結束排程就沒了）。
+- 測試：tests/report.test.js 的 delaylocal 段改成新的流程（排程、狀態、取消、取消不送回、到點起引擎、等待程序不在）；42 項。
+
 ## [0.8.0] - 2026-11-26
 ### Changed
 - **引擎改成獨立程序，不再跟著對話死**：新指令 `--start <run_dir>` 把 runner 起成獨立程序（Windows：detached＋新程序群組；macOS／Linux：setsid），啟動者幾秒內就返回。舊做法是對話用背景 Bash 跑 `--run`，引擎是那個背景指令的子程序：Claude Code 的背景指令最長 2 小時，到時連引擎一起被殺；對話被關掉也一起死（2026-11-26 一個 run 跑滿 2 小時被砍）。實測（Windows，2026-11-26）：由 `claude -p` 啟動後它正常結束、以及 `taskkill /T /F` 強制殺掉整棵 Claude 程序樹（同一個 Bash 裡的 sleep 一起死了）兩種情況，runner 與引擎都還在跑。macOS 未實跑。
