@@ -502,6 +502,45 @@
   .cm-prop pre.diff { max-height: 50vh; overflow: auto; margin: 0; }
   .cm-raw { margin: 0; padding: 8px 12px; max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-xs); border-top: 1px solid var(--rule, var(--line)); }
   .cm-done { font-size: var(--fs-sm); color: var(--dim); align-self: center; } .cm-done.ok { color: var(--green); } .cm-done.bad { color: var(--red); }
+  /* the first page: what this computer has. A row: its state in words (not only a colour), the name, what it gives, what
+     is missing without it, and one button */
+  .setup-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line); }
+  .setup-row .st { font-size: var(--fs-xs); font-weight: 600; border-radius: var(--r-m); padding: 2px 8px; white-space: nowrap; background: var(--bubble); color: var(--dim); }
+  .setup-row .st.ok { background: color-mix(in srgb, var(--green) 14%, var(--bg)); color: var(--green); }
+  .setup-row .st.need { background: color-mix(in srgb, var(--amber, #d97706) 18%, var(--bg)); color: var(--ink); }
+  .setup-row .nm { font-weight: 600; } .setup-row .nm small { font-weight: 400; color: var(--dim); margin-left: 8px; }
+  .setup-row .gv, .setup-row .wo, .setup-row .cmdl { grid-column: 2 / 3; font-size: var(--fs-sm); color: var(--dim); }
+  .setup-row .wo { color: var(--ink); }
+  .setup-row .act { grid-column: 3; grid-row: 1 / span 3; align-self: center; }
+  .setup-row code { font-size: var(--fs-sm); }
+  .setup-ready { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: var(--r-m); background: color-mix(in srgb, var(--green) 10%, var(--bg)); }
+  /* the first page: one sentence of what it is, the first thing to do, the first steps, what else it does */
+  .hm-hero { padding: 32px 0 16px; } .hm-hero h2 { font-size: var(--fs-2xl); line-height: 1.3; margin: 0 0 8px; text-wrap: balance; } .hm-hero .hm-lead { font-size: var(--fs-lg); color: var(--dim); max-width: 40em; margin: 0; }   /* (not .lead: the page folds those to one line, and this is the one line to read whole) */
+  .hm-try { margin: 16px 0 8px; padding: 16px; border-radius: var(--r-l); background: var(--bubble); }
+  .hm-try .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .hm-try select { flex: 1 1 16em; min-width: 0; padding: 8px 12px; border-radius: var(--r-m); border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+  .hm-try .ask { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; } .hm-try .ask .btn { white-space: normal; text-align: left; }
+  .hm-sec { margin: 32px 0 12px; font-size: var(--fs-lg); font-weight: 700; }
+  .hm-steps { border: 1px solid var(--line); border-radius: var(--r-l); padding: 16px; }
+  .hm-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 8px 0 12px; } .hm-bar i { display: block; height: 100%; background: var(--green); border-radius: 999px; }
+  .hm-step { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 8px 0; }
+  .hm-step .ck { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-size: var(--fs-xs); color: var(--accent-ink); }
+  .hm-step.done .ck { background: var(--green); border-color: var(--green); } .hm-step.done .t { color: var(--dim); text-decoration: line-through; }
+  .hm-step .s { grid-column: 2; font-size: var(--fs-sm); color: var(--dim); }
+  .hm-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+  .hm-card { border: 1px solid var(--line); border-radius: var(--r-l); overflow: hidden; display: flex; flex-direction: column; background: var(--bg); }
+  .hm-card .pic { height: 128px; background: var(--side); padding: 12px; display: flex; flex-direction: column; gap: 4px; justify-content: center; font-size: var(--fs-xs); overflow: hidden; }
+  .hm-card .bd { padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 4px; flex: 1; } .hm-card .bd b { font-size: var(--fs-md); } .hm-card .bd span { font-size: var(--fs-sm); color: var(--dim); }
+  .hm-card .bd .btn { align-self: flex-start; margin-top: auto; }
+  /* the small pictures: the board's own parts, drawn small with made-up content */
+  .mk-ln { padding: 2px 8px; border-radius: var(--r-s); font-family: var(--mono, monospace); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mk-add { background: rgba(15, 123, 108, .15); } .mk-del { background: rgba(224, 62, 62, .15); } .mk-pk { box-shadow: inset 3px 0 0 var(--accent); }
+  .mk-box { border: 1px solid var(--accent); border-radius: var(--r-s); padding: 4px 8px; background: var(--bg); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .mk-btn { background: var(--accent); color: var(--accent-ink); border-radius: var(--r-s); padding: 1px 8px; white-space: nowrap; } .mk-btn.alt { background: var(--btn); color: var(--btn-ink); }
+  .mk-card { background: var(--bg); border-radius: var(--r-m); padding: 8px; box-shadow: var(--sh-card); display: flex; flex-direction: column; gap: 4px; }
+  .mk-row { display: flex; gap: 8px; align-items: center; } .mk-dim { color: var(--dim); } .mk-bar { flex: 1; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; } .mk-bar i { display: block; height: 100%; background: var(--green); }
+  .hm-fix { margin-top: 32px; padding: 12px 16px; border-radius: var(--r-m); background: color-mix(in srgb, var(--amber, #d97706) 12%, var(--bg)); }
+  .hm-fix .setup-row { border-top: 0; padding: 8px 0; }
+  .hm-miss { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 12px 0 0; padding: 8px 12px; border-radius: var(--r-m); background: color-mix(in srgb, var(--amber, #d97706) 12%, var(--bg)); font-size: var(--fs-sm); }
   .desks { display: flex; flex-direction: column; border-top: 1px solid var(--rule, var(--line)); flex: 1; min-height: 0; overflow-y: auto; }
   .desks > .desk { border-bottom: 1px solid var(--rule, var(--line)); flex: none; }
   .desks .shelf { flex: none; padding: 6px 14px 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--faint); background: var(--side); border-bottom: 1px solid var(--rule, var(--line)); position: sticky; top: 0; z-index: 1; }
@@ -684,25 +723,7 @@
   .list-more:hover { background: var(--hover); text-decoration: underline; text-underline-offset: 3px; }
   .list-more:disabled { color: var(--dim); text-decoration: none; } .list-more:disabled::after, .list-more.less::after { content: ""; }   /* "收起", "只看最近的": no arrow onward */
   .bell-pop .bell-clear { margin: 8px 14px 0; font-size: var(--fs-xs); }
-  .past { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; border-bottom: 1px solid var(--rule, var(--line)); padding: 8px 6px; }
-  .past:hover { background: var(--hover); }
-  .past .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .past .p { grid-column: 1; color: var(--dim); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .past .acts { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 8px; }
-  .past .acts .btn { padding: 3px 8px; font-size: var(--fs-sm); }
   /* Old conversations, one block per folder: the folder's name is the heading; press it to open or close the block. */
-  details.pgroup { border-bottom: 1px solid var(--rule, var(--line)); }
-  details.pgroup > summary { display: flex; align-items: baseline; gap: 8px; padding: 9px 6px; cursor: pointer; list-style: none; border-radius: var(--r-m); }
-  details.pgroup > summary::-webkit-details-marker { display: none; }
-  details.pgroup > summary::before { content: "\25B8"; color: var(--dim); width: 12px; flex: none; }
-  details.pgroup[open] > summary::before { content: "\25BE"; }
-  details.pgroup > summary:hover { background: var(--hover); }
-  details.pgroup .pg-name { font-weight: 600; white-space: nowrap; }
-  details.pgroup .pg-n { color: var(--dim); font-size: var(--fs-sm); white-space: nowrap; }
-  details.pgroup .pg-path { flex: 1; min-width: 0; color: var(--faint); font-size: var(--fs-sm); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-  details.pgroup .pg-when { color: var(--dim); font-size: var(--fs-sm); white-space: nowrap; }
-  details.pgroup .pg-rows { padding: 0 0 6px 22px; }
-  details.pgroup .past:last-of-type { border-bottom: 0; }
   /* Account limits, always in view at the bottom of the sidebar whatever is open on the right. */
   .side-quota { padding: 8px 14px 6px; border-top: 1px solid var(--rule, var(--line)); font-size: var(--fs-sm); }
   .side-quota[hidden] { display: none; }
@@ -835,7 +856,6 @@
   .nrow .nk { font-size: var(--fs-xs); padding: 1px 7px; border-radius: var(--r-m); background: var(--bubble); color: var(--dim); white-space: nowrap; }
   .nrow .nk.waiting { background: var(--amber-soft); color: var(--amber); } .nrow .nk.watch { background: var(--red-soft); color: var(--red); } .nrow .nk.done { background: color-mix(in srgb, var(--green) 14%, var(--bg)); color: var(--green); }
   .nrow .nb b { font-weight: 600; margin-right: 8px; } .nrow .nb span { color: var(--dim); } .nrow.new .nb b::after { content: "●"; color: var(--accent); font-size: var(--fs-xs); margin-left: 6px; vertical-align: 2px; }
-  .past-day { font-size: var(--fs-sm); color: var(--dim); font-weight: 600; padding: 12px 6px 4px; }
   #sideChips { display: none; margin: 0; padding: 8px 8px 0; }
   .qrow.sent { color: var(--dim); } .qrow .back { border: 1px solid var(--rule, var(--line)); border-radius: var(--r-s); padding: 1px 8px; font-size: var(--fs-sm); background: var(--bg); width: auto; height: auto; }
   .card { border: 1px solid var(--rule, var(--line)); border-radius: var(--r-m); padding: 12px 14px; margin: 0 0 14px; }
@@ -1634,7 +1654,6 @@
      Each place in the left column is one line (an icon and its name; the line under the name is its hover text), the
      list and the first page sit on fills instead of lines, the closed sessions are a row of cards, and the choices over
      the old conversations fold into a 「篩選」 menu. The other looks are not touched: every rule here starts with [data-skin="a"]. ── */
-  .past-filter { display: none; }   /* the menu button: look A only */
   @media (min-width: 721px) {
     :root[data-skin] #warBtn { --ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 12h-4l-3 9L9 3l-3 9H2'/%3E%3C/svg%3E"); }
     :root[data-skin] #officeBtn { --ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z'/%3E%3Cpath d='M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2M10 6h4M10 10h4M10 14h4M10 18h4'/%3E%3C/svg%3E"); }
@@ -1676,37 +1695,12 @@
   :root[data-skin] .choice { border-bottom: 0; border-radius: var(--r-m); padding: 9px 10px; }
   :root[data-skin] .choice .p { font-family: var(--sans); }
   /* one that waits for you: a card with a slow glow behind it */
-  :root[data-skin] .wait-choice { position: relative; isolation: isolate; margin: 6px 0 10px; padding: 14px 16px; border-radius: var(--r-l); background: var(--bg); box-shadow: var(--sh-card); transition: transform .3s cubic-bezier(.34, 1.4, .64, 1); }
   /* (the blurred breathing glow behind it is gone: it read as a smudge, 2026-11-25) */
-  :root[data-skin] .wait-choice:hover { background: var(--bg); transform: translateY(-2px); }
-  :root[data-skin] .wait-choice .t { font-weight: 600; }
   @keyframes sb-breathe { 0%, 100% { opacity: .22; } 50% { opacity: .42; } }
   /* the closed ones: a row of cards that slides sideways */
-  :root[data-skin] .keep-board { display: grid; grid-auto-flow: column; grid-auto-columns: 184px; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 2px 14px; scrollbar-width: thin; }
-  :root[data-skin] .keep-board > .choice { scroll-snap-align: start; display: grid; grid-template-rows: 44px auto auto 1fr; gap: 4px; align-content: start; align-items: stretch; padding: 0 0 10px; min-height: 150px; border-radius: var(--r-l); background: var(--bg); box-shadow: var(--sh-card); overflow: hidden; transition: transform .3s cubic-bezier(.34, 1.4, .64, 1), box-shadow .25s, background-color .2s; }
-  :root[data-skin] .keep-board > .choice::before { content: ""; align-self: stretch; height: 44px; background: var(--btn); }
-  :root[data-skin] .keep-board > .choice:hover, :root[data-skin] .keep-board > .choice:focus-within { background: var(--bg); transform: translateY(-3px); box-shadow: var(--sh-card); }
-  :root[data-skin] .keep-board > .choice .t { padding: 6px 12px 0; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-weight: 600; font-size: var(--fs-md); line-height: 1.35; }
-  :root[data-skin] .keep-board > .choice .p { padding: 0 12px; max-width: none; font-size: var(--fs-xs); }
-  :root[data-skin] .keep-board > .choice .btn { justify-self: start; align-self: end; margin: 4px 12px 0; font-size: var(--fs-sm); padding: 3px 10px; }
   /* the old conversations: no lines between them; the choices in a menu behind 「篩選」 */
-  :root[data-skin] .past, :root[data-skin] details.pgroup { border-bottom: 0; }
-  :root[data-skin] .past { border-radius: var(--r-m); padding: 8px 10px; transition: background-color .15s; }
-  :root[data-skin] .past:hover { background: var(--hover); }
   :root[data-skin] .pathrow input { padding: 9px 12px; font-family: var(--sans); }
   :root[data-skin] .pathrow input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; background: var(--bg); }
-  :root[data-skin] .past-tools { position: relative; }
-  :root[data-skin] .past-filter { position: relative; display: inline-flex; align-items: center; gap: 6px; flex: none; border: 0; border-radius: var(--r-m); background: var(--btn); color: var(--btn-ink); padding: 0 12px; font-size: var(--fs-md); font-weight: 500; transition: background-color .15s, color .15s; }
-  :root[data-skin] .past-filter::before { content: ""; width: 16px; height: 16px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18M7 12h10M10 18h4'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18M7 12h10M10 18h4'/%3E%3C/svg%3E") center / contain no-repeat; }
-  :root[data-skin] .past-filter:hover, :root[data-skin] .past-tools.open .past-filter { background: var(--active); color: var(--ink); }
-  :root[data-skin] .past-filter.changed::after { content: ""; position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--dot-wait); }
-  :root[data-skin] .past-tools .past-bar { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 260px; margin: 0; padding: 6px; display: flex; flex-direction: column; align-items: stretch; gap: 2px; background: var(--bg); border-radius: var(--r-l); box-shadow: var(--sh-pop); transform-origin: top right; transform: scale(.94) translateY(-4px); opacity: 0; visibility: hidden; transition: transform .26s cubic-bezier(.34, 1.4, .64, 1), opacity .16s, visibility 0s .26s; }
-  :root[data-skin] .past-tools.open .past-bar { transform: none; opacity: 1; visibility: visible; transition: transform .26s cubic-bezier(.34, 1.4, .64, 1), opacity .16s; }
-  :root[data-skin] .past-tools .past-bar .sep { width: auto; height: 6px; background: none; margin: 0; }
-  :root[data-skin] .past-tools .past-bar .of-chip { justify-content: flex-start; background: none; color: var(--ink); border-radius: var(--r-m); padding: 7px 10px 7px 32px; position: relative; text-align: left; }
-  :root[data-skin] .past-tools .past-bar .of-chip:hover { background: var(--hover); transform: none; }
-  :root[data-skin] .past-tools .past-bar .of-chip.on { background: none; color: var(--ink); font-weight: 600; }
-  :root[data-skin] .past-tools .past-bar .of-chip.on::before { content: "\2713"; position: absolute; left: 12px; color: var(--accent); font-weight: 700; }
 
   /* ── look A on every page: the lines between and around things are off (--rule, --edge: what the borders are drawn
      in; the other looks fall back to --line and --ctl as before). What a line used to hold together now has a fill. ── */
@@ -1778,11 +1772,7 @@
     :root[data-skin] .war .bars { height: 140px; gap: 3px; }
   }
   /* a phone: places to press at a finger's size, a menu no wider than the screen */
-  :root[data-skin] .past-tools .past-bar { max-width: calc(100vw - 32px); }
   @media (pointer: coarse) {
-    :root[data-skin] .past-filter { min-height: 44px; }
-    :root[data-skin] .past-tools .past-bar .of-chip { min-height: 44px; }
-    :root[data-skin] .keep-board > .choice .btn { min-height: 40px; }
   }
 
   :root[data-skin] { --glow: color-mix(in srgb, var(--accent) 30%, transparent); }
@@ -2162,10 +2152,8 @@
   }
   @media (max-width: 720px) {
     :root[data-skin] .pane h2 { font-size: var(--fs-xl); }
-    :root[data-skin] .keep-board { grid-auto-columns: 72%; margin: 0 -20px; padding: 4px 20px 14px; scroll-padding-inline: 20px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    :root[data-skin] .wait-choice::before { animation: none; }
     :root[data-skin] .past-tools .past-bar, :root[data-skin] .keep-board > .choice, :root[data-skin] .of-chip, :root[data-skin] .btn.primary { transition: none; }
   }
   /* the choice of look in the settings: a small picture of each */
@@ -2211,7 +2199,7 @@
     </div>
     <div class="side-top">
       <button class="fold-btn" id="foldBtn" type="button" aria-label="收起左欄" title="收起左欄（Ctrl+B）">«</button>
-      <h1><button type="button" id="homeBtn" title="回到首頁：誰在等你、沒開著的對話">Sessions</button></h1>
+      <h1><button type="button" id="homeBtn" title="回到首頁：開始使用、它還能做什麼">Sessions</button></h1>
       <button class="bell" id="bellBtn" type="button" aria-label="通知" aria-haspopup="dialog" aria-expanded="false" title="通知：現在還沒處理的事"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v3.6L4.3 16a1 1 0 0 0 .9 1.5h13.6a1 1 0 0 0 .9-1.5L18 12.6V9a6 6 0 0 0-6-6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9.8 20a2.3 2.3 0 0 0 4.4 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="badge" id="bellN" hidden></span></button>
       <button class="btn primary" id="newBtn" type="button" aria-label="新對話" title="新對話"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="nb-t">新對話</span></button>
     </div>
@@ -3040,36 +3028,174 @@ function drawList() {
 }
 
 /* ── main: home ── */
+// The first page (asked 2026-11-28, of a list of what is installed: "what rubbish of a first page - somebody I talked into
+// using the board, with nobody to explain it to them: does it make them curious, does it lead them anywhere?"): what it
+// is in one sentence; the first thing to do, a press away (a folder and a question ready to send); the first steps, ticked
+// off as they are done; what else it does, each with a small picture of it; and, only when something is missing, what
+// (lib/setup.js). Who is waiting is the left column's; the conversations are the office's.
+const HM_DID = 'sb.did';   // the first steps this browser has seen done that the board does not keep: {changes, ask}
+const hmDid = () => { try { return JSON.parse(localStorage.getItem(HM_DID) || '{}') || {}; } catch (e) { return {}; } };
+const hmMark = (k) => { try { const d = hmDid(); if (!d[k]) { d[k] = Date.now(); localStorage.setItem(HM_DID, JSON.stringify(d)); } } catch (e) {} };
 function drawHome() {
   view = 'home'; active = null; closeStream(); setPlace('');
   $('app').classList.remove('viewing');
   const main = $('main');
   main.textContent = '';
   const pane = el('div', 'pane home-pane');
-  const yours = sessions.filter((s) => s.group === 'yours');
-  pane.append(el('h2', '', yours.length ? yours.length + ' 個 session 在等你' : '沒有 session 在等你'));
-  pane.append(el('p', 'lead', '從左邊選一個 session 看它的對話，或開一個新對話。'));
-  // How many are in which state, the same count as the office page; a press goes there with that state picked.
-  { const c = officeCounts(), chips = el('div', 'of-chips'); chips.id = 'homeChips';
-    for (const k of ['wait', 'stuck', 'run', 'done', 'idle']) { if (!c[k]) continue; const b = el('button', 'of-chip'); b.type = 'button'; b.append(DESK[k] + ' ', el('b', '', String(c[k]))); b.title = '到辦公室頁看這 ' + c[k] + ' 個'; b.addEventListener('click', () => { officeFilter = k; drawOffice(); }); chips.append(b); }
-    if (chips.children.length) pane.append(chips); }
-  for (const s of yours) {
-    const b = el('button', 'choice wait-choice');
-    b.type = 'button';
-    b.append(el('span', 'dot yours'), el('span', 't', s.title), el('span', 'p', s.folder));
-    b.addEventListener('click', () => openChat(s.sessionId));
-    pane.append(b);
+  if (keep.restorable.length) {
+    const r = el('div', 'setup-ready'), b = el('button', 'btn primary', '到辦公室還原'); b.type = 'button'; b.addEventListener('click', () => drawOffice());
+    r.append(el('span', '', '上次看板停止時還開著的終端機 session 有 ' + keep.restorable.length + ' 個，可以開回來。'), b); pane.append(r);
   }
-  drawKeep(pane);
-  drawPast(pane);
-  // Inside a scrolling block like every other page. Put straight into the main area (a flex column), the pane
-  // took the width of its longest line and pushed the page wider than the window once the lists had long
-  // titles in them, and a list longer than the window could not be scrolled (measured 2026-11-13: 936px in an 809px window).
+  const hero = el('div', 'hm-hero');
+  hero.append(el('h2', '', '把 Claude Code 搬進一個網頁'), el('p', 'hm-lead', '在這裡跟 Claude 對話、看它改了哪些檔、框幾行請它重改；不在電腦前，手機上也能按「允許」讓它繼續。先叫它做一件事看看。'));
+  const missing = el('div'); hero.append(missing, hmTry());
+  pane.append(hero);
+  const steps = el('div'); pane.append(steps);
+  pane.append(el('div', 'hm-sec', '它還能做什麼'), hmCards());
+  const fix = el('div'); pane.append(fix);
   const homeScroll = el('div', 'scroll'); homeScroll.style.scrollbarGutter = 'stable';
   homeScroll.append(pane);
   main.append(homeScroll);
   listShape = '';
   drawList();
+  hmSteps(steps, null);
+  hmLoad(steps, fix, missing);
+}
+// The first thing to do: a folder (one used before, or one picked) and a question ready to send
+function hmTry() {
+  const w = el('div', 'hm-try'), row = el('div', 'row'), bad = el('div', 'bad');
+  const folders = [...new Map(sessions.filter((s) => s.cwd && !s.hidden && !s.headless && !openedWord(s) && !isTempDir(s.cwd)).map((s) => [s.cwd, s.folder])).entries()];
+  let cwd = folders.length ? folders[0][0] : '';
+  row.append(el('span', '', '在哪個資料夾：'));
+  if (folders.length) {
+    const sel = el('select'); sel.setAttribute('aria-label', '在哪個資料夾');
+    for (const [c, f] of folders) { const o = el('option', '', f + '　' + c); o.value = c; sel.append(o); }
+    sel.addEventListener('change', () => { cwd = sel.value; }); row.append(sel);
+  } else {
+    const inp = folderField(el('input')); inp.type = 'text'; inp.placeholder = '貼上資料夾的完整路徑'; inp.setAttribute('aria-label', '資料夾'); inp.style.flex = '1 1 16em'; inp.addEventListener('input', () => { cwd = inp.value.trim(); }); row.append(inp);
+    // (the folder picker opens on this computer's screen: from another device it is not offered - REMOTE)
+    if (!REMOTE) { const pk = el('button', 'btn', '選擇資料夾…'); pk.type = 'button'; pk.addEventListener('click', async () => { let r; try { r = await api('/api/pick-folder', {}); } catch (e) { r = { ok: false, data: {} }; } if (r.ok && r.data.path) { cwd = r.data.path; inp.value = cwd; } }); row.append(pk); }
+  }
+  w.append(row);
+  const ask = el('div', 'ask');
+  const go = async (b, text) => {
+    if (!cwd) { bad.textContent = '先選一個資料夾'; return; }
+    for (const x of ask.querySelectorAll('button')) x.disabled = true; bad.textContent = '';
+    let r; try { r = await api('/api/new', { cwd }); } catch (e) { r = { ok: false, data: { error: '看板沒有回應' } }; }
+    if (!r.ok) { for (const x of ask.querySelectorAll('button')) x.disabled = false; bad.textContent = r.data.error || '開不了新對話'; return; }
+    let x2; try { x2 = await api('/api/send', { sessionId: r.data.sessionId, text }); } catch (e) { x2 = { ok: false, data: {} }; }
+    await poll(); openChat(r.data.sessionId);
+    if (!x2.ok) say((x2.data && x2.data.error) || '開好了，但第一句沒送出去，請自己打一次', true);
+  };
+  for (const text of ['這個專案在做什麼？用三句話跟我說', '列出這個專案還沒做完的事（TODO、做一半的功能）', '幫我看看這個專案有沒有明顯的問題，先列出來不要改']) {
+    const b = el('button', 'btn', text); b.type = 'button'; b.addEventListener('click', () => go(b, text)); ask.append(b);
+  }
+  w.append(el('div', 'hint', '點一句就開一個新對話、直接送出（或按左上的「新對話」自己打）：'), ask, bad);
+  return w;
+}
+// The first steps: ticked off from what has been done (the board's facts, and this browser's own notes); once all are done
+// one line. used: /api/setup's {used, groups} or null (not asked yet, or an older board)
+function hmSteps(box, setup) {
+  box.textContent = '';
+  const did = hmDid(), find = (k) => setup && setup.groups.flatMap((g) => g.items).find((x) => x.key === k);
+  const phone = find('phone');
+  const toPhone = () => { if (phone && !phone.ok) return toSetting('remote'); const b = $('sidePhone') && $('sidePhone').querySelector('button'); if (b) b.click(); else toSetting('remote'); };
+  const steps = [
+    { done: sessions.some((s) => s.owner !== 'terminal') || !!did.chat, t: '開第一個對話', s: '上面點一句就開始；回覆裡提到的檔案，點了就在旁邊打開' },
+    { done: !!did.changes, t: '按對話上方的「改了什麼」', s: '它改過的每個檔、每一行都列出來', act: null },
+    { done: !!did.ask, t: '在「改了什麼」框選幾行，請它重改', s: '框起來、寫一句要怎麼改，直接送回那個對話' },
+    { done: !!(phone && phone.ok) || REMOTE, t: '讓手機連得進來', s: '手機上看對話、按「允許」、回答它的問題，不在電腦前也行', label: phone && !phone.ok ? '去打開' : '拿手機網址', act: toPhone },
+    { done: !!(setup && setup.used && setup.used.goals), t: '交辦一件事讓它做到完成', s: '定好「做到什麼程度算完成」，它自己做到完成為止；也能排到額度回來再跑', label: '看排程', act: () => drawSched() },
+  ];
+  if (steps[0].done && !did.chat) hmMark('chat');
+  const n = steps.filter((x) => x.done).length;
+  if (n === steps.length) { const r = el('div', 'setup-ready'); r.append(el('span', '', '開始使用的五步都做過了 ✓')); box.append(r); return; }
+  box.append(el('div', 'hm-sec', '開始使用'));
+  const w = el('div', 'hm-steps'), bar = el('div', 'hm-bar'), fill = el('i'); fill.style.width = Math.round(n / steps.length * 100) + '%'; bar.append(fill);
+  bar.setAttribute('role', 'progressbar'); bar.setAttribute('aria-valuemin', '0'); bar.setAttribute('aria-valuemax', String(steps.length)); bar.setAttribute('aria-valuenow', String(n));
+  w.append(el('div', 'hint', '做過 ' + n + ' 步，共 ' + steps.length + ' 步（做了會自己打勾）'), bar);
+  for (const x of steps) {
+    const r = el('div', 'hm-step' + (x.done ? ' done' : '')), ck = el('span', 'ck', x.done ? '✓' : ''); ck.setAttribute('aria-hidden', 'true');
+    r.append(ck, el('span', 't', x.t)); if (x.done) r.setAttribute('aria-label', '已做：' + x.t);
+    if (x.label && !x.done) { const b = el('button', 'btn', x.label); b.type = 'button'; b.addEventListener('click', x.act); r.append(b); } else r.append(el('span'));
+    r.append(el('span', 's', x.s)); w.append(r);
+  }
+  box.append(w);
+}
+// What else it does: a small picture of each (the board's own parts with made-up content), a line, where it is
+function hmCards() {
+  const w = el('div', 'hm-cards');
+  const ln = (t, c) => el('div', 'mk-ln' + (c ? ' ' + c : ''), t);
+  const card = (pic, title, line, label, go) => { const c = el('div', 'hm-card'), p = el('div', 'pic'), bd = el('div', 'bd'); p.setAttribute('aria-hidden', 'true'); p.append(...pic); bd.append(el('b', '', title), el('span', '', line)); if (label) { const b = el('button', 'btn', label); b.type = 'button'; b.addEventListener('click', go); bd.append(b); } c.append(p, bd); w.append(c); };
+  const box = (t, b) => { const x = el('div', 'mk-box'); x.append(el('span', '', t), el('span', 'mk-btn', b)); return x; };
+  card([ln('- max: 100', 'mk-del'), ln('+ max: 30', 'mk-add mk-pk'), ln('+ retry: 3', 'mk-add mk-pk'), box('改回 100，retry 拿掉', '送給這個對話')],
+    '框幾行，請它重改', '「改了什麼」列出它改過的每一行；框起來寫一句，直接送回對話。');
+  { const c = el('div', 'mk-card'), r = el('div', 'mk-row'); r.append(el('span', 'mk-btn', '允許'), el('span', 'mk-btn alt', '拒絕')); c.append(el('div', '', 'Claude 想執行：npm test'), r);
+    card([el('div', 'mk-dim', '手機 · 下午 3:12'), c], '手機上按「允許」', 'Claude 要你同意它做某件事、或要你回答時，手機上直接按；不用守在電腦前。', '手機怎麼連', () => toSetting('remote')); }
+  { const c = el('div', 'mk-card'); c.append(el('div', '', '報價單_v3.docx 已改好'), el('div', 'mk-dim', '▸ 點了在旁邊打開：Word、Excel、PDF、圖片'));
+    card([c], '檔案直接看', '回覆裡提到的檔案點了就在旁邊預覽，不用自己去資料夾找。'); }
+  { const c = el('div', 'mk-card'), r = el('div', 'mk-row'), bar = el('div', 'mk-bar'), f = el('i'); f.style.width = '60%'; bar.append(f); r.append(el('span', '', '第 3 輪'), bar); c.append(el('div', '', '目標：測試全部通過'), r, el('div', 'mk-dim', '做到完成為止 · 或排到 14:00 額度回來'));
+    card([c], '交辦，做到完成為止', '說好什麼算完成，它自己一輪一輪做；額度用完就排到恢復再跑。', '看排程', () => drawSched()); }
+  { const c = el('div', 'mk-card'); c.append(el('div', '', 'Gmail · 客戶：報價單要改兩處'), el('div', 'mk-dim', '→ 派進「報價系統」的對話，附檔一起帶'));
+    card([c], '信和訊息替你理好', 'Gmail、Slack、Teams 判讀成「要你處理的」，帶著附檔派進對的專案。', '到收件', () => drawInbox()); }
+  { const c = el('div', 'mk-card'), r = el('div', 'mk-row'), bar = el('div', 'mk-bar'), f = el('i'); f.style.width = '62%'; bar.append(f); r.append(el('span', '', '5 小時額度'), bar, el('span', '', '62%')); c.append(r, el('div', 'mk-dim', '這個對話 $1.20 · 記憶用了 41%'));
+    card([c], '額度、花費一眼看到', '左下是帳號還能用多少，每個對話上方是它花了多少、記憶用了多少；左邊的「戰情室」看每月用量。'); }
+  return w;
+}
+// The board's facts: the first steps it knows of, and - only when something is missing - what, with its button
+async function hmLoad(steps, fix, top) {
+  let r; try { r = await api('/api/setup'); } catch (e) { r = { ok: false }; }
+  if (view !== 'home' || !fix.isConnected) return;
+  if (!r.ok) return;   // an older board: the first steps go by what the page knows, and nothing is said of what is installed
+  hmSteps(steps, r.data);
+  const need = r.data.groups.filter((g) => g.key === 'need' || g.key === 'core').flatMap((g) => g.items).filter((x) => !x.ok);
+  fix.textContent = '';
+  if (!need.length) return;
+  const w = el('div', 'hm-fix'); w.append(el('b', '', '這台電腦還缺一點東西'));
+  const sub = el('div', 'setup'); w.append(sub); fix.append(w);
+  drawSetup(sub, need);
+  if (top && top.isConnected) { top.textContent = ''; const r = el('div', 'hm-miss'), b = el('button', 'btn', '看缺什麼'); b.type = 'button'; b.addEventListener('click', () => w.scrollIntoView({ behavior: 'smooth', block: 'center' })); r.append(el('span', '', '這台電腦還缺 ' + need.length + ' 樣東西（' + need.map((x) => x.name).join('、') + '），少了會有些地方是空的。'), b); top.append(r); }
+}
+const SETUP_SET = { remote: '從另一台電腦操作', inbox: '收件' };
+// to a section of the settings page, by its heading
+async function toSetting(at) {
+  await drawSettings();
+  const h = [...document.querySelectorAll('#main h2')].find((x) => x.textContent === SETUP_SET[at]);
+  if (h) h.scrollIntoView({ block: 'start' });
+}
+// rows of what is missing (lib/setup.js items), each with its button
+function drawSetup(box, items) {
+  box.textContent = '';
+  const row = (x) => {
+    const w = el('div', 'setup-row');
+    const word = x.ok ? '好了' : { missing: '沒裝', old: '要更新', stale: '有狀況', off: '沒接' }[x.state] || x.state;
+    w.append(el('span', 'st' + (x.ok ? ' ok' : x.state === 'off' ? '' : ' need'), word));
+    const nm = el('div', 'nm', x.name); if (x.detail) nm.append(el('small', '', x.detail)); w.append(nm);
+    w.append(el('div', 'gv', x.gives));
+    if (!x.ok && x.without) w.append(el('div', 'wo', '少了它：' + x.without));
+    const a = x.action;
+    if (a && a.kind === 'command') {
+      const c = el('div', 'cmdl'); c.append(a.note + '：', el('code', '', a.cmd)); w.append(c);
+      const b = el('button', 'btn act', '複製指令'); b.type = 'button'; b.addEventListener('click', async () => { try { await copyText(a.cmd); say('已複製 ' + a.cmd); } catch (e) { say('複製不了，請自己打：' + a.cmd, true); } }); w.append(b);
+    } else if (a) {
+      // (an update is plugin-manager's: every plugin of this computer at once - said on the button)
+      const label = { install: '安裝', update: '全部更新', settings: '去設定' }[a.kind];
+      const b = el('button', 'btn act' + (a.kind === 'install' ? ' primary' : ''), label); b.type = 'button';
+      if (a.kind === 'update') b.title = '用 plugin-manager 把這台電腦所有的 fulin plugin 更新到最新（不只這一個）';
+      b.addEventListener('click', async () => {
+        if (a.kind === 'settings') return toSetting(a.at);
+        for (const o of box.querySelectorAll('.setup-row .act')) o.disabled = true;
+        b.textContent = a.kind === 'install' ? '安裝中…（約一分鐘）' : '更新中…（約一兩分鐘）'; ld(b);
+        let x2; try { x2 = a.kind === 'install' ? await api('/api/setup/install', { plugin: a.plugin }) : await api('/api/plugins/update', {}); } catch (e) { x2 = { ok: false, data: { error: '看板沒有回應' } }; }
+        if (!x2.ok) { for (const o of box.querySelectorAll('.setup-row .act')) o.disabled = false; b.textContent = label; return say((x2.data && x2.data.error) || '沒有成功', true); }
+        say(a.kind === 'install' ? ((x2.data && x2.data.note) || '裝好了') : '更新好了。新開的對話才會用到；開著的對話要重開');
+        if (view === 'home') drawHome();
+      });
+      w.append(b);
+    }
+    return w;
+  };
+  for (const x of items) box.append(row(x));
 }
 
 /* ── main: old conversations ──
@@ -3103,22 +3229,14 @@ async function bringBack(ids, to) {
   say((d.done.length ? '已' + (to === 'board' ? '搬進看板 ' : '開回終端機視窗 ') + d.done.length + ' 個' + (to === 'board' ? '' : '，幾秒後會出現在左邊') + ((d.continued || []).length ? '；其中 ' + d.continued.length + ' 個做到一半的已請它接著做' : '') : '') + (bad ? (d.done.length ? '。' : '') + '沒開成的：' + bad : ''), !d.done.length);
   await loadKeep(); await poll(); redrawLists();
 }
-/* ── home: conversations that are not open now ──
-   The last 30 days, newest first. The search looks at the title, the folder,
-   and the first and latest thing you said - not at the whole conversation. */
-let pastQ = '', pastTimer = 0, pastSeq = 0;
-let pastView = 'folder', pastWhen = '', pastTemp = false, pastShown = 80;   // by folder | by time; which period; whether conversations run in temporary folders are listed; how many rows of the time view
-try { pastView = localStorage.getItem('sb.pastView') === 'time' ? 'time' : 'folder'; } catch (e) {}
 const isTempDir = (p) => /[\\/](AppData[\\/]Local[\\/]Temp|Temp|tmp)([\\/]|$)/i.test(String(p || ''));
-const pastOpen = new Set(), pastAll = new Set();   // folders whose block is open; folders shown in full
-const PAST_PER_FOLDER = 6;
 async function openPast(d, to) {
   let r;
   try { r = await api('/api/past/open', { sessionId: d.sessionId, to }); } catch (e) { return say('看板程序沒有回應', true); }
   if (!r.ok) return say(r.data.error || '開不了', true);
   say(to === 'board' ? '已搬進看板' : '已在新的終端機視窗接續「' + (d.title || d.folder) + '」，幾秒後會出現在左邊');
   await poll();
-  if (to === 'board') openChat(d.sessionId); else fillPast();
+  if (to === 'board') openChat(d.sessionId); else if (view === 'office') drawOffice();
 }
 // why a search found it, or the last thing you said in it
 const hitText = (h) => ({ you: '你說過：', claude: 'Claude 說過：', did: 'Claude 做過：' }[h.who] || '') + h.text;
@@ -3186,135 +3304,9 @@ function foldOne(p) {
 function foldHelp(root) { if (!layoutAll() || !root.querySelectorAll) return; if (root.matches(FOLD_SEL)) foldOne(root); for (const p of root.querySelectorAll(FOLD_SEL)) foldOne(p); }
 new MutationObserver((ms) => { if (!layoutAll()) return; for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) foldHelp(n); else if (n.nodeType === 3 && n.parentElement) foldHelp(n.parentElement); }).observe(document.documentElement, { childList: true, subtree: true });   // (a text node: a note filled in after it was placed)
 
-function pastRow(x, withFolder) {
-  const row = el('div', 'past');
-  const acts = el('div', 'acts');
-  const mk = (label, tip, fn) => { const b = el('button', 'btn', label); b.type = 'button'; b.title = tip; b.addEventListener('click', async () => { b.disabled = true; await fn(); b.disabled = false; }); acts.append(b); return b; };
-  const term = REMOTE ? null : mk('終端機', '開一個終端機視窗接續這個對話', () => openPast(x, 'terminal'));
-  const board = mk('看板', '搬進看板，在這一頁接續', () => openPast(x, 'board'));
-  const off = mk('不列出', '從「舊對話」這份清單拿掉（對話紀錄不會刪；清單最下面可以全部顯示回來）', async () => { await api('/api/hide', { sessionId: x.sessionId, hidden: true }); fillPast(); });
-  if (layoutAll()) { if (term) term.textContent = '用終端機接續'; acts.append(board, moreMenu([term, off], '「' + (x.title || '這個對話') + '」的更多操作')); }
-  row.append(el('div', 't', x.title || '(沒有標題)'), acts, el('div', 'p', (x.offList ? '你設成不列出的 · ' : '') + when(x.at) + (withFolder ? ' · ' + (x.folder || '(沒有資料夾)') : '') + foundWords(x)));
-  row.title = x.cwd + (x.last ? '\n你最後說：' + x.last : '');
-  return row;
-}
-let pastEarlier = false;   // the earlier conversations asked for (past the latest 30 days)
-let pastPopWired = false;   // the page-wide click that closes look A's 「篩選」 menu: added once
-async function fillPast() {
-  const box = $('pastRows');
-  if (!box) return;
-  const seq = ++pastSeq;
-  if (!box.firstChild) box.append(ldBox());
-  let r;
-  try { r = await api('/api/past?q=' + encodeURIComponent(pastQ) + (pastEarlier ? '&days=all' : '')); } catch (e) { r = { ok: false }; }
-  if (seq !== pastSeq || !$('pastRows')) return;   // a newer search has been sent meanwhile
-  box.textContent = '';
-  if (!r.ok) { box.append(el('div', 'hint', '讀不到，看板程序沒有回應。')); return; }
-  const d = r.data;
-  if ($('pastTitle')) $('pastTitle').textContent = d.days ? '最近 ' + d.days + ' 天的對話' : '沒開著的對話';   // what is listed now
-  pastCount = d.total ? '沒開著的 ' + d.total + ' 個' : '';
-  // By folder: the folder a conversation ran in is how one is told from another. Folders with the latest activity first.
-  // Which period: counted from midnight; a week starts on Monday.
-  const DAY = 86400000, d0 = new Date(); d0.setHours(0, 0, 0, 0);
-  const today0 = d0.getTime(), week0 = today0 - ((d0.getDay() + 6) % 7) * DAY;
-  const WHEN = [['', '全部', () => true], ['today', '今天', (t) => t >= today0], ['yesterday', '昨天', (t) => t >= today0 - DAY && t < today0], ['week', '本週', (t) => t >= week0], ['lastweek', '上週', (t) => t >= week0 - 7 * DAY && t < week0], ['older', '更早', (t) => t < week0 - 7 * DAY]];
-  // Conversations run in a temporary folder (tests, throw-away runs) are set aside unless asked for; a search looks at them too.
-  const tempN = d.items.filter((x) => isTempDir(x.cwd)).length;
-  const base = d.items.filter((x) => pastTemp || pastQ || !isTempDir(x.cwd));
-  const inWhen = (WHEN.find((w) => w[0] === pastWhen) || WHEN[0])[2];
-  const items = base.filter((x) => inWhen(x.at));
-  const bar = $('pastBar');
-  if (bar) {
-    bar.textContent = '';
-    const chip = (label, on, fn, tip) => { const b = el('button', 'of-chip' + (on ? ' on' : ''), label); b.type = 'button'; b.setAttribute('aria-pressed', String(on)); if (tip) b.title = tip; b.addEventListener('click', fn); bar.append(b); return b; };
-    chip('依資料夾', pastView === 'folder', () => { pastView = 'folder'; try { localStorage.setItem('sb.pastView', 'folder'); } catch (e) {} fillPast(); }, '同一個資料夾的對話放在一起');
-    chip('依時間', pastView === 'time', () => { pastView = 'time'; pastShown = 80; try { localStorage.setItem('sb.pastView', 'time'); } catch (e) {} fillPast(); }, '不分資料夾，最近的在最上面');
-    bar.append(el('span', 'sep'));
-    for (const [k, label, test] of WHEN) { const n = base.filter((x) => test(x.at)).length; const b = chip(label + ' ' + n, pastWhen === k, () => { pastWhen = k; pastShown = 80; fillPast(); }); if (!n && pastWhen !== k) b.disabled = true; }
-    if (tempN && !pastQ) { bar.append(el('span', 'sep')); chip(pastTemp ? '暫存資料夾的 ' + tempN + ' 個：列出中' : '另有暫存資料夾的 ' + tempN + ' 個', pastTemp, () => { pastTemp = !pastTemp; fillPast(); }, '在暫存資料夾（Temp）裡跑的對話，多半是測試用的。平常不列出來；搜尋時一樣找得到'); }
-    // look A's 「篩選」 button: a dot on it while something other than the usual is picked
-    const fb = document.querySelector('.past-filter'); if (fb) fb.classList.toggle('changed', pastView !== 'folder' || !!pastWhen || !!pastTemp);
-  }
-  const groups = new Map();
-  for (const x of items) { const k = x.cwd || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
-  $('pastNote').textContent = (pastQ ? '符合「' + pastQ + '」、沒開著的有 ' + d.matched + ' 個（不限時間；找整個對話的內容）' : (d.days ? '最近 ' + d.days + ' 天' : '全部') + '共 ' + base.length + ' 個') + (pastWhen ? '，' + WHEN.find((w) => w[0] === pastWhen)[1] + '的有 ' + items.length + ' 個' : '') + '，在 ' + groups.size + ' 個資料夾。' + (pastView === 'folder' ? '按資料夾名稱展開。' : '') + '搜尋找整個對話：標題、資料夾、你說的、Claude 說的、Claude 下過的指令與動過的檔名（不比對日期，要看某段時間請按上面的按鈕）。';
-  // a search finds the open ones too (hidden or not): they are in no list of the not open, and a hidden one was found nowhere
-  if (pastQ) {
-    const ql = pastQ.toLowerCase(), said = d.said || {}, found = sessions.filter((x) => !x.programHidden && (said[x.sessionId] || [x.title, x.folder, x.cwd, x.lastUser].some((v) => String(v || '').toLowerCase().includes(ql))));
-    if (found.length) {
-      box.append(el('div', 'past-day', '開著的 ' + found.length + ' 個'));
-      for (const x of found) { const row = el('div', 'past'), acts = el('div', 'acts'), b = el('button', 'btn', '打開'); b.type = 'button'; b.addEventListener('click', () => openChat(x.sessionId)); acts.append(b); row.append(el('div', 't', x.title || '(沒有標題)'), acts, el('div', 'p', offMark(x) + (x.folder || '') + (said[x.sessionId] ? ' · ' + hitText(said[x.sessionId]) : x.lastUser ? ' · 你：' + x.lastUser : ''))); row.title = x.cwd; box.append(row); }
-      if (items.length) box.append(el('div', 'past-day', '沒開著的'));
-    }
-    if (d.indexing) box.prepend(el('div', 'hint', '對話內容還在建索引，約一兩分鐘後再找會更完整。'));
-  }
-  if (pastView === 'time') {
-    // One list, newest first, a line for each day.
-    const dayName = (t) => { const a = new Date(t); a.setHours(0, 0, 0, 0); const diff = Math.round((today0 - a.getTime()) / DAY); return (diff === 0 ? '今天' : diff === 1 ? '昨天' : '') + (diff <= 1 ? '　' : '') + (a.getMonth() + 1) + '/' + a.getDate() + '（' + '日一二三四五六'[a.getDay()] + '）'; };
-    const list = items.slice().sort((a, b) => b.at - a.at);
-    let last = '';
-    for (const x of list.slice(0, pastShown)) { const dn = dayName(x.at); if (dn !== last) { box.append(el('div', 'past-day', dn)); last = dn; } box.append(pastRow(x, true)); }
-    if (list.length > pastShown) { const more = el('button', 'list-more', '還有 ' + (list.length - pastShown) + ' 個 · 再顯示 80 個'); more.type = 'button'; more.addEventListener('click', () => { pastShown += 80; fillPast(); }); box.append(more); }
-  }
-  const one = groups.size === 1;
-  for (const [cwd, list] of (pastView === 'time' ? [] : groups)) {
-    const g = el('details', 'pgroup');
-    g.open = one || !!pastQ || pastOpen.has(cwd);
-    g.addEventListener('toggle', () => { if (g.open) pastOpen.add(cwd); else pastOpen.delete(cwd); });
-    const sum = el('summary');
-    const pth = el('span', 'pg-path', '\u200e' + cwd); pth.title = cwd;
-    sum.append(el('span', 'pg-name', list[0].folder || '(沒有資料夾)'), el('span', 'pg-n', list.length + ' 個'), pth, el('span', 'pg-when', '最近 ' + when(list[0].at)));
-    const rows = el('div', 'pg-rows');
-    g.append(sum, rows);
-    const shown = pastQ || pastAll.has(cwd) ? list : list.slice(0, PAST_PER_FOLDER);
-    for (const x of shown) rows.append(pastRow(x));
-    if (shown.length < list.length) {
-      const more = el('button', 'list-more', '這個資料夾還有 ' + (list.length - shown.length) + ' 個 · 全部顯示'); more.type = 'button';
-      more.addEventListener('click', () => { pastAll.add(cwd); fillPast(); });
-      rows.append(more);
-    }
-    box.append(g);
-  }
-  if (!items.length) box.append(el('div', 'hint', pastQ ? '沒有符合的對話。' : pastWhen ? '這段時間沒有對話。' : '沒有其他對話。'));
-  // the earlier ones (past the latest d.days days): read only when asked for
-  if (!pastQ && d.days && d.older) {
-    const more = el('button', 'list-more', '更早的對話（' + d.days + ' 天前）· 載入'); more.type = 'button';
-    more.title = '比最近 ' + d.days + ' 天更早的對話。搜尋時本來就不限時間';
-    more.addEventListener('click', () => { pastEarlier = true; more.disabled = true; more.textContent = '載入中…'; ld(more); fillPast(); });
-    box.append(more);
-  }
-  if (d.hidden) {
-    const back = el('button', 'list-more', '有 ' + d.hidden + ' 個對話被你隱藏了 · 全部顯示回來'); back.type = 'button';
-    back.addEventListener('click', async () => { await api('/api/hide', { clear: true }); await poll(); fillPast(); });
-    box.append(back);
-  }
-}
-function drawPast(pane) {
-  const h = el('h3', '', pastEarlier ? '沒開著的對話' : '最近 30 天的對話'); h.id = 'pastTitle'; pane.append(h);
-  const row = el('div', 'pathrow');
-  const input = el('input'); input.type = 'search'; input.value = pastQ; input.placeholder = '搜尋對話：標題、資料夾、對話裡說過的任何一句'; input.setAttribute('aria-label', '搜尋舊對話'); input.style.fontFamily = 'inherit';
-  input.addEventListener('input', () => { pastQ = input.value.trim(); clearTimeout(pastTimer); pastTimer = setTimeout(fillPast, 300); });
-  row.append(input);
-  const note = el('div', 'hint'); note.id = 'pastNote';
-  const bar = el('div', 'past-bar'); bar.id = 'pastBar';
-  const rows = el('div'); rows.id = 'pastRows'; rows.style.marginTop = '8px';
-  // The search box and the row of choices share one box. Look A folds the choices into a menu behind a 「篩選」 button
-  // beside the box (the button is not shown in the other looks, where the choices stay a row under it as before).
-  const tools = el('div', 'past-tools');
-  const fb = el('button', 'past-filter', '篩選'); fb.type = 'button'; fb.setAttribute('aria-haspopup', 'true'); fb.setAttribute('aria-expanded', 'false'); fb.setAttribute('aria-controls', 'pastBar'); fb.title = '顯示方式、時間、暫存資料夾';
-  const setOpen = (on) => { tools.classList.toggle('open', on); fb.setAttribute('aria-expanded', String(on)); };
-  fb.addEventListener('click', (e) => { e.stopPropagation(); setOpen(!tools.classList.contains('open')); });
-  bar.addEventListener('click', (e) => e.stopPropagation());
-  tools.addEventListener('keydown', (e) => { if (e.key === 'Escape' && tools.classList.contains('open')) { e.stopPropagation(); setOpen(false); fb.focus(); } });
-  if (!pastPopWired) { pastPopWired = true; document.addEventListener('click', () => { const t = document.querySelector('.past-tools.open'); if (t) { t.classList.remove('open'); const b = t.querySelector('.past-filter'); if (b) b.setAttribute('aria-expanded', 'false'); } }); }
-  row.append(fb);
-  tools.append(row, bar);
-  pane.append(tools, note, rows);
-  setTimeout(fillPast, 0);   // after the caller has put the pane on the page: fillPast finds its place by id
-}
 
-// only: 'restore' draws just the sessions to bring back after a restart (the office shows the ones you closed in their rooms)
-function drawKeep(pane, only) {
+// the sessions to bring back after a restart (the office's; the ones you closed are shown in their rooms)
+function drawKeep(pane) {
   if (keep.restorable.length) {
     pane.append(el('h3', '', '上次看板停止時還開著的終端機 session（' + keep.restorable.length + ' 個）'));
     const cut = keep.restorable.filter((k) => k.interrupted).length;
@@ -3348,19 +3340,6 @@ function drawKeep(pane, only) {
     }
     pane.append(bar);
   }
-  if (keep.closed.length && only !== 'restore') {
-    pane.append(el('h3', '', '你最近關掉的（不會自動開回來）'));
-    // the rows sit in one box: look A lays it out as a row of cards; the other looks show it as the plain list it was
-    const keepBox = el('div', 'keep-board'); pane.append(keepBox);
-    for (const k of keep.closed) {
-      const row = el('div', 'choice');
-      const again = el('button', 'btn', '重新開啟'); again.type = 'button'; if (REMOTE) again.textContent = '在看板開啟';
-      again.addEventListener('click', async () => { again.disabled = true; await bringBack([k.sessionId], REMOTE ? 'board' : 'terminal'); });
-      row.append(el('span', 't', k.title || 'session ' + k.sessionId.slice(0, 8)), el('span', 'p', folderName(k.cwd) + ' · ' + when(k.closedAt) + ' 關掉'), again);
-      row.title = k.cwd;
-      keepBox.append(row);
-    }
-  }
 }
 
 /* ── main: new conversation ── */
@@ -3376,6 +3355,7 @@ function drawNew() {
   const scroll = el('div', 'scroll');
   const pane = el('div', 'pane');
   pane.style.paddingTop = '28px';
+  // (the folder picker opens on this computer's screen: from another device it is not put on the page - REMOTE, below)
   const pick = el('button', 'btn primary', '選擇資料夾…'); pick.type = 'button';
   const bad = el('div', 'bad');
   pick.addEventListener('click', async () => {
@@ -4099,7 +4079,7 @@ async function drawSettings() {
 
   const h = el('h2', '', '關機後把 session 開回來'); h.style.marginTop = '40px';
   pane.append(h);
-  pane.append(el('p', 'lead', '開著的終端機 session 預設都是「常駐」：關機或重開機後，看板首頁會列出它們讓你開回來。你自己關掉、或在看板按「結束」的不算。'));
+  pane.append(el('p', 'lead', '開著的終端機 session 預設都是「常駐」：關機或重開機後，辦公室最上面會列出它們讓你開回來（首頁也會提醒）。你自己關掉、或在看板按「結束」的不算。'));
   const sw = (title, text, on, send, done, to = '/api/config') => {
     const l = el('label', 'switch'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = on;
     const t = el('div'); t.append(el('b', '', title), el('span', '', text));
@@ -4120,8 +4100,8 @@ async function drawSettings() {
     (v) => ({ autoStart: v }), (v) => v ? '已開啟：下次登入 Windows 看板會自己啟動' : '已關閉：看板要自己用 /session-board 啟動');
   sw('開回來時，做到一半的自動接著做', '被關機或重開機打斷在工作途中的 session，開回來後看板會替你說一句「接著把被中斷的工作做完」。關掉的話只把它開回來，等你自己說。這會自動用掉額度。', r.data.config.autoContinue !== false,
     (v) => ({ autoContinue: v }), (v) => v ? '已開啟：被打斷的會自動接著做' : '已關閉：開回來後等你指示');
-  sw('看板啟動時自動把常駐的 session 開回終端機', '不問，直接每個開一個終端機視窗。關著的話是列在首頁讓你勾選。兩個都開，才是「重開機後全部自己回來」。', !!r.data.config.autoRestore,
-    (v) => ({ autoRestore: v }), (v) => v ? '已開啟：看板下次啟動會自動開回常駐的 session' : '已關閉：改成列在首頁讓你選');
+  sw('看板啟動時自動把常駐的 session 開回終端機', '不問，直接每個開一個終端機視窗。關著的話是列在辦公室最上面讓你勾選。兩個都開，才是「重開機後全部自己回來」。', !!r.data.config.autoRestore,
+    (v) => ({ autoRestore: v }), (v) => v ? '已開啟：看板下次啟動會自動開回常駐的 session' : '已關閉：改成列在辦公室讓你選');
 
   {
     const h2 = el('h2', '', '自動隱藏'); h2.style.marginTop = '40px'; pane.append(h2);
@@ -4137,7 +4117,7 @@ async function drawSettings() {
       say(n ? '已儲存：' + n + ' 天沒有新動作就自動隱藏' : '已儲存：不自動隱藏'); await poll();
     });
     const P = r.data.prefs || {};
-    sw('隱藏其他程式開的 session', '不是你在終端機或看板開的，而是其他程式自己用 Claude Code 開的（例如 claude-mem、goal2 的引擎、harness 的審查、測試），不列在左欄、辦公室與舊對話裡。看板與看板排程開的對話照常顯示。被藏起來的，清單最下面仍可以點開來看。', !!P.hideProgramSessions,
+    sw('隱藏其他程式開的 session', '不是你在終端機或看板開的，而是其他程式自己用 Claude Code 開的（例如 claude-mem、goal2 的引擎、harness 的審查、測試），不列在左欄與辦公室（含沒開著的對話）裡。看板與看板排程開的對話照常顯示。被藏起來的，清單最下面仍可以點開來看。', !!P.hideProgramSessions,
       (v) => ({ hideProgramSessions: v }), (v) => v ? '已開啟：其他程式開的 session 不列出' : '已關閉：全部列出');
     hiddenFolders(pane, P.hideProgramFolders || []);
   }
@@ -4310,7 +4290,7 @@ function drawOffice(goTo) {
   pane.style.maxWidth = '1180px'; pane.classList.remove('pt-narrow'); pageTitleA(topBar, pane);
   // First thing after a restart: the terminal sessions that were open when the board stopped. Something to act on, so it
   // comes before everything else - and is not there at all when there is nothing to bring back.
-  if (keep.restorable.length) { const box = el('div', 'of-restore'); drawKeep(box, 'restore'); pane.append(box); }
+  if (keep.restorable.length) { const box = el('div', 'of-restore'); drawKeep(box); pane.append(box); }
   const row = el('div', 'pathrow');
   const input = el('input'); input.type = 'search'; input.value = officeQ; input.placeholder = '搜尋對話：標題、資料夾、對話裡說過的任何一句（開著的、沒開著的、隱藏的一起找）'; input.setAttribute('aria-label', '搜尋對話'); input.style.fontFamily = 'inherit';
   input.id = 'ofSearch';
@@ -7333,8 +7313,8 @@ function drawHead() {
       end.disabled = true;
       const r = await api('/api/end', { sessionId: s.sessionId });
       if (!r.ok) { end.disabled = false; end.textContent = '結束'; return say(r.data.error || '沒有結束', true); }
-      say('已結束「' + s.title + '」' + (r.data.windowClosed ? '，視窗也關了' : '。' + (r.data.windowNote || '它的終端機視窗請自己關')) + '。對話紀錄還在，首頁可以再開回來');
-      await loadKeep(); await poll(); drawHome();
+      say('已結束「' + s.title + '」' + (r.data.windowClosed ? '，視窗也關了' : '。' + (r.data.windowNote || '它的終端機視窗請自己關')) + '。對話紀錄還在，辦公室可以再開回來');
+      await loadKeep(); await poll(); drawOffice();
     });
     end.title = '結束這個終端機 session 的程序並關掉它的視窗。對話紀錄保留';
   }
@@ -7360,9 +7340,9 @@ function drawHead() {
       endC.disabled = true;
       const r = await api('/api/close', { sessionId: s.sessionId });
       if (!r.ok || !r.data.ok) { endC.disabled = false; endC.textContent = '結束對話'; return say((r.data && r.data.error) || '沒有結束', true); }
-      say('已結束「' + s.title + '」。對話紀錄還在，左邊的「舊對話」可以再開回來'); await poll(); drawHome();
+      say('已結束「' + s.title + '」。對話紀錄還在，辦公室可以再開回來'); await poll(); drawOffice();
     });
-    endC.title = '結束這個對話：停止它的程序，並從看板拿掉。對話紀錄保留，之後可以從「舊對話」開回來。跟「隱藏」不同：隱藏只是不列在清單上，它還開著';
+    endC.title = '結束這個對話：停止它的程序，並從看板拿掉。對話紀錄保留，之後可以從辦公室開回來。跟「隱藏」不同：隱藏只是不列在清單上，它還開著';
     // (opens a window on the board's own screen: not from another device - what the board refuses there is not offered, asked 2026-11-23)
     if (!REMOTE) add('移到終端機', '', async () => {
       await tellHeld(s.sessionId);
@@ -9768,6 +9748,7 @@ async function openChanges(s) {
   const sid = s.sessionId;
   $('peek').hidden = false;
   $('peekName').textContent = '改了什麼：' + s.title;
+  hmMark('changes');   // (a first step done: the first page ticks it)
   $('peekPath').textContent = '\u200e' + (s.cwd || ''); $('peekPath').title = s.cwd || '';
   $('peekOpen').hidden = true; $('peekReveal').hidden = true; $('peekCopy').hidden = true;
   const body = $('peekBody'); body.textContent = '';
@@ -9962,7 +9943,7 @@ async function openChanges(s) {
       const q = { source: '改了什麼', title: at.abs.split(/[\\/]/).pop(), text: '檔案：' + at.abs + '\n（' + (at.of === 'git' ? '這個資料夾還沒 commit 的變更' : '這個對話改過的地方') + '；+ 開頭是加上的、- 開頭是拿掉的）\n' + at.lines.join('\n') };
       let r; try { r = await api('/api/send', { sessionId: sid, text: quoteWrap(words, q) }); } catch (e) { r = { ok: false, data: { error: '看板沒有回應' } }; }
       if (!r.ok) { sending = false; no.disabled = false; t.disabled = false; go.textContent = '送給這個對話'; sync(); return say((r.data && r.data.error) || '送不出去', true); }
-      askAt = null; getSelection().removeAllRanges(); dropAsk();
+      askAt = null; getSelection().removeAllRanges(); dropAsk(); hmMark('ask');
       say('已送給這個對話' + (r.data && r.data.mid ? '（它正在做事，會在這一輪中途讀到）' : '') + '。改完按上面的「重新讀取」看新的變更');
     });
     t.addEventListener('keydown', (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); no.click(); } else if (e.key === 'Enter' && !e.shiftKey && !onTouch() && !go.disabled) { e.preventDefault(); go.click(); } });
@@ -11068,7 +11049,7 @@ function unsavedWork() {
   b.addEventListener('click', async () => {
     let x; try { x = await api('/api/config'); } catch (e) { x = { ok: false }; }
     const m = (x.ok && x.data.remote) || {};
-    if (!m.on || !m.listening) { say(!m.on ? '還沒開「允許從 Tailscale 連進來」，手機連不進來；已打開設定，開關在「從別台連進來」' : 'Tailscale 還沒連上，看板會自己重試；連上後再按一次', true); if (!m.on) drawSettings(); return; }
+    if (!m.on || !m.listening) { say(!m.on ? '還沒開「允許從 Tailscale 連進來」，手機連不進來；已打開設定的「從另一台電腦操作」' : 'Tailscale 還沒連上，看板會自己重試；連上後再按一次', true); if (!m.on) toSetting('remote'); return; }
     const url = 'http://' + m.ip + ':' + m.port + '/?t=' + TOKEN;
     try { await copyText(url); say('已複製手機網址。這個網址含看板的金鑰，只傳給你自己的裝置'); }
     catch (e) {   // the browser would not copy: shown, selected, gone once you click elsewhere
@@ -11367,10 +11348,10 @@ async function poll() {
       if (s && beats % 2 === 0) loadStats(s.sessionId);   // every 6 seconds: this is also where a terminal session's running subagents come from
       if (!s) { drawHead(); drawFoot(); }
     } else if (view === 'home') {
-      const shape = sessions.filter((s) => s.group === 'yours').map((s) => s.sessionId + s.title).join('|') + '#' + keepShape();
-      // Not while you are typing in the search box: redrawing would take the box away from under you.
-      const typing = document.activeElement && document.activeElement.type === 'search';
-      if ((shape !== homeShape && !typing) || !$('main').firstChild) { homeShape = shape; drawHome(); }
+      // only what the first page shows from the list: how many sessions there are to bring back (who is waiting is the
+      // left column's - redrawn for it, the page lost what you had opened and a button in the middle of installing)
+      const shape = String(keep.restorable.length);
+      if (shape !== homeShape || !$('main').firstChild) { homeShape = shape; drawHome(); }
     }
   } catch (e) {
     if (!down) { down = true; $('sideFoot').className = 'side-foot down'; $('sideFootText').textContent = '看板程序沒有回應，畫面是舊的。輸入 /session-board 重新啟動'; }

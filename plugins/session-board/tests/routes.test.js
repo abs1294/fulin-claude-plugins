@@ -108,6 +108,7 @@ function terminalSession(sid) {
 }
 
 let server, port, channels, keeper, inbox, asked = new Set();
+const setupRuns = [];   // what the first page asked claude to do (its version, an install)
 // a schedule said in words (lib/ruleparse.js) without Claude, and no calendar fetched from the net
 const ruleAsked = [];
 const ruleAsk = async (text) => { ruleAsked.push(text); return /看不懂/.test(text) ? { ok: false, error: '看不懂這句排程：不是時間' } : { ok: true, rule: { cron: '0 15 LW * *', workday: undefined, explain: '每月最後一個工作天 15:00' } }; };
@@ -125,7 +126,7 @@ test.before(async () => {
   inbox = new InboxService({ fetch: async () => ({ ok: false, status: 500, json: async () => ({}) , text: async () => '' }), triageRun: async () => ({ ok: true, items: [] }) });
   const monthly = new Monthly({ run: (exe, args, opts, cb) => cb(null, JSON.stringify({ ok: true, month: args[1], computedAt: Date.now(), daysInMonth: 30, total: { cost: 12.5, tok: 1000 }, files: 1, sessions: [], roles: [], days: [], models: [], projects: [] })) });
   port = await freePort();
-  server = createServer(TOKEN, port, { refreshQuota: async () => { quotaAsks++; return { ok: true, asked: quotaAsks === 1, at: 1795803261984, tried: 1795803259666 }; }, recFetch: async () => ({ ok: false, status: 404 }), recAsk: async () => ({ ok: false }), drawLook: async () => ({ ok: true, text: '橘色', turns: 2, tokens: 5 }), drawAsk: async () => ({ ok: true, tokens: 9, text: [1, 2].map((r) => '<svg viewBox="0 0 96 96"><circle cx="48" cy="48" r="' + r + '" fill="#f90"/></svg>').join('') }), lineConnected: () => lineOn, linePush: async (t) => { pushed.push(t); return pushed.length > 1 ? { ok: false, error: 'LINE 沒有收下（429）' } : { ok: true }; }, digestAsk: async () => ({ ok: true, text: '{"items":[]}' }), channels, keeper, inbox, monthly, ruleAsk, calFetch, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [{ scope: 'user', project: '' }] }, goal2: { name: 'goal2', installs: [] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }), remoteInfo: async () => ({ ok: false, why: 'test' }), noTimers: true, out, tell: (t, x) => did.push('tell ' + t), peer: async () => ({ ok: true }), peerCheck: async () => true });
+  server = createServer(TOKEN, port, { refreshQuota: async () => { quotaAsks++; return { ok: true, asked: quotaAsks === 1, at: 1795803261984, tried: 1795803259666 }; }, recFetch: async () => ({ ok: false, status: 404 }), recAsk: async () => ({ ok: false }), drawLook: async () => ({ ok: true, text: '橘色', turns: 2, tokens: 5 }), drawAsk: async () => ({ ok: true, tokens: 9, text: [1, 2].map((r) => '<svg viewBox="0 0 96 96"><circle cx="48" cy="48" r="' + r + '" fill="#f90"/></svg>').join('') }), lineConnected: () => lineOn, linePush: async (t) => { pushed.push(t); return pushed.length > 1 ? { ok: false, error: 'LINE 沒有收下（429）' } : { ok: true }; }, digestAsk: async () => ({ ok: true, text: '{"items":[]}' }), channels, keeper, inbox, monthly, ruleAsk, calFetch, pluginsInstalled: () => ({ harness: { name: 'harness', installs: [{ scope: 'user', project: '' }] }, goal2: { name: 'goal2', installs: [] } }), goal2: new (require('../lib/goal2').Goal2)({ root: null }), remoteInfo: async () => ({ ok: false, why: 'test' }), setupRun: (bin, args, o, cb) => { setupRuns.push(args.join(' ')); cb(null, args[0] === '--version' ? '2.1.330 (Claude Code)' : 'installed', ''); }, noTimers: true, out, tell: (t, x) => did.push('tell ' + t), peer: async () => ({ ok: true }), peerCheck: async () => true });
   await new Promise((r) => server.listen(port, '127.0.0.1', r));
 });
 test.after(() => {
@@ -2279,6 +2280,26 @@ test('collaborations: started (ledger, names, bypass, briefs), read back, a deci
     fs.writeFileSync(f2, line({ type: 'mode' }) + '\n' + cleared(Date.now())); await look();
     assert.deepStrictEqual([await nowBeta(), channels.codeOf(T2)], [T2, codeB]);
   }
+});
+
+test('the first page: what this computer has, and a recommended plugin installed for you - nothing else', async () => {
+  const raw = (pp, body, headers = {}) => new Promise((resolve) => {
+    const b = body === undefined ? null : Buffer.from(JSON.stringify(body));
+    const q2 = http.request({ host: '127.0.0.1', port, path: pp, method: b ? 'POST' : 'GET', headers: Object.assign({ 'x-board-token': TOKEN }, b ? { 'content-type': 'application/json', 'content-length': b.length } : {}, headers) }, (res) => { let d = ''; res.setEncoding('utf8'); res.on('data', (c) => { d += c; }); res.on('end', () => resolve({ status: res.statusCode, text: d })); });
+    q2.on('error', (e) => resolve({ status: e.code })); if (b) q2.write(b); q2.end();
+  });
+  // ── the first page: what this computer has (lib/setup.js); a recommended plugin installed for you, nothing else ──
+  for (const a of ['GET /api/setup', 'POST /api/setup/install']) asked.add(a);
+  { const st = JSON.parse((await raw('/api/setup')).text), all = st.groups.flatMap((g) => g.items);
+    assert.deepStrictEqual(st.groups.map((g) => g.key), ['need', 'core', 'more', 'connect']);
+    assert.strictEqual(all.find((x) => x.key === 'claude').detail, '目前 2.1.330');
+    assert.deepStrictEqual([all.find((x) => x.key === 'cc-statusline').state, all.find((x) => x.key === 'harness').state, all.find((x) => x.key === 'goal2').state], ['missing', 'ok', 'ok'], 'as installed (the test has harness and goal2)');
+    assert.strictEqual(st.ready, false);
+    assert.deepStrictEqual(st.used, { goals: 0 }, 'things handed to goal2 (none here) - a first step the first page ticks'); }
+  assert.strictEqual((await raw('/api/setup/install', { plugin: 'cc-statusline' })).status, 200);
+  assert.ok(setupRuns.includes('plugin install cc-statusline@fulin-plugins --scope user'), setupRuns.join(' | '));
+  for (const bad of [{ plugin: 'evil' }, { plugin: {} }, {}]) assert.strictEqual((await raw('/api/setup/install', bad)).status, 400, JSON.stringify(bad));
+  assert.strictEqual(setupRuns.filter((x) => x.startsWith('plugin install')).length, 1, 'only a name on the list is installed');
 });
 
 test('the mic: what was heard is tidied as it comes; through tailscale serve the device behind it is checked, Funnel never gets in', async () => {

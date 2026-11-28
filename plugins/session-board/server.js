@@ -40,6 +40,8 @@ const { sessionStats } = require('./lib/stats');
 const { limitFor } = require('./lib/ctxlimit');
 const config = require('./lib/config');
 const { readQuota, waitFor, refreshQuota } = require('./lib/quota');
+// the first page: what this computer has of what the board works with (asked 2026-11-28)
+const Setup = require('./lib/setup');
 const { Monthly, ymOf } = require('./lib/monthly');
 const K = require('./lib/keep');
 const autostart = require('./lib/autostart');
@@ -676,6 +678,29 @@ function createServer(token, port, deps = {}) {
     }
     return out;
   };
+  // The first page's facts (lib/setup.js judges them). Claude Code's version is asked of it once in ten minutes; the
+  // marketplace's versions are what the plugins page last found (asked for in the background when nothing is there yet).
+  const setupClaude = { v: null, at: 0 }; let setupAsking = false;
+  const claudeVersion = () => new Promise((ok) => {
+    if (setupClaude.v !== null && Date.now() - setupClaude.at < 600000) return ok(setupClaude.v);
+    (deps.setupRun || execFile)(process.env.SESSION_BOARD_CLAUDE || 'claude', ['--version'], { windowsHide: true, timeout: 15000, encoding: 'utf8' }, (e, out) => {
+      setupClaude.v = e ? '' : ((/(\d+\.\d+\.\d+)/.exec(String(out || '')) || [])[1] || ''); setupClaude.at = Date.now(); ok(setupClaude.v);
+    });
+  });
+  const setupFacts = async () => {
+    const inst = (deps.pluginsInstalled || Plugins.installed)();
+    if (isOn('versions') && !pluginsCache.pm && !setupAsking) { setupAsking = true; pluginsView(false).catch(() => {}).finally(() => { setupAsking = false; }); }
+    let limitsAt = 0; try { const j = JSON.parse(fs.readFileSync(deps.limitsFile || require('./lib/quota').FILE, 'utf8')); limitsAt = Number(j.at) || 0; } catch (e) {}
+    let src = []; try { src = inbox ? inbox.status().sources : []; } catch (e) {}
+    const has = (id) => src.some((x) => x.id === id && x.on && x.configured);
+    let line = false; try { line = !!(deps.lineConnected || require('./lib/line').connected)(); } catch (e) {}
+    // (wt.exe there is an app alias, a link of no size that existsSync follows and does not find: the entry itself is looked at)
+    const there = (p) => { try { fs.lstatSync(p); return true; } catch (e) { return false; } };
+    const wt = process.platform !== 'win32' || there(path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Microsoft', 'WindowsApps', 'wt.exe')) || String(process.env.PATH || '').split(path.delimiter).some((d) => d && there(path.join(d, 'wt.exe')));
+    return { platform: process.platform, node: process.versions.node, claude: await claudeVersion(), terminal: wt, installed: inst, latest: (pluginsCache.pm && pluginsCache.pm.latest) || {}, limitsAt, now: Date.now(),
+      remote: Object.assign({ on: config.value('remoteTailscale', false) === true }, server.remoteState()), inbox: { gmail: has('gmail'), slack: has('slack'), teams: has('teams') }, line };
+  };
+  const setupBusy = new Set();
   const pluginsView = async (refresh) => {
     const inst = (deps.pluginsInstalled || Plugins.installed)();
     const on = integrationsNow();
@@ -1815,6 +1840,11 @@ function createServer(token, port, deps = {}) {
           return send(res, 200, { states });
         }
         if (p === '/api/plugins') return send(res, 200, await pluginsView(false));
+        if (p === '/api/setup') {
+          // what you have done of the first steps that only the board knows: things handed to goal2
+          let goals = 0; try { goals = isOn('goal2') ? ((await goal2.list()).runs || []).length : 0; } catch (e) {}
+          return send(res, 200, Object.assign(Setup.check(await setupFacts()), { platform: process.platform, version: VERSION, used: { goals } }));
+        }
         if (p === '/api/recommends') return send(res, 200, PluginFit.recommends());
         // 找外掛 (lib/skillwish.js): on or off, skill-fetch there or not, which keys are set (never a key itself)
         if (p === '/api/skillwish') return send(res, 200, Wish.status(String(q.get('cwd') || '')));
@@ -2294,6 +2324,17 @@ function createServer(token, port, deps = {}) {
         return send(res, r.ok ? 200 : 400, r);
       }
       if (p === '/api/plugins/refresh') return send(res, 200, await pluginsView(true));
+      if (p === '/api/setup/install') {
+        const name = typeof body.plugin === 'string' ? body.plugin : '';
+        if (!Setup.CORE.concat(Setup.MORE).some((x) => x.plugin === name)) return send(res, 400, { ok: false, error: '不是建議安裝的 plugin' });
+        if (setupBusy.size) return send(res, 409, { ok: false, error: '正在安裝 ' + [...setupBusy].join('、') + '，裝完再裝下一個' });
+        setupBusy.add(name);
+        let r;
+        try { r = await new Promise((ok) => (deps.setupRun || execFile)(process.env.SESSION_BOARD_CLAUDE || 'claude', ['plugin', 'install', name + Plugins.MKT, '--scope', 'user'], { cwd: os.homedir(), windowsHide: true, timeout: 180000, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' }, (e, out, err) => ok({ ok: !e, out: String((out || '') + (err || '')).trim().slice(-400) }))); }
+        catch (e) { r = { ok: false, out: String((e && e.message) || e).slice(0, 400) }; }
+        finally { setupBusy.delete(name); instCache.at = 0; integ.at = 0; }
+        return send(res, r.ok ? 200 : 500, r.ok ? { ok: true, note: '裝好了。新開的對話才會用到；開著的對話要重開' } : { ok: false, error: '沒有裝成：' + (r.out || '安裝指令沒有回應') });
+      }
       if (p === '/api/plugins/update') {
         const inst = (deps.pluginsInstalled || Plugins.installed)(); const root = Plugins.rootOf('plugin-manager', inst);
         if (!root) return send(res, 400, { ok: false, error: '這台電腦沒有裝 plugin-manager' });
