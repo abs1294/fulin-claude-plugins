@@ -178,8 +178,8 @@ function queuedSaid(e) {
   return text || blocks.some((b) => b && b.type === 'image') ? { text, blocks } : null;
 }
 
-// One transcript entry -> zero or more display items.
-function itemsOf(e) {
+// One transcript entry -> zero or more display items. unasked: ids of question calls that never reached you (below)
+function itemsOf(e, unasked) {
   const q = queuedSaid(e);
   if (q) {
     const imgAt = q.blocks.map((b, i) => (b && b.type === 'image' ? i : -1)).filter((i) => i >= 0), imgTag = imgAt.map((i) => tagOf(q.blocks, i));
@@ -233,6 +233,9 @@ function itemsOf(e) {
       if (!b) return;
       if (b.type === 'text' && typeof b.text === 'string' && b.text.trim()) out.push({ id: id + ':' + i, role: 'assistant', text: b.text, ts });
       // A question form is not a tool call to fold away: it is Claude waiting on you.
+      // (one that never reached you - stopped by a hook or refused as malformed before it was shown, and asked again after -
+      // is not drawn: it looked like the same questions asked twice, one of them never answerable)
+      else if (b.type === 'tool_use' && b.name === 'AskUserQuestion' && unasked && unasked.has(b.id)) return;
       else if (b.type === 'tool_use' && b.name === 'AskUserQuestion' && questionsOf(b.input).length) out.push({ id: id + ':' + i, role: 'ask', questions: questionsOf(b.input), ts });
       // Files handed to you (SendUserFile): Claude Code delivers them to its own apps - the desktop and phone ones that
       // can follow a session - and answers "N files delivered to user". On the board nothing arrived anywhere: the
@@ -255,6 +258,12 @@ function readHistory(file, o = {}) {
   const max = o.max || 120;
   const cap = o.cap || 32 * 1024 * 1024;
   const groups = [];   // newest first; each group is one entry's items in order
+  // A call's result comes after it in the file, so read backward it is met first: the failures that happen before anything
+  // is shown (a hook's refusal, input Claude Code would not take) are noted, and the calls they belong to left out.
+  // Your own 不回答 is a refusal too, but after you saw the questions: not one of these.
+  const unasked = new Set();
+  // (a hook that runs after it was shown - PostToolUse - is not one of these: those questions you saw)
+  const NEVER_SHOWN = /PreToolUse:[A-Za-z]+ hook error|InputValidationError|<tool_use_error>/;
   let count = 0;
   let more = false;
   eachLineBackward(file, cap, (line, at) => {
@@ -263,7 +272,12 @@ function readHistory(file, o = {}) {
     let e;
     try { e = JSON.parse(line.toString('utf8')); } catch (x) { return true; }
     if (e.type !== 'user' && e.type !== 'assistant' && e.type !== 'attachment') return true;
-    const items = itemsOf(e);
+    if (e.type === 'user' && e.message && Array.isArray(e.message.content)) for (const b of e.message.content) {
+      if (!b || b.type !== 'tool_result' || b.is_error !== true || typeof b.tool_use_id !== 'string') continue;
+      const t = typeof b.content === 'string' ? b.content : Array.isArray(b.content) ? b.content.map((x) => (x && typeof x.text === 'string' ? x.text : '')).join(' ') : '';
+      if (NEVER_SHOWN.test(t)) unasked.add(b.tool_use_id);
+    }
+    const items = itemsOf(e, unasked);
     if (!items.length) return true;
     if (count >= max) { more = true; return false; }
     groups.push(items);
