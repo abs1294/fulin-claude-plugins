@@ -166,6 +166,76 @@ const hook = (sid, event = 'UserPromptSubmit') => {
       check(!!st && st.waiter_state === 'dead' && /不會自動開始/.test(st.summary_zh), 'delaylocal：等待程序不在了，--status 說不會自動開始', st && st.summary_zh);
       run(['--stop', c.j.run_dir]);
     } else check(false, 'delaylocal：第三個排程', c.out);
+    // two --start at the same moment on one prepared run: one schedules it, the other is told so (not two waiting processes)
+    {
+      const p = E.prepareRun({ skill: 'delaylocal', prompt: '/goal work/c.txt 存在', cwd: WORK, meta: { parentSessionId: 'parent-E', scheduledFor: new Date(Date.now() + 3600e3).toISOString(), pluginVersion: '0.9.0' } });
+      const go = () => new Promise((res) => { const ch = spawn(process.execPath, [DELAY, '--start', p.runDir], { env: process.env, windowsHide: true }); let out = ''; ch.stdout.on('data', (d) => out += d); ch.on('close', () => { let j = null; try { j = JSON.parse(out); } catch (_) {} res(j); }); });
+      const [r1, r2] = await Promise.all([go(), go()]);
+      const oks = [r1, r2].filter((r) => r && r.ok).length, m = E.readMeta(p.runDir);
+      check(oks === 1 && m.status === 'scheduled' && [r1, r2].some((r) => r && r.ok && r.runner_pid === m.waiterPid), 'delaylocal：同時兩次 --start，只有一個排上、回報的 pid 就是等待程序', JSON.stringify([r1 && { ok: r1.ok, pid: r1.runner_pid, e: r1.error }, r2 && { ok: r2.ok, pid: r2.runner_pid, e: r2.error }, m.waiterPid]));
+      await sleep(1500);
+      run(['--stop', p.runDir]);
+    }
+    // starting at the time and cancelling claim one file: whichever is first is what happens
+    {
+      const prep = (sec) => E.prepareRun({ skill: 'delaylocal', prompt: '/goal work/d.txt 存在', cwd: WORK, meta: { scheduledFor: new Date(Date.now() + sec * 1000).toISOString(), pluginVersion: '0.9.1' } }).runDir;
+      // its time came, then its waiting process died before the engine (a restart): --stop still takes it off
+      const d1 = prep(3600);
+      E.writeMeta(d1, { ...E.readMeta(d1), status: 'scheduled', waiterPid: 999999, scheduledAt: new Date().toISOString(), heldUntil: new Date().toISOString() });
+      fs.writeFileSync(path.join(d1, 'decided.claim'), 'start');
+      const s1 = E.stopRun(d1);
+      check(s1.ok && E.readMeta(d1).status === 'stopped', 'delaylocal --stop：到點後等待程序已不在，照樣收成 stopped', JSON.stringify(s1));
+      // a --stop that claimed first: the waiting process ends at its time without starting
+      const d2 = prep(1.5);
+      const h2 = E.holdUntil(d2, { pollMs: 200 });
+      await sleep(300);
+      fs.writeFileSync(path.join(d2, 'decided.claim'), 'stop');
+      const r2 = await h2, m2 = E.readMeta(d2);
+      check(!r2.ok && r2.cancelled && !m2.heldUntil, 'delaylocal：取消先搶到，到點的等待程序不起引擎', JSON.stringify(r2));
+      E.writeMeta(d2, { ...m2, status: 'stopped' });
+      // a claim left by a waiting process that ended before it wrote scheduled: taken again a minute on
+      const d3 = prep(1.5), cl = path.join(d3, 'waiter.claim');
+      fs.writeFileSync(cl, ''); const old = new Date(Date.now() - 120000); fs.utimesSync(cl, old, old);
+      const r3 = await E.holdUntil(d3, { pollMs: 200 }), m3 = E.readMeta(d3);
+      check(r3.ok && r3.waited && m3.status === 'scheduled' && !!m3.heldUntil, 'delaylocal：留下的舊排程權一分鐘後可重搶', JSON.stringify(r3));
+      E.writeMeta(d3, { ...m3, status: 'stopped' });
+      // a fresh claim is someone's: not taken
+      const d4 = prep(3600); fs.writeFileSync(path.join(d4, 'waiter.claim'), '');
+      const r4 = await E.holdUntil(d4, { pollMs: 200 });
+      check(!r4.ok && E.readMeta(d4).status === 'prepared', 'delaylocal：剛建的排程權是別人的，不搶', JSON.stringify(r4));
+      // an old claim and five --start at once: one of them schedules it (none deletes another's)
+      {
+        const d5 = prep(3600), c5 = path.join(d5, 'waiter.claim');
+        fs.writeFileSync(c5, ''); const o5 = new Date(Date.now() - 120000); fs.utimesSync(c5, o5, o5);
+        const go = () => new Promise((res) => { const ch = spawn(process.execPath, [DELAY, '--start', d5], { env: process.env, windowsHide: true }); let out = ''; ch.stdout.on('data', (x) => out += x); ch.on('close', () => { let j = null; try { j = JSON.parse(out); } catch (_) {} res(j); }); });
+        const rs = await Promise.all([1, 2, 3, 4, 5].map(go));
+        await sleep(2000);
+        const m5 = E.readMeta(d5), oks = rs.filter((r) => r && r.ok);
+        const alive = rs.map((r) => r && r.runner_pid).filter(Boolean).filter((pid) => { try { process.kill(pid, 0); return true; } catch (_) { return false; } });
+        check(oks.length === 1 && oks[0].runner_pid === m5.waiterPid && alive.length === 1, 'delaylocal：舊排程權＋同時 5 個 --start，只排上一個、只剩一個等待程序', JSON.stringify({ oks: oks.length, alive: alive.length }));
+        run(['--stop', d5]);
+      }
+      // its time came and its waiting process (alive) is starting the engine: --stop, even --force, does not kill it
+      {
+        const d6 = prep(3600);
+        const ch = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { windowsHide: true });
+        await sleep(500);
+        const id = E.procIdentity(ch.pid);
+        E.writeMeta(d6, { ...E.readMeta(d6), status: 'scheduled', waiterPid: ch.pid, waiterPidStart: id ? new Date(id.start).toISOString() : null, scheduledAt: new Date().toISOString(), heldUntil: new Date().toISOString() });
+        fs.writeFileSync(path.join(d6, 'decided.claim'), 'start');
+        const ws6 = E.waitState(E.readMeta(d6)), s6 = E.stopRun(d6, { force: true });
+        let up = true; try { process.kill(ch.pid, 0); } catch (_) { up = false; }
+        check(ws6 === 'alive' && !s6.ok && up && E.readMeta(d6).status === 'scheduled', 'delaylocal --stop --force：到點正在起引擎的等待程序不殺', JSON.stringify({ ws6, s6: s6.error, up }));
+        // another --stop is already cancelling it: this one says so (ok), not 「已經開始」
+        const d7 = prep(3600);
+        E.writeMeta(d7, { ...E.readMeta(d7), status: 'scheduled', waiterPid: ch.pid, waiterPidStart: id ? new Date(id.start).toISOString() : null, scheduledAt: new Date().toISOString() });
+        fs.writeFileSync(path.join(d7, 'decided.claim'), 'stop');
+        const s7 = E.stopRun(d7);
+        check(s7.ok && /另一個 --stop/.test(s7.note || ''), 'delaylocal：兩個 --stop 同時，晚到的那個說已經在取消', JSON.stringify(s7));
+        try { ch.kill(); } catch (_) {}
+        E.writeMeta(d6, { ...E.readMeta(d6), status: 'stopped' }); E.writeMeta(d7, { ...E.readMeta(d7), status: 'stopped' });
+      }
+    }
   }
 
   // ── 7. 參數 ──

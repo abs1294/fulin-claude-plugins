@@ -105,7 +105,6 @@
 
 ```boundary
 goal2/lib/engine.js | own-run | 一個 run 自己的花費（同一個 run 內累計，不跨 run 加總）
-goal2/skills/delaylocal/delaylocal.js | own-run | 給模型的說明文字提到 run 的花費欄位，不取值
 session-board/lib/goal2.js | own-run | 轉述 goal2 的 run 紀錄
 session-board/public/index.html | own-run | 顯示 goal2 的 run 花費
 session-board/lib/aside.js | own-run | 單次執行的花費；接續對話的不顯示

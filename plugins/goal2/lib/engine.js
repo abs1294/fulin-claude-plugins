@@ -629,10 +629,24 @@ function stopRun(runDir, { force = false } = {}) {
     // its time came and it is starting the engine this moment: killed now, the engine it just started would go on unseen
     const ws = waitState(meta), now = new Date().toISOString();
     // (only while its waiting process is still there: gone after its time came, the run would never leave scheduled otherwise)
-    if (meta.heldUntil && ws === 'alive' && !force) return { ...out, ok: false, error: '排程剛到點、引擎正在啟動，幾秒後用 --status 看，再 --stop 一次' };
-    if (ws === 'alive') { try { process.kill(meta.waiterPid); } catch (e) { return { ...out, ok: false, error: `結束等待程序 ${meta.waiterPid} 失敗：${e.message}` }; } }
-    else if (ws === 'unknown' && !force) return { ...out, ok: false, alive_state: ws, error: `無法確認 pid ${meta.waiterPid} 是不是本 run 的等待程序，為避免殺錯程序不動它；確認後加 --force 只收狀態` };
-    writeMeta(runDir, { ...readMeta(runDir), status: 'stopped', stoppedAt: now, endedAt: now, neverStarted: true, stopNote: ws === 'alive' ? '排程取消：結束等待程序，引擎沒有啟動' : `排程取消：等待程序已不在（${ws}），引擎沒有啟動` });
+    if (meta.heldUntil && ws === 'alive') return { ...out, ok: false, error: '排程剛到點、引擎正在啟動，幾秒後用 --status 看，再 --stop 一次' };
+    if (ws === 'unknown' && !force) return { ...out, ok: false, alive_state: ws, error: `無法確認 pid ${meta.waiterPid} 是不是本 run 的等待程序，為避免殺錯程序不動它；確認後加 --force 只收狀態` };
+    // (starting at its time and cancelling claim the same file, made only if it is not there: whichever makes it first is what
+    // happens - the waiting process that made it starts the engine and is not killed; one that finds it made ends without starting)
+    const decided = path.join(runDir, DECIDE_FILE);
+    const cancelled = (m) => m.status === 'stopped' && m.neverStarted ? { ...out, ok: true, alive_state: ws, note: '排程已經取消過，引擎沒有啟動' } : null;
+    const mine = decide(runDir, 'stop');
+    if (mine instanceof Error) return { ...out, ok: false, error: `取消排程失敗：${mine.message}` };
+    // (another --stop made it first: that one is cancelling it)
+    if (!mine && ws === 'alive' && decidedBy(runDir) === 'stop') return { ...out, ok: true, alive_state: ws, note: '另一個 --stop 已經在取消這個排程，引擎不會啟動' };
+    if (!mine && ws === 'alive') return { ...out, ok: false, error: '排程剛好到點、已經開始；用 --status 看，要停再 --stop 一次' };
+    { const before = readMeta(runDir); if (cancelled(before)) return cancelled(before); if (before.status !== 'scheduled') return { ...out, ok: false, error: `排程剛好到點、已經開始（status=${before.status}）；用 --status 看，要停再 --stop 一次` }; }
+    if (ws === 'alive') { try { process.kill(meta.waiterPid); } catch (e) { if (mine) { try { fs.unlinkSync(decided); } catch (_) {} } return { ...out, ok: false, error: `結束等待程序 ${meta.waiterPid} 失敗：${e.message}` }; } }
+    // (looked at again: its time may have come while it was being probed - started, it is an engine to stop, not a schedule)
+    const again = readMeta(runDir);
+    if (cancelled(again)) return cancelled(again);
+    if (again.status !== 'scheduled') return { ...out, ok: false, error: `排程剛好到點、已經開始（status=${again.status}）；用 --status 看，要停再 --stop 一次` };
+    writeMeta(runDir, { ...again, status: 'stopped', stoppedAt: now, endedAt: now, neverStarted: true, stopNote: ws === 'alive' ? '排程取消：結束等待程序，引擎沒有啟動' : `排程取消：等待程序已不在（${ws}），引擎沒有啟動` });
     claimReport(runDir, 'stop:排程取消');   // nothing ran: not reported back to the conversation as 「跑完了」 (pending-report hook, the board)
     return { ...out, ok: true, alive_state: ws, note: '排程已取消，引擎沒有啟動' };
   }
@@ -690,6 +704,18 @@ function lastActivity(streamPath) {
 }
 
 /** 把狀態講成一句人話（給主 session 直接轉述用；欄位本身也保留） */
+const WAITER_FILE = 'waiter.claim', DECIDE_FILE = 'decided.claim';
+/** 到點開始與取消搶同一個檔（只在不存在時建得出來），檔裡寫是誰：'start'／'stop' -> true 搶到 | false 別人先搶 | Error */
+function decide(runDir, who) {
+  let fd; try { fd = fs.openSync(path.join(runDir, DECIDE_FILE), 'wx'); } catch (e) { return e.code === 'EEXIST' ? false : e; }
+  try { fs.writeSync(fd, who); } finally { fs.closeSync(fd); }
+  return true;
+}
+/** 誰先搶到（剛建、還沒寫進去的那一瞬間：稍等再讀） */
+function decidedBy(runDir) {
+  for (let i = 0; i < 20; i++) { let t = ''; try { t = fs.readFileSync(path.join(runDir, DECIDE_FILE), 'utf8').trim(); } catch (_) {} if (t) return t; sleepMs(50); }
+  return '';
+}
 /** 排程中的等待程序是否還在（pid＋啟動時間，同引擎的判法） */
 function waitState(meta) {
   return meta && meta.waiterPid ? aliveState({ pid: meta.waiterPid, pidStart: meta.waiterPidStart || null, pluginVersion: meta.pluginVersion, startedAt: meta.scheduledAt, createdAt: meta.createdAt }) : 'dead';
@@ -706,17 +732,35 @@ async function holdUntil(runDir, { pollMs = 30000 } = {}) {
   const meta = readMeta(runDir), at = Date.parse(meta.scheduledFor || '');
   if (meta.status !== 'prepared' || !Number.isFinite(at) || at <= Date.now()) return { ok: true, waited: false };
   // (scheduled first, so whoever started it is answered at once; the identity - a PowerShell on Windows, seconds - after)
-  writeMeta(runDir, { ...readMeta(runDir), status: 'scheduled', waiterPid: process.pid, waiterPidStart: null, scheduledAt: new Date().toISOString() });
+  // (one waiting process per run: the claim is a file made only if it is not there yet - of two --start at the same moment
+  // the system lets one make it; the other ends without writing anything)
+  // (a claim left by a waiting process that ended before it wrote scheduled - the run still prepared a minute on - is not
+  // deleted, the next one is made instead: two taking it at once both go to the next, and one of them makes it)
+  let err = null;
+  for (let i = 1; i <= 5; i++) {
+    const claim = path.join(runDir, i === 1 ? WAITER_FILE : `${WAITER_FILE}.${i}`);
+    try { fs.closeSync(fs.openSync(claim, 'wx')); err = null; break; } catch (e) { err = e; }
+    if (err.code !== 'EEXIST') break;
+    let age = 0; try { age = Date.now() - fs.statSync(claim).mtimeMs; } catch (_) {}
+    if (!(age > 60000 && readMeta(runDir).status === 'prepared')) break;
+  }
+  if (err) return { ok: false, cancelled: true, status: 'scheduled', error: err.code === 'EEXIST' ? '已經有別的等待程序' : err.message };
+  const first = readMeta(runDir);
+  if (first.status !== 'prepared') return { ok: false, cancelled: true, status: first.status };
+  writeMeta(runDir, { ...first, status: 'scheduled', waiterPid: process.pid, waiterPidStart: null, scheduledAt: new Date().toISOString() });
   const id = procIdentity(process.pid);
   if (id) { const m = readMeta(runDir); if (m.status === 'scheduled' && m.waiterPid === process.pid) writeMeta(runDir, { ...m, waiterPidStart: new Date(id.start).toISOString() }); }
   for (;;) {
     let m; try { m = readMeta(runDir); } catch (e) { return { ok: false, error: e.message }; }
-    if (m.status !== 'scheduled') return { ok: false, cancelled: true, status: m.status };
+    if (m.status !== 'scheduled' || m.waiterPid !== process.pid) return { ok: false, cancelled: true, status: m.status };
     // the time: it stays scheduled, and runEngine (this same process) takes it on - no moment as prepared that a second
     // --start could take, and a --stop meanwhile is still the cancelling of a schedule
     if (Date.now() >= at) {
       const now = readMeta(runDir);   // (read again just before writing: a --stop meanwhile is not written over)
       if (now.status !== 'scheduled' || now.waiterPid !== process.pid) return { ok: false, cancelled: true, status: now.status };
+      // (a --stop that made the file first cancels it: this one ends without starting - see stopRun)
+      const d = decide(runDir, 'start');
+      if (d !== true) return { ok: false, cancelled: true, status: now.status, error: d === false ? '排程已被取消' : d.message };
       writeMeta(runDir, { ...now, heldUntil: new Date().toISOString() }); return { ok: true, waited: true };
     }
     await new Promise((r) => setTimeout(r, Math.min(pollMs, Math.max(1000, at - Date.now()))));
@@ -941,11 +985,13 @@ async function startDetached(runDir, script, { waitMs = 20000 } = {}) {
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 250));
     let m; try { m = readMeta(runDir); } catch (_) { continue; }
+    // (scheduled by another runner started at the same moment: not this one's)
+    if (m.status === 'scheduled' && m.waiterPid && m.waiterPid !== child.pid) return { ok: false, run_dir: runDir, runner_pid: child.pid, status: m.status, error: `已經有別的等待程序（pid ${m.waiterPid}）在排這個 run` };
     if (m.status !== 'prepared') return { ok: !['spawn_failed', 'failed'].includes(m.status), run_dir: runDir, runner_pid: child.pid, status: m.status, engine_pid: m.pid || null, runner_log: logPath };
     if (exited !== null) break;
   }
   let log = ''; try { log = fs.readFileSync(logPath, 'utf8').slice(-800); } catch (_) {}
-  return { ok: false, run_dir: runDir, runner_pid: child.pid, error: exited !== null ? `runner 沒把 run 標成 running 就結束了（${exited}）` : `${Math.round(waitMs / 1000)} 秒內 runner 沒把 run 標成 running`, runner_log: logPath, runner_log_tail: log };
+  return { ok: false, run_dir: runDir, runner_pid: child.pid, error: exited !== null ? `runner 沒把 run 標成 scheduled 或 running 就結束了（${exited}）` : `${Math.round(waitMs / 1000)} 秒內 runner 沒把 run 標成 scheduled 或 running`, runner_log: logPath, runner_log_tail: log };
 }
 
 /**

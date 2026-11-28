@@ -2,6 +2,10 @@
 
 本檔記錄 cc-statusline 的版本變更，格式依 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.11.1] - 2026-11-28
+### Changed
+- docs/data-boundary.md：碰用量資料的名單拿掉 goal2/skills/delaylocal/delaylocal.js（goal2 0.9.0 起它不再在說明文字裡提到 run 的花費欄位）。macOS 上 data-boundary 測試因此報「登記了但不再碰」。
+
 ## [1.11.0] - 2026-11-28
 ### Added
 - 壓縮次數承接前一段：從別的對話複製出來接續的對話（`claude --resume X --fork-session`，看板的分身、修改後重送、排程接續都是）是從 X 最後一次壓縮之後開始的，原本記在 X 的壓縮次數不會跟過來，看板因此顯示「壓縮 0 次」。現在 `claude-compacts-<sid>.json` 多 `v:1`、`inherited`（複製時 X 已經壓縮過幾次）、`from`（X 的 session id）、`inheritedAt`（帶過來的那次壓縮的時間）；`count` 的意思不變（這段自己的次數），畫面上顯示 `count + inherited`。X 在複製之後又壓縮的不算進來。回覆完、每 10 分鐘全機看一次對話紀錄時補上，已經發生過的對話也會補（實測這台電腦 30 天內 263 份對話紀錄、3.4 GB，第一次 6～10 秒）。

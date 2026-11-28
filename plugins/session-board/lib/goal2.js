@@ -60,7 +60,7 @@ class Goal2 {
     if (this.cache && Date.now() - this.cache.at < 4000) return this.cache.data;
     const j = await tool(root, ['--list'], this.o.run, 20000, this.o.env);
     if (!j.ok) return { installed: true, error: j.error || 'goal2 讀不到執行紀錄', runs: [] };
-    const runs = (j.runs || []).map((x) => ({ runId: x.runId, skill: x.skill, status: x.alive && (x.status === 'running' || x.status === 'prepared') ? 'running' : x.status, alive: !!x.alive, cwd: x.cwd || '', condition: x.condition || '', createdAt: x.createdAt || null, startedAt: x.startedAt || null, endedAt: x.endedAt || null, scheduledFor: x.scheduledFor || null }))
+    const runs = (j.runs || []).map((x) => ({ runId: x.runId, skill: x.skill, aliveState: x.alive_state || '', status: x.alive && (x.status === 'running' || x.status === 'prepared') ? 'running' : x.status, alive: !!x.alive, cwd: x.cwd || '', condition: x.condition || '', createdAt: x.createdAt || null, startedAt: x.startedAt || null, endedAt: x.endedAt || null, scheduledFor: x.scheduledFor || null }))
       .sort((a, b) => String(b.runId).localeCompare(String(a.runId)));
     const data = { installed: true, version: j.plugin_version || '', runs, dirOf: Object.fromEntries((j.runs || []).map((x) => [x.runId, x.runDir])) };
     this.cache = { at: Date.now(), data };

@@ -6151,6 +6151,8 @@ async function drawSystemJobs(pane) {
 }
 // ── goal2's runs: what each was asked to reach and how it went (the goal2 plugin; the board only reads them, and can
 // stop one that is still going) ──
+// (scheduled with its waiting process gone - a restart, a sign-out: it will not start; said in the list, not only in its details)
+const goalSt = (x) => (x.status === 'scheduled' && ['dead', 'stale'].includes(x.waiter_state || x.aliveState) ? ['排程已失效', 'bad'] : GOAL_ST[x.status] || [x.status, '']);   // (unknown - its identity could not be read: it may still start)
 const GOAL_ST = { running: ['執行中', 'wait'], scheduled: ['已排程', 'wait'], prepared: ['準備好未執行', ''], done: ['達成', 'ok'], unverified: ['做完但沒驗證到', 'wait'], impossible: ['判定做不到', 'bad'], timeout: ['超過時限', 'bad'], budget: ['超過預算', 'bad'], stopped: ['已停止', ''], failed: ['失敗', 'bad'], spawn_failed: ['沒啟動成功', 'bad'], unknown: ['不明', ''] };
 let goalAll = false, goal2Here = false;   // whether goal2 is on this computer (told by /api/goals)
 // One line of a card's feed: a status dot, what it was, when; the whole line opens it (no buttons of its own)
@@ -6190,11 +6192,11 @@ async function drawGoals(pane) {
   const took = (a, b) => { if (!a) return ''; const s = Math.max(0, ((b ? Date.parse(b) : Date.now()) - Date.parse(a)) / 1000); return s < 60 ? Math.round(s) + ' 秒' : s < 3600 ? Math.round(s / 60) + ' 分' : (s / 3600).toFixed(1) + ' 小時'; };
   const shown = (goalAll || inSide) ? runs : live.concat(runs.filter((x) => !x.alive).slice(0, Math.max(0, 10 - live.length)));
   for (const x of (inSide ? shown : [])) {
-    const st = GOAL_ST[x.status] || [x.status, ''];
+    const st = goalSt(x);
     gList.append(feedRow(st, x.condition || '(沒有記下完成條件)', when(x.startedAt || x.createdAt), [st[0], folderName(x.cwd), x.startedAt ? (x.alive ? '已跑 ' : '') + took(x.startedAt, x.alive ? null : x.endedAt) : '', '按一下看詳情'].filter(Boolean).join(' · '), () => openGoal(x)));
   }
   for (const x of (inSide ? [] : shown)) {
-    const row = el('div', 'lg goal'); const st = GOAL_ST[x.status] || [x.status, ''];
+    const row = el('div', 'lg goal'); const st = goalSt(x);
     // folder and time first: the condition is often long, and is the part that may be cut
     const m = el('div', 'lm'); m.append(el('span', 'gf', folderName(x.cwd) + (x.startedAt ? ' · ' + (x.alive ? '已跑 ' : '') + took(x.startedAt, x.alive ? null : x.endedAt) : '') + (x.skill === 'delaylocal' ? ' · 額度重置後' : '')), x.condition || '(沒有記下完成條件)');
     m.title = x.condition + '\n' + x.cwd;
@@ -6203,7 +6205,7 @@ async function drawGoals(pane) {
     const see = el('button', 'btn', '詳情'); see.type = 'button'; see.addEventListener('click', () => openGoal(x)); acts.append(see);
     if (x.alive) { const sch = x.status === 'scheduled', stop = el('button', 'btn danger', sch ? '取消排程' : '停止'); stop.type = 'button'; let armed = 0;
       stop.addEventListener('click', async () => { if (Date.now() - armed > 4000) { armed = Date.now(); stop.textContent = sch ? '再按一次取消' : '再按一次停止'; return say(sch ? '取消這個排程，它不會開始。確定的話 4 秒內再按一次' : '它會在目前的動作結束後停下。確定的話 4 秒內再按一次', true); }
-        stop.disabled = true; const s = await api('/api/goals/stop', { id: x.runId }); if (!s.ok) { stop.disabled = false; stop.textContent = '停止'; return say((s.data && s.data.error) || '沒有停下來', true); } say('已要求它停止'); if (view === 'sched') drawSched(); }); acts.append(stop); }
+        stop.disabled = true; const s = await api('/api/goals/stop', { id: x.runId }); if (!s.ok) { stop.disabled = false; stop.textContent = sch ? '取消排程' : '停止'; return say((s.data && s.data.error) || (sch ? '沒有取消' : '沒有停下來'), true); } say(sch ? '已取消排程，它不會開始' : '已要求它停止'); if (view === 'sched') drawSched(); }); acts.append(stop); }
     row.append(acts); gList.append(row);
   }
   capRows(gList);
@@ -6221,7 +6223,7 @@ async function openGoal(x) {
   if ($('peek').hidden) return;
   body.textContent = '';
   if (!r.ok) { body.append(el('div', 'chg-note', (r.data && r.data.error) || '讀不到')); return; }
-  const d = r.data, st = GOAL_ST[d.status] || [d.status, ''];
+  const d = r.data, st = goalSt(d);
   const top = el('div', 'goal-top');
   const line = (k, v) => { if (v === undefined || v === null || v === '') return; const row = el('div', 'gk'); row.append(el('span', '', k), el('b', '', String(v))); top.append(row); };
   line('狀態', st[0] + (d.alive && d.status !== 'scheduled' ? '（還在跑）' : ''));
@@ -6236,7 +6238,7 @@ async function openGoal(x) {
   if (d.alive) {
     const sch = d.status === 'scheduled', stop = el('button', 'btn danger', sch ? '取消這個排程' : '停止這個 goal'); stop.type = 'button'; let armed = 0;
     stop.addEventListener('click', async () => { if (Date.now() - armed > 4000) { armed = Date.now(); stop.textContent = sch ? '再按一次取消' : '再按一次停止'; return say(sch ? '取消這個排程，它不會開始。確定的話 4 秒內再按一次' : '它會在目前的動作結束後停下。確定的話 4 秒內再按一次', true); }
-      stop.disabled = true; const s = await api('/api/goals/stop', { id: x.runId }); if (!s.ok) { stop.disabled = false; stop.textContent = '停止這個 goal'; return say((s.data && s.data.error) || '沒有停下來', true); } say('已要求它停止'); if (view === 'sched') drawSched(); });
+      stop.disabled = true; const s = await api('/api/goals/stop', { id: x.runId }); if (!s.ok) { stop.disabled = false; stop.textContent = sch ? '取消這個排程' : '停止這個 goal'; return say((s.data && s.data.error) || (sch ? '沒有取消' : '沒有停下來'), true); } say(sch ? '已取消排程，它不會開始' : '已要求它停止'); if (view === 'sched') drawSched(); });
     const sb = el('div'); sb.style.margin = '12px 0'; sb.append(stop); body.append(sb);
   }
   if (d.goal_error) body.append(el('div', 'chg-note bad', d.goal_error));
@@ -6274,7 +6276,7 @@ async function drawPlugins(refresh) {
   if (!Object.values(d.integrations || {}).some((x) => x.on && x.plugin)) body.append(el('p', 'lead', '這台電腦沒有裝看板能整合的 plugin。到辦公室的房間按「外掛分析」，看那個專案適合裝哪些。'));
   if (d.goal2.installed) {
     const c = card('goal2', '跑到完成條件達成為止 · 共 ' + d.goal2.total + ' 筆' + (d.goal2.running ? '，' + d.goal2.running + ' 筆執行中' : ''));
-    for (const x of d.goal2.runs) { const st = GOAL_ST[x.status] || [x.status, '']; const tag = el('span', 'ls ' + st[1], st[0]); c.append(row((x.condition || '(沒有完成條件)').slice(0, 80), tag, () => openGoal(x))); }
+    for (const x of d.goal2.runs) { const st = goalSt(x); const tag = el('span', 'ls ' + st[1], st[0]); c.append(row((x.condition || '(沒有完成條件)').slice(0, 80), tag, () => openGoal(x))); }
     const f = el('div', 'pl-form');
     const cwd = el('input'); cwd.type = 'text'; cwd.placeholder = '在哪個資料夾（名字或完整路徑）'; folderField(cwd); cwd.setAttribute('aria-label', 'goal 的資料夾');
     const task = el('textarea'); task.placeholder = '要它做什麼'; task.setAttribute('aria-label', 'goal 要做的事');
