@@ -147,3 +147,32 @@ test('what it is started with: a copy made before (forkOf, resumeAt) with a tran
   assert.deepStrictEqual([at(seen[2], '--resume'), seen[2].includes('--resume-session-at'), c.rewindAt, c.rewindTo], [['--resume', U(2)], false, undefined, undefined]);
   clearInterval(ch.timer);
 });
+
+test('the parts gone back from are kept whole (no cap; overlapping ones as one), and told() reads a part of any length (2026-11-28)', () => {
+  let list = [];
+  for (let i = 0; i < 150; i++) list = R.addRange(list, [i * 100, i * 100 + 50]);
+  assert.strictEqual(list.length, 150, 'more than 100: none dropped (the oldest came back on the page)');
+  assert.deepStrictEqual(R.addRange([[10, 20], [40, 50]], [15, 45]), [[10, 50]], 'overlapping: one');
+  assert.deepStrictEqual(R.addRange([[10, 20]], [20, 30]), [[10, 30]], 'touching: one');
+  assert.deepStrictEqual(R.addRange([[10, 20]], [5, 5]), [[10, 20]], 'an empty part: nothing added');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-rewind-')), f = path.join(d, 't.jsonl'), tag = '【合作 #3】';
+  const filler = L({ type: 'assistant', uuid: U(1), parentUuid: null, message: { content: [{ type: 'text', text: 'x'.repeat(2000) }] } });
+  const notice = L({ type: 'user', uuid: U(2), parentUuid: U(1), message: { role: 'user', content: '（看板自動送出）' + tag + '你加入了一個合作' } });
+  const escaped = JSON.stringify({ type: 'user', uuid: U(3), parentUuid: U(2), message: { role: 'user', content: '（看板自動送出）【合作 #4】說明' } }).replace(/[^\x00-\x7f]/g, (ch) => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0'));
+  fs.writeFileSync(f, Array(1200).fill(filler).join('\n') + '\n' + notice + '\n' + escaped + '\n');   // the notices after 2 MB
+  const size = fs.statSync(f).size;
+  assert.ok(size > 2 * 1024 * 1024);
+  assert.deepStrictEqual(R.told(f, 0, size, [tag, '【合作 #4】', '【合作 #5】']), [tag, '【合作 #4】'], 'past the first megabytes, and written as \\u escapes');
+  assert.deepStrictEqual(R.told(f, 0, size - Buffer.byteLength(notice + '\n' + escaped + '\n'), [tag]), [], 'not in the part asked about');
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('a line megabytes long (a picture) is skipped, not gathered; a damaged saved range is left out (review 2026-11-28)', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-rewind-')), f = path.join(d, 't.jsonl'), tag = '【合作 #6】';
+  const big = L({ type: 'user', uuid: U(1), parentUuid: null, message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', data: 'A'.repeat(3 * 1024 * 1024) } }] } });
+  const notice = L({ type: 'user', uuid: U(2), parentUuid: U(1), message: { role: 'user', content: '（看板自動送出）' + tag + '說明' } });
+  fs.writeFileSync(f, big + '\n' + notice + '\n');
+  assert.deepStrictEqual(R.told(f, 0, fs.statSync(f).size, [tag]), [tag], 'the line after it is read');
+  assert.deepStrictEqual(R.addRange([[1, 5], 'x', [9], null, [20, 10]], [6, 8]), [[1, 5], [6, 8]]);
+  fs.rmSync(d, { recursive: true, force: true });
+});

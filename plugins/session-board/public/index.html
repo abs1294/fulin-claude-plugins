@@ -713,7 +713,7 @@
   /* ↻ beside 「N 分鐘前的數字」: small, its own colour (not the card's), turning while it asks */
   .side-quota .sr:has(.sq-ask), .sq-t:has(.sq-ask) { display: flex; align-items: center; flex-wrap: wrap; column-gap: 4px; }
   .sq-ask { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; margin-left: 2px; vertical-align: middle; flex: none; }
-  .sq-ask .ico { width: 13px; height: 13px; }
+  .sq-ask .ico { width: 13px; height: 13px; margin: 0; }   /* (a button of an icon alone: not the gap an icon keeps before its words - it sat 2.4px off centre) */
   .sq-ask.busy .ico { animation: sq-spin .9s linear infinite; }
   .sq-ask:disabled { cursor: progress; opacity: .75; }
   @keyframes sq-spin { to { transform: rotate(360deg); } }
@@ -2374,6 +2374,23 @@ if (TOKEN) {
     const q = new URLSearchParams(location.search); q.set('app', j.ticket); try { history.replaceState(history.state, '', location.pathname + '?' + q + location.hash); } catch (e) {}
   }).catch(() => {});
 }
+// With no way to the board (the phone's VPN off, the computer asleep, the board stopped) a page that says so instead of a
+// white one (public/sw.js; asked 2026-11-28). Only where a browser allows it: https, or this computer itself.
+if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
+// What a copy button copies. The clipboard API only where a page may use it (https, or this computer) and when it lets
+// it; otherwise the old way - a hidden box selected and copied, which needs neither (asked 2026-11-28: on the phone the
+// command copy did nothing). Throws when neither worked: each button then says so and shows the words.
+async function copyText(text) {
+  const s = String(text == null ? '' : text);
+  if (navigator.clipboard && window.isSecureContext) { try { await navigator.clipboard.writeText(s); return; } catch (e) {} }
+  const ta = document.createElement('textarea'); ta.value = s; ta.setAttribute('readonly', '');   // (readonly: no keyboard comes up on a phone)
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:var(--fs-lg)';   // (16: an iPhone zooms into smaller)
+  const was = document.activeElement; document.body.append(ta);
+  ta.focus(); ta.select(); ta.setSelectionRange(0, s.length);
+  let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+  ta.remove(); if (was && was.focus && !matchMedia('(pointer: coarse)').matches) { try { was.focus({ preventScroll: true }); } catch (e) {} }   // (not on a phone: the keyboard would come up again)
+  if (!ok) throw new Error('copy refused');
+}
 const $ = (id) => document.getElementById(id);
 // Opened on this computer, or from another one (through Tailscale): some things happen on this computer's screen only.
 const REMOTE = !/^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
@@ -2782,15 +2799,21 @@ function md(src) {
   parts.forEach((part, idx) => {
     if (idx % 2) { const code = part.replace(/^\n/, '').replace(/\n$/, ''), lang = HL.langOf(fences[idx - 1] || ''); html += '<div class="cw"><pre><code>' + (lang && code.length < 200000 ? HL.html(unesc(code), lang) : code) + '</code></pre>' + COPY_BTN + '</div>'; return; }
     const lines = part.split('\n');
-    let para = [], list = null;
+    let para = [], stack = [], gap = false;   // gap: a blank line since the last line of the list   // stack: the lists open, the outermost first - {tag, start, indent, items: [{text, parts: [{t} | {list}]}]}
     const flushP = () => { if (para.length) { html += '<p>' + para.map(inline).join('<br>') + '</p>'; para = []; } };
-    const flushL = () => { if (list) { html += '<' + list.tag + '>' + list.items.map((i) => '<li>' + inline(i) + '</li>').join('') + '</' + list.tag + '>'; list = null; } };
+    // A list: its numbers from where it starts (a reply's 1, 2, 3 with lines in between all came out as 1: asked 2026-11-28),
+    // what is indented under an item as that item's own list, at any depth, and its own words; a blank line between items
+    // does not end it.
+    // (an item's words and lists in the order written: words after a list of its own on a line of their own)
+    const partHtml = (it) => it.parts.map((x, i) => (x.list ? listHtml(x.list) : (i && it.parts[i - 1].list ? '<div>' : '<br>') + inline(x.t) + (i && it.parts[i - 1].list ? '</div>' : ''))).join('');
+    const listHtml = (l) => '<' + l.tag + (l.tag === 'ol' && l.start !== 1 ? ' start="' + l.start + '"' : '') + '>' + l.items.map((it) => '<li>' + inline(it.text) + partHtml(it) + '</li>').join('') + '</' + l.tag + '>';
+    const flushL = () => { if (stack.length) { html += listHtml(stack[0]); stack = []; } };
     const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
       const h = /^(#{1,4})\s+(.*)$/.exec(l);
-      const ul = /^\s*[-*]\s+(.*)$/.exec(l);
-      const ol = /^\s*\d+[.)]\s+(.*)$/.exec(l);
+      const ul = /^(\s*)[-*]\s+(.*)$/.exec(l);
+      const ol = /^(\s*)(\d+)[.)]\s+(.*)$/.exec(l);
       if (/^\s*\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && lines[i + 1].includes('-')) {
         flushP(); flushL();
         let t = '<div class="tw"><table><thead><tr>' + cells(l).map((c) => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>';
@@ -2800,8 +2823,27 @@ function md(src) {
         html += t + '</tbody></table></div>';
       } else if (h) { flushP(); flushL(); html += '<h' + (h[1].length + 1) + '>' + inline(h[2]) + '</h' + (h[1].length + 1) + '>'; }
       else if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) { flushP(); flushL(); html += '<hr>'; }
-      else if (ul || ol) { flushP(); const tag = ul ? 'ul' : 'ol'; if (!list || list.tag !== tag) { flushL(); list = { tag, items: [] }; } list.items.push((ul || ol)[1]); }
-      else if (!l.trim()) { flushP(); flushL(); }
+      else if (ul || ol) {
+        flushP();
+        const tag = ul ? 'ul' : 'ol', ind = (ul || ol)[1].replace(/\t/g, '  ').length, text = ul ? ul[2] : ol[3], start = ol ? Number(ol[2]) : 1;
+        // back out to the list it belongs to: one not further in than the list above the open one (an item between the two -
+        // 4 spaces, then 2 - stays with the open list rather than starting another beside it)
+        while (stack.length > 1 && ind <= stack[stack.length - 2].indent + 1) stack.pop();
+        let top = stack[stack.length - 1];
+        const under = (host) => { const sub = { tag, start, indent: ind, items: [] }; host.items[host.items.length - 1].parts.push({ list: sub }); stack.push(sub); return sub; };
+        if (top && ind >= top.indent + 2 && top.items.length) top = under(top);   // further in than the item before it: its own list
+        else if (top && top.tag !== tag) { if (stack.length === 1) { flushL(); top = null; } else { stack.pop(); top = under(stack[stack.length - 1]); } }   // the same depth, the other kind: a list of its own beside it
+        // after a blank line, numbers that do not go on from the list's own (1. a 2. b, a blank line, 1. c): a list of its own
+        if (top && stack.length === 1 && gap && ol && top.tag === 'ol' && start <= top.last) { flushL(); top = null; }
+        if (!top) { top = { tag, start, indent: ind, items: [] }; stack = [top]; }
+        top.items.push({ text, parts: [] }); top.last = ol ? start : top.last; gap = false;
+      }
+      else if (!l.trim()) { flushP(); gap = true; }   // (a blank line between items does not end the list)
+      else if (stack.length && /^\s{2,}\S/.test(l)) {   // words that go on under an item: the item it is indented under
+        const ind = l.match(/^\s*/)[0].replace(/\t/g, '  ').length; let k = stack.length - 1;
+        while (k > 0 && ind <= stack[k].indent) k--;
+        const host = stack[k]; host.items[host.items.length - 1].parts.push({ t: l.trim() }); gap = false;
+      }
       else { flushL(); para.push(l); }
     }
     flushP(); flushL();
@@ -3796,7 +3838,7 @@ async function drawThread(id) {
     let x; try { x = await api('/api/inbox/text', { id, messageIds: ids() }); } catch (e) { x = { ok: false, data: {} }; }
     copy.textContent = was; refresh();
     if (!x.ok) return say(x.data.error || '複製不了', true);
-    try { await navigator.clipboard.writeText(x.data.text); say('已複製 ' + sep(x.data.text.length) + ' 個字' + (x.data.left ? '（太長，有 ' + x.data.left + ' 則沒帶入）' : '') + tail(x.data)); }
+    try { await copyText(x.data.text); say('已複製 ' + sep(x.data.text.length) + ' 個字' + (x.data.left ? '（太長，有 ' + x.data.left + ' 則沒帶入）' : '') + tail(x.data)); }
     catch (e) { say('瀏覽器不讓這一頁寫入剪貼簿', true); }
   });
   open.addEventListener('click', () => {
@@ -4176,7 +4218,7 @@ async function drawSettings() {
         const url = 'http://' + m.ip + ':' + m.port + '/?t=' + TOKEN;
         const row = el('div', 'pathrow'); row.style.marginTop = '10px';
         const inp = el('input'); inp.type = 'text'; inp.readOnly = true; inp.value = url; inp.setAttribute('aria-label', '另一台電腦要開的網址');
-        const cp = el('button', 'btn', '複製網址'); cp.type = 'button'; cp.addEventListener('click', async () => { try { await navigator.clipboard.writeText(url); say('已複製。在另一台電腦的瀏覽器開一次，之後它會記住'); } catch (e) { inp.select(); say('複製不了，請自己選取', true); } });
+        const cp = el('button', 'btn', '複製網址'); cp.type = 'button'; cp.addEventListener('click', async () => { try { await copyText(url); say('已複製。在另一台電腦的瀏覽器開一次，之後它會記住'); } catch (e) { inp.select(); say('複製不了，請自己選取', true); } });
         row.append(inp, cp); st.append(row, el('div', 'hint', '這個網址含有看板的金鑰，只貼給你自己的裝置。'));
       }
     };
@@ -5933,7 +5975,7 @@ async function drawCollabOne(id, results) {
   const cmds = (c.renameCommands || []).filter((x) => !x.done);
   if (cmds.length) {
     const box = el('div', 'banner'); box.append(el('div', '', '終端機 session 的代號看板改不了（訊息裡的斜線指令不會執行），請到它的視窗貼上這一行：'));
-    for (const x of cmds) { const line = el('div', 'cmd-line'); const code = el('code', '', x.command); const cp = el('button', 'btn', '複製'); cp.type = 'button'; cp.addEventListener('click', async () => { try { await navigator.clipboard.writeText(x.command); say('已複製，貼到「' + x.role + '」的終端機視窗'); } catch (e) { say('複製不了，請手動輸入：' + x.command, true); } }); line.append(x.role + '：', code, cp); box.append(line); }
+    for (const x of cmds) { const line = el('div', 'cmd-line'); const code = el('code', '', x.command); const cp = el('button', 'btn', '複製'); cp.type = 'button'; cp.addEventListener('click', async () => { try { await copyText(x.command); say('已複製，貼到「' + x.role + '」的終端機視窗'); } catch (e) { say('複製不了，請手動輸入：' + x.command, true); } }); line.append(x.role + '：', code, cp); box.append(line); }
     pane.append(box);
   }
   // what is open in the ledger
@@ -8876,7 +8918,7 @@ document.addEventListener('click', async (e) => {
   if (!b) return;
   const code = b.parentElement.querySelector('pre code'), text = code ? code.textContent : '';
   try {
-    await navigator.clipboard.writeText(text);
+    await copyText(text);
     b.innerHTML = DONE_ICO; clearTimeout(b._t); b._t = setTimeout(() => { b.innerHTML = COPY_ICO; }, 1500);
     say('已複製 ' + sep(text.split('\n').length) + ' 行');
   } catch (x) {
@@ -8894,7 +8936,7 @@ document.addEventListener('mouseover', (e) => {
     const t = tw.querySelector('table'), holder = document.createElement('div'); holder.append(t.cloneNode(true));
     const html = plainHtml(holder), text = tableText(t);
     try { await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]); say('表格已複製（' + t.rows.length + ' 列）'); }
-    catch (x) { try { await navigator.clipboard.writeText(text); say('只複製到純文字（瀏覽器不讓放表格格式）', true); } catch (y) { say('複製失敗，請手動選取', true); } }
+    catch (x) { try { await copyText(text); say('只複製到純文字（瀏覽器不讓放表格格式）', true); } catch (y) { say('複製失敗，請手動選取', true); } }
   });
   tw.append(b); tcopyAt(tw, b);
   if (window.ResizeObserver) new ResizeObserver(() => tcopyAt(tw, b)).observe(tw);   // (the window or the text size changed while it is shown)
@@ -9235,7 +9277,7 @@ function drawNext() {
     const b = el('button', 'btn', label); b.type = 'button'; b.title = tip + '\n送出：' + a.cmd;
     if (a.key === 'goal' && goalSay && goalSay.items && goalSay.items.length) b.title = '看起來還沒做完：\n' + goalSay.items.map((x) => '・' + x).join('\n') + '\n\n' + b.title;
     b.addEventListener('click', async () => {
-      if (s.owner !== 'board') { try { await navigator.clipboard.writeText(a.cmd); say('已複製「' + a.cmd + '」，貼到它的終端機視窗'); } catch (e) { say('複製不了，請手動輸入：' + a.cmd, true); } return; }
+      if (s.owner !== 'board') { try { await copyText(a.cmd); say('已複製「' + a.cmd + '」，貼到它的終端機視窗'); } catch (e) { say('複製不了，請手動輸入：' + a.cmd, true); } return; }
       b.disabled = true; const r = await api('/api/send', { sessionId: s.sessionId, text: a.cmd }); if (!r.ok) { b.disabled = false; return say(r.data.error || '送不出去', true); }
       bar.remove(); say('已送出 ' + a.cmd);
     });
@@ -9546,7 +9588,7 @@ function cmdButtons(root, sid) {
       // what you have typed there is not written over: then it is copied instead, and said so
       if (ta && !ta.value.trim()) { ta.value = c.put; ta.dispatchEvent(new Event('input')); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); say('已放進輸入框，按送出才會執行'); return; }
       const why = ta ? '（輸入框裡有你打到一半的字，沒有蓋掉）' : into ? '（這裡已經沒有輸入框）' : '';
-      try { await navigator.clipboard.writeText(c.put); say('已複製「' + c.put.slice(0, 60) + '」' + why); } catch (e) { say('複製不了：' + c.put, true); }
+      try { await copyText(c.put); say('已複製「' + c.put.slice(0, 60) + '」' + why); } catch (e) { say('複製不了：' + c.put, true); }
     });
     return b;
   };
@@ -10032,7 +10074,7 @@ function setPeekWidth(px, remember) {
 })();
 
 $('peekClose').addEventListener('click', closePeek);
-$('peekCopy').addEventListener('click', async () => { if (!peekFile) return; try { await navigator.clipboard.writeText(peekFile.abs); say('路徑已複製'); } catch (e) { say('複製失敗，請手動選取路徑', true); } });
+$('peekCopy').addEventListener('click', async () => { if (!peekFile) return; try { await copyText(peekFile.abs); say('路徑已複製'); } catch (e) { say('複製失敗，請手動選取路徑', true); } });
 async function downloadFile(abs, name) {
   const got = pressWait(); try { return await downloadNow(abs, name); } finally { got(); }
 }
@@ -10562,7 +10604,7 @@ async function openDaily(date, make) {
     extra.append(again);
     if (x.state === 'failed' && x.error) box.append(el('div', 'fit-alert', '沒有寫成：' + x.error));
     if (!x.text) { if (x.state !== 'running' && x.state !== 'failed') box.append(el('div', 'fit-empty', '這一天還沒有摘要。')); return; }
-    const copy = el('button', 'btn', '複製'); copy.type = 'button'; copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(x.text); say('已複製'); } catch (e) { say('瀏覽器不讓複製，請自己選取', true); } }); extra.append(copy);
+    const copy = el('button', 'btn', '複製'); copy.type = 'button'; copy.addEventListener('click', async () => { try { await copyText(x.text); say('已複製'); } catch (e) { say('瀏覽器不讓複製，請自己選取', true); } }); extra.append(copy);
     box.append(el('div', 'chg-note', [x.talks ? x.talks + ' 個對話、' + x.folders + ' 個資料夾，你說了 ' + x.said + ' 句' : '', x.partial ? '這天還沒過完，只到產生的時候' : '', x.at ? '產生於 ' + when(x.at) : ''].filter(Boolean).join(' · ')));
     const md0 = el('div', 'msg assistant goal-md'); md0.innerHTML = md(x.text); linkFiles(md0, null); box.append(md0);
     if (x.hits && x.hits.length) { const w = el('details', 'fit-how'); w.append(el('summary', '', '要寄給別人的話，還有 ' + x.hits.length + ' 處要改（日報的內容檢查）'), ...x.hits.map((h) => el('p', '', h))); box.append(w); }
@@ -10921,7 +10963,7 @@ function unsavedWork() {
     const m = (x.ok && x.data.remote) || {};
     if (!m.on || !m.listening) { say(!m.on ? '還沒開「允許從 Tailscale 連進來」，手機連不進來；已打開設定，開關在「從別台連進來」' : 'Tailscale 還沒連上，看板會自己重試；連上後再按一次', true); if (!m.on) drawSettings(); return; }
     const url = 'http://' + m.ip + ':' + m.port + '/?t=' + TOKEN;
-    try { await navigator.clipboard.writeText(url); say('已複製手機網址。這個網址含看板的金鑰，只傳給你自己的裝置'); }
+    try { await copyText(url); say('已複製手機網址。這個網址含看板的金鑰，只傳給你自己的裝置'); }
     catch (e) {   // the browser would not copy: shown, selected, gone once you click elsewhere
       const inp = el('input'); inp.type = 'text'; inp.readOnly = true; inp.value = url; inp.setAttribute('aria-label', '手機要開的網址');
       box.append(inp); inp.select(); inp.addEventListener('blur', () => inp.remove(), { once: true });

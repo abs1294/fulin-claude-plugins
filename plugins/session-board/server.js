@@ -312,7 +312,7 @@ function send(res, code, body, type = 'application/json; charset=utf-8') {
 function sendPage(res, html) {
   const nonce = crypto.randomBytes(18).toString('base64');
   const body = String(html).replace('<script>', '<script nonce="' + nonce + '">');
-  const csp = ["default-src 'none'", "script-src 'nonce-" + nonce + "'", "style-src 'unsafe-inline'", "img-src 'self' data: blob:", "connect-src 'self' https: data:", "frame-src blob: 'self'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'", "manifest-src 'self'"].join('; ');
+  const csp = ["default-src 'none'", "script-src 'nonce-" + nonce + "'", "style-src 'unsafe-inline'", "img-src 'self' data: blob:", "connect-src 'self' https: data:", "frame-src blob: 'self'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'", "manifest-src 'self'", "worker-src 'self'"].join('; ');
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': csp, 'X-Frame-Options': 'DENY' });
   res.end(body);
 }
@@ -1530,6 +1530,8 @@ function createServer(token, port, deps = {}) {
       if (req.method === 'GET' && lp) { const drawn = lp[1] === 'mine' || lp[1] === 'draft'; let b = null; try { b = drawn ? (lp[3] === 'svg' ? loadDraw.picture(lp[1], lp[2]) : null) : fs.readFileSync(path.join(__dirname, 'public', 'load', lp[1], lp[2] + '.' + lp[3])); } catch (e) {} if (!b) return send(res, 404, { error: 'not found' }); res.writeHead(200, { 'Content-Type': lp[3] === 'svg' ? 'image/svg+xml' : 'image/webp', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox", 'Content-Length': b.length, 'Cache-Control': 'max-age=604800', 'X-Content-Type-Options': 'nosniff' }); return res.end(b); }
       // The board as an app on the home screen (lib/appticket.js): what it is called and opens (no key in it - a ticket
       // at most, the one the page put in its address), its pictures, and a ticket handed in for the key, once.
+      // what answers when the board cannot be reached (public/sw.js): nothing of yours in it
+      if (req.method === 'GET' && p === '/sw.js') { let b = null; try { b = fs.readFileSync(path.join(__dirname, 'public', 'sw.js')); } catch (e) {} if (!b) return send(res, 404, { error: 'not found' }); res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Service-Worker-Allowed': '/' }); return res.end(b); }
       if (req.method === 'GET' && p === '/app.webmanifest') { const b = Buffer.from(JSON.stringify(AppTicket.manifest(q.get('ticket')))); res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Length': b.length }); return res.end(b); }
       const ip = /^\/icons\/app-(180|192|512)\.png$/.exec(p);
       if (req.method === 'GET' && ip) { let b = null; try { b = fs.readFileSync(path.join(__dirname, 'public', 'icons', 'app-' + ip[1] + '.png')); } catch (e) {} if (!b) return send(res, 404, { error: 'not found' }); res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': b.length, 'Cache-Control': 'max-age=604800', 'X-Content-Type-Options': 'nosniff' }); return res.end(b); }
@@ -2512,24 +2514,29 @@ function createServer(token, port, deps = {}) {
         // the wait (closed meanwhile: nothing to carry on)
         if (rewinding.has(sid)) return send(res, 409, { ok: false, error: '這個對話正在重來，等一下' });
         rewinding.add(sid);
+        let still = false;
         try {
           const old = c.proc;
           channels.stop(sid);
-          if (old && old.exitCode == null) await new Promise((done) => { const t = setTimeout(done, 3000); old.once('exit', () => { clearTimeout(t); done(); }); });
+          // ended, not merely asked to: what it writes after the part gone back from is measured would be shown as the new way
+          // (asked to end and still there after 3 s: ended by force, then 3 s more)
+          const gone = (ms) => new Promise((done) => { if (!old || old.exitCode != null || old.signalCode != null) return done(true); const t = setTimeout(() => done(false), ms); old.once('exit', () => { clearTimeout(t); done(true); }); });
+          if (!(await gone(3000))) { try { old.kill('SIGKILL'); } catch (e) {} still = !(await gone(3000)); }
           if (channels.settled) await channels.settled(sid);   // what was still waiting in its queue is among what goes along
         } finally { rewinding.delete(sid); }
+        if (still) return send(res, 409, { ok: false, error: '這個對話的上一輪停不下來，沒有重來。等一下再試' });
         if (channels.get(sid) !== c) return send(res, 409, { ok: false, error: '這個對話在停下來的時候被關掉了，沒有重來' });
         if (rp.at) {
           let to = 0; try { to = fs.statSync(file).size; } catch (e) {}
           const cut = [rp.after, to], before = { rewindAt: c.rewindAt, rewindTo: c.rewindTo, rewinds: c.rewinds };
-          c.rewindAt = rp.at; c.rewindTo = to; c.rewinds = (Array.isArray(c.rewinds) ? c.rewinds : []).concat(to > rp.after ? [cut] : []).slice(-100);
+          c.rewindAt = rp.at; c.rewindTo = to; c.rewinds = Rewind.addRange(c.rewinds, cut);
           if (channels._save) channels._save();
           let r; try { r = channels.send(sid, text, pics.length ? pics : undefined, '', undefined, { yours: true }); } catch (e) { r = { ok: false, error: String((e && e.message) || e).slice(0, 160) }; }
           if (r && r.ok === false) { c.rewindAt = before.rewindAt; c.rewindTo = before.rewindTo; c.rewinds = before.rewinds; if (channels._save) channels._save(); fresh(); return send(res, 500, { ok: false, error: (r.error || '送不出去') + '。對話已停下，沒有重來' }); }
           // a collaboration's notice that was in the part gone back from: told again (one from before a compaction, or
           // never cut away, is not - it used to be sent at every edit, the notice being out of reach of the walk back)
           const again = Rewind.told(file, rp.after, to, inCollabs.map(tag));
-          for (const x of inCollabs) if (again.includes(tag(x))) { const m = x.members.find((y) => y.sessionId === sid); if (m && !m.pending) channels.send(sid, Collab.briefText(x, m)); }
+          for (const x of inCollabs) if (again.includes(tag(x))) { const now = collabList().find((y) => y.id === x.id && y.state === 'active'), m = now && now.members.find((y) => y.sessionId === sid); if (m && !m.pending) channels.send(sid, Collab.briefText(now, m)); }   // (as it is now: it may have changed while the turn was stopped)
           fresh();
           return send(res, 200, { ok: true, sessionId: sid, inPlace: true });
         }

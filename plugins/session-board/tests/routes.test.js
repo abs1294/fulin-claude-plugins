@@ -903,6 +903,9 @@ test('home-screen app: a manifest with a ticket (never the key) in its start add
   assert.strictEqual((await ask('/app.webmanifest?ticket=../x', { headers: none })).json.start_url, '/', 'only a ticket of the right shape goes in');
   for (const n of [180, 192, 512]) { const i = await ask('/icons/app-' + n + '.png', { headers: none }); assert.deepStrictEqual([i.status, i.headers['content-type'], i.bytes.slice(1, 4).toString()], [200, 'image/png', 'PNG'], String(n)); }
   assert.strictEqual((await ask('/icons/app-64.png', { headers: none })).status, 404);
+  // what answers when the board cannot be reached: without the key, as a script a page may start as its worker
+  { const w = await ask('/sw.js', { headers: none }); assert.deepStrictEqual([w.status, /javascript/.test(w.headers['content-type']), w.headers['service-worker-allowed'], /連不到看板/.test(w.text), w.text.includes(TOKEN)], [200, true, '/', true, false]); }
+  assert.match(String(page.headers['content-security-policy']), /worker-src 'self'/);
   const r1 = await ask('/app/redeem', { body: { ticket: t.json.ticket }, headers: none });
   assert.deepStrictEqual([r1.status, r1.json.token], [200, TOKEN], 'handed in from one of your devices: the key');
   assert.strictEqual((await ask('/app/redeem', { body: { ticket: t.json.ticket }, headers: none })).status, 403, 'once');

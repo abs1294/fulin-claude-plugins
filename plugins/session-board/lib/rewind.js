@@ -56,17 +56,46 @@ function resumePoint(file, uuid) {
 // Which of these the board itself told it of (a message of its own that begins with it - not merely mentioned, not quoted
 // by Claude) between two places of the transcript: carried on in place, the part gone back from - a collaboration's
 // notice there is no longer known to it and is told again. -> [words]
+// (read a megabyte at a time, however long that part is; a line is looked at only when it may hold the board's words -
+// written as they are, or as \\u escapes)
+const MARKS = [Buffer.from('看板自動送出'), Buffer.from('\\u770b\\u677f')];
 function told(file, from, to, words) {
   if (!words.length || !(to > from)) return [];
-  let text = '';
-  try { const fd = fs.openSync(file, 'r'), len = Math.min(to - from, 64 * 1024 * 1024), b = Buffer.alloc(len); fs.readSync(fd, b, 0, len, from); fs.closeSync(fd); text = b.toString('utf8'); } catch (e) { return []; }
   const had = new Set();
-  for (const raw of text.split('\n')) {
-    if (!raw.includes('看板自動送出')) continue;
-    let e; try { e = JSON.parse(raw); } catch (x) { continue; }
+  const look = (line) => {
+    if (!MARKS.some((m) => line.includes(m))) return;
+    let e; try { e = JSON.parse(line.toString('utf8')); } catch (x) { return; }
     const b = boardSaid(e); for (const w of words) if (b.includes(w)) had.add(w);
-  }
+  };
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    // (a line longer than a notice can be - a picture's data, megabytes long - is skipped to its end, not gathered whole)
+    let pos = from, carry = Buffer.alloc(0), skipping = false;
+    while (pos < to) {
+      const b = Buffer.alloc(Math.min(1024 * 1024, to - pos)), n = fs.readSync(fd, b, 0, b.length, pos);
+      if (n <= 0) break;
+      pos += n;
+      let chunk = b.subarray(0, n);
+      if (skipping) { const k = chunk.indexOf(10); if (k < 0) continue; skipping = false; chunk = chunk.subarray(k + 1); }
+      const data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+      let s = 0;
+      for (let k; (k = data.indexOf(10, s)) >= 0; s = k + 1) look(data.subarray(s, k));
+      carry = Buffer.from(data.subarray(s));
+      if (carry.length > 1024 * 1024) { carry = Buffer.alloc(0); skipping = true; }
+    }
+    if (carry.length) look(carry);
+  } catch (e) { return words.filter((w) => had.has(w)); } finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
   return words.filter((w) => had.has(w));
+}
+// The parts gone back from, with one more: overlapping or touching ones as one, in order (kept whole - with a cap the
+// oldest came back on the page once there were more than it)
+function addRange(list, r) {
+  const ok = (x) => Array.isArray(x) && Number.isSafeInteger(x[0]) && Number.isSafeInteger(x[1]) && x[0] >= 0 && x[1] > x[0];   // (a damaged entry in the saved list is left out)
+  const all = (Array.isArray(list) ? list : []).concat([r]).filter(ok).map((x) => [x[0], x[1]]).sort((a, b) => a[0] - b[0]);
+  const out = [];
+  for (const x of all) { const last = out[out.length - 1]; if (last && x[0] <= last[1]) last[1] = Math.max(last[1], x[1]); else out.push(x); }
+  return out;
 }
 function boardSaid(e) {
   // (said while it worked: an attachment; to a session in a terminal: inside a message from another session)
@@ -94,4 +123,4 @@ function said(e) {
   return Array.isArray(c) && c.some((b) => b && (b.type === 'text' || b.type === 'image')) && !c.some((b) => b && b.type === 'tool_result');
 }
 
-module.exports = { resumePoint, told, UUID };
+module.exports = { resumePoint, told, addRange, UUID };
