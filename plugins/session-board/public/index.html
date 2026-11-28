@@ -1437,6 +1437,9 @@
   pre.diff .dl { display: block; padding: 0 16px; min-height: 1.5em; white-space: pre-wrap; overflow-wrap: anywhere; }
   pre.diff .dl.add { background: rgba(15, 123, 108, .13); } pre.diff .dl.del { background: rgba(224, 62, 62, .13); }
   pre.diff .dl.hunk { color: var(--dim); background: var(--code); } pre.diff .dl.meta { color: var(--faint); }
+  /* lines of a change picked to send to the conversation (「改了什麼」), and the form under them */
+  pre.diff .dl.picked { box-shadow: inset 3px 0 0 var(--accent); }
+  pre.diff .cm-tweak { font-family: var(--sans); font-size: var(--fs-md); line-height: 1.55; white-space: normal; margin: 4px 8px 8px; }
   @media (max-width: 720px) { #peek { width: calc(100vw / var(--zv, var(--z, 1))); } }
 
   /* ── home / new ── */
@@ -9799,8 +9802,8 @@ async function openChanges(s) {
       for (const it of q.data.items.slice().reverse()) {
         const when = el('div', 'chg-when'); when.append(stamp(it.at), it.kind === 'create' ? '寫入新檔' : '修改', it.by === 'subagent' ? '由子代理' : '');
         when.append(counts(it.adds, it.dels)); parts.push(when);
-        if (it.kind === 'create') { const pre = el('pre', 'diff'); for (const l of it.lines) pre.append(diffLine('+' + l, 'add')); if (it.more) pre.append(diffLine('…還有 ' + sep(it.more) + ' 行沒有顯示', 'meta')); parts.push(pre); }
-        else parts.push(hunksPre(it.hunks));
+        if (it.kind === 'create') { const pre = el('pre', 'diff'); for (const l of it.lines) pre.append(diffLine('+' + l, 'add')); if (it.more) pre.append(diffLine('…還有 ' + sep(it.more) + ' 行沒有顯示', 'meta')); pre.dataset.abs = x.path; pre.dataset.of = 'mine'; parts.push(pre); }
+        else { const pre = hunksPre(it.hunks); pre.dataset.abs = x.path; pre.dataset.of = 'mine'; parts.push(pre); }
       }
       if (x.exists) { const foot = el('div', 'chg-when'); foot.append(seeFile(x.path)); parts.push(foot); }
       return parts;
@@ -9898,11 +9901,78 @@ async function openChanges(s) {
         const foot = el('div', 'chg-when'); foot.append(seeFile(q.data.abs));
         if (q.data.untracked) return [el('div', 'chg-note', '這是還沒加入 git 的新檔，沒有可以比對的舊版本。'), foot];
         if (q.data.binary || !q.data.text.trim()) return [el('div', 'chg-note', '這個檔案的變更沒有文字內容可以顯示（二進位檔，或只改了權限）。'), foot];
-        return [gitPre(q.data.text)].concat(q.data.cut ? [el('div', 'chg-note', '變更太長，只顯示前面一段。')] : [], [foot]);
+        const gp = gitPre(q.data.text); gp.dataset.abs = q.data.abs; gp.dataset.of = 'git';
+        return [gp].concat(q.data.cut ? [el('div', 'chg-note', '變更太長，只顯示前面一段。')] : [], [foot]);
       }));
     }
   };
-  const draw = () => { for (const b of seg.children) { const on = b.dataset.k === chgTab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } list.textContent = ''; list.append(ldBox()); sum.textContent = ''; return chgTab === 'mine' ? drawMine() : chgTab === 'links' ? drawLinks() : drawGit(); };
+  // Lines of a change selected (asked 2026-11-28: "select a passage in 改了什麼 and send it to the session to update" - as the
+  // panel of a project's instructions does): a form right under the last line picked, one sentence; it goes to this conversation with the
+  // lines quoted (the quoting of the box: quoteWrap). Going by the selection itself, not the mouse: a keyboard and a finger select too.
+  let askAt = null, askHeld = false, askTimer = 0;
+  const dropAsk = () => { for (const x of list.querySelectorAll('pre.diff .cm-tweak')) x.remove(); for (const x of list.querySelectorAll('.dl.picked')) x.classList.remove('picked'); };
+  const askForm = () => {
+    const at = askAt, w = el('div', 'cm-tweak chg-ask'), t = growText('', '要怎麼改？例如「這段改回原本的寫法」「這裡的上限改成 30」');
+    t.setAttribute('aria-label', '框選的這段要怎麼改'); t.value = at.text; t.addEventListener('input', () => { at.text = t.value; });
+    const now = () => sessions.find((x) => x.sessionId === sid) || s;
+    const no = el('button', 'btn', '取消'); no.type = 'button'; no.addEventListener('click', () => { askAt = null; getSelection().removeAllRanges(); dropAsk(); });
+    const go = el('button', 'btn primary', '送給這個對話'); go.type = 'button';
+    const why = el('div', 'chg-note'); let sending = false;
+    const sync = () => {
+      const x = now(), term = x.owner === 'terminal';
+      why.hidden = !term; why.textContent = !term ? '' : x.headless ? '這個 session 在背景執行，沒有自己的視窗，看板不能替它打字，送不了。'
+        : x.parked ? '這個 session 由 Claude Code 的背景服務執行，看板不能替它打字，送不了。'
+        : REMOTE ? '這個 session 開在終端機視窗裡，看板不能替它打字。要先在看板那台電腦上，到對話下方按「搬到這裡對話」。'
+        : '這個 session 開在終端機視窗裡，看板不能替它打字。先到對話下方按「搬到這裡對話」，再回來送。';
+      if (!sending) go.disabled = term;
+      return term;
+    };
+    go.addEventListener('click', async () => {
+      if (now().owner === 'terminal') return say('這個 session 現在開在終端機視窗裡，看板不能替它打字', true);
+      const words = t.value.trim(); if (!words) { t.focus(); return say('寫一句要怎麼改', true); }
+      sending = true; go.disabled = true; no.disabled = true; t.disabled = true; go.textContent = '送出中…';
+      const q = { source: '改了什麼', title: at.abs.split(/[\\/]/).pop(), text: '檔案：' + at.abs + '\n（' + (at.of === 'git' ? '這個資料夾還沒 commit 的變更' : '這個對話改過的地方') + '；+ 開頭是加上的、- 開頭是拿掉的）\n' + at.lines.join('\n') };
+      let r; try { r = await api('/api/send', { sessionId: sid, text: quoteWrap(words, q) }); } catch (e) { r = { ok: false, data: { error: '看板沒有回應' } }; }
+      if (!r.ok) { sending = false; no.disabled = false; t.disabled = false; go.textContent = '送給這個對話'; sync(); return say((r.data && r.data.error) || '送不出去', true); }
+      askAt = null; getSelection().removeAllRanges(); dropAsk();
+      say('已送給這個對話' + (r.data && r.data.mid ? '（它正在做事，會在這一輪中途讀到）' : '') + '。改完按上面的「重新讀取」看新的變更');
+    });
+    t.addEventListener('keydown', (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); no.click(); } else if (e.key === 'Enter' && !e.shiftKey && !onTouch() && !go.disabled) { e.preventDefault(); go.click(); } });
+    const acts = el('div', 'wish-acts'); acts.append(no, go);
+    const shown = at.lines.join(' ').replace(/\s+/g, ' ');
+    w.append(verbatim('div', 'cm-quote', at.abs.split(/[\\/]/).pop() + '：' + shown.slice(0, 160) + (shown.length > 160 ? '…' : '')));
+    const term = sync();
+    w.append(why, t, acts);
+    w.addEventListener('pointerenter', sync); w.addEventListener('focusin', sync);
+    if (!term) requestAnimationFrame(() => { const g2 = getSelection(); if (w.isConnected && (!g2.rangeCount || g2.isCollapsed)) t.focus(); });
+    return w;
+  };
+  const onAskPick = () => {
+    if (!here()) { for (const [n, fn] of askPicks) document.removeEventListener(n, fn); return; }
+    if (askHeld) return;
+    const ae = document.activeElement; if (ae && ae.closest && ae.closest('.chg-ask')) return;
+    const sel = getSelection(), el0 = (n) => (n && n.nodeType === 1 ? n : n && n.parentElement);
+    const pre = sel.rangeCount && !sel.isCollapsed && el0(sel.anchorNode) ? el0(sel.anchorNode).closest('pre.diff[data-abs]') : null;
+    if (!pre || !list.contains(pre) || !pre.contains(sel.focusNode) || !sel.getRangeAt(0).toString().trim()) { if (askAt && !askAt.text) { askAt = null; dropAsk(); } return; }
+    // the lines the selection really has words of (not one it only touches at an end), not the @@ headings
+    const range = sel.getRangeAt(0), hit = [...pre.querySelectorAll('.dl')].filter((e) => { if (e.classList.contains('hunk') || e.classList.contains('meta') || !range.intersectsNode(e)) return false; const b = document.createRange(); b.selectNodeContents(e); if (range.compareBoundaryPoints(Range.START_TO_START, b) > 0) b.setStart(range.startContainer, range.startOffset); if (range.compareBoundaryPoints(Range.END_TO_END, b) < 0) b.setEnd(range.endContainer, range.endOffset); return !!b.toString().trim(); });
+    if (!hit.length) return;
+    const all = [...pre.querySelectorAll('.dl')], span = all.slice(all.indexOf(hit[0]), all.indexOf(hit[hit.length - 1]) + 1).filter((e) => !e.classList.contains('hunk') && !e.classList.contains('meta'));
+    const lines = span.map((e) => e.textContent), abs = pre.dataset.abs;
+    // (the form sits right after the last line picked: a selection going on past that line takes it in - shown selected,
+    // buttons and all, and copied with them; it is ended after that line, whenever the selection changes: a form just put
+    // there, or one there already for the same lines)
+    const last = span[span.length - 1];
+    const fit = (form) => { const r = sel.rangeCount && sel.getRangeAt(0); if (form && r && r.intersectsNode(form)) { const r2 = r.cloneRange(); r2.setEndAfter(last); sel.removeAllRanges(); sel.addRange(r2); } };
+    if (askAt && askAt.abs === abs && askAt.lines.join('\n') === lines.join('\n')) { fit(pre.querySelector('.chg-ask')); return; }
+    askAt = { abs, of: pre.dataset.of || 'mine', lines, text: (askAt && askAt.text) || '' };
+    const form = askForm();
+    dropAsk(); for (const e of span) e.classList.add('picked'); last.after(form);
+    fit(form);
+  };
+  const askPicks = [['selectionchange', () => { clearTimeout(askTimer); askTimer = setTimeout(onAskPick, 350); }], ['pointerdown', (e) => { askHeld = e.pointerType === 'mouse'; }], ['pointerup', () => { askHeld = false; clearTimeout(askTimer); askTimer = setTimeout(onAskPick, 30); }], ['pointercancel', () => { askHeld = false; }]];
+  for (const [n, fn] of askPicks) document.addEventListener(n, fn);
+  const draw = () => { askAt = null; for (const b of seg.children) { const on = b.dataset.k === chgTab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } list.textContent = ''; list.append(ldBox()); sum.textContent = ''; return chgTab === 'mine' ? drawMine() : chgTab === 'links' ? drawLinks() : drawGit(); };
   await draw();
 }
 // what the board can show as a page of its own (/api/file/ticket): a web page, a PDF, an Office file (made a PDF)
