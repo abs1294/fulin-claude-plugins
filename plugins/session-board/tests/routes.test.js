@@ -2328,6 +2328,12 @@ test('the mic: what was heard is tidied as it comes; through tailscale serve the
   assert.strictEqual((await raw('/api/vocab', { add: 'x' })).status, 400, 'nowhere to keep it');
   assert.strictEqual((await raw('/api/vocab', { cwd: WORK })).status, 400);
   assert.strictEqual((await raw('/api/vocab', { cwd: path.join(WORK, 'nope'), add: 'x' })).status, 400, 'a folder the board does not know');
+  // a correction written by you, and changed; only words taken in (an object is refused, not kept as [object Object])
+  assert.strictEqual((await raw('/api/vocab', { cwd: WORK, fix: { heard: '普許', meant: 'push' } })).status, 200);
+  assert.strictEqual((await raw('/api/vocab', { cwd: WORK, fix: { heard: '普許', meant: 'git push', was: { heard: '普許', meant: 'push' } } })).status, 200);
+  for (const bad of [{ fix: { heard: {}, meant: 'git' } }, { fix: 'x' }, { fix: { heard: 'a', meant: 'b', was: { heard: 1 } } }, { fix: { heard: 'a', meant: 'b', was: null } }, { unlearn: { heard: [], meant: 'x' } }, { learn: { given: {}, sent: 'x' } }]) assert.strictEqual((await raw('/api/vocab', Object.assign({ cwd: WORK }, bad))).status, 400, JSON.stringify(bad));
+  assert.deepStrictEqual(JSON.parse((await raw('/api/vocab?cwd=' + enc(WORK))).text).fixes.map((f) => f.heard + '>' + f.meant).sort(), ['哥特>git', '普許>git push']);
+  assert.strictEqual((await raw('/api/vocab', { cwd: WORK, unlearn: { heard: '普許', meant: 'git push' } })).status, 200);
   // the OpenAI key: checked, kept, never answered back
   assert.strictEqual((await raw('/api/transcribe', { audio: 'AAAA', mime: 'audio/webm' })).status, 409, 'no key yet');
   assert.strictEqual((await raw('/api/voice/key', { key: 'not-a-key' })).status, 400);

@@ -168,3 +168,30 @@ test('a full list is not offered a word it would not keep, and 記住 says what 
   const g = tmpFile();
   assert.deepStrictEqual(V.learn(given, sent, g, { dry: true }), [{ heard: '', meant: 'git' }], 'room: offered');
 });
+
+test('a correction written or changed by you (setFix): added, changed in place with its count kept, merged into one the same, refused when empty or unchanged', () => {
+  const f = tmpFile();
+  assert.deepStrictEqual(V.setFix('哥特', 'git', f), { ok: true });
+  let v = V.load(f); assert.deepStrictEqual(v.fixes.map((x) => [x.heard, x.meant, x.n]), [['哥特', 'git', 1]]);
+  assert.ok(v.words.some((w) => w.term === 'git' && w.learned), 'what it means, written with letters, is a word to listen for');
+  V.learn('你幫我哥特 commit', '你幫我 git commit', f);   // learned again: count 2
+  assert.strictEqual(V.load(f).fixes[0].n, 2);
+  // changed in place: the count stays
+  assert.deepStrictEqual(V.setFix('哥特', 'GitHub', f, { heard: '哥特', meant: 'git' }), { ok: true });
+  v = V.load(f); assert.deepStrictEqual(v.fixes.map((x) => [x.heard, x.meant, x.n]), [['哥特', 'GitHub', 2]]);
+  // changed into one already there: the two are one
+  V.setFix('普許', 'push', f);
+  V.setFix('普許', 'GitHub', f, { heard: '普許', meant: 'push' });
+  assert.strictEqual(V.load(f).fixes.length, 2);
+  V.setFix('哥特', 'GitHub', f, { heard: '普許', meant: 'GitHub' });
+  assert.deepStrictEqual(V.load(f).fixes.map((x) => [x.heard, x.meant, x.n]), [['哥特', 'GitHub', 3]], 'the two counts added (2 + 1)');
+  // only words taken in
+  assert.strictEqual(V.setFix({}, 'git', f).ok, false);
+  assert.strictEqual(V.setFix('a', 'b', f, { heard: 1, meant: 'x' }).ok, false);
+  assert.deepStrictEqual(V.remember([{ heard: {}, meant: 'zz' }, { heard: 'a', meant: 3 }], f), [], 'not words: left out - not "[object Object]", nor a word to listen for');
+  assert.ok(!V.load(f).words.some((w) => w.term === 'zz'));
+  assert.ok(!V.load(f).fixes.some((x) => /object/.test(x.heard)));
+  assert.strictEqual(V.setFix('', 'x', f).ok, false);
+  assert.strictEqual(V.setFix('a', 'a', f).ok, false);
+  assert.strictEqual(V.setFix('a', 'b', f, { heard: 'nope', meant: 'none' }).ok, false, 'the one to change is not there');
+});

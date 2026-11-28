@@ -87,6 +87,23 @@ function remove(term, file) {
   if (v.words.length === before && !v.hidden.some((h) => h.toLowerCase() === t)) v.hidden.push(clean(term));
   save(v, file); return { ok: true };
 }
+// A correction written or changed by you: heard -> meant. was: {heard, meant} of the one it replaces (its count kept).
+// What you meant, when written with letters, is a word to listen for too - as a learned one is.
+function setFix(heard, meant, file, was) {
+  if (typeof heard !== 'string' || typeof meant !== 'string' || (was && (typeof was.heard !== 'string' || typeof was.meant !== 'string'))) return { ok: false, error: '「聽成」和「改成」要是文字' };
+  const h = clean(heard), m = clean(meant);
+  if (!h || !m) return { ok: false, error: '「聽成」和「改成」都要填' };
+  if (h === m) return { ok: false, error: '「聽成」和「改成」一樣，不用記' };
+  const v = load(file), now = Date.now();
+  const old = was ? v.fixes.find((f) => f.heard === clean(was.heard) && f.meant === clean(was.meant)) : null;
+  if (was && !old) return { ok: false, error: '找不到要改的那一筆（可能剛被刪掉了）' };
+  const same = v.fixes.find((f) => f.heard === h && f.meant === m);
+  if (same && same !== old) { if (old) { v.fixes = v.fixes.filter((f) => f !== old); same.n = (same.n || 1) + (old.n || 1); } same.at = now; }
+  else if (old) { old.heard = h; old.meant = m; old.at = now; }
+  else { if (v.fixes.length >= MAX_FIXES) return { ok: false, error: '修正最多 ' + MAX_FIXES + ' 組' }; v.fixes.push({ heard: h, meant: m, n: 1, at: now }); }
+  if (/[A-Za-z]/.test(m) && !v.words.some((w) => w.term.toLowerCase() === m.toLowerCase()) && v.words.length < MAX_WORDS) v.words.push({ term: m, at: now, learned: true });
+  save(v, file); return { ok: true };
+}
 function unlearn(heard, meant, file) {
   const v = load(file); v.fixes = v.fixes.filter((f) => !(f.heard === clean(heard) && f.meant === clean(meant))); save(v, file); return { ok: true };
 }
@@ -214,7 +231,8 @@ function legacyCount(file, from = LEGACY()) { if (!fs.existsSync(from)) return 0
 
 // What you said yes to (the page's 記住): [{heard, meant}] a correction, [{heard: '', meant}] a word -> what was kept
 function remember(items, file) {
-  const list = (Array.isArray(items) ? items : []).slice(0, 20).map((x) => ({ heard: clean(x && x.heard), meant: clean(x && x.meant) })).filter((x) => x.meant && x.heard !== x.meant);
+  // (only words: an item whose heard or meant is something else is left out - not made into a word, nor a correction)
+  const list = (Array.isArray(items) ? items : []).slice(0, 20).filter((x) => x && typeof x.meant === 'string' && (x.heard === undefined || typeof x.heard === 'string')).map((x) => ({ heard: clean(x.heard || ''), meant: clean(x.meant) })).filter((x) => x.meant && x.heard !== x.meant);
   if (!list.length) return [];
   const v = load(file), now = Date.now(), kept = [];
   for (const x of list) {
@@ -229,4 +247,4 @@ function remember(items, file) {
   if (kept.length) save(v, file); return kept;
 }
 
-module.exports = { remember, FILE, fileFor, DIR, LEGACY, importLegacy, legacyCount, load, save, list, terms, fixes, add, remove, unlearn, edits, learn, newNames, rewritten, autoTerms, clean, MAX_WORDS };
+module.exports = { remember, FILE, fileFor, DIR, LEGACY, importLegacy, legacyCount, load, save, list, terms, fixes, add, remove, unlearn, setFix, edits, learn, newNames, rewritten, autoTerms, clean, MAX_WORDS };

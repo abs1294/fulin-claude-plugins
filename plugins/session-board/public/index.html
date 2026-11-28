@@ -1263,6 +1263,10 @@
   .vocab-chip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--rule, var(--line)); border-radius: var(--r-l); padding: 2px 4px 2px 10px; font-size: var(--fs-sm); }
   .vocab-x { border: 0; background: none; color: var(--dim); cursor: pointer; min-width: 24px; min-height: 24px; border-radius: 50%; font-size: var(--fs-md); line-height: 1; }
   .vocab-x:hover, .vocab-x:focus-visible { color: var(--ink); background: var(--hover, rgba(0,0,0,.06)); }
+  /* a correction pressed to change it: the words are a button; changed in a row of its own */
+  .vocab-lab { border: 0; background: none; color: inherit; font: inherit; padding: 0; cursor: pointer; text-align: left; }
+  .vocab-lab:hover, .vocab-lab:focus-visible { text-decoration: underline; }
+  .vocab-fixrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 8px; } .vocab-fixrow input { flex: 1 1 8em; min-width: 0; } .vocab-arrow { color: var(--dim); }
   @media (pointer: coarse) { .vocab-x { min-width: 44px; min-height: 44px; } }
   /* the words on it, in the colours of the main button (a bare round icon on white was read by nobody, 2026-11-20) */
   /* at the right of the screen, beside the message box (asked 2026-11-20); where it stands is worked out by updateFab() */
@@ -1438,7 +1442,7 @@
   pre.diff .dl.add { background: rgba(15, 123, 108, .13); } pre.diff .dl.del { background: rgba(224, 62, 62, .13); }
   pre.diff .dl.hunk { color: var(--dim); background: var(--code); } pre.diff .dl.meta { color: var(--faint); }
   /* lines of a change picked to send to the conversation (「改了什麼」), and the form under them */
-  pre.diff .dl.picked { box-shadow: inset 3px 0 0 var(--accent); }
+  pre.diff .dl.picked { background-image: linear-gradient(color-mix(in srgb, var(--accent) 12%, transparent), color-mix(in srgb, var(--accent) 12%, transparent)); box-shadow: inset 3px 0 0 var(--accent); }   /* (marked as the panel of a project's instructions marks what is picked - laid over the green and red of the lines, not in place of them) */
   pre.diff .cm-tweak { font-family: var(--sans); font-size: var(--fs-md); line-height: 1.55; white-space: normal; margin: 4px 8px 8px; }
   @media (max-width: 720px) { #peek { width: calc(100vw / var(--zv, var(--z, 1))); } }
 
@@ -7825,18 +7829,42 @@ async function voiceSettings(pane, s) {
     }
     const arow = el('div', 'pathrow'), inp = el('input'); inp.placeholder = '加一個詞，例如 session-board、dapfe、王小明'; inp.setAttribute('aria-label', '加進詞庫的詞');
     const ab = el('button', 'btn', '加入'); ab.type = 'button';
-    const addNow = async () => { const t = inp.value.trim(); if (!t) return; const x = await vapi({ add: t }); if (!x.ok) return say(x.data.error || '加不進去', true); inp.value = ''; draw(); };
-    ab.addEventListener('click', addNow); inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addNow(); } });
+    let adding = false;
+    const addNow = async () => { const t = inp.value.trim(); if (!t || adding) return; adding = true; ab.disabled = true; const x = await vapi({ add: t }); adding = false; ab.disabled = false; if (!x.ok) return say(x.data.error || '加不進去', true); inp.value = ''; draw(); };
+    ab.addEventListener('click', addNow); inp.addEventListener('keydown', (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter') { e.preventDefault(); addNow(); } else if (e.key === 'Escape' && inp.value) { e.preventDefault(); e.stopPropagation(); inp.value = ''; } });
     arow.append(inp, ab); box.append(arow);
-    const chips = (title, list, label, onX, empty) => {
+    // a correction written by you, or one changed (was): two boxes, 聽成 and 改成
+    const fixRow = (was, done) => {
+      const r = el('div', 'vocab-fixrow'), h = el('input'), m = el('input');
+      h.placeholder = '聽成（例如 哥特）'; m.placeholder = '改成（例如 git）'; h.setAttribute('aria-label', '聽成'); m.setAttribute('aria-label', '改成');
+      if (was) { h.value = was.heard; m.value = was.meant; }
+      const ok = el('button', 'btn', was ? '儲存' : '加入'); ok.type = 'button';
+      let saving = false;
+      const go = async () => {
+        if (saving) return;
+        if (!h.value.trim() || !m.value.trim()) { (h.value.trim() ? m : h).focus(); return say('「聽成」和「改成」都要填', true); }
+        saving = true; ok.disabled = true; const x = await vapi({ fix: Object.assign({ heard: h.value, meant: m.value }, was ? { was: { heard: was.heard, meant: was.meant } } : {}) }); saving = false; ok.disabled = false;
+        // (a board still running the older server does not know 「fix」: it says what it does know)
+        if (!x.ok) return say(/^要給 add、remove、unlearn/.test((x.data && x.data.error) || '') ? '看板還在跑舊的程式，不認得新增或修改修正；重啟看板後才能用' : ((x.data && x.data.error) || '存不進去'), true);
+        say(was ? '已改好' : '已加入'); done();
+      };
+      ok.addEventListener('click', go);
+      for (const i of [h, m]) i.addEventListener('keydown', (e) => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter') { e.preventDefault(); go(); } else if (e.key === 'Escape' && (was || h.value || m.value)) { e.preventDefault(); e.stopPropagation(); if (was) done(); else { h.value = ''; m.value = ''; } } });
+      r.append(h, el('span', 'vocab-arrow', '→'), m, ok);
+      if (was) { const no = el('button', 'btn', '取消'); no.type = 'button'; no.addEventListener('click', done); r.append(no); requestAnimationFrame(() => m.focus()); }
+      return r;
+    };
+    const chips = (title, list, label, onX, empty, onEdit) => {
       const sec = el('div'); sec.append(el('div', 'hint', title + '（' + list.length + '）'));
       const wrap = el('div', 'vocab-chips');
-      for (const x of list) { const c = el('span', 'vocab-chip', label(x)); const b = el('button', 'vocab-x', '×'); b.type = 'button'; b.setAttribute('aria-label', '拿掉 ' + label(x)); b.addEventListener('click', async () => { await onX(x); draw(); }); c.append(b); wrap.append(c); }
+      for (const x of list) { const c = el('span', 'vocab-chip'); if (onEdit) { const lb = el('button', 'vocab-lab', label(x)); lb.type = 'button'; lb.title = '按一下改這一組'; lb.addEventListener('click', () => { const row = fixRow(x, draw); sec.replaceChild(row, wrap); }); c.append(lb); } else c.append(label(x)); const b = el('button', 'vocab-x', '×'); b.type = 'button'; b.setAttribute('aria-label', '拿掉 ' + label(x)); b.addEventListener('click', async () => { await onX(x); draw(); }); c.append(b); wrap.append(c); }
       if (!list.length) wrap.append(el('span', 'hint', empty));
       sec.append(wrap); return sec;
     };
-    box.append(chips('你的詞', v.words, (w) => w.term + (w.learned ? '（學到的）' : ''), (w) => vapi({ remove: w.term }), '還沒有。上面加，或改過幾次聽錯它會自己記'));
-    box.append(chips('學到的修正', v.fixes, (f) => f.heard + ' → ' + f.meant + (f.n > 1 ? ' ×' + f.n : ''), (f) => vapi({ unlearn: { heard: f.heard, meant: f.meant } }), '還沒有。麥克風排好的字你改過再送出，就會記在這裡'));
+    box.append(chips('要聽得出來的詞', v.words, (w) => w.term + (w.learned ? '（學到的）' : ''), (w) => vapi({ remove: w.term }), '還沒有。上面加，或改過幾次聽錯它會自己記'));
+    box.append(el('p', 'hint', '標「學到的」的，是從「聽錯 → 改成」帶出來的。'));
+    { const fs0 = chips('聽錯 → 改成', v.fixes, (f) => f.heard + ' → ' + f.meant + (f.n > 1 ? ' ×' + f.n : ''), (f) => vapi({ unlearn: { heard: f.heard, meant: f.meant } }), '還沒有。下面自己加，或麥克風排好的字你改過再送出、按「記住」，就會記在這裡', true);
+      fs0.append(el('p', 'hint', '聽成左邊就換成右邊；按一組可改，也可自己加：'), fixRow(null, draw)); box.append(fs0); }
     const d = el('details'); d.append(el('summary', '', '看板自動收集的詞（' + v.auto.length + '）：這個專案的資料夾與對話標題裡的英文名稱；按 × 不再收這個'));
     d.append(chips('', v.auto, (t) => t, (t) => vapi({ remove: t }), '沒有'));
     box.append(d);

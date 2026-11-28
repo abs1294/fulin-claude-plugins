@@ -2345,12 +2345,18 @@ function createServer(token, port, deps = {}) {
         if (!vo.file) return send(res, 400, { ok: false, error: '這個對話不在任何專案資料夾裡，詞庫是一個專案一份' });
         if (typeof body.add === 'string') return send(res, 200, Vocab.add(body.add, vo.file));
         if (typeof body.remove === 'string') return send(res, 200, Vocab.remove(body.remove, vo.file));
-        if (body.unlearn && typeof body.unlearn === 'object') return send(res, 200, Vocab.unlearn(String(body.unlearn.heard || ''), String(body.unlearn.meant || ''), vo.file));
+        // a correction you write, or change (was: the one it replaces)
+        // (a pair is two words: anything else is refused, not made into words - an object would be "[object Object]")
+        const pair = (o) => (o && typeof o === 'object' && !Array.isArray(o) && typeof o.heard === 'string' && typeof o.meant === 'string' ? { heard: o.heard, meant: o.meant } : null);
+        // (was given at all - null too: it is to be a pair)
+        if ('fix' in body) { const fx = pair(body.fix), was = fx && 'was' in body.fix ? pair(body.fix.was) : undefined; if (!fx || was === null) return send(res, 400, { ok: false, error: 'fix 要是 {heard, meant}（文字），was 也是' }); const r = Vocab.setFix(fx.heard, fx.meant, vo.file, was || null); return send(res, r.ok ? 200 : 400, r); }
+        if ('unlearn' in body) { const u = pair(body.unlearn); if (!u) return send(res, 400, { ok: false, error: 'unlearn 要是 {heard, meant}（文字）' }); return send(res, 200, Vocab.unlearn(u.heard, u.meant, vo.file)); }
         // preview: what would be learned, nothing kept - the page asks you first; remember: what you said yes to
+        if (body.learn && typeof body.learn === 'object' && (typeof body.learn.given !== 'string' || typeof body.learn.sent !== 'string')) return send(res, 400, { ok: false, error: 'learn 要是 {given, sent}（文字）' });
         if (body.learn && typeof body.learn === 'object') return send(res, 200, { ok: true, learned: Vocab.learn(String(body.learn.given || '').slice(0, 4000), String(body.learn.sent || '').slice(0, 4000), vo.file, { dry: body.preview === true }) });
         if (Array.isArray(body.remember)) { const kept = Vocab.remember(body.remember, vo.file); return send(res, 200, kept.length || !body.remember.length ? { ok: true, learned: kept } : { ok: true, learned: [], error: Vocab.load(vo.file).words.length >= Vocab.MAX_WORDS ? '詞庫已滿（最多 ' + Vocab.MAX_WORDS + ' 個詞），這次沒有記' : '沒有可以記的更正' }); }
         if (body.importLegacy === true) { const r = Vocab.importLegacy(vo.file); return send(res, r.ok ? 200 : 400, r); }
-        return send(res, 400, { ok: false, error: '要給 add、remove、unlearn、learn、remember 或 importLegacy' });
+        return send(res, 400, { ok: false, error: '要給 add、remove、fix、unlearn、learn、remember 或 importLegacy' });
       }
       // your OpenAI API key: set (or taken away with an empty one); never answered back
       if (p === '/api/voice/key') {

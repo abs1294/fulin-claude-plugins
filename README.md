@@ -107,7 +107,7 @@ plugins/
 ├─ harness/                          開發流程制度安裝器與健檢（/harness:init 五層生成＋階段閘＋init-verify＋冷啟探針；學習迴路；/harness:review；hook 範本、agent 與知識容器骨架、條件式入口提醒）
 ├─ cbm-guard/                        codebase-memory-mcp 查詢機械閘（七類判準＋索引新鮮度；專案相依走 config，零設定亦可用）
 ├─ travel-advisor/                   旅遊行程顧問與現場導遊（四道閘門＋旅伴設定檔＋現場定位腳本；需要時才裝）
-├─ session-board/                    本機 session 看板（單一 Node 程序的本機網頁；左清單右對話，可直接對話、切終端機視窗；僅 Windows）
+├─ session-board/                    本機 session 看板（單一 Node 程序的本機網頁；左清單右對話，可直接對話、切終端機視窗；Windows 與 macOS）
 └─ longshot/                         網頁長截圖（Chrome 分頁自動另存→離線截整頁→刪檔；零相依，macOS／Windows）
 ```
 
